@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - Project Management</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "teal-accent": "#4A9B9B",
+                        "background-light": "#FAF9F7",
+                        "background-dark": "#15191d",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "text-muted": "#888888",
+                        "border-warm": "#E2DED6",
+                        "warning-amber": "#D4A574",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                        'modal': '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>.custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased h-screen overflow-hidden flex flex-col relative">
+<div class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-[1px]">
+<div class="bg-surface w-[560px] max-h-[90vh] rounded-lg shadow-modal flex flex-col overflow-hidden animate-fade-in-up">
+<div class="px-6 py-4 flex items-center justify-between border-b border-border-warm bg-surface sticky top-0 z-10">
+<h2 class="text-[20px] font-semibold text-text-main">Add Team Member</h2>
+<button class="text-text-sub hover:text-text-main p-1 rounded-full hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar px-6 py-6 space-y-8">
+<div class="space-y-4">
+<h3 class="text-xs font-medium text-text-sub tracking-wider uppercase">Basic Information</h3>
+<div class="grid grid-cols-2 gap-x-4 gap-y-5">
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Name <span class="text-teal-accent">*</span></label>
+<input class="block w-full h-[40px] rounded-lg border-border-warm bg-surface text-text-main placeholder:text-text-muted focus:border-teal-accent focus:ring-teal-accent sm:text-sm" placeholder="e.g. Sarah Smith" type="text"/>
+</div>
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Email <span class="text-teal-accent">*</span></label>
+<input class="block w-full h-[40px] rounded-lg border-border-warm bg-surface text-text-main placeholder:text-text-muted focus:border-teal-accent focus:ring-teal-accent sm:text-sm" placeholder="sarah@example.com" type="email"/>
+</div>
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Role <span class="text-teal-accent">*</span></label>
+<div class="relative">
+<select class="block w-full h-[40px] pl-3 pr-10 rounded-lg border-border-warm bg-surface text-text-main focus:border-teal-accent focus:ring-teal-accent sm:text-sm appearance-none">
+<option>Tech</option>
+<option>Design</option>
+<option>Management</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-text-sub">
+<span class="material-symbols-outlined text-[20px]">arrow_drop_down</span>
+</div>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Phone</label>
+<input class="block w-full h-[40px] rounded-lg border-border-warm bg-surface text-text-main placeholder:text-text-muted focus:border-teal-accent focus:ring-teal-accent sm:text-sm" placeholder="+1 (555) 000-0000" type="tel"/>
+</div>
+</div>
+</div>
+<div class="space-y-4">
+<h3 class="text-xs font-medium text-text-sub tracking-wider uppercase">Work Details</h3>
+<div class="grid grid-cols-2 gap-x-4 gap-y-5">
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Start Date</label>
+<div class="relative">
+<input class="block w-full h-[40px] pl-3 pr-10 rounded-lg border-border-warm bg-surface text-text-main focus:border-teal-accent focus:ring-teal-accent sm:text-sm" type="text" value="Dec 1, 2024"/>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-sub">
+<span class="material-symbols-outlined text-[18px]">calendar_today</span>
+</div>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Weekly Availability (hours)</label>
+<input class="block w-full h-[40px] rounded-lg border-border-warm bg-surface text-text-main placeholder:text-text-muted focus:border-teal-accent focus:ring-teal-accent sm:text-sm" type="number" value="40"/>
+</div>
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Hourly Cost (internal)</label>
+<div class="relative">
+<input class="block w-full h-[40px] rounded-lg border-border-warm bg-surface text-text-main placeholder:text-text-muted focus:border-teal-accent focus:ring-teal-accent sm:text-sm" type="text" value="$ 35.00"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="block text-sm font-medium text-text-main">Timezone</label>
+<div class="relative">
+<select class="block w-full h-[40px] pl-3 pr-10 rounded-lg border-border-warm bg-surface text-text-main focus:border-teal-accent focus:ring-teal-accent sm:text-sm appearance-none">
+<option>America/New_York</option>
+<option>Europe/London</option>
+<option>Asia/Tokyo</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-text-sub">
+<span class="material-symbols-outlined text-[20px]">arrow_drop_down</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="space-y-4">
+<h3 class="text-xs font-medium text-text-sub tracking-wider uppercase">Functions</h3>
+<div class="border border-border-warm rounded-lg divide-y divide-border-warm overflow-hidden">
+<div class="flex items-center justify-between h-[44px] px-4 bg-surface hover:bg-background-light transition-colors group">
+<label class="flex items-center gap-3 cursor-pointer">
+<input class="h-4 w-4 rounded border-gray-300 text-teal-accent focus:ring-teal-accent/20" type="checkbox"/>
+<span class="text-sm text-text-main">Designer</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer opacity-40 group-hover:opacity-100 transition-opacity">
+<span class="text-xs text-text-sub">Primary</span>
+<input class="h-4 w-4 border-gray-300 text-teal-accent focus:ring-teal-accent/20" name="primary_function" type="radio"/>
+</label>
+</div>
+<div class="flex items-center justify-between h-[44px] px-4 bg-surface hover:bg-background-light transition-colors group">
+<label class="flex items-center gap-3 cursor-pointer">
+<input checked="" class="h-4 w-4 rounded border-gray-300 text-teal-accent focus:ring-teal-accent/20" type="checkbox"/>
+<span class="text-sm text-text-main font-medium">WordPress Tech</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer">
+<span class="text-xs text-text-sub font-medium">Primary</span>
+<input checked="" class="h-4 w-4 border-gray-300 text-teal-accent focus:ring-teal-accent/20" name="primary_function" type="radio"/>
+</label>
+</div>
+<div class="flex items-center justify-between h-[44px] px-4 bg-surface hover:bg-background-light transition-colors group">
+<label class="flex items-center gap-3 cursor-pointer">
+<input class="h-4 w-4 rounded border-gray-300 text-teal-accent focus:ring-teal-accent/20" type="checkbox"/>
+<span class="text-sm text-text-main">Content Writer</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer opacity-40 group-hover:opacity-100 transition-opacity">
+<span class="text-xs text-text-sub">Primary</span>
+<input class="h-4 w-4 border-gray-300 text-teal-accent focus:ring-teal-accent/20" name="primary_function" type="radio"/>
+</label>
+</div>
+<div class="flex items-center justify-between h-[44px] px-4 bg-surface hover:bg-background-light transition-colors group">
+<label class="flex items-center gap-3 cursor-pointer">
+<input class="h-4 w-4 rounded border-gray-300 text-teal-accent focus:ring-teal-accent/20" type="checkbox"/>
+<span class="text-sm text-text-main">Project Manager</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer opacity-40 group-hover:opacity-100 transition-opacity">
+<span class="text-xs text-text-sub">Primary</span>
+<input class="h-4 w-4 border-gray-300 text-teal-accent focus:ring-teal-accent/20" name="primary_function" type="radio"/>
+</label>
+</div>
+<div class="flex items-center justify-between h-[44px] px-4 bg-surface hover:bg-background-light transition-colors group">
+<label class="flex items-center gap-3 cursor-pointer">
+<input class="h-4 w-4 rounded border-gray-300 text-teal-accent focus:ring-teal-accent/20" type="checkbox"/>
+<span class="text-sm text-text-main">CSA</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer opacity-40 group-hover:opacity-100 transition-opacity">
+<span class="text-xs text-text-sub">Primary</span>
+<input class="h-4 w-4 border-gray-300 text-teal-accent focus:ring-teal-accent/20" name="primary_function" type="radio"/>
+</label>
+</div>
+</div>
+<p class="text-[12px] text-text-muted mt-2">Select all functions this person can perform. Mark one as primary for assignment suggestions.</p>
+</div>
+</div>
+<div class="px-6 py-4 border-t border-border-warm bg-background-light rounded-b-lg flex justify-end gap-3 sticky bottom-0 z-10">
+<button class="px-4 py-2 rounded-lg text-sm font-medium text-teal-accent hover:bg-teal-accent/10 transition-colors">
+                Cancel
+            </button>
+<button class="px-4 py-2 rounded-lg text-sm font-medium bg-teal-accent text-white hover:bg-teal-accent/90 shadow-sm transition-colors">
+                Create Member
+            </button>
+</div>
+</div>
+</div>
+<header class="h-14 bg-surface border-b border-border-warm flex items-center justify-between px-4 z-40 shrink-0 shadow-sm relative">
+<div class="flex items-center gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined text-2xl">menu</span>
+</button>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+</div>
+<div class="hidden md:flex flex-1 items-center justify-center px-8">
+<div class="relative group w-full max-w-md">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-text-main placeholder:text-text-sub focus:ring-2 focus:ring-primary/20 sm:text-sm shadow-inner transition-all" placeholder="Search... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-border-warm">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">1:23:45</span>
+<span class="text-xs text-text-sub font-medium ml-1">on #234</span>
+</div>
+<button class="relative p-2 text-text-sub hover:text-text-main rounded-lg hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+</span>
+</button>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-border-warm cursor-pointer" data-alt="User profile photo of Mike Hansen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');">
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-background-light border-r border-border-warm flex flex-col shrink-0 overflow-hidden">
+<div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+<nav class="space-y-1 mb-6">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary border-l-[3px] border-primary font-medium group transition-colors" href="#">
+<span class="text-xl">🏔️</span>
+<span class="text-sm">Overlook</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⏱️</span>
+<span class="text-sm">Timekeeper</span>
+</a>
+</nav>
+<div class="mb-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                        🔥 Foundry
+                    </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🤝</span> Pacts
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🧑‍🚀</span> Patrons
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🏰</span> Sites
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔗</span> Domains
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">⚔️</span> Quests
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔨</span> Tools
+                        </a>
+</div>
+</div>
+<div class="mb-1">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        📖 Grimoire
+                    </button>
+</div>
+<div class="mb-4">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        ⚜️ Armory
+                    </button>
+</div>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⚙️</span>
+<span class="text-sm">Settings</span>
+</a>
+<div class="mt-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                            🔐 Admin
+                        </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">👥</span> Team
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">💼</span> Functions
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">📊</span> Reports
+                            </a>
+</div>
+</div>
+</nav>
+</div>
+<div class="p-3 border-t border-border-warm bg-background-light">
+<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface border border-transparent hover:border-border-warm hover:shadow-sm transition-all cursor-pointer group">
+<div class="h-9 w-9 rounded-full bg-cover bg-center shrink-0" data-alt="User profile photo of Mike Hansen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDoZeXyL4XYXhjR147Erav6S598IYnxT2vzgXzp5JOxV8H6hm5QMUJdztV8qVJgMw32KB2hvywAIQ_lxuOrKUi5okI3kypY-dnP_q6ra0OC-DPLAPpKnWg_VrIHps2t9ThdGLCrRTMU-9ptcYEjodVTFBzMlHeOkzfQocVh7_lIHo_3N6oQAjjiUEQboqXUZDCI9UKUA805ED-75023-nD6n9Qt4RyQVP46Ht7dFioEppUbyEQhJ67D2v7hZ4xzSy-Q2qi00r3vMqo');">
+</div>
+<div class="flex flex-col min-w-0 flex-1">
+<p class="text-sm font-semibold text-text-main truncate">Mike Hansen</p>
+<p class="text-xs text-text-sub truncate">Admin</p>
+</div>
+<a class="text-text-sub hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" href="#" title="Sign Out">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+</a>
+</div>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto bg-background-light">
+<div class="max-w-[1200px] mx-auto w-full pb-10">
+<div class="sticky top-0 bg-background-light/95 backdrop-blur-sm z-10 px-8 py-4 border-b border-border-warm/50">
+<nav aria-label="Breadcrumb" class="flex">
+<ol class="flex items-center space-x-2">
+<li>
+<div class="flex items-center">
+<a class="text-sm font-medium text-text-sub hover:text-primary transition-colors" href="#">
+                                        🧑‍🚀 Acme Corp
+                                    </a>
+</div>
+</li>
+<li>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-border-warm mx-1 text-[16px]">chevron_right</span>
+<a class="text-sm font-medium text-text-sub hover:text-primary transition-colors" href="#">
+                                        🏰 Main Website
+                                    </a>
+</div>
+</li>
+<li>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-border-warm mx-1 text-[16px]">chevron_right</span>
+<a class="text-sm font-medium text-text-main cursor-default" href="#">
+                                        🤝 Website Redesign
+                                    </a>
+</div>
+</li>
+</ol>
+</nav>
+</div>
+<div class="px-8 py-6">
+<div class="flex items-end justify-between">
+<div>
+<h2 class="text-3xl font-bold text-text-main tracking-tight mb-1">🏔️ Overlook</h2>
+<p class="text-text-sub">Welcome back, Mike</p>
+</div>
+<div class="flex gap-2">
+<button class="inline-flex items-center gap-2 px-4 py-2 bg-surface border border-border-warm rounded-lg text-sm font-medium text-text-main hover:bg-gray-50 shadow-soft transition-all">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+                                Filter
+                            </button>
+<button class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 shadow-soft transition-all">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                                New Quest
+                            </button>
+</div>
+</div>
+</div>
+<div class="px-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 bg-surface rounded-lg border border-border-warm shadow-soft flex flex-col">
+<div class="px-6 py-4 border-b border-border-warm flex items-center justify-between">
+<h3 class="font-semibold text-text-main flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">check_circle</span>
+                                My Quests
+                            </h3>
+<button class="text-text-sub hover:text-primary text-sm font-medium">View All</button>
+</div>
+<div class="p-2">
+<div class="flex items-center gap-3 p-3 hover:bg-background-light rounded-lg cursor-pointer group transition-colors">
+<div class="flex-shrink-0">
+<input class="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-medium text-text-main group-hover:text-primary transition-colors">Finalize API Authentication</p>
+<p class="text-xs text-text-sub flex items-center gap-1 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-orange-400"></span> High Priority • 🤝 Website Redesign
+                                    </p>
+</div>
+<div class="text-xs text-text-sub bg-background-light px-2 py-1 rounded border border-border-warm">Due Today</div>
+</div>
+<div class="flex items-center gap-3 p-3 hover:bg-background-light rounded-lg cursor-pointer group transition-colors">
+<div class="flex-shrink-0">
+<input class="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-medium text-text-main group-hover:text-primary transition-colors">Client Onboarding Call</p>
+<p class="text-xs text-text-sub flex items-center gap-1 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-green-400"></span> Normal • 🧑‍🚀 Acme Corp
+                                    </p>
+</div>
+<div class="text-xs text-text-sub bg-background-light px-2 py-1 rounded border border-border-warm">Tomorrow</div>
+</div>
+<div class="flex items-center gap-3 p-3 hover:bg-background-light rounded-lg cursor-pointer group transition-colors">
+<div class="flex-shrink-0">
+<input class="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-medium text-text-main group-hover:text-primary transition-colors">Review Q3 Reports</p>
+<p class="text-xs text-text-sub flex items-center gap-1 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> Low • 🔐 Admin
+                                    </p>
+</div>
+<div class="text-xs text-text-sub bg-background-light px-2 py-1 rounded border border-border-warm">Oct 24</div>
+</div>
+<div class="flex items-center gap-3 p-3 hover:bg-background-light rounded-lg cursor-pointer group transition-colors">
+<div class="flex-shrink-0">
+<input class="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary/20" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-sm font-medium text-text-main group-hover:text-primary transition-colors">Update retainer agreements</p>
+<p class="text-xs text-text-sub flex items-center gap-1 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span> Draft • 🤝 Pacts
+                                    </p>
+</div>
+<div class="text-xs text-text-sub bg-background-light px-2 py-1 rounded border border-border-warm">Nov 01</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-6">
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-6 flex flex-col gap-4 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-9xl text-primary">timer</span>
+</div>
+<div class="flex items-center justify-between relative z-10">
+<h3 class="font-semibold text-text-main">Active Timer</h3>
+<div class="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+</div>
+<div class="flex flex-col gap-1 relative z-10">
+<span class="text-4xl font-bold text-text-main tracking-tight font-mono">01:23:45</span>
+<span class="text-sm text-text-sub">Tracking: <span class="font-medium text-primary">#234 Redesign</span></span>
+</div>
+<div class="flex gap-2 mt-2 relative z-10">
+<button class="flex-1 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-semibold hover:bg-red-100 transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">stop_circle</span> Stop
+                                </button>
+<button class="flex-1 py-2 bg-background-light text-text-main border border-border-warm rounded-lg text-sm font-semibold hover:bg-gray-100 transition-colors">
+                                    Pause
+                                </button>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-6 flex flex-col gap-4">
+<div class="flex items-center justify-between">
+<h3 class="font-semibold text-text-main flex items-center gap-2">
+<span class="material-symbols-outlined text-yellow-600">warning</span>
+                                    Retainer Alerts
+                                </h3>
+</div>
+<div class="flex flex-col gap-4">
+<div class="space-y-1">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-text-main">Acme Corp (Oct)</span>
+<span class="text-red-600">92% used</span>
+</div>
+<div class="h-2 w-full bg-background-light rounded-full overflow-hidden border border-border-warm">
+<div class="h-full bg-red-500 rounded-full" style="width: 92%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-text-main">Globex Inc (Oct)</span>
+<span class="text-primary">65% used</span>
+</div>
+<div class="h-2 w-full bg-background-light rounded-full overflow-hidden border border-border-warm">
+<div class="h-full bg-primary rounded-full" style="width: 65%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-text-main">Soylent Corp (Q4)</span>
+<span class="text-green-600">12% used</span>
+</div>
+<div class="h-2 w-full bg-background-light rounded-full overflow-hidden border border-border-warm">
+<div class="h-full bg-green-500 rounded-full" style="width: 12%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="px-8 mt-6">
+<div class="bg-surface/50 border border-dashed border-border-warm rounded-lg p-8 flex flex-col items-center justify-center text-center gap-2">
+<div class="bg-background-light p-3 rounded-full mb-2">
+<span class="material-symbols-outlined text-text-sub/50 text-3xl">insights</span>
+</div>
+<h4 class="text-text-main font-semibold">Weekly Insights</h4>
+<p class="text-text-sub text-sm max-w-sm">Not enough data collected yet this week. Check back on Monday for a full productivity report.</p>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

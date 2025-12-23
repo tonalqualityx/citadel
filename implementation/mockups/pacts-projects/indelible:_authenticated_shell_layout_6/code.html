@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible: Assign Team</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "background-light": "#FAF9F7",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "text-muted": "#888888",
+                        "border-warm": "#E2DED6",
+                        "tip-bg": "#FBF9F0",
+                        "tip-border": "#E8E2C8",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", 
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                        'dropdown': '0 4px 12px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased min-h-screen flex flex-col">
+<header class="h-14 bg-surface border-b border-border-warm flex items-center justify-between px-6 shrink-0 z-30">
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="h-8 w-8 rounded-full bg-cover bg-center border border-border-warm" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');"></div>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto pb-32">
+<div class="max-w-[800px] mx-auto w-full px-6 py-8">
+<div class="flex items-center justify-between mb-10 text-sm font-medium">
+<div class="flex items-center gap-2 text-primary">
+<span class="material-symbols-outlined text-lg">check</span>
+<span>Recipe</span>
+</div>
+<div class="h-[2px] flex-1 bg-border-warm mx-3"></div>
+<div class="flex items-center gap-2 text-primary">
+<span class="material-symbols-outlined text-lg">check</span>
+<span>Basic Info</span>
+</div>
+<div class="h-[2px] flex-1 bg-border-warm mx-3"></div>
+<div class="flex items-center gap-2 text-primary">
+<span class="material-symbols-outlined text-lg">check</span>
+<span>Pages</span>
+</div>
+<div class="h-[2px] flex-1 bg-border-warm mx-3"></div>
+<div class="flex items-center gap-2 text-text-main">
+<div class="w-3 h-3 rounded-full bg-primary ring-4 ring-primary/20"></div>
+<span>Team</span>
+</div>
+<div class="h-[2px] flex-1 bg-border-warm mx-3"></div>
+<div class="flex items-center gap-2 text-text-muted">
+<div class="w-2.5 h-2.5 rounded-full border-2 border-border-warm bg-background-light"></div>
+<span>Budget</span>
+</div>
+<div class="h-[2px] flex-1 bg-border-warm mx-3"></div>
+<div class="flex items-center gap-2 text-text-muted">
+<div class="w-2.5 h-2.5 rounded-full border-2 border-border-warm bg-background-light"></div>
+<span>Review</span>
+</div>
+</div>
+<div class="mb-8">
+<div class="flex items-baseline justify-between mb-2">
+<h2 class="text-2xl font-semibold text-text-main">Assign Team</h2>
+<span class="text-sm text-text-muted font-medium">Step 4 of 6</span>
+</div>
+<p class="text-[15px] text-text-sub leading-relaxed max-w-2xl">
+                    Assign team members to each function. Tasks for that function will be assigned to the selected person. You can reassign individual tasks later.
+                </p>
+</div>
+<div class="flex flex-col gap-3">
+<div class="bg-surface border border-border-warm rounded-lg p-4 shadow-sm">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">Project Manager</span>
+</div>
+<span class="text-sm text-text-muted">8 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-border-warm rounded-md flex items-center justify-between text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all">
+<span class="flex items-center gap-2 text-text-main">
+<span class="material-symbols-outlined text-gray-400 text-[20px]">person</span>
+                                Sarah Jenkins
+                            </span>
+<span class="material-symbols-outlined text-text-muted">expand_more</span>
+</button>
+</div>
+<p class="text-[13px] text-text-muted truncate">Setup project, Internal quality reviews, Phase transitions, PM review...</p>
+</div>
+<div class="bg-surface border border-border-warm rounded-lg p-4 shadow-sm">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">Customer Success Advocate</span>
+</div>
+<span class="text-sm text-text-muted">6 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-border-warm rounded-md flex items-center justify-between text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all">
+<span class="flex items-center gap-2 text-text-main">
+<span class="material-symbols-outlined text-gray-400 text-[20px]">person</span>
+                                Emily Chen
+                            </span>
+<span class="material-symbols-outlined text-text-muted">expand_more</span>
+</button>
+</div>
+<p class="text-[13px] text-text-muted truncate">Send onboarding email, Schedule kickoff, Client approvals, Training...</p>
+</div>
+<div class="bg-surface border border-border-warm rounded-lg p-4 shadow-sm">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">Content Writer</span>
+</div>
+<span class="text-sm text-text-muted">6 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-border-warm rounded-md flex items-center justify-between text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all">
+<span class="flex items-center gap-2 text-text-main">
+<span class="material-symbols-outlined text-gray-400 text-[20px]">person</span>
+                                Alex Rivera
+                            </span>
+<span class="material-symbols-outlined text-text-muted">expand_more</span>
+</button>
+</div>
+<p class="text-[13px] text-text-muted truncate">Content strategy, Page outlines, Organize content, Case study...</p>
+</div>
+<div class="relative z-20 bg-surface border border-primary ring-1 ring-primary/30 rounded-lg p-4 shadow-md">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">Designer</span>
+</div>
+<span class="text-sm text-text-muted">4 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-primary rounded-md flex items-center justify-between text-left ring-2 ring-primary/10 transition-all">
+<span class="text-text-muted">Select team member...</span>
+<span class="material-symbols-outlined text-text-muted transform rotate-180">expand_more</span>
+</button>
+<div class="absolute top-full left-0 right-0 mt-1 bg-white border border-border-warm rounded-lg shadow-dropdown overflow-hidden z-30">
+<div class="p-2 border-b border-border-warm/50">
+<div class="relative">
+<span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-sm">🔍</span>
+<input class="w-full pl-8 pr-3 py-1.5 text-sm border border-border-warm rounded bg-background-light focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-text-muted" placeholder="Search team members..." type="text"/>
+</div>
+</div>
+<div class="max-h-48 overflow-y-auto custom-scrollbar py-1">
+<div class="px-3 py-2 hover:bg-primary/5 cursor-pointer flex items-center justify-between group">
+<span class="text-sm text-text-main font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-gray-400 text-[18px]">person</span>
+                                        Mike Hansen
+                                    </span>
+<span class="text-xs text-text-muted group-hover:text-primary transition-colors">3 active quests</span>
+</div>
+<div class="px-3 py-2 hover:bg-primary/5 cursor-pointer flex items-center justify-between group">
+<span class="text-sm text-text-main font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-gray-400 text-[18px]">person</span>
+                                        Tom Wilson
+                                    </span>
+<span class="text-xs text-text-muted group-hover:text-primary transition-colors">6 active quests</span>
+</div>
+<div class="px-3 py-2 hover:bg-primary/5 cursor-pointer flex items-center justify-between group">
+<span class="text-sm text-text-main font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-gray-400 text-[18px]">person</span>
+                                        Lisa Park
+                                    </span>
+<span class="text-xs text-green-600 font-medium bg-green-50 px-1.5 py-0.5 rounded">0 active quests</span>
+</div>
+</div>
+<div class="border-t border-border-warm/50 p-1">
+<button class="w-full text-left px-3 py-2 text-sm text-text-muted hover:bg-gray-50 hover:text-text-main rounded transition-colors">
+                                    Leave unassigned
+                                </button>
+</div>
+</div>
+</div>
+<p class="text-[13px] text-text-muted truncate">Setup Figma project, Homepage mockup, Page mockups...</p>
+</div>
+<div class="bg-surface border border-border-warm rounded-lg p-4 shadow-sm z-10">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">WordPress Tech</span>
+</div>
+<span class="text-sm text-text-muted">6 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-border-warm rounded-md flex items-center justify-between text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all group">
+<span class="text-text-muted group-hover:text-text-sub transition-colors">Select team member...</span>
+<span class="material-symbols-outlined text-text-muted">expand_more</span>
+</button>
+</div>
+<p class="text-[13px] text-text-muted truncate">Configure site basics, Build pages, Create forms, Pre-launch optimization...</p>
+</div>
+<div class="bg-surface border border-border-warm rounded-lg p-4 shadow-sm z-0">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">Network Admin</span>
+</div>
+<span class="text-sm text-text-muted">2 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-border-warm rounded-md flex items-center justify-between text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all group">
+<span class="text-text-muted group-hover:text-text-sub transition-colors">Select team member...</span>
+<span class="material-symbols-outlined text-text-muted">expand_more</span>
+</button>
+</div>
+<p class="text-[13px] text-text-muted truncate">Create site environment, Redirect DNS...</p>
+</div>
+<div class="bg-surface border border-border-warm rounded-lg p-4 shadow-sm z-0">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-lg">👤</span>
+<span class="font-semibold text-text-main">Accounts Receivable</span>
+</div>
+<span class="text-sm text-text-muted">2 quests</span>
+</div>
+<div class="relative mb-2">
+<button class="w-full h-11 px-3 bg-white border border-border-warm rounded-md flex items-center justify-between text-left hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all">
+<span class="flex items-center gap-2 text-text-main">
+<span class="material-symbols-outlined text-gray-400 text-[20px]">person</span>
+                                Finance Team
+                            </span>
+<span class="material-symbols-outlined text-text-muted">expand_more</span>
+</button>
+</div>
+<p class="text-[13px] text-text-muted truncate">Send kickoff invoice, Send final invoice...</p>
+</div>
+</div>
+<div class="mt-8 mb-4 bg-tip-bg border border-tip-border rounded-lg p-4 flex items-start gap-3">
+<span class="text-lg select-none">💡</span>
+<p class="text-sm text-text-main leading-relaxed pt-0.5">
+                    Assignments here apply to all tasks for that function. You can reassign individual tasks after the project is created.
+                </p>
+</div>
+</div>
+</main>
+<footer class="fixed bottom-0 left-0 right-0 bg-white border-t border-border-warm p-4 z-40">
+<div class="max-w-[800px] mx-auto w-full flex items-center justify-end gap-3">
+<button class="px-5 py-2.5 text-text-sub hover:text-text-main font-medium text-sm transition-colors rounded-lg hover:bg-background-light">
+                Skip for now
+            </button>
+<button class="px-5 py-2.5 border border-border-warm text-text-main font-medium text-sm rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
+                ← Back
+            </button>
+<button class="px-5 py-2.5 bg-primary text-white font-medium text-sm rounded-lg hover:bg-primary/90 transition-all shadow-sm flex items-center gap-1">
+                Next: Budget →
+            </button>
+</div>
+</footer>
+
+</body></html>

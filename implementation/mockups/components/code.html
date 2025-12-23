@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible: Component Library Reference Sheet</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "primary-hover": "#4A7FA8",
+                        "background-light": "#FAF9F7",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "text-muted": "#888888",
+                        "border-warm": "#E2DED6",
+                        "success": "#6B9B7A",
+                        "warning": "#C4A24D",
+                        "review": "#8B7EC7",
+                        "danger": "#DC2626",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem", // 4px
+                        "md": "0.5rem",       // 8px
+                        "lg": "0.75rem",      // 12px
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'sm': '0 1px 2px rgba(0,0,0,0.05)',
+                        'md': '0 2px 8px rgba(0,0,0,0.08)',
+                        'lg': '0 8px 24px rgba(0,0,0,0.12)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+        .section-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #888888;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid #E2DED6;
+            padding-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased min-h-screen p-8 custom-scrollbar">
+<div class="max-w-[1400px] mx-auto space-y-16 pb-24">
+<header class="mb-12 border-b border-border-warm pb-8">
+<h1 class="text-3xl font-bold text-text-main mb-2">Indelible Design System</h1>
+<p class="text-text-sub max-w-2xl">Visual reference for the Indelible project management application. This system prioritizes clarity, warmth, and calm efficiency.</p>
+</header>
+<section>
+<div class="section-label">01. Buttons</div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+<div class="space-y-4">
+<p class="text-sm font-medium text-text-sub">Primary</p>
+<div class="space-y-4 flex flex-col items-start">
+<button class="bg-primary hover:bg-primary-hover text-white rounded px-4 h-8 text-xs font-medium transition-colors shadow-sm flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">add</span> Add Quest
+                        </button>
+<button class="bg-primary hover:bg-primary-hover text-white rounded px-5 h-10 text-sm font-medium transition-colors shadow-sm flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px]">add</span> Add Quest
+                        </button>
+<button class="bg-primary hover:bg-primary-hover text-white rounded px-6 h-12 text-base font-medium transition-colors shadow-sm flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">add</span> Add Quest
+                        </button>
+</div>
+</div>
+<div class="space-y-4">
+<p class="text-sm font-medium text-text-sub">Secondary</p>
+<div class="space-y-4 flex flex-col items-start">
+<button class="bg-white border border-primary text-primary hover:bg-primary/5 rounded px-4 h-8 text-xs font-medium transition-colors">
+                            Cancel
+                        </button>
+<button class="bg-white border border-primary text-primary hover:bg-primary/5 rounded px-5 h-10 text-sm font-medium transition-colors">
+                            Cancel
+                        </button>
+<button class="bg-white border border-primary text-primary hover:bg-primary/5 rounded px-6 h-12 text-base font-medium transition-colors">
+                            Cancel
+                        </button>
+</div>
+</div>
+<div class="space-y-4">
+<p class="text-sm font-medium text-text-sub">Ghost</p>
+<div class="space-y-4 flex flex-col items-start">
+<button class="bg-transparent text-primary hover:underline rounded px-2 h-8 text-xs font-medium transition-colors">
+                            Skip
+                        </button>
+<button class="bg-transparent text-primary hover:underline rounded px-2 h-10 text-sm font-medium transition-colors">
+                            Skip
+                        </button>
+<button class="bg-transparent text-primary hover:underline rounded px-2 h-12 text-base font-medium transition-colors">
+                            Skip
+                        </button>
+</div>
+</div>
+<div class="space-y-8">
+<div class="space-y-2">
+<p class="text-sm font-medium text-text-sub">Danger</p>
+<div class="flex gap-2">
+<button class="bg-white border border-red-500 text-red-500 hover:bg-red-50 rounded px-4 h-10 text-sm font-medium transition-colors">
+                                Delete
+                            </button>
+<button class="bg-red-500 hover:bg-red-600 text-white rounded px-4 h-10 text-sm font-medium transition-colors shadow-sm">
+                                Delete
+                            </button>
+</div>
+</div>
+<div class="space-y-2">
+<p class="text-sm font-medium text-text-sub">Button Group</p>
+<div class="inline-flex rounded-md shadow-sm" role="group">
+<button class="px-4 py-2 text-sm font-medium text-text-main bg-white border border-border-warm rounded-l-lg hover:bg-gray-50 focus:z-10 focus:ring-2 focus:ring-primary" type="button">
+                              Approve
+                            </button>
+<button class="px-4 py-2 text-sm font-medium text-text-main bg-white border-t border-b border-border-warm hover:bg-gray-50 focus:z-10 focus:ring-2 focus:ring-primary" type="button">
+                              Return
+                            </button>
+<button class="px-4 py-2 text-sm font-medium text-text-main bg-white border border-border-warm rounded-r-lg hover:bg-gray-50 focus:z-10 focus:ring-2 focus:ring-primary" type="button">
+                              View
+                            </button>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-8 flex gap-8 items-end">
+<div class="space-y-2">
+<p class="text-sm font-medium text-text-sub">Icon Buttons</p>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<button class="w-7 h-7 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[18px]">more_vert</span></button>
+<button class="w-9 h-9 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[20px]">more_vert</span></button>
+<button class="w-11 h-11 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[24px]">more_vert</span></button>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-7 h-7 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[16px]">close</span></button>
+<button class="w-9 h-9 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[18px]">close</span></button>
+<button class="w-11 h-11 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[22px]">close</span></button>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-7 h-7 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[16px]">play_arrow</span></button>
+<button class="w-9 h-9 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[18px]">play_arrow</span></button>
+<button class="w-11 h-11 flex items-center justify-center rounded text-text-sub hover:bg-black/5"><span class="material-symbols-outlined text-[22px]">play_arrow</span></button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">02. Form Inputs</div>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+<div class="col-span-1 md:col-span-2 space-y-6">
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-1">
+<label class="block text-sm font-medium text-text-main">Default Input</label>
+<input class="w-full h-10 rounded border-border-warm text-text-main placeholder-text-muted focus:border-primary focus:ring-primary shadow-sm" placeholder="Quest Name" type="text"/>
+</div>
+<div class="space-y-1">
+<label class="block text-sm font-medium text-primary">Focused Input</label>
+<input class="w-full h-10 rounded border-primary text-text-main focus:ring-1 focus:ring-primary shadow-sm" type="text" value="API Integr"/>
+</div>
+<div class="space-y-1">
+<label class="block text-sm font-medium text-warning">Error State</label>
+<input class="w-full h-10 rounded border-warning text-text-main focus:border-warning focus:ring-warning" type="text"/>
+<p class="text-xs text-warning">Required field</p>
+</div>
+<div class="space-y-1">
+<label class="block text-sm font-medium text-text-muted">Disabled</label>
+<input class="w-full h-10 rounded border-border-warm bg-gray-100 text-text-muted cursor-not-allowed" disabled="" type="text" value="Locked Value"/>
+</div>
+</div>
+<div>
+<label class="block text-sm font-medium text-text-main mb-1">Text Area</label>
+<textarea class="w-full min-h-[80px] rounded border-border-warm text-text-main placeholder-text-muted focus:border-primary focus:ring-primary shadow-sm" placeholder="Add detailed description..."></textarea>
+</div>
+</div>
+<div class="col-span-1 md:col-span-2 space-y-6">
+<div class="flex gap-4 items-start">
+<div class="space-y-1 w-full max-w-[200px]">
+<label class="block text-sm font-medium text-text-main">Select (Closed)</label>
+<div class="relative">
+<button class="relative w-full cursor-default rounded-md border border-border-warm bg-white py-2 pl-3 pr-10 text-left shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:text-sm" type="button">
+<span class="block truncate">In Progress</span>
+<span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+<span class="material-symbols-outlined text-gray-400 text-[20px]">expand_more</span>
+</span>
+</button>
+</div>
+</div>
+<div class="space-y-1 w-full max-w-[200px]">
+<label class="block text-sm font-medium text-text-main">Select (Open)</label>
+<div class="relative">
+<button class="relative w-full cursor-default rounded-t-md border border-border-warm border-b-0 bg-white py-2 pl-3 pr-10 text-left shadow-sm sm:text-sm" type="button">
+<span class="block truncate">Status</span>
+<span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+<span class="material-symbols-outlined text-gray-400 text-[20px]">expand_less</span>
+</span>
+</button>
+<ul class="absolute z-10 w-full overflow-auto rounded-b-md bg-white py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm border border-t-0 border-border-warm" role="listbox" tabindex="-1">
+<li class="text-text-main relative cursor-default select-none py-2 pl-3 pr-9 hover:bg-gray-50" role="option">
+<span class="font-normal block truncate">Draft</span>
+</li>
+<li class="text-primary relative cursor-default select-none py-2 pl-3 pr-9 bg-primary/5" role="option">
+<span class="font-semibold block truncate">In Progress</span>
+<span class="text-primary absolute inset-y-0 right-0 flex items-center pr-4">
+<span class="material-symbols-outlined text-[16px]">check</span>
+</span>
+</li>
+<li class="text-text-main relative cursor-default select-none py-2 pl-3 pr-9 hover:bg-gray-50" role="option">
+<span class="font-normal block truncate">Done</span>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-8">
+<div class="space-y-3">
+<label class="block text-sm font-medium text-text-main">Checks &amp; Toggles</label>
+<div class="flex items-center gap-4">
+<input class="h-[18px] w-[18px] rounded border-border-warm text-primary focus:ring-primary/25 cursor-pointer" type="checkbox"/>
+<input checked="" class="h-[18px] w-[18px] rounded border-border-warm text-primary focus:ring-primary/25 cursor-pointer" type="checkbox"/>
+<input class="h-[18px] w-[18px] rounded border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed" disabled="" type="checkbox"/>
+</div>
+<div class="flex items-center gap-4 mt-2">
+<button class="bg-gray-200 relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2" type="button">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+<button class="bg-primary relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2" type="button">
+<span class="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+</div>
+<div class="space-y-1">
+<label class="block text-sm font-medium text-text-main">Date Picker</label>
+<div class="relative">
+<input class="w-full h-10 pl-10 rounded border-border-warm text-text-main shadow-sm focus:border-primary focus:ring-primary" readonly="" type="text" value="Dec 22, 2024"/>
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">calendar_today</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">03. Status Chips &amp; Badges</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+<div class="space-y-6">
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Quest Status</p>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Planning</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-primary text-primary bg-white">Ready</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary text-white">In Progress</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning text-white">Blocked</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-review text-white">In Review</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success text-white">Done</span>
+</div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Pact Status</p>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Quote</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-800">Queue</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-primary text-primary bg-white">Ready</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary text-white">In Progress</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-review text-white">Review</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success text-white">Done</span>
+</div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Patron Status</p>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success text-white">Active</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">Inactive</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning text-white">Delinquent</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400 line-through decoration-gray-400">Never Again</span>
+</div>
+</div>
+</div>
+<div class="space-y-6">
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Energy Badges</p>
+<div class="flex gap-2">
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm bg-[#F5F4F2] text-text-main border border-border-warm">
+<span class="material-symbols-outlined text-[14px] text-warning" style="font-variation-settings: 'FILL' 1;">bolt</span>3
+                             </span>
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm bg-[#F5F4F2] text-text-main border border-border-warm">
+<span class="material-symbols-outlined text-[14px] text-warning" style="font-variation-settings: 'FILL' 1;">bolt</span>3~5
+                             </span>
+<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm bg-[#F5F4F2] text-text-main border border-border-warm">
+<span class="material-symbols-outlined text-[14px] text-gray-400" style="font-variation-settings: 'FILL' 1;">bolt</span>?
+                             </span>
+</div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">General Badges</p>
+<div class="flex gap-2">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-800">Default</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-primary/10 text-primary">Accent</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-success/10 text-success">Success</span>
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-warning/10 text-yellow-700">Warning</span>
+</div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Count Badges</p>
+<div class="flex gap-2 font-mono text-sm">
+<span class="text-text-sub">(12)</span>
+<span class="text-text-sub">(3)</span>
+<span class="text-gray-300">(0)</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">04. Avatars &amp; Progress Indicators</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-12">
+<div class="space-y-8">
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Avatar Sizes</p>
+<div class="flex items-end gap-4">
+<div class="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold border border-white shadow-sm">MH</div>
+<div class="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold border border-white shadow-sm">MH</div>
+<div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold border border-white shadow-sm">MH</div>
+<div class="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-base font-bold border border-white shadow-sm">MH</div>
+</div>
+</div>
+<div class="flex gap-12">
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Image Avatar</p>
+<div class="w-10 h-10 rounded-full bg-gray-200 border border-white shadow-sm bg-cover bg-center" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');"></div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Avatar Stack</p>
+<div class="flex -space-x-2 overflow-hidden">
+<div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold ring-2 ring-white">MH</div>
+<div class="w-10 h-10 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold ring-2 ring-white">SJ</div>
+<div class="w-10 h-10 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold ring-2 ring-white">JD</div>
+<div class="w-10 h-10 rounded-full bg-gray-100 text-text-sub flex items-center justify-center text-xs font-bold ring-2 ring-white">+2</div>
+</div>
+</div>
+</div>
+</div>
+<div class="space-y-8">
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Linear Progress (Budget)</p>
+<div class="flex items-center gap-4">
+<div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 60%"></div>
+</div>
+<span class="text-sm font-medium text-text-sub">60%</span>
+</div>
+<div class="flex items-center gap-4 mt-2">
+<div class="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
+<div class="h-full bg-warning" style="width: 85%"></div>
+</div>
+<span class="text-xs font-medium text-warning">85%</span>
+</div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Progress Phases</p>
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-full bg-success"></div>
+<div class="w-3 h-3 rounded-full bg-success"></div>
+<div class="w-3 h-3 rounded-full bg-success"></div>
+<div class="w-3 h-3 rounded-full border-2 border-primary box-border"></div>
+<div class="w-3 h-3 rounded-full border border-gray-300 box-border"></div>
+<span class="ml-2 text-sm text-text-sub">3 of 5 phases</span>
+</div>
+</div>
+<div>
+<p class="text-sm font-medium text-text-sub mb-3">Circular Progress</p>
+<div class="relative w-16 h-16">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-gray-100" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" stroke-width="6"></circle>
+<circle class="text-primary" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" stroke-dasharray="175.9" stroke-dashoffset="44" stroke-width="6"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center text-sm font-bold text-text-main">75%</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">05. Timer Widget States</div>
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+<div class="bg-surface rounded-lg border border-border-warm shadow-md p-4 flex flex-col items-center text-center relative overflow-hidden">
+<div class="relative w-24 h-24 mb-3">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-gray-100" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-primary" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-dasharray="276" stroke-dashoffset="180" stroke-width="4"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center flex-col">
+<span class="text-xl font-bold font-mono tracking-tight">0:45</span>
+</div>
+</div>
+<p class="text-sm font-medium text-text-main truncate w-full">API Research</p>
+<div class="w-full flex h-1.5 gap-1 mt-2 mb-4">
+<div class="bg-primary h-full rounded-full flex-1 opacity-50 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 bg-primary w-2/3"></div>
+</div>
+<div class="bg-gray-200 h-full rounded-full flex-1"></div>
+</div>
+<button class="w-full py-1.5 bg-gray-50 border border-border-warm rounded text-xs font-medium hover:bg-gray-100">Pause</button>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-md p-4 flex flex-col items-center text-center relative">
+<div class="relative w-24 h-24 mb-3">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-gray-100" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-warning" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-dasharray="276" stroke-dashoffset="100" stroke-width="4"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center flex-col">
+<span class="text-xl font-bold font-mono tracking-tight text-warning">2:15</span>
+</div>
+</div>
+<p class="text-sm font-medium text-text-main truncate w-full">API Research</p>
+<div class="w-full flex h-1.5 gap-1 mt-2 mb-4">
+<div class="bg-primary h-full rounded-full flex-1 flex items-center justify-center"><span class="text-[8px] text-white">✓</span></div>
+<div class="bg-warning h-full rounded-full flex-1 relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 bg-warning w-1/3"></div>
+</div>
+</div>
+<button class="w-full py-1.5 bg-gray-50 border border-border-warm rounded text-xs font-medium hover:bg-gray-100">Pause</button>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-md p-4 flex flex-col items-center text-center relative">
+<div class="relative w-24 h-24 mb-3">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-warning opacity-30" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-warning" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-dasharray="276" stroke-dashoffset="200" stroke-width="4"></circle>
+<circle class="text-warning" cx="48" cy="48" fill="transparent" r="36" stroke="currentColor" stroke-width="4"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center flex-col">
+<span class="text-xl font-bold font-mono tracking-tight text-warning">3:45</span>
+<span class="text-[10px] text-warning font-bold">+0:45</span>
+</div>
+</div>
+<p class="text-sm font-medium text-text-main truncate w-full">API Research</p>
+<div class="w-full grid grid-cols-3 h-1.5 gap-0.5 mt-2 mb-4">
+<div class="bg-primary h-full rounded-l-full flex items-center justify-center"><span class="text-[8px] text-white">✓</span></div>
+<div class="bg-primary h-full flex items-center justify-center"><span class="text-[8px] text-white">✓</span></div>
+<div class="bg-warning h-full rounded-r-full"></div>
+</div>
+<button class="w-full py-1.5 bg-gray-50 border border-border-warm rounded text-xs font-medium hover:bg-gray-100">Pause</button>
+</div>
+<div class="bg-surface rounded-lg border-2 border-warning shadow-md p-4 flex flex-col items-center text-center relative">
+<div class="absolute top-2 right-2 px-1.5 bg-warning text-white text-[10px] font-bold rounded">!!</div>
+<div class="relative w-24 h-24 mb-3">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-warning" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-warning" cx="48" cy="48" fill="transparent" r="36" stroke="currentColor" stroke-width="4"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center flex-col">
+<span class="text-xl font-bold font-mono tracking-tight text-warning">7:30</span>
+<span class="text-[10px] text-warning font-bold">+4:30</span>
+</div>
+</div>
+<p class="text-sm font-medium text-text-main truncate w-full">API Research</p>
+<div class="w-full grid grid-cols-3 h-1.5 gap-0.5 mt-2 mb-4">
+<div class="bg-primary h-full rounded-l-full flex items-center justify-center"><span class="text-[8px] text-white">✓</span></div>
+<div class="bg-primary h-full flex items-center justify-center"><span class="text-[8px] text-white">✓</span></div>
+<div class="bg-warning h-full rounded-r-full"></div>
+</div>
+<button class="w-full py-1.5 bg-gray-50 border border-border-warm rounded text-xs font-medium hover:bg-gray-100">Pause</button>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-sm p-4 flex flex-col items-center text-center justify-between">
+<div class="relative w-24 h-24 mb-3 opacity-20">
+<svg class="w-full h-full">
+<circle class="text-text-main" cx="48" cy="48" fill="transparent" r="44" stroke="currentColor" stroke-width="2"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center flex-col">
+<span class="text-2xl">💤</span>
+</div>
+</div>
+<p class="text-sm text-text-sub mb-4">No timer running</p>
+<button class="w-full py-1.5 bg-primary text-white rounded text-xs font-medium hover:bg-primary-hover flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span> Start
+                     </button>
+</div>
+</div>
+<div class="mt-8 pt-6 border-t border-border-warm">
+<p class="text-sm font-medium text-text-sub mb-4">Compact Header Variants</p>
+<div class="flex flex-wrap gap-4 items-center bg-white p-4 rounded-lg border border-border-warm">
+<div class="flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-border-warm">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">1:23</span>
+<span class="text-xs text-text-sub font-medium ml-1">/ ~3h</span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-warning/50">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">3:45</span>
+<span class="text-xs text-text-sub font-medium ml-1">/ ~5h</span>
+<span class="h-2 w-2 rounded-full bg-warning ml-1"></span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1.5 bg-warning/10 rounded-full border border-warning">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-warning tabular-nums">5:45</span>
+<span class="text-xs text-warning font-medium ml-1">(+0:45)</span>
+<span class="h-2 w-2 rounded-full bg-warning ml-1"></span>
+</div>
+<div class="flex items-center gap-2 px-3 py-1.5 bg-warning/20 rounded-full border border-warning">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-bold text-warning tabular-nums">9:30</span>
+<span class="text-xs text-warning font-bold ml-1">(+4:30) !!</span>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">06. Cards</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+<div class="space-y-4">
+<div class="bg-surface rounded-md border border-border-warm shadow-sm p-4 h-32 flex items-center justify-center text-text-sub">
+                        Default Card
+                    </div>
+<div class="bg-surface rounded-md border border-border-warm border-l-[3px] border-l-primary shadow-sm p-4 h-32 flex items-center justify-center text-primary font-medium">
+                        Featured Card
+                    </div>
+<div class="bg-surface rounded-md border border-border-warm shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all p-4 h-32 flex items-center justify-center text-text-main cursor-pointer">
+                        Interactive Card (Hover me)
+                    </div>
+</div>
+<div class="bg-surface rounded-md border border-border-warm shadow-sm p-0 overflow-hidden flex flex-col h-full">
+<div class="p-4 border-b border-border-warm/50 flex justify-between items-start">
+<div class="flex gap-3">
+<div class="w-10 h-10 rounded bg-primary/10 flex items-center justify-center text-primary shrink-0">
+<span class="material-symbols-outlined">explore</span>
+</div>
+<div>
+<h3 class="font-semibold text-text-main leading-tight">Q3 Marketing Report</h3>
+<div class="flex items-center text-xs text-text-sub mt-1 gap-1">
+<span class="material-symbols-outlined text-[14px]">folder</span> Marketing › Q3
+                                </div>
+</div>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary text-white">In Progress</span>
+</div>
+<div class="p-4 flex-1">
+<div class="flex justify-between items-center text-sm mb-4">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-primary/10 text-primary text-[10px] flex items-center justify-center font-bold">MH</div>
+<span class="text-text-sub">Mike Hansen</span>
+</div>
+<span class="inline-flex items-center gap-1 text-xs bg-[#F5F4F2] px-2 py-1 rounded-full border border-border-warm text-text-sub">
+<span class="material-symbols-outlined text-[12px] text-warning" style="font-variation-settings: 'FILL' 1;">bolt</span>3
+                             </span>
+</div>
+<div class="text-xs text-text-muted flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">calendar_today</span> Due Oct 24
+                        </div>
+</div>
+</div>
+<div class="bg-surface rounded-md border border-border-warm shadow-sm p-0 overflow-hidden flex flex-col h-full">
+<div class="p-4 flex items-start gap-3">
+<div class="w-10 h-10 rounded bg-purple-100 flex items-center justify-center text-purple-600 shrink-0">
+<span class="text-xl">🤝</span>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-semibold text-text-main truncate">Website Redesign Retainer</h3>
+<p class="text-xs text-text-sub truncate">Acme Corp • acmecorp.com</p>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border border-primary text-primary bg-white">Ready</span>
+</div>
+<div class="px-4 pb-4 mt-auto">
+<div class="flex justify-between text-xs mb-1 text-text-sub">
+<span>Quest Progress</span>
+<span>3 / 5</span>
+</div>
+<div class="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 60%"></div>
+</div>
+<div class="mt-4 flex items-center gap-2 text-xs text-text-sub">
+<span class="material-symbols-outlined text-[16px]">person</span> PM: Sarah Jones
+                        </div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">07. Navigation, Lists &amp; Feedback</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+<div class="space-y-6">
+<p class="text-sm font-medium text-text-sub">List Rows</p>
+<div class="bg-white border border-border-warm rounded-lg overflow-hidden">
+<div class="px-4 py-2 bg-gray-50 border-b border-border-warm flex items-center gap-2 cursor-pointer">
+<span class="material-symbols-outlined text-text-sub text-[18px]">expand_more</span>
+<div class="h-2 w-2 rounded-full bg-primary"></div>
+<span class="text-sm font-semibold text-text-main">Active Quests</span>
+<span class="text-xs text-text-muted">(3)</span>
+</div>
+<div class="flex items-center px-4 h-12 border-b border-border-warm hover:bg-gray-50 transition-colors">
+<div class="w-1/3 text-sm font-medium text-text-main truncate">API Integration</div>
+<div class="w-1/4 text-xs text-text-sub truncate">Website Redesign</div>
+<div class="w-1/6">
+<span class="inline-flex items-center gap-0.5 text-[10px] bg-[#F5F4F2] px-1.5 py-0.5 rounded-full border border-border-warm text-text-sub">
+<span class="material-symbols-outlined text-[10px] text-warning" style="font-variation-settings: 'FILL' 1;">bolt</span>3
+                                </span>
+</div>
+<div class="w-1/6 flex -space-x-1">
+<div class="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold ring-1 ring-white">MH</div>
+</div>
+<div class="w-1/6 text-right text-xs text-text-sub">Oct 24</div>
+</div>
+<div class="flex items-center px-4 h-12 bg-warning/5 border-l-[3px] border-l-warning">
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-warning text-[16px]">warning</span>
+<span class="text-sm font-medium text-text-main truncate">User Testing</span>
+</div>
+<div class="text-xs text-warning pl-6 truncate">Blocked: Waiting on client feedback</div>
+</div>
+<div class="text-right text-xs text-text-sub">Nov 01</div>
+</div>
+</div>
+</div>
+<div class="space-y-8">
+<div class="space-y-4">
+<p class="text-sm font-medium text-text-sub">Navigation Elements</p>
+<nav class="flex items-center text-sm text-text-sub">
+<span class="material-symbols-outlined text-[18px] mr-1">home</span>
+<span class="mx-1">›</span>
+<a class="hover:text-primary hover:underline" href="#">Projects</a>
+<span class="mx-1">›</span>
+<span class="text-text-main font-medium">Website Redesign</span>
+</nav>
+<div class="border-b border-border-warm">
+<nav class="-mb-px flex space-x-6">
+<a class="border-primary text-text-main whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm" href="#">
+                                    Overview
+                                </a>
+<a class="border-transparent text-text-sub hover:text-text-main hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm" href="#">
+                                    Tasks
+                                </a>
+<a class="border-transparent text-text-sub hover:text-text-main hover:border-gray-300 whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm" href="#">
+                                    Files
+                                </a>
+</nav>
+</div>
+</div>
+<div class="space-y-2 relative h-32 border border-dashed border-gray-200 rounded bg-gray-50 flex flex-col items-center justify-center p-4">
+<div class="absolute bottom-4 right-4 flex flex-col gap-2 w-72">
+<div class="bg-white shadow-lg rounded p-3 border-l-4 border-success flex items-start gap-3">
+<span class="material-symbols-outlined text-success text-[20px]">check_circle</span>
+<div class="flex-1">
+<h4 class="text-sm font-medium text-text-main">Changes Saved</h4>
+</div>
+<button class="text-gray-400 hover:text-gray-600"><span class="material-symbols-outlined text-[16px]">close</span></button>
+</div>
+<div class="bg-white shadow-lg rounded p-3 border-l-4 border-warning flex items-start gap-3">
+<span class="material-symbols-outlined text-warning text-[20px]">warning</span>
+<div class="flex-1">
+<h4 class="text-sm font-medium text-text-main">Connection Lost</h4>
+</div>
+<button class="text-gray-400 hover:text-gray-600"><span class="material-symbols-outlined text-[16px]">close</span></button>
+</div>
+</div>
+<p class="text-gray-400 text-xs italic">Toast Container Preview</p>
+</div>
+</div>
+</div>
+</section>
+<section>
+<div class="section-label">08. Domain Specific</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="bg-surface rounded-lg border border-border-warm shadow-sm p-5 space-y-3">
+<div class="flex items-center justify-between">
+<h4 class="font-semibold text-text-main">Retainer Usage</h4>
+<span class="text-xs text-text-sub">Monthly</span>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-text-main">Acme Corp</span>
+<span class="text-primary">65% used</span>
+</div>
+<div class="h-2 w-full bg-background-light rounded-full overflow-hidden border border-border-warm">
+<div class="h-full bg-primary rounded-full" style="width: 65%"></div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-xs font-medium">
+<span class="text-text-main">Globex Inc</span>
+<span class="text-warning">92% used</span>
+</div>
+<div class="h-2 w-full bg-background-light rounded-full overflow-hidden border border-border-warm">
+<div class="h-full bg-warning rounded-full" style="width: 92%"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-sm p-5 space-y-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-gray-200 animate-pulse"></div>
+<div class="flex-1 space-y-2">
+<div class="h-3 bg-gray-200 rounded w-3/4 animate-pulse"></div>
+<div class="h-2 bg-gray-200 rounded w-1/2 animate-pulse"></div>
+</div>
+</div>
+<div class="space-y-2 mt-4">
+<div class="h-2 bg-gray-200 rounded w-full animate-pulse"></div>
+<div class="h-2 bg-gray-200 rounded w-full animate-pulse"></div>
+<div class="h-2 bg-gray-200 rounded w-5/6 animate-pulse"></div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm border-l-[3px] border-l-primary shadow-sm p-5 flex flex-col h-full">
+<h4 class="font-semibold text-text-main mb-3">Up Next</h4>
+<div class="bg-background-light p-3 rounded border border-border-warm mb-4">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-primary text-[18px] mt-0.5">explore</span>
+<div>
+<p class="text-sm font-medium text-text-main">Deploy to Staging</p>
+<p class="text-xs text-text-sub">Website Redesign</p>
+</div>
+</div>
+</div>
+<button class="mt-auto w-full py-2 bg-primary text-white rounded text-sm font-medium hover:bg-primary-hover shadow-sm transition-colors">
+                        Start Quest
+                    </button>
+</div>
+</div>
+</section>
+</div>
+
+</body></html>

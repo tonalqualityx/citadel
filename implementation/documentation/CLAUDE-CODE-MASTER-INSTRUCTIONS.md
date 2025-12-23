@@ -1,0 +1,1071 @@
+# Indelible App: Claude Code Master Instructions
+## Orchestration Guide for AI-Assisted Development
+
+**Version:** 1.0  
+**Date:** December 2025  
+**Status:** Active Development Guide
+
+---
+
+## ðŸŽ¯ Purpose
+
+This document is the **single source of truth** for Claude Code development sessions on Indelible. It provides:
+- Master progress tracking
+- Coding conventions and standards
+- Sub-agent orchestration patterns
+- Quality control workflows
+- File structure and naming conventions
+- Utility function registry
+
+**Read this document completely before any coding session.**
+
+---
+
+## ðŸ“š Document Hierarchy
+
+```
+CLAUDE-CODE-MASTER-INSTRUCTIONS.md  â† YOU ARE HERE (read first, always)
+â”‚
+â”œâ”€â”€ indelible-implementation-plan.md    â† Phase overview and checklists
+â”‚
+â”œâ”€â”€ Phase-Specific Docs (read per phase):
+â”‚   â”œâ”€â”€ indelible-app-architecture.md       â† Domain entities, business rules
+â”‚   â”œâ”€â”€ indelible-data-model-refinement.md  â† Complete database schema
+â”‚   â”œâ”€â”€ indelible-api-endpoint-inventory.md â† All 138 API endpoints
+â”‚   â”œâ”€â”€ indelible-auth-design.md            â† Auth implementation
+â”‚   â”œâ”€â”€ indelible-state-management-plan.md  â† React Query patterns
+â”‚   â”œâ”€â”€ indelible-wireframes-*.md           â† UI specifications
+â”‚   â”œâ”€â”€ indelible-component-library.md      â† Reusable component catalog
+â”‚   â”œâ”€â”€ indelible-testing-strategy.md       â† Testing approach
+â”‚   â””â”€â”€ indelible-deployment-devops.md      â† CI/CD and hosting
+â”‚
+â””â”€â”€ Schema References:
+    â”œâ”€â”€ indelible-schema-addendum.md        â† Schema extensions
+    â””â”€â”€ notion-schema.md                    â† Original Notion structure
+```
+
+---
+
+## âœ… Master Progress Tracker
+
+Update this section after each development session.
+
+### Current Phase: [ ] Phase 1 - Foundation
+
+| Phase | Status | Started | Completed | Notes |
+|-------|--------|---------|-----------|-------|
+| 1. Foundation + Auth | ðŸ”² Not Started | â€” | â€” | |
+| 2. Core Entities (CRUD) | ðŸ”² Not Started | â€” | â€” | |
+| 3. Projects & Tasks | ðŸ”² Not Started | â€” | â€” | |
+| 4. Time Tracking | ðŸ”² Not Started | â€” | â€” | |
+| 5. Dashboards | ðŸ”² Not Started | â€” | â€” | |
+| 6. Recipe Wizard | ðŸ”² Not Started | â€” | â€” | |
+| 7. SOPs & Rich Text | ðŸ”² Not Started | â€” | â€” | |
+| 8. Notifications & Polish | ðŸ”² Not Started | â€” | â€” | |
+| 9. Reports & Settings | ðŸ”² Not Started | â€” | â€” | |
+| 10. Testing & Deployment | ðŸ”² Not Started | â€” | â€” | |
+
+**Legend:** ðŸ”² Not Started | ðŸ”„ In Progress | âœ… Complete | âš ï¸ Blocked
+
+### Session Log
+
+| Session | Date | Phase | Accomplishments | Issues | Next Steps |
+|---------|------|-------|-----------------|--------|------------|
+| 1 | â€” | â€” | â€” | â€” | â€” |
+
+---
+
+## ðŸ—ï¸ Sub-Agent Orchestration Pattern
+
+Claude Code should use specialized sub-agents for different tasks, coordinating them through a consistent workflow.
+
+### Agent Roles
+
+```
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                        ORCHESTRATOR (Main Agent)                        â”‚
+â”‚   - Reads this document and phase requirements                          â”‚
+â”‚   - Assigns tasks to sub-agents                                         â”‚
+â”‚   - Maintains progress tracking                                         â”‚
+â”‚   - Makes architectural decisions                                       â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+        â”‚                    â”‚                    â”‚                    â”‚
+        â–¼                    â–¼                    â–¼                    â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚   READER    â”‚    â”‚     WRITER      â”‚    â”‚   REVIEWER  â”‚    â”‚   TESTER     â”‚
+â”‚   Agent     â”‚    â”‚     Agent       â”‚    â”‚   Agent     â”‚    â”‚   Agent      â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤    â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤    â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤    â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚ - Read docs â”‚    â”‚ - Write code    â”‚    â”‚ - Check for â”‚    â”‚ - Run tests  â”‚
+â”‚ - Read code â”‚    â”‚ - Create files  â”‚    â”‚   standards â”‚    â”‚ - Report     â”‚
+â”‚ - Search    â”‚    â”‚ - Modify files  â”‚    â”‚ - Verify    â”‚    â”‚   results    â”‚
+â”‚   utilities â”‚    â”‚ - Report back   â”‚    â”‚   utilities â”‚    â”‚ - Identify   â”‚
+â”‚ - Report    â”‚    â”‚                 â”‚    â”‚ - Flag      â”‚    â”‚   failures   â”‚
+â”‚   findings  â”‚    â”‚                 â”‚    â”‚   issues    â”‚    â”‚              â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+        â”‚                    â”‚                    â”‚                    â”‚
+        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                        â–¼
+                              â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                              â”‚     FIXER       â”‚
+                              â”‚     Agent       â”‚
+                              â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+                              â”‚ - Fix issues    â”‚
+                              â”‚   from review   â”‚
+                              â”‚ - Fix failing   â”‚
+                              â”‚   tests         â”‚
+                              â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+### Workflow Pattern
+
+For each task (e.g., "Create client API endpoint"):
+
+```
+1. READER AGENT
+   â””â”€â”€ Read: indelible-api-endpoint-inventory.md (find endpoint spec)
+   â””â”€â”€ Read: indelible-data-model-refinement.md (find schema)
+   â””â”€â”€ Search: /lib/utils/ (check for existing utilities)
+   â””â”€â”€ Search: /lib/api/ (check for similar patterns)
+   â””â”€â”€ Report: "Found spec for GET /api/clients, uses Prisma client table,
+                existing utility: formatClientResponse() in /lib/api/formatters.ts"
+
+2. WRITER AGENT
+   â””â”€â”€ Input: Reader's report + this document's conventions
+   â””â”€â”€ Create: /app/api/clients/route.ts
+   â””â”€â”€ Uses: Existing formatClientResponse() utility
+   â””â”€â”€ Report: "Created GET /api/clients endpoint following conventions"
+
+3. REVIEWER AGENT
+   â””â”€â”€ Check: Single responsibility (one route per file)
+   â””â”€â”€ Check: Uses existing utilities (not duplicating)
+   â””â”€â”€ Check: Function names match actual exports
+   â””â”€â”€ Check: Error handling follows patterns
+   â””â”€â”€ Check: TypeScript types are correct
+   â””â”€â”€ Report: "PASS" or "ISSUES: [list]"
+
+4. TESTER AGENT
+   â””â”€â”€ Run: npm run test:unit -- clients
+   â””â”€â”€ Run: npm run test:integration -- clients
+   â””â”€â”€ Report: "Tests pass" or "Failures: [list]"
+```
+
+For UI tasks (e.g., "Create client card component"):
+
+```
+1. READER AGENT
+   â””â”€â”€ Check: /implementation/mockups/ (find visual reference)
+   â””â”€â”€ Check: /components/ui/ (does element exist?)
+   â””â”€â”€ Check: /components/domain/ (does domain component exist?)
+   â””â”€â”€ Report: "Need Card and Badge from /ui/, Badge exists, Card missing"
+
+2. WRITER AGENT (if library component missing)
+   â””â”€â”€ FIRST: Create /components/ui/card.tsx (the library component)
+   â””â”€â”€ THEN: Create /components/domain/clients/ClientCard.tsx (uses Card)
+   â””â”€â”€ Report: "Created Card in library, then ClientCard using it"
+
+3. REVIEWER AGENT
+   â””â”€â”€ Check: ALL UI elements come from /components/ui/
+   â””â”€â”€ Check: NO inline Tailwind for reusable patterns
+   â””â”€â”€ Check: Component uses CVA for variants
+   â””â”€â”€ Report: "PASS" or "ISSUES: inline styles found on line X"
+
+5. FIXER AGENT (if issues)
+   â””â”€â”€ Input: Issues from Reviewer or Tester
+   â””â”€â”€ Fix: Apply corrections
+   â””â”€â”€ Return to: Reviewer Agent for re-check
+```
+
+### Critical Rules for Agents
+
+1. **NEVER assume a utility function exists** â€” always search first
+2. **NEVER invent function names** â€” use exact names from source code
+3. **ALWAYS search before writing** â€” check for existing patterns
+4. **ALWAYS verify imports exist** â€” check the actual file exports
+5. **ALWAYS use component library** â€” if element doesn't exist, create it in `/components/ui/` first
+6. **NEVER inline UI styles** â€” every button/card/badge/input comes from the library
+
+---
+
+## ðŸ“ File Structure & Single Responsibility
+
+### Repository Structure
+
+```
+/indelible
+â”œâ”€â”€ /implementation                   # Reference materials for Claude Code
+â”‚   â”œâ”€â”€ /instructions                 # These instruction documents
+â”‚   â”‚   â”œâ”€â”€ CLAUDE-CODE-MASTER-INSTRUCTIONS.md
+â”‚   â”‚   â””â”€â”€ /phase-docs
+â”‚   â”‚       â”œâ”€â”€ INDEX.md
+â”‚   â”‚       â”œâ”€â”€ PHASE-01-FOUNDATION.md
+â”‚   â”‚       â””â”€â”€ ... (all phase documents)
+â”‚   â””â”€â”€ /mockups                      # Visual mockups with code samples
+â”‚       â”œâ”€â”€ /dashboard-cards
+â”‚       â”‚   â”œâ”€â”€ preview.png           # Visual reference
+â”‚       â”‚   â””â”€â”€ sample.tsx            # Code sample
+â”‚       â”œâ”€â”€ /task-list
+â”‚       â”œâ”€â”€ /sidebar-nav
+â”‚       â”œâ”€â”€ /client-detail
+â”‚       â””â”€â”€ /... (other mockups)
+â”‚
+â”œâ”€â”€ /app                              # Next.js App Router
+â”‚   â”œâ”€â”€ /api                          # API Routes
+â”‚   â”‚   â”œâ”€â”€ /auth
+â”‚   â”‚   â”‚   â”œâ”€â”€ login/route.ts        # POST /api/auth/login
+â”‚   â”‚   â”‚   â”œâ”€â”€ logout/route.ts       # POST /api/auth/logout
+â”‚   â”‚   â”‚   â”œâ”€â”€ refresh/route.ts      # POST /api/auth/refresh
+â”‚   â”‚   â”‚   â””â”€â”€ me/route.ts           # GET /api/auth/me
+â”‚   â”‚   â”œâ”€â”€ /clients
+â”‚   â”‚   â”‚   â”œâ”€â”€ route.ts              # GET (list), POST (create)
+â”‚   â”‚   â”‚   â””â”€â”€ /[id]
+â”‚   â”‚   â”‚       â””â”€â”€ route.ts          # GET, PATCH, DELETE
+â”‚   â”‚   â””â”€â”€ ... (other entities)
+â”‚   â”‚
+â”‚   â”œâ”€â”€ /(auth)                       # Auth pages (unprotected)
+â”‚   â”‚   â”œâ”€â”€ login/page.tsx
+â”‚   â”‚   â””â”€â”€ layout.tsx
+â”‚   â”‚
+â”‚   â””â”€â”€ /(app)                        # App pages (protected)
+â”‚       â”œâ”€â”€ layout.tsx                # App shell with sidebar
+â”‚       â”œâ”€â”€ /overlook                 # Dashboard
+â”‚       â”‚   â””â”€â”€ page.tsx
+â”‚       â”œâ”€â”€ /foundry                  # Patrons, Sites
+â”‚       â”‚   â”œâ”€â”€ /patrons
+â”‚       â”‚   â”‚   â”œâ”€â”€ page.tsx          # List view
+â”‚       â”‚   â”‚   â””â”€â”€ /[id]/page.tsx    # Detail view
+â”‚       â”‚   â””â”€â”€ /sites
+â”‚       â””â”€â”€ ... (other sections)
+â”‚
+â”œâ”€â”€ /components                       # React Components
+â”‚   â”œâ”€â”€ /ui                           # Generic UI (shadcn/ui based)
+â”‚   â”‚   â”œâ”€â”€ button.tsx
+â”‚   â”‚   â”œâ”€â”€ input.tsx
+â”‚   â”‚   â”œâ”€â”€ card.tsx
+â”‚   â”‚   â”œâ”€â”€ modal.tsx
+â”‚   â”‚   â”œâ”€â”€ drawer.tsx
+â”‚   â”‚   â””â”€â”€ ... 
+â”‚   â”œâ”€â”€ /domain                       # Domain-specific components
+â”‚   â”‚   â”œâ”€â”€ /clients
+â”‚   â”‚   â”‚   â”œâ”€â”€ ClientCard.tsx
+â”‚   â”‚   â”‚   â”œâ”€â”€ ClientForm.tsx
+â”‚   â”‚   â”‚   â””â”€â”€ ClientList.tsx
+â”‚   â”‚   â”œâ”€â”€ /tasks
+â”‚   â”‚   â”‚   â”œâ”€â”€ TaskCard.tsx
+â”‚   â”‚   â”‚   â”œâ”€â”€ TaskStatusBadge.tsx
+â”‚   â”‚   â”‚   â””â”€â”€ TaskForm.tsx
+â”‚   â”‚   â””â”€â”€ ... (other entities)
+â”‚   â””â”€â”€ /layout
+â”‚       â”œâ”€â”€ Sidebar.tsx
+â”‚       â”œâ”€â”€ Header.tsx
+â”‚       â”œâ”€â”€ PageHeader.tsx
+â”‚       â””â”€â”€ TimerWidget.tsx
+â”‚
+â”œâ”€â”€ /lib                              # Utilities and shared logic
+â”‚   â”œâ”€â”€ /api                          # API utilities
+â”‚   â”‚   â”œâ”€â”€ client.ts                 # Fetch wrapper with auth
+â”‚   â”‚   â”œâ”€â”€ formatters.ts             # Response formatters
+â”‚   â”‚   â””â”€â”€ errors.ts                 # Error handling
+â”‚   â”œâ”€â”€ /auth                         # Auth utilities
+â”‚   â”‚   â”œâ”€â”€ jwt.ts                    # JWT helpers
+â”‚   â”‚   â”œâ”€â”€ middleware.ts             # Auth middleware
+â”‚   â”‚   â””â”€â”€ permissions.ts            # Role checking
+â”‚   â”œâ”€â”€ /db                           # Database utilities
+â”‚   â”‚   â”œâ”€â”€ prisma.ts                 # Prisma client singleton
+â”‚   â”‚   â””â”€â”€ queries/                  # Complex query helpers
+â”‚   â”œâ”€â”€ /hooks                        # Custom React hooks
+â”‚   â”‚   â”œâ”€â”€ useAuth.ts
+â”‚   â”‚   â”œâ”€â”€ useTimer.ts
+â”‚   â”‚   â””â”€â”€ useClients.ts             # React Query hooks per entity
+â”‚   â”œâ”€â”€ /utils                        # General utilities
+â”‚   â”‚   â”œâ”€â”€ date.ts                   # Date formatting
+â”‚   â”‚   â”œâ”€â”€ string.ts                 # String utilities
+â”‚   â”‚   â””â”€â”€ validation.ts             # Zod schemas
+â”‚   â”œâ”€â”€ /calculations                 # Business logic
+â”‚   â”‚   â”œâ”€â”€ energy.ts                 # Energy calculations
+â”‚   â”‚   â”œâ”€â”€ retainer.ts               # Retainer tracking
+â”‚   â”‚   â””â”€â”€ status.ts                 # Status transitions
+â”‚   â””â”€â”€ /constants                    # App constants
+â”‚       â”œâ”€â”€ statuses.ts
+â”‚       â”œâ”€â”€ roles.ts
+â”‚       â””â”€â”€ terminology.ts            # Fantasy â†” Standard mapping
+â”‚
+â”œâ”€â”€ /prisma
+â”‚   â”œâ”€â”€ schema.prisma                 # Database schema
+â”‚   â””â”€â”€ /migrations
+â”‚
+â”œâ”€â”€ /types                            # TypeScript types
+â”‚   â”œâ”€â”€ entities.ts                   # Entity types (generated + extended)
+â”‚   â”œâ”€â”€ api.ts                        # API request/response types
+â”‚   â””â”€â”€ ui.ts                         # UI-specific types
+â”‚
+â””â”€â”€ /__tests__                        # Test files
+    â”œâ”€â”€ /unit
+    â”‚   â”œâ”€â”€ /calculations
+    â”‚   â””â”€â”€ /utils
+    â”œâ”€â”€ /integration
+    â”‚   â””â”€â”€ /api
+    â””â”€â”€ /e2e
+```
+
+### Single Responsibility Rules
+
+| File Type | Rule | Example |
+|-----------|------|---------|
+| **API Routes** | One route file per endpoint group | `/api/clients/route.ts` handles GET (list) and POST (create) |
+| **API Route [id]** | One file for single-resource operations | `/api/clients/[id]/route.ts` handles GET, PATCH, DELETE |
+| **Page Components** | One page file per route | `/overlook/page.tsx` is the dashboard |
+| **UI Components** | One component per file | `button.tsx`, `card.tsx` |
+| **Domain Components** | One component per file, grouped by entity | `ClientCard.tsx`, `ClientForm.tsx` |
+| **Utilities** | Group related functions, max ~10 functions | `date.ts` has all date utilities |
+| **Hooks** | One hook per file | `useClients.ts` |
+| **Types** | Group by domain | `entities.ts` has all entity types |
+
+---
+
+## ðŸ§± Component Library Rules
+
+### â›” MANDATORY: Single Source of Truth
+
+**EVERY UI element MUST come from the component library.** No exceptions.
+
+```
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚  RULE: If you need a button, badge, card, input, or ANY reusable element:  â”‚
+â”‚                                                                             â”‚
+â”‚  1. Check /components/ui/ â€” Does it exist?                                  â”‚
+â”‚     â”œâ”€â”€ YES â†’ Import and use it                                             â”‚
+â”‚     â””â”€â”€ NO  â†’ Create it in /components/ui/ FIRST, then use it               â”‚
+â”‚                                                                             â”‚
+â”‚  NEVER inline styles. NEVER create one-off elements.                        â”‚
+â”‚  The library is the SINGLE SOURCE OF TRUTH for all UI elements.             â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+```
+
+**Why this matters:**
+- Consistency: Every button looks the same across the app
+- Maintainability: Change once, update everywhere  
+- Speed: Don't reinvent the wheel each time
+- Quality: Components are tested and refined once
+
+**What happens if you don't follow this:**
+- Inconsistent UI across the app
+- Bugs that only appear in some places
+- Impossible to update styles globally
+- Technical debt that compounds
+
+### Component Hierarchy
+
+```
+/components/ui/          â† Generic, reusable, NO business logic
+    button.tsx           â† Use everywhere buttons are needed
+    badge.tsx            â† Status indicators
+    card.tsx             â† Container cards
+    modal.tsx            â† Dialog modals
+    ...
+
+/components/domain/      â† Business-specific, USES /ui/ components
+    /clients/
+        ClientCard.tsx   â† Uses Card, Badge, Button from /ui/
+        ClientForm.tsx   â† Uses Input, Select, Button from /ui/
+    ...
+
+/components/layout/      â† App structure, USES /ui/ components
+    Sidebar.tsx
+    Header.tsx
+    ...
+```
+
+### Before Building ANY UI
+
+1. **Check mockups first:**
+   ```
+   /implementation/mockups/{feature}/
+   â”œâ”€â”€ preview.png       â† What it should look like
+   â””â”€â”€ sample.tsx        â† Reference code (adapt as needed)
+   ```
+
+2. **Check if component exists:**
+   - Search `/components/ui/` for generic elements
+   - Search `/components/domain/` for domain elements
+
+3. **Build library component first:**
+   If you need a button/card/badge/input that doesn't exist â†’ create in `/components/ui/`
+
+4. **Then build feature component:**
+   Import and compose from `/components/ui/`
+
+### Component Library Standards
+
+**UI Components (`/components/ui/`):**
+- Use `class-variance-authority` (CVA) for variants
+- Use `cn()` utility for className merging
+- Export named components (not default)
+- No business logic, no API calls
+- Props are generic (children, className, variant, size, etc.)
+
+```tsx
+// âœ… CORRECT: Generic UI component
+// /components/ui/badge.tsx
+import { cva, type VariantProps } from 'class-variance-authority';
+import { cn } from '@/lib/utils/cn';
+
+const badgeVariants = cva(
+  'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+  {
+    variants: {
+      variant: {
+        default: 'bg-stone-100 text-stone-800',
+        success: 'bg-green-100 text-green-800',
+        warning: 'bg-amber-100 text-amber-800',
+        error: 'bg-red-100 text-red-800',
+      },
+    },
+    defaultVariants: { variant: 'default' },
+  }
+);
+
+interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement>,
+  VariantProps<typeof badgeVariants> {}
+
+export function Badge({ className, variant, ...props }: BadgeProps) {
+  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
+}
+```
+
+**Domain Components (`/components/domain/`):**
+- Import from `/components/ui/`
+- Contains business logic
+- Receives typed entity props
+- May use React Query hooks
+
+```tsx
+// âœ… CORRECT: Domain component uses library
+// /components/domain/clients/ClientCard.tsx
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import type { Client } from '@/types/entities';
+
+const statusVariants = {
+  active: 'success',
+  inactive: 'default',
+  delinquent: 'error',
+} as const;
+
+export function ClientCard({ client }: { client: Client }) {
+  return (
+    <Card>
+      <CardHeader>
+        <span className="font-medium">{client.name}</span>
+        <Badge variant={statusVariants[client.status]}>
+          {client.status}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        <p>{client.primary_contact}</p>
+        <Button variant="ghost" size="sm">View Details</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+```tsx
+// âŒ WRONG: Inline styles, not using library
+export function ClientCard({ client }: { client: Client }) {
+  return (
+    <div className="rounded-lg border border-stone-200 p-4 shadow">
+      <div className="flex justify-between">
+        <span className="font-medium">{client.name}</span>
+        <span className="inline-flex rounded-full px-2 py-1 text-xs bg-green-100 text-green-800">
+          {client.status}
+        </span>
+      </div>
+      <button className="mt-2 px-3 py-1 text-sm rounded hover:bg-stone-100">
+        View Details
+      </button>
+    </div>
+  );
+}
+```
+
+### Required UI Library Components (Build in Phase 1)
+
+| Component | File | Variants |
+|-----------|------|----------|
+| Button | `button.tsx` | primary, secondary, ghost, destructive; sm, md, lg |
+| Badge | `badge.tsx` | default, success, warning, error, info |
+| Card | `card.tsx` | CardHeader, CardContent, CardFooter |
+| Input | `input.tsx` | default, error state |
+| Select | `select.tsx` | with options |
+| Modal | `modal.tsx` | default, large |
+| Drawer | `drawer.tsx` | left, right |
+| Skeleton | `skeleton.tsx` | line, card, avatar |
+| Spinner | `spinner.tsx` | sm, md, lg |
+| EmptyState | `empty-state.tsx` | icon, title, description, action |
+
+### Naming Conventions
+
+| Category | Convention | Examples |
+|----------|------------|----------|
+| **Files** | kebab-case for utilities, PascalCase for components | `date.ts`, `ClientCard.tsx` |
+| **Components** | PascalCase | `TaskCard`, `TimerWidget` |
+| **Functions** | camelCase, verb-first | `formatDate()`, `calculateEnergy()` |
+| **Hooks** | camelCase, `use` prefix | `useClients()`, `useTimer()` |
+| **Types/Interfaces** | PascalCase | `Client`, `TaskStatus` |
+| **Constants** | SCREAMING_SNAKE_CASE | `TASK_STATUSES`, `ROLE_PERMISSIONS` |
+| **API Routes** | lowercase with hyphens | `/api/time-entries` |
+| **Database tables** | snake_case, plural | `clients`, `time_entries` |
+| **Database columns** | snake_case | `created_at`, `project_id` |
+
+---
+
+## ðŸ“ Coding Standards
+
+### TypeScript
+
+```typescript
+// âœ… GOOD: Explicit types, named exports
+export interface ClientListResponse {
+  clients: Client[];
+  total: number;
+  page: number;
+}
+
+export function getClients(params: GetClientsParams): Promise<ClientListResponse> {
+  // ...
+}
+
+// âŒ BAD: Implicit any, default exports for utilities
+export default function(params) {
+  // ...
+}
+```
+
+### API Routes
+
+```typescript
+// âœ… GOOD: /app/api/clients/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db/prisma';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { formatClientResponse } from '@/lib/api/formatters';
+import { ApiError, handleApiError } from '@/lib/api/errors';
+
+export async function GET(request: NextRequest) {
+  try {
+    const user = await requireAuth(request);
+    
+    const clients = await prisma.client.findMany({
+      where: { is_deleted: false },
+      orderBy: { name: 'asc' },
+    });
+    
+    return NextResponse.json({
+      clients: clients.map(formatClientResponse),
+      total: clients.length,
+    });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await requireAuth(request);
+    requireRole(user, ['pm', 'admin']);
+    
+    const body = await request.json();
+    // Validate with Zod...
+    
+    const client = await prisma.client.create({ data: body });
+    
+    return NextResponse.json(formatClientResponse(client), { status: 201 });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+```
+
+### React Components
+
+```tsx
+// âœ… GOOD: /components/domain/clients/ClientCard.tsx
+'use client';
+
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { formatDate } from '@/lib/utils/date';
+import { useTerminology } from '@/lib/hooks/useTerminology';
+import type { Client } from '@/types/entities';
+
+interface ClientCardProps {
+  client: Client;
+  onClick?: (client: Client) => void;
+}
+
+export function ClientCard({ client, onClick }: ClientCardProps) {
+  const { t } = useTerminology();
+  
+  return (
+    <Card 
+      className="cursor-pointer hover:shadow-md transition-shadow"
+      onClick={() => onClick?.(client)}
+    >
+      <CardHeader>
+        <h3 className="text-lg font-medium">{client.name}</h3>
+        <Badge variant={client.status === 'active' ? 'success' : 'default'}>
+          {client.status}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">
+          {client.sites_count} {t('site', client.sites_count)}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### React Query Hooks
+
+```typescript
+// âœ… GOOD: /lib/hooks/useClients.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api/client';
+import type { Client, CreateClientInput } from '@/types/entities';
+
+// Query key factory - ALWAYS use this pattern
+export const clientKeys = {
+  all: ['clients'] as const,
+  lists: () => [...clientKeys.all, 'list'] as const,
+  list: (filters: ClientFilters) => [...clientKeys.lists(), filters] as const,
+  details: () => [...clientKeys.all, 'detail'] as const,
+  detail: (id: string) => [...clientKeys.details(), id] as const,
+};
+
+export function useClients(filters: ClientFilters = {}) {
+  return useQuery({
+    queryKey: clientKeys.list(filters),
+    queryFn: () => apiClient.get<ClientListResponse>('/api/clients', { params: filters }),
+  });
+}
+
+export function useClient(id: string) {
+  return useQuery({
+    queryKey: clientKeys.detail(id),
+    queryFn: () => apiClient.get<Client>(`/api/clients/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateClient() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (data: CreateClientInput) => 
+      apiClient.post<Client>('/api/clients', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+    },
+  });
+}
+```
+
+### Error Handling
+
+```typescript
+// âœ… GOOD: /lib/api/errors.ts
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number = 500,
+    public code?: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export function handleApiError(error: unknown): NextResponse {
+  console.error('API Error:', error);
+  
+  if (error instanceof ApiError) {
+    return NextResponse.json(
+      { error: error.message, code: error.code },
+      { status: error.statusCode }
+    );
+  }
+  
+  if (error instanceof z.ZodError) {
+    return NextResponse.json(
+      { error: 'Validation failed', details: error.errors },
+      { status: 400 }
+    );
+  }
+  
+  return NextResponse.json(
+    { error: 'Internal server error' },
+    { status: 500 }
+  );
+}
+```
+
+---
+
+## ðŸ”§ Utility Function Registry
+
+**CRITICAL: Before writing any utility function, search this registry AND the codebase.**
+
+### Existing Utilities (Update as codebase grows)
+
+| Category | File | Functions | Description |
+|----------|------|-----------|-------------|
+| **Date** | `/lib/utils/date.ts` | `formatDate()`, `formatDateTime()`, `formatRelativeTime()`, `parseISO()` | Date formatting |
+| **String** | `/lib/utils/string.ts` | `slugify()`, `truncate()`, `capitalize()` | String manipulation |
+| **API** | `/lib/api/client.ts` | `apiClient.get()`, `apiClient.post()`, `apiClient.patch()`, `apiClient.delete()` | HTTP client |
+| **API** | `/lib/api/formatters.ts` | `formatClientResponse()`, `formatProjectResponse()`, `formatTaskResponse()` | Response formatting |
+| **API** | `/lib/api/errors.ts` | `ApiError`, `handleApiError()` | Error handling |
+| **Auth** | `/lib/auth/jwt.ts` | `signToken()`, `verifyToken()`, `refreshToken()` | JWT operations |
+| **Auth** | `/lib/auth/middleware.ts` | `requireAuth()`, `requireRole()`, `getSession()` | Auth middleware |
+| **Auth** | `/lib/auth/permissions.ts` | `canViewBilling()`, `canManageUsers()`, `checkPermission()` | Permission checks |
+| **Calculations** | `/lib/calculations/energy.ts` | `calculateWeightedEnergy()`, `getMysteryMultiplier()` | Energy/effort math |
+| **Calculations** | `/lib/calculations/status.ts` | `canTransitionStatus()`, `getNextStatuses()` | Status transitions |
+| **Calculations** | `/lib/calculations/retainer.ts` | `calculateRetainerUsage()`, `checkRetainerThreshold()` | Retainer tracking |
+| **DB** | `/lib/db/prisma.ts` | `prisma` (singleton) | Database client |
+| **Terminology** | `/lib/constants/terminology.ts` | `TERM_MAP`, `getTerm()` | Fantasy â†” Standard |
+
+### Registering New Utilities
+
+When you create a new utility function:
+
+1. Add it to this table with category, file, function name, description
+2. Export it as a named export (not default)
+3. Include JSDoc comments
+4. Add unit tests
+
+```typescript
+// âœ… GOOD: Registerable utility
+/**
+ * Calculates weighted energy for a task based on mystery factor
+ * @param baseEnergy - Base energy estimate (1-8)
+ * @param mysteryFactor - Uncertainty level ('none' | 'average' | 'significant' | 'no_idea')
+ * @returns Weighted energy value
+ */
+export function calculateWeightedEnergy(
+  baseEnergy: number,
+  mysteryFactor: MysteryFactor
+): number {
+  const multiplier = getMysteryMultiplier(mysteryFactor);
+  return baseEnergy * multiplier;
+}
+```
+
+---
+
+## âœ… Quality Checklist
+
+### Before Submitting Any Code
+
+The **Reviewer Agent** must verify:
+
+#### 1. Single Responsibility
+- [ ] Each file has one primary purpose
+- [ ] No file exceeds ~200 lines (split if larger)
+- [ ] Related logic is grouped in same directory
+
+#### 2. No Utility Duplication
+- [ ] Searched `/lib/utils/` before creating new utility
+- [ ] Searched codebase for similar functions
+- [ ] If new utility created, added to registry above
+
+#### 3. Real Function Names
+- [ ] All imported functions exist in source files
+- [ ] No assumed/invented function names
+- [ ] Verified exports in imported modules
+
+#### 4. Code Standards
+- [ ] TypeScript types for all function params/returns
+- [ ] Named exports (not default)
+- [ ] Error handling follows patterns
+- [ ] Console.error only (no console.log in production code)
+
+#### 5. Testing
+- [ ] Unit tests for business logic
+- [ ] Integration tests for API endpoints
+- [ ] Tests actually run and pass
+
+---
+
+## ðŸ§ª Testing Requirements
+
+### Test File Organization
+
+```
+/__tests__
+â”œâ”€â”€ /unit                          # Fast, isolated tests
+â”‚   â”œâ”€â”€ /calculations
+â”‚   â”‚   â”œâ”€â”€ energy.test.ts         # Tests for /lib/calculations/energy.ts
+â”‚   â”‚   â””â”€â”€ status.test.ts
+â”‚   â””â”€â”€ /utils
+â”‚       â””â”€â”€ date.test.ts
+â”‚
+â”œâ”€â”€ /integration                   # API + database tests
+â”‚   â””â”€â”€ /api
+â”‚       â”œâ”€â”€ clients.test.ts
+â”‚       â””â”€â”€ tasks.test.ts
+â”‚
+â””â”€â”€ /e2e                          # Full user flow tests
+    â”œâ”€â”€ auth.spec.ts
+    â””â”€â”€ project-wizard.spec.ts
+```
+
+### Test Workflow
+
+```
+1. WRITER Agent creates code
+2. WRITER Agent creates corresponding test file
+3. TESTER Agent runs tests:
+   
+   # Unit tests for specific module
+   npm run test:unit -- calculations/energy
+   
+   # Integration tests for specific API
+   npm run test:integration -- api/clients
+   
+   # All tests
+   npm run test
+
+4. TESTER Agent reports results
+5. If failures â†’ FIXER Agent addresses issues
+6. Loop until all tests pass
+```
+
+### Minimum Test Coverage
+
+| Area | Coverage Target |
+|------|-----------------|
+| `/lib/calculations/` | 90%+ |
+| `/lib/auth/` | 90%+ |
+| `/app/api/` | 80%+ |
+| `/components/domain/` | 60%+ |
+
+---
+
+## ðŸ”„ Phase-by-Phase Checklists
+
+These checklists are synchronized with `indelible-implementation-plan.md`. Update both documents as work progresses.
+
+### Phase 1: Foundation + Auth
+**Reference:** `indelible-auth-design.md`, `indelible-data-model-refinement.md`
+
+#### 1.1 Project Setup
+- [ ] Initialize Next.js project with TypeScript
+- [ ] Configure Tailwind CSS
+- [ ] Set up directory structure per this document
+- [ ] Configure ESLint + Prettier
+- [ ] Set up environment variables (.env.local, .env.example)
+- [ ] Initialize Git repository
+
+#### 1.2 Database Setup
+- [ ] Create Prisma schema from `indelible-data-model-refinement.md`
+- [ ] Configure PostgreSQL connection
+- [ ] Enable pgvector extension
+- [ ] Generate initial migration
+- [ ] Create seed script (functions, plans, test users)
+- [ ] **Test:** `npm run db:seed` works
+
+#### 1.3 Authentication
+- [ ] Implement `/api/auth/login`
+- [ ] Implement `/api/auth/logout`
+- [ ] Implement `/api/auth/refresh`
+- [ ] Implement `/api/auth/me`
+- [ ] Set up JWT with HTTP-only cookies
+- [ ] Create `requireAuth()` middleware
+- [ ] Create `requireRole()` middleware
+- [ ] Build login page
+- [ ] **Test:** All auth endpoints have integration tests
+- [ ] **Review:** Code follows patterns in this document
+
+#### 1.4 App Shell
+- [ ] Create authenticated layout wrapper
+- [ ] Build Sidebar component (per `indelible-wireframes-global-shell.md`)
+- [ ] Build Header component
+- [ ] Create placeholder dashboard pages
+- [ ] **Test:** Manual navigation works for all roles
+- [ ] **Review:** Components follow naming conventions
+
+**Phase 1 Signoff:**
+- [ ] All 1.1-1.4 items checked
+- [ ] All tests passing
+- [ ] Code reviewed by Reviewer Agent
+- [ ] Progress updated in Master Tracker above
+
+---
+
+### Phase 2: Core Entities (CRUD)
+**Reference:** `indelible-api-endpoint-inventory.md`, `indelible-wireframes-list-views.md`
+
+#### 2.1 API Layer Setup
+- [ ] Set up React Query client
+- [ ] Create `/lib/api/client.ts`
+- [ ] Create query key factories
+- [ ] Set up error handling patterns
+- [ ] **Test:** API client handles auth refresh
+
+#### 2.2 Patrons (Clients)
+- [ ] API: GET /api/clients (list with filters)
+- [ ] API: GET /api/clients/:id (detail)
+- [ ] API: POST /api/clients (create)
+- [ ] API: PATCH /api/clients/:id (update)
+- [ ] API: DELETE /api/clients/:id (soft delete)
+- [ ] Hook: `useClients()`, `useClient()`, `useCreateClient()`, etc.
+- [ ] UI: Client list page
+- [ ] UI: Client detail page with tabs
+- [ ] UI: Create/Edit modal
+- [ ] **Test:** Integration tests for all endpoints
+- [ ] **Test:** Component renders correctly
+
+#### 2.3 Sites
+- [ ] API: All CRUD endpoints
+- [ ] Hooks: All query/mutation hooks
+- [ ] UI: List, detail, create/edit
+- [ ] **Test:** All passing
+
+#### 2.4 Domains
+- [ ] API: All CRUD endpoints
+- [ ] UI: Simple table with create/edit
+- [ ] **Test:** All passing
+
+#### 2.5 Reference Data Management
+- [ ] Hosting Plans CRUD (Admin only)
+- [ ] Maintenance Plans CRUD (Admin only)
+- [ ] Functions CRUD (Admin only)
+- [ ] Tools CRUD (Admin only)
+- [ ] **Test:** Permission checks work
+
+**Phase 2 Signoff:**
+- [ ] All 2.1-2.5 items checked
+- [ ] All tests passing
+- [ ] Code reviewed
+- [ ] Utility registry updated
+- [ ] Progress updated in Master Tracker
+
+---
+
+*[Continue pattern for Phases 3-10...]*
+
+---
+
+## ðŸš¨ Common Mistakes to Avoid
+
+### 1. Inventing Functions
+
+```typescript
+// âŒ BAD: formatClient() doesn't exist
+import { formatClient } from '@/lib/api/formatters';
+
+// âœ… GOOD: Verify it exists first, use correct name
+import { formatClientResponse } from '@/lib/api/formatters';
+```
+
+### 2. Duplicating Utilities
+
+```typescript
+// âŒ BAD: Creating new date formatter when one exists
+function formatTaskDate(date: Date) {
+  return date.toLocaleDateString();
+}
+
+// âœ… GOOD: Use existing utility
+import { formatDate } from '@/lib/utils/date';
+```
+
+### 3. Missing Error Handling
+
+```typescript
+// âŒ BAD: No error handling
+export async function GET(request: NextRequest) {
+  const clients = await prisma.client.findMany();
+  return NextResponse.json(clients);
+}
+
+// âœ… GOOD: Proper error handling
+export async function GET(request: NextRequest) {
+  try {
+    const user = await requireAuth(request);
+    const clients = await prisma.client.findMany();
+    return NextResponse.json(clients);
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+```
+
+### 4. Wrong Import Paths
+
+```typescript
+// âŒ BAD: Relative imports from deep nesting
+import { Button } from '../../../../components/ui/button';
+
+// âœ… GOOD: Path aliases
+import { Button } from '@/components/ui/button';
+```
+
+### 5. Missing Types
+
+```typescript
+// âŒ BAD: Implicit any
+function processTask(task) {
+  return task.name;
+}
+
+// âœ… GOOD: Explicit types
+function processTask(task: Task): string {
+  return task.name;
+}
+```
+
+---
+
+## ðŸ“‹ Session Startup Checklist
+
+**At the start of each Claude Code session:**
+
+1. [ ] Read this entire document (or refresh key sections)
+2. [ ] Check Master Progress Tracker â€” what phase are we in?
+3. [ ] Read the relevant phase section of `indelible-implementation-plan.md`
+4. [ ] Read any referenced documents for current phase
+5. [ ] Review Utility Registry for existing functions
+6. [ ] Plan the session's tasks
+7. [ ] Begin with Reader Agent to understand context
+
+**At the end of each session:**
+
+1. [ ] Update Master Progress Tracker
+2. [ ] Update Session Log
+3. [ ] Update Utility Registry if new utilities added
+4. [ ] Run all tests
+5. [ ] Commit changes with descriptive message
+6. [ ] Note any blockers or next steps
+
+---
+
+## ðŸ”— Quick Reference Links
+
+| What | Where |
+|------|-------|
+| Database schema | `indelible-data-model-refinement.md` |
+| API endpoints | `indelible-api-endpoint-inventory.md` |
+| Auth details | `indelible-auth-design.md` |
+| React Query patterns | `indelible-state-management-plan.md` |
+| UI wireframes | `indelible-wireframes-*.md` |
+| Component patterns | `indelible-component-library.md` |
+| Test approach | `indelible-testing-strategy.md` |
+| Deploy process | `indelible-deployment-devops.md` |
+
+---
+
+*Last Updated: December 2025*
+*Document Status: Ready for Claude Code sessions*

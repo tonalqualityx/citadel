@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - User Settings - Appearance</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "bg-dim": "#F5F5F0",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D3A",
+                        "text-sub": "#666666",
+                        "accent-teal": "#4A9B9B",
+                        "accent-teal-soft": "rgba(74, 155, 155, 0.1)",
+                        "border-subtle": "#E2DED6",
+                        "warning-amber": "#D4A574",
+                        "preview-dark-bg": "#1A1A2E",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 58, 0.05), 0 1px 4px -2px rgba(45, 45, 58, 0.02)',
+                        'hover': '0 4px 12px -2px rgba(45, 45, 58, 0.08), 0 2px 6px -2px rgba(45, 45, 58, 0.04)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-bg-dim text-text-main font-display antialiased h-screen overflow-hidden flex flex-col">
+<header class="h-14 bg-surface border-b border-border-subtle flex items-center justify-between px-4 z-50 shrink-0 shadow-sm relative">
+<div class="flex items-center gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-bg-dim transition-colors">
+<span class="material-symbols-outlined text-2xl">menu</span>
+</button>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+</div>
+<div class="hidden md:flex flex-1 items-center justify-end pr-8 max-w-4xl mx-auto w-full">
+<div class="relative group w-full max-w-sm">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-0 bg-bg-dim py-2 pl-10 pr-4 text-text-main placeholder:text-text-sub focus:ring-2 focus:ring-accent-teal/20 sm:text-sm shadow-inner transition-all" placeholder="Search... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="relative p-2 text-text-sub hover:text-text-main rounded-lg hover:bg-bg-dim transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning-amber opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-warning-amber"></span>
+</span>
+</button>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-border-subtle cursor-pointer" data-alt="User profile photo" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');">
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-bg-dim border-r border-border-subtle flex flex-col shrink-0 overflow-y-auto pt-6 pb-4">
+<div class="px-6 mb-8">
+<a class="flex items-center gap-2 text-text-main hover:text-accent-teal transition-colors group" href="#">
+<span class="material-symbols-outlined text-[20px]">arrow_back</span>
+<span class="text-[18px] font-semibold">Settings</span>
+</a>
+</div>
+<div class="px-6 mb-2">
+<h3 class="text-xs font-bold text-text-sub uppercase tracking-wider mb-2">Account</h3>
+<nav class="space-y-1">
+<a class="flex items-center h-10 px-3 -mx-3 rounded-lg text-text-main hover:bg-black/5 transition-colors" href="#">
+<span class="text-[16px]">Profile</span>
+</a>
+<a class="flex items-center h-10 px-3 -mx-3 rounded-lg text-text-main hover:bg-black/5 transition-colors" href="#">
+<span class="text-[16px]">Notifications</span>
+</a>
+</nav>
+</div>
+<div class="mx-6 my-4 border-t border-border-subtle"></div>
+<div class="px-6">
+<h3 class="text-xs font-bold text-text-sub uppercase tracking-wider mb-2">Preferences</h3>
+<nav class="space-y-1">
+<a class="flex items-center h-10 px-3 -mx-3 rounded-r-lg bg-accent-teal-soft text-text-main border-l-[3px] border-accent-teal font-medium transition-colors" href="#">
+<span class="text-[16px]">Appearance</span>
+</a>
+<a class="flex items-center h-10 px-3 -mx-3 rounded-lg text-text-main hover:bg-black/5 transition-colors" href="#">
+<span class="text-[16px]">Naming Convention</span>
+</a>
+</nav>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto bg-bg-dim p-8 md:p-12 custom-scrollbar">
+<div class="max-w-3xl mx-auto">
+<header class="mb-8">
+<h1 class="text-2xl font-semibold text-text-main mb-1">Appearance</h1>
+<p class="text-[16px] text-text-sub">Customize how Indelible looks for you.</p>
+</header>
+<div class="bg-surface rounded-lg shadow-soft p-0 mb-6 overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle">
+<h2 class="text-[16px] font-semibold text-text-main">Theme</h2>
+</div>
+<div class="p-6">
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+<button class="group flex flex-col text-left focus:outline-none">
+<div class="w-[120px] h-[100px] rounded-lg border border-border-subtle relative overflow-hidden group-hover:shadow-hover group-hover:-translate-y-0.5 transition-all bg-white mb-2">
+<div class="absolute top-0 left-0 right-0 h-full bg-white flex">
+<div class="w-1/4 h-full bg-gray-100 border-r border-gray-200"></div>
+<div class="flex-1 h-full p-2 space-y-2">
+<div class="h-2 w-3/4 bg-gray-100 rounded"></div>
+<div class="h-2 w-1/2 bg-gray-100 rounded"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">☀️</span>
+<span class="text-sm font-medium text-text-main">LIGHT</span>
+</div>
+</button>
+<button class="group flex flex-col text-left focus:outline-none">
+<div class="w-[120px] h-[100px] rounded-lg border-[2px] border-accent-teal bg-accent-teal-soft relative overflow-hidden group-hover:shadow-hover group-hover:-translate-y-0.5 transition-all mb-2">
+<div class="absolute top-0 left-0 right-0 h-full bg-[#F5F5F0] flex">
+<div class="w-1/4 h-full bg-[#E5E5E0] border-r border-[#D6D6D0]"></div>
+<div class="flex-1 h-full p-2 space-y-2">
+<div class="h-2 w-3/4 bg-[#E5E5E0] rounded"></div>
+<div class="h-2 w-1/2 bg-[#E5E5E0] rounded"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-xl leading-none">🌤️</span>
+<span class="text-sm font-medium text-text-main">DIM</span>
+</div>
+<span class="text-[10px] font-bold text-accent-teal tracking-wide">● ACTIVE</span>
+</button>
+<button class="group flex flex-col text-left focus:outline-none">
+<div class="w-[120px] h-[100px] rounded-lg border border-border-subtle relative overflow-hidden group-hover:shadow-hover group-hover:-translate-y-0.5 transition-all bg-preview-dark-bg mb-2">
+<div class="absolute top-0 left-0 right-0 h-full bg-[#1A1A2E] flex">
+<div class="w-1/4 h-full bg-[#151525] border-r border-white/10"></div>
+<div class="flex-1 h-full p-2 space-y-2">
+<div class="h-2 w-3/4 bg-white/20 rounded"></div>
+<div class="h-2 w-1/2 bg-white/20 rounded"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🌙</span>
+<span class="text-sm font-medium text-text-main">DARK</span>
+</div>
+</button>
+</div>
+<div>
+<button class="group flex flex-col text-left focus:outline-none">
+<div class="w-[120px] h-[100px] rounded-lg border border-border-subtle relative overflow-hidden group-hover:shadow-hover group-hover:-translate-y-0.5 transition-all bg-white mb-2 flex items-center justify-center">
+<span class="text-4xl opacity-20 text-text-main">🖥️</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🖥️</span>
+<span class="text-sm font-medium text-text-main">SYSTEM</span>
+</div>
+<p class="text-xs text-text-sub mt-0.5">Match your operating system</p>
+</button>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-0 mb-6 overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle">
+<h2 class="text-[16px] font-semibold text-text-main">Motion</h2>
+</div>
+<div class="p-6 flex items-start justify-between">
+<div>
+<label class="block text-sm font-medium text-text-main mb-1">Reduce motion</label>
+<p class="text-xs text-[#888888]">Minimize animations throughout the interface</p>
+</div>
+<button aria-checked="false" class="bg-[#CCCCCC] relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-accent-teal focus:ring-offset-2" role="switch" type="button">
+<span aria-hidden="true" class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-0 mb-6 overflow-hidden opacity-60 pointer-events-none">
+<div class="px-6 py-4 border-b border-border-subtle flex items-center gap-2">
+<h2 class="text-[16px] font-semibold text-text-main">Density</h2>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-text-sub uppercase tracking-wide">(Future)</span>
+</div>
+<div class="p-6">
+<fieldset>
+<div class="space-y-3">
+<div class="flex items-center">
+<input class="h-4 w-4 border-gray-300 text-accent-teal focus:ring-accent-teal cursor-not-allowed" disabled="" id="density-comfortable" name="density" type="radio"/>
+<label class="ml-3 block text-sm font-medium text-text-main" for="density-comfortable">Comfortable</label>
+<span class="ml-2 text-xs text-text-sub">- More whitespace, larger targets</span>
+</div>
+<div class="flex items-center">
+<input checked="" class="h-4 w-4 border-gray-300 text-accent-teal focus:ring-accent-teal cursor-not-allowed" disabled="" id="density-default" name="density" type="radio"/>
+<label class="ml-3 block text-sm font-medium text-text-main" for="density-default">Default</label>
+<span class="ml-2 text-xs text-text-sub">- Balanced spacing</span>
+</div>
+<div class="flex items-center">
+<input class="h-4 w-4 border-gray-300 text-accent-teal focus:ring-accent-teal cursor-not-allowed" disabled="" id="density-compact" name="density" type="radio"/>
+<label class="ml-3 block text-sm font-medium text-text-main" for="density-compact">Compact</label>
+<span class="ml-2 text-xs text-text-sub">- Denser layout, more content</span>
+</div>
+</div>
+</fieldset>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

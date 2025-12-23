@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - Choose Starting Point</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "background-light": "#FAF9F7",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "border-warm": "#E2DED6",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased min-h-screen flex flex-col items-center">
+<main class="w-full max-w-[600px] flex flex-col items-center pt-[48px] px-6 pb-12">
+<div class="text-center w-full mb-[48px]">
+<h1 class="text-[28px] font-semibold text-[#2D2D2D] flex items-center justify-center gap-3 mb-[16px]">
+<span class="text-3xl">🤝</span> Create Pact
+            </h1>
+<p class="text-[16px] text-[#666666] font-normal">How would you like to start?</p>
+</div>
+<div class="flex flex-col md:flex-row gap-[24px] w-full items-stretch justify-center">
+<button class="group relative w-full md:w-[280px] bg-white rounded-[12px] border border-[#E2DED6] p-[32px] flex flex-col items-center text-center shadow-[0_2px_8px_rgba(0,0,0,0.06)] hover:border-[#5B8FB9] hover:ring-1 hover:ring-[#5B8FB9] hover:ring-inset hover:shadow-lg transition-all duration-200 cursor-pointer">
+<div class="text-[48px] mb-[16px] leading-none select-none">📋</div>
+<h3 class="text-[18px] font-semibold text-[#2D2D2D] mb-2">Start with Recipe</h3>
+<p class="text-[14px] text-[#666666] leading-[1.5] mb-[12px] line-clamp-3 min-h-[63px]">
+                    Choose a template that auto-generates phases and tasks for you
+                </p>
+<div class="mt-auto pt-4 w-full flex justify-center">
+<span class="inline-flex items-center justify-center h-[40px] px-[20px] bg-[#5B8FB9] text-white rounded-[6px] text-sm font-medium w-auto transition-colors">
+                        Browse Recipes
+                    </span>
+</div>
+</button>
+<button class="group relative w-full md:w-[280px] bg-white rounded-[12px] border border-[#E2DED6] p-[32px] flex flex-col items-center text-center shadow-[0_2px_8px_rgba(0,0,0,0.06)] hover:border-[#5B8FB9] hover:ring-1 hover:ring-[#5B8FB9] hover:ring-inset hover:shadow-lg transition-all duration-200 cursor-pointer">
+<div class="text-[48px] mb-[16px] leading-none select-none">✏️</div>
+<h3 class="text-[18px] font-semibold text-[#2D2D2D] mb-2">Start from Scratch</h3>
+<p class="text-[14px] text-[#666666] leading-[1.5] mb-[12px] line-clamp-3 min-h-[63px]">
+                    Create an empty project and add tasks manually
+                </p>
+<div class="mt-auto pt-4 w-full flex justify-center">
+<span class="inline-flex items-center justify-center h-[40px] px-[20px] bg-white border border-[#5B8FB9] text-[#5B8FB9] rounded-[6px] text-sm font-medium w-auto group-hover:bg-blue-50 transition-colors">
+                        Create Custom
+                    </span>
+</div>
+</button>
+</div>
+<div class="mt-[32px]">
+<a class="text-[#888888] hover:text-[#2D2D2D] text-sm transition-colors" href="#">Cancel</a>
+</div>
+</main>
+
+</body></html>
