@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - PM Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "background-light": "#FAF9F7",
+                        "background-dark": "#15191d",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "border-warm": "#E2DED6",
+                        "warning-gold": "#C4A24D",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>.custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased h-screen overflow-hidden flex flex-col">
+<header class="h-14 bg-surface border-b border-border-warm flex items-center justify-between px-4 z-50 shrink-0 shadow-sm relative">
+<div class="flex items-center gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined text-2xl">menu</span>
+</button>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+</div>
+<div class="hidden md:flex flex-1 items-center justify-end px-8">
+<div class="relative group w-full max-w-sm mr-4">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-text-main placeholder:text-text-sub focus:ring-2 focus:ring-primary/20 sm:text-sm shadow-inner transition-all" placeholder="Search... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-border-warm">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">--:--:--</span>
+<span class="text-xs text-text-sub font-medium ml-1">idle</span>
+</div>
+<button class="relative p-2 text-text-sub hover:text-text-main rounded-lg hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+</span>
+</button>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-border-warm cursor-pointer" data-alt="User profile photo of Sarah" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');">
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-background-light border-r border-border-warm flex flex-col shrink-0 overflow-hidden">
+<div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+<nav class="space-y-1 mb-6">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary border-l-[3px] border-primary font-medium group transition-colors" href="#">
+<span class="text-xl">🏔️</span>
+<span class="text-sm">Overlook</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⏱️</span>
+<span class="text-sm">Timekeeper</span>
+</a>
+</nav>
+<div class="mb-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                        🔥 Foundry
+                    </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🤝</span> Pacts
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🧑‍🚀</span> Patrons
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🏰</span> Sites
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔗</span> Domains
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">⚔️</span> Quests
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔨</span> Tools
+                        </a>
+</div>
+</div>
+<div class="mb-1">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        📖 Grimoire
+                    </button>
+</div>
+<div class="mb-4">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        ⚜️ Armory
+                    </button>
+</div>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⚙️</span>
+<span class="text-sm">Settings</span>
+</a>
+<div class="mt-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                            🔐 Admin
+                        </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">👥</span> Team
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">💼</span> Functions
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">📊</span> Reports
+                            </a>
+</div>
+</div>
+</nav>
+</div>
+<div class="p-3 border-t border-border-warm bg-background-light">
+<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface border border-transparent hover:border-border-warm hover:shadow-sm transition-all cursor-pointer group">
+<div class="h-9 w-9 rounded-full bg-cover bg-center shrink-0" data-alt="User profile photo of Sarah" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDoZeXyL4XYXhjR147Erav6S598IYnxT2vzgXzp5JOxV8H6hm5QMUJdztV8qVJgMw32KB2hvywAIQ_lxuOrKUi5okI3kypY-dnP_q6ra0OC-DPLAPpKnWg_VrIHps2t9ThdGLCrRTMU-9ptcYEjodVTFBzMlHeOkzfQocVh7_lIHo_3N6oQAjjiUEQboqXUZDCI9UKUA805ED-75023-nD6n9Qt4RyQVP46Ht7dFioEppUbyEQhJ67D2v7hZ4xzSy-Q2qi00r3vMqo');">
+</div>
+<div class="flex flex-col min-w-0 flex-1">
+<p class="text-sm font-semibold text-text-main truncate">Sarah Jenkins</p>
+<p class="text-xs text-text-sub truncate">Project Manager</p>
+</div>
+<a class="text-text-sub hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" href="#" title="Sign Out">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+</a>
+</div>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto bg-background-light">
+<div class="max-w-[1200px] mx-auto w-full pb-10">
+<div class="sticky top-0 bg-background-light/95 backdrop-blur-sm z-10 px-8 py-4 border-b border-border-warm/50">
+<nav aria-label="Breadcrumb" class="flex">
+<ol class="flex items-center space-x-2">
+<li>
+<div class="flex items-center">
+<a class="text-sm font-medium text-text-sub hover:text-primary transition-colors" href="#">
+                                        🧑‍🚀 Acme Corp
+                                    </a>
+</div>
+</li>
+<li>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-border-warm mx-1 text-[16px]">chevron_right</span>
+<a class="text-sm font-medium text-text-sub hover:text-primary transition-colors" href="#">
+                                        🏰 Main Website
+                                    </a>
+</div>
+</li>
+<li>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-border-warm mx-1 text-[16px]">chevron_right</span>
+<a class="text-sm font-medium text-text-main cursor-default" href="#">
+                                        🤝 Website Redesign
+                                    </a>
+</div>
+</li>
+</ol>
+</nav>
+</div>
+<div class="px-8 py-6">
+<div class="flex items-end justify-between">
+<div>
+<h2 class="text-3xl font-bold text-text-main tracking-tight mb-1">🏔️ Overlook</h2>
+<p class="text-text-sub">Welcome back, Sarah</p>
+</div>
+<div class="flex gap-2">
+<button class="inline-flex items-center gap-2 px-4 py-2 bg-surface border border-border-warm rounded-lg text-sm font-medium text-text-main hover:bg-gray-50 shadow-soft transition-all">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+                                Filter
+                            </button>
+<button class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 shadow-soft transition-all">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                                New Quest
+                            </button>
+</div>
+</div>
+</div>
+<div class="px-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 flex flex-col gap-6">
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-5 hover:border-primary/30 cursor-pointer transition-colors group">
+<div class="text-4xl font-bold text-text-main mb-2 group-hover:text-primary transition-colors">4</div>
+<div class="text-sm text-text-sub font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">assignment_late</span>
+                                    Reviews pending
+                                </div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-5 hover:border-warning-gold/50 cursor-pointer transition-colors group">
+<div class="text-4xl font-bold text-text-main mb-2 group-hover:text-warning-gold transition-colors">2</div>
+<div class="text-sm text-text-sub font-medium flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">warning</span>
+                                    Retainer alerts
+                                </div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft flex flex-col">
+<div class="px-6 py-4 border-b border-border-warm flex items-center justify-between">
+<h3 class="font-semibold text-text-main flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">assignment_turned_in</span>
+                                📋 Awaiting Review
+                            </h3>
+<button class="text-text-sub hover:text-primary text-sm font-medium">View All</button>
+</div>
+<div class="p-2">
+<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 hover:bg-background-light rounded-lg cursor-pointer group transition-colors border-b sm:border-b-0 border-border-warm/50 last:border-0">
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-sm font-semibold text-text-main group-hover:text-primary transition-colors">⚔️ Homepage Mockup</h4>
+<span class="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded border border-blue-200 uppercase font-bold tracking-wide">In Review</span>
+<div class="h-5 w-5 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600" title="Mike Hansen">MH</div>
+</div>
+<p class="text-xs text-text-sub">Acme › Redesign • submitted 2h ago</p>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<button class="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors">Approve</button>
+<button class="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors">Return</button>
+<button class="px-3 py-1.5 text-xs font-medium text-text-sub bg-white border border-border-warm rounded hover:bg-gray-50 transition-colors">View</button>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 hover:bg-background-light rounded-lg cursor-pointer group transition-colors">
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<h4 class="text-sm font-semibold text-text-main group-hover:text-primary transition-colors">⚔️ Mobile Menu Fix</h4>
+<span class="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded border border-blue-200 uppercase font-bold tracking-wide">In Review</span>
+<div class="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-600" title="Sarah Jenkins">SJ</div>
+</div>
+<p class="text-xs text-text-sub">Acme › Redesign • submitted 5h ago</p>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<button class="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors">Approve</button>
+<button class="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors">Return</button>
+<button class="px-3 py-1.5 text-xs font-medium text-text-sub bg-white border border-border-warm rounded hover:bg-gray-50 transition-colors">View</button>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft flex flex-col">
+<div class="px-6 py-4 border-b border-border-warm flex items-center justify-between">
+<h3 class="font-semibold text-text-main flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">handshake</span>
+                                🤝 My Pacts
+                            </h3>
+<button class="text-text-sub hover:text-primary text-sm font-medium">View All</button>
+</div>
+<div class="p-2">
+<div class="flex flex-col gap-3 p-4 hover:bg-background-light rounded-lg cursor-pointer group transition-colors">
+<div class="flex items-center justify-between">
+<h4 class="text-sm font-semibold text-text-main group-hover:text-primary transition-colors">🤝 Website Redesign</h4>
+<span class="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">In Progress</span>
+</div>
+<div class="flex items-center gap-4 mt-1">
+<div class="flex gap-1">
+<div class="w-2.5 h-2.5 rounded-full bg-primary"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-primary"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-primary"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+</div>
+<span class="text-xs text-text-sub">Acme Corp • 12/18 tasks</span>
+</div>
+</div>
+<div class="flex flex-col gap-3 p-4 hover:bg-background-light rounded-lg cursor-pointer group transition-colors border-t border-border-warm/50">
+<div class="flex items-center justify-between">
+<h4 class="text-sm font-semibold text-text-main group-hover:text-primary transition-colors">🤝 Q4 Marketing Campaign</h4>
+<span class="text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">In Progress</span>
+</div>
+<div class="flex items-center gap-4 mt-1">
+<div class="flex gap-1">
+<div class="w-2.5 h-2.5 rounded-full bg-primary"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+</div>
+<span class="text-xs text-text-sub">Beta Client • 2/15 tasks</span>
+</div>
+</div>
+<div class="flex flex-col gap-3 p-4 hover:bg-background-light rounded-lg cursor-pointer group transition-colors border-t border-border-warm/50">
+<div class="flex items-center justify-between">
+<h4 class="text-sm font-semibold text-text-main group-hover:text-primary transition-colors">🤝 Annual Report</h4>
+<span class="text-xs font-medium text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">Planning</span>
+</div>
+<div class="flex items-center gap-4 mt-1">
+<div class="flex gap-1">
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-gray-200"></div>
+</div>
+<span class="text-xs text-text-sub">Gamma Inc • 0/8 tasks</span>
+</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-3">
+<button class="w-full text-left bg-surface rounded-lg border border-border-warm p-4 flex items-center gap-3 text-text-sub hover:text-text-main transition-colors shadow-sm group hover:border-primary/30">
+<span class="material-symbols-outlined text-text-sub group-hover:text-primary transition-colors text-[20px]">play_arrow</span>
+<span class="font-medium">⚔️ My Focus Quests (2)</span>
+</button>
+<button class="w-full text-left bg-surface rounded-lg border border-border-warm p-4 flex items-center gap-3 text-text-sub hover:text-text-main transition-colors shadow-sm group hover:border-primary/30">
+<span class="material-symbols-outlined text-text-sub group-hover:text-primary transition-colors text-[20px]">play_arrow</span>
+<span class="font-medium">👥 Team Activity</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col gap-6">
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-6 flex flex-col gap-4 relative overflow-hidden group">
+<div class="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-9xl text-text-sub">timer_off</span>
+</div>
+<div class="flex items-center justify-between relative z-10">
+<h3 class="font-semibold text-text-main">Active Timer</h3>
+<span class="text-xs text-text-sub bg-gray-100 px-2 py-1 rounded">Idle</span>
+</div>
+<div class="flex flex-col gap-1 relative z-10 py-2">
+<span class="text-lg text-text-sub">No timer running</span>
+</div>
+<div class="flex gap-2 mt-2 relative z-10">
+<button class="flex-1 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 shadow-sm">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span> Start Timer
+                                </button>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-6 flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-warm pb-4">
+<div>
+<h3 class="font-semibold text-text-main flex items-center gap-2">
+<span class="material-symbols-outlined text-warning-gold">warning</span>
+                                    Retainer Alerts
+                                </h3>
+</div>
+</div>
+<div class="space-y-5 mt-1">
+<div>
+<div class="flex items-center justify-between text-sm mb-2">
+<span class="font-medium text-text-main">Acme Corp (Oct)</span>
+<span class="text-warning-gold font-bold text-xs">92% used</span>
+</div>
+<div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+<div class="bg-warning-gold h-2.5 rounded-full" style="width: 92%"></div>
+</div>
+</div>
+<div>
+<div class="flex items-center justify-between text-sm mb-2">
+<span class="font-medium text-text-main">Beta Client</span>
+<span class="text-warning-gold font-bold text-xs flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">error</span>
+                                        120% used
+                                    </span>
+</div>
+<div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden relative">
+<div class="bg-warning-gold h-2.5 rounded-full w-full opacity-50 absolute left-0 top-0"></div>
+<div class="bg-warning-gold h-2.5 rounded-full absolute left-0 top-0 animate-pulse" style="width: 100%"></div>
+</div>
+<p class="text-xs text-text-sub mt-1">Over limit by 4.5 hours</p>
+</div>
+<div>
+<div class="flex items-center justify-between text-sm mb-2">
+<span class="font-medium text-text-main">Gamma Inc</span>
+<span class="text-text-sub font-medium text-xs">45% used</span>
+</div>
+<div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+<div class="bg-primary/50 h-2.5 rounded-full" style="width: 45%"></div>
+</div>
+</div>
+</div>
+<a class="text-xs text-text-sub hover:text-primary font-medium mt-2 flex items-center gap-1 transition-colors" href="#">
+                            View all retainers <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

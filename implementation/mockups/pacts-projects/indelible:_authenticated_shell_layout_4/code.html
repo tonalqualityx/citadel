@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - Project Management</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "background-light": "#FAF9F7",
+                        "background-dark": "#15191d",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "border-warm": "#E2DED6",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased h-screen overflow-hidden flex flex-col">
+<header class="h-14 bg-surface border-b border-border-warm flex items-center justify-between px-4 z-50 shrink-0 shadow-sm relative">
+<div class="flex items-center gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined text-2xl">menu</span>
+</button>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+</div>
+<div class="hidden md:flex flex-1 items-center justify-end px-8">
+<div class="relative group w-full max-w-md mr-12">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-text-main placeholder:text-text-sub focus:ring-2 focus:ring-primary/20 sm:text-sm shadow-inner transition-all" placeholder="Search... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-border-warm">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">1:23:45</span>
+<span class="text-xs text-text-sub font-medium ml-1">on #234</span>
+</div>
+<button class="relative p-2 text-text-sub hover:text-text-main rounded-lg hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+</span>
+</button>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-border-warm cursor-pointer" data-alt="User profile photo of Mike Hansen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');">
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-background-light border-r border-border-warm flex flex-col shrink-0 overflow-hidden">
+<div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+<nav class="space-y-1 mb-6">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-primary/10 text-primary border-l-[3px] border-primary font-medium group transition-colors" href="#">
+<span class="text-xl">🏔️</span>
+<span class="text-sm">Overlook</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⏱️</span>
+<span class="text-sm">Timekeeper</span>
+</a>
+</nav>
+<div class="mb-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                        🔥 Foundry
+                    </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🤝</span> Pacts
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🧑‍🚀</span> Patrons
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🏰</span> Sites
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔗</span> Domains
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">⚔️</span> Quests
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔨</span> Tools
+                        </a>
+</div>
+</div>
+<div class="mb-1">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        📖 Grimoire
+                    </button>
+</div>
+<div class="mb-4">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        ⚜️ Armory
+                    </button>
+</div>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⚙️</span>
+<span class="text-sm">Settings</span>
+</a>
+<div class="mt-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                            🔐 Admin
+                        </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">👥</span> Team
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">💼</span> Functions
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">📊</span> Reports
+                            </a>
+</div>
+</div>
+</nav>
+</div>
+<div class="p-3 border-t border-border-warm bg-background-light">
+<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface border border-transparent hover:border-border-warm hover:shadow-sm transition-all cursor-pointer group">
+<div class="h-9 w-9 rounded-full bg-cover bg-center shrink-0" data-alt="User profile photo of Mike Hansen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDoZeXyL4XYXhjR147Erav6S598IYnxT2vzgXzp5JOxV8H6hm5QMUJdztV8qVJgMw32KB2hvywAIQ_lxuOrKUi5okI3kypY-dnP_q6ra0OC-DPLAPpKnWg_VrIHps2t9ThdGLCrRTMU-9ptcYEjodVTFBzMlHeOkzfQocVh7_lIHo_3N6oQAjjiUEQboqXUZDCI9UKUA805ED-75023-nD6n9Qt4RyQVP46Ht7dFioEppUbyEQhJ67D2v7hZ4xzSy-Q2qi00r3vMqo');">
+</div>
+<div class="flex flex-col min-w-0 flex-1">
+<p class="text-sm font-semibold text-text-main truncate">Mike Hansen</p>
+<p class="text-xs text-text-sub truncate">Admin</p>
+</div>
+<a class="text-text-sub hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" href="#" title="Sign Out">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+</a>
+</div>
+</div>
+</aside>
+<main class="flex-1 overflow-hidden bg-background-light flex flex-col relative z-0">
+<div class="flex-1 overflow-y-auto custom-scrollbar">
+<div class="max-w-[800px] mx-auto px-6 py-10 pb-32">
+<div class="relative flex items-center justify-between mb-16 px-4">
+<div class="absolute left-0 right-0 top-[6px] h-[2px] bg-border-warm -z-10"></div>
+<div class="flex flex-col items-center relative z-10 bg-background-light px-2">
+<div class="w-3 h-3 rounded-full bg-primary flex items-center justify-center">
+<svg class="w-2 h-2 text-white" fill="none" stroke="currentColor" stroke-width="4" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+</div>
+<span class="absolute top-7 text-xs text-[#888888] font-medium whitespace-nowrap">Recipe</span>
+</div>
+<div class="flex flex-col items-center relative z-10 bg-background-light px-2">
+<div class="w-3 h-3 rounded-full bg-primary ring-4 ring-background-light"></div>
+<span class="absolute top-7 mt-2 text-base font-medium text-text-main whitespace-nowrap">Basic Info</span>
+</div>
+<div class="flex flex-col items-center relative z-10 bg-background-light px-2">
+<div class="w-3 h-3 rounded-full border-[2px] border-border-warm bg-background-light"></div>
+<span class="absolute top-7 text-xs text-[#888888] font-medium whitespace-nowrap">Pages</span>
+</div>
+<div class="flex flex-col items-center relative z-10 bg-background-light px-2">
+<div class="w-3 h-3 rounded-full border-[2px] border-border-warm bg-background-light"></div>
+<span class="absolute top-7 text-xs text-[#888888] font-medium whitespace-nowrap">Team</span>
+</div>
+<div class="flex flex-col items-center relative z-10 bg-background-light px-2">
+<div class="w-3 h-3 rounded-full border-[2px] border-border-warm bg-background-light"></div>
+<span class="absolute top-7 text-xs text-[#888888] font-medium whitespace-nowrap">Budget</span>
+</div>
+<div class="flex flex-col items-center relative z-10 bg-background-light px-2">
+<div class="w-3 h-3 rounded-full border-[2px] border-border-warm bg-background-light"></div>
+<span class="absolute top-7 text-xs text-[#888888] font-medium whitespace-nowrap">Review</span>
+</div>
+</div>
+<div class="flex items-baseline justify-between mb-8 mt-4">
+<h1 class="text-2xl font-semibold text-text-main">Basic Info</h1>
+<span class="text-sm text-[#666666]">Step 2 of 6</span>
+</div>
+<form class="space-y-6">
+<div>
+<label class="block text-sm font-medium text-text-main mb-1.5">Pact Name <span class="text-[#C4524D]">*</span></label>
+<input class="block w-full h-[44px] rounded-md border border-border-warm bg-white text-text-main shadow-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none sm:text-base px-3" type="text" value="Acme Corp - Website Redesign"/>
+<p class="mt-1 text-[13px] text-[#888888]">Auto-suggested. Feel free to customize.</p>
+</div>
+<div class="flex gap-4">
+<div class="w-[48%]">
+<label class="block text-sm font-medium text-text-main mb-1.5">Patron <span class="text-[#C4524D]">*</span></label>
+<div class="relative">
+<select class="appearance-none block w-full h-[44px] rounded-md border border-border-warm bg-white text-text-main shadow-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none sm:text-base px-3 pr-10">
+<option>🧑‍🚀 Acme Corp</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-sub">
+<span class="material-symbols-outlined">expand_more</span>
+</div>
+</div>
+</div>
+<div class="w-[48%]">
+<label class="block text-sm font-medium text-text-main mb-1.5">Site <span class="text-[#C4524D]">*</span></label>
+<div class="relative">
+<select class="appearance-none block w-full h-[44px] rounded-md border border-border-warm bg-white text-text-main shadow-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none sm:text-base px-3 pr-10">
+<option>🏰 Main Website</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-sub">
+<span class="material-symbols-outlined">expand_more</span>
+</div>
+</div>
+<a class="mt-1 inline-block text-[13px] text-primary hover:underline" href="#">+ Create new site</a>
+</div>
+</div>
+<div>
+<label class="block text-sm font-medium text-text-main mb-1.5">Project Manager <span class="text-[#C4524D]">*</span></label>
+<div class="relative">
+<button class="relative w-full cursor-default rounded-md bg-white h-[44px] border border-border-warm pl-3 pr-10 text-left text-text-main shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:text-base" type="button">
+<span class="flex items-center">
+<span class="text-lg mr-2">👤</span>
+<span class="block truncate">Sarah Jenkins</span>
+</span>
+<span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+<span class="material-symbols-outlined text-text-sub">expand_more</span>
+</span>
+</button>
+</div>
+</div>
+<div>
+<label class="block text-sm font-medium text-text-main mb-1.5">Description</label>
+<textarea class="block w-full rounded-md border border-border-warm bg-white text-text-main shadow-sm focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none sm:text-base px-3 py-2 min-h-[100px]" placeholder="Brief description of the project scope...">Complete redesign of marketing website including new homepage, service pages, and contact form integration.</textarea>
+</div>
+</form>
+<div class="mt-8 bg-[#F8F7F5] border border-[#E8E5E0] rounded-lg p-3 flex items-center justify-between shadow-sm">
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="text-lg">📜</span>
+<span class="text-sm font-medium text-text-main">Using: Accelerated Website</span>
+</div>
+<div class="text-[13px] text-[#888888] mt-0.5 ml-7">
+                                5 phases · ~25 tasks · Variable pages
+                            </div>
+</div>
+<button class="text-sm text-primary hover:text-primary/80 hover:underline font-medium">[Change]</button>
+</div>
+</div>
+</div>
+<div class="shrink-0 bg-surface border-t border-border-warm py-4 px-8 w-full z-20">
+<div class="max-w-[800px] mx-auto w-full flex justify-end gap-3">
+<button class="h-[40px] px-6 rounded border border-border-warm text-text-main font-medium hover:bg-gray-50 transition-colors shadow-sm bg-white">
+                        ← Back
+                    </button>
+<button class="h-[40px] px-6 rounded bg-primary text-white font-medium hover:bg-primary/90 transition-colors shadow-sm">
+                        Next: Configure Pages →
+                    </button>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

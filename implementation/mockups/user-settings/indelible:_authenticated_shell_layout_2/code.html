@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - User Settings</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#4A9B9B",
+                        "primary-hover": "#3C8B8B",
+                        "background-light": "#F5F5F0",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D3A",
+                        "text-sub": "#666666",
+                        "text-muted": "#888888",
+                        "border-warm": "#E2DED6",
+                        "warning": "#D4A574",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 58, 0.05), 0 1px 4px -2px rgba(45, 45, 58, 0.02)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>.custom-scrollbar::-webkit-scrollbar {
+    width: 4px
+    }
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent
+    }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #E2DED6;
+    border-radius: 20px
+    }.checkbox-teal:checked {
+    background-color: #4A9B9B;
+    border-color: #4A9B9B;
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuB0jConPdIcD0dOco5r4ZECEv3xu4BRNboldFFgkzlITGPtfymrweTAddhailXUe9TVRDaWJcaLexiF6Nu0jc9PvjOXWAg4T7oJmzK6iCRsb_SjR_WZigLh5l9CI3HH32Etaq42nIUUspKthlkb6A3RrnFvQnVn77Qkvb9CnzrRXkzwFhZD1KqWBl7o_NILQD9KezIoNX_PGZu809EfsnmfRnSbOuTikVeS5BEoCjJhsyc8ZSzC4K9wSlFAJjT-N6awqqnJgyacp54)
+    }
+.checkbox-teal {
+    color: #4A9B9B;}</style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased h-screen overflow-hidden flex flex-col">
+<header class="h-14 bg-surface border-b border-border-warm flex items-center justify-between px-4 z-50 shrink-0 shadow-sm relative">
+<div class="flex items-center gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined text-2xl">menu</span>
+</button>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+</div>
+<div class="hidden md:flex flex-1 items-center justify-center px-8">
+<div class="relative group w-full max-w-md">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-text-main placeholder:text-text-sub focus:ring-2 focus:ring-primary/20 sm:text-sm shadow-inner transition-all" placeholder="Search... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-border-warm">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">1:23:45</span>
+<span class="text-xs text-text-sub font-medium ml-1">on #234</span>
+</div>
+<button class="relative p-2 text-text-sub hover:text-text-main rounded-lg hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-border-warm cursor-pointer" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');">
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-background-light border-r border-border-warm flex flex-col shrink-0 overflow-y-auto custom-scrollbar pt-6 pb-6">
+<div class="px-4 mb-8">
+<a class="flex items-center gap-2 text-text-main hover:text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-lg group-hover:-translate-x-1 transition-transform">arrow_back</span>
+<span class="font-semibold text-[18px]">Settings</span>
+</a>
+</div>
+<div class="px-6 mb-2">
+<span class="text-[12px] font-bold text-text-sub uppercase tracking-wider">Account</span>
+</div>
+<nav class="mb-6 w-full">
+<a class="flex items-center px-6 h-10 text-[16px] text-text-main hover:bg-black/5 transition-colors" href="#">
+                    Profile
+                </a>
+</nav>
+<div class="border-t border-border-warm mx-6 mb-6"></div>
+<div class="px-6 mb-2">
+<span class="text-[12px] font-bold text-text-sub uppercase tracking-wider">Preferences</span>
+</div>
+<nav class="space-y-0 w-full">
+<a class="flex items-center px-6 h-10 text-[16px] text-text-main bg-primary/10 border-l-[3px] border-primary font-medium" href="#">
+                    Notifications
+                </a>
+<a class="flex items-center px-6 h-10 text-[16px] text-text-main hover:bg-black/5 border-l-[3px] border-transparent transition-colors" href="#">
+                    Appearance
+                </a>
+<a class="flex items-center px-6 h-10 text-[16px] text-text-main hover:bg-black/5 border-l-[3px] border-transparent transition-colors" href="#">
+                    Naming Convention
+                </a>
+</nav>
+</aside>
+<main class="flex-1 overflow-y-auto bg-background-light relative">
+<div class="max-w-[800px] mx-auto w-full px-8 py-10 pb-24">
+<div class="mb-8">
+<h2 class="text-2xl font-semibold text-text-main mb-2">Notifications</h2>
+<p class="text-[16px] text-text-sub">Configure how and when you receive notifications.</p>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<div class="flex items-start justify-between">
+<div>
+<span class="text-[16px] text-text-main block mb-1">Bundle notifications</span>
+<span class="text-[12px] text-text-muted">Group similar notifications together to reduce interruptions</span>
+</div>
+<button aria-checked="true" class="bg-primary relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2" role="switch" type="button">
+<span class="sr-only">Use setting</span>
+<span aria-hidden="true" class="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<h3 class="text-[16px] font-semibold text-text-main mb-4">Quest Notifications</h3>
+<div class="border-b border-border-warm mb-0"></div>
+<table class="w-full text-left border-collapse">
+<thead>
+<tr>
+<th class="py-3 font-normal"></th>
+<th class="py-3 px-4 text-right text-[14px] font-medium text-text-main w-24">In-App</th>
+<th class="py-3 pl-4 text-right text-[14px] font-medium text-text-main w-24">Email</th>
+</tr>
+</thead>
+<tbody class="text-[14px] text-text-main">
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Quest assigned to me</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Quest becomes ready</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Comment on my quest</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Mentioned in a quest</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="h-[44px]">
+<td class="py-2 pr-4">Quest returned for changes</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<div class="flex items-baseline gap-2 mb-4">
+<h3 class="text-[16px] font-semibold text-text-main">Review Notifications</h3>
+<span class="text-[12px] text-text-muted">(PM/Admin only)</span>
+</div>
+<div class="border-b border-border-warm mb-0"></div>
+<table class="w-full text-left border-collapse">
+<thead>
+<tr>
+<th class="py-3 font-normal"></th>
+<th class="py-3 px-4 text-right text-[14px] font-medium text-text-main w-24">In-App</th>
+<th class="py-3 pl-4 text-right text-[14px] font-medium text-text-main w-24">Email</th>
+</tr>
+</thead>
+<tbody class="text-[14px] text-text-main">
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Quest ready for review</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="h-[44px]">
+<td class="py-2 pr-4">Review approved/returned</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<div class="flex items-baseline gap-2 mb-4">
+<h3 class="text-[16px] font-semibold text-text-main">Pact Notifications</h3>
+<span class="text-[12px] text-text-muted">(PM/Admin only)</span>
+</div>
+<div class="border-b border-border-warm mb-0"></div>
+<table class="w-full text-left border-collapse">
+<thead>
+<tr>
+<th class="py-3 font-normal"></th>
+<th class="py-3 px-4 text-right text-[14px] font-medium text-text-main w-24">In-App</th>
+<th class="py-3 pl-4 text-right text-[14px] font-medium text-text-main w-24">Email</th>
+</tr>
+</thead>
+<tbody class="text-[14px] text-text-main">
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Milestone triggered</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="border-b border-border-warm/50 h-[44px]">
+<td class="py-2 pr-4">Pact status changed</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+<tr class="h-[44px]">
+<td class="py-2 pr-4">Retainer usage warning</td>
+<td class="py-2 px-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+<td class="py-2 pl-4 text-right">
+<input checked="" class="h-[18px] w-[18px] rounded border-gray-300 text-primary focus:ring-primary/20 checkbox-teal cursor-pointer" type="checkbox"/>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="sticky bottom-0 bg-background-light/95 backdrop-blur-sm border-t border-border-warm px-8 py-4 flex justify-end gap-3 z-10 shadow-[0_-2px_10px_rgba(0,0,0,0.03)]">
+<button class="px-5 py-2 text-primary font-medium hover:text-primary-hover transition-colors rounded-lg">Cancel</button>
+<button class="px-5 py-2 bg-primary text-white font-medium hover:bg-primary-hover transition-colors rounded-lg shadow-sm">Save</button>
+</div>
+</main>
+</div>
+
+</body></html>

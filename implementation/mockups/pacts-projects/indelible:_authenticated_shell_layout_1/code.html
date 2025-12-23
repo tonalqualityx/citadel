@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - Pact Detail View</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#5B8FB9",
+                        "primary-dark": "#4A7CA6",
+                        "success": "#6B9B7A",
+                        "warning": "#C4A24D",
+                        "background-light": "#FAF9F7",
+                        "background-dark": "#15191d",
+                        "surface": "#FFFFFF",
+                        "surface-muted": "#F3F2F0",
+                        "text-main": "#2D2D2D",
+                        "text-sub": "#666666",
+                        "text-muted": "#888888",
+                        "border-warm": "#E2DED6",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased h-screen overflow-hidden flex flex-col">
+<header class="h-14 bg-surface border-b border-border-warm flex items-center justify-between px-4 z-50 shrink-0 shadow-sm relative">
+<div class="flex items-center gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined text-2xl">menu</span>
+</button>
+<div class="flex items-center gap-2">
+<span class="text-xl leading-none">🏔️</span>
+<h1 class="text-text-main font-bold text-lg tracking-tight">Indelible</h1>
+</div>
+</div>
+<div class="hidden md:flex flex-1 items-center justify-end px-8">
+<div class="relative group w-full max-w-sm mr-4">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-sub text-[20px]">search</span>
+</div>
+<input class="block w-full rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-text-main placeholder:text-text-sub focus:ring-2 focus:ring-primary/20 sm:text-sm shadow-inner transition-all" placeholder="Search... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-background-light rounded-full border border-border-warm">
+<span class="text-lg">⏱️</span>
+<span class="text-sm font-semibold text-text-main tabular-nums">1:47:32</span>
+<span class="text-xs text-text-sub font-medium ml-1">on #234</span>
+</div>
+<button class="relative p-2 text-text-sub hover:text-text-main rounded-lg hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+</span>
+</button>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-border-warm cursor-pointer" data-alt="User profile photo of Mike Hansen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCJaHJxM8PO6pFQ8NNxNFXfbVW4VX45rEwxOlKXzPcBg7eZd619LdzqK0aCUcNA6Os_Ak9QXOjkmPMwNYc0G0G9XUJAprQczHQei5_QFacKRFzIdk1y3wgK8uxQRHnkZCoQSfUX2hafua1nErQfOmCWWIXKSlfKnFwI31_cMVxmeicnikNdC_SPvI-PM3sDoZnPWztZa-BJEu76bPX8cZ_KaF3vYCrSlMDAaPtgUP70_aWAWLtU2BGgkew59-Uzq1TcMQqzRf40d2A');">
+</div>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-background-light border-r border-border-warm flex flex-col shrink-0 overflow-hidden">
+<div class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+<nav class="space-y-1 mb-6">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-sub hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">🏔️</span>
+<span class="text-sm">Overlook</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-sub hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⏱️</span>
+<span class="text-sm">Timekeeper</span>
+</a>
+</nav>
+<div class="mb-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                        🔥 Foundry
+                    </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-primary/10 text-primary border-l-[3px] border-primary -ml-[3px] font-medium text-sm transition-colors" href="#">
+<span class="w-5 text-center">🤝</span> Pacts
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🧑‍🚀</span> Patrons
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🏰</span> Sites
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔗</span> Domains
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">⚔️</span> Quests
+                        </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">🔨</span> Tools
+                        </a>
+</div>
+</div>
+<div class="mb-1">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        📖 Grimoire
+                    </button>
+</div>
+<div class="mb-4">
+<button class="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider hover:bg-black/5 rounded-lg text-left">
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+                        ⚜️ Armory
+                    </button>
+</div>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-text-main hover:bg-black/5 border-l-[3px] border-transparent font-medium transition-colors" href="#">
+<span class="text-xl">⚙️</span>
+<span class="text-sm">Settings</span>
+</a>
+<div class="mt-4">
+<div class="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+                            🔐 Admin
+                        </div>
+<div class="pl-4 space-y-0.5 mt-1 border-l border-border-warm ml-4">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">👥</span> Team
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">💼</span> Functions
+                            </a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded-lg text-text-sub hover:text-text-main hover:bg-black/5 text-sm transition-colors" href="#">
+<span class="w-5 text-center">📊</span> Reports
+                            </a>
+</div>
+</div>
+</nav>
+</div>
+<div class="p-3 border-t border-border-warm bg-background-light">
+<div class="flex items-center gap-3 p-2 rounded-lg hover:bg-surface border border-transparent hover:border-border-warm hover:shadow-sm transition-all cursor-pointer group">
+<div class="h-9 w-9 rounded-full bg-cover bg-center shrink-0" data-alt="User profile photo of Mike Hansen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDoZeXyL4XYXhjR147Erav6S598IYnxT2vzgXzp5JOxV8H6hm5QMUJdztV8qVJgMw32KB2hvywAIQ_lxuOrKUi5okI3kypY-dnP_q6ra0OC-DPLAPpKnWg_VrIHps2t9ThdGLCrRTMU-9ptcYEjodVTFBzMlHeOkzfQocVh7_lIHo_3N6oQAjjiUEQboqXUZDCI9UKUA805ED-75023-nD6n9Qt4RyQVP46Ht7dFioEppUbyEQhJ67D2v7hZ4xzSy-Q2qi00r3vMqo');">
+</div>
+<div class="flex flex-col min-w-0 flex-1">
+<p class="text-sm font-semibold text-text-main truncate">Mike Hansen</p>
+<p class="text-xs text-text-sub truncate">Admin</p>
+</div>
+<a class="text-text-sub hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" href="#" title="Sign Out">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+</a>
+</div>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto bg-background-light custom-scrollbar">
+<div class="w-full pb-10">
+<div class="bg-background-light border-b border-border-warm sticky top-0 z-20">
+<div class="px-8 py-3 border-b border-border-warm/50">
+<nav aria-label="Breadcrumb" class="flex">
+<ol class="flex items-center space-x-2">
+<li>
+<div class="flex items-center">
+<a class="text-sm font-medium text-text-sub hover:text-primary transition-colors" href="#">
+                                            🧑‍🚀 Acme Corp
+                                        </a>
+</div>
+</li>
+<li>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-text-sub mx-1 text-[16px]">chevron_right</span>
+<a class="text-sm font-medium text-text-sub hover:text-primary transition-colors" href="#">
+                                            🏰 Main Website
+                                        </a>
+</div>
+</li>
+<li>
+<div class="flex items-center">
+<span class="material-symbols-outlined text-text-sub mx-1 text-[16px]">chevron_right</span>
+<span class="text-sm font-medium text-text-sub cursor-default">
+                                            🤝 Website Redesign
+                                        </span>
+</div>
+</li>
+</ol>
+</nav>
+</div>
+<div class="px-8 py-5">
+<div class="flex flex-col md:flex-row md:items-start justify-between gap-4">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<span class="text-2xl text-text-main">🤝</span>
+<h2 class="text-2xl font-semibold text-text-main tracking-tight">Website Redesign</h2>
+</div>
+<div class="flex flex-wrap items-center gap-3 text-sm text-text-sub">
+<div class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+                                        In Progress
+                                    </div>
+<span class="text-border-warm">·</span>
+<div class="flex items-center gap-1.5 hover:text-primary cursor-pointer transition-colors">
+<span class="text-lg">🏰</span>
+<span>Main Website</span>
+</div>
+<span class="text-border-warm">·</span>
+<div class="flex items-center gap-1.5">
+<div class="h-5 w-5 rounded-full bg-pink-100 flex items-center justify-center text-[10px] font-bold text-pink-700">SJ</div>
+<span>Sarah Jenkins (PM)</span>
+</div>
+<span class="text-border-warm">·</span>
+<span>12 quests</span>
+</div>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+<button class="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark shadow-soft transition-all">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                                    Add Quest
+                                </button>
+<button class="p-2 text-text-sub hover:text-text-main hover:bg-black/5 rounded-lg transition-colors">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+</div>
+</div>
+<div class="px-8 mt-1 border-b border-border-warm/50 flex gap-6 overflow-x-auto">
+<a class="pb-3 border-b-2 border-primary text-text-main font-medium text-sm whitespace-nowrap" href="#">Overview</a>
+<a class="pb-3 border-b-2 border-transparent text-text-sub hover:text-text-main text-sm font-medium transition-colors whitespace-nowrap" href="#">Quests</a>
+<a class="pb-3 border-b-2 border-transparent text-text-sub hover:text-text-main text-sm font-medium transition-colors whitespace-nowrap" href="#">Time &amp; Budget</a>
+<a class="pb-3 border-b-2 border-transparent text-text-sub hover:text-text-main text-sm font-medium transition-colors whitespace-nowrap" href="#">Notes</a>
+<a class="pb-3 border-b-2 border-transparent text-text-sub hover:text-text-main text-sm font-medium transition-colors whitespace-nowrap" href="#">Activity</a>
+</div>
+</div>
+<div class="px-8 py-6 max-w-[1400px]">
+<div class="flex flex-col lg:flex-row gap-6">
+<div class="w-full lg:w-[65%] flex flex-col gap-6">
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-0 overflow-hidden">
+<div class="px-4 py-3 border-b border-border-warm flex items-center justify-between bg-surface">
+<h3 class="font-semibold text-text-main">Phase Progress</h3>
+</div>
+<div class="p-4 space-y-4">
+<div class="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-2 sm:gap-4 items-center">
+<div class="flex items-center justify-between sm:justify-start gap-2">
+<span class="text-sm font-medium text-text-main">1. ⚙️ Setup</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-success/10 text-success uppercase tracking-wider">
+                                                ✓ Complete
+                                            </span>
+</div>
+<div class="flex items-center gap-3 w-full">
+<div class="flex-1 h-2 bg-surface-muted rounded-full overflow-hidden">
+<div class="h-full bg-success rounded-full" style="width: 100%"></div>
+</div>
+<span class="text-xs text-text-sub font-medium w-6 text-right">4/4</span>
+</div>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-2 sm:gap-4 items-center">
+<div class="flex items-center justify-between sm:justify-start gap-2">
+<span class="text-sm font-medium text-text-main">2. ✍️ Content &amp; Strategy</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-success/10 text-success uppercase tracking-wider">
+                                                ✓ Complete
+                                            </span>
+</div>
+<div class="flex items-center gap-3 w-full">
+<div class="flex-1 h-2 bg-surface-muted rounded-full overflow-hidden">
+<div class="h-full bg-success rounded-full" style="width: 100%"></div>
+</div>
+<span class="text-xs text-text-sub font-medium w-6 text-right">3/3</span>
+</div>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-2 sm:gap-4 items-center">
+<div class="flex items-center justify-between sm:justify-start gap-2">
+<span class="text-sm font-medium text-text-main">3. 🎨 Design</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/10 text-primary uppercase tracking-wider">
+                                                ● Active
+                                            </span>
+</div>
+<div class="flex items-center gap-3 w-full">
+<div class="flex-1 h-2 bg-surface-muted rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 40%"></div>
+</div>
+<span class="text-xs text-text-sub font-medium w-6 text-right">2/5</span>
+</div>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-2 sm:gap-4 items-center opacity-75">
+<div class="flex items-center justify-between sm:justify-start gap-2">
+<span class="text-sm font-medium text-text-sub">4. 🧑‍💻 Build</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 uppercase tracking-wider">
+                                                ○ Upcoming
+                                            </span>
+</div>
+<div class="flex items-center gap-3 w-full">
+<div class="flex-1 h-2 bg-surface-muted rounded-full overflow-hidden">
+<div class="h-full bg-gray-300 rounded-full" style="width: 0%"></div>
+</div>
+<span class="text-xs text-text-sub font-medium w-6 text-right">0/6</span>
+</div>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-[200px_1fr] gap-2 sm:gap-4 items-center opacity-75">
+<div class="flex items-center justify-between sm:justify-start gap-2">
+<span class="text-sm font-medium text-text-sub">5. 🚀 Launch</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500 uppercase tracking-wider">
+                                                ○ Upcoming
+                                            </span>
+</div>
+<div class="flex items-center gap-3 w-full">
+<div class="flex-1 h-2 bg-surface-muted rounded-full overflow-hidden">
+<div class="h-full bg-gray-300 rounded-full" style="width: 0%"></div>
+</div>
+<span class="text-xs text-text-sub font-medium w-6 text-right">0/2</span>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-0 overflow-hidden">
+<div class="px-4 py-3 border-b border-border-warm flex items-center justify-between bg-surface">
+<h3 class="font-semibold text-text-main">Needs Attention</h3>
+<a class="text-sm text-primary hover:text-primary-dark font-medium cursor-pointer flex items-center gap-1 hover:underline">
+                                        View all →
+                                    </a>
+</div>
+<div class="p-4 space-y-6">
+<div>
+<h4 class="text-sm font-medium text-text-main mb-3 flex items-center gap-2">
+                                            🚫 Blocked <span class="text-text-sub font-normal">(1)</span>
+</h4>
+<div class="bg-surface-muted rounded-lg border border-border-warm p-3 hover:border-primary/30 transition-colors">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<a class="text-text-main font-medium text-sm hover:text-primary hover:underline cursor-pointer">⚔️ Homepage Mockup</a>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-warning/10 text-warning text-xs font-medium">Blocked</span>
+</div>
+<div class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-700">MH</div>
+</div>
+<div class="text-xs text-text-muted">Waiting on: Brand Guidelines</div>
+</div>
+</div>
+<div>
+<h4 class="text-sm font-medium text-text-main mb-3 flex items-center gap-2">
+                                            📋 In Review <span class="text-text-sub font-normal">(2)</span>
+</h4>
+<div class="space-y-3">
+<div class="bg-surface-muted rounded-lg border border-border-warm p-3 hover:border-primary/30 transition-colors">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<a class="text-text-main font-medium text-sm hover:text-primary hover:underline cursor-pointer">⚔️ Content Strategy Doc</a>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">In Review</span>
+</div>
+<div class="h-6 w-6 rounded-full bg-pink-100 flex items-center justify-center text-[10px] font-bold text-pink-700">SJ</div>
+</div>
+<div class="text-xs text-text-sub">Submitted 2 days ago</div>
+</div>
+<div class="bg-surface-muted rounded-lg border border-border-warm p-3 hover:border-primary/30 transition-colors">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<a class="text-text-main font-medium text-sm hover:text-primary hover:underline cursor-pointer">⚔️ Site Architecture</a>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">In Review</span>
+</div>
+<div class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-700">MH</div>
+</div>
+<div class="text-xs text-text-sub">Submitted 1 day ago</div>
+</div>
+</div>
+</div>
+<div>
+<h4 class="text-sm font-medium text-text-main mb-3 flex items-center gap-2">
+                                            ⚠️ Overdue <span class="text-text-sub font-normal">(1)</span>
+</h4>
+<div class="bg-surface-muted rounded-lg border border-border-warm p-3 hover:border-primary/30 transition-colors">
+<div class="flex items-center justify-between mb-2">
+<div class="flex items-center gap-2">
+<a class="text-text-main font-medium text-sm hover:text-primary hover:underline cursor-pointer">⚔️ Navigation Mockup</a>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium">In Progress</span>
+</div>
+<div class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-700">MH</div>
+</div>
+<div class="text-xs text-warning font-medium">Due 3 days ago</div>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-0 overflow-hidden">
+<div class="px-4 py-3 border-b border-border-warm flex items-center justify-between bg-surface">
+<h3 class="font-semibold text-text-main">Description</h3>
+<a class="text-sm text-primary hover:text-primary-dark font-medium cursor-pointer">Edit</a>
+</div>
+<div class="p-4">
+<p class="text-text-main mb-6 leading-relaxed">Complete redesign of Acme Corp's main website including new branding, updated navigation, and modern page layouts.</p>
+<p class="font-bold text-text-main mb-2">Key deliverables:</p>
+<ul class="list-disc list-inside space-y-2 text-text-main mb-6 pl-2">
+<li>Homepage + 5 interior page designs</li>
+<li>Mobile responsive implementation</li>
+<li>Contact form with CRM integration</li>
+</ul>
+<div class="flex flex-col sm:flex-row gap-3">
+<a class="inline-flex items-center gap-2 px-3 py-2 rounded border border-border-warm bg-background-light text-text-main hover:bg-white transition-colors text-sm" href="#">
+<span class="text-lg">📎</span> Project Brief.pdf
+                                    </a>
+<a class="inline-flex items-center gap-2 px-3 py-2 rounded border border-border-warm bg-background-light text-text-main hover:bg-white transition-colors text-sm" href="#">
+<span class="text-lg">📎</span> Brand Guidelines.pdf
+                                    </a>
+</div>
+</div>
+</div>
+</div>
+<div class="w-full lg:w-[35%] flex flex-col gap-6">
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-0 overflow-hidden">
+<div class="px-4 py-3 border-b border-border-warm bg-surface">
+<h3 class="font-semibold text-text-main">Project Health</h3>
+</div>
+<div class="p-6 flex flex-col items-center">
+<div class="relative w-40 h-40 mb-4">
+<svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+<circle class="text-surface-muted" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-success" cx="50" cy="50" fill="transparent" r="45" stroke="currentColor" stroke-dasharray="283" stroke-dashoffset="113" stroke-linecap="round" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-sm font-medium text-text-sub uppercase tracking-wide">On Track</span>
+<span class="text-3xl font-bold text-text-main tracking-tight tabular-nums mt-0.5">60%</span>
+</div>
+</div>
+<div class="flex gap-1.5 mb-6">
+<div class="w-2 h-2 rounded-full bg-success"></div>
+<div class="w-2 h-2 rounded-full bg-success"></div>
+<div class="w-2 h-2 rounded-full bg-success"></div>
+<div class="w-2 h-2 rounded-full bg-border-warm"></div>
+<div class="w-2 h-2 rounded-full bg-border-warm"></div>
+</div>
+<div class="w-full grid grid-cols-1 gap-4 border-t border-border-warm pt-4">
+<div class="flex justify-between items-center">
+<span class="text-sm text-text-sub">Quests</span>
+<span class="text-sm font-medium text-text-main">9/12 complete</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-sm text-text-sub">Time</span>
+<span class="text-sm font-medium text-text-main">32h / ~45h estimate</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-sm text-text-sub">Budget</span>
+<span class="text-sm font-medium text-text-main">$4,800 / $6,000</span>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-0 overflow-hidden">
+<div class="px-4 py-3 border-b border-border-warm bg-surface">
+<h3 class="font-semibold text-text-main">Details</h3>
+</div>
+<div class="p-4 space-y-4">
+<div class="grid grid-cols-[100px_1fr] items-center gap-4">
+<label class="text-sm text-text-sub font-medium">Status</label>
+<div class="relative">
+<select class="w-full rounded-md border-border-warm bg-white py-1.5 pl-3 pr-8 text-sm text-text-main focus:border-primary focus:ring-1 focus:ring-primary shadow-sm">
+<option>In Progress</option>
+<option>Planning</option>
+<option>Completed</option>
+<option>On Hold</option>
+</select>
+</div>
+</div>
+<div class="grid grid-cols-[100px_1fr] items-center gap-4">
+<label class="text-sm text-text-sub font-medium">Start Date</label>
+<div class="flex items-center gap-2 text-text-main text-sm">
+<span class="material-symbols-outlined text-[16px] text-text-sub">calendar_today</span>
+<span>Dec 1, 2024</span>
+</div>
+</div>
+<div class="grid grid-cols-[100px_1fr] items-center gap-4">
+<label class="text-sm text-text-sub font-medium">Target End</label>
+<div class="flex items-center gap-2 text-text-main text-sm">
+<span class="material-symbols-outlined text-[16px] text-text-sub">event</span>
+<span>Jan 15, 2025</span>
+</div>
+</div>
+<div class="grid grid-cols-[100px_1fr] items-center gap-4">
+<label class="text-sm text-text-sub font-medium">Budget</label>
+<span class="text-sm text-text-main font-medium">$6,000</span>
+</div>
+<div class="grid grid-cols-[100px_1fr] items-center gap-4">
+<label class="text-sm text-text-sub font-medium">Day Rate</label>
+<span class="text-sm text-text-sub">—</span>
+</div>
+<div class="h-px bg-border-warm w-full my-2"></div>
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<span class="text-sm text-text-sub font-medium">Project Manager</span>
+</div>
+<div class="flex items-center justify-between p-2 rounded-lg border border-border-warm bg-surface-muted/50 cursor-pointer hover:border-primary/30 transition-colors">
+<div class="flex items-center gap-2">
+<div class="h-6 w-6 rounded-full bg-pink-100 flex items-center justify-center text-[10px] font-bold text-pink-700">SJ</div>
+<span class="text-sm text-text-main">Sarah Jenkins</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-text-sub">expand_more</span>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex items-center justify-between">
+<span class="text-sm text-text-sub font-medium">Team</span>
+</div>
+<div class="space-y-2 pl-1">
+<div class="flex items-center gap-2">
+<div class="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-700">MH</div>
+<span class="text-sm text-text-main">Mike Hansen <span class="text-text-sub text-xs">(Designer II)</span></span>
+</div>
+<div class="flex items-center gap-2">
+<div class="h-6 w-6 rounded-full bg-purple-100 flex items-center justify-center text-[10px] font-bold text-purple-700">JD</div>
+<span class="text-sm text-text-main">Jane Doe <span class="text-text-sub text-xs">(Developer III)</span></span>
+</div>
+<a class="text-sm text-primary hover:text-primary-dark font-medium cursor-pointer inline-flex items-center gap-1 mt-1">
+<span class="material-symbols-outlined text-[16px]">add</span> Add team member
+                                    </a>
+</div>
+</div>
+<div class="h-px bg-border-warm w-full my-2"></div>
+<div class="space-y-3">
+<div class="grid grid-cols-[80px_1fr] items-center gap-4">
+<label class="text-sm text-text-muted">Site</label>
+<a class="text-sm text-primary hover:underline truncate" href="#">🏰 Main Website</a>
+</div>
+<div class="grid grid-cols-[80px_1fr] items-center gap-4">
+<label class="text-sm text-text-muted">Patron</label>
+<a class="text-sm text-primary hover:underline truncate" href="#">🧑‍🚀 Acme Corp</a>
+</div>
+<div class="grid grid-cols-[80px_1fr] items-center gap-4">
+<label class="text-sm text-text-muted">Scroll</label>
+<a class="text-sm text-primary hover:underline truncate" href="#">🧑‍🍳 Accelerated Site Build</a>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg border border-border-warm shadow-soft p-0 overflow-hidden">
+<div class="px-4 py-3 border-b border-border-warm bg-surface">
+<h3 class="font-semibold text-text-main">Quick Links</h3>
+</div>
+<div class="p-4 flex flex-col gap-3">
+<a class="flex items-center gap-2 text-sm text-primary hover:underline group" href="#">
+<span class="text-lg group-hover:scale-110 transition-transform">🎨</span> Figma File
+                            </a>
+<a class="flex items-center gap-2 text-sm text-primary hover:underline group" href="#">
+<span class="text-lg group-hover:scale-110 transition-transform">📁</span> Google Drive Folder
+                            </a>
+<a class="flex items-center gap-2 text-sm text-primary hover:underline group" href="#">
+<span class="text-lg group-hover:scale-110 transition-transform">📋</span> Proposal (Proposify)
+                            </a>
+<a class="text-sm text-text-muted hover:text-primary font-medium cursor-pointer inline-flex items-center gap-1 mt-2 transition-colors">
+<span class="material-symbols-outlined text-[18px]">add</span> Add Link
+                            </a>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+</body></html>

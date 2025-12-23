@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Indelible - User Settings</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#4A9B9B", // Teal accent
+                        "primary-dim": "rgba(74, 155, 155, 0.1)", // Teal faint background
+                        "background-light": "#F5F5F0", // Warm off-white
+                        "background-dark": "#15191d",
+                        "surface": "#FFFFFF",
+                        "text-main": "#2D2D3A", // Dark Gray
+                        "text-sub": "#666666", // Secondary text
+                        "text-muted": "#888888", // Muted text
+                        "border-warm": "#E2DED6",
+                        "warning": "#D4A574", // Amber
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"],
+                        "sans": ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem", // 8px
+                        "lg": "0.5rem",
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02)',
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #E2DED6;
+            border-radius: 20px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #4A9B9B;
+            border-width: 2px;
+            box-shadow: none;
+        }
+    </style>
+</head>
+<body class="bg-background-light text-text-main font-display antialiased h-screen overflow-hidden flex flex-col">
+<header class="h-14 bg-surface border-b border-border-warm flex items-center px-4 z-50 shrink-0 shadow-sm gap-4">
+<button class="text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="text-text-main font-semibold text-[18px]">Settings</h1>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<aside class="w-[240px] bg-background-light border-r border-border-warm flex flex-col shrink-0 overflow-hidden pt-6">
+<div class="flex-1 overflow-y-auto custom-scrollbar px-0">
+<div class="mb-2 px-6">
+<h3 class="text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Account</h3>
+</div>
+<nav class="space-y-1 mb-6">
+<a class="flex items-center px-6 h-10 bg-primary-dim border-l-[3px] border-primary text-text-main font-medium transition-colors" href="#">
+<span class="text-[16px]">Profile</span>
+</a>
+<a class="flex items-center px-6 h-10 border-l-[3px] border-transparent text-text-sub hover:text-text-main hover:bg-black/5 transition-colors" href="#">
+<span class="text-[16px]">Notifications</span>
+</a>
+</nav>
+<div class="mx-6 border-b border-border-warm mb-6"></div>
+<div class="mb-2 px-6">
+<h3 class="text-xs font-bold text-text-muted uppercase tracking-wider mb-2">Preferences</h3>
+</div>
+<nav class="space-y-1">
+<a class="flex items-center px-6 h-10 border-l-[3px] border-transparent text-text-sub hover:text-text-main hover:bg-black/5 transition-colors" href="#">
+<span class="text-[16px]">Appearance</span>
+</a>
+<a class="flex items-center px-6 h-10 border-l-[3px] border-transparent text-text-sub hover:text-text-main hover:bg-black/5 transition-colors" href="#">
+<span class="text-[16px]">Naming Convention</span>
+</a>
+</nav>
+</div>
+</aside>
+<main class="flex-1 overflow-y-auto bg-background-light relative">
+<div class="max-w-[800px] mx-auto w-full pb-24 pt-8 px-8">
+<div class="mb-6">
+<h2 class="text-[24px] font-semibold text-text-main mb-4">Profile</h2>
+<div class="h-px bg-border-warm w-full"></div>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<div class="flex flex-col items-center mb-6">
+<div class="h-20 w-20 rounded-full bg-primary flex items-center justify-center text-white text-2xl font-medium mb-3">
+                            MH
+                        </div>
+<button class="text-primary hover:text-primary/80 font-medium text-sm">Change Photo</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-4">
+<div>
+<label class="block text-[14px] text-text-main mb-1.5">Name *</label>
+<input class="w-full h-10 rounded-lg border border-border-warm text-text-main px-3 focus:ring-0" type="text" value="Mike Hansen"/>
+</div>
+<div>
+<label class="block text-[14px] text-text-main mb-1.5">Phone</label>
+<input class="w-full h-10 rounded-lg border border-border-warm text-text-main px-3 focus:ring-0" type="text" value="(555) 123-4567"/>
+</div>
+</div>
+<div class="space-y-4">
+<div>
+<label class="block text-[14px] text-text-main mb-1.5">Email *</label>
+<input class="w-full h-10 rounded-lg border border-border-warm text-text-main px-3 focus:ring-0" type="email" value="mike@indelible.agency"/>
+<p class="mt-1.5 text-[12px] text-text-muted">Used for login and notifications</p>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<div class="mb-4">
+<h3 class="text-[16px] font-semibold text-text-main pb-2">Timezone</h3>
+<div class="h-px bg-border-warm w-full"></div>
+</div>
+<div>
+<label class="block text-[14px] text-text-main mb-1.5">Your timezone</label>
+<div class="relative">
+<select class="w-full h-10 rounded-lg border border-border-warm text-text-main px-3 appearance-none bg-white focus:ring-0">
+<option selected="">America/New_York (EST)</option>
+<option>America/Los_Angeles (PST)</option>
+<option>Europe/London (GMT)</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-text-sub">
+<span class="material-symbols-outlined text-[20px]">expand_more</span>
+</div>
+</div>
+<p class="mt-1.5 text-[12px] text-text-muted">Times throughout the app will use this timezone</p>
+</div>
+</div>
+<div class="bg-surface rounded-lg shadow-soft p-4 mb-6">
+<div class="mb-4">
+<h3 class="text-[16px] font-semibold text-text-main pb-2">Security</h3>
+<div class="h-px bg-border-warm w-full"></div>
+</div>
+<div>
+<label class="block text-[14px] text-text-main mb-1.5">Password</label>
+<div class="flex gap-4">
+<input class="flex-1 h-10 rounded-lg border border-border-warm text-text-main px-3 bg-gray-50 focus:ring-0" readonly="" type="password" value="••••••••"/>
+<button class="h-10 px-4 rounded-lg border border-primary text-primary hover:bg-primary/5 font-medium transition-colors whitespace-nowrap">
+                                Change Password
+                            </button>
+</div>
+</div>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 bg-background-light/95 backdrop-blur-sm border-t border-border-warm px-8 py-4 flex justify-end gap-3 z-10">
+<button class="px-6 py-2 text-primary font-medium hover:text-primary/80 transition-colors">
+                    Cancel
+                </button>
+<button class="px-6 py-2 bg-primary text-white font-medium rounded-lg opacity-50 cursor-not-allowed" disabled="">
+                    Save
+                </button>
+</div>
+</main>
+</div>
+
+</body></html>
