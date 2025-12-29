@@ -26,16 +26,22 @@ export interface DashboardTask {
   title: string;
   status: string;
   priority: number;
+  is_focus: boolean;
   due_date: string | null;
   energy_estimate: number | null;
   mystery_factor: string;
   battery_impact: string;
+  estimated_minutes: number | null;
+  time_logged_minutes?: number; // Total time logged on this task
+  needs_review?: boolean;
+  approved?: boolean;
   assignee?: { id: string; name: string } | null;
   project: {
     id: string;
     name: string;
     status?: string;
     client: { id: string; name: string } | null;
+    site: { id: string; name: string } | null;
   } | null;
   updated_at?: string;
 }
@@ -65,6 +71,7 @@ export interface PmDashboardData extends DashboardBaseData {
   focusTasks: DashboardTask[];
   awaitingReview: DashboardTask[];
   unassignedTasks: DashboardTask[];
+  myTasks: DashboardTask[]; // Tasks assigned to current user
   myProjects: DashboardProject[];
   retainerAlerts: {
     client_id: string;

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { taskKeys, TaskFilters, projectKeys } from '@/lib/api/query-keys';
+import { showToast } from '@/lib/hooks/use-toast';
 
 export interface Task {
   id: string;
@@ -8,6 +9,7 @@ export interface Task {
   description: string | null;
   status: string;
   priority: number;
+  is_focus: boolean;
   project_id: string | null;
   project: {
     id: string;
@@ -39,6 +41,14 @@ export interface Task {
   completed_at: string | null;
   requirements: Requirement[] | null;
   review_requirements: Requirement[] | null; // PM/Admin-only Quality Gate
+  // Review workflow
+  needs_review: boolean;
+  reviewer_id: string | null;
+  reviewer: { id: string; name: string; email: string; avatar_url: string | null } | null;
+  approved: boolean;
+  approved_at: string | null;
+  approved_by_id: string | null;
+  approved_by: { id: string; name: string } | null;
   notes: string | null;
   created_by_id: string | null;
   created_by: { id: string; name: string } | null;
@@ -86,7 +96,12 @@ export interface CreateTaskInput {
 }
 
 export interface UpdateTaskInput extends Partial<CreateTaskInput> {
+  is_focus?: boolean;
   requirements?: Requirement[] | null;
+  // Review workflow fields
+  needs_review?: boolean;
+  reviewer_id?: string | null;
+  approved?: boolean;
 }
 
 export function useTasks(filters: TaskFilters = {}) {
@@ -124,6 +139,10 @@ export function useCreateTask() {
           queryKey: projectKeys.detail(data.project_id),
         });
       }
+      showToast.created('Quest');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to create quest');
     },
   });
 }
@@ -136,6 +155,7 @@ export function useUpdateTask() {
       apiClient.patch<Task>(`/tasks/${id}`, data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.setQueryData(taskKeys.detail(data.id), data);
       if (data.project_id) {
         queryClient.invalidateQueries({
@@ -215,6 +235,10 @@ export function useDeleteTask() {
     mutationFn: (id: string) => apiClient.delete(`/tasks/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      showToast.deleted('Quest');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to delete quest');
     },
   });
 }
@@ -241,6 +265,21 @@ export function useRemoveDependency() {
       apiClient.delete(`/tasks/${taskId}/dependencies?blocker_id=${blockerId}`),
     onSuccess: (_, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+    },
+  });
+}
+
+// Helper hook for toggling is_focus
+export function useToggleFocus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, is_focus }: { id: string; is_focus: boolean }) =>
+      apiClient.patch<Task>(`/tasks/${id}`, { is_focus }),
+    onSuccess: () => {
+      // Invalidate dashboard and task lists to reflect focus changes
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
     },
   });

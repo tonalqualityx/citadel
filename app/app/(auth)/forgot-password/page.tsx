@@ -3,20 +3,17 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
+import { ArrowLeft, CheckCircle } from 'lucide-react';
 
-export default function LoginPage() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
+export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,26 +21,54 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Login failed');
+        throw new Error(data.error || 'Request failed');
       }
 
-      // Clear any stale cached data from previous session
-      queryClient.clear();
-      router.push('/dashboard');
-      router.refresh();
+      setIsSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (isSubmitted) {
+    return (
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="flex items-center justify-center mb-4">
+            <div className="p-3 bg-green-100 rounded-full">
+              <CheckCircle className="h-8 w-8 text-green-600" />
+            </div>
+          </div>
+          <CardTitle className="text-2xl">Check your email</CardTitle>
+          <CardDescription className="mt-2">
+            If an account exists with that email, we've sent you a password reset link.
+            <br />
+            <span className="text-text-muted text-xs mt-2 block">
+              (Check your server console for the reset link in development)
+            </span>
+          </CardDescription>
+        </CardHeader>
+        <CardFooter className="flex-col gap-4">
+          <Link href="/login" className="w-full">
+            <Button variant="secondary" className="w-full">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to login
+            </Button>
+          </Link>
+        </CardFooter>
+      </Card>
+    );
   }
 
   return (
@@ -58,8 +83,10 @@ export default function LoginPage() {
             className="opacity-90"
           />
         </div>
-        <CardTitle className="text-2xl">Indelible</CardTitle>
-        <CardDescription>Sign in to your account</CardDescription>
+        <CardTitle className="text-2xl">Forgot password?</CardTitle>
+        <CardDescription>
+          Enter your email address and we'll send you a link to reset your password.
+        </CardDescription>
       </CardHeader>
 
       <form onSubmit={handleSubmit}>
@@ -79,25 +106,6 @@ export default function LoginPage() {
             required
             autoComplete="email"
           />
-
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-            autoComplete="current-password"
-          />
-
-          <div className="text-right">
-            <Link
-              href="/forgot-password"
-              className="text-sm text-text-sub hover:text-primary"
-            >
-              Forgot password?
-            </Link>
-          </div>
         </CardContent>
 
         <CardFooter className="flex-col gap-4">
@@ -105,19 +113,20 @@ export default function LoginPage() {
             {isLoading ? (
               <>
                 <Spinner size="sm" className="text-white" />
-                Signing in...
+                Sending...
               </>
             ) : (
-              'Sign in'
+              'Send reset link'
             )}
           </Button>
 
-          <div className="text-center text-sm text-text-sub">
-            <p className="font-medium mb-1">Test accounts:</p>
-            <p>admin@indelible.agency / password123</p>
-            <p>pm@indelible.agency / password123</p>
-            <p>tech@indelible.agency / password123</p>
-          </div>
+          <Link
+            href="/login"
+            className="text-sm text-text-sub hover:text-primary flex items-center gap-1"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to login
+          </Link>
         </CardFooter>
       </form>
     </Card>

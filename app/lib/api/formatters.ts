@@ -209,6 +209,7 @@ export function formatTaskResponse(task: any) {
     description: parseJsonField(task.description),
     status: task.status,
     priority: task.priority,
+    is_focus: task.is_focus ?? false,
     project_id: task.project_id,
     time_spent_minutes: timeSpentMinutes,
     project: task.project
@@ -253,6 +254,18 @@ export function formatTaskResponse(task: any) {
     completed_at: task.completed_at,
     requirements: task.requirements,
     review_requirements: task.review_requirements, // PM/Admin-only, filtered by API
+    // Review workflow
+    needs_review: task.needs_review,
+    reviewer_id: task.reviewer_id,
+    reviewer: task.reviewer
+      ? { id: task.reviewer.id, name: task.reviewer.name, email: task.reviewer.email, avatar_url: task.reviewer.avatar_url }
+      : null,
+    approved: task.approved,
+    approved_at: task.approved_at,
+    approved_by_id: task.approved_by_id,
+    approved_by: task.approved_by
+      ? { id: task.approved_by.id, name: task.approved_by.name }
+      : null,
     notes: parseJsonField(task.notes),
     created_by_id: task.created_by_id,
     created_by: task.created_by

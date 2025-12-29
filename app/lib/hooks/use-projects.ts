@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { projectKeys, ProjectFilters } from '@/lib/api/query-keys';
+import { showToast } from '@/lib/hooks/use-toast';
 
 export interface ProjectCalculated {
   estimated_hours_min: number;
@@ -105,6 +106,10 @@ export function useCreateProject() {
       apiClient.post<Project>('/projects', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+      showToast.created('Project');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to create project');
     },
   });
 }
@@ -118,6 +123,10 @@ export function useUpdateProject() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
       queryClient.setQueryData(projectKeys.detail(data.id), data);
+      showToast.updated('Project');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to update project');
     },
   });
 }
@@ -142,6 +151,10 @@ export function useDeleteProject() {
     mutationFn: (id: string) => apiClient.delete(`/projects/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+      showToast.deleted('Project');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to delete project');
     },
   });
 }

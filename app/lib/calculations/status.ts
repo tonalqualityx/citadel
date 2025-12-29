@@ -1,13 +1,14 @@
 import { TaskStatus, ProjectStatus } from '@prisma/client';
 
 // Valid task status transitions
+// Flexible workflow - review is handled by needs_review/approved flags, not status
 const TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  not_started: ['in_progress', 'blocked', 'abandoned'],
-  in_progress: ['review', 'not_started', 'blocked', 'abandoned'],
-  review: ['done', 'in_progress', 'abandoned'],
-  done: ['in_progress'], // Reopen
-  blocked: ['not_started', 'in_progress', 'abandoned'],
-  abandoned: ['not_started'], // Resurrect
+  not_started: ['in_progress', 'done', 'blocked', 'abandoned'],
+  in_progress: ['done', 'not_started', 'blocked', 'abandoned', 'review'],
+  review: ['done', 'in_progress', 'abandoned'], // Legacy - kept for existing tasks
+  done: ['in_progress', 'not_started'], // Reopen
+  blocked: ['not_started', 'in_progress', 'done', 'abandoned'],
+  abandoned: ['not_started', 'in_progress'], // Resurrect
 };
 
 // Valid project status transitions

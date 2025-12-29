@@ -11,6 +11,7 @@ import {
   AlertCircle,
   ExternalLink,
   CheckSquare,
+  CheckCircle,
   Play,
   Square,
   Building2,
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useTask, useUpdateTask } from '@/lib/hooks/use-tasks';
+import { showToast } from '@/lib/hooks/use-toast';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { formatElapsedTime } from '@/lib/utils/time';
 import {
@@ -40,6 +42,9 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
 import { TaskRequirements } from './task-requirements';
+import { CommentSection } from './comment-section';
+import { ReviewSection } from './review-section';
+import { ActivityFeed } from '@/components/domain/activities/activity-feed';
 import {
   TaskStatusInlineSelect,
   PriorityInlineSelect,
@@ -198,6 +203,27 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
             </div>
           ) : task ? (
             <div className="space-y-5">
+              {/* Approve Button - show when task is done and needs review */}
+              {task.status === 'done' && task.needs_review && !task.approved && (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    updateTask.mutate(
+                      { id: task.id, data: { approved: true } },
+                      {
+                        onSuccess: () => showToast.success('Task approved'),
+                        onError: (error) => showToast.apiError(error, 'Failed to approve'),
+                      }
+                    );
+                  }}
+                  disabled={updateTask.isPending}
+                  className="w-full bg-emerald-500 hover:bg-emerald-600"
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Approve Task
+                </Button>
+              )}
+
               {/* Breadcrumbs: Client > Site > Project */}
               {task.project && (
                 <div className="flex items-center gap-1 text-sm text-text-sub flex-wrap">
@@ -420,6 +446,9 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 </div>
               )}
 
+              {/* Comments - Compact mode showing most recent */}
+              <CommentSection taskId={task.id} defaultExpanded={true} variant="compact" />
+
               {/* Description */}
               <div>
                 <h4 className="text-sm font-medium text-text-main mb-2">Description</h4>
@@ -443,6 +472,9 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                   requirements={task.requirements}
                 />
               </div>
+
+              {/* Review Section - visible to task creator and PM/Admin */}
+              <ReviewSection task={task} />
 
               {/* Quality Gate - PM/Admin only */}
               {isPmOrAdmin && (
@@ -565,6 +597,9 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                   </div>
                 </div>
               )}
+
+              {/* Activity Feed */}
+              <ActivityFeed entityType="task" entityId={task.id} />
 
               {/* Details */}
               <div>

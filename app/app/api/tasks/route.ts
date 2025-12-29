@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
+import { logCreate } from '@/lib/services/activity';
 import { MysteryFactor } from '@prisma/client';
 
 const createTaskSchema = z.object({
@@ -48,6 +49,7 @@ export async function GET(request: NextRequest) {
     const assigneeId = searchParams.get('assignee_id') || undefined;
     const phase = searchParams.get('phase') || undefined;
     const myTasks = searchParams.get('my_tasks') === 'true';
+    const pendingReview = searchParams.get('pending_review') === 'true';
 
     // Parse multiple statuses if provided
     const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
@@ -60,6 +62,12 @@ export async function GET(request: NextRequest) {
       ...(priority && { priority }),
       ...(projectId && { project_id: projectId }),
       ...(phase && { phase }),
+      // Pending review filter: done tasks that need review and aren't approved
+      ...(pendingReview && {
+        status: 'done',
+        needs_review: true,
+        approved: false,
+      }),
     };
 
     // Search condition (if provided)
@@ -123,6 +131,8 @@ export async function GET(request: NextRequest) {
             },
           },
           assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+          reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
+          approved_by: { select: { id: true, name: true } },
           function: { select: { id: true, name: true } },
           sop: { select: { id: true, title: true } },
           created_by: { select: { id: true, name: true } },
@@ -212,6 +222,7 @@ export async function POST(request: NextRequest) {
       battery_impact?: string;
       default_priority?: number;
       review_requirements?: any;
+      needs_review?: boolean;
     } = {};
 
     if (data.sop_id) {
@@ -224,6 +235,7 @@ export async function POST(request: NextRequest) {
           mystery_factor: true,
           battery_impact: true,
           default_priority: true,
+          needs_review: true,
         },
       });
       if (sop) {
@@ -234,8 +246,24 @@ export async function POST(request: NextRequest) {
           mystery_factor: sop.mystery_factor,
           battery_impact: sop.battery_impact,
           default_priority: sop.default_priority,
+          needs_review: sop.needs_review,
         };
       }
+    }
+
+    // Determine default reviewer
+    // For project tasks: use project creator (PM)
+    // For standalone tasks: use task creator
+    let defaultReviewerId: string | null = null;
+    if (data.project_id) {
+      const project = await prisma.project.findUnique({
+        where: { id: data.project_id },
+        select: { created_by_id: true },
+      });
+      defaultReviewerId = project?.created_by_id || auth.userId;
+    } else {
+      // Standalone task - reviewer is the creator
+      defaultReviewerId = auth.userId;
     }
 
     // Calculate estimated minutes if energy estimate provided
@@ -263,6 +291,8 @@ export async function POST(request: NextRequest) {
         sop_id: data.sop_id,
         requirements: sopDefaults.requirements || undefined,
         review_requirements: sopDefaults.review_requirements || undefined,
+        needs_review: sopDefaults.needs_review ?? true,
+        reviewer_id: defaultReviewerId,
         energy_estimate: energyEstimate,
         mystery_factor: mysteryFactor as MysteryFactor,
         battery_impact: (data.battery_impact || sopDefaults.battery_impact || 'average_drain') as 'average_drain' | 'high_drain' | 'energizing',
@@ -284,11 +314,16 @@ export async function POST(request: NextRequest) {
           select: { id: true, name: true, icon: true, sort_order: true },
         },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+        reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
+        approved_by: { select: { id: true, name: true } },
         function: { select: { id: true, name: true } },
         sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
         created_by: { select: { id: true, name: true } },
       },
     });
+
+    // Log activity
+    await logCreate(auth.userId, 'task', task.id, task.title);
 
     return NextResponse.json(formatTaskResponse(task), { status: 201 });
   } catch (error) {

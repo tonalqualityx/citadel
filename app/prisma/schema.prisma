@@ -24,14 +24,19 @@ model User {
   updated_at    DateTime  @updatedAt
 
   // Relations
-  preferences      UserPreference?
-  sessions         Session[]
-  notifications    Notification[]
-  projects_created Project[]              @relation("ProjectCreatedBy")
-  team_assignments ProjectTeamAssignment[]
-  tasks_assigned   Task[]                 @relation("TaskAssignee")
-  tasks_created    Task[]                 @relation("TaskCreatedBy")
-  time_entries     TimeEntry[]
+  preferences           UserPreference?
+  sessions              Session[]
+  notifications         Notification[]
+  projects_created      Project[]              @relation("ProjectCreatedBy")
+  team_assignments      ProjectTeamAssignment[]
+  tasks_assigned        Task[]                 @relation("TaskAssignee")
+  tasks_created         Task[]                 @relation("TaskCreatedBy")
+  tasks_reviewing       Task[]                 @relation("TaskReviewer")
+  tasks_approved        Task[]                 @relation("TaskApprovedBy")
+  time_entries          TimeEntry[]
+  comments              Comment[]
+  password_reset_tokens PasswordResetToken[]
+  activity_logs         ActivityLog[]
 
   @@map("users")
 }
@@ -475,6 +480,7 @@ model Task {
   // Status
   status            TaskStatus    @default(not_started)
   priority          Int           @default(3) // 1=highest, 5=lowest
+  is_focus          Boolean       @default(false) // User's personal focus flag
 
   // Project relationship (nullable for ad-hoc tasks)
   project_id        String?       @db.Uuid
@@ -507,6 +513,15 @@ model Task {
   requirements        Json?         // Array of requirement items (visible to all)
   review_requirements Json?         // PM/Admin-only QA checklist (Quality Gate)
 
+  // Review workflow
+  needs_review        Boolean       @default(true)  // Whether task requires approval when done
+  reviewer_id         String?       @db.Uuid        // Who reviews/approves the task
+  reviewer            User?         @relation("TaskReviewer", fields: [reviewer_id], references: [id])
+  approved            Boolean       @default(false) // Whether task has been approved
+  approved_at         DateTime?                     // When it was approved
+  approved_by_id      String?       @db.Uuid        // Who approved it
+  approved_by         User?         @relation("TaskApprovedBy", fields: [approved_by_id], references: [id])
+
   // SOP reference
   sop_id            String?       @db.Uuid
   sop               Sop?          @relation(fields: [sop_id], references: [id])
@@ -527,6 +542,7 @@ model Task {
 
   // Relations
   time_entries      TimeEntry[]
+  comments          Comment[]
 
   @@index([project_id])
   @@index([assignee_id])
@@ -670,6 +686,7 @@ model Sop {
   mystery_factor        MysteryFactor @default(none)
   battery_impact        BatteryImpact @default(average_drain)
   estimated_minutes     Int?                             // Calculated or manual
+  needs_review          Boolean       @default(true)     // Whether tasks from this SOP need review
 
   // Template requirements (copied to tasks as checklist)
   template_requirements Json?         // Visible to all roles - task completion checklist
@@ -746,4 +763,65 @@ model TimeEntry {
   @@index([started_at])
   @@index([is_running])
   @@map("time_entries")
+}
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+model ActivityLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id])
+  action      String   @db.VarChar(50) // created, updated, deleted, status_changed, assigned
+  entity_type String   @db.VarChar(50) // task, project, client, etc.
+  entity_id   String   @db.Uuid
+  entity_name String?  @db.VarChar(255) // Snapshot of name at time of action
+  changes     Json?    // Before/after for updates
+  created_at  DateTime @default(now())
+
+  @@index([entity_type, entity_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("activity_logs")
+}
+
+// ============================================
+// PASSWORD RESET TOKENS
+// ============================================
+
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  user_id    String    @db.Uuid
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  token      String    @unique @db.VarChar(255)
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  @@index([token])
+  @@index([user_id])
+  @@index([expires_at])
+  @@map("password_reset_tokens")
+}
+
+// ============================================
+// COMMENTS
+// ============================================
+
+model Comment {
+  id         String   @id @default(uuid()) @db.Uuid
+  task_id    String   @db.Uuid
+  task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user_id    String   @db.Uuid
+  user       User     @relation(fields: [user_id], references: [id])
+  content    String   @db.Text
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([task_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("comments")
 }

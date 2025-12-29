@@ -66,7 +66,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Update task status to in_progress if currently not_started
+    // Update task: set to in_progress if not_started, and always set is_focus
+    // First, update status if not_started
     await prisma.task.updateMany({
       where: {
         id: task_id,
@@ -75,6 +76,18 @@ export async function POST(request: NextRequest) {
       data: {
         status: 'in_progress',
         started_at: new Date(),
+        is_focus: true,
+      },
+    });
+
+    // Also set is_focus=true for tasks already in progress
+    await prisma.task.updateMany({
+      where: {
+        id: task_id,
+        status: { not: 'not_started' },
+      },
+      data: {
+        is_focus: true,
       },
     });
 

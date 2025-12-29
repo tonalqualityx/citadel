@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { clientKeys } from '@/lib/api/query-keys';
+import { showToast } from '@/lib/hooks/use-toast';
 import type {
   ClientWithRelations,
   ClientListResponse,
@@ -55,6 +56,10 @@ export function useCreateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      showToast.created('Pact');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to create pact');
     },
   });
 }
@@ -75,6 +80,10 @@ export function useUpdateClient() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: clientKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      showToast.updated('Pact');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to update pact');
     },
   });
 }
@@ -88,6 +97,10 @@ export function useDeleteClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      showToast.deleted('Pact');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to delete pact');
     },
   });
 }

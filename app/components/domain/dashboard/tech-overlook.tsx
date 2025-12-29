@@ -12,14 +12,25 @@ import {
   Timer,
   Zap,
 } from 'lucide-react';
-import { TechDashboardData } from '@/lib/hooks/use-dashboard';
+import { TechDashboardData, DashboardTask } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
+import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { DashboardSection } from './dashboard-section';
 import { StatCard } from './stat-card';
 import { TaskQuickList } from './task-quick-list';
+import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatDuration } from '@/lib/calculations/energy';
 import { formatElapsedTime } from '@/lib/utils/time';
+import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
+import {
+  focusColumn,
+  statusColumn,
+  titleColumn,
+  actionsColumn,
+  clientProjectSiteColumn,
+  rangedEstimateColumn,
+} from '@/components/ui/task-list-columns';
 
 interface TechOverlookProps {
   data: TechDashboardData;
@@ -28,14 +39,52 @@ interface TechOverlookProps {
 export function TechOverlook({ data }: TechOverlookProps) {
   const router = useRouter();
   const timer = useTimer();
+  const toggleFocus = useToggleFocus();
+  const updateTask = useUpdateTask();
 
-  const handleTaskClick = (taskId: string) => {
-    router.push(`/tasks/${taskId}`);
+  // Peek drawer state
+  const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
+  const [isPeekOpen, setIsPeekOpen] = React.useState(false);
+
+  const handleTaskClick = (task: DashboardTask) => {
+    setPeekTaskId(task.id);
+    setIsPeekOpen(true);
   };
 
-  // Separate tasks by priority for "My Quests"
-  const highPriorityTasks = data.myTasks.filter((t) => t.priority <= 2);
-  const otherTasks = data.myTasks.filter((t) => t.priority > 2);
+  const handleTaskIdClick = (taskId: string) => {
+    setPeekTaskId(taskId);
+    setIsPeekOpen(true);
+  };
+
+  const handleToggleFocus = (taskId: string, isFocus: boolean) => {
+    toggleFocus.mutate({ id: taskId, is_focus: isFocus });
+  };
+
+  const handleTaskUpdate = (taskId: string, updates: Partial<DashboardTask>) => {
+    updateTask.mutate({ id: taskId, data: updates as any });
+  };
+
+  // Separate tasks by focus flag
+  const focusTasks = data.myTasks.filter((t) => t.is_focus);
+
+  // Column configs for different task lists
+  const focusColumns: TaskListColumn<DashboardTask>[] = [
+    focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    statusColumn({ editable: true }),
+    titleColumn({ editable: true }),
+    clientProjectSiteColumn(),
+    rangedEstimateColumn(),
+    actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
+  ];
+
+  const myTasksColumns: TaskListColumn<DashboardTask>[] = [
+    focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    statusColumn({ editable: true }),
+    titleColumn({ editable: true }),
+    clientProjectSiteColumn(),
+    rangedEstimateColumn(),
+    actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
+  ];
 
   return (
     <div className="space-y-6">
@@ -123,33 +172,35 @@ export function TechOverlook({ data }: TechOverlookProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - My Quests */}
         <div className="lg:col-span-2 space-y-6">
-          {/* High Priority Quests */}
-          {highPriorityTasks.length > 0 && (
-            <DashboardSection
-              title="Focus Quests"
-              icon={Zap}
-              action={{ label: 'View All', href: '/tasks' }}
-            >
-              <TaskQuickList
-                tasks={highPriorityTasks}
-                onTaskClick={handleTaskClick}
-                showDueDate
-              />
-            </DashboardSection>
-          )}
+          {/* Focus Quests */}
+          <DashboardSection
+            title="Focus Quests"
+            icon={Zap}
+            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+          >
+            <TaskList<DashboardTask>
+              tasks={focusTasks}
+              columns={focusColumns}
+              onTaskClick={handleTaskClick}
+              onTaskUpdate={handleTaskUpdate}
+              showHeaders={false}
+              emptyMessage="No focus tasks - check a task to add it to your focus list"
+            />
+          </DashboardSection>
 
           {/* All My Quests */}
           <DashboardSection
             title="My Quests"
             icon={ListTodo}
-            action={{ label: 'View All', href: '/tasks' }}
+            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
-            <TaskQuickList
-              tasks={otherTasks.length > 0 ? otherTasks : data.myTasks}
-              emptyMessage="No quests assigned to you"
+            <TaskList<DashboardTask>
+              tasks={data.myTasks.slice(0, 10)}
+              columns={myTasksColumns}
               onTaskClick={handleTaskClick}
-              showDueDate
-              maxItems={8}
+              onTaskUpdate={handleTaskUpdate}
+              showHeaders={false}
+              emptyMessage="No quests assigned to you"
             />
           </DashboardSection>
         </div>
@@ -161,7 +212,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
             <DashboardSection title="Blocked" icon={AlertCircle}>
               <TaskQuickList
                 tasks={data.blockedTasks}
-                onTaskClick={handleTaskClick}
+                onTaskClick={handleTaskIdClick}
                 maxItems={5}
               />
             </DashboardSection>
@@ -172,7 +223,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
             <DashboardSection title="Upcoming" icon={Calendar}>
               <TaskQuickList
                 tasks={data.upcomingTasks}
-                onTaskClick={handleTaskClick}
+                onTaskClick={handleTaskIdClick}
                 showDueDate
                 maxItems={5}
               />
@@ -212,6 +263,13 @@ export function TechOverlook({ data }: TechOverlookProps) {
           </DashboardSection>
         </div>
       </div>
+
+      {/* Task Peek Drawer */}
+      <TaskPeekDrawer
+        taskId={peekTaskId}
+        open={isPeekOpen}
+        onOpenChange={setIsPeekOpen}
+      />
     </div>
   );
 }

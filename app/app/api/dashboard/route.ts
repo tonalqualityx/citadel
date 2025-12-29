@@ -106,6 +106,7 @@ async function getTechDashboard(userId: string) {
           name: true,
           status: true,
           client: { select: { id: true, name: true } },
+          site: { select: { id: true, name: true } },
         },
       },
     },
@@ -119,10 +120,12 @@ async function getTechDashboard(userId: string) {
     title: t.title,
     status: t.status,
     priority: t.priority,
+    is_focus: t.is_focus,
     due_date: t.due_date?.toISOString() || null,
     energy_estimate: t.energy_estimate,
     mystery_factor: t.mystery_factor,
     battery_impact: t.battery_impact,
+    estimated_minutes: t.estimated_minutes,
     project: t.project,
   }));
 
@@ -172,13 +175,13 @@ async function getTechDashboard(userId: string) {
 }
 
 async function getPmDashboard(userId: string) {
-  // Focus tasks (high priority, in progress)
+  // Focus tasks - tasks flagged for focus by the current user
   const focusTasks = await prisma.task.findMany({
     where: {
       is_deleted: false,
-      status: 'in_progress',
-      priority: { lte: 2 },
-      project: { status: { in: ['ready', 'in_progress'] } },
+      is_focus: true,
+      assignee_id: userId,
+      status: { notIn: ['done', 'abandoned'] },
     },
     include: {
       assignee: { select: { id: true, name: true } },
@@ -187,6 +190,7 @@ async function getPmDashboard(userId: string) {
           id: true,
           name: true,
           client: { select: { id: true, name: true } },
+          site: { select: { id: true, name: true } },
         },
       },
     },
@@ -194,11 +198,13 @@ async function getPmDashboard(userId: string) {
     take: 10,
   });
 
-  // Awaiting review
+  // Awaiting review - tasks that are done but need review and aren't approved yet
   const awaitingReview = await prisma.task.findMany({
     where: {
       is_deleted: false,
-      status: 'review',
+      status: 'done',
+      needs_review: true,
+      approved: false,
     },
     include: {
       assignee: { select: { id: true, name: true } },
@@ -207,7 +213,12 @@ async function getPmDashboard(userId: string) {
           id: true,
           name: true,
           client: { select: { id: true, name: true } },
+          site: { select: { id: true, name: true } },
         },
+      },
+      time_entries: {
+        where: { is_deleted: false },
+        select: { duration: true },
       },
     },
     orderBy: { updated_at: 'asc' },
@@ -228,11 +239,34 @@ async function getPmDashboard(userId: string) {
           id: true,
           name: true,
           client: { select: { id: true, name: true } },
+          site: { select: { id: true, name: true } },
         },
       },
     },
     orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
     take: 10,
+  });
+
+  // My tasks - tasks assigned to current user (not done/abandoned)
+  const myTasks = await prisma.task.findMany({
+    where: {
+      is_deleted: false,
+      assignee_id: userId,
+      status: { notIn: ['done', 'abandoned'] },
+    },
+    include: {
+      project: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          client: { select: { id: true, name: true } },
+          site: { select: { id: true, name: true } },
+        },
+      },
+    },
+    orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
+    take: 20,
   });
 
   // My projects (assigned via team assignments)
@@ -280,6 +314,12 @@ async function getPmDashboard(userId: string) {
       title: t.title,
       status: t.status,
       priority: t.priority,
+      is_focus: t.is_focus,
+      due_date: t.due_date?.toISOString() || null,
+      energy_estimate: t.energy_estimate,
+      mystery_factor: t.mystery_factor,
+      battery_impact: t.battery_impact,
+      estimated_minutes: t.estimated_minutes,
       assignee: t.assignee,
       project: t.project,
     })),
@@ -288,6 +328,15 @@ async function getPmDashboard(userId: string) {
       title: t.title,
       status: t.status,
       priority: t.priority,
+      is_focus: t.is_focus,
+      due_date: t.due_date?.toISOString() || null,
+      energy_estimate: t.energy_estimate,
+      mystery_factor: t.mystery_factor,
+      battery_impact: t.battery_impact,
+      estimated_minutes: t.estimated_minutes,
+      time_logged_minutes: t.time_entries.reduce((sum, e) => sum + e.duration, 0),
+      needs_review: t.needs_review,
+      approved: t.approved,
       assignee: t.assignee,
       project: t.project,
       updated_at: t.updated_at.toISOString(),
@@ -297,6 +346,25 @@ async function getPmDashboard(userId: string) {
       title: t.title,
       status: t.status,
       priority: t.priority,
+      is_focus: t.is_focus,
+      due_date: t.due_date?.toISOString() || null,
+      energy_estimate: t.energy_estimate,
+      mystery_factor: t.mystery_factor,
+      battery_impact: t.battery_impact,
+      estimated_minutes: t.estimated_minutes,
+      project: t.project,
+    })),
+    myTasks: myTasks.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      priority: t.priority,
+      is_focus: t.is_focus,
+      due_date: t.due_date?.toISOString() || null,
+      energy_estimate: t.energy_estimate,
+      mystery_factor: t.mystery_factor,
+      battery_impact: t.battery_impact,
+      estimated_minutes: t.estimated_minutes,
       project: t.project,
     })),
     myProjects: myProjects.map((p) => ({

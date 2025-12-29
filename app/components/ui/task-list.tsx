@@ -5,41 +5,46 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from './button';
 import { Spinner } from './spinner';
 import { cn } from '@/lib/utils/cn';
-import type { Task } from '@/lib/hooks/use-tasks';
 
 // ============================================
 // TYPES
 // ============================================
 
-export interface TaskListColumn {
+// Generic task type - any object with at least an id
+export interface TaskLike {
+  id: string;
+  [key: string]: any;
+}
+
+export interface TaskListColumn<T extends TaskLike = TaskLike> {
   key: string;
   header: string;
   width?: string; // e.g., "120px", "1fr", "minmax(100px, 1fr)"
-  cell: (task: Task, onUpdate: (updates: Partial<Task>) => void) => React.ReactNode;
+  cell: (task: T, onUpdate: (updates: Partial<T>) => void) => React.ReactNode;
   headerClassName?: string;
   cellClassName?: string;
 }
 
-export interface TaskListGroup {
+export interface TaskListGroup<T extends TaskLike = TaskLike> {
   id: string;
   title: string;
   icon?: React.ReactNode;
-  tasks: Task[];
+  tasks: T[];
   collapsible?: boolean;
   defaultCollapsed?: boolean;
 }
 
-export interface TaskListProps {
+export interface TaskListProps<T extends TaskLike = TaskLike> {
   // Data - either flat tasks or grouped
-  tasks?: Task[];
-  groups?: TaskListGroup[];
+  tasks?: T[];
+  groups?: TaskListGroup<T>[];
 
   // Columns configuration
-  columns: TaskListColumn[];
+  columns: TaskListColumn<T>[];
 
   // Callbacks
-  onTaskClick?: (task: Task) => void;
-  onTaskUpdate?: (taskId: string, updates: Partial<Task>) => void;
+  onTaskClick?: (task: T) => void;
+  onTaskUpdate?: (taskId: string, updates: Partial<T>) => void;
   onLoadMore?: () => void;
 
   // Options
@@ -51,18 +56,18 @@ export interface TaskListProps {
 
   // Custom rendering
   renderGroupHeader?: (
-    group: TaskListGroup,
+    group: TaskListGroup<T>,
     isCollapsed: boolean,
     toggleCollapse: () => void
   ) => React.ReactNode;
-  renderGroupFooter?: (group: TaskListGroup) => React.ReactNode;
+  renderGroupFooter?: (group: TaskListGroup<T>) => React.ReactNode;
 }
 
 // ============================================
 // TASK LIST COMPONENT
 // ============================================
 
-export function TaskList({
+export function TaskList<T extends TaskLike = TaskLike>({
   tasks,
   groups,
   columns,
@@ -76,7 +81,7 @@ export function TaskList({
   isLoading = false,
   renderGroupHeader,
   renderGroupFooter,
-}: TaskListProps) {
+}: TaskListProps<T>) {
   const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => {
     const initial = new Set<string>();
     groups?.forEach((group) => {
@@ -105,8 +110,8 @@ export function TaskList({
     .join(' ');
 
   // Render a single task row
-  const renderRow = (task: Task) => {
-    const handleUpdate = (updates: Partial<Task>) => {
+  const renderRow = (task: T) => {
+    const handleUpdate = (updates: Partial<T>) => {
       onTaskUpdate?.(task.id, updates);
     };
 
@@ -139,7 +144,7 @@ export function TaskList({
   };
 
   // Render group header (default implementation)
-  const defaultRenderGroupHeader = (group: TaskListGroup) => {
+  const defaultRenderGroupHeader = (group: TaskListGroup<T>) => {
     const isCollapsed = collapsedGroups.has(group.id);
     const taskCount = group.tasks.length;
 
@@ -176,7 +181,7 @@ export function TaskList({
   // Empty state
   if (totalTasks === 0) {
     return (
-      <div className={cn('rounded-lg border border-border-warm overflow-hidden', className)}>
+      <div className={cn('rounded-lg border border-border-warm', className)}>
         <div className="px-4 py-8 text-center text-text-sub">
           {emptyMessage}
         </div>
@@ -185,7 +190,7 @@ export function TaskList({
   }
 
   return (
-    <div className={cn('rounded-lg border border-border-warm overflow-hidden', className)}>
+    <div className={cn('rounded-lg border border-border-warm', className)}>
       {/* Header row */}
       {showHeaders && (
         <div

@@ -87,6 +87,7 @@ export interface TaskFilters {
   assignee_id?: string;
   phase?: string;
   my_tasks?: boolean;
+  pending_review?: boolean; // Filter for tasks awaiting review (done + needs_review + !approved)
   page?: number;
   limit?: number;
 }

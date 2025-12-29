@@ -60,6 +60,8 @@ import {
   getTaskStatusLabel,
   getTaskStatusVariant,
 } from '@/lib/calculations/status';
+import { CommentSection } from '@/components/domain/tasks/comment-section';
+import { ReviewSection } from '@/components/domain/tasks/review-section';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -680,6 +682,12 @@ export default function QuestDetailPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Review Section - visible to task creator and PM/Admin */}
+          <ReviewSection task={task} />
+
+          {/* Comments */}
+          <CommentSection taskId={taskId} defaultExpanded={true} />
 
           {/* Details */}
           <Card>

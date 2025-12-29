@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Calendar, ExternalLink } from 'lucide-react';
+import { Calendar, ExternalLink, AlertCircle, Clock, CircleDot, CheckCircle2, Circle } from 'lucide-react';
 import { Avatar } from './avatar';
 import { Badge } from './badge';
 import { Tooltip } from './tooltip';
@@ -22,9 +22,65 @@ import {
   getPriorityLabel,
   getPriorityVariant,
 } from '@/lib/calculations/status';
-import { formatDuration, getBatteryImpactLabel, getBatteryImpactVariant } from '@/lib/calculations/energy';
-import type { TaskListColumn } from './task-list';
+import {
+  formatDuration,
+  getBatteryImpactLabel,
+  getBatteryImpactVariant,
+  getEnergyLabel,
+  getMysteryFactorLabel,
+  energyToMinutes,
+  getMysteryMultiplier,
+} from '@/lib/calculations/energy';
+import { MysteryFactor } from '@prisma/client';
+import type { TaskListColumn, TaskLike } from './task-list';
 import type { Task } from '@/lib/hooks/use-tasks';
+
+// Generic task type for columns that need specific fields
+interface TaskWithFocus extends TaskLike {
+  is_focus?: boolean;
+}
+
+interface TaskWithStatus extends TaskLike {
+  status: string;
+}
+
+interface TaskWithPriority extends TaskLike {
+  priority: number;
+}
+
+interface TaskWithAssignee extends TaskLike {
+  assignee_id?: string | null;
+  assignee?: { id: string; name: string; avatar_url?: string | null } | null;
+}
+
+interface TaskWithEnergy extends TaskLike {
+  energy_estimate?: number | null;
+}
+
+interface TaskWithMystery extends TaskLike {
+  mystery_factor?: string | null;
+}
+
+interface TaskWithBattery extends TaskLike {
+  battery_impact?: string | null;
+}
+
+interface TaskWithDueDate extends TaskLike {
+  due_date?: string | null;
+}
+
+interface TaskWithEstimate extends TaskLike {
+  estimated_minutes?: number | null;
+}
+
+interface TaskWithProject extends TaskLike {
+  project?: { id: string; name: string } | null;
+}
+
+interface TaskWithTimeSpent extends TaskLike {
+  time_spent_minutes?: number | null;
+  time_logged_minutes?: number; // Dashboard uses this name
+}
 
 // ============================================
 // INLINE TEXT COMPONENT
@@ -175,6 +231,37 @@ export function statusColumn(options?: EditableColumnOptions): TaskListColumn {
 }
 
 /**
+ * Status icon column - compact status indicator for dashboard lists
+ */
+export function statusIconColumn(): TaskListColumn {
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'blocked':
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      case 'in_progress':
+        return <Clock className="h-4 w-4 text-blue-500" />;
+      case 'done':
+        return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      case 'abandoned':
+        return <Circle className="h-4 w-4 text-text-sub line-through" />;
+      default:
+        return <CircleDot className="h-4 w-4 text-text-sub" />;
+    }
+  };
+
+  return {
+    key: 'status_icon',
+    header: '',
+    width: '24px',
+    cell: (task) => (
+      <Tooltip content={getTaskStatusLabel(task.status as any)}>
+        <span>{getStatusIcon(task.status)}</span>
+      </Tooltip>
+    ),
+  };
+}
+
+/**
  * Priority column with inline select
  */
 export function priorityColumn(options?: EditableColumnOptions): TaskListColumn {
@@ -275,10 +362,13 @@ export function energyColumn(options?: EditableColumnOptions): TaskListColumn {
           </Tooltip>
         );
       }
+      if (!task.energy_estimate) {
+        return <span className="text-sm text-text-sub">-</span>;
+      }
       return (
-        <span className="text-sm text-text-sub">
-          {task.energy_estimate || '-'}
-        </span>
+        <Badge variant="default" className="text-xs">
+          {getEnergyLabel(task.energy_estimate)}
+        </Badge>
       );
     },
   };
@@ -305,10 +395,14 @@ export function mysteryColumn(options?: EditableColumnOptions): TaskListColumn {
           </Tooltip>
         );
       }
+      // Only show if not 'none' or null
+      if (!task.mystery_factor || task.mystery_factor === 'none') {
+        return <span className="text-sm text-text-sub">-</span>;
+      }
       return (
-        <span className="text-sm text-text-sub">
-          {task.mystery_factor || '-'}
-        </span>
+        <Badge variant="default" className="text-xs">
+          {getMysteryFactorLabel(task.mystery_factor)}
+        </Badge>
       );
     },
   };
@@ -335,8 +429,12 @@ export function batteryColumn(options?: EditableColumnOptions): TaskListColumn {
           </Tooltip>
         );
       }
+      // Only show badge if not default/average_drain
+      if (!task.battery_impact || task.battery_impact === 'average_drain') {
+        return <span className="text-sm text-text-sub">-</span>;
+      }
       return (
-        <Badge variant={getBatteryImpactVariant(task.battery_impact as any)}>
+        <Badge variant={getBatteryImpactVariant(task.battery_impact as any)} className="text-xs">
           {getBatteryImpactLabel(task.battery_impact as any)}
         </Badge>
       );
@@ -438,25 +536,168 @@ export function projectColumn(): TaskListColumn {
 }
 
 /**
+ * Client/Project/Site column - shows hierarchy: Client → Project (Site)
+ */
+export function clientProjectSiteColumn(): TaskListColumn {
+  return {
+    key: 'client_project_site',
+    header: 'Client / Project',
+    width: 'minmax(150px, 2fr)',
+    cell: (task) => {
+      if (!task.project) {
+        return <span className="text-sm text-text-sub">Ad-hoc</span>;
+      }
+
+      const parts: string[] = [];
+      if (task.project.client?.name) {
+        parts.push(task.project.client.name);
+      }
+      parts.push(task.project.name);
+      if (task.project.site?.name) {
+        parts.push(task.project.site.name);
+      }
+
+      return (
+        <div className="text-sm text-text-sub truncate" title={parts.join(' → ')}>
+          {parts.join(' → ')}
+        </div>
+      );
+    },
+  };
+}
+
+/**
+ * Ranged estimate column - shows min-max range based on energy + mystery
+ */
+export function rangedEstimateColumn(): TaskListColumn {
+  return {
+    key: 'ranged_estimate',
+    header: 'Estimate',
+    width: '100px',
+    cell: (task) => {
+      if (!task.energy_estimate) {
+        return <span className="text-sm text-text-sub">-</span>;
+      }
+
+      // Calculate base and max minutes
+      const baseMinutes = energyToMinutes(task.energy_estimate);
+      const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
+      const multiplier = getMysteryMultiplier(mysteryFactor);
+      const maxMinutes = Math.round(baseMinutes * multiplier);
+
+      // Format the range
+      let rangeText: string;
+      if (baseMinutes === maxMinutes || mysteryFactor === 'none') {
+        rangeText = formatDuration(baseMinutes);
+      } else {
+        rangeText = `${formatDuration(baseMinutes)} - ${formatDuration(maxMinutes)}`;
+      }
+
+      return (
+        <Tooltip content={`Energy: ${task.energy_estimate}, Mystery: ${getMysteryFactorLabel(mysteryFactor)}`}>
+          <span className="text-sm text-text-sub">{rangeText}</span>
+        </Tooltip>
+      );
+    },
+  };
+}
+
+/**
  * Time spent column (read-only)
  */
-export function timeSpentColumn(): TaskListColumn {
+export function timeSpentColumn<T extends TaskWithTimeSpent>(): TaskListColumn<T> {
   return {
     key: 'time_spent',
-    header: 'Spent',
+    header: 'Logged',
     width: '80px',
+    cell: (task) => {
+      const minutes = task.time_spent_minutes ?? task.time_logged_minutes;
+      return (
+        <span className="text-sm text-text-sub">
+          {minutes ? formatDuration(minutes) : '-'}
+        </span>
+      );
+    },
+  };
+}
+
+/**
+ * Focus checkbox column for toggling is_focus
+ */
+export function focusColumn<T extends TaskWithFocus>(options: { onToggleFocus: (taskId: string, isFocus: boolean) => void }): TaskListColumn<T> {
+  return {
+    key: 'focus',
+    header: '',
+    width: '32px',
     cell: (task) => (
-      <span className="text-sm text-text-sub">
-        {task.time_spent_minutes ? formatDuration(task.time_spent_minutes) : '-'}
-      </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          options.onToggleFocus(task.id, !task.is_focus);
+        }}
+        className={`h-4 w-4 shrink-0 rounded border flex items-center justify-center transition-colors ${
+          task.is_focus
+            ? 'bg-primary border-primary text-white'
+            : 'border-border-warm bg-surface hover:border-primary'
+        }`}
+        title={task.is_focus ? 'Remove from focus' : 'Add to focus'}
+      >
+        {task.is_focus && (
+          <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none">
+            <path d="M2 6l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        )}
+      </button>
     ),
+  };
+}
+
+// Task type for approve column
+interface TaskWithReview extends TaskLike {
+  status: string;
+  needs_review?: boolean;
+  approved?: boolean;
+}
+
+/**
+ * Approve button column - shows approve button for tasks that are done and need review
+ */
+export function approveColumn<T extends TaskWithReview>(options: {
+  onApprove: (taskId: string) => void;
+}): TaskListColumn<T> {
+  return {
+    key: 'approve',
+    header: '',
+    width: '90px',
+    cell: (task) => {
+      // Only show for tasks that are done, need review, and aren't approved yet
+      const showApprove = task.status === 'done' && task.needs_review && !task.approved;
+
+      if (!showApprove) {
+        return null;
+      }
+
+      return (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            options.onApprove(task.id);
+          }}
+          className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors"
+          title="Approve task"
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Approve
+        </button>
+      );
+    },
   };
 }
 
 /**
  * Actions column with view details button
  */
-export function actionsColumn(options?: { onViewDetails?: (task: Task) => void }): TaskListColumn {
+export function actionsColumn<T extends TaskLike>(options?: { onViewDetails?: (task: T) => void }): TaskListColumn<T> {
   return {
     key: 'actions',
     header: '',

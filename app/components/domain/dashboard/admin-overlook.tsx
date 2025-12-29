@@ -13,17 +13,33 @@ import {
   Users,
   BarChart3,
   Activity,
+  ListTodo,
 } from 'lucide-react';
-import { AdminDashboardData } from '@/lib/hooks/use-dashboard';
+import { AdminDashboardData, DashboardTask } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
+import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { DashboardSection } from './dashboard-section';
 import { StatCard } from './stat-card';
 import { TaskQuickList } from './task-quick-list';
 import { ProjectQuickList } from './project-quick-list';
 import { RetainerAlert } from './retainer-alert';
+import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatDuration } from '@/lib/calculations/energy';
 import { formatElapsedTime } from '@/lib/utils/time';
+import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
+import {
+  focusColumn,
+  statusColumn,
+  titleColumn,
+  estimateColumn,
+  assigneeColumn,
+  timeSpentColumn,
+  actionsColumn,
+  clientProjectSiteColumn,
+  rangedEstimateColumn,
+  approveColumn,
+} from '@/components/ui/task-list-columns';
 
 interface AdminOverlookProps {
   data: AdminDashboardData;
@@ -32,10 +48,62 @@ interface AdminOverlookProps {
 export function AdminOverlook({ data }: AdminOverlookProps) {
   const router = useRouter();
   const timer = useTimer();
+  const toggleFocus = useToggleFocus();
+  const updateTask = useUpdateTask();
 
-  const handleTaskClick = (taskId: string) => {
-    router.push(`/tasks/${taskId}`);
+  // Peek drawer state
+  const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
+  const [isPeekOpen, setIsPeekOpen] = React.useState(false);
+
+  const handleTaskClick = (task: DashboardTask) => {
+    setPeekTaskId(task.id);
+    setIsPeekOpen(true);
   };
+
+  const handleTaskIdClick = (taskId: string) => {
+    setPeekTaskId(taskId);
+    setIsPeekOpen(true);
+  };
+
+  const handleToggleFocus = (taskId: string, isFocus: boolean) => {
+    toggleFocus.mutate({ id: taskId, is_focus: isFocus });
+  };
+
+  const handleTaskUpdate = (taskId: string, updates: Partial<DashboardTask>) => {
+    updateTask.mutate({ id: taskId, data: updates as any });
+  };
+
+  const handleApprove = (taskId: string) => {
+    updateTask.mutate({ id: taskId, data: { approved: true } as any });
+  };
+
+  // Column configs for different task lists
+  const focusColumns: TaskListColumn<DashboardTask>[] = [
+    focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    statusColumn({ editable: true }),
+    titleColumn({ editable: true }),
+    clientProjectSiteColumn(),
+    rangedEstimateColumn(),
+    actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
+  ];
+
+  const reviewColumns: TaskListColumn<DashboardTask>[] = [
+    approveColumn<DashboardTask>({ onApprove: handleApprove }),
+    titleColumn({ editable: true }),
+    assigneeColumn({ editable: true }),
+    estimateColumn(),
+    timeSpentColumn<DashboardTask>(),
+    actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
+  ];
+
+  const myTasksColumns: TaskListColumn<DashboardTask>[] = [
+    focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    statusColumn({ editable: true }),
+    titleColumn({ editable: true }),
+    clientProjectSiteColumn(),
+    rangedEstimateColumn(),
+    actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
+  ];
 
   return (
     <div className="space-y-6">
@@ -113,13 +181,15 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
           <DashboardSection
             title="Focus Quests"
             icon={Zap}
-            action={{ label: 'View All', href: '/tasks?status=in_progress&priority=1,2' }}
+            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
-            <TaskQuickList
+            <TaskList<DashboardTask>
               tasks={data.focusTasks}
-              emptyMessage="No high-priority tasks in progress"
+              columns={focusColumns}
               onTaskClick={handleTaskClick}
-              showAssignee
+              onTaskUpdate={handleTaskUpdate}
+              showHeaders={false}
+              emptyMessage="No focus tasks - check a task to add it to your focus list"
             />
           </DashboardSection>
 
@@ -127,13 +197,15 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
           <DashboardSection
             title="Awaiting Review"
             icon={CircleDot}
-            action={{ label: 'View All', href: '/tasks?status=review' }}
+            action={{ label: 'View All', href: '/tasks?pending_review=true' }}
           >
-            <TaskQuickList
+            <TaskList<DashboardTask>
               tasks={data.awaitingReview}
-              emptyMessage="No tasks awaiting review"
+              columns={reviewColumns}
               onTaskClick={handleTaskClick}
-              showAssignee
+              onTaskUpdate={handleTaskUpdate}
+              showHeaders={false}
+              emptyMessage="No tasks awaiting review"
             />
           </DashboardSection>
 
@@ -146,7 +218,23 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
             <TaskQuickList
               tasks={data.unassignedTasks}
               emptyMessage="All quests are assigned"
+              onTaskClick={handleTaskIdClick}
+            />
+          </DashboardSection>
+
+          {/* My Tasks */}
+          <DashboardSection
+            title="My Quests"
+            icon={ListTodo}
+            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+          >
+            <TaskList<DashboardTask>
+              tasks={data.myTasks}
+              columns={myTasksColumns}
               onTaskClick={handleTaskClick}
+              onTaskUpdate={handleTaskUpdate}
+              showHeaders={false}
+              emptyMessage="No tasks assigned to you"
             />
           </DashboardSection>
 
@@ -243,6 +331,13 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
           </DashboardSection>
         </div>
       </div>
+
+      {/* Task Peek Drawer */}
+      <TaskPeekDrawer
+        taskId={peekTaskId}
+        open={isPeekOpen}
+        onOpenChange={setIsPeekOpen}
+      />
     </div>
   );
 }

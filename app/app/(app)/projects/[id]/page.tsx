@@ -503,7 +503,7 @@ export default function ProjectDetailPage() {
                 );
 
                 // Build groups array for TaskList
-                const groups: TaskListGroup[] = sortedPhases.map(({ phase, tasks }) => ({
+                const groups: TaskListGroup<Task>[] = sortedPhases.map(({ phase, tasks }) => ({
                   id: phase.id,
                   title: phase.name,
                   icon: phase.icon ? getIconOption(phase.icon)?.emoji : undefined,

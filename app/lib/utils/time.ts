@@ -131,3 +131,40 @@ export function getWeekDates(startDate: Date): Date[] {
   }
   return dates;
 }
+
+/**
+ * Format a date as relative time (e.g., "2 hours ago", "just now", "in 3 days")
+ */
+export function formatRelativeTime(date: string | Date): string {
+  const now = new Date();
+  const then = typeof date === 'string' ? new Date(date) : date;
+  const diffMs = now.getTime() - then.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSeconds < 60) {
+    return 'just now';
+  }
+  if (diffMinutes < 60) {
+    return diffMinutes === 1 ? '1 minute ago' : `${diffMinutes} minutes ago`;
+  }
+  if (diffHours < 24) {
+    return diffHours === 1 ? '1 hour ago' : `${diffHours} hours ago`;
+  }
+  if (diffDays < 7) {
+    return diffDays === 1 ? 'yesterday' : `${diffDays} days ago`;
+  }
+  if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+  }
+
+  // For older dates, show the actual date
+  return then.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: then.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  });
+}

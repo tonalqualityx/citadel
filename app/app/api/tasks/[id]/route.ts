@@ -6,12 +6,14 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
+import { logStatusChange, logUpdate, logDelete } from '@/lib/services/activity';
 import { MysteryFactor, TaskStatus } from '@prisma/client';
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   description: z.any().optional(), // BlockNote JSON content
   priority: z.number().min(1).max(5).optional(),
+  is_focus: z.boolean().optional(), // User focus flag
   project_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(),
   sort_order: z.number().optional(),
@@ -40,6 +42,10 @@ const updateTaskSchema = z.object({
     completed_by: z.string().nullable().optional(),
     sort_order: z.number(),
   })).optional().nullable(),
+  // Review workflow fields
+  needs_review: z.boolean().optional(),
+  reviewer_id: z.string().uuid().optional().nullable(),
+  approved: z.boolean().optional(),
 });
 
 const updateStatusSchema = z.object({
@@ -116,6 +122,8 @@ export async function GET(
           },
         },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+        reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
+        approved_by: { select: { id: true, name: true } },
         function: { select: { id: true, name: true } },
         sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
         created_by: { select: { id: true, name: true } },
@@ -177,9 +185,13 @@ export async function PATCH(
 
       const updateData: any = { status: statusData.status };
 
-      // Set timestamps based on status
-      if (statusData.status === 'in_progress' && !existingTask.started_at) {
-        updateData.started_at = new Date();
+      // Set timestamps and focus based on status
+      if (statusData.status === 'in_progress') {
+        if (!existingTask.started_at) {
+          updateData.started_at = new Date();
+        }
+        // Auto-focus tasks when moved to in_progress
+        updateData.is_focus = true;
       }
       if (statusData.status === 'done') {
         updateData.completed_at = new Date();
@@ -202,6 +214,8 @@ export async function PATCH(
             },
           },
           assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+          reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
+          approved_by: { select: { id: true, name: true } },
           function: { select: { id: true, name: true } },
           sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
           created_by: { select: { id: true, name: true } },
@@ -209,6 +223,16 @@ export async function PATCH(
           blocking: { select: { id: true, title: true, status: true } },
         },
       });
+
+      // Log status change activity
+      await logStatusChange(
+        auth.userId,
+        'task',
+        task.id,
+        task.title,
+        existingTask.status,
+        statusData.status
+      );
 
       return NextResponse.json(formatTaskResponse(task));
     }
@@ -221,6 +245,7 @@ export async function PATCH(
         'title',
         'description',
         'priority',
+        'is_focus',
         'notes',
         'requirements',
         'assignee_id',
@@ -262,6 +287,7 @@ export async function PATCH(
       updateData.description = data.description ? JSON.stringify(data.description) : null;
     }
     if (data.priority !== undefined) updateData.priority = data.priority;
+    if (data.is_focus !== undefined) updateData.is_focus = data.is_focus;
     if (data.project_id !== undefined) updateData.project_id = data.project_id;
     if (data.phase !== undefined) updateData.phase = data.phase;
     if (data.sort_order !== undefined) updateData.sort_order = data.sort_order;
@@ -283,6 +309,34 @@ export async function PATCH(
       updateData.due_date = data.due_date ? new Date(data.due_date) : null;
     }
 
+    // Review workflow fields - only task creator or PM/Admin can update
+    const canUpdateReviewFields = existingTask.created_by_id === auth.userId || auth.role !== 'tech';
+
+    if (canUpdateReviewFields) {
+      if (data.needs_review !== undefined) {
+        updateData.needs_review = data.needs_review;
+        // If turning off needs_review, clear approval
+        if (!data.needs_review) {
+          updateData.approved = false;
+          updateData.approved_at = null;
+          updateData.approved_by_id = null;
+        }
+      }
+      if (data.reviewer_id !== undefined) updateData.reviewer_id = data.reviewer_id;
+
+      // Approval - can be set by reviewer, task creator, or PM/Admin
+      if (data.approved !== undefined) {
+        updateData.approved = data.approved;
+        if (data.approved) {
+          updateData.approved_at = new Date();
+          updateData.approved_by_id = auth.userId;
+        } else {
+          updateData.approved_at = null;
+          updateData.approved_by_id = null;
+        }
+      }
+    }
+
     const task = await prisma.task.update({
       where: { id },
       data: updateData,
@@ -296,11 +350,18 @@ export async function PATCH(
           },
         },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+        reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
+        approved_by: { select: { id: true, name: true } },
         function: { select: { id: true, name: true } },
         sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
         created_by: { select: { id: true, name: true } },
+        project_phase: { select: { id: true, name: true, icon: true, sort_order: true } },
         blocked_by: { select: { id: true, title: true, status: true } },
         blocking: { select: { id: true, title: true, status: true } },
+        time_entries: {
+          where: { is_deleted: false },
+          select: { id: true, duration: true },
+        },
       },
     });
 
@@ -319,11 +380,20 @@ export async function DELETE(
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
+    // Get task title for activity log
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: { title: true },
+    });
+
     // Soft delete
     await prisma.task.update({
       where: { id },
       data: { is_deleted: true },
     });
+
+    // Log activity
+    await logDelete(auth.userId, 'task', id, task?.title);
 
     return NextResponse.json({ success: true });
   } catch (error) {
