@@ -9,7 +9,7 @@
 
 ## Overview
 
-This runbook covers the one-time migration of foundation/reference data from Notion to the new Indelible PostgreSQL database. Projects, tasks, and time entries are **not** being migratedâ€”the new system starts fresh for transactional data.
+This runbook covers the one-time migration of foundation/reference data from Notion to the new Indelible PostgreSQL database. Projects, tasks, and time entries are **not** being migrated—the new system starts fresh for transactional data.
 
 ### Migration Approach
 
@@ -21,16 +21,16 @@ Rather than building runtime Notion API connectivity, we generate static SQL INS
 
 | Entity | Notion Database | PostgreSQL Table | Notes |
 |--------|-----------------|------------------|-------|
-| Functions | ðŸ’¼ Functions | `functions` | Job roles/capabilities |
-| Hosting Plans | ðŸ¤– Hosting | `hosting_plans` | Plan tiers and pricing |
-| Maintenance Plans | ðŸ”§ Maintenance Plans | `maintenance_plans` | Service tiers |
-| Tools | ðŸ§° Tools | `tools` | Software catalog |
-| Clients (Patrons) | ðŸ§‘â€ðŸš€ Clients | `clients` | Core CRM data |
-| Agency Partners | ðŸ“‡ Agency Partners | `clients` | Become `type = 'agency_partner'` |
-| Sites | ðŸ•¸ï¸ Sites | `sites` | Managed websites |
-| Domains | ðŸ”— Domains | `domains` | Domain names linked to sites |
-| SOPs | ðŸ“‹ SOPs | `sops` | Procedures (content as TipTap JSON) |
-| Recipes | ðŸ§‘â€ðŸ³ Recipes | `recipes` | Manual recreation (only 2 exist) |
+| Functions | 🔼 Functions | `functions` | Job roles/capabilities |
+| Hosting Plans | 💓 Hosting | `hosting_plans` | Plan tiers and pricing |
+| Maintenance Plans | 📧 Maintenance Plans | `maintenance_plans` | Service tiers |
+| Tools | 🧰 Tools | `tools` | Software catalog |
+| Clients (Patrons) | 👨‍🚀 Clients | `clients` | Core CRM data |
+| Agency Partners | 📡 Agency Partners | `clients` | Become `type = 'agency_partner'` |
+| Sites | 🔸️ Sites | `sites` | Managed websites |
+| Domains | 💨 Domains | `domains` | Domain names linked to sites |
+| SOPs | 📋 SOPs | `sops` | Procedures (content as TipTap JSON) |
+| Recipes | 👨‍🍳 Recipes | `recipes` | Manual recreation (only 2 exist) |
 
 ### What's NOT Being Migrated
 
@@ -51,22 +51,22 @@ Entities must be migrated in this order due to foreign key relationships:
 
 ```
 Phase 1: Independent Entities (no FK dependencies)
-â”œâ”€â”€ Functions
-â”œâ”€â”€ Hosting Plans
-â”œâ”€â”€ Maintenance Plans
-â””â”€â”€ Tools
+├── Functions
+├── Hosting Plans
+├── Maintenance Plans
+└── Tools
 
 Phase 2: Client Entities
-â”œâ”€â”€ Agency Partners â†’ clients (type = 'agency_partner')
-â””â”€â”€ Clients â†’ clients (with parent_agency_id where applicable)
+├── Agency Partners → clients (type = 'agency_partner')
+└── Clients → clients (with parent_agency_id where applicable)
 
 Phase 3: Dependent Entities
-â”œâ”€â”€ Sites (references: clients, hosting_plans, maintenance_plans)
-â”œâ”€â”€ Domains (references: sites)
-â””â”€â”€ SOPs (references: functions)
+├── Sites (references: clients, hosting_plans, maintenance_plans)
+├── Domains (references: sites)
+└── SOPs (references: functions)
 
 Phase 4: Manual Recreation
-â””â”€â”€ Recipes (only 2, rebuild manually with phase/task structure)
+└── Recipes (only 2, rebuild manually with phase/task structure)
 ```
 
 ---
@@ -95,8 +95,8 @@ Phase 4: Manual Recreation
 | Notion Field | PostgreSQL Column | Transform |
 |--------------|-------------------|-----------|
 | Name | `name` | Direct |
-| â€” | `department` | Default 'General', refine manually |
-| â€” | `is_active` | Default `true` |
+| — | `department` | Default 'General', refine manually |
+| — | `is_active` | Default `true` |
 
 ### Hosting Plans
 | Notion Field | PostgreSQL Column | Transform |
@@ -116,7 +116,7 @@ Phase 4: Manual Recreation
 | Rate | `client_rate` | Direct |
 | Agency Rate | `agency_rate` | Direct |
 | Hours | `hours_included` | Direct |
-| â€” | `is_active` | Default `true` |
+| — | `is_active` | Default `true` |
 
 ### Tools
 | Notion Field | PostgreSQL Column | Transform |
@@ -126,12 +126,12 @@ Phase 4: Manual Recreation
 | Category | `category` | Direct |
 | Notes | `description` | Direct |
 
-### Agency Partners â†’ Clients
+### Agency Partners → Clients
 | Notion Field | PostgreSQL Column | Transform |
 |--------------|-------------------|-----------|
 | Name | `name` | Direct |
-| â€” | `type` | Set to `'agency_partner'` |
-| â€” | `status` | Default `'active'` |
+| — | `type` | Set to `'agency_partner'` |
+| — | `status` | Default `'active'` |
 
 ### Clients
 | Notion Field | PostgreSQL Column | Transform |
@@ -145,13 +145,13 @@ Phase 4: Manual Recreation
 | Maint. Hrs. | `retainer_hours` | Direct |
 | Contact Indicators | `notes` | Direct |
 | Agency Partner link | `parent_agency_id` | Lookup UUID |
-| â€” | `type` | `'direct'` or `'sub_client'` |
+| — | `type` | `'direct'` or `'sub_client'` |
 
 **Status Mapping:**
-- Active â†’ `'active'`
-- Inactive â†’ `'inactive'`
-- Never Again â†’ `'inactive'` (add note)
-- Delinquent â†’ `'delinquent'`
+- Active → `'active'`
+- Inactive → `'inactive'`
+- Never Again → `'inactive'` (add note)
+- Delinquent → `'delinquent'`
 
 ### Sites
 | Notion Field | PostgreSQL Column | Transform |
@@ -169,8 +169,8 @@ Phase 4: Manual Recreation
 |--------------|-------------------|-----------|
 | Name | `name` | Direct |
 | Site | `site_id` | Lookup UUID |
-| â€” | `registrar` | Null, populate later |
-| â€” | `expires_at` | Null, populate later |
+| — | `registrar` | Null, populate later |
+| — | `expires_at` | Null, populate later |
 
 ### SOPs
 | Notion Field | PostgreSQL Column | Transform |
@@ -197,16 +197,16 @@ Each entity is extracted in a separate Claude chat using the prompts in `indelib
 
 ```
 migrations/
-â””â”€â”€ seed/
-    â”œâ”€â”€ 01-functions.sql
-    â”œâ”€â”€ 02-hosting-plans.sql
-    â”œâ”€â”€ 03-maintenance-plans.sql
-    â”œâ”€â”€ 04-tools.sql
-    â”œâ”€â”€ 05-agency-partners.sql
-    â”œâ”€â”€ 06-clients.sql
-    â”œâ”€â”€ 07-sites.sql
-    â”œâ”€â”€ 08-domains.sql
-    â””â”€â”€ 09-sops.sql
+└── seed/
+    ├── 01-functions.sql
+    ├── 02-hosting-plans.sql
+    ├── 03-maintenance-plans.sql
+    ├── 04-tools.sql
+    ├── 05-agency-partners.sql
+    ├── 06-clients.sql
+    ├── 07-sites.sql
+    ├── 08-domains.sql
+    └── 09-sops.sql
 ```
 
 ### Running the Migration
@@ -286,8 +286,8 @@ TRUNCATE functions, hosting_plans, maintenance_plans, tools,
 
 ## Related Documents
 
-- `indelible-migration-prompts.md` â€” Copy-paste prompts for each extraction
-- `indelible-data-model-refinement.md` â€” PostgreSQL schema definitions
-- `notion-schema.md` â€” Original Notion database schema
+- `indelible-migration-prompts.md` — Copy-paste prompts for each extraction
+- `indelible-data-model-refinement.md` — PostgreSQL schema definitions
+- `notion-schema.md` — Original Notion database schema
 
 ---

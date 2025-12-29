@@ -1,0 +1,49 @@
+﻿Name,Agency Rate,Details,Margin,Monthly Cost,Profit,Rate,Tags,Vendor Plan,WL Margin,WL Profit
+Legacy Dedicated 2GB,,,100%,,$100.00,$100.00,Secret Menu,,0%,$0.00
+Legacy Dedicated 4GB,,,100%,,$200.00,$200.00,Secret Menu,,0%,$0.00
+Legacy Basic,,,100%,,$50.00,$50.00,Secret Menu,,0%,$0.00
+Legacy Dedicated 8GB,,,100%,,$300.00,$300.00,Secret Menu,,0%,$0.00
+Legacy Dedicated 16GB,,,100%,,$585.00,$585.00,Secret Menu,,0%,$0.00
+Dedicated Starter,$40.00,"* 1 vCPU
+* 512MB RAM
+* 5TB Bandwidth
+* 10GB Storage",93%,$4.00,$56.00,$60.00,"Secret Menu, WPMU Dev",Quantum,90%,$36.00
+Premium 2GB,$150.00,"* 2 vCPU
+* 2GB RAM
+* 25TB Bandwidth
+* 80GB Storage
+* Enhanced SSDs - 125% faster",83%,$35.00,$165.00,$200.00,WPMU Dev,Silver Plus,77%,$115.00
+Dedicated 4GB,$200.00,"* 2 vCPU
+* 4GB RAM
+* 25TB Bandwidth
+* 128GB Storage
+* Enhanced SSDs - 125% faster",82%,$45.00,$205.00,$250.00,WPMU Dev,Silver Max,78%,$155.00
+Dedicated 8GB,$300.00,https://www.notion.so/Dedicated-8GB-13ae607ad424806d8aacdd5c1a88894e?pvs=21,83%,$60.00,$290.00,$350.00,WPMU Dev,Gold,80%,$240.00
+Premium 16GB,$700.00,"* 4 vCPU
+* 16GB RAM
+* 100TB Bandwidth
+* 384GB Storage
+* Enhanced SSDs - 125% faster",80%,$150.00,$600.00,$750.00,WPMU Dev,Gold Plus,79%,$550.00
+Managed Shared,$50.00,"Shared hosting
+* Resources allocated as needed
+* Max storage ~5GB
+* Max RAM 256MB
+
+Note - 24/7 proactive uptime monitoring not available on shared hosting",90%,$10.00,$90.00,$100.00,CW,,80%,$40.00
+Dedicated 1GB,$100.00,"* 1 vCPU
+* 1GB RAM
+* 10TB Bandwidth
+* 32GB Storage ",90%,$15.00,$135.00,$150.00,,Bronze Plus,85%,$85.00
+Dedicated 2GB,$130.00,"* 1 vCPU
+* 2GB RAM
+* 10TB Bandwidth
+* 64GB Storage",87%,$23.00,$157.00,$180.00,,Bronze Max,82%,$107.00
+Dedicated 16GB,$500.00,"* 6 vCPu
+* 16GB RAM
+* 200TB Bandwidth
+* 320GB Storage",78%,$120.00,$430.00,$550.00,,Platinum,76%,$380.00
+Premium 24GB,$800.00,"* 6 vCPU
+* 32GB RAM
+* 200TB Bandwidth
+* 448GB Storage
+* 125% Faster",78%,$200.00,$700.00,$900.00,,Platimun Plus,75%,$600.00

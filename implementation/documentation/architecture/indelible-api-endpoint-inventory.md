@@ -111,8 +111,8 @@ This document catalogs all API endpoints required for the Indelible application.
 ```
 
 **Error Codes:**
-- `401` â€” Invalid credentials
-- `423` â€” Account deactivated
+- `401` — Invalid credentials
+- `423` — Account deactivated
 
 ---
 
@@ -181,8 +181,8 @@ This document catalogs all API endpoints required for the Indelible application.
 ```
 
 **Error Codes:**
-- `400` â€” Token expired or invalid
-- `422` â€” Password validation failed
+- `400` — Token expired or invalid
+- `422` — Password validation failed
 
 ---
 
@@ -336,7 +336,7 @@ This document catalogs all API endpoints required for the Indelible application.
       "status": "active",
       "hourly_rate": 150.00,
       "retainer_hours": 10,
-      "icon": "ðŸ¢",
+      "icon": "🏢",
       "primary_pm_id": "uuid",
       "primary_pm": {
         "id": "uuid",
@@ -389,7 +389,7 @@ This document catalogs all API endpoints required for the Indelible application.
     "status": "active",
     "hourly_rate": 150.00,
     "retainer_hours": 10,
-    "icon": "ðŸ¢",
+    "icon": "🏢",
     "primary_pm_id": "uuid",
     "primary_pm": {
       "id": "uuid",
@@ -439,7 +439,7 @@ This document catalogs all API endpoints required for the Indelible application.
   "hourly_rate": 150.00,
   "retainer_hours": 10,
   "primary_pm_id": "uuid",
-  "icon": "ðŸ¢",
+  "icon": "🏢",
   "contract_link": "https://...",
   "proposal_link": "https://..."
 }
@@ -609,7 +609,7 @@ This document catalogs all API endpoints required for the Indelible application.
         "id": "uuid",
         "name": "Mike Hansen"
       },
-      "icon": "ðŸŒ",
+      "icon": "🌐",
       "created_at": "2024-01-01T00:00:00Z",
       "_counts": {
         "domains": 2,
@@ -654,7 +654,7 @@ This document catalogs all API endpoints required for the Indelible application.
   "hosting_plan_id": "uuid",
   "maintenance_plan_id": "uuid",
   "webmaster_id": "uuid",
-  "icon": "ðŸŒ",
+  "icon": "🌐",
   "notes": "Main company website"
 }
 ```
@@ -904,7 +904,7 @@ This document catalogs all API endpoints required for the Indelible application.
       "target_end_date": "2024-03-01",
       "phases": ["Setup", "Content", "Design", "Build", "Launch"],
       "current_phase": "Design",
-      "icon": "ðŸŽ¨",
+      "icon": "🎨",
       "created_at": "2024-01-01T00:00:00Z",
       "_counts": {
         "total_tasks": 24,
@@ -962,7 +962,7 @@ This document catalogs all API endpoints required for the Indelible application.
     "target_end_date": "2024-03-01",
     "phases": [...],
     "current_phase": "Design",
-    "icon": "ðŸŽ¨",
+    "icon": "🎨",
     "figma_link": "https://figma.com/...",
     "drive_link": "https://drive.google.com/...",
     "staging_link": "https://staging.acme.com",
@@ -1048,7 +1048,7 @@ This document catalogs all API endpoints required for the Indelible application.
   "budget_amount": 15000.00,
   "start_date": "2024-01-01",
   "target_end_date": "2024-03-01",
-  "icon": "ðŸŽ¨"
+  "icon": "🎨"
 }
 ```
 
@@ -1078,7 +1078,7 @@ This document catalogs all API endpoints required for the Indelible application.
   "budget_amount": 15000.00,
   "start_date": "2024-01-01",
   "target_end_date": "2024-03-01",
-  "icon": "ðŸŽ¨",
+  "icon": "🎨",
   "pages": [
     {
       "name": "Homepage",
@@ -1159,9 +1159,9 @@ This document catalogs all API endpoints required for the Indelible application.
 **Response (200):** Updated project with notification summary
 
 **Side Effects:**
-- Quote â†’ Ready/In Progress: Sends bundled notifications to assignees
-- â†’ Suspended: Tasks become invisible to assignees
-- â†’ Done: All tasks marked complete
+- Quote → Ready/In Progress: Sends bundled notifications to assignees
+- → Suspended: Tasks become invisible to assignees
+- → Done: All tasks marked complete
 
 ---
 
@@ -1596,7 +1596,7 @@ This document catalogs all API endpoints required for the Indelible application.
       "energy_variance": 5.25,
       "energy_range": "3-5.25",
       "time_spent": 2.5,
-      "time_range": "3 hrs â€“ 5.25 hrs",
+      "time_range": "3 hrs – 5.25 hrs",
       "is_blocked": false,
       "is_ready": true,
       "burndown_percent": 64,
@@ -1686,7 +1686,7 @@ This document catalogs all API endpoints required for the Indelible application.
 **Special Handling:**
 - `blocked`: Requires `blocked_reason` in body
 - `done`: If `no_review=false`, auto-changes to `review`
-- `review` â†’ `done`: Sets `date_complete`, `approved=true`
+- `review` → `done`: Sets `date_complete`, `approved=true`
 
 **Response (200):** Updated task with notification summary
 
@@ -2433,11 +2433,11 @@ This document catalogs all API endpoints required for the Indelible application.
       "requires_sitemap": true,
       "estimated_tasks": 24,
       "phases": [
-        { "name": "Setup", "order": 1, "icon": "âš™ï¸" },
-        { "name": "Content", "order": 2, "icon": "âœï¸" },
-        { "name": "Design", "order": 3, "icon": "ðŸŽ¨" },
-        { "name": "Build", "order": 4, "icon": "ðŸ‘¨â€ðŸ’»" },
-        { "name": "Launch", "order": 5, "icon": "ðŸš€" }
+        { "name": "Setup", "order": 1, "icon": "âš™️" },
+        { "name": "Content", "order": 2, "icon": "âœ️" },
+        { "name": "Design", "order": 3, "icon": "🎨" },
+        { "name": "Build", "order": 4, "icon": "📔🔻" },
+        { "name": "Launch", "order": 5, "icon": "🚀" }
       ],
       "trigger_description": "Use when starting a new website project",
       "created_at": "2023-01-01T00:00:00Z",
@@ -2547,7 +2547,7 @@ This document catalogs all API endpoints required for the Indelible application.
   "is_active": true,
   "requires_sitemap": true,
   "phases": [
-    { "name": "Setup", "order": 1, "icon": "âš™ï¸" }
+    { "name": "Setup", "order": 1, "icon": "âš™️" }
   ],
   "documentation": { ... },
   "trigger_description": "Use when..."
@@ -4146,11 +4146,11 @@ This document catalogs all API endpoints required for the Indelible application.
 
 ## Related Documents
 
-- `notion-schema.md` â€” Original Notion database schema
-- `indelible-app-architecture.md` â€” Technical architecture
-- `indelible-schema-addendum.md` â€” Schema clarifications
-- `indelible-screen-inventory.md` â€” Complete screen catalog
-- `indelible-user-flows.md` â€” User journey documentation
-- `indelible-wireframes-creation-flows.md` â€” Creation flow wireframes
+- `notion-schema.md` — Original Notion database schema
+- `indelible-app-architecture.md` — Technical architecture
+- `indelible-schema-addendum.md` — Schema clarifications
+- `indelible-screen-inventory.md` — Complete screen catalog
+- `indelible-user-flows.md` — User journey documentation
+- `indelible-wireframes-creation-flows.md` — Creation flow wireframes
 
 ---

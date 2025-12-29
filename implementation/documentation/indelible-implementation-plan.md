@@ -41,11 +41,11 @@ Indelible is a custom project management application for a web development agenc
 
 ### Why These Choices
 
-- **Next.js API Routes** â€” Single deployment, simpler infrastructure for MVP
-- **Prisma** â€” Excellent DX, auto-generated types, mature ecosystem
-- **Shadcn/ui** â€” Copy-paste components you own, built on Radix, Tailwind-native
-- **PostgreSQL sessions** â€” No external Redis cost, sufficient for 20 users
-- **pgvector** â€” Future-proofs for semantic search on tasks, SOPs, notes
+- **Next.js API Routes** — Single deployment, simpler infrastructure for MVP
+- **Prisma** — Excellent DX, auto-generated types, mature ecosystem
+- **Shadcn/ui** — Copy-paste components you own, built on Radix, Tailwind-native
+- **PostgreSQL sessions** — No external Redis cost, sufficient for 20 users
+- **pgvector** — Future-proofs for semantic search on tasks, SOPs, notes
 
 ---
 
@@ -216,7 +216,7 @@ Outcome: Project creation, task management, status workflows
 - [ ] Task detail view (full page and peek drawer)
 - [ ] Create/Edit task modal
 - [ ] Status workflow per `indelible-user-flows.md`:
-  - not_started â†’ in_progress â†’ review â†’ done
+  - not_started → in_progress → review → done
   - blocked handling
   - abandoned option
 - [ ] Energy estimation fields (energy_impact, mystery_factor)
@@ -245,7 +245,7 @@ Outcome: Working time tracking with active timer
 - [ ] Timer widget in header
 - [ ] Start timer from task
 - [ ] Timer persists across navigation
-- [ ] Stop timer â†’ create time entry flow
+- [ ] Stop timer → create time entry flow
 
 #### 4.2 Time Entries
 - [ ] API endpoints
@@ -311,7 +311,7 @@ Per `indelible-user-flows.md` Flow 1:
 - [ ] Step 1: Select Ritual
 - [ ] Step 2: Select Patron & Site
 - [ ] Step 3: Sitemap input (for variable tasks)
-- [ ] Step 4: Team assignment (function â†’ user mapping)
+- [ ] Step 4: Team assignment (function → user mapping)
 - [ ] Step 5: Review & configure
 - [ ] Step 6: Generate project + tasks
 - [ ] Wizard state management
@@ -464,11 +464,11 @@ Use these names in UI, but standard names in code:
 | Quest | Task | `tasks` |
 | Ritual | Recipe | `recipes` |
 | Grimoire | SOP | `sops` |
-| Overlook | Dashboard | â€” |
-| Foundry | (Patrons/Sites section) | â€” |
-| Sanctum | (Projects/Tasks section) | â€” |
-| Chronicles | (Time tracking section) | â€” |
-| Guild | (Team/Settings section) | â€” |
+| Overlook | Dashboard | — |
+| Foundry | (Patrons/Sites section) | — |
+| Sanctum | (Projects/Tasks section) | — |
+| Chronicles | (Time tracking section) | — |
+| Guild | (Team/Settings section) | — |
 
 ### Role-Based Visibility
 
@@ -529,7 +529,7 @@ Extract Tailwind classes and component patterns from these templates.
    - `indelible-data-model-refinement.md` (database schema)
    - `indelible-auth-design.md` (auth implementation)
 
-2. **Start with Phase 1** â€” get a working login and shell
+2. **Start with Phase 1** — get a working login and shell
 
 3. **Reference wireframes** as you build each section:
    - `indelible-wireframes-global-shell.md`
@@ -551,7 +551,7 @@ Extract Tailwind classes and component patterns from these templates.
 
 These are deferred but the architecture supports them:
 
-1. **Semantic Search** â€” pgvector is installed; add embeddings to tasks, SOPs, notes for similarity search
-2. **Mobile App** â€” Extract API routes to standalone Express if needed
-3. **Real-time Updates** â€” Add WebSockets or Server-Sent Events for multi-user sync
-4. **QuickBooks Integration** â€” Client billing sync (fields already in schema)
+1. **Semantic Search** — pgvector is installed; add embeddings to tasks, SOPs, notes for similarity search
+2. **Mobile App** — Extract API routes to standalone Express if needed
+3. **Real-time Updates** — Add WebSockets or Server-Sent Events for multi-user sync
+4. **QuickBooks Integration** — Client billing sync (fields already in schema)

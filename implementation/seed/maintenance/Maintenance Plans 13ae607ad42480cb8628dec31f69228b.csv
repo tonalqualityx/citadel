@@ -1,0 +1,35 @@
+﻿Name,Monthly Rate,Agency Rate,Description,Notes
+Essentials,$0.00,$0.00,"• Plugin & theme updates 
+• Proactive security monitoring
+• Firewall 
+• Hosting support (no surprise bills for discussing & fixing issues related to hosting)
+• 9-5 Proactive Uptime Monitoring (if the site goes down we are notified and jump on it)
+• SMTP (better email delivery from site)
+• SSL Certificate (encryption)
+• Daily backups
+• Enhanced caching for speed
+• Monthly Reporting 
+    ◦ Analytics
+    ◦ Security
+    ◦ Software updates (plugins & themes)
+    ◦ Backup history
+    ◦ Broken link audits
+    ◦ Broken backlink audits","Proactive services require no input from client. The Indelible team will monitor and take action on issues as they arise.
+
+Unless otherwise stated, proactive services are in effect from 9-5 Eastern Time"
+Essentials +,$50.00,$40.00,"* Essentials PLUS
+* 24/7 Proactive Uptime Monitoring
+* Monthly core site audit
+* Includes DNS management
+* Hourly backups (16GB & higher)
+","Site audit includes:
+* Form submission test
+* Plugin notice check
+* 5 page spot check
+* Broken Link Audit
+* Broken Backlink Audit"
+DNS Management,$25.00,$15.00,"* Manages DNS in Indelible account
+* Grants access to client support as needed
+* Includes domain registration",Annual rates are $250 and $150
+Care Plan,$500.00,$400.00,"* Everything Above PLUS
+* Up to 2 hours content updates",

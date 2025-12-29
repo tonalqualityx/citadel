@@ -1538,7 +1538,7 @@ These can be added in future migrations when the corresponding features are impl
 
 ## Related Documents
 
-- `notion-schema.md` â€” Original Notion database schema
-- `indelible-schema-addendum.md` â€” Schema extensions from wireframing
-- `indelible-api-endpoint-inventory.md` â€” API specification referencing this model
-- `indelible-app-architecture.md` â€” Technical architecture overview
+- `notion-schema.md` — Original Notion database schema
+- `indelible-schema-addendum.md` — Schema extensions from wireframing
+- `indelible-api-endpoint-inventory.md` — API specification referencing this model
+- `indelible-app-architecture.md` — Technical architecture overview

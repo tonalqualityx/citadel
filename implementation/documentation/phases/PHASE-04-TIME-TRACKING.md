@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build the time tracking system with a global timer and manual time entry. By the end of this phase:
 - Global timer widget in header starts/stops time tracking
@@ -19,7 +19,7 @@ Build the time tracking system with a global timer and manual time entry. By the
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -31,7 +31,7 @@ Build the time tracking system with a global timer and manual time entry. By the
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 4.1 Extend Prisma Schema
 
@@ -274,14 +274,14 @@ export function secondsToMinutes(seconds: number): number {
 ### 4.3 Time Entry API Endpoints
 
 #### 4.3.1 Implement Endpoints
-- [ ] `GET /api/time-entries` â€” List with filters (user, task, project, date range)
-- [ ] `GET /api/time-entries/active` â€” Get current running timer for user
-- [ ] `GET /api/time-entries/:id` â€” Detail
-- [ ] `POST /api/time-entries` â€” Create manual entry
-- [ ] `POST /api/time-entries/start` â€” Start timer (creates running entry)
-- [ ] `POST /api/time-entries/:id/stop` â€” Stop timer (sets duration, ended_at)
-- [ ] `PATCH /api/time-entries/:id` â€” Update entry
-- [ ] `DELETE /api/time-entries/:id` â€” Delete entry
+- [ ] `GET /api/time-entries` — List with filters (user, task, project, date range)
+- [ ] `GET /api/time-entries/active` — Get current running timer for user
+- [ ] `GET /api/time-entries/:id` — Detail
+- [ ] `POST /api/time-entries` — Create manual entry
+- [ ] `POST /api/time-entries/start` — Start timer (creates running entry)
+- [ ] `POST /api/time-entries/:id/stop` — Stop timer (sets duration, ended_at)
+- [ ] `PATCH /api/time-entries/:id` — Update entry
+- [ ] `DELETE /api/time-entries/:id` — Delete entry
 
 **Create `/app/api/time-entries/start/route.ts`:**
 ```typescript
@@ -539,10 +539,10 @@ export function TimerWidget() {
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Unit Tests
-- [ ] `/__tests__/unit/utils/time.test.ts` â€” Time formatting functions
+- [ ] `/__tests__/unit/utils/time.test.ts` — Time formatting functions
 
 ### Integration Tests
 - [ ] `/__tests__/integration/api/time-entries.test.ts`
@@ -579,7 +579,7 @@ export function TimerWidget() {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 4, proceed to **Phase 5: Dashboards**.
 
@@ -590,4 +590,4 @@ Phase 5 will build:
 
 ---
 
-*Phase 4 Document â€” Last Updated: December 2025*
+*Phase 4 Document — Last Updated: December 2025*

@@ -5,7 +5,7 @@ This directory contains detailed implementation guides for each phase of the Ind
 
 ---
 
-## ðŸ“š Document Inventory
+## 📚 Document Inventory
 
 | Phase | Document | Duration | Focus |
 |-------|----------|----------|-------|
@@ -24,7 +24,7 @@ This directory contains detailed implementation guides for each phase of the Ind
 
 ---
 
-## ðŸš€ How to Use These Documents
+## 🚀 How to Use These Documents
 
 ### At Session Start
 
@@ -42,7 +42,7 @@ This directory contains detailed implementation guides for each phase of the Ind
 
 4. **Review any prerequisite planning documents** listed in "Required Reading"
 
-5. **Begin with the Reader Agent pattern** â€” search existing code before writing
+5. **Begin with the Reader Agent pattern** — search existing code before writing
 
 ### During Development
 
@@ -59,27 +59,27 @@ This directory contains detailed implementation guides for each phase of the Ind
 
 ---
 
-## ðŸ“‹ Phase Dependencies
+## 📋 Phase Dependencies
 
 ```
 Phase 1: Foundation
-    â†“
+    ↓
 Phase 2: Core Entities
-    â†“
+    ↓
 Phase 3: Projects & Tasks
-    â†“
+    ↓
 Phase 4: Time Tracking
-    â†“
+    ↓
 Phase 5: Dashboards
-    â†“
+    ↓
 Phase 6: Recipe Wizard
-    â†“
+    ↓
 Phase 7: SOPs & Rich Text
-    â†“
+    ↓
 Phase 8: Notifications & Polish
-    â†“
+    ↓
 Phase 9: Reports & Data
-    â†“
+    ↓
 Phase 10: Testing & Deployment
 ```
 
@@ -87,63 +87,63 @@ Each phase builds on the previous. Do not skip phases or work out of order witho
 
 ---
 
-## ðŸ”‘ Key Concepts by Phase
+## 🔑 Key Concepts by Phase
 
-### Phase 1 â€” Foundation
+### Phase 1 — Foundation
 - Next.js App Router structure
 - Prisma + PostgreSQL
 - JWT authentication with HTTP-only cookies
 - Global layout with Sidebar + Header
 
-### Phase 2 â€” Core Entities
+### Phase 2 — Core Entities
 - React Query for data fetching
 - Query Key Factory pattern
 - API route patterns (requireAuth, handleApiError)
 - CRUD with soft delete
 
-### Phase 3 â€” Projects & Tasks
+### Phase 3 — Projects & Tasks
 - Project status gates task visibility
 - Task status state machine
 - Energy estimation calculations
 - Blocking dependencies
 
-### Phase 4 â€” Time Tracking
+### Phase 4 — Time Tracking
 - Global Timer Context
 - Timer persistence across navigation
 - Time entry creation from timer
 - Manual time entry
 
-### Phase 5 â€” Dashboards
+### Phase 5 — Dashboards
 - Role-based data queries
 - Tech visibility restrictions
 - Focus tasks for PMs
 - Admin overview
 
-### Phase 6 â€” Recipe Wizard
+### Phase 6 — Recipe Wizard
 - Multi-step wizard state
 - Recipe templates
 - Variable task generation
 - Team function mapping
 
-### Phase 7 â€” SOPs & Rich Text
+### Phase 7 — SOPs & Rich Text
 - TipTap integration
 - JSON content storage
 - Read-only rendering
 - Template requirements
 
-### Phase 8 â€” Notifications & Polish
+### Phase 8 — Notifications & Polish
 - Bundled notifications
 - Global search (Cmd+K)
 - User preferences
 - Terminology switching
 
-### Phase 9 â€” Reports & Data
+### Phase 9 — Reports & Data
 - Retainer tracking
 - Time report aggregation
 - Project health scoring
 - CSV export
 
-### Phase 10 â€” Testing & Deployment
+### Phase 10 — Testing & Deployment
 - Playwright E2E tests
 - GitHub Actions CI
 - Cloudways deployment
@@ -151,7 +151,7 @@ Each phase builds on the previous. Do not skip phases or work out of order witho
 
 ---
 
-## ðŸ“„ Related Documents
+## 🔄 Related Documents
 
 These phase guides reference the following planning documents:
 
@@ -214,25 +214,25 @@ Before building any UI component:
 
 ---
 
-## ðŸ§± Component Library First â€” MANDATORY
+## 🧱 Component Library First — MANDATORY
 
-**â›” CRITICAL RULE:** Every UI element MUST come from the component library. No exceptions.
+**⛔ CRITICAL RULE:** Every UI element MUST come from the component library. No exceptions.
 
 ```
 Need a button, badge, card, input, or ANY styled element?
-  â†“
-Step 1: Check /components/ui/ â€” Does it exist?
-  â†“
-  YES â†’ Import and use it
-  NO  â†’ Create it in /components/ui/ FIRST
-  â†“
+  ↓
+Step 1: Check /components/ui/ — Does it exist?
+  ↓
+  YES → Import and use it
+  NO  → Create it in /components/ui/ FIRST
+  ↓
 Step 2: THEN use it in your feature component
-  â†“
+  ↓
 NEVER skip to inline styles. NEVER create one-off elements.
 ```
 
 **Why?** The library is the SINGLE SOURCE OF TRUTH:
-- Change a button's style once â†’ updates everywhere
+- Change a button's style once → updates everywhere
 - Consistent look and feel across the entire app
 - No "why does this button look different?" bugs
 - Faster development after initial setup
@@ -258,12 +258,12 @@ See the Master Instructions for full Component Library Rules.
 [ ] Begin with Reader Agent (search before write)
 ```
 
-## ðŸŽ¨ UI Pre-Flight Checklist (Before ANY UI Work)
+## 🎨 UI Pre-Flight Checklist (Before ANY UI Work)
 
 ```markdown
 [ ] Checked /implementation/mockups/ for visual reference
 [ ] Checked /components/ui/ for existing elements
-[ ] If element missing â†’ Created in /components/ui/ FIRST
+[ ] If element missing → Created in /components/ui/ FIRST
 [ ] Domain component imports from /components/ui/
 [ ] NO inline Tailwind for buttons/cards/badges/inputs/modals
 [ ] Used CVA for variants (not separate components)

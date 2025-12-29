@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build reporting and data visualization features. By the end of this phase:
 - Retainer tracking shows hours used vs. available
@@ -18,7 +18,7 @@ Build reporting and data visualization features. By the end of this phase:
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -28,7 +28,7 @@ Build reporting and data visualization features. By the end of this phase:
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 9.1 Retainer Tracking
 
@@ -129,13 +129,13 @@ export async function getAllRetainerStatuses(
 ```
 
 #### 9.1.2 Retainer API Endpoints
-- [ ] `GET /api/reports/retainers` â€” All retainer statuses
-- [ ] `GET /api/reports/retainers/:clientId` â€” Single client retainer
+- [ ] `GET /api/reports/retainers` — All retainer statuses
+- [ ] `GET /api/reports/retainers/:clientId` — Single client retainer
 
 #### 9.1.3 Retainer UI
-- [ ] `/app/(app)/chronicles/retainers/page.tsx` â€” Retainer dashboard
-- [ ] `/components/domain/reports/RetainerCard.tsx` â€” Single retainer display
-- [ ] `/components/domain/reports/RetainerProgressBar.tsx` â€” Visual progress
+- [ ] `/app/(app)/chronicles/retainers/page.tsx` — Retainer dashboard
+- [ ] `/components/domain/reports/RetainerCard.tsx` — Single retainer display
+- [ ] `/components/domain/reports/RetainerProgressBar.tsx` — Visual progress
 - [ ] Client detail page retainer section
 
 ---
@@ -281,7 +281,7 @@ function getWeekStart(date: Date): Date {
 ```
 
 #### 9.2.2 Time Report UI
-- [ ] `/app/(app)/chronicles/reports/page.tsx` â€” Time reports page
+- [ ] `/app/(app)/chronicles/reports/page.tsx` — Time reports page
 - [ ] Date range picker
 - [ ] Filter by client, project, user
 - [ ] Group by selector
@@ -431,13 +431,13 @@ export async function calculateProjectHealth(projectId: string): Promise<Project
 ### 9.4 Utilization Reports (Admin)
 
 #### 9.4.1 Team Utilization API
-- [ ] `GET /api/reports/utilization` â€” Team utilization metrics
+- [ ] `GET /api/reports/utilization` — Team utilization metrics
 - [ ] Hours per user per period
 - [ ] Billable vs non-billable breakdown
 - [ ] Target vs actual comparison
 
 #### 9.4.2 Utilization UI
-- [ ] `/app/(app)/guild/reports/page.tsx` â€” Admin reports
+- [ ] `/app/(app)/guild/reports/page.tsx` — Admin reports
 - [ ] Team utilization chart
 - [ ] Individual utilization cards
 
@@ -475,12 +475,12 @@ export function downloadCSV(content: string, filename: string): void {
 ```
 
 #### 9.5.2 Export Endpoints
-- [ ] `GET /api/reports/time/export` â€” Time report CSV
-- [ ] `GET /api/reports/retainers/export` â€” Retainer report CSV
+- [ ] `GET /api/reports/time/export` — Time report CSV
+- [ ] `GET /api/reports/retainers/export` — Retainer report CSV
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Unit Tests
 - [ ] `/__tests__/unit/calculations/retainer.test.ts`
@@ -510,10 +510,10 @@ export function downloadCSV(content: string, filename: string): void {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 9, proceed to **Phase 10: Testing & Deployment**.
 
 ---
 
-*Phase 9 Document â€” Last Updated: December 2025*
+*Phase 9 Document — Last Updated: December 2025*

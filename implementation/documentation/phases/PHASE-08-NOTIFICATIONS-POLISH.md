@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build the notification system and polish the user experience. By the end of this phase:
 - Users receive in-app notifications for relevant events
@@ -18,7 +18,7 @@ Build the notification system and polish the user experience. By the end of this
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -29,7 +29,7 @@ Build the notification system and polish the user experience. By the end of this
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 8.1 Extend Prisma Schema
 
@@ -217,11 +217,11 @@ export async function notifyReviewRequested(taskId: string, reviewerIds: string[
 ```
 
 #### 8.2.2 Notification API Endpoints
-- [ ] `GET /api/notifications` â€” List user's notifications
-- [ ] `GET /api/notifications/unread-count` â€” Count for badge
-- [ ] `PATCH /api/notifications/:id/read` â€” Mark as read
-- [ ] `POST /api/notifications/mark-all-read` â€” Mark all as read
-- [ ] `DELETE /api/notifications/:id` â€” Delete notification
+- [ ] `GET /api/notifications` — List user's notifications
+- [ ] `GET /api/notifications/unread-count` — Count for badge
+- [ ] `PATCH /api/notifications/:id/read` — Mark as read
+- [ ] `POST /api/notifications/mark-all-read` — Mark all as read
+- [ ] `DELETE /api/notifications/:id` — Delete notification
 
 #### 8.2.3 Notification Hooks
 **Create `/lib/hooks/useNotifications.ts`:**
@@ -394,8 +394,8 @@ export async function GET(request: NextRequest) {
 ### 8.5 User Preferences
 
 #### 8.5.1 Preferences API
-- [ ] `GET /api/users/me/preferences` â€” Get preferences
-- [ ] `PATCH /api/users/me/preferences` â€” Update preferences
+- [ ] `GET /api/users/me/preferences` — Get preferences
+- [ ] `PATCH /api/users/me/preferences` — Update preferences
 
 #### 8.5.2 Preferences UI
 **Create `/app/(app)/guild/settings/page.tsx`:**
@@ -480,7 +480,7 @@ export function useTerminology() {
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Integration Tests
 - [ ] `/__tests__/integration/api/notifications.test.ts`
@@ -512,10 +512,10 @@ export function useTerminology() {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 8, proceed to **Phase 9: Reports & Data Views**.
 
 ---
 
-*Phase 8 Document â€” Last Updated: December 2025*
+*Phase 8 Document — Last Updated: December 2025*

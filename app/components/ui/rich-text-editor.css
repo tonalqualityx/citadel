@@ -1,0 +1,142 @@
+/* BlockNote customizations to match Indelible's design system */
+
+.blocknote-wrapper {
+  /* Container styling */
+  min-height: 200px;
+}
+
+/* Customize the slash menu */
+.blocknote-wrapper [data-slash-menu] {
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Amber accent for selections (matching your design system) */
+.blocknote-wrapper [data-selected="true"] {
+  background-color: rgba(245, 166, 35, 0.1);
+}
+
+/* Hide the side menu in read-only mode */
+.blocknote-wrapper[data-readonly="true"] [data-side-menu] {
+  display: none;
+}
+
+/* Prose styling for content - Light mode */
+.blocknote-wrapper .bn-editor {
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--text-main, #44403c);
+}
+
+.blocknote-wrapper h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.blocknote-wrapper h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.blocknote-wrapper h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Code blocks */
+.blocknote-wrapper pre {
+  background-color: var(--surface-2, #f5f5f4);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+/* Checkboxes - style to match your task checkboxes */
+.blocknote-wrapper [data-content-type="checkListItem"] input[type="checkbox"] {
+  accent-color: #F5A623; /* Your amber accent */
+}
+
+/* Links */
+.blocknote-wrapper a {
+  color: #F5A623;
+  text-decoration: underline;
+}
+
+.blocknote-wrapper a:hover {
+  color: #d4891e;
+}
+
+/* Lists */
+.blocknote-wrapper ul,
+.blocknote-wrapper ol {
+  padding-left: 1.5rem;
+}
+
+.blocknote-wrapper li {
+  margin-bottom: 0.25rem;
+}
+
+/* Blockquote styling */
+.blocknote-wrapper blockquote {
+  border-left: 3px solid #F5A623;
+  padding-left: 1rem;
+  margin-left: 0;
+  color: var(--text-sub, #78716c);
+  font-style: italic;
+}
+
+/* Read-only mode - cleaner display */
+.blocknote-wrapper[data-readonly="true"] .bn-editor {
+  padding: 0;
+  background: transparent;
+}
+
+.blocknote-wrapper[data-readonly="true"] [data-block-container] {
+  padding: 0;
+}
+
+/* Ensure consistent transparent backgrounds for block containers */
+.blocknote-wrapper .bn-editor,
+.blocknote-wrapper .bn-container,
+.blocknote-wrapper [data-node-type],
+.blocknote-wrapper [data-block-container] {
+  background: transparent !important;
+}
+
+/* Override BlockNote's block background colors */
+.blocknote-wrapper .bn-block {
+  background: transparent !important;
+}
+
+.blocknote-wrapper .bn-block-content {
+  background: transparent !important;
+}
+
+/* Dark mode overrides - using BlockNote's theme prop handles most of it,
+   but we ensure our custom styles also respect dark mode */
+.theme-dark .blocknote-wrapper .bn-editor,
+.theme-dim .blocknote-wrapper .bn-editor {
+  color: var(--text-main, #e7e5e4);
+}
+
+.theme-dark .blocknote-wrapper blockquote,
+.theme-dim .blocknote-wrapper blockquote {
+  color: var(--text-sub, #a8a29e);
+}
+
+/* System preference fallback */
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper .bn-editor {
+    color: var(--text-main, #e7e5e4);
+  }
+
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper blockquote {
+    color: var(--text-sub, #a8a29e);
+  }
+}

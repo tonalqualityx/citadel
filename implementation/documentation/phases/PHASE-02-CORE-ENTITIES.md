@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build full CRUD functionality for foundation entities: Patrons (Clients), Sites, Domains, and reference data. By the end of this phase:
 - Users can create, view, edit, and soft-delete Patrons, Sites, and Domains
@@ -18,7 +18,7 @@ Build full CRUD functionality for foundation entities: Patrons (Clients), Sites,
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 Before starting this phase, the **Reader Agent** must review:
 
@@ -33,13 +33,13 @@ Before starting this phase, the **Reader Agent** must review:
 | `/implementation/mockups/` | Review relevant mockup folders |
 
 ### Before Building UI
-1. **Check `/components/ui/`** â€” Does the element already exist?
-2. **Check `/implementation/mockups/`** â€” Is there a reference implementation?
+1. **Check `/components/ui/`** — Does the element already exist?
+2. **Check `/implementation/mockups/`** — Is there a reference implementation?
 3. **Build library component first** if needed, then use it
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 2.1 API Layer Setup
 
@@ -769,13 +769,13 @@ export function useDeleteClient() {
 ```
 
 #### 2.3.5 Create Client List Page
-- [ ] Create `/app/(app)/foundry/patrons/page.tsx` â€” List view with search, filters
+- [ ] Create `/app/(app)/foundry/patrons/page.tsx` — List view with search, filters
 - [ ] Create `/components/domain/clients/ClientCard.tsx`
 - [ ] Create `/components/domain/clients/ClientList.tsx`
 - [ ] Create `/components/domain/clients/ClientFilters.tsx`
 
 #### 2.3.6 Create Client Detail Page
-- [ ] Create `/app/(app)/foundry/patrons/[id]/page.tsx` â€” Detail with tabs
+- [ ] Create `/app/(app)/foundry/patrons/[id]/page.tsx` — Detail with tabs
 - [ ] Create `/components/domain/clients/ClientDetail.tsx`
 - [ ] Create `/components/domain/clients/ClientOverviewTab.tsx`
 - [ ] Create `/components/domain/clients/ClientSitesTab.tsx`
@@ -790,11 +790,11 @@ export function useDeleteClient() {
 ### 2.4 Sites
 
 #### 2.4.1 Create Site API Endpoints
-- [ ] `GET /api/sites` â€” List with filters
-- [ ] `GET /api/sites/:id` â€” Detail with domains
-- [ ] `POST /api/sites` â€” Create
-- [ ] `PATCH /api/sites/:id` â€” Update
-- [ ] `DELETE /api/sites/:id` â€” Soft delete
+- [ ] `GET /api/sites` — List with filters
+- [ ] `GET /api/sites/:id` — Detail with domains
+- [ ] `POST /api/sites` — Create
+- [ ] `PATCH /api/sites/:id` — Update
+- [ ] `DELETE /api/sites/:id` — Soft delete
 
 #### 2.4.2 Create Site React Query Hooks
 - [ ] Create `/lib/hooks/useSites.ts`
@@ -810,11 +810,11 @@ export function useDeleteClient() {
 ### 2.5 Domains
 
 #### 2.5.1 Create Domain API Endpoints
-- [ ] `GET /api/domains` â€” List with filters
-- [ ] `GET /api/domains/:id` â€” Detail
-- [ ] `POST /api/domains` â€” Create
-- [ ] `PATCH /api/domains/:id` â€” Update
-- [ ] `DELETE /api/domains/:id` â€” Soft delete
+- [ ] `GET /api/domains` — List with filters
+- [ ] `GET /api/domains/:id` — Detail
+- [ ] `POST /api/domains` — Create
+- [ ] `PATCH /api/domains/:id` — Update
+- [ ] `DELETE /api/domains/:id` — Soft delete
 
 #### 2.5.2 Create Domain React Query Hooks
 - [ ] Create `/lib/hooks/useDomains.ts`
@@ -853,33 +853,33 @@ export function useDeleteClient() {
 
 #### 2.7.1 Generic Components (Library)
 
-These go in `/components/ui/` â€” generic, reusable, no business logic:
+These go in `/components/ui/` — generic, reusable, no business logic:
 
-- [ ] `/components/ui/modal.tsx` â€” Modal dialog wrapper
+- [ ] `/components/ui/modal.tsx` — Modal dialog wrapper
   - Check mockups for modal styling
   - Variants: default, large, fullscreen
-- [ ] `/components/ui/drawer.tsx` â€” Slide-in drawer (for peek panels)
+- [ ] `/components/ui/drawer.tsx` — Slide-in drawer (for peek panels)
   - Check mockups for drawer behavior
-- [ ] `/components/ui/data-table.tsx` â€” Table with sorting/pagination
+- [ ] `/components/ui/data-table.tsx` — Table with sorting/pagination
   - Generic table, receives columns config
-- [ ] `/components/ui/empty-state.tsx` â€” Empty state display
+- [ ] `/components/ui/empty-state.tsx` — Empty state display
   - Icon, title, description, action button
-- [ ] `/components/ui/skeleton.tsx` â€” Loading skeleton shapes
+- [ ] `/components/ui/skeleton.tsx` — Loading skeleton shapes
   - Variants: text, card, row, avatar
-- [ ] `/components/ui/tabs.tsx` â€” Tab navigation component
-- [ ] `/components/ui/dropdown-menu.tsx` â€” Dropdown menu
+- [ ] `/components/ui/tabs.tsx` — Tab navigation component
+- [ ] `/components/ui/dropdown-menu.tsx` — Dropdown menu
 
 #### 2.7.2 Layout Components
 
-These go in `/components/layout/` â€” structural, app-specific:
+These go in `/components/layout/` — structural, app-specific:
 
-- [ ] `/components/layout/PageHeader.tsx` â€” Page title + breadcrumb + actions
-- [ ] `/components/layout/TabNav.tsx` â€” Detail page tab navigation
-- [ ] `/components/layout/PageContainer.tsx` â€” Standard page wrapper
+- [ ] `/components/layout/PageHeader.tsx` — Page title + breadcrumb + actions
+- [ ] `/components/layout/TabNav.tsx` — Detail page tab navigation
+- [ ] `/components/layout/PageContainer.tsx` — Standard page wrapper
 
 #### 2.7.3 Domain Components
 
-These go in `/components/domain/` â€” business logic, use library components:
+These go in `/components/domain/` — business logic, use library components:
 
 ```tsx
 // CORRECT: Domain component uses library components
@@ -923,7 +923,7 @@ export function ClientCard({ client }: { client: Client }) {
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Integration Tests for Clients API
 
@@ -981,7 +981,7 @@ describe('Clients API', () => {
 - [ ] Same functionality for Sites
 - [ ] Same functionality for Domains
 - [ ] Reference data manageable by Admin
-- [ ] Client type relationships work (agency partner â†’ sub-clients)
+- [ ] Client type relationships work (agency partner → sub-clients)
 
 ### Code Quality
 - [ ] All API endpoints follow patterns from Phase 1
@@ -1006,7 +1006,7 @@ describe('Clients API', () => {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 2, proceed to **Phase 3: Projects & Tasks Core**.
 

@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build the core project and task management functionality. By the end of this phase:
 - Users can create and manage Pacts (Projects) with full CRUD
@@ -19,7 +19,7 @@ Build the core project and task management functionality. By the end of this pha
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -32,7 +32,7 @@ Build the core project and task management functionality. By the end of this pha
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 3.1 Extend Prisma Schema
 
@@ -394,30 +394,30 @@ export function formatDuration(minutes: number): string {
 ### 3.3 Pacts (Projects) Implementation
 
 #### 3.3.1 Project API Endpoints
-- [ ] `GET /api/projects` â€” List with filters (status, client, type)
-- [ ] `GET /api/projects/:id` â€” Detail with tasks, team, milestones
-- [ ] `POST /api/projects` â€” Create (simple, no wizard yet)
-- [ ] `PATCH /api/projects/:id` â€” Update
-- [ ] `PATCH /api/projects/:id/status` â€” Status transitions with validation
-- [ ] `DELETE /api/projects/:id` â€” Soft delete
-- [ ] `POST /api/projects/:id/team` â€” Add team member
-- [ ] `DELETE /api/projects/:id/team/:userId` â€” Remove team member
+- [ ] `GET /api/projects` — List with filters (status, client, type)
+- [ ] `GET /api/projects/:id` — Detail with tasks, team, milestones
+- [ ] `POST /api/projects` — Create (simple, no wizard yet)
+- [ ] `PATCH /api/projects/:id` — Update
+- [ ] `PATCH /api/projects/:id/status` — Status transitions with validation
+- [ ] `DELETE /api/projects/:id` — Soft delete
+- [ ] `POST /api/projects/:id/team` — Add team member
+- [ ] `DELETE /api/projects/:id/team/:userId` — Remove team member
 
 #### 3.3.2 Project React Query Hooks
 **Create `/lib/hooks/useProjects.ts`:**
-- [ ] `useProjects(filters)` â€” List query
-- [ ] `useProject(id)` â€” Detail query
-- [ ] `useCreateProject()` â€” Create mutation
-- [ ] `useUpdateProject()` â€” Update mutation
-- [ ] `useUpdateProjectStatus()` â€” Status change mutation
-- [ ] `useDeleteProject()` â€” Delete mutation
-- [ ] `useProjectTeam(projectId)` â€” Team query
-- [ ] `useAddTeamMember()` â€” Add team mutation
-- [ ] `useRemoveTeamMember()` â€” Remove team mutation
+- [ ] `useProjects(filters)` — List query
+- [ ] `useProject(id)` — Detail query
+- [ ] `useCreateProject()` — Create mutation
+- [ ] `useUpdateProject()` — Update mutation
+- [ ] `useUpdateProjectStatus()` — Status change mutation
+- [ ] `useDeleteProject()` — Delete mutation
+- [ ] `useProjectTeam(projectId)` — Team query
+- [ ] `useAddTeamMember()` — Add team mutation
+- [ ] `useRemoveTeamMember()` — Remove team mutation
 
 #### 3.3.3 Project UI Components
-- [ ] `/app/(app)/sanctum/pacts/page.tsx` â€” Project list
-- [ ] `/app/(app)/sanctum/pacts/[id]/page.tsx` â€” Project detail with tabs
+- [ ] `/app/(app)/sanctum/pacts/page.tsx` — Project list
+- [ ] `/app/(app)/sanctum/pacts/[id]/page.tsx` — Project detail with tabs
 - [ ] `/components/domain/projects/ProjectCard.tsx`
 - [ ] `/components/domain/projects/ProjectStatusBadge.tsx`
 - [ ] `/components/domain/projects/ProjectFormModal.tsx`
@@ -432,17 +432,17 @@ export function formatDuration(minutes: number): string {
 ### 3.4 Quests (Tasks) Implementation
 
 #### 3.4.1 Task API Endpoints
-- [ ] `GET /api/tasks` â€” List with filters and visibility rules
-- [ ] `GET /api/tasks/:id` â€” Detail with dependencies
-- [ ] `POST /api/tasks` â€” Create
-- [ ] `PATCH /api/tasks/:id` â€” Update
-- [ ] `PATCH /api/tasks/:id/status` â€” Status transition with validation
-- [ ] `DELETE /api/tasks/:id` â€” Soft delete
-- [ ] `POST /api/tasks/:id/requirements` â€” Add requirement
-- [ ] `PATCH /api/tasks/:id/requirements/:reqId` â€” Toggle/update requirement
-- [ ] `DELETE /api/tasks/:id/requirements/:reqId` â€” Remove requirement
-- [ ] `POST /api/tasks/:id/dependencies` â€” Add blocking relationship
-- [ ] `DELETE /api/tasks/:id/dependencies/:blockerId` â€” Remove dependency
+- [ ] `GET /api/tasks` — List with filters and visibility rules
+- [ ] `GET /api/tasks/:id` — Detail with dependencies
+- [ ] `POST /api/tasks` — Create
+- [ ] `PATCH /api/tasks/:id` — Update
+- [ ] `PATCH /api/tasks/:id/status` — Status transition with validation
+- [ ] `DELETE /api/tasks/:id` — Soft delete
+- [ ] `POST /api/tasks/:id/requirements` — Add requirement
+- [ ] `PATCH /api/tasks/:id/requirements/:reqId` — Toggle/update requirement
+- [ ] `DELETE /api/tasks/:id/requirements/:reqId` — Remove requirement
+- [ ] `POST /api/tasks/:id/dependencies` — Add blocking relationship
+- [ ] `DELETE /api/tasks/:id/dependencies/:blockerId` — Remove dependency
 
 **Important: Task List Endpoint with Visibility**
 ```typescript
@@ -477,18 +477,18 @@ export async function GET(request: NextRequest) {
 
 #### 3.4.2 Task React Query Hooks
 **Create `/lib/hooks/useTasks.ts`:**
-- [ ] `useTasks(filters)` â€” List query with visibility
-- [ ] `useTask(id)` â€” Detail query
-- [ ] `useCreateTask()` â€” Create mutation
-- [ ] `useUpdateTask()` â€” Update mutation
-- [ ] `useUpdateTaskStatus()` â€” Status change with optimistic update
-- [ ] `useDeleteTask()` â€” Delete mutation
-- [ ] `useTaskRequirements(taskId)` â€” Requirements query
-- [ ] `useToggleRequirement()` â€” Toggle with optimistic update
+- [ ] `useTasks(filters)` — List query with visibility
+- [ ] `useTask(id)` — Detail query
+- [ ] `useCreateTask()` — Create mutation
+- [ ] `useUpdateTask()` — Update mutation
+- [ ] `useUpdateTaskStatus()` — Status change with optimistic update
+- [ ] `useDeleteTask()` — Delete mutation
+- [ ] `useTaskRequirements(taskId)` — Requirements query
+- [ ] `useToggleRequirement()` — Toggle with optimistic update
 
 #### 3.4.3 Task UI Components
-- [ ] `/app/(app)/sanctum/quests/page.tsx` â€” Task list
-- [ ] `/app/(app)/sanctum/quests/[id]/page.tsx` â€” Task detail (full page)
+- [ ] `/app/(app)/sanctum/quests/page.tsx` — Task list
+- [ ] `/app/(app)/sanctum/quests/[id]/page.tsx` — Task detail (full page)
 - [ ] `/components/domain/tasks/TaskCard.tsx`
 - [ ] `/components/domain/tasks/TaskStatusBadge.tsx`
 - [ ] `/components/domain/tasks/TaskPriorityBadge.tsx`
@@ -496,7 +496,7 @@ export async function GET(request: NextRequest) {
 - [ ] `/components/domain/tasks/TaskDetail.tsx`
 - [ ] `/components/domain/tasks/TaskRequirements.tsx`
 - [ ] `/components/domain/tasks/TaskDependencies.tsx`
-- [ ] `/components/domain/tasks/TaskPeekDrawer.tsx` â€” Slide-in preview
+- [ ] `/components/domain/tasks/TaskPeekDrawer.tsx` — Slide-in preview
 
 ---
 
@@ -551,11 +551,11 @@ interface Requirement {
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Unit Tests
-- [ ] `/__tests__/unit/calculations/status.test.ts` â€” Status transition tests
-- [ ] `/__tests__/unit/calculations/energy.test.ts` â€” Energy calculation tests
+- [ ] `/__tests__/unit/calculations/status.test.ts` — Status transition tests
+- [ ] `/__tests__/unit/calculations/energy.test.ts` — Energy calculation tests
 
 ### Integration Tests
 - [ ] `/__tests__/integration/api/projects.test.ts`
@@ -597,7 +597,7 @@ interface Requirement {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 3, proceed to **Phase 4: Time Tracking**.
 
@@ -609,4 +609,4 @@ Phase 4 will build:
 
 ---
 
-*Phase 3 Document â€” Last Updated: December 2025*
+*Phase 3 Document — Last Updated: December 2025*

@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Colors - references CSS variables for dynamic theming */
+  --color-primary: var(--accent);
+  --color-background: var(--bg-primary);
+  --color-background-light: var(--bg-primary);
+  --color-background-dark: var(--bg-primary);
+  --color-surface: var(--bg-elevated);
+  --color-surface-alt: var(--bg-secondary);
+  --color-foreground: var(--text-primary);
+  --color-text-main: var(--text-primary);
+  --color-text-sub: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border-warm: var(--border);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  /* Fonts */
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-DEFAULT: 8px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows - soft, minimal */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --shadow-soft: 0 2px 8px -2px rgba(45, 45, 45, 0.05), 0 1px 4px -2px rgba(45, 45, 45, 0.02);
+}
+
+@layer base {
+  :root {
+    /*
+     * INDELIBLE LIGHT THEME
+     * Neurodivergent-optimized: warm off-white, no pure black/white
+     * Eye strain reduction: muted, desaturated colors
+     * ADHD-friendly: clear visual hierarchy without harsh contrasts
+     */
+    --bg-primary: #FAF9F7;        /* warm off-white, NOT pure white */
+    --bg-secondary: #F5F3EF;      /* subtle depth */
+    --bg-elevated: #FFFFFF;       /* cards, modals - only place for white */
+    --text-primary: #2D2D2D;      /* dark gray, NOT pure black */
+    --text-secondary: #666666;
+    --text-muted: #888888;
+    --accent: #5B8FB9;            /* desaturated blue - calming */
+    --accent-hover: #4A7FA8;
+    --accent-subtle: #EBF2F7;     /* accent at 10% */
+    --border: #E2DED6;            /* soft warm gray */
+    --focus-ring: #5B8FB9;
+    --success: #6B9B7A;           /* muted green */
+    --success-subtle: #EDF4EF;
+    --warning: #C4A24D;           /* muted gold - NOT red, never red */
+    --warning-subtle: #FBF7ED;
+
+    /* Legacy variable mapping */
+    --primary: var(--accent);
+    --background-light: var(--bg-primary);
+    --surface: var(--bg-elevated);
+    --surface-alt: var(--bg-secondary);
+    --text-main: var(--text-primary);
+    --text-sub: var(--text-secondary);
+    --border-warm: var(--border);
+  }
+
+  /* Light theme explicit override */
+  .theme-light {
+    --bg-primary: #FAF9F7;
+    --bg-secondary: #F5F3EF;
+    --bg-elevated: #FFFFFF;
+    --text-primary: #2D2D2D;
+    --text-secondary: #666666;
+    --text-muted: #888888;
+    --accent: #5B8FB9;
+    --accent-hover: #4A7FA8;
+    --accent-subtle: #EBF2F7;
+    --border: #E2DED6;
+    --success: #6B9B7A;
+    --success-subtle: #EDF4EF;
+    --warning: #C4A24D;
+    --warning-subtle: #FBF7ED;
+  }
+
+  /*
+   * DIM THEME
+   * Reduced contrast for extended use
+   * Good for evening work, light sensitivity
+   * Warmer dark tones
+   */
+  .theme-dim {
+    --bg-primary: #2A2825;        /* warm dark, not cold gray */
+    --bg-secondary: #343230;
+    --bg-elevated: #3D3B38;
+    --text-primary: #D4D2CF;      /* warm off-white */
+    --text-secondary: #9A9895;
+    --text-muted: #6E6C69;
+    --accent: #7BAFD4;            /* lightened blue for dark bg */
+    --accent-hover: #8BBFE4;
+    --accent-subtle: #2A3540;
+    --border: #4A4845;            /* warm gray border */
+    --success: #7DAF8C;
+    --success-subtle: #1E2A20;
+    --warning: #D4B95D;
+    --warning-subtle: #2A2820;
+  }
+
+  /*
+   * DARK THEME
+   * Higher contrast dark mode
+   * NOT pure black - uses very dark gray
+   * Maintains visual hierarchy
+   */
+  .theme-dark {
+    --bg-primary: #1E1E1E;        /* dark gray, NOT pure black */
+    --bg-secondary: #252525;
+    --bg-elevated: #2A2A2A;
+    --text-primary: #E8E8E8;      /* off-white, not pure white */
+    --text-secondary: #A0A0A0;
+    --text-muted: #707070;
+    --accent: #7BAFD4;            /* lightened for dark bg */
+    --accent-hover: #8BBFE4;
+    --accent-subtle: #2A3540;
+    --border: #3A3A3A;
+    --success: #7DAF8C;
+    --success-subtle: #1E2A20;
+    --warning: #D4B95D;
+    --warning-subtle: #2A2820;
+  }
+
+  /* System preference - matches user's OS setting */
+  @media (prefers-color-scheme: dark) {
+    :root:not(.theme-light):not(.theme-dim):not(.theme-dark) {
+      --bg-primary: #1E1E1E;
+      --bg-secondary: #252525;
+      --bg-elevated: #2A2A2A;
+      --text-primary: #E8E8E8;
+      --text-secondary: #A0A0A0;
+      --text-muted: #707070;
+      --accent: #7BAFD4;
+      --accent-hover: #8BBFE4;
+      --accent-subtle: #2A3540;
+      --border: #3A3A3A;
+      --success: #7DAF8C;
+      --success-subtle: #1E2A20;
+      --warning: #D4B95D;
+      --warning-subtle: #2A2820;
+    }
+  }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+  }
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 20px;
+}

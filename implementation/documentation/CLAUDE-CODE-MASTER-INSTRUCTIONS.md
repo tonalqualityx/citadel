@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Purpose
+## 🎯 Purpose
 
 This document is the **single source of truth** for Claude Code development sessions on Indelible. It provides:
 - Master progress tracking
@@ -21,27 +21,27 @@ This document is the **single source of truth** for Claude Code development sess
 
 ---
 
-## ðŸ“š Document Hierarchy
+## 📚 Document Hierarchy
 
 ```
-CLAUDE-CODE-MASTER-INSTRUCTIONS.md  â† YOU ARE HERE (read first, always)
-â”‚
-â”œâ”€â”€ indelible-implementation-plan.md    â† Phase overview and checklists
-â”‚
-â”œâ”€â”€ Phase-Specific Docs (read per phase):
-â”‚   â”œâ”€â”€ indelible-app-architecture.md       â† Domain entities, business rules
-â”‚   â”œâ”€â”€ indelible-data-model-refinement.md  â† Complete database schema
-â”‚   â”œâ”€â”€ indelible-api-endpoint-inventory.md â† All 138 API endpoints
-â”‚   â”œâ”€â”€ indelible-auth-design.md            â† Auth implementation
-â”‚   â”œâ”€â”€ indelible-state-management-plan.md  â† React Query patterns
-â”‚   â”œâ”€â”€ indelible-wireframes-*.md           â† UI specifications
-â”‚   â”œâ”€â”€ indelible-component-library.md      â† Reusable component catalog
-â”‚   â”œâ”€â”€ indelible-testing-strategy.md       â† Testing approach
-â”‚   â””â”€â”€ indelible-deployment-devops.md      â† CI/CD and hosting
-â”‚
-â””â”€â”€ Schema References:
-    â”œâ”€â”€ indelible-schema-addendum.md        â† Schema extensions
-    â””â”€â”€ notion-schema.md                    â† Original Notion structure
+CLAUDE-CODE-MASTER-INSTRUCTIONS.md  ← YOU ARE HERE (read first, always)
+│
+├── indelible-implementation-plan.md    ← Phase overview and checklists
+│
+├── Phase-Specific Docs (read per phase):
+│   ├── indelible-app-architecture.md       ← Domain entities, business rules
+│   ├── indelible-data-model-refinement.md  ← Complete database schema
+│   ├── indelible-api-endpoint-inventory.md ← All 138 API endpoints
+│   ├── indelible-auth-design.md            ← Auth implementation
+│   ├── indelible-state-management-plan.md  ← React Query patterns
+│   ├── indelible-wireframes-*.md           ← UI specifications
+│   ├── indelible-component-library.md      ← Reusable component catalog
+│   ├── indelible-testing-strategy.md       ← Testing approach
+│   └── indelible-deployment-devops.md      ← CI/CD and hosting
+│
+└── Schema References:
+    ├── indelible-schema-addendum.md        ← Schema extensions
+    └── notion-schema.md                    ← Original Notion structure
 ```
 
 ---
@@ -54,66 +54,66 @@ Update this section after each development session.
 
 | Phase | Status | Started | Completed | Notes |
 |-------|--------|---------|-----------|-------|
-| 1. Foundation + Auth | ðŸ”² Not Started | â€” | â€” | |
-| 2. Core Entities (CRUD) | ðŸ”² Not Started | â€” | â€” | |
-| 3. Projects & Tasks | ðŸ”² Not Started | â€” | â€” | |
-| 4. Time Tracking | ðŸ”² Not Started | â€” | â€” | |
-| 5. Dashboards | ðŸ”² Not Started | â€” | â€” | |
-| 6. Recipe Wizard | ðŸ”² Not Started | â€” | â€” | |
-| 7. SOPs & Rich Text | ðŸ”² Not Started | â€” | â€” | |
-| 8. Notifications & Polish | ðŸ”² Not Started | â€” | â€” | |
-| 9. Reports & Settings | ðŸ”² Not Started | â€” | â€” | |
-| 10. Testing & Deployment | ðŸ”² Not Started | â€” | â€” | |
+| 1. Foundation + Auth | 📲 Not Started | — | — | |
+| 2. Core Entities (CRUD) | 📲 Not Started | — | — | |
+| 3. Projects & Tasks | 📲 Not Started | — | — | |
+| 4. Time Tracking | 📲 Not Started | — | — | |
+| 5. Dashboards | 📲 Not Started | — | — | |
+| 6. Recipe Wizard | 📲 Not Started | — | — | |
+| 7. SOPs & Rich Text | 📲 Not Started | — | — | |
+| 8. Notifications & Polish | 📲 Not Started | — | — | |
+| 9. Reports & Settings | 📲 Not Started | — | — | |
+| 10. Testing & Deployment | 📲 Not Started | — | — | |
 
-**Legend:** ðŸ”² Not Started | ðŸ”„ In Progress | âœ… Complete | âš ï¸ Blocked
+**Legend:** 📲 Not Started | 🔄 In Progress | âœ… Complete | âš ️ Blocked
 
 ### Session Log
 
 | Session | Date | Phase | Accomplishments | Issues | Next Steps |
 |---------|------|-------|-----------------|--------|------------|
-| 1 | â€” | â€” | â€” | â€” | â€” |
+| 1 | — | — | — | — | — |
 
 ---
 
-## ðŸ—ï¸ Sub-Agent Orchestration Pattern
+## 🏔️ Sub-Agent Orchestration Pattern
 
 Claude Code should use specialized sub-agents for different tasks, coordinating them through a consistent workflow.
 
 ### Agent Roles
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                        ORCHESTRATOR (Main Agent)                        â”‚
-â”‚   - Reads this document and phase requirements                          â”‚
-â”‚   - Assigns tasks to sub-agents                                         â”‚
-â”‚   - Maintains progress tracking                                         â”‚
-â”‚   - Makes architectural decisions                                       â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-        â”‚                    â”‚                    â”‚                    â”‚
-        â–¼                    â–¼                    â–¼                    â–¼
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚   READER    â”‚    â”‚     WRITER      â”‚    â”‚   REVIEWER  â”‚    â”‚   TESTER     â”‚
-â”‚   Agent     â”‚    â”‚     Agent       â”‚    â”‚   Agent     â”‚    â”‚   Agent      â”‚
-â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤    â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤    â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤    â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚ - Read docs â”‚    â”‚ - Write code    â”‚    â”‚ - Check for â”‚    â”‚ - Run tests  â”‚
-â”‚ - Read code â”‚    â”‚ - Create files  â”‚    â”‚   standards â”‚    â”‚ - Report     â”‚
-â”‚ - Search    â”‚    â”‚ - Modify files  â”‚    â”‚ - Verify    â”‚    â”‚   results    â”‚
-â”‚   utilities â”‚    â”‚ - Report back   â”‚    â”‚   utilities â”‚    â”‚ - Identify   â”‚
-â”‚ - Report    â”‚    â”‚                 â”‚    â”‚ - Flag      â”‚    â”‚   failures   â”‚
-â”‚   findings  â”‚    â”‚                 â”‚    â”‚   issues    â”‚    â”‚              â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-        â”‚                    â”‚                    â”‚                    â”‚
-        â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                                        â–¼
-                              â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                              â”‚     FIXER       â”‚
-                              â”‚     Agent       â”‚
-                              â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-                              â”‚ - Fix issues    â”‚
-                              â”‚   from review   â”‚
-                              â”‚ - Fix failing   â”‚
-                              â”‚   tests         â”‚
-                              â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+â”Œ─────────────────────────────────────────────────────────────────────────â”
+│                        ORCHESTRATOR (Main Agent)                        │
+│   - Reads this document and phase requirements                          │
+│   - Assigns tasks to sub-agents                                         │
+│   - Maintains progress tracking                                         │
+│   - Makes architectural decisions                                       │
+└─────────────────────────────────────────────────────────────────────────â”˜
+        │                    │                    │                    │
+        ▼                    ▼                    ▼                    ▼
+â”Œ─────────────â”    â”Œ─────────────────â”    â”Œ─────────────â”    â”Œ──────────────â”
+│   READER    │    │     WRITER      │    │   REVIEWER  │    │   TESTER     │
+│   Agent     │    │     Agent       │    │   Agent     │    │   Agent      │
+├─────────────â”¤    ├─────────────────â”¤    ├─────────────â”¤    ├──────────────â”¤
+│ - Read docs │    │ - Write code    │    │ - Check for │    │ - Run tests  │
+│ - Read code │    │ - Create files  │    │   standards │    │ - Report     │
+│ - Search    │    │ - Modify files  │    │ - Verify    │    │   results    │
+│   utilities │    │ - Report back   │    │   utilities │    │ - Identify   │
+│ - Report    │    │                 │    │ - Flag      │    │   failures   │
+│   findings  │    │                 │    │   issues    │    │              │
+└─────────────â”˜    └─────────────────â”˜    └─────────────â”˜    └──────────────â”˜
+        │                    │                    │                    │
+        └────────────────────â”´──────────â”¬─────────â”´────────────────────â”˜
+                                        ▼
+                              â”Œ─────────────────â”
+                              │     FIXER       │
+                              │     Agent       │
+                              ├─────────────────â”¤
+                              │ - Fix issues    │
+                              │   from review   │
+                              │ - Fix failing   │
+                              │   tests         │
+                              └─────────────────â”˜
 ```
 
 ### Workflow Pattern
@@ -122,189 +122,189 @@ For each task (e.g., "Create client API endpoint"):
 
 ```
 1. READER AGENT
-   â””â”€â”€ Read: indelible-api-endpoint-inventory.md (find endpoint spec)
-   â””â”€â”€ Read: indelible-data-model-refinement.md (find schema)
-   â””â”€â”€ Search: /lib/utils/ (check for existing utilities)
-   â””â”€â”€ Search: /lib/api/ (check for similar patterns)
-   â””â”€â”€ Report: "Found spec for GET /api/clients, uses Prisma client table,
+   └── Read: indelible-api-endpoint-inventory.md (find endpoint spec)
+   └── Read: indelible-data-model-refinement.md (find schema)
+   └── Search: /lib/utils/ (check for existing utilities)
+   └── Search: /lib/api/ (check for similar patterns)
+   └── Report: "Found spec for GET /api/clients, uses Prisma client table,
                 existing utility: formatClientResponse() in /lib/api/formatters.ts"
 
 2. WRITER AGENT
-   â””â”€â”€ Input: Reader's report + this document's conventions
-   â””â”€â”€ Create: /app/api/clients/route.ts
-   â””â”€â”€ Uses: Existing formatClientResponse() utility
-   â””â”€â”€ Report: "Created GET /api/clients endpoint following conventions"
+   └── Input: Reader's report + this document's conventions
+   └── Create: /app/api/clients/route.ts
+   └── Uses: Existing formatClientResponse() utility
+   └── Report: "Created GET /api/clients endpoint following conventions"
 
 3. REVIEWER AGENT
-   â””â”€â”€ Check: Single responsibility (one route per file)
-   â””â”€â”€ Check: Uses existing utilities (not duplicating)
-   â””â”€â”€ Check: Function names match actual exports
-   â””â”€â”€ Check: Error handling follows patterns
-   â””â”€â”€ Check: TypeScript types are correct
-   â””â”€â”€ Report: "PASS" or "ISSUES: [list]"
+   └── Check: Single responsibility (one route per file)
+   └── Check: Uses existing utilities (not duplicating)
+   └── Check: Function names match actual exports
+   └── Check: Error handling follows patterns
+   └── Check: TypeScript types are correct
+   └── Report: "PASS" or "ISSUES: [list]"
 
 4. TESTER AGENT
-   â””â”€â”€ Run: npm run test:unit -- clients
-   â””â”€â”€ Run: npm run test:integration -- clients
-   â””â”€â”€ Report: "Tests pass" or "Failures: [list]"
+   └── Run: npm run test:unit -- clients
+   └── Run: npm run test:integration -- clients
+   └── Report: "Tests pass" or "Failures: [list]"
 ```
 
 For UI tasks (e.g., "Create client card component"):
 
 ```
 1. READER AGENT
-   â””â”€â”€ Check: /implementation/mockups/ (find visual reference)
-   â””â”€â”€ Check: /components/ui/ (does element exist?)
-   â””â”€â”€ Check: /components/domain/ (does domain component exist?)
-   â””â”€â”€ Report: "Need Card and Badge from /ui/, Badge exists, Card missing"
+   └── Check: /implementation/mockups/ (find visual reference)
+   └── Check: /components/ui/ (does element exist?)
+   └── Check: /components/domain/ (does domain component exist?)
+   └── Report: "Need Card and Badge from /ui/, Badge exists, Card missing"
 
 2. WRITER AGENT (if library component missing)
-   â””â”€â”€ FIRST: Create /components/ui/card.tsx (the library component)
-   â””â”€â”€ THEN: Create /components/domain/clients/ClientCard.tsx (uses Card)
-   â””â”€â”€ Report: "Created Card in library, then ClientCard using it"
+   └── FIRST: Create /components/ui/card.tsx (the library component)
+   └── THEN: Create /components/domain/clients/ClientCard.tsx (uses Card)
+   └── Report: "Created Card in library, then ClientCard using it"
 
 3. REVIEWER AGENT
-   â””â”€â”€ Check: ALL UI elements come from /components/ui/
-   â””â”€â”€ Check: NO inline Tailwind for reusable patterns
-   â””â”€â”€ Check: Component uses CVA for variants
-   â””â”€â”€ Report: "PASS" or "ISSUES: inline styles found on line X"
+   └── Check: ALL UI elements come from /components/ui/
+   └── Check: NO inline Tailwind for reusable patterns
+   └── Check: Component uses CVA for variants
+   └── Report: "PASS" or "ISSUES: inline styles found on line X"
 
 5. FIXER AGENT (if issues)
-   â””â”€â”€ Input: Issues from Reviewer or Tester
-   â””â”€â”€ Fix: Apply corrections
-   â””â”€â”€ Return to: Reviewer Agent for re-check
+   └── Input: Issues from Reviewer or Tester
+   └── Fix: Apply corrections
+   └── Return to: Reviewer Agent for re-check
 ```
 
 ### Critical Rules for Agents
 
-1. **NEVER assume a utility function exists** â€” always search first
-2. **NEVER invent function names** â€” use exact names from source code
-3. **ALWAYS search before writing** â€” check for existing patterns
-4. **ALWAYS verify imports exist** â€” check the actual file exports
-5. **ALWAYS use component library** â€” if element doesn't exist, create it in `/components/ui/` first
-6. **NEVER inline UI styles** â€” every button/card/badge/input comes from the library
+1. **NEVER assume a utility function exists** — always search first
+2. **NEVER invent function names** — use exact names from source code
+3. **ALWAYS search before writing** — check for existing patterns
+4. **ALWAYS verify imports exist** — check the actual file exports
+5. **ALWAYS use component library** — if element doesn't exist, create it in `/components/ui/` first
+6. **NEVER inline UI styles** — every button/card/badge/input comes from the library
 
 ---
 
-## ðŸ“ File Structure & Single Responsibility
+## 📂 File Structure & Single Responsibility
 
 ### Repository Structure
 
 ```
 /indelible
-â”œâ”€â”€ /implementation                   # Reference materials for Claude Code
-â”‚   â”œâ”€â”€ /instructions                 # These instruction documents
-â”‚   â”‚   â”œâ”€â”€ CLAUDE-CODE-MASTER-INSTRUCTIONS.md
-â”‚   â”‚   â””â”€â”€ /phase-docs
-â”‚   â”‚       â”œâ”€â”€ INDEX.md
-â”‚   â”‚       â”œâ”€â”€ PHASE-01-FOUNDATION.md
-â”‚   â”‚       â””â”€â”€ ... (all phase documents)
-â”‚   â””â”€â”€ /mockups                      # Visual mockups with code samples
-â”‚       â”œâ”€â”€ /dashboard-cards
-â”‚       â”‚   â”œâ”€â”€ preview.png           # Visual reference
-â”‚       â”‚   â””â”€â”€ sample.tsx            # Code sample
-â”‚       â”œâ”€â”€ /task-list
-â”‚       â”œâ”€â”€ /sidebar-nav
-â”‚       â”œâ”€â”€ /client-detail
-â”‚       â””â”€â”€ /... (other mockups)
-â”‚
-â”œâ”€â”€ /app                              # Next.js App Router
-â”‚   â”œâ”€â”€ /api                          # API Routes
-â”‚   â”‚   â”œâ”€â”€ /auth
-â”‚   â”‚   â”‚   â”œâ”€â”€ login/route.ts        # POST /api/auth/login
-â”‚   â”‚   â”‚   â”œâ”€â”€ logout/route.ts       # POST /api/auth/logout
-â”‚   â”‚   â”‚   â”œâ”€â”€ refresh/route.ts      # POST /api/auth/refresh
-â”‚   â”‚   â”‚   â””â”€â”€ me/route.ts           # GET /api/auth/me
-â”‚   â”‚   â”œâ”€â”€ /clients
-â”‚   â”‚   â”‚   â”œâ”€â”€ route.ts              # GET (list), POST (create)
-â”‚   â”‚   â”‚   â””â”€â”€ /[id]
-â”‚   â”‚   â”‚       â””â”€â”€ route.ts          # GET, PATCH, DELETE
-â”‚   â”‚   â””â”€â”€ ... (other entities)
-â”‚   â”‚
-â”‚   â”œâ”€â”€ /(auth)                       # Auth pages (unprotected)
-â”‚   â”‚   â”œâ”€â”€ login/page.tsx
-â”‚   â”‚   â””â”€â”€ layout.tsx
-â”‚   â”‚
-â”‚   â””â”€â”€ /(app)                        # App pages (protected)
-â”‚       â”œâ”€â”€ layout.tsx                # App shell with sidebar
-â”‚       â”œâ”€â”€ /overlook                 # Dashboard
-â”‚       â”‚   â””â”€â”€ page.tsx
-â”‚       â”œâ”€â”€ /foundry                  # Patrons, Sites
-â”‚       â”‚   â”œâ”€â”€ /patrons
-â”‚       â”‚   â”‚   â”œâ”€â”€ page.tsx          # List view
-â”‚       â”‚   â”‚   â””â”€â”€ /[id]/page.tsx    # Detail view
-â”‚       â”‚   â””â”€â”€ /sites
-â”‚       â””â”€â”€ ... (other sections)
-â”‚
-â”œâ”€â”€ /components                       # React Components
-â”‚   â”œâ”€â”€ /ui                           # Generic UI (shadcn/ui based)
-â”‚   â”‚   â”œâ”€â”€ button.tsx
-â”‚   â”‚   â”œâ”€â”€ input.tsx
-â”‚   â”‚   â”œâ”€â”€ card.tsx
-â”‚   â”‚   â”œâ”€â”€ modal.tsx
-â”‚   â”‚   â”œâ”€â”€ drawer.tsx
-â”‚   â”‚   â””â”€â”€ ... 
-â”‚   â”œâ”€â”€ /domain                       # Domain-specific components
-â”‚   â”‚   â”œâ”€â”€ /clients
-â”‚   â”‚   â”‚   â”œâ”€â”€ ClientCard.tsx
-â”‚   â”‚   â”‚   â”œâ”€â”€ ClientForm.tsx
-â”‚   â”‚   â”‚   â””â”€â”€ ClientList.tsx
-â”‚   â”‚   â”œâ”€â”€ /tasks
-â”‚   â”‚   â”‚   â”œâ”€â”€ TaskCard.tsx
-â”‚   â”‚   â”‚   â”œâ”€â”€ TaskStatusBadge.tsx
-â”‚   â”‚   â”‚   â””â”€â”€ TaskForm.tsx
-â”‚   â”‚   â””â”€â”€ ... (other entities)
-â”‚   â””â”€â”€ /layout
-â”‚       â”œâ”€â”€ Sidebar.tsx
-â”‚       â”œâ”€â”€ Header.tsx
-â”‚       â”œâ”€â”€ PageHeader.tsx
-â”‚       â””â”€â”€ TimerWidget.tsx
-â”‚
-â”œâ”€â”€ /lib                              # Utilities and shared logic
-â”‚   â”œâ”€â”€ /api                          # API utilities
-â”‚   â”‚   â”œâ”€â”€ client.ts                 # Fetch wrapper with auth
-â”‚   â”‚   â”œâ”€â”€ formatters.ts             # Response formatters
-â”‚   â”‚   â””â”€â”€ errors.ts                 # Error handling
-â”‚   â”œâ”€â”€ /auth                         # Auth utilities
-â”‚   â”‚   â”œâ”€â”€ jwt.ts                    # JWT helpers
-â”‚   â”‚   â”œâ”€â”€ middleware.ts             # Auth middleware
-â”‚   â”‚   â””â”€â”€ permissions.ts            # Role checking
-â”‚   â”œâ”€â”€ /db                           # Database utilities
-â”‚   â”‚   â”œâ”€â”€ prisma.ts                 # Prisma client singleton
-â”‚   â”‚   â””â”€â”€ queries/                  # Complex query helpers
-â”‚   â”œâ”€â”€ /hooks                        # Custom React hooks
-â”‚   â”‚   â”œâ”€â”€ useAuth.ts
-â”‚   â”‚   â”œâ”€â”€ useTimer.ts
-â”‚   â”‚   â””â”€â”€ useClients.ts             # React Query hooks per entity
-â”‚   â”œâ”€â”€ /utils                        # General utilities
-â”‚   â”‚   â”œâ”€â”€ date.ts                   # Date formatting
-â”‚   â”‚   â”œâ”€â”€ string.ts                 # String utilities
-â”‚   â”‚   â””â”€â”€ validation.ts             # Zod schemas
-â”‚   â”œâ”€â”€ /calculations                 # Business logic
-â”‚   â”‚   â”œâ”€â”€ energy.ts                 # Energy calculations
-â”‚   â”‚   â”œâ”€â”€ retainer.ts               # Retainer tracking
-â”‚   â”‚   â””â”€â”€ status.ts                 # Status transitions
-â”‚   â””â”€â”€ /constants                    # App constants
-â”‚       â”œâ”€â”€ statuses.ts
-â”‚       â”œâ”€â”€ roles.ts
-â”‚       â””â”€â”€ terminology.ts            # Fantasy â†” Standard mapping
-â”‚
-â”œâ”€â”€ /prisma
-â”‚   â”œâ”€â”€ schema.prisma                 # Database schema
-â”‚   â””â”€â”€ /migrations
-â”‚
-â”œâ”€â”€ /types                            # TypeScript types
-â”‚   â”œâ”€â”€ entities.ts                   # Entity types (generated + extended)
-â”‚   â”œâ”€â”€ api.ts                        # API request/response types
-â”‚   â””â”€â”€ ui.ts                         # UI-specific types
-â”‚
-â””â”€â”€ /__tests__                        # Test files
-    â”œâ”€â”€ /unit
-    â”‚   â”œâ”€â”€ /calculations
-    â”‚   â””â”€â”€ /utils
-    â”œâ”€â”€ /integration
-    â”‚   â””â”€â”€ /api
-    â””â”€â”€ /e2e
+├── /implementation                   # Reference materials for Claude Code
+│   ├── /instructions                 # These instruction documents
+│   │   ├── CLAUDE-CODE-MASTER-INSTRUCTIONS.md
+│   │   └── /phase-docs
+│   │       ├── INDEX.md
+│   │       ├── PHASE-01-FOUNDATION.md
+│   │       └── ... (all phase documents)
+│   └── /mockups                      # Visual mockups with code samples
+│       ├── /dashboard-cards
+│       │   ├── preview.png           # Visual reference
+│       │   └── sample.tsx            # Code sample
+│       ├── /task-list
+│       ├── /sidebar-nav
+│       ├── /client-detail
+│       └── /... (other mockups)
+│
+├── /app                              # Next.js App Router
+│   ├── /api                          # API Routes
+│   │   ├── /auth
+│   │   │   ├── login/route.ts        # POST /api/auth/login
+│   │   │   ├── logout/route.ts       # POST /api/auth/logout
+│   │   │   ├── refresh/route.ts      # POST /api/auth/refresh
+│   │   │   └── me/route.ts           # GET /api/auth/me
+│   │   ├── /clients
+│   │   │   ├── route.ts              # GET (list), POST (create)
+│   │   │   └── /[id]
+│   │   │       └── route.ts          # GET, PATCH, DELETE
+│   │   └── ... (other entities)
+│   │
+│   ├── /(auth)                       # Auth pages (unprotected)
+│   │   ├── login/page.tsx
+│   │   └── layout.tsx
+│   │
+│   └── /(app)                        # App pages (protected)
+│       ├── layout.tsx                # App shell with sidebar
+│       ├── /overlook                 # Dashboard
+│       │   └── page.tsx
+│       ├── /foundry                  # Patrons, Sites
+│       │   ├── /patrons
+│       │   │   ├── page.tsx          # List view
+│       │   │   └── /[id]/page.tsx    # Detail view
+│       │   └── /sites
+│       └── ... (other sections)
+│
+├── /components                       # React Components
+│   ├── /ui                           # Generic UI (shadcn/ui based)
+│   │   ├── button.tsx
+│   │   ├── input.tsx
+│   │   ├── card.tsx
+│   │   ├── modal.tsx
+│   │   ├── drawer.tsx
+│   │   └── ... 
+│   ├── /domain                       # Domain-specific components
+│   │   ├── /clients
+│   │   │   ├── ClientCard.tsx
+│   │   │   ├── ClientForm.tsx
+│   │   │   └── ClientList.tsx
+│   │   ├── /tasks
+│   │   │   ├── TaskCard.tsx
+│   │   │   ├── TaskStatusBadge.tsx
+│   │   │   └── TaskForm.tsx
+│   │   └── ... (other entities)
+│   └── /layout
+│       ├── Sidebar.tsx
+│       ├── Header.tsx
+│       ├── PageHeader.tsx
+│       └── TimerWidget.tsx
+│
+├── /lib                              # Utilities and shared logic
+│   ├── /api                          # API utilities
+│   │   ├── client.ts                 # Fetch wrapper with auth
+│   │   ├── formatters.ts             # Response formatters
+│   │   └── errors.ts                 # Error handling
+│   ├── /auth                         # Auth utilities
+│   │   ├── jwt.ts                    # JWT helpers
+│   │   ├── middleware.ts             # Auth middleware
+│   │   └── permissions.ts            # Role checking
+│   ├── /db                           # Database utilities
+│   │   ├── prisma.ts                 # Prisma client singleton
+│   │   └── queries/                  # Complex query helpers
+│   ├── /hooks                        # Custom React hooks
+│   │   ├── useAuth.ts
+│   │   ├── useTimer.ts
+│   │   └── useClients.ts             # React Query hooks per entity
+│   ├── /utils                        # General utilities
+│   │   ├── date.ts                   # Date formatting
+│   │   ├── string.ts                 # String utilities
+│   │   └── validation.ts             # Zod schemas
+│   ├── /calculations                 # Business logic
+│   │   ├── energy.ts                 # Energy calculations
+│   │   ├── retainer.ts               # Retainer tracking
+│   │   └── status.ts                 # Status transitions
+│   └── /constants                    # App constants
+│       ├── statuses.ts
+│       ├── roles.ts
+│       └── terminology.ts            # Fantasy â†” Standard mapping
+│
+├── /prisma
+│   ├── schema.prisma                 # Database schema
+│   └── /migrations
+│
+├── /types                            # TypeScript types
+│   ├── entities.ts                   # Entity types (generated + extended)
+│   ├── api.ts                        # API request/response types
+│   └── ui.ts                         # UI-specific types
+│
+└── /__tests__                        # Test files
+    ├── /unit
+    │   ├── /calculations
+    │   └── /utils
+    ├── /integration
+    │   └── /api
+    └── /e2e
 ```
 
 ### Single Responsibility Rules
@@ -322,23 +322,23 @@ For UI tasks (e.g., "Create client card component"):
 
 ---
 
-## ðŸ§± Component Library Rules
+## 🧱 Component Library Rules
 
-### â›” MANDATORY: Single Source of Truth
+### ⛔ MANDATORY: Single Source of Truth
 
 **EVERY UI element MUST come from the component library.** No exceptions.
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚  RULE: If you need a button, badge, card, input, or ANY reusable element:  â”‚
-â”‚                                                                             â”‚
-â”‚  1. Check /components/ui/ â€” Does it exist?                                  â”‚
-â”‚     â”œâ”€â”€ YES â†’ Import and use it                                             â”‚
-â”‚     â””â”€â”€ NO  â†’ Create it in /components/ui/ FIRST, then use it               â”‚
-â”‚                                                                             â”‚
-â”‚  NEVER inline styles. NEVER create one-off elements.                        â”‚
-â”‚  The library is the SINGLE SOURCE OF TRUTH for all UI elements.             â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+â”Œ─────────────────────────────────────────────────────────────────────────────â”
+│  RULE: If you need a button, badge, card, input, or ANY reusable element:  │
+│                                                                             │
+│  1. Check /components/ui/ — Does it exist?                                  │
+│     ├── YES → Import and use it                                             │
+│     └── NO  → Create it in /components/ui/ FIRST, then use it               │
+│                                                                             │
+│  NEVER inline styles. NEVER create one-off elements.                        │
+│  The library is the SINGLE SOURCE OF TRUTH for all UI elements.             │
+└─────────────────────────────────────────────────────────────────────────────â”˜
 ```
 
 **Why this matters:**
@@ -356,20 +356,20 @@ For UI tasks (e.g., "Create client card component"):
 ### Component Hierarchy
 
 ```
-/components/ui/          â† Generic, reusable, NO business logic
-    button.tsx           â† Use everywhere buttons are needed
-    badge.tsx            â† Status indicators
-    card.tsx             â† Container cards
-    modal.tsx            â† Dialog modals
+/components/ui/          ← Generic, reusable, NO business logic
+    button.tsx           ← Use everywhere buttons are needed
+    badge.tsx            ← Status indicators
+    card.tsx             ← Container cards
+    modal.tsx            ← Dialog modals
     ...
 
-/components/domain/      â† Business-specific, USES /ui/ components
+/components/domain/      ← Business-specific, USES /ui/ components
     /clients/
-        ClientCard.tsx   â† Uses Card, Badge, Button from /ui/
-        ClientForm.tsx   â† Uses Input, Select, Button from /ui/
+        ClientCard.tsx   ← Uses Card, Badge, Button from /ui/
+        ClientForm.tsx   ← Uses Input, Select, Button from /ui/
     ...
 
-/components/layout/      â† App structure, USES /ui/ components
+/components/layout/      ← App structure, USES /ui/ components
     Sidebar.tsx
     Header.tsx
     ...
@@ -380,8 +380,8 @@ For UI tasks (e.g., "Create client card component"):
 1. **Check mockups first:**
    ```
    /implementation/mockups/{feature}/
-   â”œâ”€â”€ preview.png       â† What it should look like
-   â””â”€â”€ sample.tsx        â† Reference code (adapt as needed)
+   ├── preview.png       ← What it should look like
+   └── sample.tsx        ← Reference code (adapt as needed)
    ```
 
 2. **Check if component exists:**
@@ -389,7 +389,7 @@ For UI tasks (e.g., "Create client card component"):
    - Search `/components/domain/` for domain elements
 
 3. **Build library component first:**
-   If you need a button/card/badge/input that doesn't exist â†’ create in `/components/ui/`
+   If you need a button/card/badge/input that doesn't exist → create in `/components/ui/`
 
 4. **Then build feature component:**
    Import and compose from `/components/ui/`
@@ -520,7 +520,7 @@ export function ClientCard({ client }: { client: Client }) {
 
 ---
 
-## ðŸ“ Coding Standards
+## 📏 Coding Standards
 
 ### TypeScript
 
@@ -714,7 +714,7 @@ export function handleApiError(error: unknown): NextResponse {
 
 ---
 
-## ðŸ”§ Utility Function Registry
+## 📧 Utility Function Registry
 
 **CRITICAL: Before writing any utility function, search this registry AND the codebase.**
 
@@ -798,27 +798,27 @@ The **Reviewer Agent** must verify:
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Test File Organization
 
 ```
 /__tests__
-â”œâ”€â”€ /unit                          # Fast, isolated tests
-â”‚   â”œâ”€â”€ /calculations
-â”‚   â”‚   â”œâ”€â”€ energy.test.ts         # Tests for /lib/calculations/energy.ts
-â”‚   â”‚   â””â”€â”€ status.test.ts
-â”‚   â””â”€â”€ /utils
-â”‚       â””â”€â”€ date.test.ts
-â”‚
-â”œâ”€â”€ /integration                   # API + database tests
-â”‚   â””â”€â”€ /api
-â”‚       â”œâ”€â”€ clients.test.ts
-â”‚       â””â”€â”€ tasks.test.ts
-â”‚
-â””â”€â”€ /e2e                          # Full user flow tests
-    â”œâ”€â”€ auth.spec.ts
-    â””â”€â”€ project-wizard.spec.ts
+├── /unit                          # Fast, isolated tests
+│   ├── /calculations
+│   │   ├── energy.test.ts         # Tests for /lib/calculations/energy.ts
+│   │   └── status.test.ts
+│   └── /utils
+│       └── date.test.ts
+│
+├── /integration                   # API + database tests
+│   └── /api
+│       ├── clients.test.ts
+│       └── tasks.test.ts
+│
+└── /e2e                          # Full user flow tests
+    ├── auth.spec.ts
+    └── project-wizard.spec.ts
 ```
 
 ### Test Workflow
@@ -838,7 +838,7 @@ The **Reviewer Agent** must verify:
    npm run test
 
 4. TESTER Agent reports results
-5. If failures â†’ FIXER Agent addresses issues
+5. If failures → FIXER Agent addresses issues
 6. Loop until all tests pass
 ```
 
@@ -853,7 +853,7 @@ The **Reviewer Agent** must verify:
 
 ---
 
-## ðŸ”„ Phase-by-Phase Checklists
+## 🔄 Phase-by-Phase Checklists
 
 These checklists are synchronized with `indelible-implementation-plan.md`. Update both documents as work progresses.
 
@@ -958,7 +958,7 @@ These checklists are synchronized with `indelible-implementation-plan.md`. Updat
 
 ---
 
-## ðŸš¨ Common Mistakes to Avoid
+## 🚨 Common Mistakes to Avoid
 
 ### 1. Inventing Functions
 
@@ -1029,12 +1029,12 @@ function processTask(task: Task): string {
 
 ---
 
-## ðŸ“‹ Session Startup Checklist
+## 📋 Session Startup Checklist
 
 **At the start of each Claude Code session:**
 
 1. [ ] Read this entire document (or refresh key sections)
-2. [ ] Check Master Progress Tracker â€” what phase are we in?
+2. [ ] Check Master Progress Tracker — what phase are we in?
 3. [ ] Read the relevant phase section of `indelible-implementation-plan.md`
 4. [ ] Read any referenced documents for current phase
 5. [ ] Review Utility Registry for existing functions
@@ -1052,7 +1052,7 @@ function processTask(task: Task): string {
 
 ---
 
-## ðŸ”— Quick Reference Links
+## 💨 Quick Reference Links
 
 | What | Where |
 |------|-------|

@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Create a runnable application skeleton with working authentication. By the end of this phase:
 - Next.js project is configured and running
@@ -17,7 +17,7 @@ Create a runnable application skeleton with working authentication. By the end o
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 Before starting this phase, the **Reader Agent** must review:
 
@@ -38,7 +38,7 @@ Before starting this phase, the **Reader Agent** must review:
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 1.1 Project Setup
 
@@ -49,13 +49,13 @@ Before starting this phase, the **Reader Agent** must review:
 **Files Created:**
 ```
 /indelible
-â”œâ”€â”€ app/
-â”œâ”€â”€ public/
-â”œâ”€â”€ package.json
-â”œâ”€â”€ tsconfig.json
-â”œâ”€â”€ tailwind.config.ts
-â”œâ”€â”€ next.config.js
-â””â”€â”€ ...
+├── app/
+├── public/
+├── package.json
+├── tsconfig.json
+├── tailwind.config.ts
+├── next.config.js
+└── ...
 ```
 
 #### 1.1.2 Install Dependencies
@@ -192,21 +192,21 @@ NEXT_PUBLIC_APP_URL="http://localhost:3000"
 #### 1.5.1 Review Mockups
 - [ ] Check `/implementation/mockups/` directory for reference implementations
 - [ ] Each mockup folder contains:
-  - `preview.png` â€” Visual target
-  - `sample.tsx` â€” Reference code (may need adaptation)
+  - `preview.png` — Visual target
+  - `sample.tsx` — Reference code (may need adaptation)
 - [ ] Identify common patterns across mockups (buttons, cards, badges, inputs)
 
 #### 1.5.2 Create Base UI Components
 
 Build these foundational components in `/components/ui/`:
 
-- [ ] **button.tsx** â€” Primary, secondary, ghost, destructive variants
-- [ ] **input.tsx** â€” Text input with label, error state
-- [ ] **select.tsx** â€” Dropdown select with options
-- [ ] **badge.tsx** â€” Status badges with color variants
-- [ ] **card.tsx** â€” Container card with header, body, footer
-- [ ] **modal.tsx** â€” Dialog modal with overlay
-- [ ] **spinner.tsx** â€” Loading spinner
+- [ ] **button.tsx** — Primary, secondary, ghost, destructive variants
+- [ ] **input.tsx** — Text input with label, error state
+- [ ] **select.tsx** — Dropdown select with options
+- [ ] **badge.tsx** — Status badges with color variants
+- [ ] **card.tsx** — Container card with header, body, footer
+- [ ] **modal.tsx** — Dialog modal with overlay
+- [ ] **spinner.tsx** — Loading spinner
 
 **Example: `/components/ui/badge.tsx`**
 ```tsx
@@ -254,7 +254,7 @@ export function cn(...inputs: ClassValue[]) {
 
 #### 1.5.4 Component Library Rules
 
-**â›” MANDATORY â€” THESE ARE NOT OPTIONAL:**
+**⛔ MANDATORY — THESE ARE NOT OPTIONAL:**
 
 **ALWAYS:**
 - Check `/components/ui/` before writing ANY styled element
@@ -264,9 +264,9 @@ export function cn(...inputs: ClassValue[]) {
 - Import from library in domain components
 
 **NEVER:**
-- Inline styled buttons, cards, badges, inputs, modals â€” use the library
+- Inline styled buttons, cards, badges, inputs, modals — use the library
 - Duplicate Tailwind patterns that should be a component
-- Create "quick" one-off elements â€” they always multiply
+- Create "quick" one-off elements — they always multiply
 - Put domain logic in `/components/ui/` components
 - Skip checking mockups before building
 
@@ -457,7 +457,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('ðŸŒ± Seeding database...');
+  console.log('🌱 Seeding database...');
 
   // Create test users (one per role)
   const passwordHash = await bcrypt.hash('password123', 10);
@@ -1341,7 +1341,7 @@ export default function FoundryPage() {
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Unit Tests
 
@@ -1470,7 +1470,7 @@ Before marking Phase 1 complete, verify:
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 1, proceed to **Phase 2: Core Entities (CRUD)**.
 
@@ -1481,4 +1481,4 @@ Phase 2 Reference Documents:
 
 ---
 
-*Phase 1 Document â€” Last Updated: December 2025*
+*Phase 1 Document — Last Updated: December 2025*

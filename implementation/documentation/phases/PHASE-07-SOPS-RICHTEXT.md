@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build SOP management with a rich text editor. By the end of this phase:
 - SOPs can be created and edited with TipTap rich text editor
@@ -17,7 +17,7 @@ Build SOP management with a rich text editor. By the end of this phase:
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -27,7 +27,7 @@ Build SOP management with a rich text editor. By the end of this phase:
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 7.1 Extend Prisma Schema
 
@@ -286,21 +286,21 @@ function ToolbarButton({
 ### 7.3 SOP API Endpoints
 
 #### 7.3.1 Implement Endpoints
-- [ ] `GET /api/sops` â€” List with filters
-- [ ] `GET /api/sops/:id` â€” Detail
-- [ ] `POST /api/sops` â€” Create (PM/Admin)
-- [ ] `PATCH /api/sops/:id` â€” Update (PM/Admin)
-- [ ] `DELETE /api/sops/:id` â€” Soft delete
-- [ ] `GET /api/sops/by-function/:functionId` â€” SOPs for function
+- [ ] `GET /api/sops` — List with filters
+- [ ] `GET /api/sops/:id` — Detail
+- [ ] `POST /api/sops` — Create (PM/Admin)
+- [ ] `PATCH /api/sops/:id` — Update (PM/Admin)
+- [ ] `DELETE /api/sops/:id` — Soft delete
+- [ ] `GET /api/sops/by-function/:functionId` — SOPs for function
 
 ---
 
 ### 7.4 SOP UI Components
 
 #### 7.4.1 Grimoire Section
-- [ ] `/app/(app)/grimoire/runes/page.tsx` â€” SOP list
-- [ ] `/app/(app)/grimoire/runes/[id]/page.tsx` â€” SOP detail (view mode)
-- [ ] `/app/(app)/grimoire/runes/[id]/edit/page.tsx` â€” SOP edit (TipTap)
+- [ ] `/app/(app)/grimoire/runes/page.tsx` — SOP list
+- [ ] `/app/(app)/grimoire/runes/[id]/page.tsx` — SOP detail (view mode)
+- [ ] `/app/(app)/grimoire/runes/[id]/edit/page.tsx` — SOP edit (TipTap)
 - [ ] `/components/domain/sops/SopCard.tsx`
 - [ ] `/components/domain/sops/SopList.tsx`
 - [ ] `/components/domain/sops/SopViewer.tsx`
@@ -322,7 +322,7 @@ function ToolbarButton({
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Integration Tests
 - [ ] `/__tests__/integration/api/sops.test.ts`
@@ -343,10 +343,10 @@ function ToolbarButton({
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 7, proceed to **Phase 8: Notifications & Polish**.
 
 ---
 
-*Phase 7 Document â€” Last Updated: December 2025*
+*Phase 7 Document — Last Updated: December 2025*

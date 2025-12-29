@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build role-specific dashboards (Overlooks) that provide each user type with the information they need. By the end of this phase:
 - Tech users see their assigned tasks, active timer, and recent time entries
@@ -17,7 +17,7 @@ Build role-specific dashboards (Overlooks) that provide each user type with the 
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -27,7 +27,7 @@ Build role-specific dashboards (Overlooks) that provide each user type with the 
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 5.1 Dashboard API Endpoints
 
@@ -377,16 +377,16 @@ export default function OverlookPage() {
 ### 5.5 Dashboard UI Components
 
 #### 5.5.1 Shared Components
-- [ ] `/components/domain/dashboard/DashboardSection.tsx` â€” Section wrapper
-- [ ] `/components/domain/dashboard/DashboardCard.tsx` â€” Metric card
-- [ ] `/components/domain/dashboard/TaskQuickList.tsx` â€” Compact task list
-- [ ] `/components/domain/dashboard/ProjectQuickList.tsx` â€” Compact project list
-- [ ] `/components/domain/dashboard/RetainerAlert.tsx` â€” Retainer warning
-- [ ] `/components/domain/dashboard/EmptySection.tsx` â€” Empty state
+- [ ] `/components/domain/dashboard/DashboardSection.tsx` — Section wrapper
+- [ ] `/components/domain/dashboard/DashboardCard.tsx` — Metric card
+- [ ] `/components/domain/dashboard/TaskQuickList.tsx` — Compact task list
+- [ ] `/components/domain/dashboard/ProjectQuickList.tsx` — Compact project list
+- [ ] `/components/domain/dashboard/RetainerAlert.tsx` — Retainer warning
+- [ ] `/components/domain/dashboard/EmptySection.tsx` — Empty state
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Integration Tests
 - [ ] `/__tests__/integration/api/dashboard.test.ts`
@@ -413,10 +413,10 @@ export default function OverlookPage() {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 5, proceed to **Phase 6: Recipe Wizard**.
 
 ---
 
-*Phase 5 Document â€” Last Updated: December 2025*
+*Phase 5 Document — Last Updated: December 2025*

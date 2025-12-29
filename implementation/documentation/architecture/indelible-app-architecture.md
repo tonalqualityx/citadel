@@ -12,10 +12,10 @@
 This document defines the database architecture and requirements for Indelible's custom project management web application, replacing the current Notion-based "Vault of Insanity" system. The application will serve a web development agency managing clients, projects, tasks, time tracking, and operational procedures.
 
 ### Key Improvements Over Current System
-1. **Better Templating** â€” SOPs and Task Templates unified; changes propagate automatically
-2. **Better Relationships** â€” Automatic inheritance (Site â†’ Client â†’ Agency Partner)
-3. **Better One-Click Setup** â€” Project wizard generates tasks from Recipes + sitemap
-4. **Better Client Management** â€” Unified client model with white-label support
+1. **Better Templating** — SOPs and Task Templates unified; changes propagate automatically
+2. **Better Relationships** — Automatic inheritance (Site → Client → Agency Partner)
+3. **Better One-Click Setup** — Project wizard generates tasks from Recipes + sitemap
+4. **Better Client Management** — Unified client model with white-label support
 
 ### Technology Stack
 - **Backend:** Node.js (API-first design)
@@ -28,38 +28,38 @@ This document defines the database architecture and requirements for Indelible's
 ## Entity Relationship Diagram
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                           INDELIBLE SYSTEM ARCHITECTURE                          â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+â”Œ─────────────────────────────────────────────────────────────────────────────────â”
+│                           INDELIBLE SYSTEM ARCHITECTURE                          │
+└─────────────────────────────────────────────────────────────────────────────────â”˜
 
-                                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                                    â”‚    CLIENT    â”‚
-                                    â”‚ (Direct/Agencyâ”‚
-                                    â”‚  /Sub-Client) â”‚
-                                    â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜
-                                           â”‚
-              â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-              â”‚                            â”‚                            â”‚
-              â–¼                            â–¼                            â–¼
-      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”            â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”            â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-      â”‚    SITES     â”‚            â”‚   PROJECTS   â”‚            â”‚   MEETINGS   â”‚
-      â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜            â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜            â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-             â”‚                           â”‚
-    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”                  â”‚
-    â”‚        â”‚        â”‚                  â”‚
-    â–¼        â–¼        â–¼                  â–¼
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚HOSTING â”‚ â”‚DOMAINS â”‚ â”‚  MAINT  â”‚  â”‚    TASKS     â”‚
-â”‚ PLANS  â”‚ â”‚        â”‚ â”‚ PLANS   â”‚  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜         â”‚
-                                          â”‚
-                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                    â”‚                     â”‚                     â”‚
-                    â–¼                     â–¼                     â–¼
-            â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-            â”‚  TIME ENTRY  â”‚      â”‚     SOPs     â”‚      â”‚  FUNCTIONS   â”‚
-            â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜      â”‚(Task Templates)â”‚     â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                                  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                    â”Œ──────────────â”
+                                    │    CLIENT    │
+                                    │ (Direct/Agency│
+                                    │  /Sub-Client) │
+                                    └──────â”¬───────â”˜
+                                           │
+              â”Œ────────────────────────────â”¼────────────────────────────â”
+              │                            │                            │
+              ▼                            ▼                            ▼
+      â”Œ──────────────â”            â”Œ──────────────â”            â”Œ──────────────â”
+      │    SITES     │            │   PROJECTS   │            │   MEETINGS   │
+      └──────â”¬───────â”˜            └──────â”¬───────â”˜            └──────────────â”˜
+             │                           │
+    â”Œ────────â”¼────────â”                  │
+    │        │        │                  │
+    ▼        ▼        ▼                  ▼
+â”Œ────────â” â”Œ────────â” â”Œ─────────â”  â”Œ──────────────â”
+│HOSTING │ │DOMAINS │ │  MAINT  │  │    TASKS     │
+│ PLANS  │ │        │ │ PLANS   │  └──────â”¬───────â”˜
+└────────â”˜ └────────â”˜ └─────────â”˜         │
+                                          │
+                    â”Œ─────────────────────â”¼─────────────────────â”
+                    │                     │                     │
+                    ▼                     ▼                     ▼
+            â”Œ──────────────â”      â”Œ──────────────â”      â”Œ──────────────â”
+            │  TIME ENTRY  │      │     SOPs     │      │  FUNCTIONS   │
+            └──────────────â”˜      │(Task Templates)│     └──────────────â”˜
+                                  └──────────────â”˜
 
 SUPPORTING: Users, Recipes, Tools, Notifications
 ```
@@ -90,9 +90,9 @@ Central entity for managing all client relationships.
 | updated_at | Timestamp | Yes | |
 
 **Computed Fields:**
-- `retainer_used` â€” Sum of task energy for current month (retainer work)
-- `retainer_available` â€” retainer_hours - retainer_used
-- `payment_status` â€” From QuickBooks integration (future)
+- `retainer_used` — Sum of task energy for current month (retainer work)
+- `retainer_available` — retainer_hours - retainer_used
+- `payment_status` — From QuickBooks integration (future)
 
 **Relationships:**
 - Has many Sites
@@ -190,11 +190,11 @@ Website projects from quote through completion.
 **Status Options:** `quote`, `queue`, `ready`, `in_progress`, `review`, `suspended`, `done`, `abandoned`
 
 **Computed Fields:**
-- `progress` â€” % of task energy completed vs total
-- `health_status` â€” `on_track`, `at_risk`, `behind` (milestone-based)
-- `total_energy` â€” Sum of task energy estimates
-- `energy_spent` â€” Sum of completed task energy
-- `time_spent` â€” Sum of time entries
+- `progress` — % of task energy completed vs total
+- `health_status` — `on_track`, `at_risk`, `behind` (milestone-based)
+- `total_energy` — Sum of task energy estimates
+- `energy_spent` — Sum of completed task energy
+- `time_spent` — Sum of time entries
 
 **Relationships:**
 - Belongs to Client
@@ -311,21 +311,21 @@ Central task management entity.
 
 **Status Flow:**
 ```
-not_started â†’ in_progress â†’ done (if no_review) 
-                         â†’ review â†’ done (if requires review)
+not_started → in_progress → done (if no_review) 
+                         → review → done (if requires review)
                          
-Any status can â†’ blocked (requires reason)
-blocked â†’ previous status (when unblocked)
+Any status can → blocked (requires reason)
+blocked → previous status (when unblocked)
 ```
 
 **Computed Fields:**
-- `weighted_energy` â€” energy_impact Ã— mystery_factor_multiplier
-- `energy_variance` â€” Upper bound estimate
-- `time_range` â€” Formatted "X hrs â€” Y hrs"
-- `time_spent` â€” Sum of time entries
-- `amount_to_bill` â€” weighted_energy Ã— client.hourly_rate
-- `is_ready` â€” No incomplete blockers AND assigned AND project is active
-- `burndown` â€” time_spent / weighted_energy (visual indicator)
+- `weighted_energy` — energy_impact Ã— mystery_factor_multiplier
+- `energy_variance` — Upper bound estimate
+- `time_range` — Formatted "X hrs — Y hrs"
+- `time_spent` — Sum of time entries
+- `amount_to_bill` — weighted_energy Ã— client.hourly_rate
+- `is_ready` — No incomplete blockers AND assigned AND project is active
+- `burndown` — time_spent / weighted_energy (visual indicator)
 
 **Relationships:**
 - Belongs to Project (optional)
@@ -409,8 +409,8 @@ Unified SOP + Task Template entity.
 | updated_at | Timestamp | Yes | |
 
 **Computed Fields:**
-- `next_review` â€” last_reviewed + review_interval_days
-- `review_status` â€” `current`, `due_soon`, `overdue`
+- `next_review` — last_reviewed + review_interval_days
+- `review_status` — `current`, `due_soon`, `overdue`
 
 **Relationships:**
 - Belongs to Owner Function
@@ -456,12 +456,12 @@ Project blueprints/templates.
     {
       "name": "Setup",
       "order": 1,
-      "icon": "âš™ï¸"
+      "icon": "âš™️"
     },
     {
       "name": "Content & Strategy", 
       "order": 2,
-      "icon": "âœï¸"
+      "icon": "âœ️"
     }
   ]
 }
@@ -549,8 +549,8 @@ Time tracking for tasks.
 | updated_at | Timestamp | Yes | |
 
 **Computed Fields:**
-- `calculated_hours` â€” (clock_out - clock_in) OR manual_hours
-- `to_bill` â€” calculated_hours Ã— task.client.hourly_rate (if billable)
+- `calculated_hours` — (clock_out - clock_in) OR manual_hours
+- `to_bill` — calculated_hours Ã— task.client.hourly_rate (if billable)
 
 ---
 
@@ -594,10 +594,10 @@ Hosting plan definitions.
 | updated_at | Timestamp | Yes | |
 
 **Computed Fields:**
-- `profit` â€” client_rate - monthly_cost
-- `margin` â€” profit / client_rate
-- `wl_profit` â€” agency_rate - monthly_cost
-- `wl_margin` â€” wl_profit / agency_rate
+- `profit` — client_rate - monthly_cost
+- `margin` — profit / client_rate
+- `wl_profit` — agency_rate - monthly_cost
+- `wl_margin` — wl_profit / agency_rate
 
 ---
 
@@ -611,7 +611,7 @@ Maintenance plan definitions.
 | name | String | Yes | Plan name |
 | client_rate | Decimal | Yes | Monthly rate |
 | agency_rate | Decimal | No | White-label partner rate |
-| support_cap_hours | Decimal | Yes | Default 1.0 â€” free support hours |
+| support_cap_hours | Decimal | Yes | Default 1.0 — free support hours |
 | sop_id | UUID | No | FK to SOP (for monthly tasks) |
 | details | Text | No | Plan details |
 | created_at | Timestamp | Yes | |
@@ -1076,8 +1076,8 @@ Global search with contextual breadcrumbs:
 - Client > Site > Task
 
 ### Keyboard Shortcuts
-- `Cmd+K` â€” Global search
-- `Cmd+N` â€” New task
+- `Cmd+K` — Global search
+- `Cmd+N` — New task
 - (More TBD)
 
 ### Performance
@@ -1099,7 +1099,7 @@ Global search with contextual breadcrumbs:
 **Calculations:**
 - `weighted_energy` = energy_impact Ã— multiplier
 - `energy_variance` = energy_impact Ã— variance (upper bound)
-- `time_range` = energy_impact â€” energy_variance
+- `time_range` = energy_impact — energy_variance
 
 **Billing:**
 - Retainer work: Use energy_variance (high end)

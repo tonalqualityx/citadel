@@ -279,8 +279,8 @@ export const queryKeys = {
 | Sites (nested) | Included in detail | No separate query |
 
 **Invalidation triggers:**
-- Create/update/delete client â†’ invalidate `clients.lists()`
-- Update client â†’ invalidate `clients.detail(id)`
+- Create/update/delete client → invalidate `clients.lists()`
+- Update client → invalidate `clients.detail(id)`
 
 ### Projects (Pacts)
 
@@ -293,11 +293,11 @@ export const queryKeys = {
 | Milestones | 60s | Rarely changes |
 
 **Invalidation triggers:**
-- Create project â†’ invalidate `projects.lists()`
-- Update project â†’ invalidate `projects.detail(id)`, `projects.lists()`
-- Status change â†’ also invalidate `dashboard.*`
-- Task changes â†’ invalidate `projects.tasks(id)`
-- Time entry changes â†’ invalidate `projects.timeSummary(id)`
+- Create project → invalidate `projects.lists()`
+- Update project → invalidate `projects.detail(id)`, `projects.lists()`
+- Status change → also invalidate `dashboard.*`
+- Task changes → invalidate `projects.tasks(id)`
+- Time entry changes → invalidate `projects.timeSummary(id)`
 
 ### Tasks (Quests)
 
@@ -310,11 +310,11 @@ export const queryKeys = {
 | Comments | 30s | May have new comments |
 
 **Invalidation triggers:**
-- Create task â†’ invalidate `tasks.lists()`, `projects.tasks(projectId)`
-- Update task â†’ invalidate `tasks.detail(id)`, relevant lists
-- Status change â†’ also invalidate `dashboard.*`
-- Assignment change â†’ invalidate assignee's dashboard
-- Time entry CRUD â†’ invalidate `tasks.timeEntries(id)`, `tasks.detail(id)` (for computed time)
+- Create task → invalidate `tasks.lists()`, `projects.tasks(projectId)`
+- Update task → invalidate `tasks.detail(id)`, relevant lists
+- Status change → also invalidate `dashboard.*`
+- Assignment change → invalidate assignee's dashboard
+- Time entry CRUD → invalidate `tasks.timeEntries(id)`, `tasks.detail(id)` (for computed time)
 
 ### Timer
 
@@ -324,8 +324,8 @@ export const queryKeys = {
 
 **Special handling:**
 - Timer query returns `null` if no active timer
-- On timer start â†’ optimistic update, then refetch
-- On timer stop â†’ optimistic clear, then refetch
+- On timer start → optimistic update, then refetch
+- On timer stop → optimistic clear, then refetch
 - Refetch on window focus (catches timer stopped in another tab)
 
 ---
@@ -938,53 +938,53 @@ onSuccess: () => {
 ## Summary: State Flow Diagram
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                         INDELIBLE STATE ARCHITECTURE                â”‚
-â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚                                                                     â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
-â”‚  â”‚                    SERVER (PostgreSQL)                       â”‚   â”‚
-â”‚  â”‚  Clients, Projects, Tasks, Time Entries, Users, etc.        â”‚   â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
-â”‚                              â”‚                                      â”‚
-â”‚                              â”‚ REST API                             â”‚
-â”‚                              â–¼                                      â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
-â”‚  â”‚                    REACT QUERY CACHE                         â”‚   â”‚
-â”‚  â”‚                                                              â”‚   â”‚
-â”‚  â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â” â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”       â”‚   â”‚
-â”‚  â”‚  â”‚ clients  â”‚ â”‚ projects â”‚ â”‚  tasks   â”‚ â”‚  timer   â”‚       â”‚   â”‚
-â”‚  â”‚  â”‚  list    â”‚ â”‚  list    â”‚ â”‚  list    â”‚ â”‚  active  â”‚       â”‚   â”‚
-â”‚  â”‚  â”‚  detail  â”‚ â”‚  detail  â”‚ â”‚  detail  â”‚ â”‚          â”‚       â”‚   â”‚
-â”‚  â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜ â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜       â”‚   â”‚
-â”‚  â”‚                                                              â”‚   â”‚
-â”‚  â”‚  â€¢ Stale-while-revalidate                                   â”‚   â”‚
-â”‚  â”‚  â€¢ Optimistic mutations with rollback                       â”‚   â”‚
-â”‚  â”‚  â€¢ Automatic background refetch                             â”‚   â”‚
-â”‚  â”‚  â€¢ 30-60s polling for dashboards/timer                      â”‚   â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
-â”‚                              â”‚                                      â”‚
-â”‚         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                â”‚
-â”‚         â”‚                    â”‚                    â”‚                â”‚
-â”‚         â–¼                    â–¼                    â–¼                â”‚
-â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”      â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”           â”‚
-â”‚  â”‚   GLOBAL   â”‚      â”‚    URL     â”‚      â”‚   LOCAL    â”‚           â”‚
-â”‚  â”‚  CONTEXT   â”‚      â”‚   STATE    â”‚      â”‚   STATE    â”‚           â”‚
-â”‚  â”‚            â”‚      â”‚            â”‚      â”‚            â”‚           â”‚
-â”‚  â”‚ â€¢ Sidebar  â”‚      â”‚ â€¢ Filters  â”‚      â”‚ â€¢ Dropdownsâ”‚           â”‚
-â”‚  â”‚ â€¢ Theme    â”‚      â”‚ â€¢ Tab      â”‚      â”‚ â€¢ Hovers   â”‚           â”‚
-â”‚  â”‚ â€¢ Timer ID â”‚      â”‚ â€¢ Cursor   â”‚      â”‚ â€¢ Form WIP â”‚           â”‚
-â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜      â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜      â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â”‚
-â”‚                                                                     â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+â”Œ─────────────────────────────────────────────────────────────────────â”
+│                         INDELIBLE STATE ARCHITECTURE                │
+├─────────────────────────────────────────────────────────────────────â”¤
+│                                                                     │
+│  â”Œ─────────────────────────────────────────────────────────────â”   │
+│  │                    SERVER (PostgreSQL)                       │   │
+│  │  Clients, Projects, Tasks, Time Entries, Users, etc.        │   │
+│  └──────────────────────────â”¬──────────────────────────────────â”˜   │
+│                              │                                      │
+│                              │ REST API                             │
+│                              ▼                                      │
+│  â”Œ─────────────────────────────────────────────────────────────â”   │
+│  │                    REACT QUERY CACHE                         │   │
+│  │                                                              │   │
+│  │  â”Œ──────────â” â”Œ──────────â” â”Œ──────────â” â”Œ──────────â”       │   │
+│  │  │ clients  │ │ projects │ │  tasks   │ │  timer   │       │   │
+│  │  │  list    │ │  list    │ │  list    │ │  active  │       │   │
+│  │  │  detail  │ │  detail  │ │  detail  │ │          │       │   │
+│  │  └──────────â”˜ └──────────â”˜ └──────────â”˜ └──────────â”˜       │   │
+│  │                                                              │   │
+│  │  • Stale-while-revalidate                                   │   │
+│  │  • Optimistic mutations with rollback                       │   │
+│  │  • Automatic background refetch                             │   │
+│  │  • 30-60s polling for dashboards/timer                      │   │
+│  └──────────────────────────â”¬──────────────────────────────────â”˜   │
+│                              │                                      │
+│         â”Œ────────────────────â”¼────────────────────â”                │
+│         │                    │                    │                │
+│         ▼                    ▼                    ▼                │
+│  â”Œ────────────â”      â”Œ────────────â”      â”Œ────────────â”           │
+│  │   GLOBAL   │      │    URL     │      │   LOCAL    │           │
+│  │  CONTEXT   │      │   STATE    │      │   STATE    │           │
+│  │            │      │            │      │            │           │
+│  │ • Sidebar  │      │ • Filters  │      │ • Dropdowns│           │
+│  │ • Theme    │      │ • Tab      │      │ • Hovers   │           │
+│  │ • Timer ID │      │ • Cursor   │      │ • Form WIP │           │
+│  └────────────â”˜      └────────────â”˜      └────────────â”˜           │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────â”˜
 ```
 
 ---
 
 ## Related Documents
 
-- `indelible-api-endpoint-inventory.md` â€” API specification
-- `indelible-data-model-refinement.md` â€” Database schema
-- `indelible-component-library.md` â€” UI components
-- `indelible-user-flows.md` â€” User journeys
-- `indelible-wireframes-quest-detail.md` â€” Quest detail wireframes
+- `indelible-api-endpoint-inventory.md` — API specification
+- `indelible-data-model-refinement.md` — Database schema
+- `indelible-component-library.md` — UI components
+- `indelible-user-flows.md` — User journeys
+- `indelible-wireframes-quest-detail.md` — Quest detail wireframes

@@ -7,7 +7,7 @@
 
 ---
 
-## ðŸŽ¯ Phase Goal
+## 🎯 Phase Goal
 
 Build the project creation wizard that generates projects from recipe templates. By the end of this phase:
 - Recipes (project templates) can be created and managed
@@ -18,7 +18,7 @@ Build the project creation wizard that generates projects from recipe templates.
 
 ---
 
-## ðŸ“š Required Reading
+## 📚 Required Reading
 
 | Document | Sections to Focus On |
 |----------|---------------------|
@@ -29,7 +29,7 @@ Build the project creation wizard that generates projects from recipe templates.
 
 ---
 
-## ðŸ“‹ Phase Checklist
+## 📋 Phase Checklist
 
 ### 6.1 Extend Prisma Schema
 
@@ -138,17 +138,17 @@ model ProjectPage {
 ### 6.2 Recipe Management
 
 #### 6.2.1 Recipe API Endpoints
-- [ ] `GET /api/recipes` â€” List active recipes
-- [ ] `GET /api/recipes/:id` â€” Detail with phases and tasks
-- [ ] `POST /api/recipes` â€” Create (Admin/PM)
-- [ ] `PATCH /api/recipes/:id` â€” Update
-- [ ] `DELETE /api/recipes/:id` â€” Soft delete (set inactive)
-- [ ] `POST /api/recipes/:id/phases` â€” Add phase
-- [ ] `POST /api/recipes/:id/phases/:phaseId/tasks` â€” Add task to phase
+- [ ] `GET /api/recipes` — List active recipes
+- [ ] `GET /api/recipes/:id` — Detail with phases and tasks
+- [ ] `POST /api/recipes` — Create (Admin/PM)
+- [ ] `PATCH /api/recipes/:id` — Update
+- [ ] `DELETE /api/recipes/:id` — Soft delete (set inactive)
+- [ ] `POST /api/recipes/:id/phases` — Add phase
+- [ ] `POST /api/recipes/:id/phases/:phaseId/tasks` — Add task to phase
 
 #### 6.2.2 Recipe UI
-- [ ] `/app/(app)/grimoire/rituals/page.tsx` â€” Recipe list
-- [ ] `/app/(app)/grimoire/rituals/[id]/page.tsx` â€” Recipe detail with phases
+- [ ] `/app/(app)/grimoire/rituals/page.tsx` — Recipe list
+- [ ] `/app/(app)/grimoire/rituals/[id]/page.tsx` — Recipe detail with phases
 - [ ] `/components/domain/recipes/RecipeCard.tsx`
 - [ ] `/components/domain/recipes/RecipePhaseList.tsx`
 - [ ] `/components/domain/recipes/RecipeTaskList.tsx`
@@ -413,14 +413,14 @@ export async function POST(request: NextRequest) {
 ```
 
 #### 6.3.3 Wizard UI Components
-- [ ] `/app/(app)/sanctum/pacts/new/page.tsx` â€” Wizard page
-- [ ] `/components/domain/wizard/WizardLayout.tsx` â€” Step indicator, navigation
-- [ ] `/components/domain/wizard/WizardStep1Recipe.tsx` â€” Select recipe
-- [ ] `/components/domain/wizard/WizardStep2Client.tsx` â€” Select client & site
-- [ ] `/components/domain/wizard/WizardStep3Sitemap.tsx` â€” Enter pages
-- [ ] `/components/domain/wizard/WizardStep4Team.tsx` â€” Assign team
-- [ ] `/components/domain/wizard/WizardStep5Review.tsx` â€” Review & configure
-- [ ] `/components/domain/wizard/WizardStep6Generate.tsx` â€” Generate project
+- [ ] `/app/(app)/sanctum/pacts/new/page.tsx` — Wizard page
+- [ ] `/components/domain/wizard/WizardLayout.tsx` — Step indicator, navigation
+- [ ] `/components/domain/wizard/WizardStep1Recipe.tsx` — Select recipe
+- [ ] `/components/domain/wizard/WizardStep2Client.tsx` — Select client & site
+- [ ] `/components/domain/wizard/WizardStep3Sitemap.tsx` — Enter pages
+- [ ] `/components/domain/wizard/WizardStep4Team.tsx` — Assign team
+- [ ] `/components/domain/wizard/WizardStep5Review.tsx` — Review & configure
+- [ ] `/components/domain/wizard/WizardStep6Generate.tsx` — Generate project
 
 ---
 
@@ -445,7 +445,7 @@ export async function POST(request: NextRequest) {
 
 ---
 
-## ðŸ§ª Testing Requirements
+## 🧪 Testing Requirements
 
 ### Integration Tests
 - [ ] `/__tests__/integration/api/wizard.test.ts`
@@ -471,10 +471,10 @@ export async function POST(request: NextRequest) {
 
 ---
 
-## ðŸ”œ Next Phase
+## 📜 Next Phase
 
 After completing Phase 6, proceed to **Phase 7: SOPs & Rich Text**.
 
 ---
 
-*Phase 6 Document â€” Last Updated: December 2025*
+*Phase 6 Document — Last Updated: December 2025*

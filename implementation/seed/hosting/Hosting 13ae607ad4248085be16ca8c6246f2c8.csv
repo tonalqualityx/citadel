@@ -1,0 +1,49 @@
+﻿Name,Rate,Agency Rate,Details,Monthly Cost,Profit,Margin,WL Profit,WL Margin,Vendor Plan
+Dedicated Starter,$60.00,$40.00,"* 1 vCPU
+* 512MB RAM
+* 5TB Bandwidth
+* 10GB Storage",$4.00,$56.00,93%,$36.00,90%,Quantum
+Dedicated 1GB,$150.00,$100.00,"* 1 vCPU
+* 1GB RAM
+* 10TB Bandwidth
+* 32GB Storage ",$15.00,$135.00,90%,$85.00,85%,Bronze Plus
+Dedicated 2GB,$180.00,$130.00,"* 1 vCPU
+* 2GB RAM
+* 10TB Bandwidth
+* 64GB Storage",$23.00,$157.00,87%,$107.00,82%,Bronze Max
+Premium 2GB,$200.00,$150.00,"* 2 vCPU
+* 2GB RAM
+* 25TB Bandwidth
+* 80GB Storage
+* Enhanced SSDs - 125% faster",$35.00,$165.00,83%,$115.00,77%,Silver Plus
+Dedicated 4GB,$250.00,$200.00,"* 2 vCPU
+* 4GB RAM
+* 25TB Bandwidth
+* 128GB Storage
+* Enhanced SSDs - 125% faster",$45.00,$205.00,82%,$155.00,78%,Silver Max
+Dedicated 8GB,$350.00,$300.00,https://www.notion.so/Dedicated-8GB-13ae607ad424806d8aacdd5c1a88894e?pvs=21,$60.00,$290.00,83%,$240.00,80%,Gold
+Dedicated 16GB,$550.00,$500.00,"* 6 vCPu
+* 16GB RAM
+* 200TB Bandwidth
+* 320GB Storage",$120.00,$430.00,78%,$380.00,76%,Platinum
+Premium 16GB,$750.00,$700.00,"* 4 vCPU
+* 16GB RAM
+* 100TB Bandwidth
+* 384GB Storage
+* Enhanced SSDs - 125% faster",$150.00,$600.00,80%,$550.00,79%,Gold Plus
+Premium 24GB,$900.00,$800.00,"* 6 vCPU
+* 32GB RAM
+* 200TB Bandwidth
+* 448GB Storage
+* 125% Faster",$200.00,$700.00,78%,$600.00,75%,Platimun Plus
+Managed Shared,$100.00,$50.00,"Shared hosting
+* Resources allocated as needed
+* Max storage ~5GB
+* Max RAM 256MB
+
+Note - 24/7 proactive uptime monitoring not available on shared hosting",$10.00,$90.00,90%,$40.00,80%,
+Legacy Dedicated 16GB,$585.00,,,,$585.00,100%,$0.00,0%,
+Legacy Dedicated 8GB,$300.00,,,,$300.00,100%,$0.00,0%,
+Legacy Dedicated 2GB,$100.00,,,,$100.00,100%,$0.00,0%,
+Legacy Dedicated 4GB,$200.00,,,,$200.00,100%,$0.00,0%,
+Legacy Basic,$50.00,,,,$50.00,100%,$0.00,0%,

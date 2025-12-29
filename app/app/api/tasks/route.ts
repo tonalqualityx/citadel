@@ -1,0 +1,297 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/db/prisma';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { handleApiError, ApiError } from '@/lib/api/errors';
+import { formatTaskResponse } from '@/lib/api/formatters';
+import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
+import { MysteryFactor } from '@prisma/client';
+
+const createTaskSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().optional().nullable(),
+  status: z
+    .enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'])
+    .optional(),
+  priority: z.number().min(1).max(5).optional(),
+  project_id: z.string().uuid().optional().nullable(),
+  phase_id: z.string().uuid().optional().nullable(),
+  phase: z.string().max(100).optional().nullable(), // Legacy field
+  sort_order: z.number().optional(),
+  assignee_id: z.string().uuid().optional().nullable(),
+  function_id: z.string().uuid().optional().nullable(),
+  sop_id: z.string().uuid().optional().nullable(),
+  energy_estimate: z.number().min(1).max(8).optional().nullable(),
+  mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']).optional(),
+  battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
+  due_date: z.string().datetime().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+// Project statuses where tasks are visible to Tech users
+const VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review', 'done'];
+
+export async function GET(request: NextRequest) {
+  try {
+    const auth = await requireAuth();
+    const { searchParams } = new URL(request.url);
+
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '20');
+    const search = searchParams.get('search') || undefined;
+    const status = searchParams.get('status') as any;
+    const statuses = searchParams.get('statuses'); // comma-separated list
+    const priority = searchParams.get('priority')
+      ? parseInt(searchParams.get('priority')!)
+      : undefined;
+    const projectId = searchParams.get('project_id') || undefined;
+    const assigneeId = searchParams.get('assignee_id') || undefined;
+    const phase = searchParams.get('phase') || undefined;
+    const myTasks = searchParams.get('my_tasks') === 'true';
+
+    // Parse multiple statuses if provided
+    const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
+
+    // Build base where clause
+    const baseConditions: any = {
+      is_deleted: false,
+      // Support both single status and multiple statuses
+      ...(statusList ? { status: { in: statusList } } : status ? { status } : {}),
+      ...(priority && { priority }),
+      ...(projectId && { project_id: projectId }),
+      ...(phase && { phase }),
+    };
+
+    // Search condition (if provided)
+    const searchCondition = search
+      ? {
+          OR: [
+            { title: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+
+    // Access control condition for Tech users
+    let accessCondition: any = {};
+    if (auth.role === 'tech') {
+      // Get projects where user is a team member
+      const teamProjects = await prisma.projectTeamAssignment.findMany({
+        where: { user_id: auth.userId },
+        select: { project_id: true },
+      });
+      const teamProjectIds = teamProjects.map((p) => p.project_id);
+
+      // Tech users can see:
+      // 1. Ad-hoc tasks (no project) assigned to them
+      // 2. All tasks from projects where they're a team member
+      accessCondition = {
+        OR: [
+          // Ad-hoc tasks assigned to user
+          { project_id: null, assignee_id: auth.userId },
+          // Tasks from projects where user is team member
+          { project_id: { in: teamProjectIds } },
+        ],
+      };
+    } else {
+      // PM/Admin can filter by assignee but see all tasks
+      if (assigneeId) {
+        accessCondition.assignee_id = assigneeId;
+      }
+      if (myTasks) {
+        accessCondition.assignee_id = auth.userId;
+      }
+    }
+
+    // Combine all conditions with AND
+    const where: any = {
+      AND: [baseConditions, searchCondition, accessCondition].filter(
+        (c) => Object.keys(c).length > 0
+      ),
+    };
+
+    const [tasks, total] = await Promise.all([
+      prisma.task.findMany({
+        where,
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              client: { select: { id: true, name: true } },
+            },
+          },
+          assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+          function: { select: { id: true, name: true } },
+          sop: { select: { id: true, title: true } },
+          created_by: { select: { id: true, name: true } },
+          blocked_by: {
+            select: { id: true, title: true, status: true },
+          },
+          blocking: {
+            select: { id: true, title: true, status: true },
+          },
+        },
+        orderBy: [{ priority: 'asc' }, { sort_order: 'asc' }, { created_at: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.task.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      tasks: tasks.map(formatTaskResponse),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const auth = await requireAuth();
+
+    const body = await request.json();
+    const data = createTaskSchema.parse(body);
+
+    // Validate project exists if provided
+    if (data.project_id) {
+      const project = await prisma.project.findUnique({
+        where: { id: data.project_id, is_deleted: false },
+      });
+      if (!project) {
+        throw new ApiError('Project not found', 404);
+      }
+
+      // Tech users can only create tasks if assigned to the project
+      if (auth.role === 'tech') {
+        const isAssigned = await prisma.projectTeamAssignment.findUnique({
+          where: {
+            project_id_user_id: {
+              project_id: data.project_id,
+              user_id: auth.userId,
+            },
+          },
+        });
+        if (!isAssigned) {
+          throw new ApiError('You are not assigned to this project', 403);
+        }
+      }
+    }
+
+    // Validate assignee exists if provided
+    if (data.assignee_id) {
+      const assignee = await prisma.user.findUnique({
+        where: { id: data.assignee_id, is_active: true },
+      });
+      if (!assignee) {
+        throw new ApiError('Assignee not found', 404);
+      }
+    }
+
+    // Validate function exists if provided
+    if (data.function_id) {
+      const func = await prisma.function.findUnique({
+        where: { id: data.function_id, is_active: true },
+      });
+      if (!func) {
+        throw new ApiError('Function not found', 404);
+      }
+    }
+
+    // If an SOP is linked, fetch it to copy requirements and defaults
+    let sopDefaults: {
+      requirements?: any;
+      energy_estimate?: number | null;
+      mystery_factor?: string;
+      battery_impact?: string;
+      default_priority?: number;
+      review_requirements?: any;
+    } = {};
+
+    if (data.sop_id) {
+      const sop = await prisma.sop.findUnique({
+        where: { id: data.sop_id },
+        select: {
+          template_requirements: true,
+          review_requirements: true,
+          energy_estimate: true,
+          mystery_factor: true,
+          battery_impact: true,
+          default_priority: true,
+        },
+      });
+      if (sop) {
+        sopDefaults = {
+          requirements: sop.template_requirements,
+          review_requirements: sop.review_requirements,
+          energy_estimate: sop.energy_estimate,
+          mystery_factor: sop.mystery_factor,
+          battery_impact: sop.battery_impact,
+          default_priority: sop.default_priority,
+        };
+      }
+    }
+
+    // Calculate estimated minutes if energy estimate provided
+    const energyEstimate = data.energy_estimate ?? sopDefaults.energy_estimate;
+    const mysteryFactor = data.mystery_factor || sopDefaults.mystery_factor || 'none';
+    const estimatedMinutes = energyEstimate
+      ? calculateEstimatedMinutes(
+          energyEstimate,
+          mysteryFactor as MysteryFactor
+        )
+      : null;
+
+    const task = await prisma.task.create({
+      data: {
+        title: data.title,
+        description: data.description,
+        status: data.status || 'not_started',
+        priority: data.priority || sopDefaults.default_priority || 3,
+        project_id: data.project_id,
+        phase_id: data.phase_id,
+        phase: data.phase, // Legacy field
+        sort_order: data.sort_order || 0,
+        assignee_id: data.assignee_id,
+        function_id: data.function_id,
+        sop_id: data.sop_id,
+        requirements: sopDefaults.requirements || undefined,
+        review_requirements: sopDefaults.review_requirements || undefined,
+        energy_estimate: energyEstimate,
+        mystery_factor: mysteryFactor as MysteryFactor,
+        battery_impact: (data.battery_impact || sopDefaults.battery_impact || 'average_drain') as 'average_drain' | 'high_drain' | 'energizing',
+        estimated_minutes: estimatedMinutes,
+        due_date: data.due_date ? new Date(data.due_date) : null,
+        notes: data.notes,
+        created_by_id: auth.userId,
+      },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            client: { select: { id: true, name: true } },
+          },
+        },
+        project_phase: {
+          select: { id: true, name: true, icon: true, sort_order: true },
+        },
+        assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
+        function: { select: { id: true, name: true } },
+        sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
+        created_by: { select: { id: true, name: true } },
+      },
+    });
+
+    return NextResponse.json(formatTaskResponse(task), { status: 201 });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
