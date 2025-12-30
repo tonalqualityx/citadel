@@ -112,8 +112,15 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await apiClient.post(`/time-entries/${state.timeEntryId}/stop`);
-      setState(initialState);
+    } catch (error: any) {
+      // If timer is already stopped or not found, that's okay - just clear local state
+      if (error?.message?.includes('not running') || error?.message?.includes('not found')) {
+        console.debug('Timer already stopped or not found');
+      } else {
+        throw error;
+      }
     } finally {
+      setState(initialState);
       setIsLoading(false);
     }
   }, [state.timeEntryId]);

@@ -6,12 +6,14 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useCreateTask, useUpdateTask, Task } from '@/lib/hooks/use-tasks';
 import { useProjects } from '@/lib/hooks/use-projects';
+import { useClients } from '@/lib/hooks/use-clients';
 import { useFunctions } from '@/lib/hooks/use-reference-data';
 import { useSops } from '@/lib/hooks/use-sops';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   PriorityFormSelect,
   EnergyFormSelect,
@@ -25,6 +27,7 @@ const taskSchema = z.object({
   status: z.enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']),
   priority: z.string(),
   project_id: z.string().optional(),
+  client_id: z.string().optional(), // For ad-hoc tasks without a project
   phase: z.string().optional(),
   assignee_id: z.string().optional(),
   function_id: z.string().optional(),
@@ -34,6 +37,10 @@ const taskSchema = z.object({
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']),
   due_date: z.string().optional(),
   notes: z.string().optional(),
+  // Billing fields (PM/Admin only - API enforces role restriction)
+  is_billable: z.boolean(),
+  billing_target: z.string().optional(), // String for input, convert to number
+  is_retainer_work: z.boolean(),
 });
 
 type TaskFormData = z.infer<typeof taskSchema>;
@@ -59,6 +66,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const { data: projectsData, isLoading: projectsLoading } = useProjects({ limit: 100 });
+  const { data: clientsData, isLoading: clientsLoading } = useClients({ limit: 100, status: 'active' });
   const { data: functionsData, isLoading: functionsLoading } = useFunctions();
   const { data: sopsData, isLoading: sopsLoading } = useSops();
 
@@ -66,6 +74,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<TaskFormData>({
     resolver: zodResolver(taskSchema),
@@ -75,6 +84,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
       status: (task?.status as any) || 'not_started',
       priority: task?.priority?.toString() || '3',
       project_id: task?.project_id || defaultProjectId || '',
+      client_id: task?.client_id || '',
       phase: task?.phase || '',
       assignee_id: task?.assignee_id || '',
       function_id: task?.function_id || '',
@@ -84,6 +94,10 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
       battery_impact: (task?.battery_impact as any) || 'average_drain',
       due_date: task?.due_date?.split('T')[0] || '',
       notes: task?.notes || '',
+      // Billing fields
+      is_billable: task?.is_billable ?? true,
+      billing_target: task?.billing_target?.toString() || '',
+      is_retainer_work: task?.is_retainer_work ?? false,
     },
   });
 
@@ -96,6 +110,16 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
       })) || []),
     ];
   }, [projectsData]);
+
+  const clientOptions = React.useMemo(() => {
+    return [
+      { value: '', label: 'No client (internal)' },
+      ...(clientsData?.clients.map((c) => ({
+        value: c.id,
+        label: c.name,
+      })) || []),
+    ];
+  }, [clientsData]);
 
   const functionOptions = React.useMemo(() => {
     return [
@@ -125,6 +149,8 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
         status: data.status,
         priority: parseInt(data.priority),
         project_id: data.project_id || null,
+        // Only include client_id if no project is selected (ad-hoc task)
+        client_id: !data.project_id && data.client_id ? data.client_id : null,
         phase: data.phase || null,
         assignee_id: data.assignee_id || null,
         function_id: data.function_id || null,
@@ -134,6 +160,10 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
         battery_impact: data.battery_impact,
         due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
         notes: data.notes || null,
+        // Billing fields (API enforces PM/Admin-only restriction)
+        is_billable: data.is_billable,
+        billing_target: data.billing_target ? parseInt(data.billing_target) : null,
+        is_retainer_work: data.is_retainer_work,
       };
 
       if (isEdit) {
@@ -179,6 +209,30 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
             />
           )}
         </div>
+
+        {/* Client selector - only shown for ad-hoc tasks (no project selected) */}
+        {!watch('project_id') && (
+          <div>
+            <label className="block text-sm font-medium text-text-main mb-1">
+              Client
+            </label>
+            {clientsLoading ? (
+              <div className="h-10 flex items-center">
+                <Spinner size="sm" />
+              </div>
+            ) : (
+              <Select
+                options={clientOptions}
+                value={watch('client_id') || ''}
+                onChange={(value) => {
+                  const event = { target: { value, name: 'client_id' } };
+                  register('client_id').onChange(event as any);
+                }}
+                placeholder="Select client..."
+              />
+            )}
+          </div>
+        )}
 
         <div>
           <Input
@@ -318,6 +372,44 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
             rows={2}
             placeholder="Internal notes..."
           />
+        </div>
+
+        {/* Billing Section */}
+        <div className="md:col-span-2 pt-4 border-t border-border">
+          <h3 className="text-sm font-medium text-text-main mb-3">Billing</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="is_billable"
+                checked={watch('is_billable')}
+                onCheckedChange={(checked) => setValue('is_billable', !!checked)}
+              />
+              <label htmlFor="is_billable" className="text-sm text-text-main cursor-pointer">
+                Billable
+              </label>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="is_retainer_work"
+                checked={watch('is_retainer_work')}
+                onCheckedChange={(checked) => setValue('is_retainer_work', !!checked)}
+              />
+              <label htmlFor="is_retainer_work" className="text-sm text-text-main cursor-pointer">
+                Retainer Work
+              </label>
+            </div>
+
+            <div>
+              <Input
+                label="Billing Cap (minutes)"
+                type="number"
+                min={1}
+                {...register('billing_target')}
+                placeholder="No cap"
+              />
+            </div>
+          </div>
         </div>
       </div>
 

@@ -18,6 +18,9 @@ export interface Task {
     client: { id: string; name: string } | null;
     site: { id: string; name: string } | null;
   } | null;
+  // Direct client relationship (for ad-hoc tasks without a project)
+  client_id: string | null;
+  client: { id: string; name: string } | null;
   phase: string | null;
   sort_order: number;
   assignee_id: string | null;
@@ -49,6 +52,13 @@ export interface Task {
   approved_at: string | null;
   approved_by_id: string | null;
   approved_by: { id: string; name: string } | null;
+  // Billing
+  is_billable: boolean;
+  billing_target: number | null;
+  is_retainer_work: boolean;
+  invoiced: boolean;
+  invoiced_at: string | null;
+  invoiced_by_id: string | null;
   notes: string | null;
   created_by_id: string | null;
   created_by: { id: string; name: string } | null;
@@ -82,6 +92,7 @@ export interface CreateTaskInput {
   status?: string;
   priority?: number;
   project_id?: string | null;
+  client_id?: string | null; // For ad-hoc tasks without a project
   phase_id?: string | null;
   phase?: string | null; // Legacy field
   sort_order?: number;

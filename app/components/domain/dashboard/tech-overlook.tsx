@@ -12,12 +12,13 @@ import {
   Timer,
   Zap,
 } from 'lucide-react';
-import { TechDashboardData, DashboardTask } from '@/lib/hooks/use-dashboard';
+import { TechDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { DashboardSection } from './dashboard-section';
 import { StatCard } from './stat-card';
 import { TaskQuickList } from './task-quick-list';
+import { TimeclockIssues } from './timeclock-issues';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatDuration } from '@/lib/calculations/energy';
@@ -30,6 +31,7 @@ import {
   actionsColumn,
   clientProjectSiteColumn,
   rangedEstimateColumn,
+  dueDateColumn,
 } from '@/components/ui/task-list-columns';
 
 interface TechOverlookProps {
@@ -41,6 +43,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
+  const { loadMore, isLoading } = useLoadMoreDashboard();
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -65,7 +68,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
   };
 
   // Separate tasks by focus flag
-  const focusTasks = data.myTasks.filter((t) => t.is_focus);
+  const focusTasks = data.myTasks.items.filter((t) => t.is_focus);
 
   // Column configs for different task lists
   const focusColumns: TaskListColumn<DashboardTask>[] = [
@@ -73,6 +76,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
     statusColumn({ editable: true }),
     titleColumn({ editable: true }),
     clientProjectSiteColumn(),
+    dueDateColumn(),
     rangedEstimateColumn(),
     actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
   ];
@@ -82,6 +86,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
     statusColumn({ editable: true }),
     titleColumn({ editable: true }),
     clientProjectSiteColumn(),
+    dueDateColumn(),
     rangedEstimateColumn(),
     actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
   ];
@@ -195,18 +200,24 @@ export function TechOverlook({ data }: TechOverlookProps) {
             action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
             <TaskList<DashboardTask>
-              tasks={data.myTasks.slice(0, 10)}
+              tasks={data.myTasks.items}
               columns={myTasksColumns}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
               emptyMessage="No quests assigned to you"
+              hasMore={data.myTasks.hasMore}
+              isLoading={isLoading('myTasks')}
+              onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
             />
           </DashboardSection>
         </div>
 
         {/* Right Column - Sidebar */}
         <div className="space-y-6">
+          {/* Timeclock Issues */}
+          <TimeclockIssues />
+
           {/* Blocked Tasks */}
           {data.blockedTasks.length > 0 && (
             <DashboardSection title="Blocked" icon={AlertCircle}>

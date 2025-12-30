@@ -27,7 +27,7 @@ import {
   statusColumn,
   priorityColumn,
   assigneeColumn,
-  estimateColumn,
+  rangedEstimateColumn,
   batteryColumn,
   actionsColumn,
 } from '@/components/ui/task-list-columns';
@@ -130,7 +130,7 @@ export default function QuestsPage() {
     statusColumn({ editable: true }),
     priorityColumn({ editable: true }),
     assigneeColumn({ editable: true }),
-    estimateColumn(),
+    rangedEstimateColumn(),
     batteryColumn({ editable: true }),
     actionsColumn({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
   ];

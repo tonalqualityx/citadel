@@ -224,8 +224,8 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 </Button>
               )}
 
-              {/* Breadcrumbs: Client > Site > Project */}
-              {task.project && (
+              {/* Breadcrumbs: Client > Site > Project (for project tasks) or just Client (for ad-hoc tasks) */}
+              {task.project ? (
                 <div className="flex items-center gap-1 text-sm text-text-sub flex-wrap">
                   {task.project.client && (
                     <>
@@ -259,7 +259,19 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                     {task.project.name}
                   </Link>
                 </div>
-              )}
+              ) : task.client ? (
+                // Ad-hoc task with direct client assignment
+                <div className="flex items-center gap-1 text-sm text-text-sub">
+                  <Link
+                    href={`/clients/${task.client.id}`}
+                    className="flex items-center gap-1 hover:text-primary"
+                  >
+                    <Building2 className="h-3.5 w-3.5" />
+                    {task.client.name}
+                  </Link>
+                  <span className="text-text-sub ml-1">(ad-hoc)</span>
+                </div>
+              ) : null}
 
               {/* Status, Priority, Assignee, Due Date Row - ABOVE timer */}
               <div className="flex items-center gap-3 flex-wrap">

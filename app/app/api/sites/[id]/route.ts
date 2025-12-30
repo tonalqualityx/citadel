@@ -12,6 +12,7 @@ const updateSiteSchema = z.object({
   platform: z.string().max(100).optional().nullable(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
+  maintenance_assignee_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
 });
 
@@ -31,6 +32,9 @@ export async function GET(
         },
         hosting_plan: true,
         maintenance_plan: true,
+        maintenance_assignee: {
+          select: { id: true, name: true, email: true },
+        },
         domains: {
           where: { is_deleted: false },
           orderBy: [{ is_primary: 'desc' }, { name: 'asc' }],
@@ -81,6 +85,16 @@ export async function PATCH(
       }
     }
 
+    // Validate maintenance assignee exists if provided
+    if (data.maintenance_assignee_id) {
+      const assignee = await prisma.user.findUnique({
+        where: { id: data.maintenance_assignee_id },
+      });
+      if (!assignee) {
+        throw new ApiError('Maintenance assignee not found', 404);
+      }
+    }
+
     const site = await prisma.site.update({
       where: { id },
       data: {
@@ -93,6 +107,9 @@ export async function PATCH(
         },
         hosting_plan: true,
         maintenance_plan: true,
+        maintenance_assignee: {
+          select: { id: true, name: true, email: true },
+        },
         _count: { select: { domains: true } },
       },
     });

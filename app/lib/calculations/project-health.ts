@@ -13,6 +13,118 @@ export interface ProjectHealth {
   alerts: string[];
 }
 
+// Lightweight task interface for in-memory calculation
+interface TaskForHealth {
+  status: string;
+  due_date?: Date | string | null;
+  estimated_minutes?: number | null;
+  time_entries?: { duration: number }[];
+}
+
+/**
+ * Calculate health from already-fetched task data (no DB call)
+ * Use this in formatters to avoid N+1 queries
+ */
+export function calculateHealthFromTasks(tasks: TaskForHealth[]): Omit<ProjectHealth, 'projectId'> {
+  const totalTasks = tasks.length;
+  const alerts: string[] = [];
+
+  // No tasks = healthy by default
+  if (totalTasks === 0) {
+    return {
+      overallScore: 100,
+      indicators: {
+        tasksOnTrack: 100,
+        estimateAccuracy: 100,
+        velocityTrend: 100,
+        blockageLevel: 0,
+      },
+      status: 'healthy',
+      alerts: [],
+    };
+  }
+
+  const now = new Date();
+
+  // Count task states
+  const blockedTasks = tasks.filter((t) => t.status === 'blocked').length;
+  const overdueTasks = tasks.filter((t) => {
+    if (!t.due_date) return false;
+    const dueDate = typeof t.due_date === 'string' ? new Date(t.due_date) : t.due_date;
+    return dueDate < now && t.status !== 'done' && t.status !== 'abandoned';
+  }).length;
+  const completedTasks = tasks.filter((t) => t.status === 'done').length;
+  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'abandoned').length;
+
+  // Tasks on track (not blocked, not overdue)
+  const tasksOnTrack = activeTasks > 0
+    ? Math.round(((activeTasks - blockedTasks - overdueTasks) / activeTasks) * 100)
+    : 100;
+
+  if (blockedTasks > 0) {
+    alerts.push(`${blockedTasks} blocked`);
+  }
+  if (overdueTasks > 0) {
+    alerts.push(`${overdueTasks} overdue`);
+  }
+
+  // Estimate accuracy
+  let estimateAccuracy = 100;
+  const completedWithEstimates = tasks.filter(
+    (t) => t.status === 'done' && t.estimated_minutes && t.estimated_minutes > 0
+  );
+
+  if (completedWithEstimates.length > 0) {
+    const totalEstimated = completedWithEstimates.reduce(
+      (sum, t) => sum + (t.estimated_minutes || 0),
+      0
+    );
+    const totalActual = completedWithEstimates.reduce(
+      (sum, t) => sum + (t.time_entries?.reduce((s, e) => s + e.duration, 0) || 0),
+      0
+    );
+
+    if (totalActual > 0 && totalEstimated > 0) {
+      const ratio = totalEstimated / totalActual;
+      estimateAccuracy = Math.max(0, Math.min(100, 100 - Math.abs(1 - ratio) * 50));
+    }
+  }
+
+  // Velocity (completion %)
+  const velocityTrend = Math.round((completedTasks / totalTasks) * 100);
+
+  // Blockage level
+  const blockageLevel = activeTasks > 0 ? Math.round((blockedTasks / activeTasks) * 100) : 0;
+
+  // Overall score (weighted)
+  const overallScore = Math.round(
+    tasksOnTrack * 0.4 +
+    estimateAccuracy * 0.3 +
+    (100 - blockageLevel) * 0.2 +
+    velocityTrend * 0.1
+  );
+
+  // Status thresholds
+  let status: ProjectHealth['status'] = 'healthy';
+  if (overallScore < 50) {
+    status = 'critical';
+  } else if (overallScore < 75) {
+    status = 'at-risk';
+  }
+
+  return {
+    overallScore,
+    indicators: {
+      tasksOnTrack,
+      estimateAccuracy: Math.round(estimateAccuracy),
+      velocityTrend,
+      blockageLevel,
+    },
+    status,
+    alerts,
+  };
+}
+
 /**
  * Calculate health metrics for a project
  */

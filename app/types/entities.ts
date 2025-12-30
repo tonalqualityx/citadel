@@ -61,6 +61,7 @@ export interface Site {
   platform: string | null;
   hosting_plan_id: string | null;
   maintenance_plan_id: string | null;
+  maintenance_assignee_id: string | null;
   notes: string | null;
   is_deleted: boolean;
   created_at: string;
@@ -70,7 +71,8 @@ export interface Site {
 export interface SiteWithRelations extends Site {
   client?: { id: string; name: string };
   hosting_plan?: { id: string; name: string; rate: number } | null;
-  maintenance_plan?: { id: string; name: string; rate: number } | null;
+  maintenance_plan?: { id: string; name: string; rate: number; frequency?: string } | null;
+  maintenance_assignee?: { id: string; name: string; email: string } | null;
   domains?: Domain[];
   domains_count?: number;
 }
@@ -83,6 +85,7 @@ export interface CreateSiteInput {
   platform?: string;
   hosting_plan_id?: string;
   maintenance_plan_id?: string;
+  maintenance_assignee_id?: string | null;
   notes?: string;
 }
 
@@ -164,6 +167,14 @@ export interface HostingPlanListResponse {
   hosting_plans: HostingPlan[];
 }
 
+export type MaintenanceFrequency = 'monthly' | 'bi_monthly' | 'quarterly' | 'semi_annually' | 'annually';
+
+export interface MaintenancePlanSop {
+  id: string;
+  title: string;
+  sort_order: number;
+}
+
 export interface MaintenancePlan {
   id: string;
   name: string;
@@ -171,8 +182,11 @@ export interface MaintenancePlan {
   agency_rate: number | null;
   hours: number | null;
   details: string | null;
+  frequency: MaintenanceFrequency;
   is_active: boolean;
   sites_count?: number;
+  sops_count?: number;
+  sops?: MaintenancePlanSop[];
   created_at?: string;
   updated_at?: string;
 }
@@ -183,6 +197,7 @@ export interface CreateMaintenancePlanInput {
   agency_rate?: number | null;
   hours?: number | null;
   details?: string | null;
+  frequency?: MaintenanceFrequency;
   is_active?: boolean;
 }
 
@@ -232,6 +247,7 @@ export interface CreateToolInput {
   category?: string | null;
   url?: string | null;
   description?: string | null;
+  license_key?: string | null;
   is_active?: boolean;
 }
 

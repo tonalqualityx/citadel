@@ -16,6 +16,7 @@ const createTaskSchema = z.object({
     .optional(),
   priority: z.number().min(1).max(5).optional(),
   project_id: z.string().uuid().optional().nullable(),
+  client_id: z.string().uuid().optional().nullable(),
   phase_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(), // Legacy field
   sort_order: z.number().optional(),
@@ -27,6 +28,10 @@ const createTaskSchema = z.object({
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
   due_date: z.string().datetime().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // Billing fields
+  is_billable: z.boolean().optional(),
+  billing_target: z.number().min(1).optional().nullable(),
+  is_retainer_work: z.boolean().optional(),
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -130,6 +135,7 @@ export async function GET(request: NextRequest) {
               client: { select: { id: true, name: true } },
             },
           },
+          client: { select: { id: true, name: true } },
           assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
           reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
           approved_by: { select: { id: true, name: true } },
@@ -141,6 +147,10 @@ export async function GET(request: NextRequest) {
           },
           blocking: {
             select: { id: true, title: true, status: true },
+          },
+          time_entries: {
+            where: { is_deleted: false },
+            select: { duration: true },
           },
         },
         orderBy: [{ priority: 'asc' }, { sort_order: 'asc' }, { created_at: 'desc' }],
@@ -169,14 +179,33 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const data = createTaskSchema.parse(body);
 
-    // Validate project exists if provided
+    // Determine client_id - auto-populate from project if not provided directly
+    let clientId = data.client_id;
+
+    // Validate project exists if provided and get retainer info for billing defaults
+    let isRetainerProject = false;
     if (data.project_id) {
       const project = await prisma.project.findUnique({
         where: { id: data.project_id, is_deleted: false },
+        select: {
+          id: true,
+          client_id: true,
+          is_retainer: true,
+          client: { select: { retainer_hours: true } },
+        },
       });
       if (!project) {
         throw new ApiError('Project not found', 404);
       }
+
+      // Auto-populate client_id from project if not explicitly provided
+      if (!clientId) {
+        clientId = project.client_id;
+      }
+
+      // Check if this is retainer work (project is retainer or client has retainer hours)
+      isRetainerProject = project.is_retainer ||
+        (project.client?.retainer_hours != null && Number(project.client.retainer_hours) > 0);
 
       // Tech users can only create tasks if assigned to the project
       if (auth.role === 'tech') {
@@ -283,6 +312,7 @@ export async function POST(request: NextRequest) {
         status: data.status || 'not_started',
         priority: data.priority || sopDefaults.default_priority || 3,
         project_id: data.project_id,
+        client_id: clientId,
         phase_id: data.phase_id,
         phase: data.phase, // Legacy field
         sort_order: data.sort_order || 0,
@@ -299,6 +329,10 @@ export async function POST(request: NextRequest) {
         estimated_minutes: estimatedMinutes,
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: data.notes,
+        // Billing fields - auto-suggest retainer work for retainer clients/projects
+        is_billable: data.is_billable ?? true,
+        billing_target: data.billing_target,
+        is_retainer_work: data.is_retainer_work ?? isRetainerProject,
         created_by_id: auth.userId,
       },
       include: {
@@ -310,6 +344,7 @@ export async function POST(request: NextRequest) {
             client: { select: { id: true, name: true } },
           },
         },
+        client: { select: { id: true, name: true } },
         project_phase: {
           select: { id: true, name: true, icon: true, sort_order: true },
         },

@@ -37,6 +37,7 @@ model User {
   comments              Comment[]
   password_reset_tokens PasswordResetToken[]
   activity_logs         ActivityLog[]
+  sites_maintained      Site[]                 @relation("SiteMaintainer")
 
   @@map("users")
 }
@@ -140,6 +141,14 @@ enum NotificationType {
   system_alert
 }
 
+enum MaintenanceFrequency {
+  monthly        // Every month
+  bi_monthly     // Every 2 months
+  quarterly      // Every 3 months
+  semi_annually  // Every 6 months
+  annually       // Every 12 months
+}
+
 // ============================================
 // REFERENCE DATA
 // ============================================
@@ -179,19 +188,38 @@ model HostingPlan {
 }
 
 model MaintenancePlan {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(100)
-  rate        Decimal  @db.Decimal(10, 2)
-  agency_rate Decimal? @db.Decimal(10, 2)
-  hours       Decimal? @db.Decimal(5, 2)
-  details     String?  @db.Text
-  is_active   Boolean  @default(true)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id          String               @id @default(uuid()) @db.Uuid
+  name        String               @db.VarChar(100)
+  rate        Decimal              @db.Decimal(10, 2)
+  agency_rate Decimal?             @db.Decimal(10, 2)
+  hours       Decimal?             @db.Decimal(5, 2)
+  details     String?              @db.Text
+  frequency   MaintenanceFrequency @default(monthly)
+  is_active   Boolean              @default(true)
+  created_at  DateTime             @default(now())
+  updated_at  DateTime             @updatedAt
 
-  sites Site[]
+  // Relations
+  sites           Site[]
+  sops            MaintenancePlanSop[]
+  generation_logs MaintenanceGenerationLog[]
 
   @@map("maintenance_plans")
+}
+
+// Junction table for MaintenancePlan ↔ SOP
+model MaintenancePlanSop {
+  id                  String          @id @default(uuid()) @db.Uuid
+  maintenance_plan_id String          @db.Uuid
+  maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
+  sop_id              String          @db.Uuid
+  sop                 Sop             @relation(fields: [sop_id], references: [id], onDelete: Cascade)
+  sort_order          Int             @default(0)
+
+  @@unique([maintenance_plan_id, sop_id])
+  @@index([maintenance_plan_id])
+  @@index([sop_id])
+  @@map("maintenance_plan_sops")
 }
 
 model Tool {
@@ -206,6 +234,17 @@ model Tool {
   updated_at  DateTime @updatedAt
 
   @@map("tools")
+}
+
+model Integration {
+  id          String   @id @default(uuid()) @db.Uuid
+  provider    String   @unique @db.VarChar(50)
+  config      Json     @default("{}")
+  is_active   Boolean  @default(false)
+  updated_at  DateTime @updatedAt
+  updated_by  String?  @db.Uuid
+
+  @@map("integrations")
 }
 
 // ============================================
@@ -243,6 +282,7 @@ model Client {
   // Relations
   sites    Site[]
   projects Project[]
+  tasks    Task[]
 
   @@index([type])
   @@index([status])
@@ -282,8 +322,10 @@ model Site {
   hosting_plan        HostingPlan?     @relation(fields: [hosting_plan_id], references: [id])
 
   // Maintenance
-  maintenance_plan_id String?          @db.Uuid
-  maintenance_plan    MaintenancePlan? @relation(fields: [maintenance_plan_id], references: [id])
+  maintenance_plan_id      String?          @db.Uuid
+  maintenance_plan         MaintenancePlan? @relation(fields: [maintenance_plan_id], references: [id])
+  maintenance_assignee_id  String?          @db.Uuid
+  maintenance_assignee     User?            @relation("SiteMaintainer", fields: [maintenance_assignee_id], references: [id])
 
   // Notes
   notes               String?          @db.Text
@@ -294,12 +336,15 @@ model Site {
   updated_at          DateTime         @updatedAt
 
   // Relations
-  domains  Domain[]
-  projects Project[]
+  domains                   Domain[]
+  projects                  Project[]
+  tasks                     Task[]
+  maintenance_generation_logs MaintenanceGenerationLog[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
   @@index([maintenance_plan_id])
+  @@index([maintenance_assignee_id])
   @@map("sites")
 }
 
@@ -418,6 +463,7 @@ model ProjectPhase {
 
   // Relations
   tasks       Task[]
+  milestones  Milestone[]
 
   @@index([project_id])
   @@map("project_phases")
@@ -486,6 +532,18 @@ model Task {
   project_id        String?       @db.Uuid
   project           Project?      @relation(fields: [project_id], references: [id])
 
+  // Client relationship (always set - derived from project or set directly for ad-hoc)
+  client_id         String?       @db.Uuid
+  client            Client?       @relation(fields: [client_id], references: [id])
+
+  // Site relationship (for maintenance tasks)
+  site_id           String?       @db.Uuid
+  site              Site?         @relation(fields: [site_id], references: [id])
+
+  // Maintenance task fields
+  is_maintenance_task  Boolean    @default(false)
+  maintenance_period   String?    @db.VarChar(20)  // e.g., "2025-01" for Jan 2025
+
   // Phase grouping
   phase             String?       @db.VarChar(100) // Legacy - kept for migration
   phase_id          String?       @db.Uuid
@@ -526,6 +584,17 @@ model Task {
   sop_id            String?       @db.Uuid
   sop               Sop?          @relation(fields: [sop_id], references: [id])
 
+  // Billing
+  invoiced          Boolean       @default(false)
+  invoiced_at       DateTime?
+  invoiced_by_id    String?       @db.Uuid
+  is_billable       Boolean       @default(true)
+  billing_target    Decimal?      @db.Decimal(10, 2)
+  is_retainer_work  Boolean       @default(false)
+
+  // Time tracking
+  no_time_needed    Boolean       @default(false) // Task completed without time tracking
+
   // Notes
   notes             String?       @db.Text
 
@@ -545,12 +614,16 @@ model Task {
   comments          Comment[]
 
   @@index([project_id])
+  @@index([client_id])
+  @@index([site_id])
   @@index([assignee_id])
   @@index([status])
   @@index([priority])
   @@index([phase])
   @@index([phase_id])
   @@index([sop_id])
+  @@index([invoiced])
+  @@index([is_maintenance_task])
   @@map("tasks")
 }
 
@@ -576,6 +649,12 @@ enum BatteryImpact {
   energizing     // Gives energy back
 }
 
+enum MilestoneBillingStatus {
+  pending     // Not triggered yet
+  triggered   // Ready to invoice
+  invoiced    // Has been invoiced
+}
+
 // ============================================
 // MILESTONES
 // ============================================
@@ -585,14 +664,30 @@ model Milestone {
   name         String    @db.VarChar(255)
   project_id   String    @db.Uuid
   project      Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  // Optional phase linkage
+  phase_id     String?   @db.Uuid
+  phase        ProjectPhase? @relation(fields: [phase_id], references: [id])
+
   target_date  DateTime?
   completed_at DateTime?
   notes        String?   @db.Text
   sort_order   Int       @default(0)
+
+  // Billing fields
+  billing_amount    Decimal?              @db.Decimal(10, 2)  // Fixed dollar amount
+  billing_status    MilestoneBillingStatus @default(pending)
+  triggered_at      DateTime?
+  triggered_by_id   String?   @db.Uuid
+  invoiced_at       DateTime?
+  invoiced_by_id    String?   @db.Uuid
+
   created_at   DateTime  @default(now())
   updated_at   DateTime  @updatedAt
 
   @@index([project_id])
+  @@index([phase_id])
+  @@index([billing_status])
   @@map("milestones")
 }
 
@@ -705,6 +800,7 @@ model Sop {
   // Relations
   tasks                 Task[]
   recipe_tasks          RecipeTask[]
+  maintenance_plan_sops MaintenancePlanSop[]
 
   @@index([function_id])
   @@map("sops")
@@ -824,4 +920,26 @@ model Comment {
   @@index([user_id])
   @@index([created_at])
   @@map("comments")
+}
+
+// ============================================
+// MAINTENANCE GENERATION TRACKING
+// ============================================
+
+model MaintenanceGenerationLog {
+  id                  String          @id @default(uuid()) @db.Uuid
+  maintenance_plan_id String          @db.Uuid
+  maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
+  site_id             String          @db.Uuid
+  site                Site            @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  period              String          @db.VarChar(20)  // "2025-01", "2025-Q1", etc.
+  tasks_created       Int
+  tasks_abandoned     Int             @default(0)
+  generated_at        DateTime        @default(now())
+
+  @@unique([maintenance_plan_id, site_id, period])
+  @@index([maintenance_plan_id])
+  @@index([site_id])
+  @@index([period])
+  @@map("maintenance_generation_logs")
 }

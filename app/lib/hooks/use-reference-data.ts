@@ -140,6 +140,46 @@ export function useDeleteMaintenancePlan() {
   });
 }
 
+interface MaintenancePlanSop {
+  id: string;
+  title: string;
+  sort_order: number;
+}
+
+interface MaintenancePlanSopsResponse {
+  sops: MaintenancePlanSop[];
+}
+
+export function useMaintenancePlanSops(planId: string | null) {
+  return useQuery({
+    queryKey: [...referenceDataKeys.maintenancePlans, planId, 'sops'],
+    queryFn: async (): Promise<MaintenancePlanSopsResponse> => {
+      return apiClient.get<MaintenancePlanSopsResponse>(`/maintenance-plans/${planId}/sops`);
+    },
+    enabled: !!planId,
+  });
+}
+
+export function useUpdateMaintenancePlanSops() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      planId,
+      sopIds,
+    }: {
+      planId: string;
+      sopIds: string[];
+    }): Promise<MaintenancePlanSopsResponse> => {
+      return apiClient.put<MaintenancePlanSopsResponse>(`/maintenance-plans/${planId}/sops`, { sopIds });
+    },
+    onSuccess: (_, { planId }) => {
+      queryClient.invalidateQueries({ queryKey: referenceDataKeys.maintenancePlans });
+      queryClient.invalidateQueries({ queryKey: [...referenceDataKeys.maintenancePlans, planId, 'sops'] });
+    },
+  });
+}
+
 // ============================================
 // FUNCTIONS
 // ============================================

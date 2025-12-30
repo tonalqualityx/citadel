@@ -50,6 +50,7 @@ import {
 import { ProjectForm } from '@/components/domain/projects/project-form';
 import { ProjectWorkloadTab } from '@/components/domain/projects/project-workload-tab';
 import { ProjectTimeTab } from '@/components/domain/projects/project-time-tab';
+import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import {
   getProjectStatusLabel,
@@ -67,7 +68,7 @@ import {
   dueDateColumn,
   batteryColumn,
   mysteryColumn,
-  estimateColumn,
+  rangedEstimateColumn,
   actionsColumn,
 } from '@/components/ui/task-list-columns';
 import type { Task } from '@/lib/hooks/use-tasks';
@@ -534,7 +535,7 @@ export default function ProjectDetailPage() {
                   dueDateColumn({ editable: true }),
                   batteryColumn({ editable: true }),
                   mysteryColumn({ editable: true }),
-                  estimateColumn(),
+                  rangedEstimateColumn(),
                   actionsColumn({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
                 ];
 
@@ -791,7 +792,7 @@ export default function ProjectDetailPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="details" className="mt-4">
+        <TabsContent value="details" className="mt-4 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Details</CardTitle>
@@ -855,6 +856,9 @@ export default function ProjectDetailPage() {
               </dl>
             </CardContent>
           </Card>
+
+          {/* Milestones Section */}
+          <MilestoneList projectId={projectId} />
         </TabsContent>
       </Tabs>
 

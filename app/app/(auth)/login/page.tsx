@@ -100,7 +100,7 @@ export default function LoginPage() {
           </div>
         </CardContent>
 
-        <CardFooter className="flex-col gap-4">
+        <CardFooter>
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? (
               <>
@@ -111,13 +111,6 @@ export default function LoginPage() {
               'Sign in'
             )}
           </Button>
-
-          <div className="text-center text-sm text-text-sub">
-            <p className="font-medium mb-1">Test accounts:</p>
-            <p>admin@indelible.agency / password123</p>
-            <p>pm@indelible.agency / password123</p>
-            <p>tech@indelible.agency / password123</p>
-          </div>
         </CardFooter>
       </form>
     </Card>

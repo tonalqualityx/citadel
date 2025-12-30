@@ -5,12 +5,14 @@ type RequestConfig = {
 
 class ApiClient {
   private baseUrl = '/api';
+  private isRefreshing = false;
 
   private async request<T>(
     method: string,
     endpoint: string,
     data?: unknown,
-    config?: RequestConfig
+    config?: RequestConfig,
+    isRetry = false
   ): Promise<T> {
     const url = new URL(`${this.baseUrl}${endpoint}`, window.location.origin);
 
@@ -32,21 +34,32 @@ class ApiClient {
       credentials: 'include',
     });
 
-    if (response.status === 401) {
-      // Try to refresh token
-      const refreshResponse = await fetch('/api/auth/refresh', {
-        method: 'POST',
-        credentials: 'include',
-      });
+    if (response.status === 401 && !isRetry && !this.isRefreshing) {
+      // Try to refresh token (only once)
+      this.isRefreshing = true;
+      try {
+        const refreshResponse = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          credentials: 'include',
+        });
 
-      if (refreshResponse.ok) {
-        // Retry original request
-        return this.request<T>(method, endpoint, data, config);
-      } else {
-        // Redirect to login
-        window.location.href = '/login';
-        throw new Error('Session expired');
+        if (refreshResponse.ok) {
+          // Retry original request (mark as retry to prevent loop)
+          return this.request<T>(method, endpoint, data, config, true);
+        } else {
+          // Redirect to login
+          window.location.href = '/login';
+          throw new Error('Session expired');
+        }
+      } finally {
+        this.isRefreshing = false;
       }
+    }
+
+    if (response.status === 401) {
+      // If still 401 after retry, redirect to login
+      window.location.href = '/login';
+      throw new Error('Session expired');
     }
 
     if (!response.ok) {
@@ -67,6 +80,10 @@ class ApiClient {
 
   patch<T>(endpoint: string, data?: unknown, config?: RequestConfig): Promise<T> {
     return this.request<T>('PATCH', endpoint, data, config);
+  }
+
+  put<T>(endpoint: string, data?: unknown, config?: RequestConfig): Promise<T> {
+    return this.request<T>('PUT', endpoint, data, config);
   }
 
   delete<T>(endpoint: string, config?: RequestConfig): Promise<T> {

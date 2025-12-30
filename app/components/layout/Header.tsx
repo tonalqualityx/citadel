@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { Search, LogOut, Menu } from 'lucide-react';
 import { TimerWidget } from './timer-widget';
+import { QuickTaskModal } from './quick-task-modal';
 import { NotificationBell } from '@/components/domain/notifications';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Avatar } from '@/components/ui/avatar';
@@ -64,6 +65,9 @@ export function Header() {
 
       {/* Right side */}
       <div className="flex items-center gap-x-4 lg:gap-x-6 ml-auto">
+        {/* Quick Task */}
+        <QuickTaskModal />
+
         {/* Timer */}
         <TimerWidget />
 

@@ -85,13 +85,15 @@ export function MultiSelect({
         >
           <span className="flex-1 truncate">{displayText}</span>
           {value.length > 0 && (
-            <button
-              type="button"
+            <span
+              role="button"
+              tabIndex={0}
               onClick={clearAll}
-              className="absolute right-8 p-0.5 hover:bg-surface-raised rounded"
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') clearAll(e as unknown as React.MouseEvent); }}
+              className="absolute right-8 p-0.5 hover:bg-surface-raised rounded cursor-pointer"
             >
               <X className="h-3 w-3 text-text-sub" />
-            </button>
+            </span>
           )}
           <ChevronDown
             className={cn(

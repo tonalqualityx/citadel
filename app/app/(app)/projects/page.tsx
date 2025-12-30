@@ -22,6 +22,7 @@ import {
   ModalBody,
 } from '@/components/ui/modal';
 import { ProjectForm } from '@/components/domain/projects/project-form';
+import { ProjectHealthDot } from '@/components/domain/projects/project-health-badge';
 import type { Project } from '@/lib/hooks/use-projects';
 import { getProjectStatusLabel, getProjectStatusVariant } from '@/lib/calculations/status';
 
@@ -67,11 +68,14 @@ export default function ProjectsPage() {
       key: 'name',
       header: t('project'),
       cell: (project) => (
-        <div>
-          <div className="font-medium text-text-main">{project.name}</div>
-          {project.client && (
-            <div className="text-sm text-text-sub">{project.client.name}</div>
-          )}
+        <div className="flex items-center gap-2">
+          <ProjectHealthDot health={project.health} />
+          <div>
+            <div className="font-medium text-text-main">{project.name}</div>
+            {project.client && (
+              <div className="text-sm text-text-sub">{project.client.name}</div>
+            )}
+          </div>
         </div>
       ),
     },

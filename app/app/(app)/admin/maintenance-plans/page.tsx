@@ -1,17 +1,21 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, GripVertical, FileText } from 'lucide-react';
 import {
   useMaintenancePlans,
   useCreateMaintenancePlan,
   useUpdateMaintenancePlan,
   useDeleteMaintenancePlan,
+  useMaintenancePlanSops,
+  useUpdateMaintenancePlanSops,
 } from '@/lib/hooks/use-reference-data';
+import { useSops, type Sop } from '@/lib/hooks/use-sops';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import {
@@ -22,7 +26,19 @@ import {
   ModalBody,
   ModalFooter,
 } from '@/components/ui/modal';
-import type { MaintenancePlan, CreateMaintenancePlanInput } from '@/types/entities';
+import type { MaintenancePlan, CreateMaintenancePlanInput, MaintenanceFrequency } from '@/types/entities';
+
+const FREQUENCY_OPTIONS: { value: MaintenanceFrequency; label: string }[] = [
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'bi_monthly', label: 'Bi-Monthly (every 2 months)' },
+  { value: 'quarterly', label: 'Quarterly (every 3 months)' },
+  { value: 'semi_annually', label: 'Semi-Annually (every 6 months)' },
+  { value: 'annually', label: 'Annually' },
+];
+
+function getFrequencyLabel(frequency: MaintenanceFrequency): string {
+  return FREQUENCY_OPTIONS.find(f => f.value === frequency)?.label || frequency;
+}
 
 function formatCurrency(value: number | null): string {
   if (value === null) return '-';
@@ -35,11 +51,25 @@ export default function MaintenancePlansAdminPage() {
   const [editingItem, setEditingItem] = React.useState<MaintenancePlan | null>(null);
   const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [sopsPlanId, setSopsPlanId] = React.useState<string | null>(null);
 
   const { data, isLoading, error } = useMaintenancePlans(includeInactive);
   const createMutation = useCreateMaintenancePlan();
   const updateMutation = useUpdateMaintenancePlan();
   const deleteMutation = useDeleteMaintenancePlan();
+
+  // SOPs management
+  const { data: sopsData } = useSops({ include_inactive: false, limit: 100 });
+  const { data: planSopsData, isLoading: planSopsLoading } = useMaintenancePlanSops(sopsPlanId);
+  const updatePlanSopsMutation = useUpdateMaintenancePlanSops();
+  const [selectedSopIds, setSelectedSopIds] = React.useState<string[]>([]);
+
+  // When plan SOPs data loads, update local state
+  React.useEffect(() => {
+    if (planSopsData?.sops) {
+      setSelectedSopIds(planSopsData.sops.map(s => s.id));
+    }
+  }, [planSopsData]);
 
   const [formData, setFormData] = React.useState<CreateMaintenancePlanInput>({
     name: '',
@@ -47,6 +77,7 @@ export default function MaintenancePlansAdminPage() {
     agency_rate: null,
     hours: null,
     details: '',
+    frequency: 'monthly',
     is_active: true,
   });
 
@@ -58,6 +89,7 @@ export default function MaintenancePlansAdminPage() {
       agency_rate: null,
       hours: null,
       details: '',
+      frequency: 'monthly',
       is_active: true,
     });
     setIsModalOpen(true);
@@ -71,9 +103,52 @@ export default function MaintenancePlansAdminPage() {
       agency_rate: item.agency_rate,
       hours: item.hours,
       details: item.details || '',
+      frequency: item.frequency,
       is_active: item.is_active,
     });
     setIsModalOpen(true);
+  };
+
+  const [sopSearch, setSopSearch] = React.useState('');
+
+  const openSopsModal = (planId: string) => {
+    setSopsPlanId(planId);
+    setSopSearch('');
+  };
+
+  const closeSopsModal = () => {
+    setSopsPlanId(null);
+    setSelectedSopIds([]);
+    setSopSearch('');
+  };
+
+  // Filter SOPs based on search
+  const filteredSops = React.useMemo(() => {
+    if (!sopsData?.sops) return [];
+    if (!sopSearch.trim()) return sopsData.sops;
+    const searchLower = sopSearch.toLowerCase();
+    return sopsData.sops.filter(sop =>
+      sop.title.toLowerCase().includes(searchLower) ||
+      sop.function?.name.toLowerCase().includes(searchLower)
+    );
+  }, [sopsData?.sops, sopSearch]);
+
+  const toggleSop = (sopId: string) => {
+    setSelectedSopIds(prev =>
+      prev.includes(sopId)
+        ? prev.filter(id => id !== sopId)
+        : [...prev, sopId]
+    );
+  };
+
+  const handleSaveSops = async () => {
+    if (!sopsPlanId) return;
+    try {
+      await updatePlanSopsMutation.mutateAsync({ planId: sopsPlanId, sopIds: selectedSopIds });
+      closeSopsModal();
+    } catch (err) {
+      console.error('Failed to save SOPs:', err);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -150,7 +225,7 @@ export default function MaintenancePlansAdminPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <SkeletonTable rows={5} columns={6} />
+            <SkeletonTable rows={5} columns={8} />
           ) : data?.maintenance_plans.length === 0 ? (
             <EmptyState
               icon={<span className="text-4xl">🔧</span>}
@@ -170,11 +245,11 @@ export default function MaintenancePlansAdminPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-text-sub uppercase tracking-wider">
                     Name
                   </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-text-sub uppercase tracking-wider">
-                    Rate
+                  <th className="px-4 py-3 text-left text-xs font-medium text-text-sub uppercase tracking-wider">
+                    Frequency
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-text-sub uppercase tracking-wider">
-                    Agency Rate
+                    Rate
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-text-sub uppercase tracking-wider">
                     Hours
@@ -182,10 +257,13 @@ export default function MaintenancePlansAdminPage() {
                   <th className="px-4 py-3 text-center text-xs font-medium text-text-sub uppercase tracking-wider w-20">
                     Sites
                   </th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-text-sub uppercase tracking-wider w-20">
+                    SOPs
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-text-sub uppercase tracking-wider w-24">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-text-sub uppercase tracking-wider w-24">
+                  <th className="px-4 py-3 text-right text-xs font-medium text-text-sub uppercase tracking-wider w-32">
                     Actions
                   </th>
                 </tr>
@@ -196,13 +274,11 @@ export default function MaintenancePlansAdminPage() {
                     <td className="px-4 py-3">
                       <span className="font-medium text-text-main">{plan.name}</span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm text-text-main">{formatCurrency(plan.rate)}</span>
+                    <td className="px-4 py-3">
+                      <span className="text-sm text-text-sub">{getFrequencyLabel(plan.frequency)}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="text-sm text-text-sub">
-                        {formatCurrency(plan.agency_rate)}
-                      </span>
+                      <span className="text-sm text-text-main">{formatCurrency(plan.rate)}</span>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="text-sm text-text-sub">
@@ -211,6 +287,17 @@ export default function MaintenancePlansAdminPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className="text-sm text-text-sub">{plan.sites_count || 0}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openSopsModal(plan.id)}
+                        className="text-text-sub hover:text-text-main"
+                      >
+                        <FileText className="h-4 w-4 mr-1" />
+                        {plan.sops_count || 0}
+                      </Button>
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={plan.is_active ? 'success' : 'default'}>
@@ -307,6 +394,19 @@ export default function MaintenancePlansAdminPage() {
                   />
                 </div>
                 <div className="col-span-2">
+                  <Select
+                    label="Frequency *"
+                    options={FREQUENCY_OPTIONS}
+                    value={formData.frequency || 'monthly'}
+                    onChange={(value) =>
+                      setFormData({ ...formData, frequency: value as MaintenanceFrequency })
+                    }
+                  />
+                  <p className="mt-1 text-xs text-text-sub">
+                    How often maintenance tasks should be generated for sites using this plan
+                  </p>
+                </div>
+                <div className="col-span-2">
                   <label className="block text-sm font-medium text-text-main mb-1">Details</label>
                   <textarea
                     value={formData.details || ''}
@@ -368,6 +468,93 @@ export default function MaintenancePlansAdminPage() {
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
             </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* SOPs Management Modal */}
+      <Modal open={!!sopsPlanId} onOpenChange={closeSopsModal}>
+        <ModalContent size="lg">
+          <ModalHeader>
+            <ModalTitle>Manage SOPs</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-sm text-text-sub mb-4">
+              Select the SOPs that should be converted into tasks for sites using this maintenance plan.
+              Each selected SOP will become a task when maintenance is generated.
+            </p>
+            <div className="mb-4">
+              <Input
+                type="text"
+                placeholder="Search SOPs..."
+                value={sopSearch}
+                onChange={(e) => setSopSearch(e.target.value)}
+              />
+            </div>
+            {planSopsLoading ? (
+              <div className="text-center py-8 text-text-sub">Loading...</div>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {filteredSops.length > 0 ? (
+                  filteredSops.map((sop) => (
+                    <label
+                      key={sop.id}
+                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedSopIds.includes(sop.id)
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border-warm hover:bg-surface-alt'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSopIds.includes(sop.id)}
+                        onChange={() => toggleSop(sop.id)}
+                        className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-text-main">{sop.title}</div>
+                        {sop.function && (
+                          <div className="text-xs text-text-sub">{sop.function.name}</div>
+                        )}
+                      </div>
+                      {sop.energy_estimate && (
+                        <Badge variant="default" className="text-xs">
+                          {sop.energy_estimate}h
+                        </Badge>
+                      )}
+                    </label>
+                  ))
+                ) : sopSearch ? (
+                  <div className="text-center py-8 text-text-sub">
+                    No SOPs match "{sopSearch}"
+                  </div>
+                ) : (
+                  <EmptyState
+                    icon={<FileText className="h-12 w-12" />}
+                    title="No SOPs available"
+                    description="Create SOPs first to add them to maintenance plans"
+                  />
+                )}
+              </div>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <div className="flex items-center justify-between w-full">
+              <span className="text-sm text-text-sub">
+                {selectedSopIds.length} SOP{selectedSopIds.length !== 1 ? 's' : ''} selected
+              </span>
+              <div className="flex gap-2">
+                <Button variant="ghost" onClick={closeSopsModal}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveSops}
+                  disabled={updatePlanSopsMutation.isPending}
+                >
+                  {updatePlanSopsMutation.isPending ? 'Saving...' : 'Save'}
+                </Button>
+              </div>
+            </div>
           </ModalFooter>
         </ModalContent>
       </Modal>

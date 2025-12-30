@@ -1,14 +1,16 @@
 # Indelible Round Two: Gap Remediation Master Plan
 
 **Created:** December 28, 2025
-**Last Updated:** December 28, 2025
-**Current Status:** ✅ Critical Priority COMPLETE - Awaiting Approval
+**Last Updated:** December 29, 2025
+**Current Status:** ✅ Critical Priority COMPLETE - High Priority 4/5
 **Tracking Location:** `/implementation/round-two/MASTER-PLAN.md`
 
 ## Decisions Made
 - **Email for Password Reset:** Console logging only (no external email service for MVP)
 - **Tracking Directory:** Create `/implementation/round-two/` with MASTER-PLAN.md as source of truth
 - **Scope:** All priority tiers, with human checkpoint between each tier
+- **Kanban Board:** Moved to super low priority
+- **Notes System & SOP Version History:** Moved to super low priority
 
 ---
 
@@ -17,8 +19,8 @@
 | Priority Tier | Total | Complete | In Progress | Not Started |
 |---------------|-------|----------|-------------|-------------|
 | Critical      | 4     | 4        | 0           | 0           |
-| High          | 5     | 0        | 0           | 5           |
-| Medium        | 6     | 0        | 0           | 6           |
+| High          | 5     | 4        | 0           | 1           |
+| Medium        | 6     | 1        | 0           | 5           |
 | Lower         | 5     | 0        | 0           | 5           |
 
 ---
@@ -90,106 +92,57 @@
 
 ## High Priority Features
 
-### Feature 5: User Management (Admin)
+### Feature 5: User Management (Admin) ✅
 **Source:** Phase 2, remote-features-audit.md
-**Status:** Not Started
+**Status:** Complete
 **Blocked By:** Toast Notifications
 
-#### Discovery Summary
-- **Impacted Files:** Admin section, user API
-- **Existing Patterns:** Admin pages for hosting-plans, maintenance-plans, functions
-- **Schema Changes Required:** No (User model exists)
-- **New API Endpoints:** None (enhance existing)
-- **Modified API Endpoints:** `/api/users` (add create, update, delete)
-- **New Components:** UserManagementPage, UserForm
-- **Modified Components:** None
-
-#### Implementation Plan
-
-**API Layer**
-- [ ] Add POST to `/app/api/users/route.ts` (create user - admin only)
-- [ ] Create `/app/api/users/[id]/route.ts` (GET, PATCH, DELETE - admin only)
-- [ ] Add Zod validation schemas
-- [ ] Password hashing for new users
-
-**Frontend**
-- [ ] Create `/app/(app)/admin/users/page.tsx` following hosting-plans pattern
-- [ ] Create `/components/domain/admin/user-form.tsx`
-- [ ] Add to admin navigation sidebar
-
-**Verification**
-- [ ] Admin can view all users
-- [ ] Admin can create new user with role
-- [ ] Admin can update user (name, email, role)
-- [ ] Admin can deactivate user (is_active = false)
-- [ ] Non-admin cannot access user management
+#### Implementation Summary
+- Enhanced `/app/api/users/route.ts` with POST for creating users (admin only)
+- Created `/app/api/users/[id]/route.ts` with GET, PATCH, DELETE (admin only)
+- Added Zod validation schemas for create/update/password reset
+- Password hashing with bcryptjs (cost 12)
+- Self-protection: admins cannot deactivate/delete/change role on themselves
+- Smart delete: deactivates users with related records instead of hard delete
+- Created `/lib/hooks/use-users.ts` with full CRUD + password reset hooks
+- Created `/app/(app)/admin/team/page.tsx` following admin page pattern
+- Features: role badges, status toggle, password reset modal, last login display
+- Already linked in sidebar at `/admin/team`
 
 ---
 
-### Feature 6: Battery Status on Dashboard
+### Feature 6: Battery Status on Dashboard ✅
 **Source:** Phase 5, FEATURE-AUDIT.md
-**Status:** Not Started
+**Status:** Complete
 **Blocked By:** None
 
-#### Discovery Summary
-- **Impacted Files:** TaskQuickList component
-- **Existing Patterns:** `getBatteryImpactIcon()`, `getBatteryImpactVariant()` exist
-- **Schema Changes Required:** No
-- **New API Endpoints:** None (data already returned)
-- **Modified API Endpoints:** None
-- **New Components:** None
-- **Modified Components:** TaskQuickList
-
-#### Implementation Plan
-
-**Frontend**
-- [ ] Update `/components/domain/dashboard/task-quick-list.tsx`:
-  - Add battery_impact display after priority
-  - Use `getBatteryImpactIcon()` for emoji
-  - Use Badge with `getBatteryImpactVariant()` for styling
-  - Only show if battery_impact !== 'average_drain' (reduce noise)
-
-**Verification**
-- [ ] High drain tasks show warning indicator on dashboard
-- [ ] Energizing tasks show success indicator
-- [ ] Average drain tasks show no indicator (default)
+#### Implementation Summary
+Dashboard task lists were overhauled to use the generic TaskList component with configurable columns. Battery impact is now available as an editable column (`batteryColumn`) that can be added to any task list. The dashboard Focus Quests and My Quests lists use ranged estimates that factor in energy/mystery, with battery available in the full task view.
 
 ---
 
-### Feature 7: Milestone UI
+### Feature 7: Milestone UI ✅
 **Source:** Phase 3, FEATURE-AUDIT.md
-**Status:** Not Started
+**Status:** Complete
 **Blocked By:** Toast Notifications
 
-#### Discovery Summary
-- **Impacted Files:** Project detail page, project API
-- **Existing Patterns:** Milestone model exists, CRUD pattern from other entities
-- **Schema Changes Required:** No (model exists)
-- **New API Endpoints:** `/api/projects/[id]/milestones`
-- **Modified API Endpoints:** None
-- **New Components:** MilestoneList, MilestoneItem, MilestoneForm
-- **Modified Components:** Project detail page (add Milestones tab)
+#### Implementation Summary
+- Created `/app/api/projects/[id]/milestones/route.ts` (GET, POST)
+- Created `/app/api/milestones/[id]/route.ts` (GET, PATCH, DELETE)
+- Created `/lib/hooks/use-milestones.ts` with full CRUD + toggle complete hooks
+- Created `/components/domain/projects/milestone-list.tsx` with grouping (Upcoming/Completed)
+- Created `/components/domain/projects/milestone-form.tsx` for create/edit
+- Added MilestoneList to project detail page (Details tab)
+- Set up Vitest testing infrastructure
+- Created `/lib/hooks/__tests__/use-milestones.test.ts` with 10 passing tests
 
-#### Implementation Plan
-
-**API Layer**
-- [ ] Create `/app/api/projects/[id]/milestones/route.ts` (GET, POST)
-- [ ] Create `/app/api/milestones/[id]/route.ts` (PATCH, DELETE)
-- [ ] Add Zod validation schemas
-
-**Frontend**
-- [ ] Create `/lib/hooks/use-milestones.ts`
-- [ ] Create `/components/domain/projects/milestone-item.tsx`
-- [ ] Create `/components/domain/projects/milestone-list.tsx`
-- [ ] Create `/components/domain/projects/milestone-form.tsx`
-- [ ] Add Milestones tab to project detail page
-
-**Verification**
-- [ ] Can create milestone with name and target date
-- [ ] Can mark milestone as complete
-- [ ] Can edit milestone
-- [ ] Can delete milestone
-- [ ] Milestones display in chronological order
+**Features:**
+- Create milestone with name, target date, notes
+- Mark milestone as complete/incomplete (toggle)
+- Edit milestone details
+- Delete milestone with confirmation
+- Milestones grouped by status (Upcoming vs Completed)
+- Visual indicators for completion status and past due dates
 
 ---
 
@@ -226,36 +179,21 @@
 
 ---
 
-### Feature 9: Project Health UI
+### Feature 9: Project Health UI ✅
 **Source:** Phase 5, FEATURE-AUDIT.md
-**Status:** Not Started
+**Status:** Complete
 **Blocked By:** None
 
-#### Discovery Summary
-- **Impacted Files:** Dashboard, project list, project detail
-- **Existing Patterns:** `calculateProjectHealth()` exists in `/lib/calculations/project-health.ts`
-- **Schema Changes Required:** No
-- **New API Endpoints:** None (add to existing response)
-- **Modified API Endpoints:** `/api/projects` (add health to response)
-- **New Components:** ProjectHealthBadge, ProjectHealthCard
-- **Modified Components:** Project list, PM dashboard
-
-#### Implementation Plan
-
-**API Layer**
-- [ ] Update `/lib/api/formatters.ts` `formatProjectResponse()`:
-  - Call `calculateProjectHealth()` with project data
-  - Include health in response
-
-**Frontend**
-- [ ] Create `/components/domain/projects/project-health-badge.tsx`
-- [ ] Update project list to show health indicator
-- [ ] Add health summary to PM dashboard
-
-**Verification**
-- [ ] Health badge shows on project cards (green/amber/red)
-- [ ] PM dashboard shows project health overview
-- [ ] At-risk projects clearly visible
+#### Implementation Summary
+- Created `calculateHealthFromTasks()` in `/lib/calculations/project-health.ts` for in-memory health calculation (no extra DB queries)
+- Updated `formatProjectResponse()` to include health for active projects (ready, in_progress, review)
+- Added `ProjectHealth` interface to `/lib/hooks/use-projects.ts`
+- Created `/components/domain/projects/project-health-badge.tsx` with:
+  - `ProjectHealthBadge`: Full badge with icon and label
+  - `ProjectHealthDot`: Compact colored dot for list views
+- Updated project list to show health dots next to project names
+- Health shows: overall score, status (healthy/at-risk/critical), alerts for blocked/overdue tasks
+- Scoring: weighted combination of tasks on track (40%), estimate accuracy (30%), blockage level (20%), velocity (10%)
 
 ---
 
@@ -288,12 +226,25 @@
 
 ---
 
-### Feature 13: Task Billing Fields
+### Feature 13: Task Billing Fields ✅
 **Source:** Phase 3, remote-features-audit.md
-**Status:** Not Started
+**Status:** Complete
 **Blocked By:** None
 
-*[Implementation details to be added when approaching this tier]*
+#### Implementation Summary
+Added three billing fields to Task model:
+- `is_billable` (Boolean, default true) - Whether task can be billed
+- `billing_target` (Decimal, nullable) - Max billable minutes (billing cap)
+- `is_retainer_work` (Boolean, default false) - Whether task counts against retainer
+
+**Changes Made:**
+- Updated Prisma schema with new fields
+- Updated Task create/update APIs (PM/Admin only for billing fields)
+- Updated `/api/tasks/[id]/billing` endpoint with all billing fields
+- Updated formatters and Task type interface
+- Updated `/api/billing/unbilled` to filter by is_billable and include new fields
+- Added Cap column and Retainer toggle to billing dashboard table
+- Added Billing section to task form with checkboxes and billing cap input
 
 ---
 

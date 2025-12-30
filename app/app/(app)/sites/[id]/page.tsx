@@ -2,13 +2,14 @@
 
 import { use } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Globe } from 'lucide-react';
-import { useSite } from '@/lib/hooks/use-sites';
+import { ArrowLeft, Globe, Wrench } from 'lucide-react';
+import { useSite, useUpdateSite } from '@/lib/hooks/use-sites';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/ui/empty-state';
+import { InlineUserSelect } from '@/components/ui/user-select';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -18,6 +19,13 @@ export default function SiteDetailPage({ params }: Props) {
   const { id } = use(params);
   const { t } = useTerminology();
   const { data: site, isLoading, error } = useSite(id);
+  const updateSite = useUpdateSite();
+
+  const handleAssigneeChange = (assigneeId: string | null) => {
+    if (site) {
+      updateSite.mutate({ id: site.id, data: { maintenance_assignee_id: assigneeId } });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -107,6 +115,53 @@ export default function SiteDetailPage({ params }: Props) {
             ) : (
               <span className="text-text-sub">No domains</span>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Wrench className="h-5 w-5" />
+              Maintenance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="text-sm font-medium text-text-sub">Plan</label>
+                <p className="text-text-main">
+                  {site.maintenance_plan?.name || (
+                    <span className="text-text-sub">No plan assigned</span>
+                  )}
+                </p>
+                {site.maintenance_plan?.frequency && (
+                  <p className="text-xs text-text-sub capitalize">
+                    {site.maintenance_plan.frequency.replace('_', '-')}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-medium text-text-sub">Rate</label>
+                <p className="text-text-main">
+                  {site.maintenance_plan?.rate ? (
+                    `$${site.maintenance_plan.rate.toFixed(2)}`
+                  ) : (
+                    <span className="text-text-sub">-</span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-text-sub">Maintainer</label>
+                <div className="mt-1">
+                  <InlineUserSelect
+                    value={site.maintenance_assignee_id}
+                    onChange={handleAssigneeChange}
+                    displayValue={site.maintenance_assignee?.name}
+                    placeholder="Assign maintainer"
+                  />
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

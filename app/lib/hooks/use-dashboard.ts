@@ -1,5 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
+import * as React from 'react';
+
+// Paginated list structure
+export interface PaginatedList<T> {
+  items: T[];
+  total: number;
+  hasMore: boolean;
+}
 
 // Base data that all roles have
 export interface DashboardBaseData {
@@ -58,7 +66,7 @@ export interface DashboardProject {
 
 // Tech user dashboard data
 export interface TechDashboardData extends DashboardBaseData {
-  myTasks: DashboardTask[];
+  myTasks: PaginatedList<DashboardTask>;
   upcomingTasks: DashboardTask[];
   blockedTasks: DashboardTask[];
   inProgressTasks: DashboardTask[];
@@ -68,10 +76,10 @@ export interface TechDashboardData extends DashboardBaseData {
 
 // PM user dashboard data
 export interface PmDashboardData extends DashboardBaseData {
-  focusTasks: DashboardTask[];
-  awaitingReview: DashboardTask[];
-  unassignedTasks: DashboardTask[];
-  myTasks: DashboardTask[]; // Tasks assigned to current user
+  focusTasks: PaginatedList<DashboardTask>;
+  awaitingReview: PaginatedList<DashboardTask>;
+  unassignedTasks: PaginatedList<DashboardTask>;
+  myTasks: PaginatedList<DashboardTask>;
   myProjects: DashboardProject[];
   retainerAlerts: {
     client_id: string;
@@ -106,6 +114,9 @@ export interface AdminDashboardData extends PmDashboardData {
   };
 }
 
+// List types for load more
+export type DashboardListType = 'myTasks' | 'focusTasks' | 'awaitingReview' | 'unassignedTasks';
+
 export type DashboardData = TechDashboardData | PmDashboardData | AdminDashboardData;
 
 export function useDashboard() {
@@ -127,4 +138,117 @@ export function isPmDashboard(data: DashboardData): data is PmDashboardData {
 
 export function isAdminDashboard(data: DashboardData): data is AdminDashboardData {
   return data.role === 'admin';
+}
+
+// Hook for loading more items in a dashboard list
+export function useLoadMoreDashboard() {
+  const queryClient = useQueryClient();
+  const [loadingLists, setLoadingLists] = React.useState<Set<DashboardListType>>(new Set());
+
+  const loadMore = React.useCallback(async (listType: DashboardListType, currentCount: number) => {
+    setLoadingLists(prev => new Set(prev).add(listType));
+
+    try {
+      const result = await apiClient.get<PaginatedList<DashboardTask>>(
+        `/dashboard/load-more?list=${listType}&skip=${currentCount}`
+      );
+
+      // Update the dashboard cache with the new items
+      queryClient.setQueryData<DashboardData>(['dashboard'], (oldData) => {
+        if (!oldData) return oldData;
+
+        const listKey = listType as keyof DashboardData;
+        const existingList = oldData[listKey] as PaginatedList<DashboardTask> | undefined;
+
+        if (!existingList || !('items' in existingList)) {
+          return oldData;
+        }
+
+        return {
+          ...oldData,
+          [listType]: {
+            items: [...existingList.items, ...result.items],
+            total: result.total,
+            hasMore: result.hasMore,
+          },
+        };
+      });
+
+      return result;
+    } finally {
+      setLoadingLists(prev => {
+        const next = new Set(prev);
+        next.delete(listType);
+        return next;
+      });
+    }
+  }, [queryClient]);
+
+  const isLoading = React.useCallback((listType: DashboardListType) => {
+    return loadingLists.has(listType);
+  }, [loadingLists]);
+
+  return { loadMore, isLoading };
+}
+
+// Timeclock issues types
+export interface TimeclockIssueTask {
+  id: string;
+  title: string;
+  completed_at: string | null;
+  project: { id: string; name: string; client: { id: string; name: string } | null } | null;
+  client: { id: string; name: string } | null;
+}
+
+export interface TimeclockIssueTimer {
+  id: string;
+  started_at: string;
+  description: string | null;
+  task: { id: string; title: string } | null;
+  project: { id: string; name: string } | null;
+}
+
+export interface TimeclockIssuesData {
+  completedTasksNoTime: TimeclockIssueTask[];
+  runningTimers: TimeclockIssueTimer[];
+  hasIssues: boolean;
+}
+
+export function useTimeclockIssues() {
+  return useQuery({
+    queryKey: ['dashboard', 'timeclock-issues'],
+    queryFn: () => apiClient.get<TimeclockIssuesData>('/dashboard/timeclock-issues'),
+    refetchInterval: 60000, // Refresh every minute
+  });
+}
+
+export function useMarkNoTimeNeeded() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      return apiClient.patch(`/tasks/${taskId}`, { no_time_needed: true });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'timeclock-issues'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+}
+
+export function useStopRunningTimer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ entryId, endTime }: { entryId: string; endTime?: Date }) => {
+      return apiClient.patch(`/time-entries/${entryId}/stop`, {
+        ended_at: endTime?.toISOString(),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'timeclock-issues'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['time-entries'] });
+    },
+  });
 }

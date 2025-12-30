@@ -53,6 +53,7 @@ export const referenceDataKeys = {
   maintenancePlans: ['maintenance-plans'] as const,
   functions: ['functions'] as const,
   tools: ['tools'] as const,
+  users: ['users'] as const,
 };
 
 // Project filters and keys
@@ -100,4 +101,17 @@ export const taskKeys = {
   detail: (id: string) => [...taskKeys.details(), id] as const,
   byProject: (projectId: string) => [...taskKeys.all, 'byProject', projectId] as const,
   byAssignee: (assigneeId: string) => [...taskKeys.all, 'byAssignee', assigneeId] as const,
+};
+
+// Billing keys
+export const billingKeys = {
+  all: ['billing'] as const,
+  unbilled: () => [...billingKeys.all, 'unbilled'] as const,
+};
+
+// Integration keys
+export const integrationKeys = {
+  all: ['integrations'] as const,
+  lists: () => [...integrationKeys.all, 'list'] as const,
+  provider: (provider: string) => [...integrationKeys.all, 'provider', provider] as const,
 };

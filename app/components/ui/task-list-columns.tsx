@@ -568,13 +568,14 @@ export function clientProjectSiteColumn(): TaskListColumn {
 
 /**
  * Ranged estimate column - shows min-max range based on energy + mystery
+ * with a progress bar showing time committed
  */
 export function rangedEstimateColumn(): TaskListColumn {
   return {
     key: 'ranged_estimate',
     header: 'Estimate',
-    width: '100px',
-    cell: (task) => {
+    width: '120px',
+    cell: (task: any) => {
       if (!task.energy_estimate) {
         return <span className="text-sm text-text-sub">-</span>;
       }
@@ -585,6 +586,15 @@ export function rangedEstimateColumn(): TaskListColumn {
       const multiplier = getMysteryMultiplier(mysteryFactor);
       const maxMinutes = Math.round(baseMinutes * multiplier);
 
+      // Get time spent (supports both naming conventions)
+      const timeSpent = task.time_spent_minutes ?? task.time_logged_minutes ?? 0;
+
+      // Calculate percentage (based on max estimate for safety)
+      const percentUsed = maxMinutes > 0 ? Math.round((timeSpent / maxMinutes) * 100) : 0;
+
+      // Determine bar color based on percentage
+      const barColor = percentUsed > 100 ? 'bg-red-500' : percentUsed > 80 ? 'bg-amber-500' : 'bg-primary';
+
       // Format the range
       let rangeText: string;
       if (baseMinutes === maxMinutes || mysteryFactor === 'none') {
@@ -593,9 +603,19 @@ export function rangedEstimateColumn(): TaskListColumn {
         rangeText = `${formatDuration(baseMinutes)} - ${formatDuration(maxMinutes)}`;
       }
 
+      const tooltipContent = `Energy: ${task.energy_estimate}, Mystery: ${getMysteryFactorLabel(mysteryFactor)}${timeSpent > 0 ? `, Logged: ${formatDuration(timeSpent)}` : ''}`;
+
       return (
-        <Tooltip content={`Energy: ${task.energy_estimate}, Mystery: ${getMysteryFactorLabel(mysteryFactor)}`}>
-          <span className="text-sm text-text-sub">{rangeText}</span>
+        <Tooltip content={tooltipContent}>
+          <div className="w-full">
+            <span className="text-sm text-text-sub">{rangeText}</span>
+            <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden mt-1">
+              <div
+                className={`h-full rounded-full transition-all ${barColor}`}
+                style={{ width: `${Math.min(percentUsed, 100)}%` }}
+              />
+            </div>
+          </div>
         </Tooltip>
       );
     },

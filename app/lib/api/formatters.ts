@@ -45,6 +45,15 @@ export function formatSiteResponse(site: any) {
           id: site.maintenance_plan.id,
           name: site.maintenance_plan.name,
           rate: Number(site.maintenance_plan.rate),
+          frequency: site.maintenance_plan.frequency,
+        }
+      : null,
+    maintenance_assignee_id: site.maintenance_assignee_id,
+    maintenance_assignee: site.maintenance_assignee
+      ? {
+          id: site.maintenance_assignee.id,
+          name: site.maintenance_assignee.name,
+          email: site.maintenance_assignee.email,
         }
       : null,
     notes: site.notes,
@@ -83,6 +92,7 @@ export function formatDomainResponse(domain: any) {
 export function formatProjectResponse(project: any) {
   // Import lazily to avoid circular dependencies
   const { calculateProjectEstimates } = require('@/lib/calculations/energy');
+  const { calculateHealthFromTasks } = require('@/lib/calculations/project-health');
 
   // Calculate estimates from tasks
   const tasks = project.tasks || [];
@@ -95,6 +105,19 @@ export function formatProjectResponse(project: any) {
     })),
     0 // TODO: sum time entries when available
   );
+
+  // Calculate health from tasks (only for active projects)
+  const activeStatuses = ['ready', 'in_progress', 'review'];
+  const health = activeStatuses.includes(project.status)
+    ? calculateHealthFromTasks(
+        tasks.map((t: any) => ({
+          status: t.status,
+          due_date: t.due_date,
+          estimated_minutes: t.estimated_minutes,
+          time_entries: t.time_entries,
+        }))
+      )
+    : null;
 
   // Use _count if available
   const tasksCount = project._count?.tasks ?? tasks.length;
@@ -149,6 +172,7 @@ export function formatProjectResponse(project: any) {
     tasks: project.tasks?.map(formatTaskResponse),
     team_assignments: project.team_assignments?.map(formatTeamAssignmentResponse),
     milestones: project.milestones?.map(formatMilestoneResponse),
+    health,
     is_deleted: project.is_deleted,
     created_at: project.created_at,
     updated_at: project.updated_at,
@@ -177,10 +201,17 @@ export function formatMilestoneResponse(milestone: any) {
     id: milestone.id,
     name: milestone.name,
     project_id: milestone.project_id,
+    phase_id: milestone.phase_id,
     target_date: milestone.target_date,
     completed_at: milestone.completed_at,
     notes: milestone.notes,
     sort_order: milestone.sort_order,
+    billing_amount: milestone.billing_amount ? Number(milestone.billing_amount) : null,
+    billing_status: milestone.billing_status,
+    triggered_at: milestone.triggered_at,
+    triggered_by_id: milestone.triggered_by_id,
+    invoiced_at: milestone.invoiced_at,
+    invoiced_by_id: milestone.invoiced_by_id,
     created_at: milestone.created_at,
     updated_at: milestone.updated_at,
   };
@@ -211,6 +242,16 @@ export function formatTaskResponse(task: any) {
     priority: task.priority,
     is_focus: task.is_focus ?? false,
     project_id: task.project_id,
+    client_id: task.client_id,
+    client: task.client
+      ? { id: task.client.id, name: task.client.name }
+      : null,
+    site_id: task.site_id,
+    site: task.site
+      ? { id: task.site.id, name: task.site.name, url: task.site.url }
+      : null,
+    is_maintenance_task: task.is_maintenance_task ?? false,
+    maintenance_period: task.maintenance_period,
     time_spent_minutes: timeSpentMinutes,
     project: task.project
       ? {
@@ -281,6 +322,13 @@ export function formatTaskResponse(task: any) {
       title: t.title,
       status: t.status,
     })),
+    // Billing
+    is_billable: task.is_billable ?? true,
+    billing_target: task.billing_target ? Number(task.billing_target) : null,
+    is_retainer_work: task.is_retainer_work ?? false,
+    invoiced: task.invoiced ?? false,
+    invoiced_at: task.invoiced_at,
+    invoiced_by_id: task.invoiced_by_id,
     is_deleted: task.is_deleted,
     created_at: task.created_at,
     updated_at: task.updated_at,

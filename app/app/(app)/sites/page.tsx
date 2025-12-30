@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Globe } from 'lucide-react';
-import { useSites } from '@/lib/hooks/use-sites';
+import { useSites, useUpdateSite } from '@/lib/hooks/use-sites';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,12 +11,15 @@ import { DataTable, Column } from '@/components/ui/data-table';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
+import { InlineUserSelect } from '@/components/ui/user-select';
 
 interface Site {
   id: string;
   name: string;
   url: string | null;
   client?: { id: string; name: string } | null;
+  maintenance_assignee_id: string | null;
+  maintenance_assignee?: { id: string; name: string; email: string } | null;
 }
 
 export default function SitesPage() {
@@ -26,6 +29,11 @@ export default function SitesPage() {
   const [page, setPage] = React.useState(1);
 
   const { data, isLoading, error } = useSites({ page, search: search || undefined });
+  const updateSite = useUpdateSite();
+
+  const handleAssigneeChange = (siteId: string, assigneeId: string | null) => {
+    updateSite.mutate({ id: siteId, data: { maintenance_assignee_id: assigneeId } });
+  };
 
   const columns: Column<Site>[] = [
     {
@@ -47,6 +55,20 @@ export default function SitesPage() {
       header: t('client'),
       cell: (site) => (
         <span className="text-sm text-text-sub">{site.client?.name || '-'}</span>
+      ),
+    },
+    {
+      key: 'maintenance_assignee',
+      header: 'Maintainer',
+      cell: (site) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <InlineUserSelect
+            value={site.maintenance_assignee_id}
+            onChange={(value) => handleAssigneeChange(site.id, value)}
+            displayValue={site.maintenance_assignee?.name}
+            placeholder="Unassigned"
+          />
+        </div>
       ),
     },
   ];
@@ -99,7 +121,7 @@ export default function SitesPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <SkeletonTable rows={5} columns={2} />
+            <SkeletonTable rows={5} columns={3} />
           ) : data?.sites?.length === 0 ? (
             <EmptyState
               icon={<Globe className="h-12 w-12" />}

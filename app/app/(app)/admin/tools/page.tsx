@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Plus, Pencil, Trash2, ExternalLink } from 'lucide-react';
+import { Plus, Pencil, Trash2, ExternalLink, Copy, Check } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   useTools,
   useCreateTool,
@@ -12,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import {
@@ -24,13 +24,25 @@ import {
   ModalFooter,
 } from '@/components/ui/modal';
 import type { Tool, CreateToolInput } from '@/types/entities';
+import { isValidUrl, getHostname } from '@/lib/utils/url';
 
 export default function ToolsAdminPage() {
   const [includeInactive, setIncludeInactive] = React.useState(true);
-  const [categoryFilter, setCategoryFilter] = React.useState('');
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [editingItem, setEditingItem] = React.useState<Tool | null>(null);
   const [deleteConfirm, setDeleteConfirm] = React.useState<string | null>(null);
+  const [copiedId, setCopiedId] = React.useState<string | null>(null);
+
+  const handleCopyLicense = async (id: string, licenseKey: string) => {
+    try {
+      await navigator.clipboard.writeText(licenseKey);
+      setCopiedId(id);
+      toast.success('License key copied to clipboard');
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      toast.error('Failed to copy license key');
+    }
+  };
 
   const { data, isLoading, error } = useTools(includeInactive);
   const createMutation = useCreateTool();
@@ -42,18 +54,11 @@ export default function ToolsAdminPage() {
     category: '',
     url: '',
     description: '',
+    license_key: '',
     is_active: true,
   });
 
-  const filteredTools = React.useMemo(() => {
-    if (!data?.tools) return [];
-    if (!categoryFilter) return data.tools;
-    return data.tools.filter((t) => t.category === categoryFilter);
-  }, [data?.tools, categoryFilter]);
-
-  const categoryOptions = React.useMemo(() => {
-    return (data?.categories || []).map((c) => ({ value: c, label: c }));
-  }, [data?.categories]);
+  const tools = data?.tools || [];
 
   const openCreateModal = () => {
     setEditingItem(null);
@@ -62,6 +67,7 @@ export default function ToolsAdminPage() {
       category: '',
       url: '',
       description: '',
+      license_key: '',
       is_active: true,
     });
     setIsModalOpen(true);
@@ -74,6 +80,7 @@ export default function ToolsAdminPage() {
       category: item.category || '',
       url: item.url || '',
       description: item.description || '',
+      license_key: item.license_key || '',
       is_active: item.is_active,
     });
     setIsModalOpen(true);
@@ -136,24 +143,15 @@ export default function ToolsAdminPage() {
       {/* Filters */}
       <Card>
         <CardContent className="py-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <Select
-              options={categoryOptions}
-              value={categoryFilter}
-              onChange={setCategoryFilter}
-              placeholder="All categories"
-              className="md:w-48"
+          <label className="flex items-center gap-2 text-sm text-text-main cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(e) => setIncludeInactive(e.target.checked)}
+              className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary"
             />
-            <label className="flex items-center gap-2 text-sm text-text-main cursor-pointer">
-              <input
-                type="checkbox"
-                checked={includeInactive}
-                onChange={(e) => setIncludeInactive(e.target.checked)}
-                className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary"
-              />
-              Show inactive tools
-            </label>
-          </div>
+            Show inactive tools
+          </label>
         </CardContent>
       </Card>
 
@@ -162,22 +160,16 @@ export default function ToolsAdminPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <SkeletonTable rows={5} columns={5} />
-          ) : filteredTools.length === 0 ? (
+          ) : tools.length === 0 ? (
             <EmptyState
               icon={<span className="text-4xl">🔨</span>}
               title="No tools found"
-              description={
-                categoryFilter
-                  ? 'No tools in this category'
-                  : 'Get started by adding your first tool'
-              }
+              description="Get started by adding your first tool"
               action={
-                !categoryFilter && (
-                  <Button onClick={openCreateModal}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Tool
-                  </Button>
-                )
+                <Button onClick={openCreateModal}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Tool
+                </Button>
               }
             />
           ) : (
@@ -188,7 +180,7 @@ export default function ToolsAdminPage() {
                     Name
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-text-sub uppercase tracking-wider">
-                    Category
+                    License
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-text-sub uppercase tracking-wider">
                     URL
@@ -202,7 +194,7 @@ export default function ToolsAdminPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-warm">
-                {filteredTools.map((tool) => (
+                {tools.map((tool) => (
                   <tr key={tool.id} className="hover:bg-background-light/50">
                     <td className="px-4 py-3">
                       <div>
@@ -215,24 +207,39 @@ export default function ToolsAdminPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {tool.category ? (
-                        <Badge variant="info">{tool.category}</Badge>
+                      {tool.license_key ? (
+                        <button
+                          onClick={() => handleCopyLicense(tool.id, tool.license_key!)}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono text-text-main bg-surface hover:bg-surface-alt border border-border-warm transition-colors group"
+                          title="Click to copy license key"
+                        >
+                          <span className="truncate max-w-[120px]">
+                            {tool.license_key.slice(0, 12)}...
+                          </span>
+                          {copiedId === tool.id ? (
+                            <Check className="h-3.5 w-3.5 text-success" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5 text-text-sub group-hover:text-primary" />
+                          )}
+                        </button>
                       ) : (
                         <span className="text-sm text-text-sub">-</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {tool.url ? (
+                      {isValidUrl(tool.url) ? (
                         <a
-                          href={tool.url}
+                          href={tool.url!}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {new URL(tool.url).hostname}
+                          {getHostname(tool.url)}
                           <ExternalLink className="h-3 w-3" />
                         </a>
+                      ) : tool.url ? (
+                        <span className="text-sm text-text-sub">{tool.url}</span>
                       ) : (
                         <span className="text-sm text-text-sub">-</span>
                       )}
@@ -303,6 +310,15 @@ export default function ToolsAdminPage() {
                     value={formData.url || ''}
                     onChange={(e) => setFormData({ ...formData, url: e.target.value })}
                     placeholder="https://example.com"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-text-main mb-1">License Key</label>
+                  <Input
+                    value={formData.license_key || ''}
+                    onChange={(e) => setFormData({ ...formData, license_key: e.target.value })}
+                    placeholder="Enter license key or serial number"
+                    className="font-mono"
                   />
                 </div>
                 <div className="col-span-2">

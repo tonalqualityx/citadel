@@ -1,9 +1,10 @@
 /**
  * Email Service
  *
- * For MVP: Logs emails to console instead of sending them.
- * TODO: Integrate with a real email provider (Resend, SendGrid, etc.)
+ * Uses SendGrid when configured, falls back to console logging otherwise.
  */
+
+import { prisma } from '@/lib/db/prisma';
 
 interface SendEmailOptions {
   to: string;
@@ -12,22 +13,88 @@ interface SendEmailOptions {
   html?: string;
 }
 
-/**
- * Send an email (or log it in development/MVP)
- */
-export async function sendEmail(options: SendEmailOptions): Promise<void> {
-  // TODO: Replace with real email sending when integrating email provider
-  // Example with Resend:
-  // const resend = new Resend(process.env.RESEND_API_KEY);
-  // await resend.emails.send({
-  //   from: 'noreply@indelible.app',
-  //   to: options.to,
-  //   subject: options.subject,
-  //   text: options.text,
-  //   html: options.html,
-  // });
+interface SendGridConfig {
+  apiKey: string;
+  fromEmail: string;
+}
 
-  // For MVP: Log to console
+/**
+ * Get SendGrid configuration from database
+ */
+async function getSendGridConfig(): Promise<SendGridConfig | null> {
+  try {
+    const integration = await prisma.integration.findUnique({
+      where: { provider: 'sendgrid' },
+    });
+
+    if (!integration || !integration.is_active) {
+      return null;
+    }
+
+    const config = integration.config as { apiKey?: string; fromEmail?: string };
+    if (!config.apiKey || !config.fromEmail) {
+      return null;
+    }
+
+    return {
+      apiKey: config.apiKey,
+      fromEmail: config.fromEmail,
+    };
+  } catch (error) {
+    console.error('Failed to get SendGrid config:', error);
+    return null;
+  }
+}
+
+/**
+ * Send email via SendGrid API
+ */
+async function sendViaSendGrid(
+  config: SendGridConfig,
+  options: SendEmailOptions
+): Promise<boolean> {
+  try {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [
+          {
+            to: [{ email: options.to }],
+            subject: options.subject,
+          },
+        ],
+        from: {
+          email: config.fromEmail,
+          name: 'Indelible',
+        },
+        content: [
+          { type: 'text/plain', value: options.text },
+          ...(options.html ? [{ type: 'text/html', value: options.html }] : []),
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('SendGrid API error:', response.status, errorText);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('SendGrid request failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Log email to console (fallback when SendGrid not configured)
+ */
+function logToConsole(options: SendEmailOptions): void {
   console.log('========================================');
   console.log('EMAIL SERVICE - Message (Console Only)');
   console.log('========================================');
@@ -36,6 +103,27 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   console.log('----------------------------------------');
   console.log(options.text);
   console.log('========================================');
+}
+
+/**
+ * Send an email
+ * Uses SendGrid if configured, otherwise logs to console
+ */
+export async function sendEmail(options: SendEmailOptions): Promise<void> {
+  const config = await getSendGridConfig();
+
+  if (config) {
+    const sent = await sendViaSendGrid(config, options);
+    if (sent) {
+      console.log(`Email sent via SendGrid to ${options.to}`);
+      return;
+    }
+    // Fall through to console logging if SendGrid fails
+    console.warn('SendGrid failed, falling back to console logging');
+  }
+
+  // Fallback: log to console
+  logToConsole(options);
 }
 
 /**

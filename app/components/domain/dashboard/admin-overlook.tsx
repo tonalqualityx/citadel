@@ -15,14 +15,14 @@ import {
   Activity,
   ListTodo,
 } from 'lucide-react';
-import { AdminDashboardData, DashboardTask } from '@/lib/hooks/use-dashboard';
+import { AdminDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { DashboardSection } from './dashboard-section';
 import { StatCard } from './stat-card';
-import { TaskQuickList } from './task-quick-list';
 import { ProjectQuickList } from './project-quick-list';
 import { RetainerAlert } from './retainer-alert';
+import { TimeclockIssues } from './timeclock-issues';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatDuration } from '@/lib/calculations/energy';
@@ -39,6 +39,7 @@ import {
   clientProjectSiteColumn,
   rangedEstimateColumn,
   approveColumn,
+  dueDateColumn,
 } from '@/components/ui/task-list-columns';
 
 interface AdminOverlookProps {
@@ -50,6 +51,7 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
+  const { loadMore, isLoading } = useLoadMoreDashboard();
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -57,11 +59,6 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
 
   const handleTaskClick = (task: DashboardTask) => {
     setPeekTaskId(task.id);
-    setIsPeekOpen(true);
-  };
-
-  const handleTaskIdClick = (taskId: string) => {
-    setPeekTaskId(taskId);
     setIsPeekOpen(true);
   };
 
@@ -101,6 +98,16 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
     statusColumn({ editable: true }),
     titleColumn({ editable: true }),
     clientProjectSiteColumn(),
+    dueDateColumn(),
+    rangedEstimateColumn(),
+    actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
+  ];
+
+  const unassignedColumns: TaskListColumn<DashboardTask>[] = [
+    titleColumn({ editable: true }),
+    assigneeColumn({ editable: true }),
+    clientProjectSiteColumn(),
+    dueDateColumn({ editable: true }),
     rangedEstimateColumn(),
     actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
   ];
@@ -166,13 +173,6 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
         />
       </div>
 
-      {/* Retainer Alerts */}
-      {data.retainerAlerts.length > 0 && (
-        <DashboardSection title="Retainer Alerts" icon={AlertTriangle}>
-          <RetainerAlert alerts={data.retainerAlerts} />
-        </DashboardSection>
-      )}
-
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Tasks */}
@@ -184,12 +184,15 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
             action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
             <TaskList<DashboardTask>
-              tasks={data.focusTasks}
+              tasks={data.focusTasks.items}
               columns={focusColumns}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
               emptyMessage="No focus tasks - check a task to add it to your focus list"
+              hasMore={data.focusTasks.hasMore}
+              isLoading={isLoading('focusTasks')}
+              onLoadMore={() => loadMore('focusTasks', data.focusTasks.items.length)}
             />
           </DashboardSection>
 
@@ -200,27 +203,38 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
             action={{ label: 'View All', href: '/tasks?pending_review=true' }}
           >
             <TaskList<DashboardTask>
-              tasks={data.awaitingReview}
+              tasks={data.awaitingReview.items}
               columns={reviewColumns}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
               emptyMessage="No tasks awaiting review"
+              hasMore={data.awaitingReview.hasMore}
+              isLoading={isLoading('awaitingReview')}
+              onLoadMore={() => loadMore('awaitingReview', data.awaitingReview.items.length)}
             />
           </DashboardSection>
 
-          {/* Unassigned Tasks */}
-          <DashboardSection
-            title="Unassigned Quests"
-            icon={UserX}
-            action={{ label: 'View All', href: '/tasks?assignee=unassigned' }}
-          >
-            <TaskQuickList
-              tasks={data.unassignedTasks}
-              emptyMessage="All quests are assigned"
-              onTaskClick={handleTaskIdClick}
-            />
-          </DashboardSection>
+          {/* Unassigned Tasks - only show if there are unassigned tasks */}
+          {data.unassignedTasks.items.length > 0 && (
+            <DashboardSection
+              title="Unassigned Quests"
+              icon={UserX}
+              action={{ label: 'View All', href: '/tasks?assignee=unassigned' }}
+            >
+              <TaskList<DashboardTask>
+                tasks={data.unassignedTasks.items}
+                columns={unassignedColumns}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                showHeaders={false}
+                emptyMessage="All quests are assigned"
+                hasMore={data.unassignedTasks.hasMore}
+                isLoading={isLoading('unassignedTasks')}
+                onLoadMore={() => loadMore('unassignedTasks', data.unassignedTasks.items.length)}
+              />
+            </DashboardSection>
+          )}
 
           {/* My Tasks */}
           <DashboardSection
@@ -229,12 +243,15 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
             action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
             <TaskList<DashboardTask>
-              tasks={data.myTasks}
+              tasks={data.myTasks.items}
               columns={myTasksColumns}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
               emptyMessage="No tasks assigned to you"
+              hasMore={data.myTasks.hasMore}
+              isLoading={isLoading('myTasks')}
+              onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
             />
           </DashboardSection>
 
@@ -254,6 +271,16 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
 
         {/* Right Column - Team & Activity */}
         <div className="space-y-6">
+          {/* Timeclock Issues */}
+          <TimeclockIssues />
+
+          {/* Retainer Alerts */}
+          {data.retainerAlerts.length > 0 && (
+            <DashboardSection title="Retainer Alerts" icon={AlertTriangle}>
+              <RetainerAlert alerts={data.retainerAlerts} />
+            </DashboardSection>
+          )}
+
           {/* Team Utilization */}
           <DashboardSection title="Team Utilization (This Week)" icon={Users}>
             {data.teamUtilization.length > 0 ? (

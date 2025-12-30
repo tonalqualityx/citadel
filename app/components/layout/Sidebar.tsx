@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { ChevronRight, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useAuth } from '@/lib/hooks/use-auth';
 
 interface NavItem {
   name: string;
@@ -88,6 +89,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { t, isAwesome } = useTerminology();
+  const { isPmOrAdmin } = useAuth();
 
   // Dynamic navigation based on terminology preference
   const mainNav: NavItem[] = [
@@ -131,11 +133,14 @@ export function Sidebar() {
     title: 'Admin',
     emoji: '🔐',
     items: [
+      { name: 'Billing', href: '/billing', emoji: '💰' },
       { name: 'Team', href: '/admin/team', emoji: '👥' },
       { name: 'Functions', href: '/admin/functions', emoji: '💼' },
       { name: 'Hosting Plans', href: '/admin/hosting-plans', emoji: '🏠' },
       { name: 'Maintenance', href: '/admin/maintenance-plans', emoji: '🔧' },
       { name: 'Tools', href: '/admin/tools', emoji: '🔨' },
+      { name: 'Integrations', href: '/admin/integrations', emoji: '🔌' },
+      { name: 'Database', href: '/admin/database', emoji: '💾' },
       { name: 'Reports', href: '/settings/reports', emoji: '📊' },
     ],
   };
@@ -149,8 +154,8 @@ export function Sidebar() {
   return (
     <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-[240px] lg:flex-col">
       <div className="flex flex-col flex-grow bg-background-light border-r border-border-warm overflow-hidden">
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-border-warm">
+        {/* Logo - h-14 matches main Header height */}
+        <div className="flex h-14 shrink-0 items-center gap-3 px-4 border-b border-border-warm">
           <Image
             src="/logo.png"
             alt="Indelible"
@@ -189,8 +194,10 @@ export function Sidebar() {
             />
           </nav>
 
-          {/* Admin section */}
-          <CollapsibleSection section={adminSection} pathname={pathname} />
+          {/* Admin section - PM/Admin only */}
+          {isPmOrAdmin && (
+            <CollapsibleSection section={adminSection} pathname={pathname} />
+          )}
         </div>
 
         {/* User section */}

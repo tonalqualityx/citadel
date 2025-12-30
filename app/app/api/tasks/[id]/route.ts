@@ -15,6 +15,7 @@ const updateTaskSchema = z.object({
   priority: z.number().min(1).max(5).optional(),
   is_focus: z.boolean().optional(), // User focus flag
   project_id: z.string().uuid().optional().nullable(),
+  client_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(),
   sort_order: z.number().optional(),
   assignee_id: z.string().uuid().optional().nullable(),
@@ -46,6 +47,12 @@ const updateTaskSchema = z.object({
   needs_review: z.boolean().optional(),
   reviewer_id: z.string().uuid().optional().nullable(),
   approved: z.boolean().optional(),
+  // Billing fields (PM/Admin only)
+  is_billable: z.boolean().optional(),
+  billing_target: z.number().min(1).optional().nullable(),
+  is_retainer_work: z.boolean().optional(),
+  // Time tracking
+  no_time_needed: z.boolean().optional(),
 });
 
 const updateStatusSchema = z.object({
@@ -121,6 +128,7 @@ export async function GET(
             site: { select: { id: true, name: true } },
           },
         },
+        client: { select: { id: true, name: true } },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
         reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
         approved_by: { select: { id: true, name: true } },
@@ -213,6 +221,7 @@ export async function PATCH(
               client: { select: { id: true, name: true } },
             },
           },
+          client: { select: { id: true, name: true } },
           assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
           reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
           approved_by: { select: { id: true, name: true } },
@@ -253,6 +262,7 @@ export async function PATCH(
         'mystery_factor',
         'battery_impact',
         'due_date',
+        'no_time_needed',
       ];
       const attemptedFields = Object.keys(body);
       const disallowedFields = attemptedFields.filter(
@@ -276,6 +286,27 @@ export async function PATCH(
       estimatedMinutes = energy ? calculateEstimatedMinutes(energy, mystery) : null;
     }
 
+    // Determine client_id update
+    // If client_id is explicitly provided, use that
+    // If project_id is being changed and client_id not provided, auto-update from new project
+    let clientIdUpdate: string | null | undefined = undefined;
+    if (data.client_id !== undefined) {
+      // Explicit client_id provided
+      clientIdUpdate = data.client_id;
+    } else if (data.project_id !== undefined && data.project_id !== existingTask.project_id) {
+      // project_id is being changed, auto-populate client_id from new project
+      if (data.project_id) {
+        const newProject = await prisma.project.findUnique({
+          where: { id: data.project_id, is_deleted: false },
+          select: { client_id: true },
+        });
+        clientIdUpdate = newProject?.client_id ?? null;
+      } else {
+        // project_id is being cleared, keep existing client_id (for ad-hoc tasks)
+        // Don't update client_id automatically when removing from project
+      }
+    }
+
     // Build update data explicitly to avoid Prisma type conflicts
     const updateData: Record<string, any> = {
       estimated_minutes: estimatedMinutes,
@@ -289,6 +320,7 @@ export async function PATCH(
     if (data.priority !== undefined) updateData.priority = data.priority;
     if (data.is_focus !== undefined) updateData.is_focus = data.is_focus;
     if (data.project_id !== undefined) updateData.project_id = data.project_id;
+    if (clientIdUpdate !== undefined) updateData.client_id = clientIdUpdate;
     if (data.phase !== undefined) updateData.phase = data.phase;
     if (data.sort_order !== undefined) updateData.sort_order = data.sort_order;
     if (data.assignee_id !== undefined) updateData.assignee_id = data.assignee_id;
@@ -337,6 +369,16 @@ export async function PATCH(
       }
     }
 
+    // Billing fields - PM/Admin only (not in allowedTechFields)
+    if (auth.role !== 'tech') {
+      if (data.is_billable !== undefined) updateData.is_billable = data.is_billable;
+      if (data.billing_target !== undefined) updateData.billing_target = data.billing_target;
+      if (data.is_retainer_work !== undefined) updateData.is_retainer_work = data.is_retainer_work;
+    }
+
+    // Time tracking fields
+    if (data.no_time_needed !== undefined) updateData.no_time_needed = data.no_time_needed;
+
     const task = await prisma.task.update({
       where: { id },
       data: updateData,
@@ -349,6 +391,7 @@ export async function PATCH(
             client: { select: { id: true, name: true } },
           },
         },
+        client: { select: { id: true, name: true } },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
         reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
         approved_by: { select: { id: true, name: true } },

@@ -15,6 +15,18 @@ export interface ProjectCalculated {
   progress_percent: number;
 }
 
+export interface ProjectHealth {
+  overallScore: number;
+  status: 'healthy' | 'at-risk' | 'critical';
+  alerts: string[];
+  indicators: {
+    tasksOnTrack: number;
+    estimateAccuracy: number;
+    velocityTrend: number;
+    blockageLevel: number;
+  };
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -38,6 +50,8 @@ export interface Project {
   is_retainer: boolean;
   // Calculated from tasks
   calculated: ProjectCalculated;
+  // Health (only for active projects)
+  health: ProjectHealth | null;
   // Legacy fields
   estimated_hours: number | null;
   completed_hours: number | null;
