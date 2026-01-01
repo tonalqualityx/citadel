@@ -21,8 +21,8 @@ export const TABLE_GROUPS = {
   },
   reference: {
     name: 'Reference Data',
-    description: 'Functions, hosting plans, tools, integrations',
-    tables: ['functions', 'hosting_plans', 'maintenance_plans', 'maintenance_plan_sops', 'tools', 'integrations'],
+    description: 'Functions, hosting plans, tools, integrations, DNS providers',
+    tables: ['functions', 'hosting_plans', 'maintenance_plans', 'maintenance_plan_sops', 'tools', 'integrations', 'dns_providers'],
   },
   clients: {
     name: 'Clients & Sites',
@@ -64,6 +64,7 @@ const TABLE_ORDER = [
   'maintenance_plans',
   'tools',
   'integrations',
+  'dns_providers',
   // Clients (self-ref)
   'clients',
   // Sites (→ clients, hosting_plans, maintenance_plans)

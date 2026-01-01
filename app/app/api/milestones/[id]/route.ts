@@ -44,12 +44,10 @@ export async function GET(
 
     // Tech users can only see milestones on projects they're assigned to
     if (auth.role === 'tech') {
-      const isTeamMember = await prisma.projectTeamAssignment.findUnique({
+      const isTeamMember = await prisma.projectTeamAssignment.findFirst({
         where: {
-          project_id_user_id: {
-            project_id: milestone.project_id,
-            user_id: auth.userId,
-          },
+          project_id: milestone.project_id,
+          user_id: auth.userId,
         },
       });
 
@@ -95,12 +93,10 @@ export async function PATCH(
 
     // Tech users can only update milestones on projects they're assigned to
     if (auth.role === 'tech') {
-      const isTeamMember = await prisma.projectTeamAssignment.findUnique({
+      const isTeamMember = await prisma.projectTeamAssignment.findFirst({
         where: {
-          project_id_user_id: {
-            project_id: existingMilestone.project_id,
-            user_id: auth.userId,
-          },
+          project_id: existingMilestone.project_id,
+          user_id: auth.userId,
         },
       });
 
@@ -209,12 +205,10 @@ export async function DELETE(
 
     // Tech users can only delete milestones on projects they're assigned to
     if (auth.role === 'tech') {
-      const isTeamMember = await prisma.projectTeamAssignment.findUnique({
+      const isTeamMember = await prisma.projectTeamAssignment.findFirst({
         where: {
-          project_id_user_id: {
-            project_id: existingMilestone.project_id,
-            user_id: auth.userId,
-          },
+          project_id: existingMilestone.project_id,
+          user_id: auth.userId,
         },
       });
 

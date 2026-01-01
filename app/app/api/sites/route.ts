@@ -7,11 +7,11 @@ import { formatSiteResponse } from '@/lib/api/formatters';
 
 const createSiteSchema = z.object({
   name: z.string().min(1).max(255),
-  url: z.string().url().optional().or(z.literal('')),
   client_id: z.string().uuid(),
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
+  hosting_discount: z.number().min(0).optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
   maintenance_assignee_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional(),
@@ -52,6 +52,11 @@ export async function GET(request: NextRequest) {
           maintenance_plan: true,
           maintenance_assignee: {
             select: { id: true, name: true, email: true },
+          },
+          domains: {
+            where: { is_deleted: false },
+            orderBy: [{ is_primary: 'desc' }, { name: 'asc' }],
+            take: 3, // Only need primary + a couple for display
           },
           _count: {
             select: { domains: true },
@@ -125,7 +130,6 @@ export async function POST(request: NextRequest) {
     const site = await prisma.site.create({
       data: {
         ...data,
-        url: data.url || null,
         hosted_by: data.hosted_by || 'indelible',
       },
       include: {
@@ -136,6 +140,10 @@ export async function POST(request: NextRequest) {
         maintenance_plan: true,
         maintenance_assignee: {
           select: { id: true, name: true, email: true },
+        },
+        domains: {
+          where: { is_deleted: false },
+          orderBy: [{ is_primary: 'desc' }, { name: 'asc' }],
         },
         _count: { select: { domains: true } },
       },

@@ -45,6 +45,7 @@ import { TaskRequirements } from './task-requirements';
 import { CommentSection } from './comment-section';
 import { ReviewSection } from './review-section';
 import { ActivityFeed } from '@/components/domain/activities/activity-feed';
+import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import {
   TaskStatusInlineSelect,
   PriorityInlineSelect,
@@ -175,6 +176,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
 
   const hasBlockers = task?.blocked_by && task.blocked_by.length > 0;
   const isBlocking = task?.blocking && task.blocking.length > 0;
+  const isAwaitingApproval = task?.status === 'done' && task?.needs_review && !task?.approved;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -203,27 +205,6 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
             </div>
           ) : task ? (
             <div className="space-y-5">
-              {/* Approve Button - show when task is done and needs review */}
-              {task.status === 'done' && task.needs_review && !task.approved && (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    updateTask.mutate(
-                      { id: task.id, data: { approved: true } },
-                      {
-                        onSuccess: () => showToast.success('Task approved'),
-                        onError: (error) => showToast.apiError(error, 'Failed to approve'),
-                      }
-                    );
-                  }}
-                  disabled={updateTask.isPending}
-                  className="w-full bg-emerald-500 hover:bg-emerald-600"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Approve Task
-                </Button>
-              )}
-
               {/* Breadcrumbs: Client > Site > Project (for project tasks) or just Client (for ad-hoc tasks) */}
               {task.project ? (
                 <div className="flex items-center gap-1 text-sm text-text-sub flex-wrap">
@@ -272,6 +253,11 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                   <span className="text-text-sub ml-1">(ad-hoc)</span>
                 </div>
               ) : null}
+
+              {/* Resource Links - only for project tasks */}
+              {task.project && (
+                <ResourceLinks projectId={task.project.id} compact />
+              )}
 
               {/* Status, Priority, Assignee, Due Date Row - ABOVE timer */}
               <div className="flex items-center gap-3 flex-wrap">
@@ -432,6 +418,27 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 );
               })()}
 
+              {/* Review Section & Quality Gate - show here when awaiting approval */}
+              {isAwaitingApproval && (
+                <>
+                  <ReviewSection task={task} />
+                  {isPmOrAdmin && (
+                    <div>
+                      <h4 className="text-sm font-medium text-text-main mb-2 flex items-center gap-2">
+                        <ClipboardCheck className="h-4 w-4" />
+                        Quality Gate
+                        <Badge variant="default" className="text-xs">PM/Admin</Badge>
+                      </h4>
+                      <TaskRequirements
+                        taskId={task.id}
+                        requirements={task.review_requirements}
+                        fieldName="review_requirements"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
               {/* Blocked Warning */}
               {hasBlockers && (
                 <div className="p-3 rounded-lg bg-red-50 border border-red-200">
@@ -485,23 +492,25 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 />
               </div>
 
-              {/* Review Section - visible to task creator and PM/Admin */}
-              <ReviewSection task={task} />
-
-              {/* Quality Gate - PM/Admin only */}
-              {isPmOrAdmin && (
-                <div>
-                  <h4 className="text-sm font-medium text-text-main mb-2 flex items-center gap-2">
-                    <ClipboardCheck className="h-4 w-4" />
-                    Quality Gate
-                    <Badge variant="default" className="text-xs">PM/Admin</Badge>
-                  </h4>
-                  <TaskRequirements
-                    taskId={task.id}
-                    requirements={task.review_requirements}
-                    fieldName="review_requirements"
-                  />
-                </div>
+              {/* Review Section & Quality Gate - show here when NOT awaiting approval */}
+              {!isAwaitingApproval && (
+                <>
+                  <ReviewSection task={task} />
+                  {isPmOrAdmin && (
+                    <div>
+                      <h4 className="text-sm font-medium text-text-main mb-2 flex items-center gap-2">
+                        <ClipboardCheck className="h-4 w-4" />
+                        Quality Gate
+                        <Badge variant="default" className="text-xs">PM/Admin</Badge>
+                      </h4>
+                      <TaskRequirements
+                        taskId={task.id}
+                        requirements={task.review_requirements}
+                        fieldName="review_requirements"
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Linked SOP - Collapsible */}

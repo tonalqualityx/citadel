@@ -7,10 +7,10 @@ import { formatSiteResponse } from '@/lib/api/formatters';
 
 const updateSiteSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  url: z.string().url().optional().nullable().or(z.literal('')),
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional().nullable(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
+  hosting_discount: z.number().min(0).optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
   maintenance_assignee_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -97,10 +97,7 @@ export async function PATCH(
 
     const site = await prisma.site.update({
       where: { id },
-      data: {
-        ...data,
-        url: data.url === '' ? null : data.url,
-      },
+      data,
       include: {
         client: {
           select: { id: true, name: true },
@@ -109,6 +106,10 @@ export async function PATCH(
         maintenance_plan: true,
         maintenance_assignee: {
           select: { id: true, name: true, email: true },
+        },
+        domains: {
+          where: { is_deleted: false },
+          orderBy: [{ is_primary: 'desc' }, { name: 'asc' }],
         },
         _count: { select: { domains: true } },
       },

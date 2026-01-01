@@ -37,5 +37,6 @@ export function useAuth() {
     isAuthenticated: !!data?.user,
     isPmOrAdmin: data?.user?.role === 'pm' || data?.user?.role === 'admin',
     isAdmin: data?.user?.role === 'admin',
+    isTech: data?.user?.role === 'tech',
   };
 }

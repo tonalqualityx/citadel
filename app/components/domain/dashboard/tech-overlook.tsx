@@ -1,14 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Clock,
   ListTodo,
   AlertCircle,
   Calendar,
-  PlayCircle,
   Timer,
   Zap,
 } from 'lucide-react';
@@ -16,7 +14,6 @@ import { TechDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/ho
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { DashboardSection } from './dashboard-section';
-import { StatCard } from './stat-card';
 import { TaskQuickList } from './task-quick-list';
 import { TimeclockIssues } from './timeclock-issues';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
@@ -24,6 +21,8 @@ import { Button } from '@/components/ui/button';
 import { formatDuration } from '@/lib/calculations/energy';
 import { formatElapsedTime } from '@/lib/utils/time';
 import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
+import { TaskGroupingSelect } from '@/components/ui/task-grouping-select';
+import { useTaskGrouping } from '@/lib/hooks/use-task-grouping';
 import {
   focusColumn,
   statusColumn,
@@ -69,6 +68,11 @@ export function TechOverlook({ data }: TechOverlookProps) {
 
   // Separate tasks by focus flag
   const focusTasks = data.myTasks.items.filter((t) => t.is_focus);
+
+  // Task grouping for My Quests section
+  const { groupBy, setGroupBy, groups } = useTaskGrouping(data.myTasks.items, {
+    storageKey: 'citadel-dashboard-grouping',
+  });
 
   // Column configs for different task lists
   const focusColumns: TaskListColumn<DashboardTask>[] = [
@@ -128,51 +132,6 @@ export function TechOverlook({ data }: TechOverlookProps) {
         </div>
       )}
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Time Today"
-          value={formatDuration(data.timeTodayMinutes)}
-          icon={Clock}
-          variant={data.timeTodayMinutes === 0 ? 'warning' : 'default'}
-        />
-        <StatCard
-          label="Time This Week"
-          value={formatDuration(data.timeThisWeekMinutes)}
-          icon={Calendar}
-        />
-        <StatCard
-          label="In Progress"
-          value={data.inProgressTasks.length}
-          icon={PlayCircle}
-          variant={data.inProgressTasks.length > 3 ? 'warning' : 'default'}
-        />
-        <StatCard
-          label="Blocked"
-          value={data.blockedTasks.length}
-          icon={AlertCircle}
-          variant={data.blockedTasks.length > 0 ? 'danger' : 'default'}
-        />
-      </div>
-
-      {/* Missing Time Alert */}
-      {data.timeTodayMinutes === 0 && !timer.isRunning && (
-        <div className="flex items-center gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-          <Clock className="h-5 w-5 text-amber-500" />
-          <div className="flex-1">
-            <div className="font-medium text-text-main">No time logged today</div>
-            <div className="text-sm text-text-sub">
-              Start a timer on one of your quests to begin tracking
-            </div>
-          </div>
-          <Link href="/chronicles">
-            <Button variant="secondary" size="sm">
-              Log Time
-            </Button>
-          </Link>
-        </div>
-      )}
-
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - My Quests */}
@@ -197,10 +156,18 @@ export function TechOverlook({ data }: TechOverlookProps) {
           <DashboardSection
             title="My Quests"
             icon={ListTodo}
-            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+            count={data.myTasks.total}
+            headerActions={
+              <TaskGroupingSelect
+                value={groupBy}
+                onChange={setGroupBy}
+                compact
+              />
+            }
           >
             <TaskList<DashboardTask>
-              tasks={data.myTasks.items}
+              tasks={groups ? undefined : data.myTasks.items}
+              groups={groups || undefined}
               columns={myTasksColumns}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}

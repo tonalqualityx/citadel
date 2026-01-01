@@ -7,7 +7,32 @@ import { formatTaskResponse } from '@/lib/api/formatters';
 import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logStatusChange, logUpdate, logDelete } from '@/lib/services/activity';
+import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { MysteryFactor, TaskStatus } from '@prisma/client';
+
+// Schema for requirement items (flat items)
+const requirementItemSchema = z.object({
+  id: z.string(),
+  type: z.literal('item').optional(),
+  text: z.string(),
+  completed: z.boolean().optional().default(false),
+  completed_at: z.string().nullable().optional(),
+  completed_by: z.string().nullable().optional(),
+  sort_order: z.number(),
+});
+
+// Schema for requirement sections (with nested items)
+const requirementSectionSchema = z.object({
+  id: z.string(),
+  type: z.literal('section'),
+  title: z.string(),
+  icon: z.string().optional(),
+  sort_order: z.number(),
+  items: z.array(requirementItemSchema),
+});
+
+// Combined schema for requirements - can be items or sections
+const requirementEntrySchema = z.union([requirementSectionSchema, requirementItemSchema]);
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -26,23 +51,9 @@ const updateTaskSchema = z.object({
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
   due_date: z.string().datetime().optional().nullable(),
   notes: z.any().optional(), // BlockNote JSON content
-  requirements: z.array(z.object({
-    id: z.string(),
-    text: z.string(),
-    completed: z.boolean(),
-    completed_at: z.string().nullable().optional(),
-    completed_by: z.string().nullable().optional(),
-    sort_order: z.number(),
-  })).optional().nullable(),
+  requirements: z.array(requirementEntrySchema).optional().nullable(),
   // Quality Gate (PM/Admin only)
-  review_requirements: z.array(z.object({
-    id: z.string(),
-    text: z.string(),
-    completed: z.boolean(),
-    completed_at: z.string().nullable().optional(),
-    completed_by: z.string().nullable().optional(),
-    sort_order: z.number(),
-  })).optional().nullable(),
+  review_requirements: z.array(requirementEntrySchema).optional().nullable(),
   // Review workflow fields
   needs_review: z.boolean().optional(),
   reviewer_id: z.string().uuid().optional().nullable(),
@@ -51,6 +62,7 @@ const updateTaskSchema = z.object({
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
+  is_support: z.boolean().optional(),
   // Time tracking
   no_time_needed: z.boolean().optional(),
 });
@@ -84,12 +96,10 @@ async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
     }
     // Tasks in projects where user is a team member
     else if (task.project_id) {
-      const isTeamMember = await prisma.projectTeamAssignment.findUnique({
+      const isTeamMember = await prisma.projectTeamAssignment.findFirst({
         where: {
-          project_id_user_id: {
-            project_id: task.project_id,
-            user_id: auth.userId,
-          },
+          project_id: task.project_id,
+          user_id: auth.userId,
         },
       });
       if (isTeamMember) {
@@ -325,6 +335,28 @@ export async function PATCH(
     if (data.sort_order !== undefined) updateData.sort_order = data.sort_order;
     if (data.assignee_id !== undefined) updateData.assignee_id = data.assignee_id;
     if (data.function_id !== undefined) updateData.function_id = data.function_id;
+
+    // Auto-assign when function_id changes and no explicit assignee provided
+    if (
+      data.function_id !== undefined &&
+      data.function_id !== existingTask.function_id &&
+      data.assignee_id === undefined
+    ) {
+      const projectId = data.project_id ?? existingTask.project_id;
+      if (projectId && data.function_id) {
+        const teamAssignment = await prisma.projectTeamAssignment.findFirst({
+          where: {
+            project_id: projectId,
+            function_id: data.function_id,
+          },
+          select: { user_id: true },
+        });
+        if (teamAssignment) {
+          updateData.assignee_id = teamAssignment.user_id;
+        }
+      }
+    }
+
     if (data.sop_id !== undefined) updateData.sop_id = data.sop_id;
     if (data.energy_estimate !== undefined) updateData.energy_estimate = data.energy_estimate;
     if (data.mystery_factor !== undefined) updateData.mystery_factor = data.mystery_factor;
@@ -374,6 +406,7 @@ export async function PATCH(
       if (data.is_billable !== undefined) updateData.is_billable = data.is_billable;
       if (data.billing_target !== undefined) updateData.billing_target = data.billing_target;
       if (data.is_retainer_work !== undefined) updateData.is_retainer_work = data.is_retainer_work;
+      if (data.is_support !== undefined) updateData.is_support = data.is_support;
     }
 
     // Time tracking fields
@@ -407,6 +440,19 @@ export async function PATCH(
         },
       },
     });
+
+    // Notify new assignee if assignment changed to someone other than the updater
+    if (
+      task.assignee_id &&
+      task.assignee_id !== existingTask.assignee_id &&
+      task.assignee_id !== auth.userId
+    ) {
+      const updater = await prisma.user.findUnique({
+        where: { id: auth.userId },
+        select: { name: true },
+      });
+      await notifyTaskAssigned(task.id, task.assignee_id, updater?.name || 'Someone');
+    }
 
     return NextResponse.json(formatTaskResponse(task));
   } catch (error) {

@@ -19,9 +19,17 @@ interface SopSelectorProps {
   value: string | null;
   onChange: (sopId: string | null, sop: Sop | null) => void;
   className?: string;
+  showLabel?: boolean;
+  showPreview?: boolean;
 }
 
-export function SopSelector({ value, onChange, className }: SopSelectorProps) {
+export function SopSelector({
+  value,
+  onChange,
+  className,
+  showLabel = true,
+  showPreview = true,
+}: SopSelectorProps) {
   const [search, setSearch] = React.useState('');
   const [isOpen, setIsOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -58,9 +66,11 @@ export function SopSelector({ value, onChange, className }: SopSelectorProps) {
 
   return (
     <div ref={containerRef} className={cn('relative', className)}>
-      <label className="block text-sm font-medium text-text-main mb-1">
-        SOP Template *
-      </label>
+      {showLabel && (
+        <label className="block text-sm font-medium text-text-main mb-1">
+          SOP Template *
+        </label>
+      )}
 
       {/* Selected SOP Display or Search Input */}
       {selectedSop && !isOpen ? (
@@ -136,7 +146,7 @@ export function SopSelector({ value, onChange, className }: SopSelectorProps) {
       )}
 
       {/* SOP Preview */}
-      {selectedSop && <SopPreview sop={selectedSop} />}
+      {showPreview && selectedSop && <SopPreview sop={selectedSop} />}
     </div>
   );
 }

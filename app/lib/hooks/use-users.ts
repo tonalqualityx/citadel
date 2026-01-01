@@ -14,6 +14,7 @@ export interface User {
   is_active: boolean;
   avatar_url: string | null;
   last_login_at: string | null;
+  target_hours_per_week: number;
   created_at: string;
   updated_at?: string;
 }
@@ -36,6 +37,7 @@ export interface UpdateUserInput {
   role?: 'tech' | 'pm' | 'admin';
   avatar_url?: string | null;
   is_active?: boolean;
+  target_hours_per_week?: number;
 }
 
 interface UseUsersOptions {

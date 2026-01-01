@@ -11,6 +11,7 @@ const updateUserSchema = z.object({
   role: z.enum(['tech', 'pm', 'admin']).optional(),
   avatar_url: z.string().url().max(500).optional().nullable(),
   is_active: z.boolean().optional(),
+  target_hours_per_week: z.number().min(0).max(80).optional(),
 });
 
 const resetPasswordSchema = z.object({
@@ -36,6 +37,7 @@ export async function GET(
         is_active: true,
         avatar_url: true,
         last_login_at: true,
+        target_hours_per_week: true,
         created_at: true,
         updated_at: true,
       },
@@ -57,13 +59,14 @@ export async function PATCH(
 ) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['admin']);
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     const body = await request.json();
 
-    // Check if this is a password reset request
+    // Check if this is a password reset request (admin only)
     if (body.password !== undefined) {
+      requireRole(auth, ['admin']);
       const { password } = resetPasswordSchema.parse(body);
       const passwordHash = await bcrypt.hash(password, 12);
 
@@ -91,6 +94,16 @@ export async function PATCH(
     // Regular update
     const data = updateUserSchema.parse(body);
 
+    // PM restrictions: cannot change role or is_active
+    if (auth.role === 'pm') {
+      if (data.role !== undefined) {
+        throw new ApiError('Only admins can change user roles', 403);
+      }
+      if (data.is_active !== undefined) {
+        throw new ApiError('Only admins can activate/deactivate users', 403);
+      }
+    }
+
     // If email is being changed, check for uniqueness
     if (data.email) {
       const existingUser = await prisma.user.findFirst({
@@ -105,12 +118,12 @@ export async function PATCH(
       }
     }
 
-    // Prevent admin from deactivating themselves
+    // Prevent user from deactivating themselves
     if (data.is_active === false && id === auth.userId) {
       throw new ApiError('You cannot deactivate your own account', 400);
     }
 
-    // Prevent admin from changing their own role
+    // Prevent user from changing their own role
     if (data.role && id === auth.userId) {
       throw new ApiError('You cannot change your own role', 400);
     }
@@ -126,6 +139,7 @@ export async function PATCH(
         is_active: true,
         avatar_url: true,
         last_login_at: true,
+        target_hours_per_week: true,
         created_at: true,
         updated_at: true,
       },

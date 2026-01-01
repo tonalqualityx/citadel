@@ -60,6 +60,7 @@ export interface Project {
   created_by: { id: string; name: string } | null;
   tasks_count: number;
   completed_tasks_count: number;
+  phases?: ProjectPhase[];
   tasks?: any[];
   team_assignments?: any[];
   milestones?: any[];
@@ -198,7 +199,7 @@ export interface TeamAssignment {
   project_id: string;
   user_id: string;
   user: { id: string; name: string; email: string } | null;
-  function_id: string | null;
+  function_id: string;
   function: { id: string; name: string } | null;
   is_lead: boolean;
   created_at: string;
@@ -222,11 +223,15 @@ export function useAddTeamMember() {
       data,
     }: {
       projectId: string;
-      data: { user_id: string; function_id?: string | null; is_lead?: boolean };
+      data: { user_id: string; function_id: string; is_lead?: boolean };
     }) => apiClient.post<TeamAssignment>(`/projects/${projectId}/team`, data),
     onSuccess: (_, { projectId }) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.team(projectId) });
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
+      showToast.success('Team member assigned');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to assign team member');
     },
   });
 }
@@ -235,11 +240,15 @@ export function useRemoveTeamMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ projectId, userId }: { projectId: string; userId: string }) =>
-      apiClient.delete(`/projects/${projectId}/team?user_id=${userId}`),
+    mutationFn: ({ projectId, functionId }: { projectId: string; functionId: string }) =>
+      apiClient.delete(`/projects/${projectId}/team?function_id=${functionId}`),
     onSuccess: (_, { projectId }) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.team(projectId) });
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
+      showToast.success('Team member removed');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to remove team member');
     },
   });
 }

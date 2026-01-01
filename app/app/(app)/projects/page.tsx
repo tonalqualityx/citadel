@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, FolderKanban, Clock, CheckCircle2, Wand2 } from 'lucide-react';
 import { useProjects } from '@/lib/hooks/use-projects';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,15 +47,28 @@ const typeOptions = [
 export default function ProjectsPage() {
   const router = useRouter();
   const { t } = useTerminology();
+  const { isTech } = useAuth();
   const [search, setSearch] = React.useState('');
   const [status, setStatus] = React.useState('');
   const [type, setType] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [isCreateOpen, setIsCreateOpen] = React.useState(false);
 
+  // Tech users don't have access to the projects list - redirect to dashboard
+  React.useEffect(() => {
+    if (isTech) {
+      router.replace('/dashboard');
+    }
+  }, [isTech, router]);
+
   React.useEffect(() => {
     setPage(1);
   }, [search, status, type]);
+
+  // Don't render anything while redirecting tech users
+  if (isTech) {
+    return null;
+  }
 
   const { data, isLoading, error } = useProjects({
     page,

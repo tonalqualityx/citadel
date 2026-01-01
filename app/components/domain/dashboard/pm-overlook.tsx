@@ -23,6 +23,8 @@ import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatElapsedTime } from '@/lib/utils/time';
 import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
+import { TaskGroupingSelect } from '@/components/ui/task-grouping-select';
+import { useTaskGrouping } from '@/lib/hooks/use-task-grouping';
 import {
   focusColumn,
   statusColumn,
@@ -112,6 +114,11 @@ export function PmOverlook({ data }: PmOverlookProps) {
     actionsColumn<DashboardTask>({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
   ];
 
+  // Task grouping for My Quests section (shares storage key with tech dashboard)
+  const { groupBy, setGroupBy, groups } = useTaskGrouping(data.myTasks.items, {
+    storageKey: 'citadel-dashboard-grouping',
+  });
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -157,7 +164,7 @@ export function PmOverlook({ data }: PmOverlookProps) {
           <DashboardSection
             title="Focus Quests"
             icon={Zap}
-            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+            count={data.focusTasks.total}
           >
             <TaskList<DashboardTask>
               tasks={data.focusTasks.items}
@@ -176,7 +183,7 @@ export function PmOverlook({ data }: PmOverlookProps) {
           <DashboardSection
             title="Awaiting Review"
             icon={CircleDot}
-            action={{ label: 'View All', href: '/tasks?pending_review=true' }}
+            count={data.awaitingReview.total}
           >
             <TaskList<DashboardTask>
               tasks={data.awaitingReview.items}
@@ -196,7 +203,7 @@ export function PmOverlook({ data }: PmOverlookProps) {
             <DashboardSection
               title="Unassigned Quests"
               icon={UserX}
-              action={{ label: 'View All', href: '/tasks?assignee=unassigned' }}
+              count={data.unassignedTasks.total}
             >
               <TaskList<DashboardTask>
                 tasks={data.unassignedTasks.items}
@@ -216,10 +223,18 @@ export function PmOverlook({ data }: PmOverlookProps) {
           <DashboardSection
             title="My Quests"
             icon={ListTodo}
-            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+            count={data.myTasks.total}
+            headerActions={
+              <TaskGroupingSelect
+                value={groupBy}
+                onChange={setGroupBy}
+                compact
+              />
+            }
           >
             <TaskList<DashboardTask>
-              tasks={data.myTasks.items}
+              tasks={groups ? undefined : data.myTasks.items}
+              groups={groups || undefined}
               columns={myTasksColumns}
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}

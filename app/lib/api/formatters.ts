@@ -23,10 +23,15 @@ export function formatClientResponse(client: any) {
 }
 
 export function formatSiteResponse(site: any) {
+  // Find the primary domain (is_primary and not deleted)
+  const primaryDomain = site.domains?.find(
+    (d: any) => d.is_primary && !d.is_deleted
+  );
+
   return {
     id: site.id,
     name: site.name,
-    url: site.url,
+    url: site.url, // Keep for backward compat, but derived from primary_domain in UI
     client_id: site.client_id,
     client: site.client ? { id: site.client.id, name: site.client.name } : null,
     hosted_by: site.hosted_by,
@@ -39,6 +44,7 @@ export function formatSiteResponse(site: any) {
           rate: Number(site.hosting_plan.rate),
         }
       : null,
+    hosting_discount: site.hosting_discount ? Number(site.hosting_discount) : null,
     maintenance_plan_id: site.maintenance_plan_id,
     maintenance_plan: site.maintenance_plan
       ? {
@@ -59,6 +65,7 @@ export function formatSiteResponse(site: any) {
     notes: site.notes,
     domains_count: site._count?.domains ?? site.domains?.length ?? 0,
     domains: site.domains?.map(formatDomainResponse),
+    primary_domain: primaryDomain ? formatDomainResponse(primaryDomain) : null,
     is_deleted: site.is_deleted,
     created_at: site.created_at,
     updated_at: site.updated_at,
@@ -82,6 +89,13 @@ export function formatDomainResponse(domain: any) {
     registrar: domain.registrar,
     expires_at: domain.expires_at,
     is_primary: domain.is_primary,
+    // Ownership & DNS
+    registered_by: domain.registered_by,
+    dns_provider_id: domain.dns_provider_id,
+    dns_provider: domain.dns_provider
+      ? { id: domain.dns_provider.id, name: domain.dns_provider.name }
+      : null,
+    dns_managed_by: domain.dns_managed_by,
     notes: domain.notes,
     is_deleted: domain.is_deleted,
     created_at: domain.created_at,
@@ -169,6 +183,7 @@ export function formatProjectResponse(project: any) {
       : null,
     tasks_count: tasksCount,
     completed_tasks_count: estimates.completedTaskCount,
+    phases: project.phases?.map(formatPhaseResponse),
     tasks: project.tasks?.map(formatTaskResponse),
     team_assignments: project.team_assignments?.map(formatTeamAssignmentResponse),
     milestones: project.milestones?.map(formatMilestoneResponse),
@@ -176,6 +191,18 @@ export function formatProjectResponse(project: any) {
     is_deleted: project.is_deleted,
     created_at: project.created_at,
     updated_at: project.updated_at,
+  };
+}
+
+export function formatPhaseResponse(phase: any) {
+  return {
+    id: phase.id,
+    project_id: phase.project_id,
+    name: phase.name,
+    icon: phase.icon,
+    sort_order: phase.sort_order,
+    created_at: phase.created_at,
+    updated_at: phase.updated_at,
   };
 }
 
@@ -193,6 +220,19 @@ export function formatTeamAssignmentResponse(assignment: any) {
       : null,
     is_lead: assignment.is_lead,
     created_at: assignment.created_at,
+  };
+}
+
+export function formatUserFunctionResponse(userFunction: any) {
+  return {
+    id: userFunction.id,
+    user_id: userFunction.user_id,
+    function_id: userFunction.function_id,
+    function: userFunction.function
+      ? { id: userFunction.function.id, name: userFunction.function.name }
+      : null,
+    is_primary: userFunction.is_primary,
+    created_at: userFunction.created_at,
   };
 }
 
@@ -326,6 +366,7 @@ export function formatTaskResponse(task: any) {
     is_billable: task.is_billable ?? true,
     billing_target: task.billing_target ? Number(task.billing_target) : null,
     is_retainer_work: task.is_retainer_work ?? false,
+    is_support: task.is_support ?? false,
     invoiced: task.invoiced ?? false,
     invoiced_at: task.invoiced_at,
     invoiced_by_id: task.invoiced_by_id,

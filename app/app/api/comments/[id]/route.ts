@@ -69,12 +69,10 @@ export async function GET(
       if (!comment.task.project_id && comment.task.assignee_id === auth.userId) {
         hasAccess = true;
       } else if (comment.task.project_id) {
-        const isTeamMember = await prisma.projectTeamAssignment.findUnique({
+        const isTeamMember = await prisma.projectTeamAssignment.findFirst({
           where: {
-            project_id_user_id: {
-              project_id: comment.task.project_id,
-              user_id: auth.userId,
-            },
+            project_id: comment.task.project_id,
+            user_id: auth.userId,
           },
         });
         if (isTeamMember) {

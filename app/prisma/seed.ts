@@ -592,7 +592,7 @@ async function main() {
     console.log(`  ✓ Created pact: ${projectData.name} (${projectData.status})`);
 
     // Add team assignments for active projects
-    if (['ready', 'in_progress', 'review'].includes(projectData.status) && pmUserId && techUserId) {
+    if (['ready', 'in_progress', 'review'].includes(projectData.status) && pmUserId && techUserId && pmFunctionId && devFunctionId) {
       await prisma.projectTeamAssignment.createMany({
         data: [
           { project_id: project.id, user_id: pmUserId, function_id: pmFunctionId, is_lead: true },

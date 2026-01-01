@@ -12,16 +12,17 @@ datasource db {
 // ============================================
 
 model User {
-  id            String    @id @default(uuid()) @db.Uuid
-  email         String    @unique @db.VarChar(255)
-  password_hash String    @db.VarChar(255)
-  name          String    @db.VarChar(255)
-  role          UserRole  @default(tech)
-  avatar_url    String?   @db.VarChar(500)
-  is_active     Boolean   @default(true)
-  last_login_at DateTime?
-  created_at    DateTime  @default(now())
-  updated_at    DateTime  @updatedAt
+  id                    String    @id @default(uuid()) @db.Uuid
+  email                 String    @unique @db.VarChar(255)
+  password_hash         String    @db.VarChar(255)
+  name                  String    @db.VarChar(255)
+  role                  UserRole  @default(tech)
+  avatar_url            String?   @db.VarChar(500)
+  is_active             Boolean   @default(true)
+  target_hours_per_week Int       @default(40) // Target utilization hours per week
+  last_login_at         DateTime?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
 
   // Relations
   preferences           UserPreference?
@@ -29,6 +30,7 @@ model User {
   notifications         Notification[]
   projects_created      Project[]              @relation("ProjectCreatedBy")
   team_assignments      ProjectTeamAssignment[]
+  user_functions        UserFunction[]
   tasks_assigned        Task[]                 @relation("TaskAssignee")
   tasks_created         Task[]                 @relation("TaskCreatedBy")
   tasks_reviewing       Task[]                 @relation("TaskReviewer")
@@ -164,10 +166,27 @@ model Function {
 
   // Relations
   team_assignments ProjectTeamAssignment[]
+  user_functions   UserFunction[]
   tasks            Task[]
   sops             Sop[]
 
   @@map("functions")
+}
+
+// UserFunction - tracks which functions a user is qualified to perform
+model UserFunction {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  function_id String   @db.Uuid
+  function    Function @relation(fields: [function_id], references: [id], onDelete: Cascade)
+  is_primary  Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  @@unique([user_id, function_id])
+  @@index([user_id])
+  @@index([function_id])
+  @@map("user_functions")
 }
 
 model HostingPlan {
@@ -247,6 +266,19 @@ model Integration {
   @@map("integrations")
 }
 
+model DnsProvider {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  is_active Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  domains   Domain[]
+
+  @@map("dns_providers")
+}
+
 // ============================================
 // CLIENTS (PATRONS)
 // ============================================
@@ -320,6 +352,7 @@ model Site {
   platform            String?          @db.VarChar(100)
   hosting_plan_id     String?          @db.Uuid
   hosting_plan        HostingPlan?     @relation(fields: [hosting_plan_id], references: [id])
+  hosting_discount    Decimal?         @db.Decimal(10, 2)  // Fixed $ discount off hosting plan rate
 
   // Maintenance
   maintenance_plan_id      String?          @db.Uuid
@@ -362,14 +395,22 @@ model Domain {
   id         String    @id @default(uuid()) @db.Uuid
   name       String    @db.VarChar(255)
 
-  // Site relationship
-  site_id    String    @db.Uuid
-  site       Site      @relation(fields: [site_id], references: [id])
+  // Site relationship (optional - domain may exist without being linked to a site)
+  site_id    String?   @db.Uuid
+  site       Site?     @relation(fields: [site_id], references: [id])
 
   // Domain details
   registrar  String?   @db.VarChar(100)
   expires_at DateTime?
   is_primary Boolean   @default(false)
+
+  // Ownership - whose account is domain registered under
+  registered_by  DomainOwnership?
+
+  // DNS Management
+  dns_provider_id String?      @db.Uuid
+  dns_provider    DnsProvider? @relation(fields: [dns_provider_id], references: [id])
+  dns_managed_by  DomainOwnership?
 
   // Notes
   notes      String?   @db.Text
@@ -380,7 +421,13 @@ model Domain {
   updated_at DateTime  @updatedAt
 
   @@index([site_id])
+  @@index([dns_provider_id])
   @@map("domains")
+}
+
+enum DomainOwnership {
+  indelible
+  client
 }
 
 // ============================================
@@ -438,6 +485,7 @@ model Project {
   milestones       Milestone[]
   time_entries     TimeEntry[]
   pages            ProjectPage[]
+  resource_links   ResourceLink[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -494,23 +542,44 @@ enum BillingType {
 }
 
 // ============================================
+// RESOURCE LINKS
+// ============================================
+
+model ResourceLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  project_id  String   @db.Uuid
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name        String   @db.VarChar(100)
+  url         String   @db.VarChar(500)
+  icon        String?  @db.VarChar(50)  // Icon name (e.g., "figma", "drive", "github")
+  sort_order  Int      @default(0)
+  is_deleted  Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([project_id])
+  @@map("resource_links")
+}
+
+// ============================================
 // PROJECT TEAM ASSIGNMENTS
 // ============================================
 
 model ProjectTeamAssignment {
-  id          String    @id @default(uuid()) @db.Uuid
-  project_id  String    @db.Uuid
-  project     Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  user_id     String    @db.Uuid
-  user        User      @relation(fields: [user_id], references: [id])
-  function_id String?   @db.Uuid
-  function    Function? @relation(fields: [function_id], references: [id])
-  is_lead     Boolean   @default(false)
-  created_at  DateTime  @default(now())
+  id          String   @id @default(uuid()) @db.Uuid
+  project_id  String   @db.Uuid
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id])
+  function_id String   @db.Uuid
+  function    Function @relation(fields: [function_id], references: [id])
+  is_lead     Boolean  @default(false)
+  created_at  DateTime @default(now())
 
-  @@unique([project_id, user_id])
+  @@unique([project_id, function_id])
   @@index([project_id])
   @@index([user_id])
+  @@index([function_id])
   @@map("project_team_assignments")
 }
 
@@ -591,6 +660,7 @@ model Task {
   is_billable       Boolean       @default(true)
   billing_target    Decimal?      @db.Decimal(10, 2)
   is_retainer_work  Boolean       @default(false)
+  is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
 
   // Time tracking
   no_time_needed    Boolean       @default(false) // Task completed without time tracking
@@ -624,6 +694,7 @@ model Task {
   @@index([sop_id])
   @@index([invoiced])
   @@index([is_maintenance_task])
+  @@index([is_support])
   @@map("tasks")
 }
 

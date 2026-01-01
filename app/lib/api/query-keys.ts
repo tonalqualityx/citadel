@@ -56,6 +56,12 @@ export const referenceDataKeys = {
   users: ['users'] as const,
 };
 
+// User function keys (tracks which functions a user is qualified for)
+export const userFunctionKeys = {
+  all: ['user-functions'] as const,
+  byUser: (userId: string) => [...userFunctionKeys.all, 'user', userId] as const,
+};
+
 // Project filters and keys
 export interface ProjectFilters {
   search?: string;
@@ -114,4 +120,31 @@ export const integrationKeys = {
   all: ['integrations'] as const,
   lists: () => [...integrationKeys.all, 'list'] as const,
   provider: (provider: string) => [...integrationKeys.all, 'provider', provider] as const,
+};
+
+// DNS Provider keys
+export const dnsProviderKeys = {
+  all: ['dns-providers'] as const,
+  list: () => [...dnsProviderKeys.all, 'list'] as const,
+};
+
+// Client Activity keys
+export const clientActivityKeys = {
+  all: ['client-activity'] as const,
+  byClient: (clientId: string, filters?: { projectStatus?: string; taskType?: string; taskStatus?: string }) =>
+    [...clientActivityKeys.all, clientId, filters] as const,
+};
+
+// Consolidated query keys for convenience
+export const queryKeys = {
+  clients: clientKeys,
+  sites: siteKeys,
+  domains: domainKeys,
+  projects: projectKeys,
+  tasks: taskKeys,
+  billing: billingKeys,
+  integrations: integrationKeys,
+  referenceData: referenceDataKeys,
+  dnsProviders: dnsProviderKeys,
+  clientActivity: clientActivityKeys,
 };

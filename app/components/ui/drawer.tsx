@@ -5,7 +5,6 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
-const Drawer = DialogPrimitive.Root;
 const DrawerTrigger = DialogPrimitive.Trigger;
 const DrawerClose = DialogPrimitive.Close;
 const DrawerPortal = DialogPrimitive.Portal;
@@ -17,7 +16,7 @@ const DrawerOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/50',
+      'fixed inset-0 z-50 bg-black/30 pointer-events-none',
       'data-[state=open]:animate-in data-[state=closed]:animate-out',
       'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
       className
@@ -26,6 +25,11 @@ const DrawerOverlay = React.forwardRef<
   />
 ));
 DrawerOverlay.displayName = DialogPrimitive.Overlay.displayName;
+
+// Non-modal drawer that allows interaction with content behind it
+function Drawer(props: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Root>) {
+  return <DialogPrimitive.Root modal={false} {...props} />;
+}
 
 interface DrawerContentProps
   extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
@@ -37,23 +41,24 @@ const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DrawerContentProps
 >(({ className, children, side = 'right', size = 'md', ...props }, ref) => (
-  <DrawerPortal>
-    <DrawerOverlay />
+  <DrawerPortal forceMount>
     <DialogPrimitive.Content
       ref={ref}
+      forceMount
+      onInteractOutside={(e) => {
+        // Check if clicking on a task row - if so, don't close (let task click handler work)
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-task-row]')) {
+          e.preventDefault();
+        }
+      }}
       className={cn(
-        'fixed z-50 h-full bg-surface shadow-lg flex flex-col',
-        'duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out',
-        // Right side animations
-        side === 'right' && [
-          'right-0 top-0',
-          'data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',
-        ],
-        // Left side animations
-        side === 'left' && [
-          'left-0 top-0',
-          'data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
-        ],
+        'fixed z-50 h-full bg-surface shadow-2xl flex flex-col pointer-events-auto',
+        'shadow-black/25',
+        // Right side
+        side === 'right' && 'right-0 top-0 border-l border-border drawer-content-right',
+        // Left side
+        side === 'left' && 'left-0 top-0 border-r border-border drawer-content-left',
         // Sizes
         {
           'w-[300px]': size === 'sm',

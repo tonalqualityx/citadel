@@ -17,10 +17,11 @@ interface DomainFilters {
   site_id?: string;
   client_id?: string;
   expiring_soon?: boolean;
+  unassigned?: boolean; // Filter for domains not linked to any site
 }
 
 export function useDomains(filters: DomainFilters = {}) {
-  const { page = 1, limit = 20, search, site_id, client_id, expiring_soon } = filters;
+  const { page = 1, limit = 20, search, site_id, client_id, expiring_soon, unassigned } = filters;
 
   return useQuery({
     queryKey: domainKeys.list(filters),
@@ -32,6 +33,7 @@ export function useDomains(filters: DomainFilters = {}) {
       if (site_id) params.set('site_id', site_id);
       if (client_id) params.set('client_id', client_id);
       if (expiring_soon) params.set('expiring_soon', 'true');
+      if (unassigned) params.set('unassigned', 'true');
 
       return apiClient.get<DomainListResponse>(`/domains?${params.toString()}`);
     },
@@ -72,15 +74,26 @@ export function useUpdateDomain() {
     mutationFn: async ({
       id,
       data,
+      previousSiteId,
     }: {
       id: string;
       data: UpdateDomainInput;
+      previousSiteId?: string | null; // Pass this to invalidate old site when unlinking
     }): Promise<DomainWithRelations> => {
       return apiClient.patch<DomainWithRelations>(`/domains/${id}`, data);
     },
-    onSuccess: (_, { id }) => {
+    onSuccess: (response, { id, previousSiteId }) => {
       queryClient.invalidateQueries({ queryKey: domainKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: domainKeys.lists() });
+      // Invalidate current site when domain changes (especially for is_primary)
+      if (response.site_id) {
+        queryClient.invalidateQueries({ queryKey: siteKeys.detail(response.site_id) });
+        queryClient.invalidateQueries({ queryKey: siteKeys.lists() });
+      }
+      // Also invalidate the previous site if the domain was unlinked/moved
+      if (previousSiteId && previousSiteId !== response.site_id) {
+        queryClient.invalidateQueries({ queryKey: siteKeys.detail(previousSiteId) });
+      }
     },
   });
 }

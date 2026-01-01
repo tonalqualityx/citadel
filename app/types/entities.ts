@@ -41,7 +41,18 @@ export interface CreateClientInput {
   notes?: string;
 }
 
-export interface UpdateClientInput extends Partial<CreateClientInput> {}
+export interface UpdateClientInput {
+  name?: string;
+  type?: ClientType;
+  status?: ClientStatus;
+  primary_contact?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  retainer_hours?: number;
+  hourly_rate?: number;
+  parent_agency_id?: string;
+  notes?: string | null;
+}
 
 export interface ClientListResponse {
   clients: ClientWithRelations[];
@@ -60,6 +71,7 @@ export interface Site {
   hosted_by: HostedBy;
   platform: string | null;
   hosting_plan_id: string | null;
+  hosting_discount: number | null;  // Fixed $ discount off hosting plan rate
   maintenance_plan_id: string | null;
   maintenance_assignee_id: string | null;
   notes: string | null;
@@ -75,21 +87,31 @@ export interface SiteWithRelations extends Site {
   maintenance_assignee?: { id: string; name: string; email: string } | null;
   domains?: Domain[];
   domains_count?: number;
+  primary_domain?: Domain | null;  // The domain marked is_primary
 }
 
 export interface CreateSiteInput {
   name: string;
-  url?: string;
   client_id: string;
   hosted_by?: HostedBy;
   platform?: string;
   hosting_plan_id?: string;
+  hosting_discount?: number;
   maintenance_plan_id?: string;
   maintenance_assignee_id?: string | null;
   notes?: string;
 }
 
-export interface UpdateSiteInput extends Partial<Omit<CreateSiteInput, 'client_id'>> {}
+export interface UpdateSiteInput {
+  name?: string;
+  hosted_by?: HostedBy;
+  platform?: string | null;
+  hosting_plan_id?: string | null;
+  hosting_discount?: number | null;
+  maintenance_plan_id?: string | null;
+  maintenance_assignee_id?: string | null;
+  notes?: string | null;
+}
 
 export interface SiteListResponse {
   sites: SiteWithRelations[];
@@ -100,13 +122,19 @@ export interface SiteListResponse {
 }
 
 // Domain types
+export type DomainOwnership = 'indelible' | 'client';
+
 export interface Domain {
   id: string;
   name: string;
-  site_id: string;
+  site_id: string | null; // Nullable - domain can exist without being linked to a site
   registrar: string | null;
   expires_at: string | null;
   is_primary: boolean;
+  // Ownership & DNS
+  registered_by: DomainOwnership | null;
+  dns_provider_id: string | null;
+  dns_managed_by: DomainOwnership | null;
   notes: string | null;
   is_deleted: boolean;
   created_at: string;
@@ -115,18 +143,32 @@ export interface Domain {
 
 export interface DomainWithRelations extends Domain {
   site?: { id: string; name: string; client?: { id: string; name: string } };
+  dns_provider?: { id: string; name: string } | null;
 }
 
 export interface CreateDomainInput {
   name: string;
-  site_id: string;
+  site_id?: string | null; // Optional - domain can exist without a site
   registrar?: string;
   expires_at?: string;
   is_primary?: boolean;
+  registered_by?: DomainOwnership | null;
+  dns_provider_id?: string | null;
+  dns_managed_by?: DomainOwnership | null;
   notes?: string;
 }
 
-export interface UpdateDomainInput extends Partial<Omit<CreateDomainInput, 'site_id'>> {}
+export interface UpdateDomainInput {
+  name?: string;
+  site_id?: string | null; // Can link/unlink from sites
+  registrar?: string | null;
+  expires_at?: string | null;
+  is_primary?: boolean;
+  registered_by?: DomainOwnership | null;
+  dns_provider_id?: string | null;
+  dns_managed_by?: DomainOwnership | null;
+  notes?: string | null;
+}
 
 export interface DomainListResponse {
   domains: DomainWithRelations[];
@@ -228,6 +270,25 @@ export interface UpdateFunctionInput extends Partial<CreateFunctionInput> {}
 
 export interface FunctionListResponse {
   functions: TeamFunction[];
+}
+
+// UserFunction - tracks which functions a user is qualified to perform
+export interface UserFunction {
+  id: string;
+  user_id: string;
+  function_id: string;
+  function?: { id: string; name: string };
+  is_primary: boolean;
+  created_at?: string;
+}
+
+export interface UserFunctionWithDetails extends UserFunction {
+  user?: { id: string; name: string; email: string };
+}
+
+export interface AddUserFunctionInput {
+  function_id: string;
+  is_primary?: boolean;
 }
 
 export interface Tool {

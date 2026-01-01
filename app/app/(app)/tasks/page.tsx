@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Plus, CheckSquare, AlertCircle, Clock } from 'lucide-react';
 import { useTasks, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useUsers } from '@/lib/hooks/use-users';
+import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/ui/search-input';
@@ -22,6 +23,8 @@ import {
 import { TaskForm } from '@/components/domain/tasks/task-form';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { TaskList } from '@/components/ui/task-list';
+import { TaskGroupingSelect } from '@/components/ui/task-grouping-select';
+import { useTaskGrouping } from '@/lib/hooks/use-task-grouping';
 import {
   titleColumn,
   statusColumn,
@@ -55,6 +58,7 @@ const DEFAULT_STATUSES = ['not_started', 'in_progress'];
 export default function QuestsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { isTech, isPmOrAdmin } = useAuth();
   const projectIdParam = searchParams.get('project_id');
 
   const [search, setSearch] = React.useState('');
@@ -67,7 +71,7 @@ export default function QuestsPage() {
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
   const [isPeekOpen, setIsPeekOpen] = React.useState(false);
 
-  // Fetch users for the assignee filter
+  // Fetch users for the assignee filter (PM/Admin only)
   const { data: usersData } = useUsers();
   const userOptions = React.useMemo(() => {
     if (!usersData?.users) return [];
@@ -83,6 +87,7 @@ export default function QuestsPage() {
     setAllTasks([]);
   }, [search, statuses, priority, assigneeId]);
 
+  // Tech users are locked to their own tasks
   const { data, isLoading, error } = useTasks({
     page,
     search: search || undefined,
@@ -90,6 +95,7 @@ export default function QuestsPage() {
     priority: priority ? parseInt(priority) : undefined,
     assignee_id: assigneeId || undefined,
     project_id: projectIdParam || undefined,
+    my_tasks: isTech ? true : undefined, // Tech users only see their tasks
   });
 
   // Accumulate tasks for "load more" pattern
@@ -102,6 +108,11 @@ export default function QuestsPage() {
       }
     }
   }, [data?.tasks, page]);
+
+  // Task grouping
+  const { groupBy, setGroupBy, groups } = useTaskGrouping(allTasks, {
+    storageKey: 'citadel-tasks-grouping',
+  });
 
   const updateTask = useUpdateTask();
 
@@ -244,12 +255,19 @@ export default function QuestsPage() {
               placeholder="All priorities"
               className="md:w-40"
             />
-            <Select
-              options={userOptions}
-              value={assigneeId}
-              onChange={setAssigneeId}
-              placeholder="All assignees"
-              className="md:w-48"
+            {/* Assignee filter - PM/Admin only (tech users are locked to their own tasks) */}
+            {isPmOrAdmin && (
+              <Select
+                options={userOptions}
+                value={assigneeId}
+                onChange={setAssigneeId}
+                placeholder="All assignees"
+                className="md:w-48"
+              />
+            )}
+            <TaskGroupingSelect
+              value={groupBy}
+              onChange={setGroupBy}
             />
           </div>
         </CardContent>
@@ -264,7 +282,8 @@ export default function QuestsPage() {
         </Card>
       ) : (
         <TaskList
-          tasks={allTasks}
+          tasks={groups ? undefined : allTasks}
+          groups={groups || undefined}
           columns={columns}
           onTaskClick={handleTaskClick}
           onTaskUpdate={handleTaskUpdate}

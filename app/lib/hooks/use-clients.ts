@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
-import { clientKeys } from '@/lib/api/query-keys';
+import { clientKeys, clientActivityKeys } from '@/lib/api/query-keys';
 import { showToast } from '@/lib/hooks/use-toast';
 import type {
   ClientWithRelations,
@@ -102,5 +102,66 @@ export function useDeleteClient() {
     onError: (error) => {
       showToast.apiError(error, 'Failed to delete pact');
     },
+  });
+}
+
+// Client Activity types
+export interface ClientActivityProject {
+  id: string;
+  name: string;
+  status: string;
+  type: string;
+  target_date: string | null;
+  task_count: number;
+}
+
+export interface ClientActivityTask {
+  id: string;
+  title: string;
+  status: string;
+  priority: number;
+  is_support: boolean;
+  is_billable: boolean;
+  due_date: string | null;
+  completed_at: string | null;
+  project: { id: string; name: string } | null;
+  assignee: { id: string; name: string } | null;
+}
+
+export interface ClientActivityStats {
+  open_projects: number;
+  open_tasks: number;
+  support_tasks_this_month: number;
+}
+
+export interface ClientActivityResponse {
+  projects: ClientActivityProject[];
+  tasks: ClientActivityTask[];
+  stats: ClientActivityStats;
+}
+
+export interface ClientActivityFilters {
+  projectStatus?: 'open' | 'completed' | 'all';
+  taskType?: 'support' | 'billable' | 'all';
+  taskStatus?: 'open' | 'completed' | 'all';
+}
+
+export function useClientActivity(
+  clientId: string | undefined,
+  filters: ClientActivityFilters = {}
+) {
+  return useQuery({
+    queryKey: clientActivityKeys.byClient(clientId!, filters),
+    queryFn: async (): Promise<ClientActivityResponse> => {
+      const params = new URLSearchParams();
+      if (filters.projectStatus) params.set('project_status', filters.projectStatus);
+      if (filters.taskType) params.set('task_type', filters.taskType);
+      if (filters.taskStatus) params.set('task_status', filters.taskStatus);
+
+      const queryString = params.toString();
+      const url = `/clients/${clientId}/activity${queryString ? `?${queryString}` : ''}`;
+      return apiClient.get<ClientActivityResponse>(url);
+    },
+    enabled: !!clientId,
   });
 }

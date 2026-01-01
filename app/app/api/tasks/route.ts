@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logCreate } from '@/lib/services/activity';
+import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { MysteryFactor } from '@prisma/client';
 
 const createTaskSchema = z.object({
@@ -27,11 +28,13 @@ const createTaskSchema = z.object({
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']).optional(),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
   due_date: z.string().datetime().optional().nullable(),
+  started_at: z.string().datetime().optional().nullable(),
   notes: z.string().optional().nullable(),
   // Billing fields
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
+  is_support: z.boolean().optional(),
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -88,22 +91,13 @@ export async function GET(request: NextRequest) {
     // Access control condition for Tech users
     let accessCondition: any = {};
     if (auth.role === 'tech') {
-      // Get projects where user is a team member
-      const teamProjects = await prisma.projectTeamAssignment.findMany({
-        where: { user_id: auth.userId },
-        select: { project_id: true },
-      });
-      const teamProjectIds = teamProjects.map((p) => p.project_id);
-
-      // Tech users can see:
-      // 1. Ad-hoc tasks (no project) assigned to them
-      // 2. All tasks from projects where they're a team member
+      // Tech users can ONLY see tasks assigned to them
+      // AND only from visible projects (or ad-hoc tasks)
       accessCondition = {
+        assignee_id: auth.userId,
         OR: [
-          // Ad-hoc tasks assigned to user
-          { project_id: null, assignee_id: auth.userId },
-          // Tasks from projects where user is team member
-          { project_id: { in: teamProjectIds } },
+          { project_id: null },
+          { project: { status: { in: VISIBLE_PROJECT_STATUSES } } },
         ],
       };
     } else {
@@ -209,12 +203,10 @@ export async function POST(request: NextRequest) {
 
       // Tech users can only create tasks if assigned to the project
       if (auth.role === 'tech') {
-        const isAssigned = await prisma.projectTeamAssignment.findUnique({
+        const isAssigned = await prisma.projectTeamAssignment.findFirst({
           where: {
-            project_id_user_id: {
-              project_id: data.project_id,
-              user_id: auth.userId,
-            },
+            project_id: data.project_id,
+            user_id: auth.userId,
           },
         });
         if (!isAssigned) {
@@ -252,6 +244,7 @@ export async function POST(request: NextRequest) {
       default_priority?: number;
       review_requirements?: any;
       needs_review?: boolean;
+      function_id?: string | null;
     } = {};
 
     if (data.sop_id) {
@@ -265,6 +258,7 @@ export async function POST(request: NextRequest) {
           battery_impact: true,
           default_priority: true,
           needs_review: true,
+          function_id: true,
         },
       });
       if (sop) {
@@ -276,6 +270,7 @@ export async function POST(request: NextRequest) {
           battery_impact: sop.battery_impact,
           default_priority: sop.default_priority,
           needs_review: sop.needs_review,
+          function_id: sop.function_id,
         };
       }
     }
@@ -305,6 +300,29 @@ export async function POST(request: NextRequest) {
         )
       : null;
 
+    // Start date: auto-set to today for standalone tasks, null for project tasks
+    const startedAt = data.started_at
+      ? new Date(data.started_at)
+      : data.project_id
+        ? null // Project tasks: no auto start date
+        : new Date(); // Standalone tasks: default to today
+
+    // Auto-assign based on SOP function if no assignee provided and task is on a project
+    let autoAssigneeId: string | null = null;
+    const effectiveFunctionId = data.function_id || sopDefaults.function_id || null;
+    if (!data.assignee_id && data.project_id && effectiveFunctionId) {
+      const teamAssignment = await prisma.projectTeamAssignment.findFirst({
+        where: {
+          project_id: data.project_id,
+          function_id: effectiveFunctionId,
+        },
+        select: { user_id: true },
+      });
+      if (teamAssignment) {
+        autoAssigneeId = teamAssignment.user_id;
+      }
+    }
+
     const task = await prisma.task.create({
       data: {
         title: data.title,
@@ -316,8 +334,8 @@ export async function POST(request: NextRequest) {
         phase_id: data.phase_id,
         phase: data.phase, // Legacy field
         sort_order: data.sort_order || 0,
-        assignee_id: data.assignee_id,
-        function_id: data.function_id,
+        assignee_id: data.assignee_id || autoAssigneeId,
+        function_id: effectiveFunctionId,
         sop_id: data.sop_id,
         requirements: sopDefaults.requirements || undefined,
         review_requirements: sopDefaults.review_requirements || undefined,
@@ -327,12 +345,14 @@ export async function POST(request: NextRequest) {
         mystery_factor: mysteryFactor as MysteryFactor,
         battery_impact: (data.battery_impact || sopDefaults.battery_impact || 'average_drain') as 'average_drain' | 'high_drain' | 'energizing',
         estimated_minutes: estimatedMinutes,
+        started_at: startedAt,
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: data.notes,
         // Billing fields - auto-suggest retainer work for retainer clients/projects
         is_billable: data.is_billable ?? true,
         billing_target: data.billing_target,
         is_retainer_work: data.is_retainer_work ?? isRetainerProject,
+        is_support: data.is_support ?? false,
         created_by_id: auth.userId,
       },
       include: {
@@ -359,6 +379,15 @@ export async function POST(request: NextRequest) {
 
     // Log activity
     await logCreate(auth.userId, 'task', task.id, task.title);
+
+    // Notify assignee (if assigned to someone other than the creator)
+    if (task.assignee_id && task.assignee_id !== auth.userId) {
+      const creator = await prisma.user.findUnique({
+        where: { id: auth.userId },
+        select: { name: true },
+      });
+      await notifyTaskAssigned(task.id, task.assignee_id, creator?.name || 'Someone');
+    }
 
     return NextResponse.json(formatTaskResponse(task), { status: 201 });
   } catch (error) {

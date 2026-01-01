@@ -160,6 +160,29 @@
   }
 }
 
+/* Drawer slide transitions */
+.drawer-content-right {
+  transform: translateX(100%);
+  transition: transform 0.15s ease-out;
+  pointer-events: none;
+}
+
+.drawer-content-right[data-state="open"] {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.drawer-content-left {
+  transform: translateX(-100%);
+  transition: transform 0.15s ease-out;
+  pointer-events: none;
+}
+
+.drawer-content-left[data-state="open"] {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
 /* Custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;

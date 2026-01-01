@@ -28,6 +28,8 @@ import {
   ModalFooter,
 } from '@/components/ui/modal';
 import { formatRelativeTime } from '@/lib/utils/time';
+import { UserFunctionManager } from '@/components/domain/admin/user-function-manager';
+import { useAuth } from '@/lib/hooks/use-auth';
 
 const ROLE_OPTIONS = [
   { value: 'tech', label: 'Tech' },
@@ -59,17 +61,20 @@ export default function TeamAdminPage() {
   const updateMutation = useUpdateUser();
   const deleteMutation = useDeleteUser();
   const resetPasswordMutation = useResetUserPassword();
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.role === 'admin';
 
-  const [formData, setFormData] = React.useState<CreateUserInput>({
+  const [formData, setFormData] = React.useState<CreateUserInput & { target_hours_per_week?: number }>({
     name: '',
     email: '',
     password: '',
     role: 'tech',
+    target_hours_per_week: 40,
   });
 
   const openCreateModal = () => {
     setEditingUser(null);
-    setFormData({ name: '', email: '', password: '', role: 'tech' });
+    setFormData({ name: '', email: '', password: '', role: 'tech', target_hours_per_week: 40 });
     setIsModalOpen(true);
   };
 
@@ -80,6 +85,7 @@ export default function TeamAdminPage() {
       email: user.email,
       password: '', // Not used for edit
       role: user.role,
+      target_hours_per_week: user.target_hours_per_week,
     });
     setIsModalOpen(true);
   };
@@ -92,6 +98,7 @@ export default function TeamAdminPage() {
           name: formData.name,
           email: formData.email,
           role: formData.role,
+          target_hours_per_week: formData.target_hours_per_week,
         };
         await updateMutation.mutateAsync({ id: editingUser.id, data: updateData });
       } else {
@@ -334,17 +341,36 @@ export default function TeamAdminPage() {
                   />
                 </div>
               )}
+              {isAdmin && (
+                <div>
+                  <label className="block text-sm font-medium text-text-main mb-1">Role *</label>
+                  <Select
+                    options={ROLE_OPTIONS}
+                    value={formData.role || 'tech'}
+                    onChange={(value) =>
+                      setFormData({ ...formData, role: value as 'tech' | 'pm' | 'admin' })
+                    }
+                  />
+                </div>
+              )}
               <div>
-                <label className="block text-sm font-medium text-text-main mb-1">Role *</label>
-                <Select
-                  options={ROLE_OPTIONS}
-                  value={formData.role || 'tech'}
-                  onChange={(value) =>
-                    setFormData({ ...formData, role: value as 'tech' | 'pm' | 'admin' })
+                <label className="block text-sm font-medium text-text-main mb-1">
+                  Target Hours/Week
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={80}
+                  value={formData.target_hours_per_week ?? 40}
+                  onChange={(e) =>
+                    setFormData({ ...formData, target_hours_per_week: parseInt(e.target.value) || 40 })
                   }
                 />
+                <p className="text-xs text-text-sub mt-1">
+                  Used for utilization calculations in reports
+                </p>
               </div>
-              {editingUser && (
+              {editingUser && isAdmin && (
                 <div>
                   <label className="flex items-center gap-2 text-sm text-text-main cursor-pointer">
                     <input
@@ -355,6 +381,17 @@ export default function TeamAdminPage() {
                     />
                     Active
                   </label>
+                </div>
+              )}
+              {editingUser && (
+                <div className="border-t border-border pt-4 mt-4">
+                  <label className="block text-sm font-medium text-text-main mb-2">
+                    Function Qualifications
+                  </label>
+                  <p className="text-xs text-text-sub mb-3">
+                    Functions this user is qualified to perform on projects
+                  </p>
+                  <UserFunctionManager userId={editingUser.id} />
                 </div>
               )}
             </ModalBody>

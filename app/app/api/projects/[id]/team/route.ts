@@ -7,7 +7,7 @@ import { formatTeamAssignmentResponse } from '@/lib/api/formatters';
 
 const addTeamMemberSchema = z.object({
   user_id: z.string().uuid(),
-  function_id: z.string().uuid().optional().nullable(),
+  function_id: z.string().uuid(),
   is_lead: z.boolean().optional(),
 });
 
@@ -64,27 +64,38 @@ export async function POST(
       throw new ApiError('User not found', 404);
     }
 
-    // Verify function exists if provided
-    if (data.function_id) {
-      const func = await prisma.function.findUnique({
-        where: { id: data.function_id, is_active: true },
-      });
-      if (!func) {
-        throw new ApiError('Function not found', 404);
-      }
+    // Verify function exists
+    const func = await prisma.function.findUnique({
+      where: { id: data.function_id, is_active: true },
+    });
+    if (!func) {
+      throw new ApiError('Function not found', 404);
     }
 
-    // Check if already assigned
+    // Verify user is qualified for this function
+    const userFunction = await prisma.userFunction.findUnique({
+      where: {
+        user_id_function_id: {
+          user_id: data.user_id,
+          function_id: data.function_id,
+        },
+      },
+    });
+    if (!userFunction) {
+      throw new ApiError('User is not qualified for this function', 400);
+    }
+
+    // Check if function is already assigned to this project
     const existing = await prisma.projectTeamAssignment.findUnique({
       where: {
-        project_id_user_id: {
+        project_id_function_id: {
           project_id: id,
-          user_id: data.user_id,
+          function_id: data.function_id,
         },
       },
     });
     if (existing) {
-      throw new ApiError('User is already assigned to this project', 400);
+      throw new ApiError('This function is already assigned to this project', 400);
     }
 
     const assignment = await prisma.projectTeamAssignment.create({
@@ -115,17 +126,17 @@ export async function DELETE(
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('user_id');
+    const functionId = searchParams.get('function_id');
 
-    if (!userId) {
-      throw new ApiError('user_id is required', 400);
+    if (!functionId) {
+      throw new ApiError('function_id is required', 400);
     }
 
     await prisma.projectTeamAssignment.delete({
       where: {
-        project_id_user_id: {
+        project_id_function_id: {
           project_id: id,
-          user_id: userId,
+          function_id: functionId,
         },
       },
     });

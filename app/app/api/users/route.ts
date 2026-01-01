@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
         is_active: true,
         avatar_url: true,
         last_login_at: true,
+        target_hours_per_week: true,
         created_at: true,
       },
       orderBy: { name: 'asc' },

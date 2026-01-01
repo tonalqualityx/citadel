@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle,
   ArrowUp,
+  Calendar,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api/client';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -31,63 +32,133 @@ interface UserUtilization {
   billablePercent: number;
   targetHours: number;
   utilizationPercent: number;
+  reservedHours: number;
   status: 'under' | 'target' | 'over';
 }
 
 interface UtilizationResponse {
-  period: { start: string; end: string };
+  period: { start: string; end: string; type: 'week' | 'month' };
   team: UserUtilization[];
   summary: {
     totalHours: number;
     billableHours: number;
     avgUtilization: number;
     targetHours: number;
+    reservedHours: number;
   };
 }
 
+// Get ISO week number for a date
+function getISOWeek(date: Date): number {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+// Get the Monday of a given ISO week
+function getWeekStart(year: number, week: number): Date {
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setDate(jan4.getDate() - jan4Day + 1);
+  const targetMonday = new Date(week1Monday);
+  targetMonday.setDate(week1Monday.getDate() + (week - 1) * 7);
+  return targetMonday;
+}
+
 export default function GuildReportsPage() {
+  const [periodType, setPeriodType] = useState<'week' | 'month'>('week');
   const [selectedYear, setSelectedYear] = useState(() => new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth() + 1);
+  const [selectedWeek, setSelectedWeek] = useState(() => getISOWeek(new Date()));
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['utilization', selectedYear, selectedMonth],
-    queryFn: () =>
-      apiClient.get<UtilizationResponse>('/reports/utilization', {
-        params: { year: String(selectedYear), month: String(selectedMonth) },
-      }),
+    queryKey: ['utilization', periodType, selectedYear, selectedMonth, selectedWeek],
+    queryFn: () => {
+      const params: Record<string, string> = {
+        period: periodType,
+        year: String(selectedYear),
+      };
+      if (periodType === 'month') {
+        params.month = String(selectedMonth);
+      } else {
+        params.week = String(selectedWeek);
+      }
+      return apiClient.get<UtilizationResponse>('/reports/utilization', { params });
+    },
   });
 
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    if (direction === 'prev') {
-      if (selectedMonth === 1) {
-        setSelectedMonth(12);
-        setSelectedYear((y) => y - 1);
+  const navigatePeriod = (direction: 'prev' | 'next') => {
+    if (periodType === 'month') {
+      if (direction === 'prev') {
+        if (selectedMonth === 1) {
+          setSelectedMonth(12);
+          setSelectedYear((y) => y - 1);
+        } else {
+          setSelectedMonth((m) => m - 1);
+        }
       } else {
-        setSelectedMonth((m) => m - 1);
+        if (selectedMonth === 12) {
+          setSelectedMonth(1);
+          setSelectedYear((y) => y + 1);
+        } else {
+          setSelectedMonth((m) => m + 1);
+        }
       }
     } else {
-      if (selectedMonth === 12) {
-        setSelectedMonth(1);
-        setSelectedYear((y) => y + 1);
+      // Week navigation
+      if (direction === 'prev') {
+        if (selectedWeek === 1) {
+          setSelectedYear((y) => y - 1);
+          setSelectedWeek(52);
+        } else {
+          setSelectedWeek((w) => w - 1);
+        }
       } else {
-        setSelectedMonth((m) => m + 1);
+        if (selectedWeek === 52) {
+          setSelectedYear((y) => y + 1);
+          setSelectedWeek(1);
+        } else {
+          setSelectedWeek((w) => w + 1);
+        }
       }
     }
   };
 
-  const goToCurrentMonth = () => {
-    setSelectedYear(new Date().getFullYear());
-    setSelectedMonth(new Date().getMonth() + 1);
+  const goToCurrentPeriod = () => {
+    const now = new Date();
+    setSelectedYear(now.getFullYear());
+    if (periodType === 'month') {
+      setSelectedMonth(now.getMonth() + 1);
+    } else {
+      setSelectedWeek(getISOWeek(now));
+    }
   };
 
-  const monthName = new Date(selectedYear, selectedMonth - 1).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const isCurrentPeriod = () => {
+    const now = new Date();
+    if (periodType === 'month') {
+      return selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1;
+    } else {
+      return selectedYear === now.getFullYear() && selectedWeek === getISOWeek(now);
+    }
+  };
 
-  const isCurrentMonth =
-    selectedYear === new Date().getFullYear() &&
-    selectedMonth === new Date().getMonth() + 1;
+  const getPeriodLabel = () => {
+    if (periodType === 'month') {
+      return new Date(selectedYear, selectedMonth - 1).toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+      });
+    } else {
+      const weekStart = getWeekStart(selectedYear, selectedWeek);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      return `Week ${selectedWeek}: ${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -102,33 +173,61 @@ export default function GuildReportsPage() {
         </div>
       </div>
 
-      {/* Month Navigation */}
+      {/* Period Type Toggle & Navigation */}
       <Card>
         <CardContent className="py-4">
           <div className="flex items-center justify-between">
+            {/* Period Type Toggle */}
+            <div className="flex items-center gap-1 bg-background-light rounded-lg p-1">
+              <button
+                onClick={() => setPeriodType('week')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  periodType === 'week'
+                    ? 'bg-surface text-text-main shadow-sm'
+                    : 'text-text-sub hover:text-text-main'
+                }`}
+              >
+                Weekly
+              </button>
+              <button
+                onClick={() => setPeriodType('month')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  periodType === 'month'
+                    ? 'bg-surface text-text-main shadow-sm'
+                    : 'text-text-sub hover:text-text-main'
+                }`}
+              >
+                Monthly
+              </button>
+            </div>
+
+            {/* Period Navigation */}
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => navigateMonth('prev')}>
+              <Button variant="ghost" size="sm" onClick={() => navigatePeriod('prev')}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              {!isCurrentMonth && (
-                <Button variant="ghost" size="sm" onClick={goToCurrentMonth}>
+              {!isCurrentPeriod() && (
+                <Button variant="ghost" size="sm" onClick={goToCurrentPeriod}>
                   Today
                 </Button>
               )}
-              <span className="text-lg font-medium text-text-main min-w-[180px] text-center">
-                {monthName}
+              <span className="text-lg font-medium text-text-main min-w-[280px] text-center">
+                {getPeriodLabel()}
               </span>
-              <Button variant="ghost" size="sm" onClick={() => navigateMonth('next')}>
+              <Button variant="ghost" size="sm" onClick={() => navigatePeriod('next')}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Spacer for balance */}
+            <div className="w-[140px]" />
           </div>
         </CardContent>
       </Card>
 
       {/* Summary Cards */}
       {data?.summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <Card>
             <CardContent className="py-4">
               <div className="flex items-center gap-3">
@@ -139,7 +238,23 @@ export default function GuildReportsPage() {
                   <div className="text-2xl font-bold text-text-main">
                     {data.summary.totalHours}
                   </div>
-                  <div className="text-sm text-text-sub">Total Hours</div>
+                  <div className="text-sm text-text-sub">Hours Logged</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-slate-100 text-slate-600">
+                  <Calendar className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-text-main">
+                    {data.summary.reservedHours}
+                  </div>
+                  <div className="text-sm text-text-sub">Reserved</div>
                 </div>
               </div>
             </CardContent>
@@ -155,7 +270,7 @@ export default function GuildReportsPage() {
                   <div className="text-2xl font-bold text-text-main">
                     {data.summary.billableHours}
                   </div>
-                  <div className="text-sm text-text-sub">Billable Hours</div>
+                  <div className="text-sm text-text-sub">Billable</div>
                 </div>
               </div>
             </CardContent>
@@ -164,7 +279,7 @@ export default function GuildReportsPage() {
           <Card>
             <CardContent className="py-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-purple-100 text-purple-600">
+                <div className="p-2 rounded-lg bg-amber-100 text-amber-600">
                   <TrendingUp className="h-5 w-5" />
                 </div>
                 <div>
@@ -180,7 +295,7 @@ export default function GuildReportsPage() {
           <Card>
             <CardContent className="py-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-100 text-amber-600">
+                <div className="p-2 rounded-lg bg-slate-100 text-slate-600">
                   <Users className="h-5 w-5" />
                 </div>
                 <div>
@@ -296,19 +411,25 @@ function UtilizationCard({ user }: { user: UserUtilization }) {
           </div>
         </div>
 
-        {/* Hours breakdown */}
-        <div className="grid grid-cols-2 gap-4 mb-3">
+        {/* Hours breakdown - Logged vs Reserved vs Target */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
           <div>
             <div className="text-lg font-semibold text-text-main">
               {user.totalHours}
             </div>
-            <div className="text-xs text-text-sub">Total Hours</div>
+            <div className="text-xs text-text-sub">Logged</div>
+          </div>
+          <div>
+            <div className="text-lg font-semibold text-text-main">
+              {user.reservedHours}
+            </div>
+            <div className="text-xs text-text-sub">Reserved</div>
           </div>
           <div>
             <div className="text-lg font-semibold text-text-main">
               {user.targetHours}
             </div>
-            <div className="text-xs text-text-sub">Target Hours</div>
+            <div className="text-xs text-text-sub">Target</div>
           </div>
         </div>
 

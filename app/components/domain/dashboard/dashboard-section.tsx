@@ -8,11 +8,14 @@ import { LucideIcon } from 'lucide-react';
 interface DashboardSectionProps {
   title: string;
   icon?: LucideIcon;
+  count?: number;
   action?: {
     label: string;
     onClick?: () => void;
     href?: string;
   };
+  /** Additional controls to render in the header (e.g., grouping dropdown) */
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }
@@ -20,7 +23,9 @@ interface DashboardSectionProps {
 export function DashboardSection({
   title,
   icon: Icon,
+  count,
   action,
+  headerActions,
   children,
   className = '',
 }: DashboardSectionProps) {
@@ -30,20 +35,26 @@ export function DashboardSection({
         <CardTitle className="flex items-center gap-2 text-lg">
           {Icon && <Icon className="h-5 w-5 text-text-sub" />}
           {title}
+          {count !== undefined && (
+            <span className="text-sm font-normal text-text-sub">({count})</span>
+          )}
         </CardTitle>
-        {action && (
-          action.href ? (
-            <a href={action.href}>
-              <Button variant="ghost" size="sm">
+        <div className="flex items-center gap-2">
+          {headerActions}
+          {action && (
+            action.href ? (
+              <a href={action.href}>
+                <Button variant="ghost" size="sm">
+                  {action.label}
+                </Button>
+              </a>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={action.onClick}>
                 {action.label}
               </Button>
-            </a>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={action.onClick}>
-              {action.label}
-            </Button>
-          )
-        )}
+            )
+          )}
+        </div>
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>

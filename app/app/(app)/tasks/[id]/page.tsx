@@ -62,6 +62,7 @@ import {
 } from '@/lib/calculations/status';
 import { CommentSection } from '@/components/domain/tasks/comment-section';
 import { ReviewSection } from '@/components/domain/tasks/review-section';
+import { ResourceLinks } from '@/components/domain/projects/resource-links';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -336,6 +337,12 @@ export default function QuestDetailPage() {
                   <FolderKanban className="h-4 w-4" />
                   {task.project.name}
                 </Link>
+              </div>
+            )}
+            {/* Resource Links - only for project tasks */}
+            {task.project && (
+              <div className="mt-2">
+                <ResourceLinks projectId={task.project.id} compact />
               </div>
             )}
             {/* Assignee & Phase */}

@@ -89,7 +89,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { t, isAwesome } = useTerminology();
-  const { isPmOrAdmin } = useAuth();
+  const { isPmOrAdmin, isTech } = useAuth();
 
   // Dynamic navigation based on terminology preference
   const mainNav: NavItem[] = [
@@ -97,12 +97,14 @@ export function Sidebar() {
     { name: 'Timekeeper', href: '/time', emoji: '⏱️' },
   ];
 
+  // Tech users don't see projects list - they access projects via task links
   const workSection: NavSection = {
     title: t('foundry'),
     emoji: '🔥',
     defaultOpen: true,
     items: [
-      { name: t('projects'), href: '/projects', emoji: '🤝' },
+      // Only show projects list for PM/Admin
+      ...(isPmOrAdmin ? [{ name: t('projects'), href: '/projects', emoji: '🤝' }] : []),
       { name: t('clients'), href: '/clients', emoji: '🧑‍🚀' },
       { name: t('sites'), href: '/sites', emoji: '🏰' },
       { name: t('domains'), href: '/domains', emoji: '🔗' },
@@ -120,15 +122,6 @@ export function Sidebar() {
     ],
   };
 
-  const resourcesSection: NavSection = {
-    title: t('armory'),
-    emoji: '⚜️',
-    items: [
-      { name: 'Functions', href: '/admin/functions', emoji: '💼' },
-      { name: 'Team', href: '/admin/team', emoji: '👥' },
-    ],
-  };
-
   const adminSection: NavSection = {
     title: 'Admin',
     emoji: '🔐',
@@ -138,7 +131,6 @@ export function Sidebar() {
       { name: 'Functions', href: '/admin/functions', emoji: '💼' },
       { name: 'Hosting Plans', href: '/admin/hosting-plans', emoji: '🏠' },
       { name: 'Maintenance', href: '/admin/maintenance-plans', emoji: '🔧' },
-      { name: 'Tools', href: '/admin/tools', emoji: '🔨' },
       { name: 'Integrations', href: '/admin/integrations', emoji: '🔌' },
       { name: 'Database', href: '/admin/database', emoji: '💾' },
       { name: 'Reports', href: '/settings/reports', emoji: '📊' },
@@ -184,7 +176,6 @@ export function Sidebar() {
           {/* Collapsible sections */}
           <CollapsibleSection section={workSection} pathname={pathname} />
           <CollapsibleSection section={knowledgeSection} pathname={pathname} />
-          <CollapsibleSection section={resourcesSection} pathname={pathname} />
 
           {/* Settings */}
           <nav className="space-y-1 mt-6">

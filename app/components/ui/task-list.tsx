@@ -118,6 +118,7 @@ export function TaskList<T extends TaskLike = TaskLike>({
     return (
       <div
         key={task.id}
+        data-task-row
         className={cn(
           'grid items-center gap-4 px-4 py-3 border-b border-border',
           'transition-colors hover:bg-surface-alt cursor-pointer group'
@@ -178,8 +179,10 @@ export function TaskList<T extends TaskLike = TaskLike>({
     ? groups.reduce((sum, g) => sum + g.tasks.length, 0)
     : (tasks?.length || 0);
 
-  // Empty state
-  if (totalTasks === 0) {
+  // Empty state - only show if no groups AND no tasks
+  // If we have groups (even empty ones), we want to show them so users can add tasks
+  const hasGroups = groups && groups.length > 0;
+  if (totalTasks === 0 && !hasGroups) {
     return (
       <div className={cn('rounded-lg border border-border-warm', className)}>
         <div className="px-4 py-8 text-center text-text-sub">

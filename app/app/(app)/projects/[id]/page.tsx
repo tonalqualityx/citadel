@@ -31,6 +31,7 @@ import {
   useDeleteProjectPhase,
 } from '@/lib/hooks/use-projects';
 import { useCreateTask, useUpdateTaskInProject } from '@/lib/hooks/use-tasks';
+import { SopSelector } from '@/components/domain/recipes/sop-selector';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,8 @@ import { ProjectForm } from '@/components/domain/projects/project-form';
 import { ProjectWorkloadTab } from '@/components/domain/projects/project-workload-tab';
 import { ProjectTimeTab } from '@/components/domain/projects/project-time-tab';
 import { MilestoneList } from '@/components/domain/projects/milestone-list';
+import { ResourceLinks } from '@/components/domain/projects/resource-links';
+import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import {
   getProjectStatusLabel,
@@ -101,6 +104,7 @@ export default function ProjectDetailPage() {
   // Task adding state
   const [addingTaskToPhaseId, setAddingTaskToPhaseId] = React.useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = React.useState('');
+  const [selectedSopId, setSelectedSopId] = React.useState<string | null>(null);
 
 
   const togglePhaseCollapse = (phaseId: string) => {
@@ -197,12 +201,16 @@ export default function ProjectDetailPage() {
   // Quick task add handler
   const handleQuickAddTask = async (phaseId: string | null) => {
     if (!newTaskTitle.trim()) return;
+
     await createTask.mutateAsync({
       title: newTaskTitle.trim(),
       project_id: projectId,
       phase_id: phaseId,
+      sop_id: selectedSopId || undefined,  // API handles SOP field inheritance
     });
+
     setNewTaskTitle('');
+    setSelectedSopId(null);
     setAddingTaskToPhaseId(null);
   };
 
@@ -479,20 +487,31 @@ export default function ProjectDetailPage() {
               )}
 
               {(() => {
-                // Build groups from tasks
+                // Build groups from phases (including empty ones)
                 const tasksByPhase = new Map<string, { phase: any; tasks: Task[] }>();
                 const unphased: Task[] = [];
 
+                // First, initialize all phases from project.phases (so empty ones show up)
+                (project.phases || []).forEach((phase: any) => {
+                  tasksByPhase.set(phase.id, {
+                    phase,
+                    tasks: [],
+                  });
+                });
+
+                // Then distribute tasks to their phases
                 (project.tasks || []).forEach((task: any) => {
                   if (task.project_phase) {
                     const phaseId = task.project_phase.id;
-                    if (!tasksByPhase.has(phaseId)) {
+                    if (tasksByPhase.has(phaseId)) {
+                      tasksByPhase.get(phaseId)!.tasks.push(task);
+                    } else {
+                      // Phase exists on task but not in project.phases - shouldn't happen but handle it
                       tasksByPhase.set(phaseId, {
                         phase: task.project_phase,
-                        tasks: [],
+                        tasks: [task],
                       });
                     }
-                    tasksByPhase.get(phaseId)!.tasks.push(task);
                   } else {
                     unphased.push(task);
                   }
@@ -539,7 +558,8 @@ export default function ProjectDetailPage() {
                   actionsColumn({ onViewDetails: (task) => router.push(`/tasks/${task.id}`) }),
                 ];
 
-                if (groups.length === 0 || groups.every(g => g.tasks.length === 0)) {
+                // Only show empty state if there are no phases at all
+                if (groups.length === 0) {
                   return (
                     <EmptyState
                       icon={<CheckSquare className="h-10 w-10" />}
@@ -686,24 +706,32 @@ export default function ProjectDetailPage() {
                       if (addingTaskToPhaseId === phaseId) {
                         return (
                           <div className="flex items-center gap-2 p-2 border-t border-border">
+                            <SopSelector
+                              value={selectedSopId}
+                              onChange={(sopId, _sop) => setSelectedSopId(sopId)}
+                              className="!w-[200px] shrink-0"
+                              showLabel={false}
+                              showPreview={false}
+                            />
                             <Input
                               value={newTaskTitle}
                               onChange={(e) => setNewTaskTitle(e.target.value)}
                               placeholder={`Add ${t('task').toLowerCase()}...`}
                               autoFocus
-                              className="h-8"
+                              className="h-8 flex-1"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleQuickAddTask(phaseId);
                                 if (e.key === 'Escape') {
                                   setAddingTaskToPhaseId(null);
                                   setNewTaskTitle('');
+                                  setSelectedSopId(null);
                                 }
                               }}
                             />
                             <Button size="sm" onClick={() => handleQuickAddTask(phaseId)} disabled={!newTaskTitle.trim()}>
                               <Check className="h-4 w-4" />
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => { setAddingTaskToPhaseId(null); setNewTaskTitle(''); }}>
+                            <Button size="sm" variant="ghost" onClick={() => { setAddingTaskToPhaseId(null); setNewTaskTitle(''); setSelectedSopId(null); }}>
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
@@ -748,48 +776,7 @@ export default function ProjectDetailPage() {
         </TabsContent>
 
         <TabsContent value="team" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Team</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {project.team_assignments && project.team_assignments.length > 0 ? (
-                <div className="space-y-3">
-                  {project.team_assignments.map((assignment: any) => (
-                    <div
-                      key={assignment.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium">
-                          {assignment.user?.name?.charAt(0) || '?'}
-                        </div>
-                        <div>
-                          <div className="font-medium text-text-main">
-                            {assignment.user?.name}
-                            {assignment.is_lead && (
-                              <Badge variant="info" className="ml-2">
-                                Lead
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-sm text-text-sub">
-                            {assignment.function?.name || 'No role assigned'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState
-                  icon={<Users className="h-10 w-10" />}
-                  title="No team members"
-                  description={`Assign team members to this ${t('project').toLowerCase()}`}
-                />
-              )}
-            </CardContent>
-          </Card>
+          <ProjectTeamTab projectId={project.id} tasks={project.tasks} />
         </TabsContent>
 
         <TabsContent value="details" className="mt-4 space-y-6">
@@ -856,6 +843,9 @@ export default function ProjectDetailPage() {
               </dl>
             </CardContent>
           </Card>
+
+          {/* Resource Links Section */}
+          <ResourceLinks projectId={projectId} />
 
           {/* Milestones Section */}
           <MilestoneList projectId={projectId} />
