@@ -20,7 +20,28 @@ import {
   Pencil,
   Check,
   X,
+  GripVertical,
 } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  UniqueIdentifier,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   useProject,
   useUpdateProjectStatus,
@@ -29,8 +50,14 @@ import {
   useCreateProjectPhase,
   useUpdateProjectPhase,
   useDeleteProjectPhase,
+  useReorderProjectPhases,
 } from '@/lib/hooks/use-projects';
-import { useCreateTask, useUpdateTaskInProject } from '@/lib/hooks/use-tasks';
+import {
+  useCreateTask,
+  useUpdateTaskInProject,
+  useReorderProjectTasks,
+  useMoveTask,
+} from '@/lib/hooks/use-tasks';
 import { SopSelector } from '@/components/domain/recipes/sop-selector';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -62,6 +89,7 @@ import {
 } from '@/lib/calculations/status';
 import { formatDuration } from '@/lib/calculations/energy';
 import { getIconOption } from '@/lib/config/icons';
+import { cn } from '@/lib/utils/cn';
 import { InlineIconPicker } from '@/components/ui/icon-picker';
 import { TaskList, type TaskListGroup } from '@/components/ui/task-list';
 import {
@@ -106,6 +134,21 @@ export default function ProjectDetailPage() {
   const [newTaskTitle, setNewTaskTitle] = React.useState('');
   const [selectedSopId, setSelectedSopId] = React.useState<string | null>(null);
 
+  // Drag and drop state
+  const [activeId, setActiveId] = React.useState<UniqueIdentifier | null>(null);
+  const [activeType, setActiveType] = React.useState<'phase' | 'task' | null>(null);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const togglePhaseCollapse = (phaseId: string) => {
     setCollapsedPhases((prev) => {
@@ -128,6 +171,9 @@ export default function ProjectDetailPage() {
   const deletePhase = useDeleteProjectPhase();
   const createTask = useCreateTask();
   const updateTask = useUpdateTaskInProject(projectId);
+  const reorderTasks = useReorderProjectTasks(projectId);
+  const reorderPhases = useReorderProjectPhases();
+  const moveTask = useMoveTask(projectId);
 
   // Initialize budget fields when project loads or modal opens
   React.useEffect(() => {
@@ -222,6 +268,102 @@ export default function ProjectDetailPage() {
   const handleTaskClick = (task: Task) => {
     setPeekTaskId(task.id);
     setIsPeekOpen(true);
+  };
+
+  // DnD handlers
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    setActiveId(active.id);
+
+    // Determine if dragging a phase or task
+    const isPhase = project?.phases?.some((p: any) => p.id === active.id);
+    setActiveType(isPhase ? 'phase' : 'task');
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveId(null);
+    setActiveType(null);
+
+    if (!over || active.id === over.id || !project) return;
+
+    const phases = project.phases || [];
+    const tasks = project.tasks || [];
+
+    // Check if dragging phases
+    const activePhase = phases.find((p: any) => p.id === active.id);
+    const overPhase = phases.find((p: any) => p.id === over.id);
+
+    if (activePhase && overPhase) {
+      // Reordering phases
+      const oldIndex = phases.findIndex((p: any) => p.id === active.id);
+      const newIndex = phases.findIndex((p: any) => p.id === over.id);
+
+      if (oldIndex !== newIndex) {
+        const newOrder = arrayMove(phases, oldIndex, newIndex);
+        await reorderPhases.mutateAsync({
+          projectId,
+          phaseIds: newOrder.map((p: any) => p.id),
+        });
+      }
+      return;
+    }
+
+    // Check if dragging tasks
+    const activeTask = tasks.find((t: any) => t.id === active.id);
+    if (!activeTask) return;
+
+    const overTask = tasks.find((t: any) => t.id === over.id);
+    const overPhaseForTask = phases.find((p: any) => p.id === over.id);
+
+    // Get source phase
+    const sourcePhaseId = activeTask.project_phase?.id || null;
+
+    if (overTask) {
+      const targetPhaseId = overTask.project_phase?.id || null;
+
+      if (sourcePhaseId === targetPhaseId) {
+        // Same phase reorder
+        const phaseTasks = tasks
+          .filter((t: any) => (t.project_phase?.id || null) === sourcePhaseId)
+          .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+
+        const oldIndex = phaseTasks.findIndex((t: any) => t.id === active.id);
+        const newIndex = phaseTasks.findIndex((t: any) => t.id === over.id);
+
+        if (oldIndex !== newIndex) {
+          const newOrder = arrayMove(phaseTasks, oldIndex, newIndex);
+          await reorderTasks.mutateAsync({
+            taskIds: newOrder.map((t: any) => t.id),
+            phaseId: sourcePhaseId,
+          });
+        }
+      } else {
+        // Moving to a different phase
+        const targetPhaseTasks = tasks
+          .filter((t: any) => (t.project_phase?.id || null) === targetPhaseId)
+          .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+
+        const targetIndex = targetPhaseTasks.findIndex((t: any) => t.id === over.id);
+
+        await moveTask.mutateAsync({
+          taskId: activeTask.id,
+          targetPhaseId: targetPhaseId,
+          sortOrder: targetIndex >= 0 ? targetIndex : targetPhaseTasks.length,
+        });
+      }
+    } else if (overPhaseForTask) {
+      // Dropping on a phase header - move to end of that phase
+      const targetPhaseTasks = tasks
+        .filter((t: any) => t.project_phase?.id === overPhaseForTask.id)
+        .length;
+
+      await moveTask.mutateAsync({
+        taskId: activeTask.id,
+        targetPhaseId: overPhaseForTask.id,
+        sortOrder: targetPhaseTasks,
+      });
+    }
   };
 
   if (isLoading) {
@@ -522,23 +664,23 @@ export default function ProjectDetailPage() {
                   (a, b) => (a.phase.sort_order || 0) - (b.phase.sort_order || 0)
                 );
 
-                // Build groups array for TaskList
+                // Build groups array for TaskList (sort tasks within each phase)
                 const groups: TaskListGroup<Task>[] = sortedPhases.map(({ phase, tasks }) => ({
                   id: phase.id,
                   title: phase.name,
                   icon: phase.icon ? getIconOption(phase.icon)?.emoji : undefined,
-                  tasks,
+                  tasks: [...tasks].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
                   collapsible: true,
                   // Store phase data in a custom property for the header renderer
                   ...({ _phase: phase } as any),
                 }));
 
-                // Add unphased tasks group if any
+                // Add unphased tasks group if any (also sorted)
                 if (unphased.length > 0) {
                   groups.push({
                     id: 'unphased',
                     title: `Other ${t('tasks')}`,
-                    tasks: unphased,
+                    tasks: [...unphased].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)),
                     collapsible: true,
                   });
                 }
@@ -574,129 +716,277 @@ export default function ProjectDetailPage() {
                   );
                 }
 
-                return (
-                  <TaskList
-                    groups={groups}
-                    columns={columns}
-                    onTaskClick={handleTaskClick}
-                    onTaskUpdate={handleTaskUpdate}
-                    showHeaders={true}
-                    renderGroupHeader={(group, isCollapsed, toggleCollapse) => {
-                      const completedTasks = group.tasks.filter(
-                        (t) => t.status === 'done' || t.status === 'abandoned'
-                      ).length;
-                      const progressPercent = group.tasks.length > 0
-                        ? (completedTasks / group.tasks.length) * 100
-                        : 0;
-                      const barWidth = maxTasks > 0 ? (group.tasks.length / maxTasks) * 100 : 0;
-                      const phase = (group as any)._phase;
+                // Sortable task wrapper component
+                const SortableTaskWrapper = ({ task, children }: { task: Task; children: React.ReactNode }) => {
+                  const {
+                    attributes,
+                    listeners,
+                    setNodeRef,
+                    transform,
+                    transition,
+                    isDragging,
+                  } = useSortable({ id: task.id, disabled: !isPmOrAdmin });
 
-                      return (
-                        <div className="flex items-center gap-2 p-3 bg-surface-alt border-b border-border">
-                          {/* Collapse toggle */}
+                  const style = {
+                    transform: CSS.Transform.toString(transform),
+                    transition,
+                  };
+
+                  return (
+                    <div
+                      ref={setNodeRef}
+                      style={style}
+                      className={cn('flex items-center group', isDragging && 'opacity-50 z-50')}
+                    >
+                      {isPmOrAdmin && (
+                        <button
+                          {...attributes}
+                          {...listeners}
+                          className="cursor-grab active:cursor-grabbing p-1 mr-1 hover:bg-surface-raised rounded opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                          tabIndex={-1}
+                        >
+                          <GripVertical className="h-4 w-4 text-text-sub" />
+                        </button>
+                      )}
+                      <div className="flex-1">{children}</div>
+                    </div>
+                  );
+                };
+
+                // Sortable phase header component
+                const SortablePhaseHeader = ({ phase, isCollapsed, toggleCollapse, maxTasks, completedTasks, progressPercent, barWidth }: any) => {
+                  const {
+                    attributes,
+                    listeners,
+                    setNodeRef,
+                    transform,
+                    transition,
+                    isDragging,
+                  } = useSortable({ id: phase.id, disabled: !isPmOrAdmin });
+
+                  const style = {
+                    transform: CSS.Transform.toString(transform),
+                    transition,
+                  };
+
+                  return (
+                    <div
+                      ref={setNodeRef}
+                      style={style}
+                      className={cn(
+                        'flex items-center gap-2 p-3 bg-surface-alt border-b border-border',
+                        isDragging && 'opacity-50 z-50'
+                      )}
+                    >
+                      {/* Phase drag handle - PM/Admin only */}
+                      {isPmOrAdmin && (
+                        <button
+                          {...attributes}
+                          {...listeners}
+                          className="cursor-grab active:cursor-grabbing p-1 hover:bg-surface rounded flex-shrink-0"
+                          tabIndex={-1}
+                        >
+                          <GripVertical className="h-4 w-4 text-text-sub" />
+                        </button>
+                      )}
+
+                      {/* Collapse toggle */}
+                      <button
+                        type="button"
+                        onClick={toggleCollapse}
+                        className="p-1 hover:bg-surface rounded flex-shrink-0"
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="h-4 w-4 text-text-sub" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 text-text-sub" />
+                        )}
+                      </button>
+
+                      {/* Icon Picker - PM/Admin only */}
+                      {isPmOrAdmin ? (
+                        <InlineIconPicker
+                          value={phase.icon || null}
+                          onChange={(icon) => handleUpdatePhaseIcon(phase.id, icon)}
+                          placeholder="📁"
+                        />
+                      ) : phase.icon ? (
+                        <span className="text-lg leading-none flex-shrink-0">{getIconOption(phase.icon)?.emoji}</span>
+                      ) : null}
+
+                      {/* Phase Name - editable or display */}
+                      {editingPhaseId === phase.id ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <Input
+                            value={editingPhaseName}
+                            onChange={(e) => setEditingPhaseName(e.target.value)}
+                            autoFocus
+                            className="h-8"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleUpdatePhaseName(phase.id);
+                              if (e.key === 'Escape') setEditingPhaseId(null);
+                            }}
+                          />
+                          <Button size="sm" onClick={() => handleUpdatePhaseName(phase.id)}>
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingPhaseId(null)}>
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
                           <button
                             type="button"
                             onClick={toggleCollapse}
-                            className="p-1 hover:bg-surface rounded flex-shrink-0"
+                            className="text-sm font-semibold text-text-main uppercase tracking-wide hover:text-primary transition-colors"
                           >
-                            {isCollapsed ? (
-                              <ChevronRight className="h-4 w-4 text-text-sub" />
-                            ) : (
-                              <ChevronDown className="h-4 w-4 text-text-sub" />
-                            )}
+                            {phase.name}
                           </button>
-
-                          {/* Icon Picker - PM/Admin only, phases only */}
-                          {phase && isPmOrAdmin ? (
-                            <InlineIconPicker
-                              value={phase.icon || null}
-                              onChange={(icon) => handleUpdatePhaseIcon(phase.id, icon)}
-                              placeholder="📁"
-                            />
-                          ) : group.icon ? (
-                            <span className="text-lg leading-none flex-shrink-0">{group.icon}</span>
-                          ) : null}
-
-                          {/* Phase Name - editable or display */}
-                          {phase && editingPhaseId === phase.id ? (
-                            <div className="flex items-center gap-2 flex-1">
-                              <Input
-                                value={editingPhaseName}
-                                onChange={(e) => setEditingPhaseName(e.target.value)}
-                                autoFocus
-                                className="h-8"
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleUpdatePhaseName(phase.id);
-                                  if (e.key === 'Escape') setEditingPhaseId(null);
-                                }}
-                              />
-                              <Button size="sm" onClick={() => handleUpdatePhaseName(phase.id)}>
-                                <Check className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="ghost" onClick={() => setEditingPhaseId(null)}>
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={toggleCollapse}
-                                className="text-sm font-semibold text-text-main uppercase tracking-wide hover:text-primary transition-colors"
-                              >
-                                {group.title}
-                              </button>
-                              {phase && isPmOrAdmin && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 opacity-50 hover:opacity-100"
-                                  onClick={() => {
-                                    setEditingPhaseId(phase.id);
-                                    setEditingPhaseName(phase.name);
-                                  }}
-                                >
-                                  <Pencil className="h-3 w-3" />
-                                </Button>
-                              )}
-                            </>
-                          )}
-
-                          {/* Task count */}
-                          <span className="text-xs text-text-sub ml-auto">
-                            {completedTasks}/{group.tasks.length}
-                          </span>
-
-                          {/* Progress bar */}
-                          <div className="w-24 h-2 bg-surface rounded-full overflow-hidden flex-shrink-0">
-                            <div
-                              className="h-full bg-surface-2 rounded-full relative"
-                              style={{ width: `${barWidth}%` }}
-                            >
-                              <div
-                                className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-300"
-                                style={{ width: `${progressPercent}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Delete button - PM/Admin only, phases only */}
-                          {phase && isPmOrAdmin && (
+                          {isPmOrAdmin && (
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-6 w-6 p-0 text-red-500 hover:text-red-600 opacity-50 hover:opacity-100 flex-shrink-0"
+                              className="h-6 w-6 p-0 opacity-50 hover:opacity-100"
                               onClick={() => {
-                                setDeletePhaseId(phase.id);
-                                setDeletePhaseName(phase.name);
+                                setEditingPhaseId(phase.id);
+                                setEditingPhaseName(phase.name);
                               }}
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Pencil className="h-3 w-3" />
                             </Button>
                           )}
+                        </>
+                      )}
+
+                      {/* Task count */}
+                      <span className="text-xs text-text-sub ml-auto">
+                        {completedTasks}/{phase.taskCount || 0}
+                      </span>
+
+                      {/* Progress bar */}
+                      <div className="w-24 h-2 bg-surface rounded-full overflow-hidden flex-shrink-0">
+                        <div
+                          className="h-full bg-surface-2 rounded-full relative"
+                          style={{ width: `${barWidth}%` }}
+                        >
+                          <div
+                            className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-300"
+                            style={{ width: `${progressPercent}%` }}
+                          />
                         </div>
-                      );
-                    }}
+                      </div>
+
+                      {/* Delete button - PM/Admin only */}
+                      {isPmOrAdmin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0 text-red-500 hover:text-red-600 opacity-50 hover:opacity-100 flex-shrink-0"
+                          onClick={() => {
+                            setDeletePhaseId(phase.id);
+                            setDeletePhaseName(phase.name);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
+                  );
+                };
+
+                // Get all task IDs for the current group's SortableContext
+                const getTaskIdsForGroup = (group: TaskListGroup<Task>) => {
+                  return group.tasks.map((t) => t.id);
+                };
+
+                return (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <TaskList
+                      groups={groups}
+                      columns={columns}
+                      onTaskClick={handleTaskClick}
+                      onTaskUpdate={handleTaskUpdate}
+                      showHeaders={true}
+                      wrapTask={(task, children) => (
+                        <SortableTaskWrapper task={task}>{children}</SortableTaskWrapper>
+                      )}
+                      wrapGroupContent={(group, children) => (
+                        <SortableContext
+                          items={getTaskIdsForGroup(group)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          {children}
+                        </SortableContext>
+                      )}
+                      renderGroupHeader={(group, isCollapsed, toggleCollapse) => {
+                        const completedTasks = group.tasks.filter(
+                          (t) => t.status === 'done' || t.status === 'abandoned'
+                        ).length;
+                        const progressPercent = group.tasks.length > 0
+                          ? (completedTasks / group.tasks.length) * 100
+                          : 0;
+                        const barWidth = maxTasks > 0 ? (group.tasks.length / maxTasks) * 100 : 0;
+                        const phase = (group as any)._phase;
+
+                        // For phases, use the SortablePhaseHeader
+                        if (phase) {
+                          return (
+                            <SortablePhaseHeader
+                              phase={{ ...phase, taskCount: group.tasks.length }}
+                              isCollapsed={isCollapsed}
+                              toggleCollapse={toggleCollapse}
+                              maxTasks={maxTasks}
+                              completedTasks={completedTasks}
+                              progressPercent={progressPercent}
+                              barWidth={barWidth}
+                            />
+                          );
+                        }
+
+                        // For unphased group, use a simple header (no drag handle)
+                        return (
+                          <div className="flex items-center gap-2 p-3 bg-surface-alt border-b border-border">
+                            <button
+                              type="button"
+                              onClick={toggleCollapse}
+                              className="p-1 hover:bg-surface rounded flex-shrink-0"
+                            >
+                              {isCollapsed ? (
+                                <ChevronRight className="h-4 w-4 text-text-sub" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4 text-text-sub" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={toggleCollapse}
+                              className="text-sm font-semibold text-text-main uppercase tracking-wide hover:text-primary transition-colors"
+                            >
+                              {group.title}
+                            </button>
+                            <span className="text-xs text-text-sub ml-auto">
+                              {completedTasks}/{group.tasks.length}
+                            </span>
+                            <div className="w-24 h-2 bg-surface rounded-full overflow-hidden flex-shrink-0">
+                              <div
+                                className="h-full bg-surface-2 rounded-full relative"
+                                style={{ width: `${barWidth}%` }}
+                              >
+                                <div
+                                  className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-300"
+                                  style={{ width: `${progressPercent}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }}
                     renderGroupFooter={(group) => {
                       const phase = (group as any)._phase;
                       if (!isPmOrAdmin || !phase) return null;
@@ -753,6 +1043,25 @@ export default function ProjectDetailPage() {
                       );
                     }}
                   />
+
+                    {/* Drag Overlay for visual feedback */}
+                    <DragOverlay>
+                      {activeId && activeType === 'phase' && (
+                        <div className="bg-surface border border-primary rounded-lg p-3 shadow-lg opacity-90">
+                          <span className="font-medium">
+                            {(project.phases || []).find((p: any) => p.id === activeId)?.name}
+                          </span>
+                        </div>
+                      )}
+                      {activeId && activeType === 'task' && (
+                        <div className="bg-surface border border-primary rounded-lg p-3 shadow-lg opacity-90">
+                          <span className="font-medium">
+                            {(project.tasks || []).find((t: any) => t.id === activeId)?.title}
+                          </span>
+                        </div>
+                      )}
+                    </DragOverlay>
+                  </DndContext>
                 );
               })()}
             </CardContent>

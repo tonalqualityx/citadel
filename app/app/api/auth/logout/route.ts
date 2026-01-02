@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { deleteSession } from '@/lib/auth/jwt';
+import { verifyRefreshToken, deleteUserSessions } from '@/lib/auth/jwt';
 import { handleApiError } from '@/lib/api/errors';
 
 export async function POST() {
@@ -9,7 +9,12 @@ export async function POST() {
     const refreshToken = cookieStore.get('refresh_token')?.value;
 
     if (refreshToken) {
-      await deleteSession(refreshToken);
+      try {
+        const payload = await verifyRefreshToken(refreshToken);
+        await deleteUserSessions(payload.userId);
+      } catch {
+        // Token invalid/expired, but we still clear cookies below
+      }
     }
 
     const response = NextResponse.json({ success: true });

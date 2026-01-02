@@ -61,6 +61,12 @@ export interface TaskListProps<T extends TaskLike = TaskLike> {
     toggleCollapse: () => void
   ) => React.ReactNode;
   renderGroupFooter?: (group: TaskListGroup<T>) => React.ReactNode;
+
+  // Wrapper for task rows (e.g., for drag-and-drop)
+  wrapTask?: (task: T, children: React.ReactNode) => React.ReactNode;
+
+  // Wrapper for group content (e.g., for SortableContext)
+  wrapGroupContent?: (group: TaskListGroup<T>, children: React.ReactNode) => React.ReactNode;
 }
 
 // ============================================
@@ -81,6 +87,8 @@ export function TaskList<T extends TaskLike = TaskLike>({
   isLoading = false,
   renderGroupHeader,
   renderGroupFooter,
+  wrapTask,
+  wrapGroupContent,
 }: TaskListProps<T>) {
   const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => {
     const initial = new Set<string>();
@@ -115,9 +123,8 @@ export function TaskList<T extends TaskLike = TaskLike>({
       onTaskUpdate?.(task.id, updates);
     };
 
-    return (
+    const rowContent = (
       <div
-        key={task.id}
         data-task-row
         className={cn(
           'grid items-center gap-4 px-4 py-3 border-b border-border',
@@ -142,6 +149,13 @@ export function TaskList<T extends TaskLike = TaskLike>({
         ))}
       </div>
     );
+
+    // Wrap in custom wrapper if provided (e.g., for drag-and-drop)
+    if (wrapTask) {
+      return <React.Fragment key={task.id}>{wrapTask(task, rowContent)}</React.Fragment>;
+    }
+
+    return <React.Fragment key={task.id}>{rowContent}</React.Fragment>;
   };
 
   // Render group header (default implementation)
@@ -220,6 +234,18 @@ export function TaskList<T extends TaskLike = TaskLike>({
           {groups.map((group) => {
             const isCollapsed = collapsedGroups.has(group.id);
 
+            const tasksContent = (
+              <div>
+                {group.tasks.length === 0 ? (
+                  <div className="px-4 py-4 text-sm text-text-sub italic border-b border-border">
+                    No tasks in this group
+                  </div>
+                ) : (
+                  group.tasks.map((task) => renderRow(task))
+                )}
+              </div>
+            );
+
             return (
               <div key={group.id}>
                 {renderGroupHeader
@@ -227,15 +253,9 @@ export function TaskList<T extends TaskLike = TaskLike>({
                   : defaultRenderGroupHeader(group)}
                 {!isCollapsed && (
                   <>
-                    <div>
-                      {group.tasks.length === 0 ? (
-                        <div className="px-4 py-4 text-sm text-text-sub italic border-b border-border">
-                          No tasks in this group
-                        </div>
-                      ) : (
-                        group.tasks.map((task) => renderRow(task))
-                      )}
-                    </div>
+                    {wrapGroupContent
+                      ? wrapGroupContent(group, tasksContent)
+                      : tasksContent}
                     {renderGroupFooter && renderGroupFooter(group)}
                   </>
                 )}

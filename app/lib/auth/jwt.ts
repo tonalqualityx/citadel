@@ -36,25 +36,49 @@ export async function verifyRefreshToken(token: string): Promise<TokenPayload> {
   return payload as TokenPayload;
 }
 
-export async function createSession(userId: string, refreshToken: string): Promise<void> {
+export async function createOrUpdateSession(userId: string, refreshToken: string): Promise<void> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
-  await prisma.session.create({
-    data: {
-      user_id: userId,
-      refresh_token: refreshToken,
-      expires_at: expiresAt,
-    },
+  // Upsert: create new session or update existing one for this user
+  // This allows multiple tabs to share the same session
+  const existingSession = await prisma.session.findFirst({
+    where: { user_id: userId },
   });
+
+  if (existingSession) {
+    await prisma.session.update({
+      where: { id: existingSession.id },
+      data: {
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
+      },
+    });
+  } else {
+    await prisma.session.create({
+      data: {
+        user_id: userId,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
+      },
+    });
+  }
 }
 
-export async function deleteSession(refreshToken: string): Promise<void> {
+export async function deleteUserSessions(userId: string): Promise<void> {
   await prisma.session.deleteMany({
-    where: { refresh_token: refreshToken },
+    where: { user_id: userId },
   });
 }
 
+export async function findSessionByUser(userId: string) {
+  return prisma.session.findFirst({
+    where: { user_id: userId },
+    include: { user: true },
+  });
+}
+
+// Legacy function for backwards compatibility during transition
 export async function findSession(refreshToken: string) {
   return prisma.session.findUnique({
     where: { refresh_token: refreshToken },

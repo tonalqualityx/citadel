@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db/prisma';
-import { signAccessToken, signRefreshToken, createSession } from '@/lib/auth/jwt';
+import { signAccessToken, signRefreshToken, createOrUpdateSession } from '@/lib/auth/jwt';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
 
@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
     const accessToken = await signAccessToken(tokenPayload);
     const refreshToken = await signRefreshToken(tokenPayload);
 
-    // Store session
-    await createSession(user.id, refreshToken);
+    // Store session (creates new or updates existing for this user)
+    await createOrUpdateSession(user.id, refreshToken);
 
     // Update last login
     await prisma.user.update({

@@ -55,6 +55,23 @@
   background-color: var(--surface-2, #f5f5f4);
   border-radius: 6px;
   padding: 0.75rem 1rem;
+  color: var(--text-main);
+}
+
+.blocknote-wrapper pre code {
+  color: inherit;
+}
+
+/* Code block dark mode */
+.theme-dark .blocknote-wrapper pre,
+.theme-dim .blocknote-wrapper pre {
+  background-color: #1c1917;
+  color: #e7e5e4;
+}
+
+.theme-dark .blocknote-wrapper pre code,
+.theme-dim .blocknote-wrapper pre code {
+  color: #e7e5e4;
 }
 
 /* Checkboxes - style to match your task checkboxes */
@@ -138,5 +155,14 @@
 
   :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper blockquote {
     color: var(--text-sub, #a8a29e);
+  }
+
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper pre {
+    background-color: #1c1917;
+    color: #e7e5e4;
+  }
+
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper pre code {
+    color: #e7e5e4;
   }
 }

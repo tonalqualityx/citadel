@@ -526,6 +526,7 @@ export default function QuestDetailPage() {
             </CardHeader>
             <CardContent>
               <RichTextEditor
+                key={`desc-${taskId}`}
                 content={task.description}
                 onChange={(description) => save({ description })}
                 placeholder="Add a description..."
@@ -600,7 +601,7 @@ export default function QuestDetailPage() {
                   )}
                   {task.sop.content ? (
                     <div className="bg-surface-2 rounded-lg p-4 border border-border">
-                      <RichTextRenderer content={task.sop.content} />
+                      <RichTextRenderer key={`sop-${task.sop.id}`} content={task.sop.content} />
                     </div>
                   ) : (
                     <p className="text-text-sub italic">No rune content available</p>
@@ -617,6 +618,7 @@ export default function QuestDetailPage() {
             </CardHeader>
             <CardContent>
               <RichTextEditor
+                key={`notes-${taskId}`}
                 content={task.notes}
                 onChange={(notes) => save({ notes })}
                 placeholder="Add notes..."

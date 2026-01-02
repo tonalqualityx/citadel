@@ -330,8 +330,36 @@ export function useReorderProjectPhases() {
   return useMutation({
     mutationFn: ({ projectId, phaseIds }: { projectId: string; phaseIds: string[] }) =>
       apiClient.patch(`/projects/${projectId}/phases`, { phase_ids: phaseIds }),
-    onSuccess: (_, { projectId }) => {
-      queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
+    onMutate: async ({ projectId, phaseIds }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: projectKeys.detail(projectId) });
+
+      // Snapshot the previous value
+      const previousProject = queryClient.getQueryData(projectKeys.detail(projectId));
+
+      // Optimistically update phase order
+      queryClient.setQueryData(projectKeys.detail(projectId), (old: any) => {
+        if (!old || !old.phases) return old;
+        return {
+          ...old,
+          phases: old.phases.map((phase: any) => {
+            const newIndex = phaseIds.indexOf(phase.id);
+            if (newIndex !== -1) {
+              return { ...phase, sort_order: newIndex };
+            }
+            return phase;
+          }),
+        };
+      });
+
+      return { previousProject, projectId };
     },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousProject && context?.projectId) {
+        queryClient.setQueryData(projectKeys.detail(context.projectId), context.previousProject);
+      }
+    },
+    // Don't invalidate on success - optimistic update is sufficient
   });
 }

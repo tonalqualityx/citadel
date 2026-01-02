@@ -473,6 +473,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 <h4 className="text-sm font-medium text-text-main mb-2">Description</h4>
                 <div className="text-sm bg-surface-alt p-3 rounded-lg border border-border">
                   <RichTextEditor
+                    key={`desc-${taskId}`}
                     content={task.description}
                     onChange={(description) => saveImmediate({ description })}
                     placeholder="Add a description..."
@@ -552,7 +553,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                       )}
                       {task.sop.content ? (
                         <div className="text-sm">
-                          <RichTextRenderer content={task.sop.content} />
+                          <RichTextRenderer key={`sop-${task.sop.id}`} content={task.sop.content} />
                         </div>
                       ) : (
                         <p className="text-sm text-text-sub italic">No content</p>
@@ -614,7 +615,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 <div>
                   <h4 className="text-sm font-medium text-text-main mb-2">Notes</h4>
                   <div className="text-sm text-text-sub bg-surface-alt p-3 rounded-lg">
-                    <RichTextRenderer content={task.notes} />
+                    <RichTextRenderer key={`notes-${taskId}`} content={task.notes} />
                   </div>
                 </div>
               )}

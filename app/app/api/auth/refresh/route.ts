@@ -4,9 +4,8 @@ import {
   verifyRefreshToken,
   signAccessToken,
   signRefreshToken,
-  findSession,
-  deleteSession,
-  createSession,
+  findSessionByUser,
+  createOrUpdateSession,
 } from '@/lib/auth/jwt';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 
@@ -19,9 +18,11 @@ export async function POST() {
       throw new ApiError('Refresh token required', 401);
     }
 
-    // Verify token and find session
-    await verifyRefreshToken(refreshToken);
-    const session = await findSession(refreshToken);
+    // Verify token to get user ID
+    const tokenPayload = await verifyRefreshToken(refreshToken);
+
+    // Find session by user ID (allows multiple tabs to share session)
+    const session = await findSessionByUser(tokenPayload.userId);
 
     if (!session || session.expires_at < new Date()) {
       throw new ApiError('Invalid or expired session', 401);
@@ -32,18 +33,17 @@ export async function POST() {
     }
 
     // Generate new tokens
-    const tokenPayload = {
+    const newTokenPayload = {
       userId: session.user.id,
       email: session.user.email,
       role: session.user.role,
     };
 
-    const newAccessToken = await signAccessToken(tokenPayload);
-    const newRefreshToken = await signRefreshToken(tokenPayload);
+    const newAccessToken = await signAccessToken(newTokenPayload);
+    const newRefreshToken = await signRefreshToken(newTokenPayload);
 
-    // Rotate refresh token
-    await deleteSession(refreshToken);
-    await createSession(session.user.id, newRefreshToken);
+    // Update session with new refresh token (not rotate/delete)
+    await createOrUpdateSession(session.user.id, newRefreshToken);
 
     const response = NextResponse.json({ success: true });
 

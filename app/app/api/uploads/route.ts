@@ -3,6 +3,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { requireAuth } from '@/lib/auth/middleware';
+import { uploadToS3, isS3Configured } from '@/lib/services/s3';
 
 // Allowed file types
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -47,26 +48,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = join(process.cwd(), 'public', 'uploads');
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-
     // Generate unique filename
     const timestamp = Date.now();
     const randomStr = Math.random().toString(36).substring(2, 8);
     const extension = file.name.split('.').pop() || 'bin';
     const filename = `${timestamp}-${randomStr}.${extension}`;
 
-    // Write file
+    // Get file buffer
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const filepath = join(uploadsDir, filename);
-    await writeFile(filepath, buffer);
 
-    // Return the URL
-    const url = `/uploads/${filename}`;
+    let url: string;
+
+    // Use S3 in production, local storage in development
+    if (isS3Configured()) {
+      url = await uploadToS3(buffer, filename, file.type);
+    } else {
+      // Fallback to local storage (development only)
+      const uploadsDir = join(process.cwd(), 'public', 'uploads');
+      if (!existsSync(uploadsDir)) {
+        await mkdir(uploadsDir, { recursive: true });
+      }
+      const filepath = join(uploadsDir, filename);
+      await writeFile(filepath, buffer);
+      url = `/uploads/${filename}`;
+    }
 
     return NextResponse.json({ url });
   } catch (error) {

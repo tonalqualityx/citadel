@@ -371,3 +371,130 @@ export function useToggleRequirement() {
     },
   });
 }
+
+// Reorder tasks within a phase (or unphased tasks)
+export function useReorderProjectTasks(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ taskIds, phaseId }: { taskIds: string[]; phaseId: string | null }) =>
+      apiClient.patch(`/projects/${projectId}/tasks/reorder`, {
+        task_ids: taskIds,
+        phase_id: phaseId,
+      }),
+    onMutate: async ({ taskIds, phaseId }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: projectKeys.detail(projectId) });
+
+      // Snapshot the previous value
+      const previousProject = queryClient.getQueryData(projectKeys.detail(projectId));
+
+      // Optimistically update task order within the project
+      queryClient.setQueryData(projectKeys.detail(projectId), (old: any) => {
+        if (!old || !old.tasks) return old;
+        return {
+          ...old,
+          tasks: old.tasks.map((task: any) => {
+            // Check phase match using project_phase relationship
+            const taskPhaseId = task.project_phase?.id || null;
+            const newIndex = taskIds.indexOf(task.id);
+            if (newIndex !== -1 && taskPhaseId === phaseId) {
+              return { ...task, sort_order: newIndex };
+            }
+            return task;
+          }),
+        };
+      });
+
+      return { previousProject };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousProject) {
+        queryClient.setQueryData(projectKeys.detail(projectId), context.previousProject);
+      }
+    },
+    // Don't invalidate on success - optimistic update is sufficient
+    // Only invalidate on error (handled above via rollback)
+  });
+}
+
+
+// Move a task to a different phase (or to unphased)
+export function useMoveTask(projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      taskId,
+      targetPhaseId,
+      sortOrder,
+    }: {
+      taskId: string;
+      targetPhaseId: string | null;
+      sortOrder: number;
+    }) =>
+      apiClient.patch(`/tasks/${taskId}/move`, {
+        target_phase_id: targetPhaseId,
+        sort_order: sortOrder,
+      }),
+    onMutate: async ({ taskId, targetPhaseId, sortOrder }) => {
+      await queryClient.cancelQueries({ queryKey: projectKeys.detail(projectId) });
+
+      const previousProject = queryClient.getQueryData(projectKeys.detail(projectId));
+
+      queryClient.setQueryData(projectKeys.detail(projectId), (old: any) => {
+        if (!old || !old.tasks) return old;
+
+        // Find the task being moved
+        const movingTask = old.tasks.find((t: any) => t.id === taskId);
+        if (!movingTask) return old;
+
+        const sourcePhaseId = movingTask.project_phase?.id || null;
+
+        // Find the target phase object (if moving to a phase)
+        const targetPhase = targetPhaseId
+          ? old.phases?.find((p: any) => p.id === targetPhaseId)
+          : null;
+
+        // Build updated tasks array with proper sort order adjustments
+        const updatedTasks = old.tasks.map((task: any) => {
+          const taskPhaseId = task.project_phase?.id || null;
+
+          if (task.id === taskId) {
+            // The task being moved - update phase and sort order
+            return {
+              ...task,
+              project_phase: targetPhase ? { id: targetPhase.id, name: targetPhase.name, icon: targetPhase.icon } : null,
+              phase_id: targetPhaseId,
+              sort_order: sortOrder,
+            };
+          }
+
+          // Adjust sort orders for tasks in source phase (close the gap)
+          if (taskPhaseId === sourcePhaseId && task.sort_order > movingTask.sort_order) {
+            return { ...task, sort_order: task.sort_order - 1 };
+          }
+
+          // Adjust sort orders for tasks in target phase (make room)
+          if (taskPhaseId === targetPhaseId && task.sort_order >= sortOrder) {
+            return { ...task, sort_order: task.sort_order + 1 };
+          }
+
+          return task;
+        });
+
+        return { ...old, tasks: updatedTasks };
+      });
+
+      return { previousProject };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousProject) {
+        queryClient.setQueryData(projectKeys.detail(projectId), context.previousProject);
+      }
+    },
+    // Don't invalidate on success - optimistic update handles it
+  });
+}
