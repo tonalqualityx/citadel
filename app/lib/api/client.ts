@@ -86,8 +86,8 @@ class ApiClient {
     return this.request<T>('PUT', endpoint, data, config);
   }
 
-  delete<T>(endpoint: string, config?: RequestConfig): Promise<T> {
-    return this.request<T>('DELETE', endpoint, undefined, config);
+  delete<T>(endpoint: string, data?: unknown, config?: RequestConfig): Promise<T> {
+    return this.request<T>('DELETE', endpoint, data, config);
   }
 }
 

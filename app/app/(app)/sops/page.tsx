@@ -3,9 +3,10 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, FileText } from 'lucide-react';
-import { useSops } from '@/lib/hooks/use-sops';
+import { Plus, FileText, Pencil, Trash2, X } from 'lucide-react';
+import { useSops, useBulkDeleteSops } from '@/lib/hooks/use-sops';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,6 +14,9 @@ import { DataTable, Column } from '@/components/ui/data-table';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
+import { BulkEditSopsModal } from '@/components/domain/sops/bulk-edit-modal';
+import { showToast } from '@/lib/hooks/use-toast';
 
 interface Sop {
   id: string;
@@ -26,10 +30,35 @@ interface Sop {
 export default function SopsPage() {
   const router = useRouter();
   const { t } = useTerminology();
+  const { isAdmin } = useAuth();
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+  const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
 
   const { data, isLoading, error } = useSops({ page, search: search || undefined });
+  const bulkDelete = useBulkDeleteSops();
+
+  // Clear selection when page or search changes
+  React.useEffect(() => {
+    setSelectedIds([]);
+  }, [page, search]);
+
+  const handleBulkEditSuccess = () => {
+    setSelectedIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      const result = await bulkDelete.mutateAsync(selectedIds);
+      showToast.success(`Deleted ${result.deleted} ${t('sops').toLowerCase()}`);
+      setSelectedIds([]);
+      setIsDeleteConfirmOpen(false);
+    } catch (error) {
+      showToast.apiError(error, 'Failed to delete SOPs');
+    }
+  };
 
   const columns: Column<Sop>[] = [
     {
@@ -117,6 +146,41 @@ export default function SopsPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk Action Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <span className="text-sm font-medium text-text-main">
+            {selectedIds.length} {t('sops').toLowerCase()} selected
+          </span>
+          <div className="flex-1" />
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsBulkEditOpen(true)}
+          >
+            <Pencil className="h-4 w-4 mr-1.5" />
+            Edit
+          </Button>
+          {isAdmin && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setIsDeleteConfirmOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Delete
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedIds([])}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
@@ -144,10 +208,51 @@ export default function SopsPage() {
               totalPages={data?.pagination?.total_pages || 1}
               total={data?.pagination?.total}
               onPageChange={setPage}
+              selectable
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
             />
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk Edit Modal */}
+      <BulkEditSopsModal
+        open={isBulkEditOpen}
+        onOpenChange={setIsBulkEditOpen}
+        selectedIds={selectedIds}
+        onSuccess={handleBulkEditSuccess}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <Modal open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <ModalContent size="sm">
+          <ModalHeader>
+            <ModalTitle>Delete {selectedIds.length} {t('sops')}?</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-text-sub mb-4">
+              This will mark the selected {t('sops').toLowerCase()} as inactive.
+              They can be restored later if needed.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setIsDeleteConfirmOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={bulkDelete.isPending}
+              >
+                {bulkDelete.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

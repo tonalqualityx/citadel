@@ -177,3 +177,43 @@ export function useSopsByFunction(functionId: string | null) {
     enabled: !!functionId,
   });
 }
+
+// Bulk operations
+export interface BulkUpdateSopsInput {
+  is_active?: boolean;
+  function_id?: string | null;
+  energy_estimate?: number | null;
+  battery_impact?: 'average_drain' | 'high_drain' | 'energizing';
+}
+
+export function useBulkUpdateSops() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      sop_ids,
+      data,
+    }: {
+      sop_ids: string[];
+      data: BulkUpdateSopsInput;
+    }): Promise<{ success: boolean; updated: number }> => {
+      return apiClient.patch('/sops/bulk', { sop_ids, data });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sops'] });
+    },
+  });
+}
+
+export function useBulkDeleteSops() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (sop_ids: string[]): Promise<{ success: boolean; deleted: number }> => {
+      return apiClient.delete('/sops/bulk', { sop_ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sops'] });
+    },
+  });
+}

@@ -123,7 +123,7 @@ export function useDashboard() {
   return useQuery({
     queryKey: ['dashboard'],
     queryFn: () => apiClient.get<DashboardData>('/dashboard'),
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 }
 
@@ -218,7 +218,7 @@ export function useTimeclockIssues() {
   return useQuery({
     queryKey: ['dashboard', 'timeclock-issues'],
     queryFn: () => apiClient.get<TimeclockIssuesData>('/dashboard/timeclock-issues'),
-    refetchInterval: 60000, // Refresh every minute
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 }
 

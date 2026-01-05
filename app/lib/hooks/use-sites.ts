@@ -96,3 +96,45 @@ export function useDeleteSite() {
     },
   });
 }
+
+export interface BulkUpdateSitesInput {
+  client_id?: string;
+  hosted_by?: 'indelible' | 'client' | 'other';
+  hosting_plan_id?: string | null;
+  maintenance_plan_id?: string | null;
+  maintenance_assignee_id?: string | null;
+}
+
+export function useBulkUpdateSites() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      site_ids,
+      data,
+    }: {
+      site_ids: string[];
+      data: BulkUpdateSitesInput;
+    }): Promise<{ success: boolean; updated: number }> => {
+      return apiClient.patch('/sites/bulk', { site_ids, data });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: siteKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+    },
+  });
+}
+
+export function useBulkDeleteSites() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (site_ids: string[]): Promise<{ success: boolean; deleted: number }> => {
+      return apiClient.delete('/sites/bulk', { site_ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: siteKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+    },
+  });
+}
