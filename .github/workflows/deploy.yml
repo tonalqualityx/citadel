@@ -30,6 +30,17 @@ jobs:
         env:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
 
+      - name: Clean remote directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo rm -rf /var/www/citadel/app/.next
+            sudo mkdir -p /var/www/citadel/app
+            sudo chown -R ubuntu:ubuntu /var/www/citadel
+
       - name: Deploy to server
         uses: appleboy/scp-action@v0.1.7
         with:
