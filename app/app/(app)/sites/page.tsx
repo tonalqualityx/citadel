@@ -12,6 +12,8 @@ import { SearchInput } from '@/components/ui/search-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import { InlineUserSelect } from '@/components/ui/user-select';
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
+import { SiteForm } from '@/components/domain/site-form';
 
 interface Site {
   id: string;
@@ -27,12 +29,17 @@ export default function SitesPage() {
   const { t } = useTerminology();
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
+  const [isCreateOpen, setIsCreateOpen] = React.useState(false);
 
   const { data, isLoading, error } = useSites({ page, search: search || undefined });
   const updateSite = useUpdateSite();
 
   const handleAssigneeChange = (siteId: string, assigneeId: string | null) => {
     updateSite.mutate({ id: siteId, data: { maintenance_assignee_id: assigneeId } });
+  };
+
+  const handleCreateSuccess = () => {
+    setIsCreateOpen(false);
   };
 
   const columns: Column<Site>[] = [
@@ -101,7 +108,7 @@ export default function SitesPage() {
           <h1 className="text-2xl font-semibold text-text-main">{t('sites')}</h1>
           <p className="text-text-sub">Manage websites and web properties</p>
         </div>
-        <Button>
+        <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           New {t('site')}
         </Button>
@@ -142,6 +149,21 @@ export default function SitesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Create Modal */}
+      <Modal open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <ModalContent size="lg">
+          <ModalHeader>
+            <ModalTitle>Create New {t('site')}</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <SiteForm
+              onSuccess={handleCreateSuccess}
+              onCancel={() => setIsCreateOpen(false)}
+            />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

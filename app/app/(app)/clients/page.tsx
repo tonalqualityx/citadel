@@ -13,6 +13,8 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Select } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
+import { ClientForm } from '@/components/domain/client-form';
 
 const statusOptions = [
   { value: 'active', label: 'Active' },
@@ -42,10 +44,15 @@ export default function ClientsPage() {
   const [status, setStatus] = React.useState('');
   const [type, setType] = React.useState('');
   const [page, setPage] = React.useState(1);
+  const [isCreateOpen, setIsCreateOpen] = React.useState(false);
 
   React.useEffect(() => {
     setPage(1);
   }, [search, status, type]);
+
+  const handleCreateSuccess = () => {
+    setIsCreateOpen(false);
+  };
 
   const { data, isLoading, error } = useClients({
     page,
@@ -135,7 +142,7 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-semibold text-text-main">{t('clients')}</h1>
           <p className="text-text-sub">Manage your client relationships</p>
         </div>
-        <Button>
+        <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           New {t('client')}
         </Button>
@@ -247,6 +254,21 @@ export default function ClientsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Create Modal */}
+      <Modal open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <ModalContent size="lg">
+          <ModalHeader>
+            <ModalTitle>Create New {t('client')}</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <ClientForm
+              onSuccess={handleCreateSuccess}
+              onCancel={() => setIsCreateOpen(false)}
+            />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
