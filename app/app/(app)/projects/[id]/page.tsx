@@ -44,6 +44,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   useProject,
+  useUpdateProject,
   useUpdateProjectStatus,
   useDeleteProject,
   useLockProjectBudget,
@@ -89,6 +90,7 @@ import { formatDuration } from '@/lib/calculations/energy';
 import { getIconOption } from '@/lib/config/icons';
 import { cn } from '@/lib/utils/cn';
 import { InlineIconPicker } from '@/components/ui/icon-picker';
+import { InlineDate } from '@/components/ui/inline-edit/inline-date';
 import { TaskList, type TaskListGroup } from '@/components/ui/task-list';
 import {
   titleColumn,
@@ -161,6 +163,7 @@ export default function ProjectDetailPage() {
   };
 
   const { data: project, isLoading, error } = useProject(projectId);
+  const updateProject = useUpdateProject();
   const updateStatus = useUpdateProjectStatus();
   const deleteProject = useDeleteProject();
   const lockBudget = useLockProjectBudget();
@@ -184,6 +187,10 @@ export default function ProjectDetailPage() {
 
   const handleStatusChange = async (newStatus: string) => {
     await updateStatus.mutateAsync({ id: projectId, status: newStatus });
+  };
+
+  const handleTargetDateChange = (date: string | null) => {
+    updateProject.mutate({ id: projectId, data: { target_date: date } });
   };
 
   const handleDelete = async () => {
@@ -548,11 +555,12 @@ export default function ProjectDetailPage() {
                 <Calendar className="h-5 w-5 text-green-500" />
               </div>
               <div>
-                <div className="text-2xl font-semibold text-text-main">
-                  {project.target_date
-                    ? new Date(project.target_date).toLocaleDateString()
-                    : '-'}
-                </div>
+                <InlineDate
+                  value={project.target_date}
+                  onChange={handleTargetDateChange}
+                  placeholder="Set target date..."
+                  className="text-xl font-semibold"
+                />
                 <div className="text-sm text-text-sub">Target Date</div>
               </div>
             </div>
