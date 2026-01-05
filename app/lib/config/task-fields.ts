@@ -23,6 +23,27 @@ export function getTaskStatusOption(value: string | null | undefined) {
 }
 
 // ============================================
+// PROJECT STATUS (workflow status)
+// ============================================
+
+export const PROJECT_STATUS_OPTIONS = [
+  { value: 'quote', label: 'Quote', color: 'text-slate-700', bg: 'bg-slate-100' },
+  { value: 'queue', label: 'Queue', color: 'text-blue-700', bg: 'bg-blue-100' },
+  { value: 'ready', label: 'Ready', color: 'text-cyan-700', bg: 'bg-cyan-100' },
+  { value: 'in_progress', label: 'In Progress', color: 'text-amber-700', bg: 'bg-amber-100' },
+  { value: 'review', label: 'Review', color: 'text-purple-700', bg: 'bg-purple-100' },
+  { value: 'done', label: 'Done', color: 'text-green-700', bg: 'bg-green-100' },
+  { value: 'suspended', label: 'Suspended', color: 'text-orange-700', bg: 'bg-orange-100' },
+  { value: 'cancelled', label: 'Cancelled', color: 'text-red-700', bg: 'bg-red-100' },
+] as const;
+
+export type ProjectStatusValue = (typeof PROJECT_STATUS_OPTIONS)[number]['value'];
+
+export function getProjectStatusOption(value: string | null | undefined) {
+  return PROJECT_STATUS_OPTIONS.find((o) => o.value === value) || PROJECT_STATUS_OPTIONS[0]; // Default: Quote
+}
+
+// ============================================
 // ACTIVE STATUS (for SOPs, etc.)
 // ============================================
 

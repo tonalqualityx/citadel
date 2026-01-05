@@ -10,6 +10,7 @@ import {
   MYSTERY_OPTIONS,
   BATTERY_OPTIONS,
   TASK_STATUS_OPTIONS,
+  PROJECT_STATUS_OPTIONS,
   PRIORITY_SELECT_OPTIONS,
   ENERGY_SELECT_OPTIONS,
   MYSTERY_SELECT_OPTIONS,
@@ -20,11 +21,13 @@ import {
   getMysteryOption,
   getBatteryOption,
   getTaskStatusOption,
+  getProjectStatusOption,
   type PriorityValue,
   type EnergyValue,
   type MysteryValue,
   type BatteryValue,
   type TaskStatusValue,
+  type ProjectStatusValue,
 } from '@/lib/config/task-fields';
 
 // ============================================
@@ -336,6 +339,80 @@ export function TaskStatusInlineSelect({ value, onChange, disabled }: TaskStatus
 }
 
 // ============================================
+// PROJECT STATUS SELECT COMPONENTS (workflow status)
+// ============================================
+
+interface ProjectStatusInlineSelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  validStatuses?: string[]; // Only show these options (for transition restrictions)
+}
+
+export function ProjectStatusInlineSelect({ value, onChange, disabled, validStatuses }: ProjectStatusInlineSelectProps) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const currentOption = getProjectStatusOption(value);
+  const displayColor = currentOption.color || 'text-text-main';
+  const displayBg = currentOption.bg || 'bg-surface-alt';
+
+  // Filter options to only valid transitions, or all if not specified
+  const availableOptions = validStatuses
+    ? PROJECT_STATUS_OPTIONS.filter((o) => o.value === value || validStatuses.includes(o.value))
+    : PROJECT_STATUS_OPTIONS;
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`flex items-center gap-1 transition-opacity text-left ${
+          disabled ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'
+        }`}
+      >
+        <span className={`text-sm font-medium px-2.5 py-0.5 rounded-full ${displayColor} ${displayBg}`}>
+          {currentOption.label}
+        </span>
+        {!disabled && <ChevronDown className="h-3 w-3 text-text-sub" />}
+      </button>
+      {isOpen && !disabled && (
+        <div className="absolute z-50 mt-1 w-48 bg-surface border border-border rounded-lg shadow-lg py-2 px-2 space-y-1">
+          {availableOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                if (option.value !== value) {
+                  onChange(option.value);
+                }
+                setIsOpen(false);
+              }}
+              className={`w-full text-left px-2.5 py-1 text-sm rounded-full transition-opacity hover:opacity-80 ${
+                option.value === value ? 'ring-2 ring-primary ring-offset-1' : ''
+              } ${option.color || ''} ${option.bg || 'bg-surface-alt'}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // RE-EXPORT CONFIG FOR CONVENIENCE
 // ============================================
 
@@ -346,13 +423,16 @@ export {
   MYSTERY_OPTIONS,
   BATTERY_OPTIONS,
   TASK_STATUS_OPTIONS,
+  PROJECT_STATUS_OPTIONS,
   getStatusOption,
   getPriorityOption,
   getEnergyOption,
   getMysteryOption,
   getBatteryOption,
   getTaskStatusOption,
+  getProjectStatusOption,
   calculateTimeRange,
   formatMinutes,
   type TaskStatusValue,
+  type ProjectStatusValue,
 } from '@/lib/config/task-fields';

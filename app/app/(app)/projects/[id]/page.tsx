@@ -62,7 +62,6 @@ import { SopSelector } from '@/components/domain/recipes/sop-selector';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Spinner } from '@/components/ui/spinner';
@@ -83,10 +82,9 @@ import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import {
-  getProjectStatusLabel,
-  getProjectStatusVariant,
   getValidNextProjectStatuses,
 } from '@/lib/calculations/status';
+import { ProjectStatusInlineSelect } from '@/components/ui/field-selects';
 import { formatDuration } from '@/lib/calculations/energy';
 import { getIconOption } from '@/lib/config/icons';
 import { cn } from '@/lib/utils/cn';
@@ -410,9 +408,12 @@ export default function ProjectDetailPage() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-semibold text-text-main">{project.name}</h1>
-              <Badge variant={getProjectStatusVariant(project.status as any)}>
-                {getProjectStatusLabel(project.status as any)}
-              </Badge>
+              <ProjectStatusInlineSelect
+                value={project.status}
+                onChange={handleStatusChange}
+                disabled={updateStatus.isPending}
+                validStatuses={validNextStatuses}
+              />
             </div>
             <div className="flex items-center gap-4 mt-1 text-sm text-text-sub">
               {project.client && (
@@ -470,28 +471,6 @@ export default function ProjectDetailPage() {
                   </span>
                 )}
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Status Actions */}
-      {validNextStatuses.length > 0 && (
-        <Card>
-          <CardContent className="py-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-text-sub mr-2">Move to:</span>
-              {validNextStatuses.map((status) => (
-                <Button
-                  key={status}
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleStatusChange(status)}
-                  disabled={updateStatus.isPending}
-                >
-                  {getProjectStatusLabel(status)}
-                </Button>
-              ))}
             </div>
           </CardContent>
         </Card>
