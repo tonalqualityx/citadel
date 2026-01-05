@@ -161,6 +161,8 @@ function InlineText({ value, onChange, className = '', placeholder = 'Click to e
 interface TitleColumnOptions {
   editable?: boolean;
   showProject?: boolean;
+  /** Header text - defaults to 'Task'. Use t('task') from useTerminology for localized header */
+  header?: string;
 }
 
 interface EditableColumnOptions {
@@ -177,7 +179,7 @@ interface EditableColumnOptions {
 export function titleColumn(options?: TitleColumnOptions): TaskListColumn {
   return {
     key: 'title',
-    header: 'Quest',
+    header: options?.header ?? 'Task',
     width: 'minmax(200px, 2fr)',
     cell: (task, onUpdate) => (
       <div className="min-w-0">

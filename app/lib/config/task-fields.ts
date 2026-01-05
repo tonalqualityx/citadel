@@ -44,6 +44,21 @@ export function getProjectStatusOption(value: string | null | undefined) {
 }
 
 // ============================================
+// TASK TYPE (Ad-hoc vs Support)
+// ============================================
+
+export const TASK_TYPE_OPTIONS = [
+  { value: false, label: 'Ad-hoc', color: 'text-blue-700', bg: 'bg-blue-100' },
+  { value: true, label: 'Support', color: 'text-teal-700', bg: 'bg-teal-100' },
+] as const;
+
+export type TaskTypeValue = (typeof TASK_TYPE_OPTIONS)[number]['value'];
+
+export function getTaskTypeOption(isSupport: boolean | null | undefined) {
+  return TASK_TYPE_OPTIONS.find((o) => o.value === isSupport) || TASK_TYPE_OPTIONS[0]; // Default: Ad-hoc
+}
+
+// ============================================
 // ACTIVE STATUS (for SOPs, etc.)
 // ============================================
 

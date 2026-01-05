@@ -243,10 +243,15 @@ async function getPmDashboard(userId: string) {
     project: { status: { in: ACTIVE_PROJECT_STATUSES } },
   };
 
+  // My tasks: only from in_progress projects OR ad-hoc/support tasks
   const myTasksWhere = {
     is_deleted: false,
     assignee_id: userId,
     status: { notIn: INCOMPLETE_STATUSES },
+    OR: [
+      { project_id: null }, // Ad-hoc and support tasks
+      { project: { status: ProjectStatus.in_progress } }, // Only in_progress projects
+    ],
   };
 
   // Fetch all lists with counts in parallel

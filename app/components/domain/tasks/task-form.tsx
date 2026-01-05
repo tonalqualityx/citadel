@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { useCreateTask, useUpdateTask, Task } from '@/lib/hooks/use-tasks';
 import { useProjects } from '@/lib/hooks/use-projects';
 import { useClients } from '@/lib/hooks/use-clients';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useFunctions } from '@/lib/hooks/use-reference-data';
 import { useSops } from '@/lib/hooks/use-sops';
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,7 @@ const statusOptions = [
 
 export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFormProps) {
   const isEdit = !!task;
+  const { t } = useTerminology();
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
   const { data: projectsData, isLoading: projectsLoading } = useProjects({ limit: 100 });
@@ -185,13 +187,13 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
             label="Title"
             {...register('title')}
             error={errors.title?.message}
-            placeholder="Quest title"
+            placeholder={`${t('task')} title`}
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-text-main mb-1">
-            Pact
+            {t('project')}
           </label>
           {projectsLoading ? (
             <div className="h-10 flex items-center">
@@ -205,7 +207,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
                 const event = { target: { value, name: 'project_id' } };
                 register('project_id').onChange(event as any);
               }}
-              placeholder="Select pact..."
+              placeholder={`Select ${t('project').toLowerCase()}...`}
             />
           )}
         </div>
@@ -358,7 +360,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
             {...register('description')}
             className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-text-main placeholder:text-text-sub focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             rows={3}
-            placeholder="Quest description..."
+            placeholder={`${t('task')} description...`}
           />
         </div>
 
@@ -428,7 +430,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
           ) : isEdit ? (
             'Save Changes'
           ) : (
-            'Create Quest'
+            `Create ${t('task')}`
           )}
         </Button>
       </div>

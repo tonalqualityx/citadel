@@ -70,6 +70,10 @@ const DrawerContent = React.forwardRef<
       )}
       {...props}
     >
+      {/* Visually hidden description for accessibility */}
+      <DialogPrimitive.Description className="sr-only">
+        Side panel
+      </DialogPrimitive.Description>
       {children}
     </DialogPrimitive.Content>
   </DrawerPortal>

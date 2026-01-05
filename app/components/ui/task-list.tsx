@@ -125,6 +125,7 @@ export function TaskList<T extends TaskLike = TaskLike>({
 
     const rowContent = (
       <div
+        key={task.id}
         data-task-row
         className={cn(
           'grid items-center gap-4 px-4 py-3 border-b border-border',
@@ -152,10 +153,10 @@ export function TaskList<T extends TaskLike = TaskLike>({
 
     // Wrap in custom wrapper if provided (e.g., for drag-and-drop)
     if (wrapTask) {
-      return <React.Fragment key={task.id}>{wrapTask(task, rowContent)}</React.Fragment>;
+      return wrapTask(task, rowContent);
     }
 
-    return <React.Fragment key={task.id}>{rowContent}</React.Fragment>;
+    return rowContent;
   };
 
   // Render group header (default implementation)

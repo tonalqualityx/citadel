@@ -27,6 +27,7 @@ import {
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useTask, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { showToast } from '@/lib/hooks/use-toast';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { formatElapsedTime } from '@/lib/utils/time';
 import {
@@ -52,6 +53,7 @@ import {
   EnergyInlineSelect,
   MysteryInlineSelect,
   BatteryInlineSelect,
+  TaskTypeInlineSelect,
 } from '@/components/ui/field-selects';
 import { calculateTimeEstimates, formatMinutes } from '@/lib/config/task-fields';
 import { RichTextEditor, RichTextRenderer } from '@/components/ui/rich-text-editor';
@@ -147,6 +149,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
   const [isSopExpanded, setIsSopExpanded] = React.useState(false);
 
   const { user } = useAuth();
+  const { t } = useTerminology();
   const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
 
   const { data: task, isLoading } = useTask(taskId || '', {
@@ -311,6 +314,17 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                     />
                   </div>
                 </Tooltip>
+                {/* Task Type - only for non-project tasks, PM/Admin only */}
+                {!task.project && isPmOrAdmin && (
+                  <Tooltip content="Task Type">
+                    <div>
+                      <TaskTypeInlineSelect
+                        value={task.is_support || false}
+                        onChange={(is_support) => saveImmediate({ is_support })}
+                      />
+                    </div>
+                  </Tooltip>
+                )}
               </div>
 
               {/* Timer Action */}
@@ -332,7 +346,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                     className="w-full"
                   >
                     <Play className="h-4 w-4 mr-2" />
-                    {timer.isRunning ? 'Switch Timer to This Quest' : 'Start Timer'}
+                    {timer.isRunning ? `Switch Timer to This ${t('task')}` : 'Start Timer'}
                   </Button>
                 ) : null}
               </div>

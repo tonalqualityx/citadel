@@ -15,6 +15,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { useSearch, type SearchResult } from '@/lib/hooks/use-search';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 
 const typeIcons: Record<SearchResult['type'], React.ElementType> = {
   patron: Users,
@@ -26,15 +27,7 @@ const typeIcons: Record<SearchResult['type'], React.ElementType> = {
   tool: Wrench,
 };
 
-const typeLabels: Record<SearchResult['type'], string> = {
-  patron: 'Patron',
-  site: 'Site',
-  pact: 'Pact',
-  quest: 'Quest',
-  rune: 'Rune',
-  domain: 'Domain',
-  tool: 'Tool',
-};
+// Type labels are resolved dynamically in the component using useTerminology
 
 const typeColors: Record<SearchResult['type'], string> = {
   patron: 'text-amber-500',
@@ -48,9 +41,21 @@ const typeColors: Record<SearchResult['type'], string> = {
 
 export function CommandPalette() {
   const router = useRouter();
+  const { t } = useTerminology();
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const { query, setQuery, results, isLoading, clearSearch } = useSearch();
+
+  // Dynamic type labels based on terminology mode
+  const typeLabels: Record<SearchResult['type'], string> = {
+    patron: 'Patron',
+    site: 'Site',
+    pact: t('project'),
+    quest: t('task'),
+    rune: 'Rune',
+    domain: 'Domain',
+    tool: 'Tool',
+  };
 
   // Reset selection when results change
   useEffect(() => {

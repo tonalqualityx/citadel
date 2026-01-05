@@ -172,12 +172,13 @@ export async function PATCH(
         throw new ApiError('Project not found', 404);
       }
 
-      if (!canTransitionProjectStatus(existingProject.status, statusData.status)) {
-        throw new ApiError(
-          `Cannot transition from ${existingProject.status} to ${statusData.status}`,
-          400
-        );
-      }
+      // TODO:QUEUE_WORKFLOW - Re-enable status transition validation when queue workflow is implemented
+      // if (!canTransitionProjectStatus(existingProject.status, statusData.status)) {
+      //   throw new ApiError(
+      //     `Cannot transition from ${existingProject.status} to ${statusData.status}`,
+      //     400
+      //   );
+      // }
 
       const updateData: any = { status: statusData.status };
 

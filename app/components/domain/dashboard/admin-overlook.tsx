@@ -11,21 +11,18 @@ import {
   CheckCircle2,
   Timer,
   Users,
-  BarChart3,
-  Activity,
   ListTodo,
 } from 'lucide-react';
 import { AdminDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { DashboardSection } from './dashboard-section';
-import { StatCard } from './stat-card';
 import { ProjectQuickList } from './project-quick-list';
 import { RetainerAlert } from './retainer-alert';
 import { TimeclockIssues } from './timeclock-issues';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
-import { formatDuration } from '@/lib/calculations/energy';
 import { formatElapsedTime } from '@/lib/utils/time';
 import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
 import {
@@ -48,6 +45,7 @@ interface AdminOverlookProps {
 
 export function AdminOverlook({ data }: AdminOverlookProps) {
   const router = useRouter();
+  const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
@@ -149,38 +147,15 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
         </div>
       )}
 
-      {/* System Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Active Pacts"
-          value={data.systemStats.activeProjectCount}
-          icon={FolderKanban}
-        />
-        <StatCard
-          label="Open Quests"
-          value={data.systemStats.openTaskCount}
-          icon={Activity}
-        />
-        <StatCard
-          label="Active Users"
-          value={data.systemStats.activeUserCount}
-          icon={Users}
-        />
-        <StatCard
-          label="Time This Month"
-          value={formatDuration(data.systemStats.totalTimeThisMonthMinutes)}
-          icon={BarChart3}
-        />
-      </div>
-
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Tasks */}
         <div className="lg:col-span-2 space-y-6">
           {/* Focus Tasks */}
           <DashboardSection
-            title="Focus Quests"
+            title={`Focus ${t('tasks')}`}
             icon={Zap}
+            iconColor="text-amber-500"
             action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
             <TaskList<DashboardTask>
@@ -189,37 +164,41 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
-              emptyMessage="No focus tasks - check a task to add it to your focus list"
+              emptyMessage={`No focus ${t('tasks').toLowerCase()} - check a ${t('task').toLowerCase()} to add it to your focus list`}
               hasMore={data.focusTasks.hasMore}
               isLoading={isLoading('focusTasks')}
               onLoadMore={() => loadMore('focusTasks', data.focusTasks.items.length)}
             />
           </DashboardSection>
 
-          {/* Awaiting Review */}
-          <DashboardSection
-            title="Awaiting Review"
-            icon={CircleDot}
-            action={{ label: 'View All', href: '/tasks?pending_review=true' }}
-          >
-            <TaskList<DashboardTask>
-              tasks={data.awaitingReview.items}
-              columns={reviewColumns}
-              onTaskClick={handleTaskClick}
-              onTaskUpdate={handleTaskUpdate}
-              showHeaders={false}
-              emptyMessage="No tasks awaiting review"
-              hasMore={data.awaitingReview.hasMore}
-              isLoading={isLoading('awaitingReview')}
-              onLoadMore={() => loadMore('awaitingReview', data.awaitingReview.items.length)}
-            />
-          </DashboardSection>
+          {/* Awaiting Review - hidden when empty */}
+          {data.awaitingReview.items.length > 0 && (
+            <DashboardSection
+              title="Awaiting Review"
+              icon={CircleDot}
+              iconColor="text-purple-500"
+              action={{ label: 'View All', href: '/tasks?pending_review=true' }}
+            >
+              <TaskList<DashboardTask>
+                tasks={data.awaitingReview.items}
+                columns={reviewColumns}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                showHeaders={false}
+                emptyMessage="No tasks awaiting review"
+                hasMore={data.awaitingReview.hasMore}
+                isLoading={isLoading('awaitingReview')}
+                onLoadMore={() => loadMore('awaitingReview', data.awaitingReview.items.length)}
+              />
+            </DashboardSection>
+          )}
 
           {/* Unassigned Tasks - only show if there are unassigned tasks */}
           {data.unassignedTasks.items.length > 0 && (
             <DashboardSection
-              title="Unassigned Quests"
+              title={`Unassigned ${t('tasks')}`}
               icon={UserX}
+              iconColor="text-orange-500"
               action={{ label: 'View All', href: '/tasks?assignee=unassigned' }}
             >
               <TaskList<DashboardTask>
@@ -228,7 +207,7 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 showHeaders={false}
-                emptyMessage="All quests are assigned"
+                emptyMessage={`All ${t('tasks').toLowerCase()} are assigned`}
                 hasMore={data.unassignedTasks.hasMore}
                 isLoading={isLoading('unassignedTasks')}
                 onLoadMore={() => loadMore('unassignedTasks', data.unassignedTasks.items.length)}
@@ -236,37 +215,43 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
             </DashboardSection>
           )}
 
-          {/* My Tasks */}
-          <DashboardSection
-            title="My Quests"
-            icon={ListTodo}
-            action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
-          >
-            <TaskList<DashboardTask>
-              tasks={data.myTasks.items}
-              columns={myTasksColumns}
-              onTaskClick={handleTaskClick}
-              onTaskUpdate={handleTaskUpdate}
-              showHeaders={false}
-              emptyMessage="No tasks assigned to you"
-              hasMore={data.myTasks.hasMore}
-              isLoading={isLoading('myTasks')}
-              onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
-            />
-          </DashboardSection>
+          {/* My Tasks - hidden when empty */}
+          {data.myTasks.items.length > 0 && (
+            <DashboardSection
+              title={`My ${t('tasks')}`}
+              icon={ListTodo}
+              iconColor="text-blue-500"
+              action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+            >
+              <TaskList<DashboardTask>
+                tasks={data.myTasks.items}
+                columns={myTasksColumns}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                showHeaders={false}
+                emptyMessage={`No ${t('tasks').toLowerCase()} assigned to you`}
+                hasMore={data.myTasks.hasMore}
+                isLoading={isLoading('myTasks')}
+                onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
+              />
+            </DashboardSection>
+          )}
 
-          {/* All Active Projects */}
-          <DashboardSection
-            title="All Active Pacts"
-            icon={FolderKanban}
-            action={{ label: 'View All', href: '/projects' }}
-          >
-            <ProjectQuickList
-              projects={data.allActiveProjects}
-              emptyMessage="No active projects"
-              maxItems={10}
-            />
-          </DashboardSection>
+          {/* All Active Projects - hidden when empty */}
+          {data.allActiveProjects.length > 0 && (
+            <DashboardSection
+              title={`All Active ${t('projects')}`}
+              icon={FolderKanban}
+              iconColor="text-teal-500"
+              action={{ label: 'View All', href: '/projects' }}
+            >
+              <ProjectQuickList
+                projects={data.allActiveProjects}
+                emptyMessage="No active projects"
+                maxItems={10}
+              />
+            </DashboardSection>
+          )}
         </div>
 
         {/* Right Column - Team & Activity */}
@@ -276,14 +261,14 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
 
           {/* Retainer Alerts */}
           {data.retainerAlerts.length > 0 && (
-            <DashboardSection title="Retainer Alerts" icon={AlertTriangle}>
+            <DashboardSection title="Retainer Alerts" icon={AlertTriangle} iconColor="text-amber-500">
               <RetainerAlert alerts={data.retainerAlerts} />
             </DashboardSection>
           )}
 
-          {/* Team Utilization */}
-          <DashboardSection title="Team Utilization (This Week)" icon={Users}>
-            {data.teamUtilization.length > 0 ? (
+          {/* Team Utilization - hidden when empty */}
+          {data.teamUtilization.length > 0 && (
+            <DashboardSection title="Team Utilization (This Week)" icon={Users} iconColor="text-indigo-500">
               <div className="space-y-2">
                 {data.teamUtilization.map((user) => (
                   <div
@@ -304,29 +289,28 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-center py-4 text-text-sub">
-                No time logged this week
-              </p>
-            )}
-          </DashboardSection>
+            </DashboardSection>
+          )}
 
-          {/* My Projects */}
-          <DashboardSection
-            title="My Pacts"
-            icon={FolderKanban}
-            action={{ label: 'View All', href: '/projects' }}
-          >
-            <ProjectQuickList
-              projects={data.myProjects}
-              emptyMessage="No active projects"
-              maxItems={5}
-            />
-          </DashboardSection>
+          {/* My Projects - hidden when empty */}
+          {data.myProjects.length > 0 && (
+            <DashboardSection
+              title={`My ${t('projects')}`}
+              icon={FolderKanban}
+              iconColor="text-teal-500"
+              action={{ label: 'View All', href: '/projects' }}
+            >
+              <ProjectQuickList
+                projects={data.myProjects}
+                emptyMessage="No active projects"
+                maxItems={5}
+              />
+            </DashboardSection>
+          )}
 
-          {/* Recent Completions */}
-          <DashboardSection title="Recent Completions" icon={CheckCircle2}>
-            {data.recentCompletions.length > 0 ? (
+          {/* Recent Completions - hidden when empty */}
+          {data.recentCompletions.length > 0 && (
+            <DashboardSection title="Recent Completions" icon={CheckCircle2} iconColor="text-green-500">
               <div className="space-y-2">
                 {data.recentCompletions.map((task) => (
                   <div
@@ -350,12 +334,8 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-center py-4 text-text-sub">
-                No recent completions
-              </p>
-            )}
-          </DashboardSection>
+            </DashboardSection>
+          )}
         </div>
       </div>
 

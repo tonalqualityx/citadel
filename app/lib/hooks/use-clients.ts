@@ -56,10 +56,10 @@ export function useCreateClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
-      showToast.created('Pact');
+      showToast.created('Client');
     },
     onError: (error) => {
-      showToast.apiError(error, 'Failed to create pact');
+      showToast.apiError(error, 'Failed to create client');
     },
   });
 }
@@ -80,10 +80,10 @@ export function useUpdateClient() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: clientKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
-      showToast.updated('Pact');
+      showToast.updated('Client');
     },
     onError: (error) => {
-      showToast.apiError(error, 'Failed to update pact');
+      showToast.apiError(error, 'Failed to update client');
     },
   });
 }
@@ -97,10 +97,10 @@ export function useDeleteClient() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
-      showToast.deleted('Pact');
+      showToast.deleted('Client');
     },
     onError: (error) => {
-      showToast.apiError(error, 'Failed to delete pact');
+      showToast.apiError(error, 'Failed to delete client');
     },
   });
 }

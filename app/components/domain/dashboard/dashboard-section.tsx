@@ -8,6 +8,8 @@ import { LucideIcon } from 'lucide-react';
 interface DashboardSectionProps {
   title: string;
   icon?: LucideIcon;
+  /** Color class for the icon (e.g., 'text-amber-500') */
+  iconColor?: string;
   count?: number;
   action?: {
     label: string;
@@ -23,6 +25,7 @@ interface DashboardSectionProps {
 export function DashboardSection({
   title,
   icon: Icon,
+  iconColor = 'text-text-sub',
   count,
   action,
   headerActions,
@@ -33,7 +36,7 @@ export function DashboardSection({
     <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="flex items-center gap-2 text-lg">
-          {Icon && <Icon className="h-5 w-5 text-text-sub" />}
+          {Icon && <Icon className={`h-5 w-5 ${iconColor}`} />}
           {title}
           {count !== undefined && (
             <span className="text-sm font-normal text-text-sub">({count})</span>

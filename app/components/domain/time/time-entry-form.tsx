@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useTasks } from '@/lib/hooks/use-tasks';
 import { useCreateTimeEntry, useUpdateTimeEntry, TimeEntry } from '@/lib/hooks/use-time-entries';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -24,6 +25,7 @@ export function TimeEntryForm({
   onCancel,
 }: TimeEntryFormProps) {
   const isEdit = !!entry;
+  const { t } = useTerminology();
 
   // Form state
   const [taskId, setTaskId] = React.useState(entry?.task_id || defaultTaskId || '');
@@ -114,11 +116,11 @@ export function TimeEntryForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Task selector */}
       <Select
-        label="Quest (optional)"
+        label={`${t('task')} (optional)`}
         options={taskOptions}
         value={taskId}
         onChange={setTaskId}
-        placeholder="Select a quest..."
+        placeholder={`Select a ${t('task').toLowerCase()}...`}
       />
 
       {/* Date */}

@@ -11,6 +11,7 @@ import {
   BATTERY_OPTIONS,
   TASK_STATUS_OPTIONS,
   PROJECT_STATUS_OPTIONS,
+  TASK_TYPE_OPTIONS,
   PRIORITY_SELECT_OPTIONS,
   ENERGY_SELECT_OPTIONS,
   MYSTERY_SELECT_OPTIONS,
@@ -22,12 +23,14 @@ import {
   getBatteryOption,
   getTaskStatusOption,
   getProjectStatusOption,
+  getTaskTypeOption,
   type PriorityValue,
   type EnergyValue,
   type MysteryValue,
   type BatteryValue,
   type TaskStatusValue,
   type ProjectStatusValue,
+  type TaskTypeValue,
 } from '@/lib/config/task-fields';
 
 // ============================================
@@ -274,6 +277,26 @@ export function StatusInlineSelect({ value, onChange }: StatusInlineSelectProps)
 }
 
 // ============================================
+// TASK TYPE SELECT COMPONENTS (Ad-hoc vs Support)
+// ============================================
+
+interface TaskTypeInlineSelectProps {
+  value: boolean;
+  onChange: (value: boolean) => void;
+}
+
+export function TaskTypeInlineSelect({ value, onChange }: TaskTypeInlineSelectProps) {
+  return (
+    <InlinePillSelect
+      value={value}
+      options={TASK_TYPE_OPTIONS}
+      onChange={onChange}
+      getOption={getTaskTypeOption}
+    />
+  );
+}
+
+// ============================================
 // TASK STATUS SELECT COMPONENTS (workflow status)
 // ============================================
 
@@ -424,6 +447,7 @@ export {
   BATTERY_OPTIONS,
   TASK_STATUS_OPTIONS,
   PROJECT_STATUS_OPTIONS,
+  TASK_TYPE_OPTIONS,
   getStatusOption,
   getPriorityOption,
   getEnergyOption,
@@ -431,8 +455,10 @@ export {
   getBatteryOption,
   getTaskStatusOption,
   getProjectStatusOption,
+  getTaskTypeOption,
   calculateTimeRange,
   formatMinutes,
   type TaskStatusValue,
   type ProjectStatusValue,
+  type TaskTypeValue,
 } from '@/lib/config/task-fields';

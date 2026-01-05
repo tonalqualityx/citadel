@@ -6,6 +6,7 @@ import { Plus, CheckSquare, AlertCircle, Clock } from 'lucide-react';
 import { useTasks, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useUsers } from '@/lib/hooks/use-users';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/ui/search-input';
@@ -59,6 +60,7 @@ export default function QuestsPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { isTech, isPmOrAdmin } = useAuth();
+  const { t } = useTerminology();
   const projectIdParam = searchParams.get('project_id');
 
   const [search, setSearch] = React.useState('');
@@ -153,8 +155,8 @@ export default function QuestsPage() {
           <CardContent className="py-8">
             <EmptyState
               icon={<CheckSquare className="h-12 w-12" />}
-              title="Error loading quests"
-              description="There was a problem loading the quest list. Please try again."
+              title={`Error loading ${t('tasks').toLowerCase()}`}
+              description={`There was a problem loading the ${t('task').toLowerCase()} list. Please try again.`}
               action={
                 <Button onClick={() => window.location.reload()}>Retry</Button>
               }
@@ -173,12 +175,12 @@ export default function QuestsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-text-main">Quests</h1>
+          <h1 className="text-2xl font-semibold text-text-main">{t('tasks')}</h1>
           <p className="text-text-sub">Manage your tasks and track progress</p>
         </div>
         <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          New Quest
+          {t('newTask')}
         </Button>
       </div>
 
@@ -194,7 +196,7 @@ export default function QuestsPage() {
                 <div className="text-2xl font-semibold text-text-main">
                   {data?.total || 0}
                 </div>
-                <div className="text-sm text-text-sub">Total Quests</div>
+                <div className="text-sm text-text-sub">Total {t('tasks')}</div>
               </div>
             </div>
           </CardContent>
@@ -238,7 +240,7 @@ export default function QuestsPage() {
             <SearchInput
               value={search}
               onChange={setSearch}
-              placeholder="Search quests..."
+              placeholder={`Search ${t('tasks').toLowerCase()}...`}
               className="md:w-64"
             />
             <MultiSelect
@@ -292,8 +294,8 @@ export default function QuestsPage() {
           isLoading={isLoading && page > 1}
           emptyMessage={
             search || statuses.length > 0 || priority || assigneeId
-              ? 'No quests found. Try adjusting your filters.'
-              : 'No quests yet. Create your first quest to get started.'
+              ? `No ${t('tasks').toLowerCase()} found. Try adjusting your filters.`
+              : `No ${t('tasks').toLowerCase()} yet. Create your first ${t('task').toLowerCase()} to get started.`
           }
         />
       )}
@@ -302,7 +304,7 @@ export default function QuestsPage() {
       <Modal open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <ModalContent size="lg">
           <ModalHeader>
-            <ModalTitle>Create New Quest</ModalTitle>
+            <ModalTitle>Create {t('newTask')}</ModalTitle>
           </ModalHeader>
           <ModalBody>
             <TaskForm

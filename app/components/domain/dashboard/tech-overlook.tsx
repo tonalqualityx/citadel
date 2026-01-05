@@ -13,6 +13,7 @@ import {
 import { TechDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { DashboardSection } from './dashboard-section';
 import { TaskQuickList } from './task-quick-list';
 import { TimeclockIssues } from './timeclock-issues';
@@ -39,6 +40,7 @@ interface TechOverlookProps {
 
 export function TechOverlook({ data }: TechOverlookProps) {
   const router = useRouter();
+  const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
@@ -69,7 +71,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
   // Separate tasks by focus flag
   const focusTasks = data.myTasks.items.filter((t) => t.is_focus);
 
-  // Task grouping for My Quests section
+  // Task grouping for My Tasks section
   const { groupBy, setGroupBy, groups } = useTaskGrouping(data.myTasks.items, {
     storageKey: 'citadel-dashboard-grouping',
   });
@@ -138,8 +140,9 @@ export function TechOverlook({ data }: TechOverlookProps) {
         <div className="lg:col-span-2 space-y-6">
           {/* Focus Quests */}
           <DashboardSection
-            title="Focus Quests"
+            title={`Focus ${t('tasks')}`}
             icon={Zap}
+            iconColor="text-amber-500"
             action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
             <TaskList<DashboardTask>
@@ -148,36 +151,39 @@ export function TechOverlook({ data }: TechOverlookProps) {
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
-              emptyMessage="No focus tasks - check a task to add it to your focus list"
+              emptyMessage={`No focus ${t('tasks').toLowerCase()} - check a ${t('task').toLowerCase()} to add it to your focus list`}
             />
           </DashboardSection>
 
-          {/* All My Quests */}
-          <DashboardSection
-            title="My Quests"
-            icon={ListTodo}
-            count={data.myTasks.total}
-            headerActions={
-              <TaskGroupingSelect
-                value={groupBy}
-                onChange={setGroupBy}
-                compact
+          {/* All My Quests - hidden when empty */}
+          {data.myTasks.items.length > 0 && (
+            <DashboardSection
+              title={`My ${t('tasks')}`}
+              icon={ListTodo}
+              iconColor="text-blue-500"
+              count={data.myTasks.total}
+              headerActions={
+                <TaskGroupingSelect
+                  value={groupBy}
+                  onChange={setGroupBy}
+                  compact
+                />
+              }
+            >
+              <TaskList<DashboardTask>
+                tasks={groups ? undefined : data.myTasks.items}
+                groups={groups || undefined}
+                columns={myTasksColumns}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                showHeaders={false}
+                emptyMessage={`No ${t('tasks').toLowerCase()} assigned to you`}
+                hasMore={data.myTasks.hasMore}
+                isLoading={isLoading('myTasks')}
+                onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
               />
-            }
-          >
-            <TaskList<DashboardTask>
-              tasks={groups ? undefined : data.myTasks.items}
-              groups={groups || undefined}
-              columns={myTasksColumns}
-              onTaskClick={handleTaskClick}
-              onTaskUpdate={handleTaskUpdate}
-              showHeaders={false}
-              emptyMessage="No quests assigned to you"
-              hasMore={data.myTasks.hasMore}
-              isLoading={isLoading('myTasks')}
-              onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
-            />
-          </DashboardSection>
+            </DashboardSection>
+          )}
         </div>
 
         {/* Right Column - Sidebar */}
@@ -187,7 +193,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
 
           {/* Blocked Tasks */}
           {data.blockedTasks.length > 0 && (
-            <DashboardSection title="Blocked" icon={AlertCircle}>
+            <DashboardSection title="Blocked" icon={AlertCircle} iconColor="text-red-500">
               <TaskQuickList
                 tasks={data.blockedTasks}
                 onTaskClick={handleTaskIdClick}
@@ -198,7 +204,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
 
           {/* Upcoming Due Dates */}
           {data.upcomingTasks.length > 0 && (
-            <DashboardSection title="Upcoming" icon={Calendar}>
+            <DashboardSection title="Upcoming" icon={Calendar} iconColor="text-cyan-500">
               <TaskQuickList
                 tasks={data.upcomingTasks}
                 onTaskClick={handleTaskIdClick}
@@ -208,13 +214,14 @@ export function TechOverlook({ data }: TechOverlookProps) {
             </DashboardSection>
           )}
 
-          {/* Recent Time Entries */}
-          <DashboardSection
-            title="Recent Time"
-            icon={Clock}
-            action={{ label: 'View All', href: '/chronicles' }}
-          >
-            {data.recentTimeEntries.length > 0 ? (
+          {/* Recent Time Entries - hidden when empty */}
+          {data.recentTimeEntries.length > 0 && (
+            <DashboardSection
+              title="Recent Time"
+              icon={Clock}
+              iconColor="text-violet-500"
+              action={{ label: 'View All', href: '/chronicles' }}
+            >
               <div className="space-y-2">
                 {data.recentTimeEntries.map((entry) => (
                   <div
@@ -235,10 +242,8 @@ export function TechOverlook({ data }: TechOverlookProps) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-center py-4 text-text-sub">No recent time entries</p>
-            )}
-          </DashboardSection>
+            </DashboardSection>
+          )}
         </div>
       </div>
 

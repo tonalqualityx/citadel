@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { useCreateProject, useUpdateProject, Project } from '@/lib/hooks/use-projects';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useSites } from '@/lib/hooks/use-sites';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -61,6 +62,7 @@ const billingTypeOptions = [
 
 export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) {
   const isEdit = !!project;
+  const { t } = useTerminology();
   const createProject = useCreateProject();
   const updateProject = useUpdateProject();
   const { data: clientsData, isLoading: clientsLoading } = useClients({ limit: 100 });
@@ -319,7 +321,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
           ) : isEdit ? (
             'Save Changes'
           ) : (
-            'Create Pact'
+            `Create ${t('project')}`
           )}
         </Button>
       </div>

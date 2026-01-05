@@ -9,8 +9,10 @@ import { Plus } from 'lucide-react';
 import { useCreateTask } from '@/lib/hooks/use-tasks';
 import { useProjects } from '@/lib/hooks/use-projects';
 import { useClients } from '@/lib/hooks/use-clients';
+import { useSites } from '@/lib/hooks/use-sites';
 import { useSops } from '@/lib/hooks/use-sops';
 import { useUsers } from '@/lib/hooks/use-users';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
@@ -33,18 +35,24 @@ const quickTaskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500),
   project_id: z.string().optional(),
   client_id: z.string().optional(),
+  site_id: z.string().optional(),
+  task_type: z.enum(['ad_hoc', 'support']).optional(),
   sop_id: z.string().optional(),
   assignee_id: z.string().optional(),
   priority: z.string(),
   energy_estimate: z.string().optional(),
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']),
-});
+}).refine(
+  (data) => !data.site_id || data.task_type,
+  { message: 'Task type is required when a site is selected', path: ['task_type'] }
+);
 
 type QuickTaskFormData = z.infer<typeof quickTaskSchema>;
 
 export function QuickTaskModal() {
   const router = useRouter();
+  const { t } = useTerminology();
   const [open, setOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const createTask = useCreateTask();
@@ -69,6 +77,8 @@ export function QuickTaskModal() {
       title: '',
       project_id: '',
       client_id: '',
+      site_id: '',
+      task_type: undefined,
       sop_id: '',
       assignee_id: '',
       priority: '3',
@@ -78,10 +88,17 @@ export function QuickTaskModal() {
     },
   });
 
-  // Watch for client selection to filter projects
+  // Watch for client selection to filter projects and sites
   const selectedClientId = watch('client_id');
   const selectedSopId = watch('sop_id');
   const selectedProjectId = watch('project_id');
+  const selectedSiteId = watch('site_id');
+
+  // Fetch sites filtered by client
+  const { data: sitesData, isLoading: sitesLoading } = useSites({
+    client_id: selectedClientId || undefined,
+    limit: 100,
+  });
 
   // Filter projects by client if one is selected
   const projectOptions = React.useMemo(() => {
@@ -131,8 +148,23 @@ export function QuickTaskModal() {
   React.useEffect(() => {
     if (selectedProjectId) {
       setValue('client_id', '');
+      setValue('site_id', '');
+      setValue('task_type', undefined);
     }
   }, [selectedProjectId, setValue]);
+
+  // When client changes, clear site_id and task_type
+  React.useEffect(() => {
+    setValue('site_id', '');
+    setValue('task_type', undefined);
+  }, [selectedClientId, setValue]);
+
+  // When site is cleared, clear task_type
+  React.useEffect(() => {
+    if (!selectedSiteId) {
+      setValue('task_type', undefined);
+    }
+  }, [selectedSiteId, setValue]);
 
   const clientOptions = React.useMemo(() => {
     return [
@@ -143,6 +175,22 @@ export function QuickTaskModal() {
       })) || []),
     ];
   }, [clientsData]);
+
+  const siteOptions = React.useMemo(() => {
+    return [
+      { value: '', label: 'No site' },
+      ...(sitesData?.sites?.map((s) => ({
+        value: s.id,
+        label: s.name,
+        description: s.url || undefined,
+      })) || []),
+    ];
+  }, [sitesData]);
+
+  const taskTypeOptions = [
+    { value: 'ad_hoc', label: 'Ad-hoc Request' },
+    { value: 'support', label: 'Support (unbilled)' },
+  ];
 
   const sopOptions = React.useMemo(() => {
     return [
@@ -174,12 +222,14 @@ export function QuickTaskModal() {
         priority: parseInt(data.priority),
         project_id: data.project_id || null,
         client_id: !data.project_id && data.client_id ? data.client_id : null,
+        site_id: data.site_id || null,
         sop_id: data.sop_id || null,
         assignee_id: data.assignee_id || null,
         energy_estimate: data.energy_estimate ? parseInt(data.energy_estimate) : null,
         mystery_factor: data.mystery_factor,
         battery_impact: data.battery_impact,
         status: 'not_started' as const,
+        is_support: data.task_type === 'support',
       };
 
       const task = await createTask.mutateAsync(payload);
@@ -209,12 +259,12 @@ export function QuickTaskModal() {
         className="flex items-center gap-1.5"
       >
         <Plus className="h-4 w-4" />
-        <span className="hidden sm:inline">New Quest</span>
+        <span className="hidden sm:inline">{t('newTask')}</span>
       </Button>
 
       <ModalContent size="xl">
         <ModalHeader>
-          <ModalTitle>Quick Create Quest</ModalTitle>
+          <ModalTitle>Quick Create {t('task')}</ModalTitle>
         </ModalHeader>
 
         <ModalBody>
@@ -226,7 +276,7 @@ export function QuickTaskModal() {
                 label="Title"
                 {...register('title')}
                 error={errors.title?.message}
-                placeholder="Quest title"
+                placeholder={`${t('task')} title`}
                 autoFocus
               />
             </div>
@@ -235,7 +285,7 @@ export function QuickTaskModal() {
             <div className="pt-4 border-t border-border">
               <h4 className="text-sm font-medium text-text-sub mb-3">Assignment</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Client first - selecting filters available projects */}
+                {/* Client first - selecting filters available projects and sites */}
                 {!selectedProjectId && (
                   clientsLoading ? (
                     <div className="h-10 flex items-center">
@@ -253,6 +303,40 @@ export function QuickTaskModal() {
                   )
                 )}
 
+                {/* Site - only show when client is selected and no project */}
+                {selectedClientId && !selectedProjectId && (
+                  sitesLoading ? (
+                    <div className="h-10 flex items-center">
+                      <Spinner size="sm" />
+                    </div>
+                  ) : (
+                    <Combobox
+                      label="Site"
+                      options={siteOptions}
+                      value={watch('site_id') || null}
+                      onChange={(value) => setValue('site_id', value || '')}
+                      placeholder="No site"
+                      searchPlaceholder="Search sites..."
+                    />
+                  )
+                )}
+
+                {/* Task Type - required when site is selected */}
+                {selectedSiteId && (
+                  <div>
+                    <Combobox
+                      label="Task Type"
+                      options={taskTypeOptions}
+                      value={watch('task_type') || null}
+                      onChange={(value) => setValue('task_type', value as 'ad_hoc' | 'support' | undefined)}
+                      placeholder="Select type..."
+                    />
+                    {errors.task_type?.message && (
+                      <p className="text-sm text-red-500 mt-1">{errors.task_type.message}</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Project - filtered by client if selected */}
                 {projectsLoading ? (
                   <div className="h-10 flex items-center">
@@ -260,7 +344,7 @@ export function QuickTaskModal() {
                   </div>
                 ) : (
                   <Combobox
-                    label={selectedClientId ? 'Pact (filtered by client)' : 'Pact'}
+                    label={selectedClientId ? `${t('project')} (filtered by ${t('client').toLowerCase()})` : t('project')}
                     options={projectOptions}
                     value={watch('project_id') || null}
                     onChange={(value) => setValue('project_id', value || '')}

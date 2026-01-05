@@ -56,6 +56,7 @@ export interface Task {
   is_billable: boolean;
   billing_target: number | null;
   is_retainer_work: boolean;
+  is_support: boolean;
   invoiced: boolean;
   invoiced_at: string | null;
   invoiced_by_id: string | null;
@@ -113,6 +114,8 @@ export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   needs_review?: boolean;
   reviewer_id?: string | null;
   approved?: boolean;
+  // Billing fields
+  is_support?: boolean;
 }
 
 export function useTasks(filters: TaskFilters = {}) {
@@ -150,10 +153,10 @@ export function useCreateTask() {
           queryKey: projectKeys.detail(data.project_id),
         });
       }
-      showToast.created('Quest');
+      showToast.created('Task');
     },
     onError: (error) => {
-      showToast.apiError(error, 'Failed to create quest');
+      showToast.apiError(error, 'Failed to create task');
     },
   });
 }
@@ -246,10 +249,10 @@ export function useDeleteTask() {
     mutationFn: (id: string) => apiClient.delete(`/tasks/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      showToast.deleted('Quest');
+      showToast.deleted('Task');
     },
     onError: (error) => {
-      showToast.apiError(error, 'Failed to delete quest');
+      showToast.apiError(error, 'Failed to delete task');
     },
   });
 }

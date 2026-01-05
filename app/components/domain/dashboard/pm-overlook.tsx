@@ -15,6 +15,7 @@ import {
 import { PmDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { DashboardSection } from './dashboard-section';
 import { ProjectQuickList } from './project-quick-list';
 import { RetainerAlert } from './retainer-alert';
@@ -45,6 +46,7 @@ interface PmOverlookProps {
 
 export function PmOverlook({ data }: PmOverlookProps) {
   const router = useRouter();
+  const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
@@ -162,8 +164,9 @@ export function PmOverlook({ data }: PmOverlookProps) {
         <div className="lg:col-span-2 space-y-6">
           {/* Focus Tasks */}
           <DashboardSection
-            title="Focus Quests"
+            title={`Focus ${t('tasks')}`}
             icon={Zap}
+            iconColor="text-amber-500"
             count={data.focusTasks.total}
           >
             <TaskList<DashboardTask>
@@ -172,37 +175,41 @@ export function PmOverlook({ data }: PmOverlookProps) {
               onTaskClick={handleTaskClick}
               onTaskUpdate={handleTaskUpdate}
               showHeaders={false}
-              emptyMessage="No focus tasks - check a task to add it to your focus list"
+              emptyMessage={`No focus ${t('tasks').toLowerCase()} - check a ${t('task').toLowerCase()} to add it to your focus list`}
               hasMore={data.focusTasks.hasMore}
               isLoading={isLoading('focusTasks')}
               onLoadMore={() => loadMore('focusTasks', data.focusTasks.items.length)}
             />
           </DashboardSection>
 
-          {/* Awaiting Review */}
-          <DashboardSection
-            title="Awaiting Review"
-            icon={CircleDot}
-            count={data.awaitingReview.total}
-          >
-            <TaskList<DashboardTask>
-              tasks={data.awaitingReview.items}
-              columns={reviewColumns}
-              onTaskClick={handleTaskClick}
-              onTaskUpdate={handleTaskUpdate}
-              showHeaders={false}
-              emptyMessage="No tasks awaiting review"
-              hasMore={data.awaitingReview.hasMore}
-              isLoading={isLoading('awaitingReview')}
-              onLoadMore={() => loadMore('awaitingReview', data.awaitingReview.items.length)}
-            />
-          </DashboardSection>
+          {/* Awaiting Review - hidden when empty */}
+          {data.awaitingReview.items.length > 0 && (
+            <DashboardSection
+              title="Awaiting Review"
+              icon={CircleDot}
+              iconColor="text-purple-500"
+              count={data.awaitingReview.total}
+            >
+              <TaskList<DashboardTask>
+                tasks={data.awaitingReview.items}
+                columns={reviewColumns}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                showHeaders={false}
+                emptyMessage="No tasks awaiting review"
+                hasMore={data.awaitingReview.hasMore}
+                isLoading={isLoading('awaitingReview')}
+                onLoadMore={() => loadMore('awaitingReview', data.awaitingReview.items.length)}
+              />
+            </DashboardSection>
+          )}
 
           {/* Unassigned Tasks - only show if there are unassigned tasks */}
           {data.unassignedTasks.items.length > 0 && (
             <DashboardSection
-              title="Unassigned Quests"
+              title={`Unassigned ${t('tasks')}`}
               icon={UserX}
+              iconColor="text-orange-500"
               count={data.unassignedTasks.total}
             >
               <TaskList<DashboardTask>
@@ -211,7 +218,7 @@ export function PmOverlook({ data }: PmOverlookProps) {
                 onTaskClick={handleTaskClick}
                 onTaskUpdate={handleTaskUpdate}
                 showHeaders={false}
-                emptyMessage="All quests are assigned"
+                emptyMessage={`All ${t('tasks').toLowerCase()} are assigned`}
                 hasMore={data.unassignedTasks.hasMore}
                 isLoading={isLoading('unassignedTasks')}
                 onLoadMore={() => loadMore('unassignedTasks', data.unassignedTasks.items.length)}
@@ -219,32 +226,35 @@ export function PmOverlook({ data }: PmOverlookProps) {
             </DashboardSection>
           )}
 
-          {/* My Tasks */}
-          <DashboardSection
-            title="My Quests"
-            icon={ListTodo}
-            count={data.myTasks.total}
-            headerActions={
-              <TaskGroupingSelect
-                value={groupBy}
-                onChange={setGroupBy}
-                compact
+          {/* My Tasks - hidden when empty */}
+          {data.myTasks.items.length > 0 && (
+            <DashboardSection
+              title={`My ${t('tasks')}`}
+              icon={ListTodo}
+              iconColor="text-blue-500"
+              count={data.myTasks.total}
+              headerActions={
+                <TaskGroupingSelect
+                  value={groupBy}
+                  onChange={setGroupBy}
+                  compact
+                />
+              }
+            >
+              <TaskList<DashboardTask>
+                tasks={groups ? undefined : data.myTasks.items}
+                groups={groups || undefined}
+                columns={myTasksColumns}
+                onTaskClick={handleTaskClick}
+                onTaskUpdate={handleTaskUpdate}
+                showHeaders={false}
+                emptyMessage={`No ${t('tasks').toLowerCase()} assigned to you`}
+                hasMore={data.myTasks.hasMore}
+                isLoading={isLoading('myTasks')}
+                onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
               />
-            }
-          >
-            <TaskList<DashboardTask>
-              tasks={groups ? undefined : data.myTasks.items}
-              groups={groups || undefined}
-              columns={myTasksColumns}
-              onTaskClick={handleTaskClick}
-              onTaskUpdate={handleTaskUpdate}
-              showHeaders={false}
-              emptyMessage="No tasks assigned to you"
-              hasMore={data.myTasks.hasMore}
-              isLoading={isLoading('myTasks')}
-              onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
-            />
-          </DashboardSection>
+            </DashboardSection>
+          )}
         </div>
 
         {/* Right Column - Projects & Activity */}
@@ -254,27 +264,30 @@ export function PmOverlook({ data }: PmOverlookProps) {
 
           {/* Retainer Alerts */}
           {data.retainerAlerts.length > 0 && (
-            <DashboardSection title="Retainer Alerts" icon={AlertTriangle}>
+            <DashboardSection title="Retainer Alerts" icon={AlertTriangle} iconColor="text-amber-500">
               <RetainerAlert alerts={data.retainerAlerts} />
             </DashboardSection>
           )}
 
-          {/* My Projects */}
-          <DashboardSection
-            title="My Pacts"
-            icon={FolderKanban}
-            action={{ label: 'View All', href: '/projects' }}
-          >
-            <ProjectQuickList
-              projects={data.myProjects}
-              emptyMessage="No active projects"
-              maxItems={5}
-            />
-          </DashboardSection>
+          {/* My Projects - hidden when empty */}
+          {data.myProjects.length > 0 && (
+            <DashboardSection
+              title={`My ${t('projects')}`}
+              icon={FolderKanban}
+              iconColor="text-teal-500"
+              action={{ label: 'View All', href: '/projects' }}
+            >
+              <ProjectQuickList
+                projects={data.myProjects}
+                emptyMessage="No active projects"
+                maxItems={5}
+              />
+            </DashboardSection>
+          )}
 
-          {/* Recent Completions */}
-          <DashboardSection title="Recent Completions" icon={CheckCircle2}>
-            {data.recentCompletions.length > 0 ? (
+          {/* Recent Completions - hidden when empty */}
+          {data.recentCompletions.length > 0 && (
+            <DashboardSection title="Recent Completions" icon={CheckCircle2} iconColor="text-green-500">
               <div className="space-y-2">
                 {data.recentCompletions.map((task) => (
                   <div
@@ -298,12 +311,8 @@ export function PmOverlook({ data }: PmOverlookProps) {
                   </div>
                 ))}
               </div>
-            ) : (
-              <p className="text-center py-4 text-text-sub">
-                No recent completions
-              </p>
-            )}
-          </DashboardSection>
+            </DashboardSection>
+          )}
         </div>
       </div>
 

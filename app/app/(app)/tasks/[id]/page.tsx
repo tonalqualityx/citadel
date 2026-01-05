@@ -25,6 +25,7 @@ import {
   Square,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import {
   useTask,
   useUpdateTask,
@@ -39,6 +40,7 @@ import {
   EnergyInlineSelect,
   MysteryInlineSelect,
   BatteryInlineSelect,
+  TaskTypeInlineSelect,
   calculateTimeRange,
 } from '@/components/ui/field-selects';
 import { Spinner } from '@/components/ui/spinner';
@@ -198,6 +200,7 @@ export default function QuestDetailPage() {
   const [isSopExpanded, setIsSopExpanded] = React.useState(false);
 
   const { user } = useAuth();
+  const { t } = useTerminology();
   const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
 
   const { data: task, isLoading, error } = useTask(taskId);
@@ -257,8 +260,8 @@ export default function QuestDetailPage() {
           <CardContent className="py-8">
             <EmptyState
               icon={<CheckSquare className="h-12 w-12" />}
-              title="Quest not found"
-              description="This quest may have been deleted or you don't have access."
+              title={`${t('task')} not found`}
+              description={`This ${t('task').toLowerCase()} may have been deleted or you don't have access.`}
               action={
                 <Link href="/tasks">
                   <Button>Back to Tasks</Button>
@@ -302,6 +305,13 @@ export default function QuestDetailPage() {
                 value={task.priority}
                 onChange={(priority) => saveImmediate({ priority })}
               />
+              {/* Task Type - only for non-project tasks, PM/Admin only */}
+              {!task.project && isPmOrAdmin && (
+                <TaskTypeInlineSelect
+                  value={task.is_support || false}
+                  onChange={(is_support) => saveImmediate({ is_support })}
+                />
+              )}
             </div>
             {/* Breadcrumbs: Client > Site > Project */}
             {task.project && (
@@ -402,7 +412,7 @@ export default function QuestDetailPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
               <div>
-                <div className="font-medium text-red-700">This quest is blocked</div>
+                <div className="font-medium text-red-700">This {t('task').toLowerCase()} is blocked</div>
                 <div className="text-sm text-red-600 mt-1">
                   Waiting on:{' '}
                   {task.blocked_by?.map((blocker, i) => (
@@ -747,11 +757,11 @@ export default function QuestDetailPage() {
       <Modal open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <ModalContent size="sm">
           <ModalHeader>
-            <ModalTitle>Delete Quest</ModalTitle>
+            <ModalTitle>Delete {t('task')}</ModalTitle>
           </ModalHeader>
           <ModalBody>
             <p className="text-text-sub">
-              Are you sure you want to delete this quest? This action cannot be undone.
+              Are you sure you want to delete this {t('task').toLowerCase()}? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3 mt-4">
               <Button variant="ghost" onClick={() => setIsDeleteOpen(false)}>

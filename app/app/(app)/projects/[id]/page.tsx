@@ -419,7 +419,6 @@ export default function ProjectDetailPage() {
                 value={project.status}
                 onChange={handleStatusChange}
                 disabled={updateStatus.isPending}
-                validStatuses={validNextStatuses}
               />
             </div>
             <div className="flex items-center gap-4 mt-1 text-sm text-text-sub">

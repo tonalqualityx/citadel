@@ -18,6 +18,7 @@ const createTaskSchema = z.object({
   priority: z.number().min(1).max(5).optional(),
   project_id: z.string().uuid().optional().nullable(),
   client_id: z.string().uuid().optional().nullable(),
+  site_id: z.string().uuid().optional().nullable(),
   phase_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(), // Legacy field
   sort_order: z.number().optional(),
@@ -331,6 +332,7 @@ export async function POST(request: NextRequest) {
         priority: data.priority || sopDefaults.default_priority || 3,
         project_id: data.project_id,
         client_id: clientId,
+        site_id: data.site_id,
         phase_id: data.phase_id,
         phase: data.phase, // Legacy field
         sort_order: data.sort_order || 0,
@@ -365,6 +367,7 @@ export async function POST(request: NextRequest) {
           },
         },
         client: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true, url: true } },
         project_phase: {
           select: { id: true, name: true, icon: true, sort_order: true },
         },
