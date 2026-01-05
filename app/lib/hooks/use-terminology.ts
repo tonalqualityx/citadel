@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { usePreferences } from './use-preferences';
 
 const TERMS = {
@@ -42,7 +43,17 @@ type TermKey = keyof typeof TERMS;
 
 export function useTerminology() {
   const { data } = usePreferences();
-  const convention = data?.preferences?.naming_convention || 'awesome';
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Use default during SSR and initial render for hydration consistency
+  // Only use actual preference after component mounts
+  const convention = mounted
+    ? (data?.preferences?.naming_convention || 'awesome')
+    : 'awesome';
 
   function t(key: TermKey): string {
     return TERMS[key][convention];

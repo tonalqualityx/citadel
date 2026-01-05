@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Search, LogOut, Menu } from 'lucide-react';
 import { TimerWidget } from './timer-widget';
 import { QuickTaskModal } from './quick-task-modal';
+import { MobileNav } from './MobileNav';
 import { NotificationBell } from '@/components/domain/notifications';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Avatar } from '@/components/ui/avatar';
@@ -16,6 +17,7 @@ export function Header() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -28,9 +30,15 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-x-4 border-b border-border-warm bg-surface px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
       {/* Mobile menu button */}
-      <button className="lg:hidden text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors">
+      <button
+        onClick={() => setShowMobileMenu(true)}
+        className="lg:hidden text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors"
+      >
         <Menu className="h-6 w-6" />
       </button>
+
+      {/* Mobile navigation drawer */}
+      <MobileNav open={showMobileMenu} onClose={() => setShowMobileMenu(false)} />
 
       {/* Mobile logo */}
       <div className="lg:hidden flex items-center gap-2">
