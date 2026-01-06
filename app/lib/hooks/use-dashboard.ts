@@ -44,6 +44,8 @@ export interface DashboardTask {
   needs_review?: boolean;
   approved?: boolean;
   assignee?: { id: string; name: string } | null;
+  client?: { id: string; name: string } | null; // Direct client for ad-hoc tasks
+  site?: { id: string; name: string } | null; // Direct site for ad-hoc tasks
   project: {
     id: string;
     name: string;

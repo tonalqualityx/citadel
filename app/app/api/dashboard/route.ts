@@ -116,6 +116,8 @@ async function getTechDashboard(userId: string) {
     prisma.task.findMany({
       where: myTasksWhere,
       include: {
+        client: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true } },
         project: {
           select: {
             id: true,
@@ -153,6 +155,8 @@ async function getTechDashboard(userId: string) {
     battery_impact: t.battery_impact,
     estimated_minutes: t.estimated_minutes,
     time_logged_minutes: t.time_entries.reduce((sum, e) => sum + e.duration, 0),
+    client: t.client,
+    site: t.site,
     project: t.project,
   }));
 
@@ -169,6 +173,8 @@ async function getTechDashboard(userId: string) {
     battery_impact: t.battery_impact,
     estimated_minutes: t.estimated_minutes,
     time_logged_minutes: t.time_entries.reduce((sum, e) => sum + e.duration, 0),
+    client: t.client,
+    site: t.site,
     project: t.project,
   }));
 
@@ -269,6 +275,8 @@ async function getPmDashboard(userId: string) {
       where: focusTasksWhere,
       include: {
         assignee: { select: { id: true, name: true } },
+        client: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true } },
         project: {
           select: {
             id: true,
@@ -291,6 +299,8 @@ async function getPmDashboard(userId: string) {
       where: awaitingReviewWhere,
       include: {
         assignee: { select: { id: true, name: true } },
+        client: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true } },
         project: {
           select: {
             id: true,
@@ -312,6 +322,8 @@ async function getPmDashboard(userId: string) {
     prisma.task.findMany({
       where: unassignedTasksWhere,
       include: {
+        client: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true } },
         project: {
           select: {
             id: true,
@@ -333,6 +345,8 @@ async function getPmDashboard(userId: string) {
     prisma.task.findMany({
       where: myTasksWhere,
       include: {
+        client: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true } },
         project: {
           select: {
             id: true,
@@ -414,6 +428,8 @@ async function getPmDashboard(userId: string) {
     needs_review: t.needs_review,
     approved: t.approved,
     assignee: t.assignee,
+    client: t.client,
+    site: t.site,
     project: t.project,
     updated_at: t.updated_at?.toISOString(),
   });

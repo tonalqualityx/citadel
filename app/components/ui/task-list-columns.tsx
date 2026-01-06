@@ -539,24 +539,43 @@ export function projectColumn(): TaskListColumn {
 
 /**
  * Client/Project/Site column - shows hierarchy: Client → Project (Site)
+ * For ad-hoc tasks (no project), shows Client → Site or just Client
  */
 export function clientProjectSiteColumn(): TaskListColumn {
   return {
     key: 'client_project_site',
     header: 'Client / Project',
     width: 'minmax(150px, 2fr)',
-    cell: (task) => {
-      if (!task.project) {
-        return <span className="text-sm text-text-sub">Ad-hoc</span>;
+    cell: (task: any) => {
+      // For project-based tasks, show project hierarchy
+      if (task.project) {
+        const parts: string[] = [];
+        if (task.project.client?.name) {
+          parts.push(task.project.client.name);
+        }
+        parts.push(task.project.name);
+        if (task.project.site?.name) {
+          parts.push(task.project.site.name);
+        }
+
+        return (
+          <div className="text-sm text-text-sub truncate" title={parts.join(' → ')}>
+            {parts.join(' → ')}
+          </div>
+        );
       }
 
+      // For ad-hoc tasks, show direct client → site
       const parts: string[] = [];
-      if (task.project.client?.name) {
-        parts.push(task.project.client.name);
+      if (task.client?.name) {
+        parts.push(task.client.name);
       }
-      parts.push(task.project.name);
-      if (task.project.site?.name) {
-        parts.push(task.project.site.name);
+      if (task.site?.name) {
+        parts.push(task.site.name);
+      }
+
+      if (parts.length === 0) {
+        return <span className="text-sm text-text-sub">Ad-hoc</span>;
       }
 
       return (
