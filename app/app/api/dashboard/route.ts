@@ -114,6 +114,8 @@ async function getTechDashboard(userId: string) {
     is_deleted: false,
     OR: [{ project_id: null }, { project: { status: { in: visibleStatuses } } }],
     status: { notIn: MY_TASKS_EXCLUDED_STATUSES },
+    // Exclude tasks with incomplete blockers (all blockers must be done)
+    blocked_by: { none: { status: { not: TaskStatus.done } } },
   };
 
   const [myTasks, myTasksTotal] = await Promise.all([
@@ -232,11 +234,14 @@ async function getTechDashboard(userId: string) {
 
 async function getPmDashboard(userId: string) {
   // Define where clauses for reuse
+  // Focus tasks also excludes blocked - users shouldn't work on blocked tasks
   const focusTasksWhere = {
     is_deleted: false,
     is_focus: true,
     assignee_id: userId,
-    status: { notIn: INCOMPLETE_STATUSES },
+    status: { notIn: MY_TASKS_EXCLUDED_STATUSES },
+    // Exclude tasks with incomplete blockers (all blockers must be done)
+    blocked_by: { none: { status: { not: TaskStatus.done } } },
   };
 
   const awaitingReviewWhere = {
@@ -251,6 +256,8 @@ async function getPmDashboard(userId: string) {
     assignee_id: null,
     status: { notIn: INCOMPLETE_STATUSES },
     project: { status: { in: ACTIVE_PROJECT_STATUSES } },
+    // Exclude tasks with incomplete blockers (all blockers must be done)
+    blocked_by: { none: { status: { not: TaskStatus.done } } },
   };
 
   // My tasks: only from in_progress projects OR ad-hoc/support tasks
@@ -263,6 +270,8 @@ async function getPmDashboard(userId: string) {
       { project_id: null }, // Ad-hoc and support tasks
       { project: { status: ProjectStatus.in_progress } }, // Only in_progress projects
     ],
+    // Exclude tasks with incomplete blockers (all blockers must be done)
+    blocked_by: { none: { status: { not: TaskStatus.done } } },
   };
 
   // Fetch all lists with counts in parallel
