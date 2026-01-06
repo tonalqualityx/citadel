@@ -5,6 +5,42 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { ProjectStatus, ProjectType, Prisma } from '@prisma/client';
 
+// Enhanced task mapping to support variable task expansion
+interface TaskMapping {
+  recipeTaskId: string;
+  isVariable: boolean;
+  variableSource: string | null;
+  taskId?: string;                    // For non-variable tasks
+  pageTaskMap?: Map<string, string>;  // For variable tasks: pageName → taskId
+}
+
+// Resolve dependencies based on task types and variable sources
+function resolveDependencies(
+  dependentRecipeTask: { is_variable: boolean; variable_source: string | null },
+  dependentPageName: string | null,
+  blockerRecipeTaskId: string,
+  taskMappings: Map<string, TaskMapping>
+): string[] {
+  const blocker = taskMappings.get(blockerRecipeTaskId);
+  if (!blocker) return [];
+
+  // Case 1: Non-variable blocker - return single ID
+  if (!blocker.isVariable) {
+    return blocker.taskId ? [blocker.taskId] : [];
+  }
+
+  // Case 2: Variable blocker with same source - per-instance matching
+  if (dependentRecipeTask.is_variable &&
+      dependentRecipeTask.variable_source === blocker.variableSource &&
+      dependentPageName) {
+    const matchedTaskId = blocker.pageTaskMap?.get(dependentPageName);
+    return matchedTaskId ? [matchedTaskId] : [];
+  }
+
+  // Case 3: Gate pattern - non-variable or different source depends on ALL instances
+  return Array.from(blocker.pageTaskMap?.values() || []);
+}
+
 const wizardSchema = z.object({
   recipe_id: z.string().uuid(),
   client_id: z.string().uuid(),
@@ -119,7 +155,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Generate tasks from recipe - SOP is source of truth for task attributes
-      const taskIdMap = new Map<string, string>(); // recipe_task_id -> task_id
+      const taskMappings = new Map<string, TaskMapping>();
       let taskSortOrder = 0;
 
       for (const recipePhase of recipe.phases) {
@@ -141,6 +177,8 @@ export async function POST(request: NextRequest) {
 
           if (recipeTask.is_variable && recipeTask.variable_source === 'sitemap_page') {
             // Create one task per page that has this task selected
+            const pageTaskMap = new Map<string, string>();
+
             for (const page of data.pages) {
               // Only create task if this page selected this variable task
               if (!page.selected_variable_tasks.includes(recipeTask.id)) {
@@ -174,11 +212,17 @@ export async function POST(request: NextRequest) {
                   created_by_id: auth.userId,
                 },
               });
-              // Store mapping (use first page for dependency resolution)
-              if (!taskIdMap.has(recipeTask.id)) {
-                taskIdMap.set(recipeTask.id, task.id);
-              }
+              // Store per-page mapping for dependency resolution
+              pageTaskMap.set(page.name, task.id);
             }
+
+            // Store variable task mapping with all page instances
+            taskMappings.set(recipeTask.id, {
+              recipeTaskId: recipeTask.id,
+              isVariable: true,
+              variableSource: recipeTask.variable_source,
+              pageTaskMap,
+            });
           } else {
             // Create single task (non-variable)
             const task = await tx.task.create({
@@ -205,7 +249,13 @@ export async function POST(request: NextRequest) {
                 created_by_id: auth.userId,
               },
             });
-            taskIdMap.set(recipeTask.id, task.id);
+            // Store non-variable task mapping
+            taskMappings.set(recipeTask.id, {
+              recipeTaskId: recipeTask.id,
+              isVariable: false,
+              variableSource: null,
+              taskId: task.id,
+            });
           }
         }
       }
@@ -213,23 +263,56 @@ export async function POST(request: NextRequest) {
       // Set up task dependencies based on recipe_task.depends_on_ids
       for (const phase of recipe.phases) {
         for (const recipeTask of phase.tasks) {
-          if (recipeTask.depends_on_ids && recipeTask.depends_on_ids.length > 0) {
-            const taskId = taskIdMap.get(recipeTask.id);
-            if (taskId) {
-              const dependencyIds = recipeTask.depends_on_ids
-                .map((depId) => taskIdMap.get(depId))
-                .filter((id): id is string => !!id);
+          if (!recipeTask.depends_on_ids?.length) continue;
 
-              if (dependencyIds.length > 0) {
+          const dependentMapping = taskMappings.get(recipeTask.id);
+          if (!dependentMapping) continue;
+
+          if (dependentMapping.isVariable && dependentMapping.pageTaskMap) {
+            // For variable tasks: resolve dependencies for EACH expanded instance
+            for (const [pageName, dependentTaskId] of dependentMapping.pageTaskMap) {
+              const allBlockerIds: string[] = [];
+
+              for (const blockerRecipeTaskId of recipeTask.depends_on_ids) {
+                const blockerIds = resolveDependencies(
+                  recipeTask,
+                  pageName,
+                  blockerRecipeTaskId,
+                  taskMappings
+                );
+                allBlockerIds.push(...blockerIds);
+              }
+
+              if (allBlockerIds.length > 0) {
                 await tx.task.update({
-                  where: { id: taskId },
+                  where: { id: dependentTaskId },
                   data: {
-                    blocked_by: {
-                      connect: dependencyIds.map((id) => ({ id })),
-                    },
+                    blocked_by: { connect: allBlockerIds.map((id) => ({ id })) },
                   },
                 });
               }
+            }
+          } else if (dependentMapping.taskId) {
+            // For non-variable tasks: resolve all dependencies
+            const allBlockerIds: string[] = [];
+
+            for (const blockerRecipeTaskId of recipeTask.depends_on_ids) {
+              const blockerIds = resolveDependencies(
+                recipeTask,
+                null,
+                blockerRecipeTaskId,
+                taskMappings
+              );
+              allBlockerIds.push(...blockerIds);
+            }
+
+            if (allBlockerIds.length > 0) {
+              await tx.task.update({
+                where: { id: dependentMapping.taskId },
+                data: {
+                  blocked_by: { connect: allBlockerIds.map((id) => ({ id })) },
+                },
+              });
             }
           }
         }

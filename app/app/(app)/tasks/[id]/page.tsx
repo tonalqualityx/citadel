@@ -65,6 +65,7 @@ import {
 import { CommentSection } from '@/components/domain/tasks/comment-section';
 import { ReviewSection } from '@/components/domain/tasks/review-section';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
+import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -640,67 +641,13 @@ export default function QuestDetailPage() {
         {/* Sidebar */}
         <div className="space-y-6">
           {/* Dependencies */}
-          {(hasBlockers || isBlocking) && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Dependencies</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {hasBlockers && (
-                  <div>
-                    <div className="text-sm font-medium text-text-sub mb-2">
-                      Blocked by:
-                    </div>
-                    <div className="space-y-2">
-                      {task.blocked_by?.map((blocker) => (
-                        <Link
-                          key={blocker.id}
-                          href={`/tasks/${blocker.id}`}
-                          className="block p-2 rounded border border-border hover:bg-surface-2"
-                        >
-                          <div className="text-sm font-medium text-text-main">
-                            {blocker.title}
-                          </div>
-                          <Badge
-                            variant={getTaskStatusVariant(blocker.status as any)}
-                            className="mt-1"
-                          >
-                            {getTaskStatusLabel(blocker.status as any)}
-                          </Badge>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {isBlocking && (
-                  <div>
-                    <div className="text-sm font-medium text-text-sub mb-2">
-                      Blocking:
-                    </div>
-                    <div className="space-y-2">
-                      {task.blocking?.map((blocked) => (
-                        <Link
-                          key={blocked.id}
-                          href={`/tasks/${blocked.id}`}
-                          className="block p-2 rounded border border-border hover:bg-surface-2"
-                        >
-                          <div className="text-sm font-medium text-text-main">
-                            {blocked.title}
-                          </div>
-                          <Badge
-                            variant={getTaskStatusVariant(blocked.status as any)}
-                            className="mt-1"
-                          >
-                            {getTaskStatusLabel(blocked.status as any)}
-                          </Badge>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+          <TaskDependencies
+            taskId={taskId}
+            taskTitle={task.title}
+            projectId={task.project_id}
+            blockedBy={task.blocked_by || []}
+            blocking={task.blocking || []}
+          />
 
           {/* Review Section - visible to task creator and PM/Admin */}
           <ReviewSection task={task} />

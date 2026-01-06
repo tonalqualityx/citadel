@@ -17,6 +17,7 @@ import {
   Check,
   X,
   Map,
+  Link2,
 } from 'lucide-react';
 import {
   DndContext,
@@ -74,6 +75,7 @@ import {
 } from '@/components/ui/modal';
 import { RecipeTaskForm } from '@/components/domain/recipes/recipe-task-form';
 import { InlineTaskAdder } from '@/components/domain/recipes/inline-task-adder';
+import { RecipeTaskDependencies } from '@/components/domain/recipes/recipe-task-dependencies';
 import {
   getEnergyLabel,
   getMysteryFactorLabel,
@@ -169,7 +171,9 @@ function SortablePhase({
   onDelete,
   onEditTask,
   onDeleteTask,
+  onEditDependencies,
   recipeId,
+  allTasks,
   isEditing,
   editingName,
   setEditingName,
@@ -184,7 +188,9 @@ function SortablePhase({
   onDelete: () => void;
   onEditTask: (task: RecipeTask) => void;
   onDeleteTask: (task: RecipeTask) => void;
+  onEditDependencies: (task: RecipeTask) => void;
   recipeId: string;
+  allTasks: RecipeTask[];
   isEditing: boolean;
   editingName: string;
   setEditingName: (name: string) => void;
@@ -293,8 +299,10 @@ function SortablePhase({
                 key={task.id}
                 task={task}
                 index={index}
+                allTasks={allTasks}
                 onEdit={() => onEditTask(task)}
                 onDelete={() => onDeleteTask(task)}
+                onEditDependencies={() => onEditDependencies(task)}
               />
             ))}
           </SortableContext>
@@ -326,13 +334,17 @@ function SortablePhase({
 function SortableTask({
   task,
   index,
+  allTasks,
   onEdit,
   onDelete,
+  onEditDependencies,
 }: {
   task: RecipeTask;
   index: number;
+  allTasks: RecipeTask[];
   onEdit: () => void;
   onDelete: () => void;
+  onEditDependencies: () => void;
 }) {
   const {
     attributes,
@@ -350,6 +362,13 @@ function SortableTask({
 
   // Display title: use override if set, otherwise SOP title
   const displayTitle = task.title ?? task.sop?.title ?? 'Untitled';
+
+  // Count dependencies
+  const blockedByCount = task.depends_on_ids?.length || 0;
+  const blockingCount = allTasks.filter((t) =>
+    t.depends_on_ids?.includes(task.id)
+  ).length;
+  const hasDependencies = blockedByCount > 0 || blockingCount > 0;
 
   return (
     <div
@@ -385,6 +404,33 @@ function SortableTask({
           {task.is_variable && (
             <Badge variant="purple">Variable</Badge>
           )}
+          {/* Dependency indicator */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditDependencies();
+            }}
+            className={cn(
+              'flex items-center gap-1 text-xs px-1.5 py-0.5 rounded hover:bg-surface-2 transition-colors',
+              hasDependencies ? 'text-text-main' : 'text-text-sub opacity-60 hover:opacity-100'
+            )}
+          >
+            <Link2 className="h-3 w-3" />
+            {hasDependencies ? (
+              <>
+                {blockedByCount > 0 && (
+                  <span className="text-amber-600">{blockedByCount} blocker{blockedByCount !== 1 ? 's' : ''}</span>
+                )}
+                {blockedByCount > 0 && blockingCount > 0 && <span>•</span>}
+                {blockingCount > 0 && (
+                  <span className="text-blue-600">blocks {blockingCount}</span>
+                )}
+              </>
+            ) : (
+              <span>deps</span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -446,6 +492,11 @@ export default function RecipeDetailPage({ params }: Props) {
     name: string;
   } | null>(null);
 
+  // Dependency modal state
+  const [depsModalOpen, setDepsModalOpen] = React.useState(false);
+  const [depsModalTask, setDepsModalTask] = React.useState<RecipeTask | null>(null);
+  const [depsModalPhaseId, setDepsModalPhaseId] = React.useState<string | null>(null);
+
   // Drag state
   const [activeId, setActiveId] = React.useState<UniqueIdentifier | null>(null);
   const [activeType, setActiveType] = React.useState<'phase' | 'task' | null>(null);
@@ -479,6 +530,18 @@ export default function RecipeDetailPage({ params }: Props) {
       }
       return next;
     });
+  };
+
+  // Flat list of all tasks from all phases for dependency counting
+  const allTasks = React.useMemo(() => {
+    if (!recipe?.phases) return [];
+    return recipe.phases.flatMap((p) => p.tasks || []);
+  }, [recipe?.phases]);
+
+  const openDepsModal = (task: RecipeTask, phaseId: string) => {
+    setDepsModalTask(task);
+    setDepsModalPhaseId(phaseId);
+    setDepsModalOpen(true);
   };
 
   const handleUpdateRecipe = async (field: string, value: unknown) => {
@@ -817,6 +880,7 @@ export default function RecipeDetailPage({ params }: Props) {
                     key={phase.id}
                     phase={phase}
                     recipeId={id}
+                    allTasks={allTasks}
                     isExpanded={expandedPhases.has(phase.id)}
                     onToggle={() => togglePhase(phase.id)}
                     onEdit={() => {
@@ -833,6 +897,7 @@ export default function RecipeDetailPage({ params }: Props) {
                       setDeleteTarget({ type: 'task', id: task.id, phaseId: phase.id, name: title });
                       setIsDeleteOpen(true);
                     }}
+                    onEditDependencies={(task) => openDepsModal(task, phase.id)}
                     isEditing={editingPhaseId === phase.id}
                     editingName={editingPhaseName}
                     setEditingName={setEditingPhaseName}
@@ -931,6 +996,24 @@ export default function RecipeDetailPage({ params }: Props) {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      {/* Task Dependencies Modal */}
+      {depsModalTask && depsModalPhaseId && recipe?.phases && (
+        <RecipeTaskDependencies
+          recipeId={id}
+          task={depsModalTask}
+          phaseId={depsModalPhaseId}
+          allPhases={recipe.phases}
+          open={depsModalOpen}
+          onOpenChange={(open) => {
+            setDepsModalOpen(open);
+            if (!open) {
+              setDepsModalTask(null);
+              setDepsModalPhaseId(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

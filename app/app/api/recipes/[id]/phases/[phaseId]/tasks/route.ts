@@ -4,6 +4,45 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 
+// Detect circular dependencies using DFS
+function detectCircularDependency(
+  taskId: string,
+  newDependsOnIds: string[],
+  allTasks: { id: string; depends_on_ids: string[] }[]
+): boolean {
+  // Build adjacency list: task -> tasks it depends on
+  const graph = new Map<string, string[]>();
+  for (const task of allTasks) {
+    if (task.id === taskId) {
+      // Use new dependencies for the task being updated
+      graph.set(task.id, newDependsOnIds);
+    } else {
+      graph.set(task.id, task.depends_on_ids || []);
+    }
+  }
+
+  // Check if any of the new dependencies can reach back to taskId
+  function canReach(from: string, target: string, visited: Set<string>): boolean {
+    if (from === target) return true;
+    if (visited.has(from)) return false;
+    visited.add(from);
+
+    const deps = graph.get(from) || [];
+    for (const dep of deps) {
+      if (canReach(dep, target, visited)) return true;
+    }
+    return false;
+  }
+
+  // Check if adding new dependencies would create a cycle
+  for (const depId of newDependsOnIds) {
+    if (canReach(depId, taskId, new Set())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // RecipeTask schema - SOP is the source of truth for task attributes
 const createTaskSchema = z.object({
   sop_id: z.string().uuid(), // Required - SOP is source of truth
@@ -151,7 +190,47 @@ export async function PATCH(
     if (parsed.is_variable !== undefined) updatePayload.is_variable = parsed.is_variable;
     if (parsed.variable_source !== undefined) updatePayload.variable_source = parsed.variable_source;
     if (parsed.sort_order !== undefined) updatePayload.sort_order = parsed.sort_order;
-    if (parsed.depends_on_ids !== undefined) updatePayload.depends_on_ids = parsed.depends_on_ids;
+
+    // Validate depends_on_ids if provided
+    if (parsed.depends_on_ids !== undefined) {
+      const { id: recipeId } = await params;
+
+      if (parsed.depends_on_ids.length > 0) {
+        // Verify all dependency IDs exist in the same recipe
+        const validTasks = await prisma.recipeTask.findMany({
+          where: {
+            id: { in: parsed.depends_on_ids },
+            phase: { recipe_id: recipeId },
+          },
+          select: { id: true },
+        });
+
+        const validIds = new Set(validTasks.map((t) => t.id));
+        const invalidIds = parsed.depends_on_ids.filter((id) => !validIds.has(id));
+
+        if (invalidIds.length > 0) {
+          throw new ApiError('One or more dependency tasks not found in this recipe', 400);
+        }
+
+        // Check for self-reference
+        if (parsed.depends_on_ids.includes(task_id)) {
+          throw new ApiError('A task cannot depend on itself', 400);
+        }
+
+        // Check for circular dependencies
+        const allTasks = await prisma.recipeTask.findMany({
+          where: { phase: { recipe_id: recipeId } },
+          select: { id: true, depends_on_ids: true },
+        });
+
+        const hasCircle = detectCircularDependency(task_id, parsed.depends_on_ids, allTasks);
+        if (hasCircle) {
+          throw new ApiError('Cannot add dependencies: would create circular dependency', 400);
+        }
+      }
+
+      updatePayload.depends_on_ids = parsed.depends_on_ids;
+    }
 
     const task = await prisma.recipeTask.update({
       where: { id: task_id },
