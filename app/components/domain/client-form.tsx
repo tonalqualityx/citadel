@@ -87,6 +87,9 @@ export function ClientForm({ client, onSuccess, onCancel }: ClientFormProps) {
       const payload = {
         ...data,
         email: data.email || undefined,
+        // Convert NaN (from empty number inputs) to undefined
+        retainer_hours: Number.isNaN(data.retainer_hours) ? undefined : data.retainer_hours,
+        hourly_rate: Number.isNaN(data.hourly_rate) ? undefined : data.hourly_rate,
         parent_agency_id: showParentAgency ? data.parent_agency_id : null,
       };
 
