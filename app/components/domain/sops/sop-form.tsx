@@ -103,7 +103,7 @@ export function SopForm({ sop }: SopFormProps) {
     },
     onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ['sops'] });
-      router.push(`/sops/${result.id || sop?.id}`);
+      router.push(`/sops/${result.sop?.id || sop?.id}`);
     },
   });
 

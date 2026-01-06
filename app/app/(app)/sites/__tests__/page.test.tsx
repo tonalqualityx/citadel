@@ -37,6 +37,33 @@ vi.mock('@/lib/hooks/use-clients', () => ({
   }),
 }));
 
+vi.mock('@/lib/hooks/use-auth', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1', name: 'Test User', role: 'admin' },
+    isLoading: false,
+    isAdmin: true,
+    isPmOrAdmin: true,
+  }),
+}));
+
+vi.mock('@/lib/hooks/use-users', () => ({
+  useUsers: () => ({
+    data: { users: [] },
+    isLoading: false,
+  }),
+}));
+
+vi.mock('@/lib/hooks/use-reference-data', () => ({
+  useHostingPlans: () => ({
+    data: { hosting_plans: [] },
+    isLoading: false,
+  }),
+  useMaintenancePlans: () => ({
+    data: { maintenance_plans: [] },
+    isLoading: false,
+  }),
+}));
+
 vi.mock('@/lib/hooks/use-sites', async (importOriginal) => {
   return {
     useSites: () => ({
@@ -48,6 +75,16 @@ vi.mock('@/lib/hooks/use-sites', async (importOriginal) => {
       mutate: vi.fn(),
     }),
     useCreateSite: () => ({
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+      isPending: false,
+    }),
+    useBulkUpdateSites: () => ({
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+      isPending: false,
+    }),
+    useBulkDeleteSites: () => ({
       mutate: vi.fn(),
       mutateAsync: vi.fn(),
       isPending: false,
