@@ -111,9 +111,9 @@ export function ClientForm({ client, onSuccess, onCancel }: ClientFormProps) {
       }
 
       if (isEditing) {
-        await updateClient.mutateAsync({ id: client.id, data: payload as UpdateClientInput });
+        await updateClient.mutateAsync({ id: client.id, data: payload as unknown as UpdateClientInput });
       } else {
-        await createClient.mutateAsync(payload as CreateClientInput);
+        await createClient.mutateAsync(payload as unknown as CreateClientInput);
       }
       onSuccess?.();
     } catch (error) {
