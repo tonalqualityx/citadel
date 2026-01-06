@@ -84,14 +84,31 @@ export function ClientForm({ client, onSuccess, onCancel }: ClientFormProps) {
 
   const onSubmit = async (data: ClientFormData) => {
     try {
-      const payload = {
-        ...data,
-        email: data.email || undefined,
-        // Convert NaN (from empty number inputs) to undefined
-        retainer_hours: Number.isNaN(data.retainer_hours) ? undefined : data.retainer_hours,
-        hourly_rate: Number.isNaN(data.hourly_rate) ? undefined : data.hourly_rate,
-        parent_agency_id: showParentAgency ? data.parent_agency_id : null,
+      // Build payload, converting null/NaN to undefined (API doesn't accept null)
+      const payload: Record<string, unknown> = {
+        name: data.name,
+        type: data.type,
+        status: data.status,
       };
+
+      // Only include optional fields if they have values
+      if (data.primary_contact) payload.primary_contact = data.primary_contact;
+      if (data.email) payload.email = data.email;
+      if (data.phone) payload.phone = data.phone;
+      if (data.notes) payload.notes = data.notes;
+
+      // Handle number fields - exclude if NaN, null, or undefined
+      if (typeof data.retainer_hours === 'number' && !Number.isNaN(data.retainer_hours)) {
+        payload.retainer_hours = data.retainer_hours;
+      }
+      if (typeof data.hourly_rate === 'number' && !Number.isNaN(data.hourly_rate)) {
+        payload.hourly_rate = data.hourly_rate;
+      }
+
+      // Only include parent_agency_id for sub_clients with a selected value
+      if (showParentAgency && data.parent_agency_id) {
+        payload.parent_agency_id = data.parent_agency_id;
+      }
 
       if (isEditing) {
         await updateClient.mutateAsync({ id: client.id, data: payload as UpdateClientInput });
