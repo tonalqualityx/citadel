@@ -3,8 +3,9 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, FileText, Pencil, Trash2, X } from 'lucide-react';
+import { Plus, FileText, Pencil, Trash2, X, Filter } from 'lucide-react';
 import { useSops, useBulkDeleteSops } from '@/lib/hooks/use-sops';
+import { useFunctions } from '@/lib/hooks/use-reference-data';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -12,16 +13,21 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { DataTable, Column } from '@/components/ui/data-table';
 import { SearchInput } from '@/components/ui/search-input';
+import { Select } from '@/components/ui/select';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
 import { BulkEditSopsModal } from '@/components/domain/sops/bulk-edit-modal';
 import { showToast } from '@/lib/hooks/use-toast';
+import { calculateTimeRange } from '@/lib/config/task-fields';
 
 interface Sop {
   id: string;
   title: string;
   function?: { id: string; name: string } | null;
+  energy_estimate: number | null;
+  mystery_factor: string;
+  battery_impact: string;
   estimated_minutes: number | null;
   is_active: boolean;
   updated_at: string;
@@ -32,18 +38,38 @@ export default function SopsPage() {
   const { t } = useTerminology();
   const { isAdmin } = useAuth();
   const [search, setSearch] = React.useState('');
+  const [functionId, setFunctionId] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
 
-  const { data, isLoading, error } = useSops({ page, search: search || undefined });
+  const { data: functionsData } = useFunctions();
+  const { data, isLoading, error } = useSops({
+    page,
+    search: search || undefined,
+    function_id: functionId || undefined,
+  });
   const bulkDelete = useBulkDeleteSops();
 
-  // Clear selection when page or search changes
+  // Build function options for filter
+  const functionOptions = React.useMemo(() => {
+    const opts = (functionsData?.functions || []).map((f) => ({
+      value: f.id,
+      label: f.name,
+    }));
+    return [{ value: '', label: 'All Functions' }, ...opts];
+  }, [functionsData?.functions]);
+
+  // Clear selection when page, search, or function filter changes
   React.useEffect(() => {
     setSelectedIds([]);
-  }, [page, search]);
+  }, [page, search, functionId]);
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setPage(1);
+  }, [search, functionId]);
 
   const handleBulkEditSuccess = () => {
     setSelectedIds([]);
@@ -83,11 +109,18 @@ export default function SopsPage() {
     {
       key: 'time',
       header: 'Est. Time',
-      cell: (sop) => (
-        <span className="text-sm text-text-sub">
-          {sop.estimated_minutes ? `${sop.estimated_minutes} min` : '-'}
-        </span>
-      ),
+      cell: (sop) => {
+        const timeRange = calculateTimeRange(
+          sop.energy_estimate,
+          sop.mystery_factor,
+          sop.battery_impact
+        );
+        return (
+          <span className="text-sm text-text-sub">
+            {timeRange || '-'}
+          </span>
+        );
+      },
     },
     {
       key: 'status',
@@ -137,12 +170,32 @@ export default function SopsPage() {
 
       <Card>
         <CardContent className="py-4">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder={`Search ${t('sops').toLowerCase()}...`}
-            className="md:w-64"
-          />
+          <div className="flex flex-col sm:flex-row gap-3">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={`Search ${t('sops').toLowerCase()}...`}
+              className="sm:w-64"
+            />
+            <Select
+              options={functionOptions}
+              value={functionId}
+              onChange={setFunctionId}
+              placeholder="All Functions"
+              className="sm:w-48"
+            />
+            {functionId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setFunctionId('')}
+                className="self-start"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear filter
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
