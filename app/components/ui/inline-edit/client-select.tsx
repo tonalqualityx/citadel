@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, X, Search } from 'lucide-react';
 import { useClients } from '@/lib/hooks/use-clients';
 import type { ClientWithRelations } from '@/types/entities';
@@ -26,7 +27,10 @@ export function ClientSelect({
 }: ClientSelectProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
+  const [dropdownPosition, setDropdownPosition] = React.useState({ top: 0, left: 0 });
   const ref = React.useRef<HTMLDivElement>(null);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
   const { data, isLoading } = useClients({ limit: 100, type: filterType });
 
@@ -38,9 +42,25 @@ export function ClientSelect({
     return list;
   }, [data?.clients, excludeId]);
 
+  // Update dropdown position when opened
+  React.useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + window.scrollY + 4,
+        left: rect.left + window.scrollX,
+      });
+    }
+  }, [isOpen]);
+
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      if (
+        ref.current &&
+        !ref.current.contains(e.target as Node) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false);
         setSearch('');
       }
@@ -62,9 +82,78 @@ export function ClientSelect({
     c.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const dropdown = isOpen && (
+    <div
+      ref={dropdownRef}
+      className="fixed z-[9999] w-64 bg-surface border border-border rounded-lg shadow-lg"
+      style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
+    >
+      {/* Search input */}
+      <div className="p-2 border-b border-border">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-text-sub" />
+          <input
+            ref={searchRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search clients..."
+            className="w-full pl-8 pr-3 py-1.5 text-sm bg-surface-alt border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+      </div>
+
+      {/* Options */}
+      <div className="max-h-48 overflow-auto py-1">
+        {/* Clear option */}
+        {allowClear && value && (
+          <button
+            type="button"
+            onClick={() => {
+              onChange(null);
+              setIsOpen(false);
+              setSearch('');
+            }}
+            className="w-full text-left px-3 py-2 text-sm hover:bg-surface-alt flex items-center gap-2 text-text-sub"
+          >
+            <X className="h-4 w-4" />
+            Clear selection
+          </button>
+        )}
+
+        {isLoading ? (
+          <div className="px-3 py-2 text-sm text-text-sub">Loading...</div>
+        ) : filteredClients.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-text-sub">No clients found</div>
+        ) : (
+          filteredClients.map((client: ClientWithRelations) => (
+            <button
+              key={client.id}
+              type="button"
+              onClick={() => {
+                onChange(client.id);
+                setIsOpen(false);
+                setSearch('');
+              }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-alt ${
+                client.id === value ? 'bg-primary/10 text-primary' : 'text-text-main'
+              }`}
+            >
+              <div>{client.name}</div>
+              <div className="text-xs text-text-sub capitalize">
+                {client.type.replace('_', ' ')}
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div ref={ref} className={`relative inline-block ${className}`}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 cursor-pointer hover:bg-surface-alt px-2 py-1 -mx-2 -my-1 rounded transition-colors"
@@ -75,69 +164,7 @@ export function ClientSelect({
         <ChevronDown className="h-3 w-3 text-text-sub" />
       </button>
 
-      {isOpen && (
-        <div className="absolute z-50 mt-1 w-64 bg-surface border border-border rounded-lg shadow-lg">
-          {/* Search input */}
-          <div className="p-2 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-text-sub" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search clients..."
-                className="w-full pl-8 pr-3 py-1.5 text-sm bg-surface-alt border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-          </div>
-
-          {/* Options */}
-          <div className="max-h-48 overflow-auto py-1">
-            {/* Clear option */}
-            {allowClear && value && (
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(null);
-                  setIsOpen(false);
-                  setSearch('');
-                }}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-surface-alt flex items-center gap-2 text-text-sub"
-              >
-                <X className="h-4 w-4" />
-                Clear selection
-              </button>
-            )}
-
-            {isLoading ? (
-              <div className="px-3 py-2 text-sm text-text-sub">Loading...</div>
-            ) : filteredClients.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-text-sub">No clients found</div>
-            ) : (
-              filteredClients.map((client: ClientWithRelations) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(client.id);
-                    setIsOpen(false);
-                    setSearch('');
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-alt ${
-                    client.id === value ? 'bg-primary/10 text-primary' : 'text-text-main'
-                  }`}
-                >
-                  <div>{client.name}</div>
-                  <div className="text-xs text-text-sub capitalize">
-                    {client.type.replace('_', ' ')}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      {typeof document !== 'undefined' && createPortal(dropdown, document.body)}
     </div>
   );
 }
