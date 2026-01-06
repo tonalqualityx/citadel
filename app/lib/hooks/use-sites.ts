@@ -76,9 +76,18 @@ export function useUpdateSite() {
     }): Promise<SiteWithRelations> => {
       return apiClient.patch<SiteWithRelations>(`/sites/${id}`, data);
     },
-    onSuccess: (_, { id }) => {
+    onSuccess: (result, { id, data }) => {
       queryClient.invalidateQueries({ queryKey: siteKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: siteKeys.lists() });
+      // Invalidate client queries when client_id changes
+      if ('client_id' in data) {
+        // Invalidate the new client (if any)
+        if (data.client_id) {
+          queryClient.invalidateQueries({ queryKey: clientKeys.detail(data.client_id) });
+        }
+        // Also invalidate client lists to update site counts
+        queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      }
     },
   });
 }

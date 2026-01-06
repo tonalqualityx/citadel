@@ -2,41 +2,40 @@
 
 import * as React from 'react';
 import { ChevronDown, X, Search } from 'lucide-react';
-import { useClients } from '@/lib/hooks/use-clients';
-import type { ClientWithRelations } from '@/types/entities';
+import { useSites } from '@/lib/hooks/use-sites';
+import type { SiteWithRelations } from '@/types/entities';
 
-interface ClientSelectProps {
+interface SiteSelectProps {
   value: string | null;
   onChange: (value: string | null) => void;
   placeholder?: string;
   className?: string;
-  excludeId?: string; // Exclude a client from the list (e.g., when selecting parent, exclude self)
-  filterType?: 'agency_partner'; // Filter to only show certain types
+  excludeIds?: string[]; // Exclude sites from the list (e.g., sites already assigned to a client)
   allowClear?: boolean; // Whether to show the "Clear selection" option (default: true)
 }
 
-export function ClientSelect({
+export function SiteSelect({
   value,
   onChange,
-  placeholder = 'Select client...',
+  placeholder = 'Select site...',
   className = '',
-  excludeId,
-  filterType,
+  excludeIds = [],
   allowClear = true,
-}: ClientSelectProps) {
+}: SiteSelectProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const ref = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
-  const { data, isLoading } = useClients({ limit: 100, type: filterType });
+  const { data, isLoading } = useSites({ limit: 100 });
 
-  const clients = React.useMemo(() => {
-    let list = data?.clients || [];
-    if (excludeId) {
-      list = list.filter((c: ClientWithRelations) => c.id !== excludeId);
+  const sites = React.useMemo(() => {
+    let list = data?.sites || [];
+    if (excludeIds.length > 0) {
+      const excludeSet = new Set(excludeIds);
+      list = list.filter((s: SiteWithRelations) => !excludeSet.has(s.id));
     }
     return list;
-  }, [data?.clients, excludeId]);
+  }, [data?.sites, excludeIds]);
 
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -55,12 +54,20 @@ export function ClientSelect({
     }
   }, [isOpen]);
 
-  const selectedClient = clients.find((c: ClientWithRelations) => c.id === value);
-  const displayLabel = selectedClient?.name || placeholder;
+  const selectedSite = sites.find((s: SiteWithRelations) => s.id === value);
+  const displayLabel = selectedSite?.name || placeholder;
 
-  const filteredClients = clients.filter((c: ClientWithRelations) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
+  const filteredSites = sites.filter((s: SiteWithRelations) =>
+    s.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Get primary domain for subtitle
+  const getPrimaryDomain = (site: SiteWithRelations) => {
+    if (site.primary_domain) {
+      return site.primary_domain.name;
+    }
+    return null;
+  };
 
   return (
     <div ref={ref} className={`relative inline-block ${className}`}>
@@ -76,7 +83,7 @@ export function ClientSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-64 bg-surface border border-border rounded-lg shadow-lg">
+        <div className="absolute z-50 mt-1 w-72 bg-surface border border-border rounded-lg shadow-lg">
           {/* Search input */}
           <div className="p-2 border-b border-border">
             <div className="relative">
@@ -86,7 +93,7 @@ export function ClientSelect({
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search clients..."
+                placeholder="Search sites..."
                 className="w-full pl-8 pr-3 py-1.5 text-sm bg-surface-alt border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -112,28 +119,31 @@ export function ClientSelect({
 
             {isLoading ? (
               <div className="px-3 py-2 text-sm text-text-sub">Loading...</div>
-            ) : filteredClients.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-text-sub">No clients found</div>
+            ) : filteredSites.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-text-sub">No sites found</div>
             ) : (
-              filteredClients.map((client: ClientWithRelations) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(client.id);
-                    setIsOpen(false);
-                    setSearch('');
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-alt ${
-                    client.id === value ? 'bg-primary/10 text-primary' : 'text-text-main'
-                  }`}
-                >
-                  <div>{client.name}</div>
-                  <div className="text-xs text-text-sub capitalize">
-                    {client.type.replace('_', ' ')}
-                  </div>
-                </button>
-              ))
+              filteredSites.map((site: SiteWithRelations) => {
+                const domain = getPrimaryDomain(site);
+                return (
+                  <button
+                    key={site.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(site.id);
+                      setIsOpen(false);
+                      setSearch('');
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-alt ${
+                      site.id === value ? 'bg-primary/10 text-primary' : 'text-text-main'
+                    }`}
+                  >
+                    <div>{site.name}</div>
+                    {domain && (
+                      <div className="text-xs text-text-sub">{domain}</div>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>

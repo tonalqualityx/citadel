@@ -16,6 +16,7 @@ import {
   InlineSelect,
   HostingPlanSelect,
   MaintenancePlanSelect,
+  ClientSelect,
 } from '@/components/ui/inline-edit';
 import { SiteDomainsCard } from '@/components/domain/sites/site-domains-card';
 import type { UpdateSiteInput, HostedBy } from '@/types/entities';
@@ -111,18 +112,21 @@ export default function SiteDetailPage({ params }: Props) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Client - Read only */}
+        {/* Client */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t('client')}</CardTitle>
           </CardHeader>
-          <CardContent>
-            {site.client ? (
-              <Link href={`/clients/${site.client.id}`} className="text-primary hover:underline">
-                {site.client.name}
+          <CardContent className="space-y-2">
+            <ClientSelect
+              value={site.client?.id || null}
+              onChange={(client_id) => handleUpdate({ client_id })}
+              placeholder="Select client..."
+            />
+            {site.client && (
+              <Link href={`/clients/${site.client.id}`} className="text-sm text-primary hover:underline block">
+                View client details
               </Link>
-            ) : (
-              <span className="text-text-sub">No client assigned</span>
             )}
           </CardContent>
         </Card>

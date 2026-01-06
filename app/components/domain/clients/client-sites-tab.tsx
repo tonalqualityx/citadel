@@ -2,15 +2,18 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Globe, ExternalLink } from 'lucide-react';
+import { Globe, ExternalLink, Plus, X } from 'lucide-react';
 import { useSites, useUpdateSite } from '@/lib/hooks/use-sites';
 import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
 import { Spinner } from '@/components/ui/spinner';
+import { Button } from '@/components/ui/button';
 import {
   InlineText,
   HostingPlanSelect,
   MaintenancePlanSelect,
 } from '@/components/ui/inline-edit';
+import { AddSiteModal } from './add-site-modal';
+import { showToast } from '@/lib/hooks/use-toast';
 import type { SiteWithRelations, UpdateSiteInput } from '@/types/entities';
 
 interface ClientSitesTabProps {
@@ -18,8 +21,18 @@ interface ClientSitesTabProps {
 }
 
 export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
+  const [isAddSiteOpen, setIsAddSiteOpen] = React.useState(false);
   const { data, isLoading } = useSites({ client_id: clientId, limit: 100 });
   const updateSite = useUpdateSite();
+
+  const handleRemoveSite = async (siteId: string) => {
+    try {
+      await updateSite.mutateAsync({ id: siteId, data: { client_id: null } });
+      showToast.success('Site removed from client');
+    } catch (error) {
+      showToast.apiError(error, 'Failed to remove site');
+    }
+  };
 
   const handleSiteUpdate = async (siteId: string, updates: Partial<SiteWithRelations>) => {
     // Map SiteWithRelations updates to UpdateSiteInput
@@ -163,6 +176,24 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
         </div>
       ),
     },
+    {
+      key: 'actions',
+      header: '',
+      width: '50px',
+      cell: (site) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleRemoveSite(site.id)}
+            className="h-7 w-7 p-0 text-text-sub hover:text-red-500"
+            title="Remove from client"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   if (isLoading) {
@@ -181,6 +212,10 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
         <h3 className="text-sm font-medium text-text-sub">
           {sites.length} site{sites.length !== 1 ? 's' : ''}
         </h3>
+        <Button size="sm" onClick={() => setIsAddSiteOpen(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          Add Site
+        </Button>
       </div>
 
       <TaskList<SiteWithRelations>
@@ -201,6 +236,14 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
           <span className="text-sm text-text-sub">Saving...</span>
         </div>
       )}
+
+      {/* Add Site Modal */}
+      <AddSiteModal
+        open={isAddSiteOpen}
+        onOpenChange={setIsAddSiteOpen}
+        clientId={clientId}
+        existingSiteIds={sites.map((s) => s.id)}
+      />
     </div>
   );
 }

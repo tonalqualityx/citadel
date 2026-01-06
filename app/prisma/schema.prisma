@@ -343,9 +343,9 @@ model Site {
   name                String           @db.VarChar(255)
   url                 String?          @db.VarChar(500)
 
-  // Client relationship
-  client_id           String           @db.Uuid
-  client              Client           @relation(fields: [client_id], references: [id])
+  // Client relationship (optional - sites can exist without a client)
+  client_id           String?          @db.Uuid
+  client              Client?          @relation(fields: [client_id], references: [id])
 
   // Hosting
   hosted_by           HostedBy         @default(indelible)

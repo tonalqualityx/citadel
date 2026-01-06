@@ -13,6 +13,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import { InlineUserSelect } from '@/components/ui/user-select';
+import { ClientSelect } from '@/components/ui/inline-edit';
 import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
 import { SiteForm } from '@/components/domain/site-form';
 import { BulkEditSitesModal } from '@/components/domain/sites/bulk-edit-modal';
@@ -49,6 +50,10 @@ export default function SitesPage() {
 
   const handleAssigneeChange = (siteId: string, assigneeId: string | null) => {
     updateSite.mutate({ id: siteId, data: { maintenance_assignee_id: assigneeId } });
+  };
+
+  const handleClientChange = (siteId: string, clientId: string | null) => {
+    updateSite.mutate({ id: siteId, data: { client_id: clientId } });
   };
 
   const handleCreateSuccess = () => {
@@ -89,7 +94,13 @@ export default function SitesPage() {
       key: 'client',
       header: t('client'),
       cell: (site) => (
-        <span className="text-sm text-text-sub">{site.client?.name || '-'}</span>
+        <div onClick={(e) => e.stopPropagation()}>
+          <ClientSelect
+            value={site.client?.id || null}
+            onChange={(value) => handleClientChange(site.id, value)}
+            placeholder="No client"
+          />
+        </div>
       ),
     },
     {

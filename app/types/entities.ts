@@ -104,6 +104,7 @@ export interface CreateSiteInput {
 
 export interface UpdateSiteInput {
   name?: string;
+  client_id?: string | null;
   hosted_by?: HostedBy;
   platform?: string | null;
   hosting_plan_id?: string | null;

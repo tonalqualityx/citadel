@@ -7,6 +7,7 @@ import { formatSiteResponse } from '@/lib/api/formatters';
 
 const updateSiteSchema = z.object({
   name: z.string().min(1).max(255).optional(),
+  client_id: z.string().uuid().optional().nullable(),
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional().nullable(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
@@ -64,6 +65,16 @@ export async function PATCH(
 
     const body = await request.json();
     const data = updateSiteSchema.parse(body);
+
+    // Validate client exists if provided (and not null)
+    if (data.client_id) {
+      const client = await prisma.client.findUnique({
+        where: { id: data.client_id, is_deleted: false },
+      });
+      if (!client) {
+        throw new ApiError('Client not found', 404);
+      }
+    }
 
     // Validate hosting plan exists if provided
     if (data.hosting_plan_id) {
