@@ -27,6 +27,29 @@ vi.mock('@/lib/hooks/use-clients', () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
+  useDeleteClient: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useBulkDeleteClients: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useBulkUpdateClients: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+}));
+
+vi.mock('@/lib/hooks/use-auth', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user', role: 'admin', email: 'admin@test.com', name: 'Test Admin' },
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 vi.mock('@/lib/hooks/use-terminology', () => ({

@@ -165,3 +165,51 @@ export function useClientActivity(
     enabled: !!clientId,
   });
 }
+
+// Bulk operations
+export interface BulkUpdateClientsInput {
+  status?: 'active' | 'inactive' | 'delinquent';
+  type?: 'direct' | 'agency_partner' | 'sub_client';
+  retainer_hours?: number | null;
+  hourly_rate?: number | null;
+}
+
+export function useBulkUpdateClients() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      client_ids,
+      data,
+    }: {
+      client_ids: string[];
+      data: BulkUpdateClientsInput;
+    }) => {
+      return apiClient.patch('/clients/bulk', { client_ids, data });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      showToast.success('Clients updated');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to update clients');
+    },
+  });
+}
+
+export function useBulkDeleteClients() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (client_ids: string[]) => {
+      return apiClient.delete('/clients/bulk', { client_ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: clientKeys.lists() });
+      showToast.success('Clients deleted');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to delete clients');
+    },
+  });
+}
