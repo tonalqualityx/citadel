@@ -15,11 +15,13 @@ import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { DashboardSection } from './dashboard-section';
+import { FocusTargetMeter } from './focus-target-meter';
 import { TaskQuickList } from './task-quick-list';
 import { TimeclockIssues } from './timeclock-issues';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
-import { formatDuration } from '@/lib/calculations/energy';
+import { formatDuration, energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
+import type { MysteryFactor } from '@prisma/client';
 import { formatElapsedTime } from '@/lib/utils/time';
 import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
 import { TaskGroupingSelect } from '@/components/ui/task-grouping-select';
@@ -35,6 +37,32 @@ import {
   priorityColumn,
 } from '@/components/ui/task-list-columns';
 import { TaskSortSelect } from '@/components/ui/task-sort-select';
+
+const FOCUS_TARGET_KEY = 'dashboard-focus-target-hours';
+
+function getStoredTarget(): number {
+  if (typeof window === 'undefined') return 4;
+  const saved = localStorage.getItem(FOCUS_TARGET_KEY);
+  return saved ? parseFloat(saved) : 4;
+}
+
+function calculateFocusEstimates(tasks: DashboardTask[]): { min: number; max: number } {
+  let min = 0;
+  let max = 0;
+
+  for (const task of tasks) {
+    if (task.energy_estimate) {
+      const baseMinutes = energyToMinutes(task.energy_estimate);
+      min += baseMinutes;
+
+      const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
+      const multiplier = getMysteryMultiplier(mysteryFactor);
+      max += Math.round(baseMinutes * multiplier);
+    }
+  }
+
+  return { min, max };
+}
 
 interface TechOverlookProps {
   data: TechDashboardData;
@@ -53,6 +81,20 @@ export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOve
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
   const [isPeekOpen, setIsPeekOpen] = React.useState(false);
+
+  // Focus target state (persisted to localStorage)
+  const [availableHours, setAvailableHours] = React.useState<number>(4);
+  // Battery level (resets each session - not persisted)
+  const [batteryLevel, setBatteryLevel] = React.useState<'full' | 'mid' | 'depleted'>('mid');
+
+  React.useEffect(() => {
+    setAvailableHours(getStoredTarget());
+  }, []);
+
+  const handleAvailableHoursChange = (hours: number) => {
+    setAvailableHours(hours);
+    localStorage.setItem(FOCUS_TARGET_KEY, hours.toString());
+  };
 
   const handleTaskClick = (task: DashboardTask) => {
     setPeekTaskId(task.id);
@@ -74,6 +116,9 @@ export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOve
 
   // Separate tasks by focus flag
   const focusTasks = data.myTasks.items.filter((t) => t.is_focus);
+
+  // Calculate focus task estimates for meter
+  const focusEstimates = calculateFocusEstimates(focusTasks);
 
   // Task grouping for My Tasks section
   const { groupBy, setGroupBy, groups } = useTaskGrouping(data.myTasks.items, {
@@ -150,6 +195,14 @@ export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOve
             iconColor="text-amber-500"
             action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
           >
+            <FocusTargetMeter
+              availableHours={availableHours}
+              onAvailableHoursChange={handleAvailableHoursChange}
+              batteryLevel={batteryLevel}
+              onBatteryLevelChange={setBatteryLevel}
+              estimatedMinutesLow={focusEstimates.min}
+              estimatedMinutesHigh={focusEstimates.max}
+            />
             <TaskList<DashboardTask>
               tasks={focusTasks}
               columns={focusColumns}
