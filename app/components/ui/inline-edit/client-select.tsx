@@ -42,14 +42,23 @@ export function ClientSelect({
     return list;
   }, [data?.clients, excludeId]);
 
-  // Update dropdown position when opened
+  // Update dropdown position when opened or on scroll
   React.useEffect(() => {
-    if (isOpen && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + window.scrollY + 4,
-        left: rect.left + window.scrollX,
-      });
+    const updatePosition = () => {
+      if (buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        setDropdownPosition({
+          top: rect.bottom + 4,
+          left: rect.left,
+        });
+      }
+    };
+
+    if (isOpen) {
+      updatePosition();
+      // Update position on scroll to keep dropdown attached
+      window.addEventListener('scroll', updatePosition, true);
+      return () => window.removeEventListener('scroll', updatePosition, true);
     }
   }, [isOpen]);
 
