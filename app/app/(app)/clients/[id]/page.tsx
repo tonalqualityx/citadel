@@ -2,12 +2,15 @@
 
 import { use, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Building2, Mail, Phone, Clock, DollarSign, CheckCircle } from 'lucide-react';
-import { useClient, useUpdateClient } from '@/lib/hooks/use-clients';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, Building2, Mail, Phone, Clock, DollarSign, CheckCircle, Trash2 } from 'lucide-react';
+import { useClient, useUpdateClient, useDeleteClient } from '@/lib/hooks/use-clients';
+import { useAuth } from '@/lib/hooks/use-auth';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
@@ -40,10 +43,16 @@ type TabType = 'details' | 'sites' | 'activity';
 
 export default function ClientDetailPage({ params }: Props) {
   const { id } = use(params);
+  const router = useRouter();
   const { t } = useTerminology();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('details');
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const { data: client, isLoading, error } = useClient(id);
   const updateClient = useUpdateClient();
+  const deleteClient = useDeleteClient();
+
+  const isAdmin = user?.role === 'admin';
 
   const handleUpdate = async (updates: UpdateClientInput) => {
     if (!client) return;
@@ -51,6 +60,16 @@ export default function ClientDetailPage({ params }: Props) {
       await updateClient.mutateAsync({ id: client.id, data: updates });
     } catch (err) {
       console.error('Failed to update client:', err);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!client) return;
+    try {
+      await deleteClient.mutateAsync(client.id);
+      router.push('/clients');
+    } catch (err) {
+      console.error('Failed to delete client:', err);
     }
   };
 
@@ -134,6 +153,12 @@ export default function ClientDetailPage({ params }: Props) {
             />
           </div>
         </div>
+        {isAdmin && (
+          <Button variant="destructive" size="sm" onClick={() => setIsDeleteOpen(true)}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
+          </Button>
+        )}
       </div>
 
       {/* Tab Navigation */}
@@ -324,6 +349,32 @@ export default function ClientDetailPage({ params }: Props) {
           <span className="text-sm text-green-600">Saved</span>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <ModalContent size="sm">
+          <ModalHeader>
+            <ModalTitle>Delete {t('client')}</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-text-sub">
+              Are you sure you want to delete <strong>{client.name}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="ghost" onClick={() => setIsDeleteOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteClient.isPending}
+              >
+                {deleteClient.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

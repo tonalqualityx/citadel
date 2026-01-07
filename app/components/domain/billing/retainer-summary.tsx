@@ -49,7 +49,7 @@ export function RetainerSummary({ retainerHours, usedHours }: RetainerSummaryPro
       </div>
 
       {/* Progress bar */}
-      <div className="h-2 bg-white/60 rounded-full overflow-hidden">
+      <div className="h-2 bg-surface-alt rounded-full overflow-hidden">
         <div
           className={cn(
             'h-full rounded-full transition-all duration-300',

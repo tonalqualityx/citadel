@@ -234,7 +234,7 @@ export default function GuildPage() {
                 }
               />
               <div className="w-11 h-6 bg-background-light rounded-full peer peer-checked:bg-primary transition-colors" />
-              <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5" />
+              <div className="absolute left-1 top-1 w-4 h-4 bg-surface rounded-full shadow transition-transform peer-checked:translate-x-5" />
             </div>
             <span className="text-sm text-text-main">
               {preferences?.notification_bundle

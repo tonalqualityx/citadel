@@ -43,6 +43,7 @@
      * Eye strain reduction: muted, desaturated colors
      * ADHD-friendly: clear visual hierarchy without harsh contrasts
      */
+    color-scheme: light;
     --bg-primary: #FAF9F7;        /* warm off-white, NOT pure white */
     --bg-secondary: #F5F3EF;      /* subtle depth */
     --bg-elevated: #FFFFFF;       /* cards, modals - only place for white */
@@ -71,6 +72,7 @@
 
   /* Light theme explicit override */
   .theme-light {
+    color-scheme: light;
     --bg-primary: #FAF9F7;
     --bg-secondary: #F5F3EF;
     --bg-elevated: #FFFFFF;
@@ -94,6 +96,7 @@
    * Warmer dark tones
    */
   .theme-dim {
+    color-scheme: dark;
     --bg-primary: #2A2825;        /* warm dark, not cold gray */
     --bg-secondary: #343230;
     --bg-elevated: #3D3B38;
@@ -117,6 +120,7 @@
    * Maintains visual hierarchy
    */
   .theme-dark {
+    color-scheme: dark;
     --bg-primary: #1E1E1E;        /* dark gray, NOT pure black */
     --bg-secondary: #252525;
     --bg-elevated: #2A2A2A;
@@ -136,6 +140,7 @@
   /* System preference - matches user's OS setting */
   @media (prefers-color-scheme: dark) {
     :root:not(.theme-light):not(.theme-dim):not(.theme-dark) {
+      color-scheme: dark;
       --bg-primary: #1E1E1E;
       --bg-secondary: #252525;
       --bg-elevated: #2A2A2A;
@@ -157,6 +162,46 @@
     background: var(--bg-primary);
     color: var(--text-primary);
     font-family: var(--font-sans);
+  }
+
+  /* Form element theming - ensure proper colors in all themes */
+  input,
+  textarea,
+  select {
+    color: var(--text-primary);
+    background-color: var(--bg-elevated);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--text-secondary);
+  }
+
+  /* Native select option styling (limited browser support but helps) */
+  option {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+
+  /* Date/time input icon coloring */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: var(--calendar-icon-filter, none);
+  }
+
+  .theme-dark input[type="date"]::-webkit-calendar-picker-indicator,
+  .theme-dark input[type="time"]::-webkit-calendar-picker-indicator,
+  .theme-dark input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  .theme-dim input[type="date"]::-webkit-calendar-picker-indicator,
+  .theme-dim input[type="time"]::-webkit-calendar-picker-indicator,
+  .theme-dim input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+  }
+
+  /* Checkbox styling for dark themes */
+  input[type="checkbox"] {
+    accent-color: var(--accent);
   }
 }
 
