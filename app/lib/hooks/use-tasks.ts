@@ -501,3 +501,47 @@ export function useMoveTask(projectId: string) {
     // Don't invalidate on success - optimistic update handles it
   });
 }
+
+// Bulk operations
+export interface BulkUpdateTasksInput {
+  due_date?: string | null;
+  assignee_id?: string | null;
+}
+
+export function useBulkUpdateTasks() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      task_ids,
+      data,
+    }: {
+      task_ids: string[];
+      data: BulkUpdateTasksInput;
+    }): Promise<{ success: boolean; updated: number }> => {
+      return apiClient.patch('/tasks/bulk', { task_ids, data });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+      // Invalidate all project details since tasks could be from any project
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export function useBulkDeleteTasks() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (task_ids: string[]): Promise<{ success: boolean; deleted: number }> => {
+      return apiClient.delete('/tasks/bulk', { task_ids });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+      // Invalidate all project details since tasks could be from any project
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}

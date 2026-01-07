@@ -34,6 +34,15 @@ export interface TaskListGroup<T extends TaskLike = TaskLike> {
   defaultCollapsed?: boolean;
 }
 
+// Selection info passed to custom group header
+export interface GroupSelectionInfo {
+  allSelected: boolean;
+  someSelected: boolean;
+  selectedCount: number;
+  totalCount: number;
+  onSelectAll: () => void;
+}
+
 export interface TaskListProps<T extends TaskLike = TaskLike> {
   // Data - either flat tasks or grouped
   tasks?: T[];
@@ -47,6 +56,11 @@ export interface TaskListProps<T extends TaskLike = TaskLike> {
   onTaskUpdate?: (taskId: string, updates: Partial<T>) => void;
   onLoadMore?: () => void;
 
+  // Selection (for bulk operations)
+  selectable?: boolean;
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
+
   // Options
   showHeaders?: boolean;
   emptyMessage?: string;
@@ -58,7 +72,8 @@ export interface TaskListProps<T extends TaskLike = TaskLike> {
   renderGroupHeader?: (
     group: TaskListGroup<T>,
     isCollapsed: boolean,
-    toggleCollapse: () => void
+    toggleCollapse: () => void,
+    selectionInfo?: GroupSelectionInfo
   ) => React.ReactNode;
   renderGroupFooter?: (group: TaskListGroup<T>) => React.ReactNode;
 
@@ -80,6 +95,9 @@ export function TaskList<T extends TaskLike = TaskLike>({
   onTaskClick,
   onTaskUpdate,
   onLoadMore,
+  selectable = false,
+  selectedIds = [],
+  onSelectionChange,
   showHeaders = true,
   emptyMessage = 'No tasks',
   className,
@@ -112,10 +130,64 @@ export function TaskList<T extends TaskLike = TaskLike>({
     });
   };
 
-  // Build grid template columns from column widths
-  const gridTemplateColumns = columns
-    .map((col) => col.width || '1fr')
-    .join(' ');
+  // Selection handlers
+  const handleSelectTask = (taskId: string) => {
+    if (!onSelectionChange) return;
+    if (selectedIds.includes(taskId)) {
+      onSelectionChange(selectedIds.filter((id) => id !== taskId));
+    } else {
+      onSelectionChange([...selectedIds, taskId]);
+    }
+  };
+
+  const handleSelectGroup = (group: TaskListGroup<T>) => {
+    if (!onSelectionChange) return;
+    const groupTaskIds = group.tasks.map((t) => t.id);
+    const allSelected = groupTaskIds.every((id) => selectedIds.includes(id));
+
+    if (allSelected) {
+      // Deselect all tasks in this group
+      onSelectionChange(selectedIds.filter((id) => !groupTaskIds.includes(id)));
+    } else {
+      // Select all tasks in this group
+      const newIds = [...new Set([...selectedIds, ...groupTaskIds])];
+      onSelectionChange(newIds);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (!onSelectionChange) return;
+    const allTaskIds = groups
+      ? groups.flatMap((g) => g.tasks.map((t) => t.id))
+      : (tasks?.map((t) => t.id) || []);
+    const allSelected = allTaskIds.every((id) => selectedIds.includes(id));
+
+    if (allSelected) {
+      onSelectionChange(selectedIds.filter((id) => !allTaskIds.includes(id)));
+    } else {
+      const newIds = [...new Set([...selectedIds, ...allTaskIds])];
+      onSelectionChange(newIds);
+    }
+  };
+
+  // Get selection info for a group
+  const getGroupSelectionInfo = (group: TaskListGroup<T>): GroupSelectionInfo => {
+    const groupTaskIds = group.tasks.map((t) => t.id);
+    const selectedInGroup = groupTaskIds.filter((id) => selectedIds.includes(id));
+    return {
+      allSelected: group.tasks.length > 0 && selectedInGroup.length === group.tasks.length,
+      someSelected: selectedInGroup.length > 0 && selectedInGroup.length < group.tasks.length,
+      selectedCount: selectedInGroup.length,
+      totalCount: group.tasks.length,
+      onSelectAll: () => handleSelectGroup(group),
+    };
+  };
+
+  // Build grid template columns from column widths, adding checkbox column if selectable
+  const gridTemplateColumns = [
+    ...(selectable ? ['32px'] : []),
+    ...columns.map((col) => col.width || '1fr'),
+  ].join(' ');
 
   // Render a single task row
   const renderRow = (task: T) => {
@@ -123,17 +195,33 @@ export function TaskList<T extends TaskLike = TaskLike>({
       onTaskUpdate?.(task.id, updates);
     };
 
+    const isSelected = selectedIds.includes(task.id);
+
     const rowContent = (
       <div
         key={task.id}
         data-task-row
         className={cn(
           'grid items-center gap-4 px-4 py-3 border-b border-border',
-          'transition-colors hover:bg-surface-alt cursor-pointer group'
+          'transition-colors hover:bg-surface-alt cursor-pointer group',
+          isSelected && 'bg-primary/5'
         )}
         style={{ gridTemplateColumns }}
         onClick={() => onTaskClick?.(task)}
       >
+        {selectable && (
+          <div
+            className="flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => handleSelectTask(task.id)}
+              className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary cursor-pointer"
+            />
+          </div>
+        )}
         {columns.map((column) => (
           <div
             key={column.key}
@@ -160,7 +248,7 @@ export function TaskList<T extends TaskLike = TaskLike>({
   };
 
   // Render group header (default implementation)
-  const defaultRenderGroupHeader = (group: TaskListGroup<T>) => {
+  const defaultRenderGroupHeader = (group: TaskListGroup<T>, selectionInfo?: GroupSelectionInfo) => {
     const isCollapsed = collapsedGroups.has(group.id);
     const taskCount = group.tasks.length;
 
@@ -173,6 +261,19 @@ export function TaskList<T extends TaskLike = TaskLike>({
         )}
         onClick={() => group.collapsible && toggleGroup(group.id)}
       >
+        {selectable && selectionInfo && taskCount > 0 && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={selectionInfo.allSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = selectionInfo.someSelected;
+              }}
+              onChange={selectionInfo.onSelectAll}
+              className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary cursor-pointer"
+            />
+          </div>
+        )}
         {group.collapsible && (
           <span className="text-text-sub">
             {isCollapsed ? (
@@ -215,6 +316,28 @@ export function TaskList<T extends TaskLike = TaskLike>({
           className="grid items-center gap-4 px-4 py-2 bg-surface-alt border-b border-border-warm"
           style={{ gridTemplateColumns }}
         >
+          {selectable && (
+            <div className="flex items-center justify-center">
+              {(() => {
+                const allTaskIds = groups
+                  ? groups.flatMap((g) => g.tasks.map((t) => t.id))
+                  : (tasks?.map((t) => t.id) || []);
+                const allSelected = allTaskIds.length > 0 && allTaskIds.every((id) => selectedIds.includes(id));
+                const someSelected = allTaskIds.some((id) => selectedIds.includes(id)) && !allSelected;
+                return (
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    onChange={handleSelectAll}
+                    className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary cursor-pointer"
+                  />
+                );
+              })()}
+            </div>
+          )}
           {columns.map((column) => (
             <div
               key={column.key}
@@ -234,6 +357,7 @@ export function TaskList<T extends TaskLike = TaskLike>({
         <div>
           {groups.map((group) => {
             const isCollapsed = collapsedGroups.has(group.id);
+            const selectionInfo = selectable ? getGroupSelectionInfo(group) : undefined;
 
             const tasksContent = (
               <div>
@@ -250,8 +374,8 @@ export function TaskList<T extends TaskLike = TaskLike>({
             return (
               <div key={group.id}>
                 {renderGroupHeader
-                  ? renderGroupHeader(group, isCollapsed, () => toggleGroup(group.id))
-                  : defaultRenderGroupHeader(group)}
+                  ? renderGroupHeader(group, isCollapsed, () => toggleGroup(group.id), selectionInfo)
+                  : defaultRenderGroupHeader(group, selectionInfo)}
                 {!isCollapsed && (
                   <>
                     {wrapGroupContent

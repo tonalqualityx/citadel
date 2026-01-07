@@ -5,6 +5,7 @@ import { BookOpen, Layers, ListTodo, Check } from 'lucide-react';
 import { useRecipes } from '@/lib/hooks/use-recipes';
 import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/ui/empty-state';
+import { getBlockNotePlainText } from '@/components/ui/rich-text-editor';
 import { cn } from '@/lib/utils/cn';
 import { StepHeader } from './wizard-layout';
 
@@ -80,7 +81,7 @@ export function WizardStep1Recipe({
             </div>
             {recipe.description && (
               <p className="text-sm text-text-sub mt-2 line-clamp-2">
-                {recipe.description}
+                {getBlockNotePlainText(recipe.description)}
               </p>
             )}
             <div className="flex items-center gap-4 mt-3 text-sm text-text-sub">

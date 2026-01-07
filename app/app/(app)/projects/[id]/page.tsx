@@ -58,6 +58,8 @@ import {
   useUpdateTaskInProject,
   useReorderProjectTasks,
   useMoveTask,
+  useBulkUpdateTasks,
+  useBulkDeleteTasks,
 } from '@/lib/hooks/use-tasks';
 import { SopSelector } from '@/components/domain/recipes/sop-selector';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -82,6 +84,8 @@ import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
+import { BulkEditTasksModal } from '@/components/domain/tasks/bulk-edit-tasks-modal';
+import { showToast } from '@/lib/hooks/use-toast';
 import {
   getValidNextProjectStatuses,
 } from '@/lib/calculations/status';
@@ -91,7 +95,7 @@ import { getIconOption } from '@/lib/config/icons';
 import { cn } from '@/lib/utils/cn';
 import { InlineIconPicker } from '@/components/ui/icon-picker';
 import { InlineDate } from '@/components/ui/inline-edit/inline-date';
-import { TaskList, type TaskListGroup } from '@/components/ui/task-list';
+import { TaskList, type TaskListGroup, type GroupSelectionInfo } from '@/components/ui/task-list';
 import {
   titleColumn,
   statusColumn,
@@ -134,6 +138,11 @@ export default function ProjectDetailPage() {
   const [newTaskTitle, setNewTaskTitle] = React.useState('');
   const [selectedSopId, setSelectedSopId] = React.useState<string | null>(null);
 
+  // Bulk selection state
+  const [selectedTaskIds, setSelectedTaskIds] = React.useState<string[]>([]);
+  const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = React.useState(false);
+
   // Drag and drop state
   const [activeId, setActiveId] = React.useState<UniqueIdentifier | null>(null);
   const [activeType, setActiveType] = React.useState<'phase' | 'task' | null>(null);
@@ -175,6 +184,8 @@ export default function ProjectDetailPage() {
   const reorderTasks = useReorderProjectTasks(projectId);
   const reorderPhases = useReorderProjectPhases();
   const moveTask = useMoveTask(projectId);
+  const bulkUpdateTasks = useBulkUpdateTasks();
+  const bulkDeleteTasks = useBulkDeleteTasks();
 
   // Initialize budget fields when project loads or modal opens
   React.useEffect(() => {
@@ -273,6 +284,22 @@ export default function ProjectDetailPage() {
   const handleTaskClick = (task: Task) => {
     setPeekTaskId(task.id);
     setIsPeekOpen(true);
+  };
+
+  // Bulk operations handlers
+  const handleBulkEditSuccess = () => {
+    setSelectedTaskIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      const result = await bulkDeleteTasks.mutateAsync(selectedTaskIds);
+      showToast.success(`Deleted ${result.deleted} ${t('tasks').toLowerCase()}`);
+      setSelectedTaskIds([]);
+      setIsBulkDeleteConfirmOpen(false);
+    } catch (error) {
+      showToast.apiError(error, 'Failed to delete tasks');
+    }
   };
 
   // DnD handlers
@@ -614,6 +641,27 @@ export default function ProjectDetailPage() {
                 </div>
               )}
 
+              {/* Bulk Action Toolbar */}
+              {selectedTaskIds.length > 0 && isPmOrAdmin && (
+                <div className="flex items-center gap-3 p-3 mb-4 bg-primary/10 border border-primary/20 rounded-lg">
+                  <span className="text-sm font-medium text-text-main">
+                    {selectedTaskIds.length} {t('tasks').toLowerCase()} selected
+                  </span>
+                  <div className="flex-1" />
+                  <Button size="sm" onClick={() => setIsBulkEditOpen(true)}>
+                    <Edit className="h-4 w-4 mr-1" />
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => setIsBulkDeleteConfirmOpen(true)}>
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedTaskIds([])}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+
               {(() => {
                 // Build groups from phases (including empty ones)
                 const tasksByPhase = new Map<string, { phase: any; tasks: Task[] }>();
@@ -740,7 +788,7 @@ export default function ProjectDetailPage() {
                 };
 
                 // Sortable phase header component
-                const SortablePhaseHeader = ({ phase, isCollapsed, toggleCollapse, maxTasks, completedTasks, progressPercent, barWidth }: any) => {
+                const SortablePhaseHeader = ({ phase, isCollapsed, toggleCollapse, maxTasks, completedTasks, progressPercent, barWidth, selectionInfo }: any) => {
                   const {
                     attributes,
                     listeners,
@@ -764,6 +812,21 @@ export default function ProjectDetailPage() {
                         isDragging && 'opacity-50 z-50'
                       )}
                     >
+                      {/* Selection checkbox - PM/Admin only */}
+                      {isPmOrAdmin && selectionInfo && phase.taskCount > 0 && (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectionInfo.allSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = selectionInfo.someSelected;
+                            }}
+                            onChange={selectionInfo.onSelectAll}
+                            className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary cursor-pointer"
+                          />
+                        </div>
+                      )}
+
                       {/* Phase drag handle - PM/Admin only */}
                       {isPmOrAdmin && (
                         <button
@@ -899,6 +962,9 @@ export default function ProjectDetailPage() {
                       onTaskClick={handleTaskClick}
                       onTaskUpdate={handleTaskUpdate}
                       showHeaders={true}
+                      selectable={isPmOrAdmin}
+                      selectedIds={selectedTaskIds}
+                      onSelectionChange={setSelectedTaskIds}
                       wrapTask={(task, children) => (
                         <SortableTaskWrapper task={task}>{children}</SortableTaskWrapper>
                       )}
@@ -910,7 +976,7 @@ export default function ProjectDetailPage() {
                           {children}
                         </SortableContext>
                       )}
-                      renderGroupHeader={(group, isCollapsed, toggleCollapse) => {
+                      renderGroupHeader={(group, isCollapsed, toggleCollapse, selectionInfo) => {
                         const completedTasks = group.tasks.filter(
                           (t) => t.status === 'done' || t.status === 'abandoned'
                         ).length;
@@ -931,6 +997,7 @@ export default function ProjectDetailPage() {
                               completedTasks={completedTasks}
                               progressPercent={progressPercent}
                               barWidth={barWidth}
+                              selectionInfo={selectionInfo}
                             />
                           );
                         }
@@ -938,6 +1005,20 @@ export default function ProjectDetailPage() {
                         // For unphased group, use a simple header (no drag handle)
                         return (
                           <div className="flex items-center gap-2 p-3 bg-surface-alt border-b border-border">
+                            {/* Selection checkbox for unphased group */}
+                            {isPmOrAdmin && selectionInfo && group.tasks.length > 0 && (
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectionInfo.allSelected}
+                                  ref={(el) => {
+                                    if (el) el.indeterminate = selectionInfo.someSelected;
+                                  }}
+                                  onChange={selectionInfo.onSelectAll}
+                                  className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary cursor-pointer"
+                                />
+                              </div>
+                            )}
                             <button
                               type="button"
                               onClick={toggleCollapse}
@@ -1273,6 +1354,40 @@ export default function ProjectDetailPage() {
                 disabled={deletePhase.isPending}
               >
                 {deletePhase.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Bulk Edit Tasks Modal */}
+      <BulkEditTasksModal
+        open={isBulkEditOpen}
+        onOpenChange={setIsBulkEditOpen}
+        selectedIds={selectedTaskIds}
+        onSuccess={handleBulkEditSuccess}
+      />
+
+      {/* Bulk Delete Confirmation */}
+      <Modal open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+        <ModalContent size="sm">
+          <ModalHeader>
+            <ModalTitle>Delete {t('tasks')}</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-text-sub">
+              Are you sure you want to delete {selectedTaskIds.length} {t('tasks').toLowerCase()}? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="ghost" onClick={() => setIsBulkDeleteConfirmOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleteTasks.isPending}
+              >
+                {bulkDeleteTasks.isPending ? 'Deleting...' : `Delete ${selectedTaskIds.length} ${t('tasks')}`}
               </Button>
             </div>
           </ModalBody>

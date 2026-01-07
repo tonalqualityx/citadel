@@ -296,3 +296,37 @@ export function RichTextRenderer({ content, className = '' }: RichTextRendererPr
     />
   );
 }
+
+// ============================================
+// PLAIN TEXT EXTRACTION UTILITY
+// ============================================
+
+/**
+ * Extract plain text from BlockNote content for display in lists/previews
+ * Useful when you need to show a text snippet without rich formatting
+ */
+export function getBlockNotePlainText(content: BlockNoteContent | null | undefined): string {
+  if (!content) return '';
+
+  // Handle string content (already plain text)
+  if (typeof content === 'string') return content;
+
+  // Handle non-array content
+  if (!Array.isArray(content)) return '';
+
+  const textParts: string[] = [];
+
+  for (const block of content) {
+    if (block.content && Array.isArray(block.content)) {
+      for (const inline of block.content) {
+        if (inline.type === 'text' && inline.text) {
+          textParts.push(inline.text);
+        }
+      }
+    }
+    // Add space between blocks
+    textParts.push(' ');
+  }
+
+  return textParts.join('').trim();
+}

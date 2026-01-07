@@ -2,6 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import * as React from 'react';
 
+// Task sort options
+export type TaskSortBy = 'priority' | 'due_date' | 'estimate';
+
 // Paginated list structure
 export interface PaginatedList<T> {
   items: T[];
@@ -121,11 +124,18 @@ export type DashboardListType = 'myTasks' | 'focusTasks' | 'awaitingReview' | 'u
 
 export type DashboardData = TechDashboardData | PmDashboardData | AdminDashboardData;
 
-export function useDashboard() {
+interface DashboardOptions {
+  orderBy?: TaskSortBy;
+  enabled?: boolean;
+}
+
+export function useDashboard(options: DashboardOptions = {}) {
+  const orderBy = options.orderBy || 'priority';
   return useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => apiClient.get<DashboardData>('/dashboard'),
+    queryKey: ['dashboard', { orderBy }],
+    queryFn: () => apiClient.get<DashboardData>(`/dashboard?orderBy=${orderBy}`),
     refetchInterval: 30000, // Refresh every 30 seconds
+    enabled: options.enabled !== false,
   });
 }
 
@@ -143,7 +153,7 @@ export function isAdminDashboard(data: DashboardData): data is AdminDashboardDat
 }
 
 // Hook for loading more items in a dashboard list
-export function useLoadMoreDashboard() {
+export function useLoadMoreDashboard(orderBy: TaskSortBy = 'priority') {
   const queryClient = useQueryClient();
   const [loadingLists, setLoadingLists] = React.useState<Set<DashboardListType>>(new Set());
 
@@ -152,11 +162,11 @@ export function useLoadMoreDashboard() {
 
     try {
       const result = await apiClient.get<PaginatedList<DashboardTask>>(
-        `/dashboard/load-more?list=${listType}&skip=${currentCount}`
+        `/dashboard/load-more?list=${listType}&skip=${currentCount}&orderBy=${orderBy}`
       );
 
       // Update the dashboard cache with the new items
-      queryClient.setQueryData<DashboardData>(['dashboard'], (oldData) => {
+      queryClient.setQueryData<DashboardData>(['dashboard', { orderBy }], (oldData) => {
         if (!oldData) return oldData;
 
         const listKey = listType as keyof DashboardData;
@@ -184,7 +194,7 @@ export function useLoadMoreDashboard() {
         return next;
       });
     }
-  }, [queryClient]);
+  }, [queryClient, orderBy]);
 
   const isLoading = React.useCallback((listType: DashboardListType) => {
     return loadingLists.has(listType);

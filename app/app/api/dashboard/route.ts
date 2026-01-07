@@ -12,10 +12,32 @@ const ACTIVE_PROJECT_STATUSES: ProjectStatus[] = [ProjectStatus.ready, ProjectSt
 // For "My Tasks" lists, also exclude blocked tasks - users shouldn't work on blocked tasks
 const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.blocked];
 
+// Valid sort options for My Tasks
+type TaskSortBy = 'priority' | 'due_date' | 'estimate';
+
+function getTaskOrderBy(sortBy: string): any[] {
+  switch (sortBy) {
+    case 'due_date':
+      // Sort by due date ascending (nulls last), then by priority
+      return [{ due_date: { sort: 'asc', nulls: 'last' } }, { priority: 'asc' }];
+    case 'estimate':
+      // Sort by estimated minutes descending (largest first, nulls last), then by priority
+      return [{ estimated_minutes: { sort: 'desc', nulls: 'last' } }, { priority: 'asc' }];
+    case 'priority':
+    default:
+      // Default: priority first, then creation date
+      return [{ priority: 'asc' }, { created_at: 'asc' }];
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth();
     const role = auth.role;
+
+    // Parse orderBy param for myTasks sorting
+    const { searchParams } = new URL(request.url);
+    const orderBy = searchParams.get('orderBy') || 'priority';
 
     // Base data all roles need
     const baseData = await getBaseData(auth.userId);
@@ -24,7 +46,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getTechDashboard(auth.userId)),
+        ...(await getTechDashboard(auth.userId, orderBy)),
       });
     }
 
@@ -32,7 +54,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getPmDashboard(auth.userId)),
+        ...(await getPmDashboard(auth.userId, orderBy)),
       });
     }
 
@@ -40,7 +62,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getAdminDashboard(auth.userId)),
+        ...(await getAdminDashboard(auth.userId, orderBy)),
       });
     }
 
@@ -99,7 +121,7 @@ const LIMITS = {
   blockedTasks: 5,
 };
 
-async function getTechDashboard(userId: string) {
+async function getTechDashboard(userId: string, orderBy: string = 'priority') {
   const visibleStatuses: ProjectStatus[] = [
     ProjectStatus.ready,
     ProjectStatus.in_progress,
@@ -138,7 +160,7 @@ async function getTechDashboard(userId: string) {
           select: { duration: true },
         },
       },
-      orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
+      orderBy: getTaskOrderBy(orderBy),
       take: LIMITS.myTasks + 1, // Fetch one extra to check if there are more
     }),
     prisma.task.count({ where: myTasksWhere }),
@@ -232,7 +254,7 @@ async function getTechDashboard(userId: string) {
   };
 }
 
-async function getPmDashboard(userId: string) {
+async function getPmDashboard(userId: string, orderBy: string = 'priority') {
   // Define where clauses for reuse
   // Focus tasks also excludes blocked - users shouldn't work on blocked tasks
   const focusTasksWhere = {
@@ -375,7 +397,7 @@ async function getPmDashboard(userId: string) {
           select: { duration: true },
         },
       },
-      orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
+      orderBy: getTaskOrderBy(orderBy),
       take: LIMITS.myTasks + 1,
     }),
     prisma.task.count({ where: myTasksWhere }),
@@ -487,9 +509,9 @@ async function getPmDashboard(userId: string) {
   };
 }
 
-async function getAdminDashboard(userId: string) {
+async function getAdminDashboard(userId: string, orderBy: string = 'priority') {
   // Get all PM dashboard data
-  const pmData = await getPmDashboard(userId);
+  const pmData = await getPmDashboard(userId, orderBy);
 
   // All active projects
   const allActiveProjects = await prisma.project.findMany({

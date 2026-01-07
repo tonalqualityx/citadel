@@ -37,19 +37,21 @@ import {
   rangedEstimateColumn,
   approveColumn,
   dueDateColumn,
+  priorityColumn,
 } from '@/components/ui/task-list-columns';
+import { TaskSortSelect, type TaskSortBy } from '@/components/ui/task-sort-select';
 
 interface AdminOverlookProps {
   data: AdminDashboardData;
 }
 
-export function AdminOverlook({ data }: AdminOverlookProps) {
+export function AdminOverlook({ data, myTasksSort, onMyTasksSortChange }: AdminOverlookProps & { myTasksSort: TaskSortBy; onMyTasksSortChange: (sort: TaskSortBy) => void }) {
   const router = useRouter();
   const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
-  const { loadMore, isLoading } = useLoadMoreDashboard();
+  const { loadMore, isLoading } = useLoadMoreDashboard(myTasksSort);
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -93,6 +95,7 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
 
   const myTasksColumns: TaskListColumn<DashboardTask>[] = [
     focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    priorityColumn(),
     statusColumn({ editable: true }),
     titleColumn({ editable: true }),
     clientProjectSiteColumn(),
@@ -222,6 +225,13 @@ export function AdminOverlook({ data }: AdminOverlookProps) {
               icon={ListTodo}
               iconColor="text-blue-500"
               action={{ label: 'View All', href: '/tasks?my_tasks=true' }}
+              headerActions={
+                <TaskSortSelect
+                  value={myTasksSort}
+                  onChange={onMyTasksSortChange}
+                  compact
+                />
+              }
             >
               <TaskList<DashboardTask>
                 tasks={data.myTasks.items}

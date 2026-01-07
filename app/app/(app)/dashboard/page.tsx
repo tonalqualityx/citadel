@@ -1,10 +1,12 @@
 'use client';
 
+import * as React from 'react';
 import {
   useDashboard,
   isTechDashboard,
   isPmDashboard,
   isAdminDashboard,
+  type TaskSortBy,
 } from '@/lib/hooks/use-dashboard';
 import { TechOverlook } from '@/components/domain/dashboard/tech-overlook';
 import { PmOverlook } from '@/components/domain/dashboard/pm-overlook';
@@ -13,10 +15,43 @@ import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertCircle } from 'lucide-react';
 
-export default function OverlookPage() {
-  const { data, isLoading, error } = useDashboard();
+const LOCAL_STORAGE_KEY = 'dashboard-my-tasks-sort';
 
-  if (isLoading) {
+function getStoredSort(): TaskSortBy {
+  if (typeof window === 'undefined') return 'priority';
+  const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (saved && ['priority', 'due_date', 'estimate'].includes(saved)) {
+    return saved as TaskSortBy;
+  }
+  return 'priority';
+}
+
+export default function OverlookPage() {
+  // My Tasks sort preference with localStorage persistence
+  // Track hydration to avoid SSR/CSR mismatch
+  const [isHydrated, setIsHydrated] = React.useState(false);
+  const [myTasksSort, setMyTasksSort] = React.useState<TaskSortBy>('priority');
+
+  // Hydrate from localStorage on client - runs once before first paint
+  React.useEffect(() => {
+    setMyTasksSort(getStoredSort());
+    setIsHydrated(true);
+  }, []);
+
+  const handleSortChange = React.useCallback((sort: TaskSortBy) => {
+    setMyTasksSort(sort);
+    localStorage.setItem(LOCAL_STORAGE_KEY, sort);
+  }, []);
+
+  // Wait for hydration before fetching to get correct sort preference
+  // This prevents a query with 'priority' being made before we read localStorage
+  const { data, isLoading, error } = useDashboard({
+    orderBy: myTasksSort,
+    enabled: isHydrated,
+  });
+
+  // Show loading during hydration or actual data loading
+  if (!isHydrated || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <Spinner size="lg" />
@@ -45,15 +80,15 @@ export default function OverlookPage() {
   }
 
   if (isTechDashboard(data)) {
-    return <TechOverlook data={data} />;
+    return <TechOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} />;
   }
 
   if (isPmDashboard(data)) {
-    return <PmOverlook data={data} />;
+    return <PmOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} />;
   }
 
   if (isAdminDashboard(data)) {
-    return <AdminOverlook data={data} />;
+    return <AdminOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} />;
   }
 
   // Fallback for unknown role

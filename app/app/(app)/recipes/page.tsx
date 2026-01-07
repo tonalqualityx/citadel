@@ -20,11 +20,12 @@ import {
   ModalBody,
 } from '@/components/ui/modal';
 import { RecipeForm } from '@/components/domain/recipes/recipe-form';
+import { getBlockNotePlainText } from '@/components/ui/rich-text-editor';
 
 interface Recipe {
   id: string;
   name: string;
-  description: string | null;
+  description: any; // BlockNote JSON content or string
   default_type: string;
   is_active: boolean;
   task_count?: number;
@@ -47,7 +48,7 @@ export default function RecipesPage() {
     return data.recipes.filter(
       (recipe) =>
         recipe.name.toLowerCase().includes(searchLower) ||
-        recipe.description?.toLowerCase().includes(searchLower)
+        getBlockNotePlainText(recipe.description).toLowerCase().includes(searchLower)
     );
   }, [data?.recipes, search]);
 
@@ -55,14 +56,17 @@ export default function RecipesPage() {
     {
       key: 'name',
       header: 'Name',
-      cell: (recipe) => (
-        <div>
-          <div className="font-medium text-text-main">{recipe.name}</div>
-          {recipe.description && (
-            <div className="text-sm text-text-sub line-clamp-1">{recipe.description}</div>
-          )}
-        </div>
-      ),
+      cell: (recipe) => {
+        const descriptionText = getBlockNotePlainText(recipe.description);
+        return (
+          <div>
+            <div className="font-medium text-text-main">{recipe.name}</div>
+            {descriptionText && (
+              <div className="text-sm text-text-sub line-clamp-1">{descriptionText}</div>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'type',

@@ -10,7 +10,7 @@ import {
   Timer,
   Zap,
 } from 'lucide-react';
-import { TechDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
+import { TechDashboardData, DashboardTask, useLoadMoreDashboard, type TaskSortBy } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -32,19 +32,23 @@ import {
   clientProjectSiteColumn,
   rangedEstimateColumn,
   dueDateColumn,
+  priorityColumn,
 } from '@/components/ui/task-list-columns';
+import { TaskSortSelect } from '@/components/ui/task-sort-select';
 
 interface TechOverlookProps {
   data: TechDashboardData;
+  myTasksSort: TaskSortBy;
+  onMyTasksSortChange: (sort: TaskSortBy) => void;
 }
 
-export function TechOverlook({ data }: TechOverlookProps) {
+export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOverlookProps) {
   const router = useRouter();
   const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
-  const { loadMore, isLoading } = useLoadMoreDashboard();
+  const { loadMore, isLoading } = useLoadMoreDashboard(myTasksSort);
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -89,6 +93,7 @@ export function TechOverlook({ data }: TechOverlookProps) {
 
   const myTasksColumns: TaskListColumn<DashboardTask>[] = [
     focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    priorityColumn(),
     statusColumn({ editable: true }),
     titleColumn({ editable: true }),
     clientProjectSiteColumn(),
@@ -163,11 +168,18 @@ export function TechOverlook({ data }: TechOverlookProps) {
               iconColor="text-blue-500"
               count={data.myTasks.total}
               headerActions={
-                <TaskGroupingSelect
-                  value={groupBy}
-                  onChange={setGroupBy}
-                  compact
-                />
+                <div className="flex items-center gap-2">
+                  <TaskSortSelect
+                    value={myTasksSort}
+                    onChange={onMyTasksSortChange}
+                    compact
+                  />
+                  <TaskGroupingSelect
+                    value={groupBy}
+                    onChange={setGroupBy}
+                    compact
+                  />
+                </div>
               }
             >
               <TaskList<DashboardTask>

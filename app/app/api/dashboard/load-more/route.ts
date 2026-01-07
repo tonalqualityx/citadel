@@ -15,6 +15,22 @@ const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.ab
 
 type ListType = 'myTasks' | 'focusTasks' | 'awaitingReview' | 'unassignedTasks';
 
+// Valid sort options for My Tasks
+function getTaskOrderBy(sortBy: string): any[] {
+  switch (sortBy) {
+    case 'due_date':
+      // Sort by due date ascending (nulls last), then by priority
+      return [{ due_date: { sort: 'asc', nulls: 'last' } }, { priority: 'asc' }];
+    case 'estimate':
+      // Sort by estimated minutes descending (largest first, nulls last), then by priority
+      return [{ estimated_minutes: { sort: 'desc', nulls: 'last' } }, { priority: 'asc' }];
+    case 'priority':
+    default:
+      // Default: priority first, then creation date
+      return [{ priority: 'asc' }, { created_at: 'asc' }];
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth();
@@ -23,6 +39,7 @@ export async function GET(request: NextRequest) {
     const list = searchParams.get('list') as ListType;
     const skip = parseInt(searchParams.get('skip') || '0', 10);
     const take = parseInt(searchParams.get('take') || String(PAGE_SIZE), 10);
+    const orderBy = searchParams.get('orderBy') || 'priority';
 
     if (!list) {
       return NextResponse.json({ error: 'Missing list parameter' }, { status: 400 });
@@ -33,7 +50,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid list parameter' }, { status: 400 });
     }
 
-    const result = await getListItems(auth.userId, auth.role, list, skip, take);
+    const result = await getListItems(auth.userId, auth.role, list, skip, take, orderBy);
     return NextResponse.json(result);
   } catch (error) {
     return handleApiError(error);
@@ -45,7 +62,8 @@ async function getListItems(
   role: string,
   list: ListType,
   skip: number,
-  take: number
+  take: number,
+  orderBy: string = 'priority'
 ) {
   const taskInclude = {
     assignee: { select: { id: true, name: true } },
@@ -114,7 +132,7 @@ async function getListItems(
         prisma.task.findMany({
           where,
           include: taskInclude,
-          orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
+          orderBy: getTaskOrderBy(orderBy),
           skip,
           take: take + 1,
         }),

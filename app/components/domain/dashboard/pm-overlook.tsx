@@ -12,7 +12,7 @@ import {
   Timer,
   ListTodo,
 } from 'lucide-react';
-import { PmDashboardData, DashboardTask, useLoadMoreDashboard } from '@/lib/hooks/use-dashboard';
+import { PmDashboardData, DashboardTask, useLoadMoreDashboard, type TaskSortBy } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -38,19 +38,23 @@ import {
   rangedEstimateColumn,
   approveColumn,
   dueDateColumn,
+  priorityColumn,
 } from '@/components/ui/task-list-columns';
+import { TaskSortSelect } from '@/components/ui/task-sort-select';
 
 interface PmOverlookProps {
   data: PmDashboardData;
+  myTasksSort: TaskSortBy;
+  onMyTasksSortChange: (sort: TaskSortBy) => void;
 }
 
-export function PmOverlook({ data }: PmOverlookProps) {
+export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverlookProps) {
   const router = useRouter();
   const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
-  const { loadMore, isLoading } = useLoadMoreDashboard();
+  const { loadMore, isLoading } = useLoadMoreDashboard(myTasksSort);
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -99,6 +103,7 @@ export function PmOverlook({ data }: PmOverlookProps) {
 
   const myTasksColumns: TaskListColumn<DashboardTask>[] = [
     focusColumn<DashboardTask>({ onToggleFocus: handleToggleFocus }),
+    priorityColumn(),
     statusColumn({ editable: true }),
     titleColumn({ editable: true }),
     clientProjectSiteColumn(),
@@ -234,11 +239,18 @@ export function PmOverlook({ data }: PmOverlookProps) {
               iconColor="text-blue-500"
               count={data.myTasks.total}
               headerActions={
-                <TaskGroupingSelect
-                  value={groupBy}
-                  onChange={setGroupBy}
-                  compact
-                />
+                <div className="flex items-center gap-2">
+                  <TaskSortSelect
+                    value={myTasksSort}
+                    onChange={onMyTasksSortChange}
+                    compact
+                  />
+                  <TaskGroupingSelect
+                    value={groupBy}
+                    onChange={setGroupBy}
+                    compact
+                  />
+                </div>
               }
             >
               <TaskList<DashboardTask>
