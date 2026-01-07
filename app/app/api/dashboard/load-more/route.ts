@@ -10,6 +10,9 @@ const PAGE_SIZE = 10;
 const INCOMPLETE_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned];
 const ACTIVE_PROJECT_STATUSES: ProjectStatus[] = [ProjectStatus.ready, ProjectStatus.in_progress];
 
+// For "My Tasks" lists, also exclude blocked tasks - users shouldn't work on blocked tasks
+const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.blocked];
+
 type ListType = 'myTasks' | 'focusTasks' | 'awaitingReview' | 'unassignedTasks';
 
 export async function GET(request: NextRequest) {
@@ -94,12 +97,17 @@ async function getListItems(
             assignee_id: userId,
             is_deleted: false,
             OR: [{ project_id: null }, { project: { status: { in: visibleStatuses } } }],
-            status: { notIn: INCOMPLETE_STATUSES },
+            status: { notIn: MY_TASKS_EXCLUDED_STATUSES },
+            // Exclude tasks with incomplete blockers (all non-deleted blockers must be done)
+            blocked_by: { none: { status: { not: TaskStatus.done }, is_deleted: false } },
           }
         : {
             is_deleted: false,
             assignee_id: userId,
-            status: { notIn: INCOMPLETE_STATUSES },
+            status: { notIn: MY_TASKS_EXCLUDED_STATUSES },
+            OR: [{ project_id: null }, { project: { status: ProjectStatus.in_progress } }],
+            // Exclude tasks with incomplete blockers (all non-deleted blockers must be done)
+            blocked_by: { none: { status: { not: TaskStatus.done }, is_deleted: false } },
           };
 
       const [tasks, total] = await Promise.all([
@@ -126,7 +134,9 @@ async function getListItems(
         is_deleted: false,
         is_focus: true,
         assignee_id: userId,
-        status: { notIn: INCOMPLETE_STATUSES },
+        status: { notIn: MY_TASKS_EXCLUDED_STATUSES },
+        // Exclude tasks with incomplete blockers (all non-deleted blockers must be done)
+        blocked_by: { none: { status: { not: TaskStatus.done }, is_deleted: false } },
       };
 
       const [tasks, total] = await Promise.all([
@@ -181,6 +191,8 @@ async function getListItems(
         assignee_id: null,
         status: { notIn: INCOMPLETE_STATUSES },
         project: { status: { in: ACTIVE_PROJECT_STATUSES } },
+        // Exclude tasks with incomplete blockers (all non-deleted blockers must be done)
+        blocked_by: { none: { status: { not: TaskStatus.done }, is_deleted: false } },
       };
 
       const [tasks, total] = await Promise.all([
