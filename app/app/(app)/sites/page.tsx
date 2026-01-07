@@ -2,8 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Globe, Pencil, Trash2, X } from 'lucide-react';
-import { useSites, useUpdateSite, useBulkDeleteSites } from '@/lib/hooks/use-sites';
+import { Plus, Globe, Pencil, Trash2, X, MoreHorizontal } from 'lucide-react';
+import { useSites, useUpdateSite, useDeleteSite, useBulkDeleteSites } from '@/lib/hooks/use-sites';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import { InlineUserSelect } from '@/components/ui/user-select';
-import { ClientSelect } from '@/components/ui/inline-edit';
+import { ClientSelect, HostingPlanSelect, MaintenancePlanSelect } from '@/components/ui/inline-edit';
 import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
 import { SiteForm } from '@/components/domain/site-form';
 import { BulkEditSitesModal } from '@/components/domain/sites/bulk-edit-modal';
@@ -24,6 +24,10 @@ interface Site {
   name: string;
   url: string | null;
   client?: { id: string; name: string } | null;
+  hosting_plan_id: string | null;
+  hosting_plan?: { id: string; name: string; rate: number } | null;
+  maintenance_plan_id: string | null;
+  maintenance_plan?: { id: string; name: string; rate: number; frequency?: string } | null;
   maintenance_assignee_id: string | null;
   maintenance_assignee?: { id: string; name: string; email: string } | null;
 }
@@ -31,16 +35,18 @@ interface Site {
 export default function SitesPage() {
   const router = useRouter();
   const { t } = useTerminology();
-  const { isAdmin } = useAuth();
+  const { isPmOrAdmin } = useAuth();
   const [search, setSearch] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [isCreateOpen, setIsCreateOpen] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
+  const [siteToDelete, setSiteToDelete] = React.useState<Site | null>(null);
 
   const { data, isLoading, error } = useSites({ page, search: search || undefined });
   const updateSite = useUpdateSite();
+  const deleteSite = useDeleteSite();
   const bulkDelete = useBulkDeleteSites();
 
   // Clear selection when page or search changes
@@ -54,6 +60,14 @@ export default function SitesPage() {
 
   const handleClientChange = (siteId: string, clientId: string | null) => {
     updateSite.mutate({ id: siteId, data: { client_id: clientId } });
+  };
+
+  const handleHostingPlanChange = (siteId: string, planId: string | null) => {
+    updateSite.mutate({ id: siteId, data: { hosting_plan_id: planId } });
+  };
+
+  const handleMaintenancePlanChange = (siteId: string, planId: string | null) => {
+    updateSite.mutate({ id: siteId, data: { maintenance_plan_id: planId } });
   };
 
   const handleCreateSuccess = () => {
@@ -72,6 +86,17 @@ export default function SitesPage() {
       setIsDeleteConfirmOpen(false);
     } catch (error) {
       showToast.apiError(error, 'Failed to delete sites');
+    }
+  };
+
+  const handleDeleteSite = async () => {
+    if (!siteToDelete) return;
+    try {
+      await deleteSite.mutateAsync(siteToDelete.id);
+      showToast.deleted(t('site'));
+      setSiteToDelete(null);
+    } catch (error) {
+      showToast.apiError(error, `Failed to delete ${t('site').toLowerCase()}`);
     }
   };
 
@@ -104,6 +129,32 @@ export default function SitesPage() {
       ),
     },
     {
+      key: 'hosting_plan',
+      header: 'Hosting Plan',
+      cell: (site) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <HostingPlanSelect
+            value={site.hosting_plan_id}
+            onChange={(value) => handleHostingPlanChange(site.id, value)}
+            placeholder="None"
+          />
+        </div>
+      ),
+    },
+    {
+      key: 'maintenance_plan',
+      header: 'Maintenance',
+      cell: (site) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <MaintenancePlanSelect
+            value={site.maintenance_plan_id}
+            onChange={(value) => handleMaintenancePlanChange(site.id, value)}
+            placeholder="None"
+          />
+        </div>
+      ),
+    },
+    {
       key: 'maintenance_assignee',
       header: 'Maintainer',
       cell: (site) => (
@@ -117,6 +168,22 @@ export default function SitesPage() {
         </div>
       ),
     },
+    ...(isPmOrAdmin ? [{
+      key: 'actions' as const,
+      header: '',
+      cell: (site: Site) => (
+        <div onClick={(e) => e.stopPropagation()} className="flex justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSiteToDelete(site)}
+            className="text-text-sub hover:text-red-500"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    }] : []),
   ];
 
   const handleRowClick = (site: Site) => {
@@ -179,7 +246,7 @@ export default function SitesPage() {
             <Pencil className="h-4 w-4 mr-1.5" />
             Edit
           </Button>
-          {isAdmin && (
+          {isPmOrAdmin && (
             <Button
               variant="destructive"
               size="sm"
@@ -250,7 +317,7 @@ export default function SitesPage() {
         onSuccess={handleBulkEditSuccess}
       />
 
-      {/* Delete Confirmation Modal */}
+      {/* Bulk Delete Confirmation Modal */}
       <Modal open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <ModalContent size="sm">
           <ModalHeader>
@@ -274,6 +341,36 @@ export default function SitesPage() {
                 disabled={bulkDelete.isPending}
               >
                 {bulkDelete.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Individual Delete Confirmation Modal */}
+      <Modal open={!!siteToDelete} onOpenChange={(open) => !open && setSiteToDelete(null)}>
+        <ModalContent size="sm">
+          <ModalHeader>
+            <ModalTitle>Delete {t('site')}?</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-text-sub mb-4">
+              Are you sure you want to delete <span className="font-medium text-text-main">{siteToDelete?.name}</span>?
+              This will also delete all associated domains. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setSiteToDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteSite}
+                disabled={deleteSite.isPending}
+              >
+                {deleteSite.isPending ? 'Deleting...' : 'Delete'}
               </Button>
             </div>
           </ModalBody>

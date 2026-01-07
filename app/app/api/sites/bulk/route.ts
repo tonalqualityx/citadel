@@ -108,7 +108,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['admin']);
+    requireRole(auth, ['pm', 'admin']);
 
     const body = await request.json();
     const { site_ids } = bulkDeleteSchema.parse(body);

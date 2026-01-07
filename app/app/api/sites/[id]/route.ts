@@ -138,7 +138,7 @@ export async function DELETE(
 ) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['admin']);
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     // Soft delete site and its domains

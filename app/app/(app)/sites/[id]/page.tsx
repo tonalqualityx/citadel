@@ -1,14 +1,18 @@
 'use client';
 
+import * as React from 'react';
 import { use } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Globe, Wrench, CheckCircle, ExternalLink } from 'lucide-react';
-import { useSite, useUpdateSite } from '@/lib/hooks/use-sites';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, Globe, Wrench, CheckCircle, ExternalLink, Trash2 } from 'lucide-react';
+import { useSite, useUpdateSite, useDeleteSite } from '@/lib/hooks/use-sites';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { EmptyState } from '@/components/ui/empty-state';
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
 import { InlineUserSelect } from '@/components/ui/user-select';
 import {
   InlineText,
@@ -19,6 +23,7 @@ import {
   ClientSelect,
 } from '@/components/ui/inline-edit';
 import { SiteDomainsCard } from '@/components/domain/sites/site-domains-card';
+import { showToast } from '@/lib/hooks/use-toast';
 import type { UpdateSiteInput, HostedBy } from '@/types/entities';
 
 interface Props {
@@ -33,9 +38,13 @@ const HOSTED_BY_OPTIONS = [
 
 export default function SiteDetailPage({ params }: Props) {
   const { id } = use(params);
+  const router = useRouter();
   const { t } = useTerminology();
+  const { isPmOrAdmin } = useAuth();
   const { data: site, isLoading, error } = useSite(id);
   const updateSite = useUpdateSite();
+  const deleteSite = useDeleteSite();
+  const [isDeleteOpen, setIsDeleteOpen] = React.useState(false);
 
   const handleUpdate = async (updates: UpdateSiteInput) => {
     if (!site) return;
@@ -43,6 +52,17 @@ export default function SiteDetailPage({ params }: Props) {
       await updateSite.mutateAsync({ id: site.id, data: updates });
     } catch (err) {
       console.error('Failed to update site:', err);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!site) return;
+    try {
+      await deleteSite.mutateAsync(site.id);
+      showToast.deleted(t('site'));
+      router.push('/sites');
+    } catch (err) {
+      showToast.apiError(err, `Failed to delete ${t('site').toLowerCase()}`);
     }
   };
 
@@ -76,13 +96,24 @@ export default function SiteDetailPage({ params }: Props) {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between">
         <Link href="/sites">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
         </Link>
+        {isPmOrAdmin && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsDeleteOpen(true)}
+            className="text-text-sub hover:text-red-500"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
+          </Button>
+        )}
       </div>
 
       <div className="flex items-start justify-between">
@@ -287,6 +318,36 @@ export default function SiteDetailPage({ params }: Props) {
           <span className="text-sm text-green-600">Saved</span>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <ModalContent size="sm">
+          <ModalHeader>
+            <ModalTitle>Delete {t('site')}?</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-text-sub mb-4">
+              Are you sure you want to delete <span className="font-medium text-text-main">{site.name}</span>?
+              This will also delete all associated domains. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setIsDeleteOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteSite.isPending}
+              >
+                {deleteSite.isPending ? 'Deleting...' : 'Delete'}
+              </Button>
+            </div>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }
