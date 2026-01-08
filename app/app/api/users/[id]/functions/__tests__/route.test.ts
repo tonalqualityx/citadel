@@ -42,10 +42,20 @@ vi.mock('@/lib/api/formatters', () => ({
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { AuthError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
+import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
-const mockPrisma = vi.mocked(prisma);
+
+// Type-safe mock accessors for Prisma methods
+const mockUserFindUnique = prisma.user.findUnique as Mock;
+const mockFunctionFindUnique = prisma.function.findUnique as Mock;
+const mockUserFunctionFindMany = prisma.userFunction.findMany as Mock;
+const mockUserFunctionFindUnique = prisma.userFunction.findUnique as Mock;
+const mockUserFunctionCreate = prisma.userFunction.create as Mock;
+const mockUserFunctionDelete = prisma.userFunction.delete as Mock;
+const mockUserFunctionUpdate = prisma.userFunction.update as Mock;
+const mockUserFunctionUpdateMany = prisma.userFunction.updateMany as Mock;
 
 // Valid UUIDs for test data (must follow UUID v4 format)
 const USER_ID = 'a1111111-1111-4111-a111-111111111111';
@@ -64,11 +74,11 @@ const mockUserFunction = {
 describe('User Functions API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma.user.findUnique.mockResolvedValue({ id: USER_ID, name: 'Test' } as any);
-    mockPrisma.function.findUnique.mockResolvedValue({ id: FUNC_ID, name: 'Development', is_active: true } as any);
-    mockPrisma.userFunction.findUnique.mockResolvedValue(null);
-    mockPrisma.userFunction.create.mockResolvedValue(mockUserFunction as any);
-    mockPrisma.userFunction.findMany.mockResolvedValue([mockUserFunction] as any);
+    mockUserFindUnique.mockResolvedValue({ id: USER_ID, name: 'Test' } as any);
+    mockFunctionFindUnique.mockResolvedValue({ id: FUNC_ID, name: 'Development', is_active: true } as any);
+    mockUserFunctionFindUnique.mockResolvedValue(null);
+    mockUserFunctionCreate.mockResolvedValue(mockUserFunction as any);
+    mockUserFunctionFindMany.mockResolvedValue([mockUserFunction] as any);
   });
 
   describe('GET /api/users/[id]/functions', () => {
@@ -104,7 +114,7 @@ describe('User Functions API', () => {
       const response = await POST(request, { params: Promise.resolve({ id: USER_ID }) });
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.userFunction.create).toHaveBeenCalled();
+      expect(mockUserFunctionCreate).toHaveBeenCalled();
     });
 
     it('allows Admin to add functions', async () => {
@@ -152,7 +162,7 @@ describe('User Functions API', () => {
         role: 'pm',
         email: 'pm@example.com',
       });
-      mockPrisma.userFunction.findUnique.mockResolvedValue(mockUserFunction as any);
+      mockUserFunctionFindUnique.mockResolvedValue(mockUserFunction as any);
 
       const request = new NextRequest(`http://localhost:3000/api/users/${USER_ID}/functions`, {
         method: 'POST',
@@ -174,7 +184,7 @@ describe('User Functions API', () => {
         role: 'pm',
         email: 'pm@example.com',
       });
-      mockPrisma.userFunction.delete.mockResolvedValue(mockUserFunction as any);
+      mockUserFunctionDelete.mockResolvedValue(mockUserFunction as any);
 
       const request = new NextRequest(`http://localhost:3000/api/users/${USER_ID}/functions?function_id=${FUNC_ID}`, {
         method: 'DELETE',
@@ -182,7 +192,7 @@ describe('User Functions API', () => {
       const response = await DELETE(request, { params: Promise.resolve({ id: USER_ID }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.userFunction.delete).toHaveBeenCalled();
+      expect(mockUserFunctionDelete).toHaveBeenCalled();
     });
 
     it('rejects Tech user attempting to remove functions', async () => {
@@ -230,8 +240,8 @@ describe('User Functions API', () => {
         role: 'pm',
         email: 'pm@example.com',
       });
-      mockPrisma.userFunction.updateMany.mockResolvedValue({ count: 1 });
-      mockPrisma.userFunction.update.mockResolvedValue({ ...mockUserFunction, is_primary: true } as any);
+      mockUserFunctionUpdateMany.mockResolvedValue({ count: 1 });
+      mockUserFunctionUpdate.mockResolvedValue({ ...mockUserFunction, is_primary: true } as any);
 
       const request = new NextRequest(`http://localhost:3000/api/users/${USER_ID}/functions?function_id=${FUNC_ID}`, {
         method: 'PATCH',
@@ -242,7 +252,7 @@ describe('User Functions API', () => {
 
       expect(response.status).toBe(200);
       // Should unset existing primary first
-      expect(mockPrisma.userFunction.updateMany).toHaveBeenCalledWith({
+      expect(mockUserFunctionUpdateMany).toHaveBeenCalledWith({
         where: { user_id: USER_ID, is_primary: true },
         data: { is_primary: false },
       });

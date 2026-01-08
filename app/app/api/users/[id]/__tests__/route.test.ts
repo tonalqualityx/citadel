@@ -32,10 +32,15 @@ vi.mock('bcryptjs', () => ({
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { AuthError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
+import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
-const mockPrisma = vi.mocked(prisma);
+
+// Type-safe mock accessors for Prisma methods
+const mockUserFindFirst = prisma.user.findFirst as Mock;
+const mockUserUpdate = prisma.user.update as Mock;
+const mockSessionDeleteMany = prisma.session.deleteMany as Mock;
 
 function createRequest(body: object): NextRequest {
   return new NextRequest('http://localhost:3000/api/users/user-123', {
@@ -61,8 +66,8 @@ const mockUser = {
 describe('PATCH /api/users/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPrisma.user.findFirst.mockResolvedValue(null); // No duplicate email by default
-    mockPrisma.user.update.mockResolvedValue(mockUser);
+    mockUserFindFirst.mockResolvedValue(null); // No duplicate email by default
+    mockUserUpdate.mockResolvedValue(mockUser);
   });
 
   describe('Role-based permissions', () => {
@@ -77,7 +82,7 @@ describe('PATCH /api/users/[id]', () => {
       const response = await PATCH(request, { params: Promise.resolve({ id: 'user-123' }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockUserUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ role: 'pm' }),
         })
@@ -95,7 +100,7 @@ describe('PATCH /api/users/[id]', () => {
       const response = await PATCH(request, { params: Promise.resolve({ id: 'user-123' }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockUserUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ is_active: false }),
         })
@@ -113,7 +118,7 @@ describe('PATCH /api/users/[id]', () => {
       const response = await PATCH(request, { params: Promise.resolve({ id: 'user-123' }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockUserUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ name: 'New Name', email: 'newemail@example.com' }),
         })
@@ -131,7 +136,7 @@ describe('PATCH /api/users/[id]', () => {
       const response = await PATCH(request, { params: Promise.resolve({ id: 'user-123' }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockUserUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ target_hours_per_week: 32 }),
         })
@@ -211,7 +216,7 @@ describe('PATCH /api/users/[id]', () => {
       const response = await PATCH(request, { params: Promise.resolve({ id: 'user-123' }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockUserUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ name: 'My New Name' }),
         })
@@ -228,7 +233,7 @@ describe('PATCH /api/users/[id]', () => {
       });
 
       // Another user has this email
-      mockPrisma.user.findFirst.mockResolvedValue({
+      mockUserFindFirst.mockResolvedValue({
         id: 'other-user',
         email: 'taken@example.com',
       } as any);
@@ -254,13 +259,13 @@ describe('PATCH /api/users/[id]', () => {
       const response = await PATCH(request, { params: Promise.resolve({ id: 'user-123' }) });
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockUserUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { password_hash: 'hashed_password' },
         })
       );
       // Should invalidate sessions
-      expect(mockPrisma.session.deleteMany).toHaveBeenCalledWith({
+      expect(mockSessionDeleteMany).toHaveBeenCalledWith({
         where: { user_id: 'user-123' },
       });
     });

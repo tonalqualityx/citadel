@@ -23,10 +23,15 @@ vi.mock('@/lib/db/prisma', () => ({
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
-const mockPrisma = vi.mocked(prisma);
+
+// Type-safe mock accessors for Prisma methods
+const mockTaskFindMany = prisma.task.findMany as Mock;
+const mockTaskUpdateMany = prisma.task.updateMany as Mock;
+const mockUserFindFirst = prisma.user.findFirst as Mock;
 
 function createPatchRequest(body: object): NextRequest {
   return new NextRequest('http://localhost:3000/api/tasks/bulk', {
@@ -73,8 +78,8 @@ describe('PATCH /api/tasks/bulk', () => {
     });
 
     it('requires pm or admin role', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([{ id: validTaskId1 }] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
+      mockTaskFindMany.mockResolvedValue([{ id: validTaskId1 }] as any);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const request = createPatchRequest({
         task_ids: [validTaskId1],
@@ -154,7 +159,7 @@ describe('PATCH /api/tasks/bulk', () => {
 
   describe('Task existence validation', () => {
     it('returns 404 when some tasks do not exist', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([
+      mockTaskFindMany.mockResolvedValue([
         { id: validTaskId1 },
       ] as any);
 
@@ -173,10 +178,10 @@ describe('PATCH /api/tasks/bulk', () => {
 
   describe('Assignee validation', () => {
     it('returns 404 when assignee does not exist', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([
+      mockTaskFindMany.mockResolvedValue([
         { id: validTaskId1 },
       ] as any);
-      mockPrisma.user.findFirst.mockResolvedValue(null);
+      mockUserFindFirst.mockResolvedValue(null);
 
       const request = createPatchRequest({
         task_ids: [validTaskId1],
@@ -192,11 +197,11 @@ describe('PATCH /api/tasks/bulk', () => {
 
   describe('Successful updates', () => {
     beforeEach(() => {
-      mockPrisma.task.findMany.mockResolvedValue([
+      mockTaskFindMany.mockResolvedValue([
         { id: validTaskId1 },
         { id: validTaskId2 },
       ] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 2 });
+      mockTaskUpdateMany.mockResolvedValue({ count: 2 });
     });
 
     it('updates due_date for multiple tasks', async () => {
@@ -211,7 +216,7 @@ describe('PATCH /api/tasks/bulk', () => {
       expect(response.status).toBe(200);
       expect(body.success).toBe(true);
       expect(body.updated).toBe(2);
-      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith({
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith({
         where: {
           id: { in: [validTaskId1, validTaskId2] },
           is_deleted: false,
@@ -223,8 +228,8 @@ describe('PATCH /api/tasks/bulk', () => {
     });
 
     it('clears due_date when set to null', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([{ id: validTaskId1 }] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
+      mockTaskFindMany.mockResolvedValue([{ id: validTaskId1 }] as any);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const request = createPatchRequest({
         task_ids: [validTaskId1],
@@ -233,7 +238,7 @@ describe('PATCH /api/tasks/bulk', () => {
       const response = await PATCH(request);
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith(
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { due_date: null },
         })
@@ -241,7 +246,7 @@ describe('PATCH /api/tasks/bulk', () => {
     });
 
     it('updates assignee_id for multiple tasks', async () => {
-      mockPrisma.user.findFirst.mockResolvedValue({ id: validUserId } as any);
+      mockUserFindFirst.mockResolvedValue({ id: validUserId } as any);
 
       const request = createPatchRequest({
         task_ids: [validTaskId1, validTaskId2],
@@ -252,7 +257,7 @@ describe('PATCH /api/tasks/bulk', () => {
 
       expect(response.status).toBe(200);
       expect(body.success).toBe(true);
-      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith(
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { assignee_id: validUserId },
         })
@@ -260,8 +265,8 @@ describe('PATCH /api/tasks/bulk', () => {
     });
 
     it('clears assignee_id when set to null', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([{ id: validTaskId1 }] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
+      mockTaskFindMany.mockResolvedValue([{ id: validTaskId1 }] as any);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const request = createPatchRequest({
         task_ids: [validTaskId1],
@@ -270,7 +275,7 @@ describe('PATCH /api/tasks/bulk', () => {
       const response = await PATCH(request);
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith(
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { assignee_id: null },
         })
@@ -278,9 +283,9 @@ describe('PATCH /api/tasks/bulk', () => {
     });
 
     it('updates both due_date and assignee_id', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([{ id: validTaskId1 }] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
-      mockPrisma.user.findFirst.mockResolvedValue({ id: validUserId } as any);
+      mockTaskFindMany.mockResolvedValue([{ id: validTaskId1 }] as any);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
+      mockUserFindFirst.mockResolvedValue({ id: validUserId } as any);
       const dueDate = '2024-12-31T00:00:00.000Z';
 
       const request = createPatchRequest({
@@ -290,7 +295,7 @@ describe('PATCH /api/tasks/bulk', () => {
       const response = await PATCH(request);
 
       expect(response.status).toBe(200);
-      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith(
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: {
             due_date: new Date(dueDate),
@@ -326,8 +331,8 @@ describe('DELETE /api/tasks/bulk', () => {
     });
 
     it('requires pm or admin role', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([{ id: validTaskId1 }] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
+      mockTaskFindMany.mockResolvedValue([{ id: validTaskId1 }] as any);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const request = createDeleteRequest({
         task_ids: [validTaskId1],
@@ -368,7 +373,7 @@ describe('DELETE /api/tasks/bulk', () => {
 
   describe('Task existence validation', () => {
     it('returns 404 when some tasks do not exist', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([
+      mockTaskFindMany.mockResolvedValue([
         { id: validTaskId1 },
       ] as any);
 
@@ -385,11 +390,11 @@ describe('DELETE /api/tasks/bulk', () => {
 
   describe('Successful deletion', () => {
     it('soft deletes multiple tasks', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([
+      mockTaskFindMany.mockResolvedValue([
         { id: validTaskId1 },
         { id: validTaskId2 },
       ] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 2 });
+      mockTaskUpdateMany.mockResolvedValue({ count: 2 });
 
       const request = createDeleteRequest({
         task_ids: [validTaskId1, validTaskId2],
@@ -400,17 +405,17 @@ describe('DELETE /api/tasks/bulk', () => {
       expect(response.status).toBe(200);
       expect(body.success).toBe(true);
       expect(body.deleted).toBe(2);
-      expect(mockPrisma.task.updateMany).toHaveBeenCalledWith({
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith({
         where: { id: { in: [validTaskId1, validTaskId2] } },
         data: { is_deleted: true },
       });
     });
 
     it('soft deletes a single task', async () => {
-      mockPrisma.task.findMany.mockResolvedValue([
+      mockTaskFindMany.mockResolvedValue([
         { id: validTaskId1 },
       ] as any);
-      mockPrisma.task.updateMany.mockResolvedValue({ count: 1 });
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const request = createDeleteRequest({
         task_ids: [validTaskId1],

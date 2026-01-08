@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, AlertTriangle } from 'lucide-react';
 import { formatHours } from '@/lib/calculations/energy';
 
 type BatteryLevel = 'full' | 'mid' | 'depleted';
@@ -205,7 +205,7 @@ export function FocusTargetMeter({
       {/* Progress bar container */}
       <div className="relative mb-2">
         {/* Bar background (0 to capacity) */}
-        <div className="h-4 bg-surface rounded-full overflow-visible relative">
+        <div className="h-4 bg-surface rounded-full overflow-hidden relative">
           {/* Range band showing potential extent (0 to high) - faded */}
           <div
             className={`absolute inset-y-0 left-0 rounded-full transition-all ${getBarColor()}`}
@@ -219,19 +219,18 @@ export function FocusTargetMeter({
             className={`absolute inset-y-0 left-0 rounded-full transition-all ${getBarColor()}`}
             style={{ width: `${Math.min(selectedPercent, 100)}%` }}
           />
-          {/* Overflow indicator if over capacity */}
-          {highPercent > 100 && (
-            <div
-              className="absolute inset-y-0 bg-red-500/50 rounded-r-full"
-              style={{
-                left: '100%',
-                width: `${Math.min(highPercent - 100, 30)}%`,
-              }}
-            />
-          )}
         </div>
         {/* Capacity marker at 100% */}
         <div className="absolute top-0 bottom-0 right-0 w-0.5 bg-text-sub/30" />
+        {/* Overflow indicator icon at the right edge */}
+        {highPercent > 100 && (
+          <div
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 bg-red-500 rounded-full p-0.5"
+            title={`Over capacity by ${formatHours(estimatedMinutesHigh - availableMinutes)}`}
+          >
+            <AlertTriangle className="h-3 w-3 text-white" />
+          </div>
+        )}
       </div>
 
       {/* Labels row */}

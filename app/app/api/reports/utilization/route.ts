@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
+import { differenceInDays } from 'date-fns';
 
 export interface UserUtilization {
   userId: string;
@@ -33,6 +34,73 @@ export interface UtilizationResponse {
     targetHours: number;
     reservedHours: number;
   };
+}
+
+// Helper to check if a task status is complete
+function isTaskComplete(status: string): boolean {
+  return status === 'done' || status === 'abandoned';
+}
+
+// Calculate weight based on due date proximity to period end
+function getDueDateWeight(
+  dueDate: Date | null,
+  periodEnd: Date,
+  hasProject: boolean
+): number {
+  if (!dueDate) {
+    // Ad-hoc/support tasks (no project) with no due date = count as this week
+    // Project tasks with no due date = ignored
+    return hasProject ? 0 : 1.0;
+  }
+
+  const daysAfterPeriod = differenceInDays(dueDate, periodEnd);
+
+  if (daysAfterPeriod <= 0) {
+    // Due within or before period end
+    return 1.0;
+  } else if (daysAfterPeriod === 1) {
+    // Day 1 after period (e.g., Monday of next week)
+    return 0.5;
+  } else if (daysAfterPeriod === 2) {
+    // Day 2 after period (e.g., Tuesday of next week)
+    return 0.25;
+  } else {
+    // Day 3+ after period
+    return 0;
+  }
+}
+
+// Type for task with blocking dependencies
+interface TaskWithDeps {
+  id: string;
+  status: string;
+  due_date: Date | null;
+  blocked_by?: Array<{
+    id: string;
+    status: string;
+    due_date: Date | null;
+  }>;
+}
+
+// Check if a task is blocked by dependencies that won't complete in time
+function isBlockedByFutureTasks(
+  task: TaskWithDeps,
+  periodEnd: Date
+): boolean {
+  if (!task.blocked_by || task.blocked_by.length === 0) {
+    return false;
+  }
+
+  for (const blockerTask of task.blocked_by) {
+    // If blocker is not done and due after period end (or has no due date)
+    if (!isTaskComplete(blockerTask.status)) {
+      if (!blockerTask.due_date || blockerTask.due_date > periodEnd) {
+        return true; // Task is effectively blocked
+      }
+    }
+  }
+
+  return false;
 }
 
 export async function GET(request: NextRequest) {
@@ -106,22 +174,40 @@ export async function GET(request: NextRequest) {
     });
 
     // Get all assigned tasks for reserved hours calculation
-    // Incomplete tasks: use average estimate
+    // Incomplete tasks: use average estimate weighted by due date
     // Completed tasks: use actual time tracked
+    // Exclude tasks on quote projects, but include ad-hoc tasks (no project)
     const assignedTasks = await prisma.task.findMany({
       where: {
         assignee_id: { not: null },
         is_deleted: false,
+        OR: [
+          // Tasks with projects that aren't in quote status
+          {
+            project: {
+              status: { not: 'quote' },
+              is_deleted: false,
+            },
+          },
+          // Ad-hoc tasks (no project) - always include
+          { project_id: null },
+        ],
       },
       select: {
+        id: true,
         assignee_id: true,
+        project_id: true,
         status: true,
+        due_date: true,
         energy_estimate: true,
         mystery_factor: true,
         estimated_minutes: true,
         time_entries: {
           where: { is_deleted: false },
           select: { duration: true },
+        },
+        blocked_by: {
+          select: { id: true, status: true, due_date: true },
         },
       },
     });
@@ -146,6 +232,7 @@ export async function GET(request: NextRequest) {
     // Aggregate reserved minutes by user
     // Reserved = avg estimate for incomplete tasks + actual time for completed tasks
     // Also track incomplete estimates separately for utilization calculation
+    // Apply due date weighting and skip blocked tasks
     const userReservedMap = new Map<string, number>();
     const userIncompleteEstimateMap = new Map<string, number>();
 
@@ -153,24 +240,35 @@ export async function GET(request: NextRequest) {
       if (!task.assignee_id) continue;
 
       let reservedMinutes = 0;
-      const isComplete = task.status === 'done' || task.status === 'abandoned';
+      const isComplete = isTaskComplete(task.status);
 
       if (isComplete) {
         // For completed tasks, use actual time tracked
         reservedMinutes = task.time_entries.reduce((sum, e) => sum + e.duration, 0);
       } else {
+        // Skip tasks blocked by dependencies that won't complete in time
+        if (isBlockedByFutureTasks(task as TaskWithDeps, periodEnd)) {
+          continue;
+        }
+
         // For incomplete tasks, use average of min/max estimate
+        let baseReservedMinutes = 0;
         if (task.energy_estimate) {
           const baseMinutes = energyToMinutes(task.energy_estimate);
           const multiplier = getMysteryMultiplier(task.mystery_factor);
           const minMinutes = baseMinutes;
           const maxMinutes = baseMinutes * multiplier;
-          reservedMinutes = (minMinutes + maxMinutes) / 2;
+          baseReservedMinutes = (minMinutes + maxMinutes) / 2;
         } else if (task.estimated_minutes) {
-          reservedMinutes = task.estimated_minutes;
+          baseReservedMinutes = task.estimated_minutes;
         }
 
-        // Track incomplete estimates separately for utilization
+        // Apply due date weight
+        const hasProject = !!task.project_id;
+        const weight = getDueDateWeight(task.due_date, periodEnd, hasProject);
+        reservedMinutes = baseReservedMinutes * weight;
+
+        // Track incomplete estimates separately for utilization (weighted)
         const currentIncomplete = userIncompleteEstimateMap.get(task.assignee_id) || 0;
         userIncompleteEstimateMap.set(task.assignee_id, currentIncomplete + reservedMinutes);
       }

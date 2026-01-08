@@ -11,9 +11,87 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-/* Amber accent for selections (matching your design system) */
+/* Selection styling - ensure proper contrast in all modes */
 .blocknote-wrapper [data-selected="true"] {
-  background-color: rgba(245, 166, 35, 0.1);
+  background-color: rgba(91, 143, 185, 0.15); /* accent color with opacity */
+}
+
+.theme-dark .blocknote-wrapper [data-selected="true"],
+.theme-dim .blocknote-wrapper [data-selected="true"] {
+  background-color: rgba(91, 143, 185, 0.25); /* slightly more visible in dark */
+}
+
+/* File/attachment block styling */
+.blocknote-wrapper [data-content-type="file"],
+.blocknote-wrapper [data-content-type="image"],
+.blocknote-wrapper [data-content-type="video"],
+.blocknote-wrapper [data-content-type="audio"] {
+  background-color: var(--surface-alt, #F5F3EF);
+  border: 1px solid var(--border, #E2DED6);
+  border-radius: 8px;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+/* File blocks in dark mode */
+.theme-dark .blocknote-wrapper [data-content-type="file"],
+.theme-dark .blocknote-wrapper [data-content-type="image"],
+.theme-dark .blocknote-wrapper [data-content-type="video"],
+.theme-dark .blocknote-wrapper [data-content-type="audio"] {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.theme-dim .blocknote-wrapper [data-content-type="file"],
+.theme-dim .blocknote-wrapper [data-content-type="image"],
+.theme-dim .blocknote-wrapper [data-content-type="video"],
+.theme-dim .blocknote-wrapper [data-content-type="audio"] {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* File blocks when selected - ensure text remains visible */
+.blocknote-wrapper [data-content-type="file"][data-selected="true"],
+.blocknote-wrapper [data-content-type="image"][data-selected="true"],
+.blocknote-wrapper [data-content-type="video"][data-selected="true"],
+.blocknote-wrapper [data-content-type="audio"][data-selected="true"] {
+  background-color: rgba(91, 143, 185, 0.1);
+  border-color: rgba(91, 143, 185, 0.3);
+}
+
+.theme-dark .blocknote-wrapper [data-content-type="file"][data-selected="true"],
+.theme-dark .blocknote-wrapper [data-content-type="image"][data-selected="true"],
+.theme-dark .blocknote-wrapper [data-content-type="video"][data-selected="true"],
+.theme-dark .blocknote-wrapper [data-content-type="audio"][data-selected="true"] {
+  background-color: rgba(91, 143, 185, 0.2);
+  border-color: rgba(91, 143, 185, 0.4);
+}
+
+.theme-dim .blocknote-wrapper [data-content-type="file"][data-selected="true"],
+.theme-dim .blocknote-wrapper [data-content-type="image"][data-selected="true"],
+.theme-dim .blocknote-wrapper [data-content-type="video"][data-selected="true"],
+.theme-dim .blocknote-wrapper [data-content-type="audio"][data-selected="true"] {
+  background-color: rgba(91, 143, 185, 0.2);
+  border-color: rgba(91, 143, 185, 0.4);
+}
+
+/* Ensure file block text is always visible */
+.blocknote-wrapper [data-content-type="file"] *,
+.blocknote-wrapper [data-content-type="image"] figcaption,
+.blocknote-wrapper [data-content-type="video"] figcaption,
+.blocknote-wrapper [data-content-type="audio"] * {
+  color: var(--text-main, #2D2D2D);
+}
+
+.theme-dark .blocknote-wrapper [data-content-type="file"] *,
+.theme-dark .blocknote-wrapper [data-content-type="image"] figcaption,
+.theme-dark .blocknote-wrapper [data-content-type="video"] figcaption,
+.theme-dark .blocknote-wrapper [data-content-type="audio"] *,
+.theme-dim .blocknote-wrapper [data-content-type="file"] *,
+.theme-dim .blocknote-wrapper [data-content-type="image"] figcaption,
+.theme-dim .blocknote-wrapper [data-content-type="video"] figcaption,
+.theme-dim .blocknote-wrapper [data-content-type="audio"] * {
+  color: var(--text-main, #e7e5e4);
 }
 
 /* Hide the side menu in read-only mode */
@@ -79,14 +157,14 @@
   accent-color: #F5A623; /* Your amber accent */
 }
 
-/* Links */
+/* Links - use accent color */
 .blocknote-wrapper a {
-  color: #F5A623;
+  color: var(--accent, #5B8FB9);
   text-decoration: underline;
 }
 
 .blocknote-wrapper a:hover {
-  color: #d4891e;
+  color: var(--accent-hover, #4A7FA8);
 }
 
 /* Lists */
@@ -163,6 +241,26 @@
   }
 
   :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper pre code {
+    color: #e7e5e4;
+  }
+
+  /* File blocks in system dark mode */
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="file"],
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="image"],
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="video"],
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="audio"] {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-selected="true"] {
+    background-color: rgba(91, 143, 185, 0.25);
+  }
+
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="file"] *,
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="image"] figcaption,
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="video"] figcaption,
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) .blocknote-wrapper [data-content-type="audio"] * {
     color: #e7e5e4;
   }
 }

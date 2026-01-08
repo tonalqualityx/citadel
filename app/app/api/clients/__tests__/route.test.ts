@@ -27,10 +27,16 @@ vi.mock('@/lib/api/formatters', () => ({
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
-const mockPrisma = vi.mocked(prisma);
+
+// Type-safe mock accessors for Prisma methods
+const mockClientCreate = prisma.client.create as Mock;
+const mockClientFindUnique = prisma.client.findUnique as Mock;
+const mockClientFindMany = prisma.client.findMany as Mock;
+const mockClientCount = prisma.client.count as Mock;
 
 function createPostRequest(body: object): NextRequest {
   return new NextRequest('http://localhost:3000/api/clients', {
@@ -66,7 +72,7 @@ describe('POST /api/clients', () => {
       role: 'pm',
       email: 'pm@example.com',
     });
-    mockPrisma.client.create.mockResolvedValue(mockCreatedClient);
+    mockClientCreate.mockResolvedValue(mockCreatedClient);
   });
 
   describe('Minimal data - required fields only', () => {
@@ -75,7 +81,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             name: 'New Client',
@@ -108,7 +114,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalled();
+      expect(mockClientCreate).toHaveBeenCalled();
     });
 
     it('rejects null for retainer_hours', async () => {
@@ -145,7 +151,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             name: 'Test Client',
@@ -163,7 +169,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             name: 'Test Client',
@@ -181,7 +187,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             retainer_hours: 20.5,
@@ -225,7 +231,7 @@ describe('POST /api/clients', () => {
 
       expect(response.status).toBe(201);
       // Empty email should be converted to null
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             email: null,
@@ -242,7 +248,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             email: 'client@example.com',
@@ -267,7 +273,7 @@ describe('POST /api/clients', () => {
   describe('Full client creation with all fields', () => {
     it('creates client with all optional fields populated', async () => {
       const agencyId = '550e8400-e29b-41d4-a716-446655440000';
-      mockPrisma.client.findUnique.mockResolvedValue({
+      mockClientFindUnique.mockResolvedValue({
         id: agencyId,
         type: 'agency_partner',
       } as any);
@@ -287,7 +293,7 @@ describe('POST /api/clients', () => {
       const response = await POST(request);
 
       expect(response.status).toBe(201);
-      expect(mockPrisma.client.create).toHaveBeenCalledWith(
+      expect(mockClientCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             name: 'Full Client',
@@ -397,7 +403,7 @@ describe('POST /api/clients', () => {
   describe('Parent agency validation', () => {
     it('validates parent agency exists', async () => {
       const nonExistentAgencyId = '550e8400-e29b-41d4-a716-446655440001';
-      mockPrisma.client.findUnique.mockResolvedValue(null);
+      mockClientFindUnique.mockResolvedValue(null);
 
       const request = createPostRequest({
         name: 'Sub Client',
@@ -412,7 +418,7 @@ describe('POST /api/clients', () => {
 
     it('validates parent is agency_partner type', async () => {
       const directClientId = '550e8400-e29b-41d4-a716-446655440002';
-      mockPrisma.client.findUnique.mockResolvedValue({
+      mockClientFindUnique.mockResolvedValue({
         id: directClientId,
         type: 'direct', // Not agency_partner
       } as any);
