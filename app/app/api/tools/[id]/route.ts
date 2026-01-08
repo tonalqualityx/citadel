@@ -9,6 +9,7 @@ const updateToolSchema = z.object({
   category: z.string().max(50).optional().nullable(),
   url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   description: z.string().optional().nullable(),
+  license_key: z.string().optional().nullable(),
   is_active: z.boolean().optional(),
 });
 
@@ -19,6 +20,7 @@ function formatTool(tool: any) {
     category: tool.category,
     url: tool.url,
     description: tool.description,
+    license_key: tool.license_key,
     is_active: tool.is_active,
     created_at: tool.created_at,
     updated_at: tool.updated_at,

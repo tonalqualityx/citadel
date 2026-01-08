@@ -271,6 +271,10 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority') {
     status: TaskStatus.done,
     needs_review: true,
     approved: false,
+    OR: [
+      { reviewer_id: null },    // Unassigned - visible to all PM/Admin
+      { reviewer_id: userId },  // Assigned to current user
+    ],
   };
 
   const unassignedTasksWhere = {

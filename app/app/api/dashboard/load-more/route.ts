@@ -182,6 +182,10 @@ async function getListItems(
         status: TaskStatus.done,
         needs_review: true,
         approved: false,
+        OR: [
+          { reviewer_id: null },    // Unassigned - visible to all PM/Admin
+          { reviewer_id: userId },  // Assigned to current user
+        ],
       };
 
       const [tasks, total] = await Promise.all([

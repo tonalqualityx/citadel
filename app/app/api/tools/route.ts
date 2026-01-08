@@ -9,6 +9,7 @@ const createToolSchema = z.object({
   category: z.string().max(50).optional().nullable(),
   url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   description: z.string().optional().nullable(),
+  license_key: z.string().optional().nullable(),
   is_active: z.boolean().optional(),
 });
 
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
         category: data.category,
         url: data.url || null,
         description: data.description,
+        license_key: data.license_key,
         is_active: data.is_active ?? true,
       },
     });
