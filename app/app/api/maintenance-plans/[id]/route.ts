@@ -14,6 +14,7 @@ const updateMaintenancePlanSchema = z.object({
   details: z.string().optional().nullable(),
   frequency: z.enum(VALID_FREQUENCIES).optional(),
   is_active: z.boolean().optional(),
+  sop_ids: z.array(z.string().uuid()).optional(),
 });
 
 function formatMaintenancePlan(plan: any) {
@@ -28,9 +29,10 @@ function formatMaintenancePlan(plan: any) {
     is_active: plan.is_active,
     sites_count: plan._count?.sites ?? 0,
     sops_count: plan._count?.sops ?? 0,
+    sop_ids: plan.sops?.map((ps: any) => ps.sop?.id || ps.sop_id) ?? [],
     sops: plan.sops?.map((ps: any) => ({
-      id: ps.sop.id,
-      title: ps.sop.title,
+      id: ps.sop?.id || ps.sop_id,
+      title: ps.sop?.title,
       sort_order: ps.sort_order,
     })) ?? [],
     created_at: plan.created_at,
@@ -84,16 +86,48 @@ export async function PATCH(
     const body = await request.json();
     const data = updateMaintenancePlanSchema.parse(body);
 
-    const plan = await prisma.maintenancePlan.update({
-      where: { id },
-      data,
-      include: {
-        _count: { select: { sites: true, sops: true } },
-        sops: {
-          include: { sop: { select: { id: true, title: true } } },
-          orderBy: { sort_order: 'asc' },
+    const { sop_ids, ...planData } = data;
+
+    // Update plan and optionally SOPs in a transaction
+    const plan = await prisma.$transaction(async (tx) => {
+      // Update plan fields if any provided
+      if (Object.keys(planData).length > 0) {
+        await tx.maintenancePlan.update({
+          where: { id },
+          data: planData,
+        });
+      }
+
+      // Update SOP associations if provided
+      if (sop_ids !== undefined) {
+        // Delete existing
+        await tx.maintenancePlanSop.deleteMany({
+          where: { maintenance_plan_id: id },
+        });
+
+        // Create new with sort order
+        if (sop_ids.length > 0) {
+          await tx.maintenancePlanSop.createMany({
+            data: sop_ids.map((sopId, index) => ({
+              maintenance_plan_id: id,
+              sop_id: sopId,
+              sort_order: index,
+            })),
+          });
+        }
+      }
+
+      // Return with all includes
+      return tx.maintenancePlan.findUnique({
+        where: { id },
+        include: {
+          _count: { select: { sites: true, sops: true } },
+          sops: {
+            include: { sop: { select: { id: true, title: true } } },
+            orderBy: { sort_order: 'asc' },
+          },
         },
-      },
+      });
     });
 
     return NextResponse.json(formatMaintenancePlan(plan));

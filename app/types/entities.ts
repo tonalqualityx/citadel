@@ -229,6 +229,7 @@ export interface MaintenancePlan {
   is_active: boolean;
   sites_count?: number;
   sops_count?: number;
+  sop_ids?: string[];
   sops?: MaintenancePlanSop[];
   created_at?: string;
   updated_at?: string;
@@ -242,6 +243,7 @@ export interface CreateMaintenancePlanInput {
   details?: string | null;
   frequency?: MaintenanceFrequency;
   is_active?: boolean;
+  sop_ids?: string[];
 }
 
 export interface UpdateMaintenancePlanInput extends Partial<CreateMaintenancePlanInput> {}
