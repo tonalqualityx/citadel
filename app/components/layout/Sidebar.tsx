@@ -134,6 +134,7 @@ export function Sidebar() {
       { name: 'Integrations', href: '/admin/integrations', emoji: '🔌' },
       { name: 'Database', href: '/admin/database', emoji: '💾' },
       { name: 'Reports', href: '/settings/reports', emoji: '📊' },
+      { name: 'Settings', href: '/admin/settings', emoji: '⚙️' },
     ],
   };
 

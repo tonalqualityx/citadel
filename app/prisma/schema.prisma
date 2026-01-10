@@ -40,6 +40,7 @@ model User {
   password_reset_tokens PasswordResetToken[]
   activity_logs         ActivityLog[]
   sites_maintained      Site[]                 @relation("SiteMaintainer")
+  bug_report_notifications AppSettings[]       @relation("BugReportNotifyUser")
 
   @@map("users")
 }
@@ -486,6 +487,7 @@ model Project {
   time_entries     TimeEntry[]
   pages            ProjectPage[]
   resource_links   ResourceLink[]
+  app_settings_bug_report AppSettings[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -512,6 +514,7 @@ model ProjectPhase {
   // Relations
   tasks       Task[]
   milestones  Milestone[]
+  app_settings_bug_report AppSettings[]
 
   @@index([project_id])
   @@map("project_phases")
@@ -1013,4 +1016,27 @@ model MaintenanceGenerationLog {
   @@index([site_id])
   @@index([period])
   @@map("maintenance_generation_logs")
+}
+
+// ============================================
+// APP SETTINGS (SINGLETON)
+// ============================================
+
+model AppSettings {
+  id                          String    @id @default("singleton")
+
+  // Bug reporting configuration
+  bug_report_project_id       String?   @db.Uuid
+  bug_report_phase_id         String?   @db.Uuid
+  bug_report_notify_user_id   String?   @db.Uuid
+
+  created_at                  DateTime  @default(now())
+  updated_at                  DateTime  @updatedAt
+
+  // Relations
+  bug_report_project          Project?      @relation(fields: [bug_report_project_id], references: [id])
+  bug_report_phase            ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
+  bug_report_notify_user      User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
+
+  @@map("app_settings")
 }

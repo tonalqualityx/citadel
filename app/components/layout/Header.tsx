@@ -7,9 +7,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Search, LogOut, Menu } from 'lucide-react';
 import { TimerWidget } from './timer-widget';
 import { QuickTaskModal } from './quick-task-modal';
+import { BugReportModal } from './bug-report-modal';
 import { MobileNav } from './MobileNav';
 import { NotificationBell } from '@/components/domain/notifications';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { useConsoleCapture } from '@/lib/hooks/use-console-capture';
 import { Avatar } from '@/components/ui/avatar';
 
 export function Header() {
@@ -18,6 +20,9 @@ export function Header() {
   const { user } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+
+  // Initialize console capture for bug reports
+  useConsoleCapture();
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -73,6 +78,9 @@ export function Header() {
 
       {/* Right side */}
       <div className="flex items-center gap-x-4 lg:gap-x-6 ml-auto">
+        {/* Bug Report - only shows if configured */}
+        <BugReportModal />
+
         {/* Quick Task */}
         <QuickTaskModal />
 

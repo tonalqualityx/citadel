@@ -14,14 +14,23 @@ import { NotificationItem } from './NotificationItem';
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const prevUnreadCountRef = useRef<number | null>(null);
 
-  const { data: notifications, isLoading } = useNotifications();
+  const { data: notifications, isLoading, refetch: refetchNotifications } = useNotifications();
   const { data: unreadData } = useUnreadCount();
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteNotification = useDeleteNotification();
 
   const unreadCount = unreadData?.count ?? 0;
+
+  // Refetch notifications when unread count increases
+  useEffect(() => {
+    if (prevUnreadCountRef.current !== null && unreadCount > prevUnreadCountRef.current) {
+      refetchNotifications();
+    }
+    prevUnreadCountRef.current = unreadCount;
+  }, [unreadCount, refetchNotifications]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

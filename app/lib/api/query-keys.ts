@@ -135,6 +135,12 @@ export const clientActivityKeys = {
     [...clientActivityKeys.all, clientId, filters] as const,
 };
 
+// App Settings keys
+export const appSettingsKeys = {
+  all: ['app-settings'] as const,
+  bugReport: () => [...appSettingsKeys.all, 'bug-report'] as const,
+};
+
 // Consolidated query keys for convenience
 export const queryKeys = {
   clients: clientKeys,
@@ -147,4 +153,5 @@ export const queryKeys = {
   referenceData: referenceDataKeys,
   dnsProviders: dnsProviderKeys,
   clientActivity: clientActivityKeys,
+  appSettings: appSettingsKeys,
 };

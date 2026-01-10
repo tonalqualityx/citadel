@@ -202,3 +202,25 @@ export async function notifyRetainerAlert(
     });
   }
 }
+
+export async function notifyBugReported(
+  taskId: string,
+  taskTitle: string,
+  priority: number,
+  notifyUserId: string | null,
+  reporterName: string
+) {
+  // Only notify for priority 1 (critical) or 2 (high)
+  if (priority > 2 || !notifyUserId) return;
+
+  const priorityLabel = priority === 1 ? 'Critical' : 'High';
+
+  await createNotification({
+    userId: notifyUserId,
+    type: 'system_alert',
+    title: `${priorityLabel} Bug Reported: ${taskTitle}`,
+    message: `Reported by ${reporterName}`,
+    entityType: 'task',
+    entityId: taskId,
+  });
+}
