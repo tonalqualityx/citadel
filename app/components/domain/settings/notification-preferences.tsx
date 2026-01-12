@@ -73,54 +73,58 @@ export function NotificationPreferences({ className }: NotificationPreferencesPr
 
   return (
     <div className={className}>
-      {/* Header row */}
-      <div className="grid grid-cols-[1fr,80px,80px,80px] gap-2 mb-4 px-4">
-        <div className="text-sm font-medium text-text-sub">Notification Type</div>
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-1 text-sm font-medium text-text-sub">
-            <Bell className="h-4 w-4" />
-            <span>In-App</span>
-          </div>
-        </div>
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-1 text-sm font-medium text-text-sub">
-            <Mail className="h-4 w-4" />
-            <span>Email</span>
-          </div>
-        </div>
-        <div className="text-center">
-          <div className="flex items-center justify-center gap-1 text-sm font-medium text-text-sub">
-            <MessageSquare className="h-4 w-4" />
-            <span>Slack</span>
-          </div>
-        </div>
-      </div>
+      {/* Table-style layout for matrix */}
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-border-warm">
+            <th className="text-left text-sm font-medium text-text-sub p-4">
+              Notification Type
+            </th>
+            <th className="text-center text-sm font-medium text-text-sub p-4 w-20">
+              <div className="flex items-center justify-center gap-1">
+                <Bell className="h-4 w-4" />
+                <span className="hidden sm:inline">In-App</span>
+              </div>
+            </th>
+            <th className="text-center text-sm font-medium text-text-sub p-4 w-20">
+              <div className="flex items-center justify-center gap-1">
+                <Mail className="h-4 w-4" />
+                <span className="hidden sm:inline">Email</span>
+              </div>
+            </th>
+            <th className="text-center text-sm font-medium text-text-sub p-4 w-20">
+              <div className="flex items-center justify-center gap-1">
+                <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">Slack</span>
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {NOTIFICATION_TYPE_ORDER.map((type) => {
+            const pref = prefsMap.get(type);
+            if (!pref) return null;
 
-      {/* Preference rows */}
-      <div className="space-y-1">
-        {NOTIFICATION_TYPE_ORDER.map((type) => {
-          const pref = prefsMap.get(type);
-          if (!pref) return null;
-
-          return (
-            <PreferenceRow
-              key={type}
-              type={type}
-              label={NOTIFICATION_TYPE_LABELS[type]}
-              description={NOTIFICATION_TYPE_DESCRIPTIONS[type]}
-              inApp={pref.in_app}
-              email={pref.email}
-              slack={pref.slack}
-              isLocked={pref.admin_override}
-              slackConnected={slackConnected}
-              onToggle={(channel, current) =>
-                handleToggle(type, channel, current, pref.admin_override)
-              }
-              isPending={togglePreference.isPending}
-            />
-          );
-        })}
-      </div>
+            return (
+              <PreferenceRow
+                key={type}
+                type={type}
+                label={NOTIFICATION_TYPE_LABELS[type]}
+                description={NOTIFICATION_TYPE_DESCRIPTIONS[type]}
+                inApp={pref.in_app}
+                email={pref.email}
+                slack={pref.slack}
+                isLocked={pref.admin_override}
+                slackConnected={slackConnected}
+                onToggle={(channel, current) =>
+                  handleToggle(type, channel, current, pref.admin_override)
+                }
+                isPending={togglePreference.isPending}
+              />
+            );
+          })}
+        </tbody>
+      </table>
 
       {/* Footer note */}
       <div className="mt-6 p-4 bg-surface-alt rounded-lg">
@@ -165,9 +169,9 @@ function PreferenceRow({
   isPending,
 }: PreferenceRowProps) {
   return (
-    <div className="grid grid-cols-[1fr,80px,80px,80px] gap-2 items-center p-4 rounded-lg hover:bg-surface-alt/50 transition-colors">
+    <tr className="border-b border-border-warm last:border-b-0 hover:bg-surface-alt/50 transition-colors">
       {/* Label */}
-      <div>
+      <td className="p-4">
         <div className="flex items-center gap-2">
           <span className="font-medium text-text-main">{label}</span>
           {isLocked && (
@@ -178,36 +182,36 @@ function PreferenceRow({
           )}
         </div>
         <p className="text-sm text-text-sub mt-0.5">{description}</p>
-      </div>
+      </td>
 
       {/* In-App Toggle */}
-      <div className="flex justify-center">
+      <td className="p-4 text-center">
         <ToggleSwitch
           checked={inApp}
           onChange={() => onToggle('in_app', inApp)}
           disabled={isLocked || isPending}
         />
-      </div>
+      </td>
 
       {/* Email Toggle */}
-      <div className="flex justify-center">
+      <td className="p-4 text-center">
         <ToggleSwitch
           checked={email}
           onChange={() => onToggle('email', email)}
           disabled={isLocked || isPending}
         />
-      </div>
+      </td>
 
       {/* Slack Toggle */}
-      <div className="flex justify-center">
+      <td className="p-4 text-center">
         <ToggleSwitch
           checked={slack}
           onChange={() => onToggle('slack', slack)}
           disabled={isLocked || isPending || !slackConnected}
           title={!slackConnected ? 'Slack not connected' : undefined}
         />
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
