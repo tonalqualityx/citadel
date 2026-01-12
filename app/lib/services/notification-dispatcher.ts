@@ -166,10 +166,64 @@ async function sendImmediateEmail(options: DispatchOptions): Promise<boolean> {
 }
 
 /**
- * Send Slack notification.
+ * Queue Slack notification for batching (project tasks).
+ * Returns true if queued successfully.
+ */
+async function queueSlackNotification(options: DispatchOptions): Promise<boolean> {
+  const { userId, type, title, message, entityId, metadata } = options;
+  const projectId = metadata?.projectId as string;
+
+  if (!projectId || !entityId) {
+    console.error('Cannot queue Slack notification without projectId and entityId');
+    return false;
+  }
+
+  const batchKey = `${userId}:${projectId}`;
+
+  // Check if there's an existing pending batch for this user+project
+  const existingBatch = await prisma.slackNotificationBatch.findFirst({
+    where: {
+      batch_key: batchKey,
+      processed: false,
+    },
+    orderBy: { created_at: 'asc' },
+  });
+
+  // If existing batch, use its batch_ready_at; otherwise set 5 minutes from now
+  const batchReadyAt = existingBatch?.batch_ready_at || new Date(Date.now() + 5 * 60 * 1000);
+
+  await prisma.slackNotificationBatch.create({
+    data: {
+      user_id: userId,
+      project_id: projectId,
+      task_id: entityId,
+      notification_type: type,
+      title,
+      message,
+      batch_key: batchKey,
+      batch_ready_at: batchReadyAt,
+    },
+  });
+
+  return true;
+}
+
+/**
+ * Send Slack notification immediately or queue for batching.
  * Returns success status.
  */
 async function sendSlackNotification(options: DispatchOptions): Promise<boolean> {
+  const { metadata } = options;
+
+  // Check if this should be batched (project task that's not ad-hoc/support)
+  const isAdHocOrSupport = metadata?.isAdHocOrSupport as boolean | undefined;
+  const projectId = metadata?.projectId as string | undefined;
+
+  // Batch project task notifications, send others immediately
+  if (isAdHocOrSupport === false && projectId) {
+    return queueSlackNotification(options);
+  }
+
   // Import dynamically to avoid circular dependencies
   try {
     const { sendSlackNotification: sendSlack } = await import('./slack-notifications');

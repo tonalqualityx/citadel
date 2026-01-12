@@ -21,6 +21,9 @@ export interface Task {
   // Direct client relationship (for ad-hoc tasks without a project)
   client_id: string | null;
   client: { id: string; name: string } | null;
+  // Direct site relationship (for ad-hoc tasks without a project)
+  site_id: string | null;
+  site: { id: string; name: string } | null;
   phase: string | null;
   sort_order: number;
   assignee_id: string | null;
@@ -94,6 +97,7 @@ export interface CreateTaskInput {
   priority?: number;
   project_id?: string | null;
   client_id?: string | null; // For ad-hoc tasks without a project
+  site_id?: string | null; // For ad-hoc tasks without a project
   phase_id?: string | null;
   phase?: string | null; // Legacy field
   sort_order?: number;

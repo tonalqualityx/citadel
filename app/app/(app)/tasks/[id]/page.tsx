@@ -56,6 +56,10 @@ import {
 import { TaskRequirements } from '@/components/domain/tasks/task-requirements';
 import { RichTextEditor, RichTextRenderer } from '@/components/ui/rich-text-editor';
 import { InlineUserSelect } from '@/components/ui/user-select';
+import { ProjectSelect } from '@/components/ui/inline-edit/project-select';
+import { ClientSelect } from '@/components/ui/inline-edit/client-select';
+import { SiteSelect } from '@/components/ui/inline-edit/site-select';
+import { useProjects, Project } from '@/lib/hooks/use-projects';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { formatElapsedTime } from '@/lib/utils/time';
 import {
@@ -208,6 +212,8 @@ export default function QuestDetailPage() {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
   const timer = useTimer();
+  const { data: projectsData } = useProjects({ limit: 100 });
+  const projects = projectsData?.projects || [];
 
   const isTimerRunningForThisTask = timer.isRunning && timer.taskId === taskId;
 
@@ -239,6 +245,24 @@ export default function QuestDetailPage() {
       updateTask.mutate({ id: taskId, data: updates as any });
     },
     [updateTask, taskId]
+  );
+
+  // Handler for project changes - auto-syncs client/site from project
+  const handleProjectChange = React.useCallback(
+    (projectId: string | null, project?: Project | null) => {
+      if (projectId && project) {
+        // Project selected - sync client/site from project
+        saveImmediate({
+          project_id: projectId,
+          client_id: project.client_id || null,
+          site_id: project.site_id || null,
+        });
+      } else {
+        // Project cleared - keep existing client/site
+        saveImmediate({ project_id: null });
+      }
+    },
+    [saveImmediate]
   );
 
   const handleDelete = async () => {
@@ -314,42 +338,67 @@ export default function QuestDetailPage() {
                 />
               )}
             </div>
-            {/* Breadcrumbs: Client > Site > Project */}
-            {task.project && (
-              <div className="flex items-center gap-1 mt-1 text-sm text-text-sub">
-                {task.project.client && (
-                  <>
-                    <Link
-                      href={`/clients/${task.project.client.id}`}
-                      className="flex items-center gap-1 hover:text-primary"
-                    >
-                      <Building2 className="h-4 w-4" />
-                      {task.project.client.name}
-                    </Link>
-                    <ChevronRight className="h-3 w-3 text-text-sub" />
-                  </>
-                )}
-                {task.project.site && (
-                  <>
-                    <Link
-                      href={`/sites/${task.project.site.id}`}
-                      className="flex items-center gap-1 hover:text-primary"
-                    >
-                      <Globe className="h-4 w-4" />
-                      {task.project.site.name}
-                    </Link>
-                    <ChevronRight className="h-3 w-3 text-text-sub" />
-                  </>
-                )}
-                <Link
-                  href={`/projects/${task.project.id}`}
-                  className="flex items-center gap-1 hover:text-primary"
-                >
-                  <FolderKanban className="h-4 w-4" />
-                  {task.project.name}
-                </Link>
+            {/* Context: Project, Client, Site - editable fields */}
+            <div className="flex items-center gap-4 mt-1 text-sm flex-wrap">
+              {/* Project */}
+              <div className="flex items-center gap-1">
+                <FolderKanban className="h-4 w-4 text-text-sub" />
+                <ProjectSelect
+                  value={task.project_id || null}
+                  onChange={handleProjectChange}
+                  placeholder="No project"
+                  allowClear
+                />
               </div>
-            )}
+
+              {/* Client */}
+              <div className="flex items-center gap-1">
+                <Building2 className="h-4 w-4 text-text-sub" />
+                {task.project_id ? (
+                  task.client ? (
+                    <Link
+                      href={`/clients/${task.client.id}`}
+                      className="text-text-sub hover:text-primary"
+                    >
+                      {task.client.name}
+                    </Link>
+                  ) : (
+                    <span className="text-text-sub italic">No client</span>
+                  )
+                ) : (
+                  <ClientSelect
+                    value={task.client_id || null}
+                    onChange={(client_id) => saveImmediate({ client_id })}
+                    placeholder="No client"
+                    allowClear
+                  />
+                )}
+              </div>
+
+              {/* Site */}
+              <div className="flex items-center gap-1">
+                <Globe className="h-4 w-4 text-text-sub" />
+                {task.project_id ? (
+                  task.site ? (
+                    <Link
+                      href={`/sites/${task.site.id}`}
+                      className="text-text-sub hover:text-primary"
+                    >
+                      {task.site.name}
+                    </Link>
+                  ) : (
+                    <span className="text-text-sub italic">No site</span>
+                  )
+                ) : (
+                  <SiteSelect
+                    value={task.site_id || null}
+                    onChange={(site_id) => saveImmediate({ site_id })}
+                    placeholder="No site"
+                    allowClear
+                  />
+                )}
+              </div>
+            </div>
             {/* Resource Links - only for project tasks */}
             {task.project && (
               <div className="mt-2">

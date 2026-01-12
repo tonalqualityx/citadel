@@ -7,3 +7,4 @@ export { MaintenancePlanSelect } from './maintenance-plan-select';
 export { DnsProviderSelect } from './dns-provider-select';
 export { ClientSelect } from './client-select';
 export { SiteSelect } from './site-select';
+export { ProjectSelect } from './project-select';

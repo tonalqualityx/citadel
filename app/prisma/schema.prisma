@@ -31,6 +31,7 @@ model User {
   notification_preferences NotificationPreference[]
   slack_mapping         SlackUserMapping?
   email_digest_queue    EmailDigestQueue[]
+  slack_notification_batch SlackNotificationBatch[]
   projects_created      Project[]              @relation("ProjectCreatedBy")
   team_assignments      ProjectTeamAssignment[]
   user_functions        UserFunction[]
@@ -204,6 +205,35 @@ model EmailDigestQueue {
   @@index([user_id])
   @@index([processed, created_at])
   @@map("email_digest_queue")
+}
+
+// Slack notification batch queue for grouping project task notifications
+model SlackNotificationBatch {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  project_id        String           @db.Uuid
+  task_id           String           @db.Uuid
+  notification_type NotificationType
+
+  // Content
+  title             String           @db.VarChar(255)
+  message           String?          @db.Text
+
+  // Batching control
+  batch_key         String           @db.VarChar(100) // user_id:project_id combo
+  batch_ready_at    DateTime         // When this batch should be sent
+
+  // Status
+  processed         Boolean          @default(false)
+  processed_at      DateTime?
+
+  created_at        DateTime         @default(now())
+
+  @@index([user_id])
+  @@index([batch_key, processed])
+  @@index([batch_ready_at, processed])
+  @@map("slack_notification_batch")
 }
 
 // ============================================

@@ -58,6 +58,10 @@ import {
 import { calculateTimeEstimates, formatMinutes } from '@/lib/config/task-fields';
 import { RichTextEditor, RichTextRenderer } from '@/components/ui/rich-text-editor';
 import { InlineUserSelect } from '@/components/ui/user-select';
+import { ProjectSelect } from '@/components/ui/inline-edit/project-select';
+import { ClientSelect } from '@/components/ui/inline-edit/client-select';
+import { SiteSelect } from '@/components/ui/inline-edit/site-select';
+import { useProjects, Project } from '@/lib/hooks/use-projects';
 import {
   getTaskStatusLabel,
   getTaskStatusVariant,
@@ -157,6 +161,8 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
   });
   const updateTask = useUpdateTask();
   const timer = useTimer();
+  const { data: projectsData } = useProjects({ limit: 100 });
+  const projects = projectsData?.projects || [];
 
   const isTimerRunningForThisTask = timer.isRunning && timer.taskId === taskId;
 
@@ -175,6 +181,24 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
       updateTask.mutate({ id: taskId, data: updates as any });
     },
     [updateTask, taskId]
+  );
+
+  // Handler for project changes - auto-syncs client/site from project
+  const handleProjectChange = React.useCallback(
+    (projectId: string | null, project?: Project | null) => {
+      if (projectId && project) {
+        // Project selected - sync client/site from project
+        saveImmediate({
+          project_id: projectId,
+          client_id: project.client_id || null,
+          site_id: project.site_id || null,
+        });
+      } else {
+        // Project cleared - keep existing client/site
+        saveImmediate({ project_id: null });
+      }
+    },
+    [saveImmediate]
   );
 
   const hasBlockers = task?.blocked_by && task.blocked_by.length > 0;
@@ -208,54 +232,73 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
             </div>
           ) : task ? (
             <div className="space-y-5">
-              {/* Breadcrumbs: Client > Site > Project (for project tasks) or just Client (for ad-hoc tasks) */}
-              {task.project ? (
-                <div className="flex items-center gap-1 text-sm text-text-sub flex-wrap">
-                  {task.project.client && (
-                    <>
-                      <Link
-                        href={`/clients/${task.project.client.id}`}
-                        className="flex items-center gap-1 hover:text-primary"
-                      >
-                        <Building2 className="h-3.5 w-3.5" />
-                        {task.project.client.name}
-                      </Link>
-                      <ChevronRight className="h-3 w-3 text-text-sub" />
-                    </>
-                  )}
-                  {task.project.site && (
-                    <>
-                      <Link
-                        href={`/sites/${task.project.site.id}`}
-                        className="flex items-center gap-1 hover:text-primary"
-                      >
-                        <Globe className="h-3.5 w-3.5" />
-                        {task.project.site.name}
-                      </Link>
-                      <ChevronRight className="h-3 w-3 text-text-sub" />
-                    </>
-                  )}
-                  <Link
-                    href={`/projects/${task.project.id}`}
-                    className="flex items-center gap-1 hover:text-primary"
-                  >
-                    <FolderKanban className="h-3.5 w-3.5" />
-                    {task.project.name}
-                  </Link>
+              {/* Context: Project, Client, Site - editable fields */}
+              <div className="space-y-2 text-sm">
+                {/* Project */}
+                <div className="flex items-center gap-2">
+                  <FolderKanban className="h-4 w-4 text-text-sub flex-shrink-0" />
+                  <ProjectSelect
+                    value={task.project_id || null}
+                    onChange={handleProjectChange}
+                    placeholder="No project (ad-hoc)"
+                    allowClear
+                  />
                 </div>
-              ) : task.client ? (
-                // Ad-hoc task with direct client assignment
-                <div className="flex items-center gap-1 text-sm text-text-sub">
-                  <Link
-                    href={`/clients/${task.client.id}`}
-                    className="flex items-center gap-1 hover:text-primary"
-                  >
-                    <Building2 className="h-3.5 w-3.5" />
-                    {task.client.name}
-                  </Link>
-                  <span className="text-text-sub ml-1">(ad-hoc)</span>
+
+                {/* Client */}
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-text-sub flex-shrink-0" />
+                  {task.project_id ? (
+                    // When task has project, show client as link (from project)
+                    task.client ? (
+                      <Link
+                        href={`/clients/${task.client.id}`}
+                        className="text-text-sub hover:text-primary"
+                      >
+                        {task.client.name}
+                        <span className="text-xs ml-1 opacity-60">(from project)</span>
+                      </Link>
+                    ) : (
+                      <span className="text-text-sub italic">No client</span>
+                    )
+                  ) : (
+                    // When ad-hoc, allow editing client
+                    <ClientSelect
+                      value={task.client_id || null}
+                      onChange={(client_id) => saveImmediate({ client_id })}
+                      placeholder="No client"
+                      allowClear
+                    />
+                  )}
                 </div>
-              ) : null}
+
+                {/* Site */}
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-text-sub flex-shrink-0" />
+                  {task.project_id ? (
+                    // When task has project, show site as link (from project)
+                    task.site ? (
+                      <Link
+                        href={`/sites/${task.site.id}`}
+                        className="text-text-sub hover:text-primary"
+                      >
+                        {task.site.name}
+                        <span className="text-xs ml-1 opacity-60">(from project)</span>
+                      </Link>
+                    ) : (
+                      <span className="text-text-sub italic">No site</span>
+                    )
+                  ) : (
+                    // When ad-hoc, allow editing site
+                    <SiteSelect
+                      value={task.site_id || null}
+                      onChange={(site_id) => saveImmediate({ site_id })}
+                      placeholder="No site"
+                      allowClear
+                    />
+                  )}
+                </div>
+              </div>
 
               {/* Resource Links - only for project tasks */}
               {task.project && (

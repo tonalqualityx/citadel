@@ -109,10 +109,19 @@ export async function notifyTaskAssigned(
 ) {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { title: true, project: { select: { name: true } } },
+    select: {
+      title: true,
+      is_support: true,
+      project_id: true,
+      project: { select: { id: true, name: true } },
+    },
   });
 
   if (!task) return;
+
+  // Determine if this should be sent immediately or batched
+  // Ad-hoc tasks (no project) and support tasks should notify immediately
+  const isAdHocOrSupport = !task.project_id || task.is_support;
 
   await createNotification({
     userId: assigneeId,
@@ -122,6 +131,12 @@ export async function notifyTaskAssigned(
     entityType: 'task',
     entityId: taskId,
     bundleKey: `task_assigned_${assigneeId}`,
+    metadata: {
+      isAdHocOrSupport,
+      projectId: task.project_id,
+      projectName: task.project?.name,
+      taskTitle: task.title,
+    },
   });
 }
 

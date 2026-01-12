@@ -46,10 +46,6 @@ interface TaskContext {
   siteName?: string;
 }
 
-interface CommentContext extends TaskContext {
-  commenterName: string;
-  commentSnippet: string;
-}
 
 /**
  * Get full task context for rich Slack messages
@@ -250,11 +246,11 @@ function buildEntityUrl(entityType?: string, entityId?: string): string | null {
 
   const baseUrl = getAppUrl();
   const entityRoutes: Record<string, string> = {
-    task: '/quests',
-    project: '/pacts',
-    client: '/patrons',
+    task: '/tasks',
+    project: '/projects',
+    client: '/clients',
     site: '/sites',
-    sop: '/scrolls',
+    sop: '/sops',
   };
 
   const route = entityRoutes[entityType];
@@ -425,4 +421,162 @@ export async function notifyReviewRequestedViaSlack(
 
   const result = await sendDirectMessage(slackUserId, fallbackText, blocks);
   return result.ok;
+}
+
+/**
+ * Build Slack blocks for a batched project task notification
+ */
+function buildBatchedTaskBlocks(
+  projectName: string,
+  projectId: string,
+  tasks: Array<{ id: string; title: string }>,
+): object[] {
+  const blocks: object[] = [];
+
+  // Header
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `📋 *${tasks.length} new task${tasks.length > 1 ? 's' : ''} assigned* in project: ${projectName}`,
+    },
+  });
+
+  // Divider
+  blocks.push({ type: 'divider' });
+
+  // Task list (up to 10 tasks shown)
+  const displayTasks = tasks.slice(0, 10);
+  const taskListText = displayTasks
+    .map((task) => `• <${getAppUrl()}/tasks/${task.id}|${task.title}>`)
+    .join('\n');
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: taskListText,
+    },
+  });
+
+  // Show "and X more" if truncated
+  if (tasks.length > 10) {
+    blocks.push({
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: `_...and ${tasks.length - 10} more task${tasks.length - 10 > 1 ? 's' : ''}_`,
+        },
+      ],
+    });
+  }
+
+  // Action button to view project
+  const projectUrl = `${getAppUrl()}/projects/${projectId}`;
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        text: {
+          type: 'plain_text',
+          text: 'View Project →',
+          emoji: true,
+        },
+        url: projectUrl,
+        action_id: 'view_project',
+      },
+    ],
+  });
+
+  return blocks;
+}
+
+interface BatchGroup {
+  userId: string;
+  projectId: string;
+  projectName: string;
+  tasks: Array<{ id: string; title: string }>;
+  batchIds: string[];
+}
+
+/**
+ * Process pending Slack notification batches.
+ * Finds all batches ready to send, groups by user+project, sends combined messages.
+ * Returns number of batches processed.
+ */
+export async function processSlackNotificationBatches(): Promise<number> {
+  // Find all pending batches that are ready
+  const pendingBatches = await prisma.slackNotificationBatch.findMany({
+    where: {
+      processed: false,
+      batch_ready_at: {
+        lte: new Date(),
+      },
+    },
+    orderBy: { created_at: 'asc' },
+  });
+
+  if (pendingBatches.length === 0) {
+    return 0;
+  }
+
+  // Group by batch_key (user_id:project_id)
+  const batchGroups = new Map<string, BatchGroup>();
+
+  for (const batch of pendingBatches) {
+    const existing = batchGroups.get(batch.batch_key);
+    if (existing) {
+      existing.tasks.push({ id: batch.task_id, title: batch.title.replace('New quest assigned: ', '') });
+      existing.batchIds.push(batch.id);
+    } else {
+      // Fetch project name
+      const project = await prisma.project.findUnique({
+        where: { id: batch.project_id },
+        select: { name: true },
+      });
+
+      batchGroups.set(batch.batch_key, {
+        userId: batch.user_id,
+        projectId: batch.project_id,
+        projectName: project?.name || 'Unknown Project',
+        tasks: [{ id: batch.task_id, title: batch.title.replace('New quest assigned: ', '') }],
+        batchIds: [batch.id],
+      });
+    }
+  }
+
+  let processedCount = 0;
+
+  // Send batched notifications
+  for (const [, group] of batchGroups) {
+    const slackUserId = await getSlackUserIdForUser(group.userId);
+    if (!slackUserId) {
+      // Mark as processed even if user has no Slack mapping
+      await prisma.slackNotificationBatch.updateMany({
+        where: { id: { in: group.batchIds } },
+        data: { processed: true, processed_at: new Date() },
+      });
+      processedCount += group.batchIds.length;
+      continue;
+    }
+
+    const blocks = buildBatchedTaskBlocks(group.projectName, group.projectId, group.tasks);
+    const fallbackText = `📋 ${group.tasks.length} new task${group.tasks.length > 1 ? 's' : ''} assigned in ${group.projectName}`;
+
+    const result = await sendDirectMessage(slackUserId, fallbackText, blocks);
+
+    // Mark as processed
+    await prisma.slackNotificationBatch.updateMany({
+      where: { id: { in: group.batchIds } },
+      data: { processed: true, processed_at: new Date() },
+    });
+
+    if (result.ok) {
+      processedCount += group.batchIds.length;
+    }
+  }
+
+  return processedCount;
 }
