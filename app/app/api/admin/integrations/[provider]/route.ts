@@ -4,17 +4,28 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 
-const VALID_PROVIDERS = ['sendgrid', 'quickbooks', 'claude'] as const;
+const VALID_PROVIDERS = ['sendgrid', 'quickbooks', 'claude', 'slack'] as const;
 
 interface IntegrationConfig {
   apiKey?: string;
   fromEmail?: string;
+  botToken?: string;
+  signingSecret?: string;
   [key: string]: unknown;
 }
 
 const sendGridConfigSchema = z.object({
   apiKey: z.string().min(1, 'API key is required').optional(),
   fromEmail: z.string().email('Invalid email address'),
+});
+
+const slackConfigSchema = z.object({
+  botToken: z.string().min(1, 'Bot token is required').optional(),
+  signingSecret: z.string().min(1, 'Signing secret is required').optional(),
+  appId: z.string().optional(),
+  teamId: z.string().optional(),
+  teamName: z.string().optional(),
+  setupComplete: z.boolean().optional(),
 });
 
 function maskApiKey(key: string | undefined): string | undefined {
@@ -27,6 +38,12 @@ function maskConfig(config: IntegrationConfig): IntegrationConfig {
   const masked = { ...config };
   if (masked.apiKey) {
     masked.apiKey = maskApiKey(masked.apiKey);
+  }
+  if (masked.botToken) {
+    masked.botToken = maskApiKey(masked.botToken);
+  }
+  if (masked.signingSecret) {
+    masked.signingSecret = maskApiKey(masked.signingSecret);
   }
   return masked;
 }
@@ -85,6 +102,8 @@ export async function PUT(
     let validatedConfig: IntegrationConfig;
     if (provider === 'sendgrid') {
       validatedConfig = sendGridConfigSchema.parse(body.config);
+    } else if (provider === 'slack') {
+      validatedConfig = slackConfigSchema.parse(body.config);
     } else {
       // Other providers not yet implemented
       throw new ApiError('Provider not yet supported', 400);
@@ -95,19 +114,31 @@ export async function PUT(
       where: { provider },
     });
 
-    // Merge with existing config (keep existing apiKey if not provided)
+    // Merge with existing config (keep existing secrets if not provided)
     let finalConfig = validatedConfig;
-    if (existing && !validatedConfig.apiKey) {
+    if (existing) {
       const existingConfig = existing.config as IntegrationConfig;
-      finalConfig = {
-        ...validatedConfig,
-        apiKey: existingConfig.apiKey,
-      };
+
+      if (provider === 'sendgrid' && !validatedConfig.apiKey) {
+        finalConfig = { ...validatedConfig, apiKey: existingConfig.apiKey };
+      } else if (provider === 'slack') {
+        if (!validatedConfig.botToken) {
+          finalConfig.botToken = existingConfig.botToken;
+        }
+        if (!validatedConfig.signingSecret) {
+          finalConfig.signingSecret = existingConfig.signingSecret;
+        }
+      }
     }
 
-    // Require apiKey for new integrations
-    if (!existing && !finalConfig.apiKey) {
-      throw new ApiError('API key is required', 400);
+    // Require secrets for new integrations
+    if (!existing) {
+      if (provider === 'sendgrid' && !finalConfig.apiKey) {
+        throw new ApiError('API key is required', 400);
+      }
+      if (provider === 'slack' && (!finalConfig.botToken || !finalConfig.signingSecret)) {
+        throw new ApiError('Bot token and signing secret are required', 400);
+      }
     }
 
     // Upsert the integration

@@ -7,17 +7,6 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock('@/lib/hooks/use-sites', () => ({
-  useSites: () => ({
-    data: { sites: [], total: 0, totalPages: 1 },
-    isLoading: false,
-    error: null,
-  }),
-  useUpdateSite: () => ({
-    mutate: vi.fn(),
-  }),
-}));
-
 vi.mock('@/lib/hooks/use-terminology', () => ({
   useTerminology: () => ({
     t: (key: string) => {
@@ -64,7 +53,7 @@ vi.mock('@/lib/hooks/use-reference-data', () => ({
   }),
 }));
 
-vi.mock('@/lib/hooks/use-sites', async (importOriginal) => {
+vi.mock('@/lib/hooks/use-sites', async () => {
   return {
     useSites: () => ({
       data: { sites: [], total: 0, totalPages: 1 },
@@ -73,6 +62,13 @@ vi.mock('@/lib/hooks/use-sites', async (importOriginal) => {
     }),
     useUpdateSite: () => ({
       mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+      isPending: false,
+    }),
+    useDeleteSite: () => ({
+      mutate: vi.fn(),
+      mutateAsync: vi.fn(),
+      isPending: false,
     }),
     useCreateSite: () => ({
       mutate: vi.fn(),

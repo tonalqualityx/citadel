@@ -217,34 +217,45 @@ export default function GuildPage() {
           </div>
         </SettingsCard>
 
-        {/* Notification Bundling */}
+        {/* Notification Preferences */}
         <SettingsCard
           icon={Bell}
-          title="Notification Bundling"
-          description="Group similar notifications to reduce overwhelm."
+          title="Notification Preferences"
+          description="Configure how you receive notifications across different channels."
         >
-          <label className="flex items-center gap-3 cursor-pointer">
-            <div className="relative">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={preferences?.notification_bundle ?? true}
-                onChange={(e) =>
-                  updatePreferences.mutate({ notification_bundle: e.target.checked })
-                }
-              />
-              <div className="w-11 h-6 bg-background-light rounded-full peer peer-checked:bg-primary transition-colors" />
-              <div className="absolute left-1 top-1 w-4 h-4 bg-surface rounded-full shadow transition-transform peer-checked:translate-x-5" />
-            </div>
-            <span className="text-sm text-text-main">
-              {preferences?.notification_bundle
-                ? 'Bundling enabled'
-                : 'Bundling disabled'}
-            </span>
-          </label>
-          <p className="mt-2 text-xs text-text-sub">
-            When enabled, similar notifications within 30 minutes are grouped together.
-          </p>
+          <div className="space-y-4">
+            {/* Bundling toggle */}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={preferences?.notification_bundle ?? true}
+                  onChange={(e) =>
+                    updatePreferences.mutate({ notification_bundle: e.target.checked })
+                  }
+                />
+                <div className="w-11 h-6 bg-background-light rounded-full peer peer-checked:bg-primary transition-colors" />
+                <div className="absolute left-1 top-1 w-4 h-4 bg-surface rounded-full shadow transition-transform peer-checked:translate-x-5" />
+              </div>
+              <span className="text-sm text-text-main">
+                {preferences?.notification_bundle
+                  ? 'Bundling enabled'
+                  : 'Bundling disabled'}
+              </span>
+            </label>
+            <p className="text-xs text-text-sub">
+              When enabled, similar notifications within 30 minutes are grouped together.
+            </p>
+
+            {/* Link to full preferences page */}
+            <a
+              href="/settings/notifications"
+              className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 font-medium"
+            >
+              Configure notification channels →
+            </a>
+          </div>
         </SettingsCard>
       </div>
     </div>

@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/modal';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { UserFunctionManager } from '@/components/domain/admin/user-function-manager';
+import { SlackUserMappings } from '@/components/domain/admin/slack-user-mappings';
 import { useAuth } from '@/lib/hooks/use-auth';
 
 const ROLE_OPTIONS = [
@@ -300,6 +301,9 @@ export default function TeamAdminPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Slack User Mappings */}
+      <SlackUserMappings />
 
       {/* Create/Edit Modal */}
       <Modal open={isModalOpen} onOpenChange={setIsModalOpen}>

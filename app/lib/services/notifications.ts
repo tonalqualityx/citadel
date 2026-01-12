@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, NotificationPriority } from '@prisma/client';
+import { dispatchNotification, DispatchOptions } from './notification-dispatcher';
 
 interface CreateNotificationParams {
   userId: string;
@@ -9,10 +10,56 @@ interface CreateNotificationParams {
   entityType?: string;
   entityId?: string;
   bundleKey?: string;
+  priority?: NotificationPriority;
+  metadata?: Record<string, unknown>;
 }
 
+/**
+ * Create a notification and dispatch to enabled channels (in-app, email, Slack).
+ * Uses the multi-channel dispatcher based on user preferences.
+ */
 export async function createNotification(params: CreateNotificationParams) {
-  const { userId, type, title, message, entityType, entityId, bundleKey } = params;
+  const {
+    userId,
+    type,
+    title,
+    message,
+    entityType,
+    entityId,
+    bundleKey,
+    priority,
+    metadata,
+  } = params;
+
+  // Use the dispatcher for multi-channel routing
+  const result = await dispatchNotification({
+    userId,
+    type,
+    title,
+    message,
+    entityType,
+    entityId,
+    bundleKey,
+    priority,
+    metadata,
+  });
+
+  // Return the in-app notification if created
+  if (result.inApp.notificationId) {
+    return prisma.notification.findUnique({
+      where: { id: result.inApp.notificationId },
+    });
+  }
+
+  return null;
+}
+
+/**
+ * Legacy function for in-app only notifications (bypasses multi-channel).
+ * Use createNotification() for normal use.
+ */
+export async function createInAppNotificationOnly(params: CreateNotificationParams) {
+  const { userId, type, title, message, entityType, entityId, bundleKey, priority } = params;
 
   // If bundling, check for existing recent notification with same bundle key
   if (bundleKey) {
@@ -49,6 +96,7 @@ export async function createNotification(params: CreateNotificationParams) {
       entity_type: entityType,
       entity_id: entityId,
       bundle_key: bundleKey,
+      priority: priority || 'normal',
     },
   });
 }

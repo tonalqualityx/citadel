@@ -28,6 +28,9 @@ model User {
   preferences           UserPreference?
   sessions              Session[]
   notifications         Notification[]
+  notification_preferences NotificationPreference[]
+  slack_mapping         SlackUserMapping?
+  email_digest_queue    EmailDigestQueue[]
   projects_created      Project[]              @relation("ProjectCreatedBy")
   team_assignments      ProjectTeamAssignment[]
   user_functions        UserFunction[]
@@ -91,6 +94,9 @@ model Notification {
   entity_type  String?          @db.VarChar(50)
   entity_id    String?          @db.Uuid
 
+  // Priority for routing
+  priority     NotificationPriority @default(normal)
+
   // Status
   is_read      Boolean          @default(false)
   read_at      DateTime?
@@ -98,6 +104,12 @@ model Notification {
   // Bundling
   bundle_key   String?          @db.VarChar(100)
   bundle_count Int              @default(1)
+
+  // Delivery tracking
+  email_sent      Boolean   @default(false)
+  email_sent_at   DateTime?
+  slack_sent      Boolean   @default(false)
+  slack_sent_at   DateTime?
 
   // Metadata
   created_at   DateTime         @default(now())
@@ -107,6 +119,91 @@ model Notification {
   @@index([bundle_key])
   @@index([created_at])
   @@map("notifications")
+}
+
+// User-level notification preferences (matrix of type x channel)
+model NotificationPreference {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  notification_type NotificationType
+
+  // Channel toggles
+  in_app            Boolean          @default(true)
+  email             Boolean          @default(false)
+  slack             Boolean          @default(false)
+
+  // Admin override (if set, user cannot change)
+  admin_override    Boolean          @default(false)
+  overridden_by_id  String?          @db.Uuid
+  overridden_at     DateTime?
+
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+
+  @@unique([user_id, notification_type])
+  @@index([user_id])
+  @@map("notification_preferences")
+}
+
+// Slack user mappings (Citadel User -> Slack User ID)
+model SlackUserMapping {
+  id              String   @id @default(uuid()) @db.Uuid
+  user_id         String   @unique @db.Uuid
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  slack_user_id   String   @db.VarChar(50)  // Slack's user ID (e.g., "U01234ABCDE")
+  slack_team_id   String   @db.VarChar(50)  // Slack workspace ID
+  display_name    String?  @db.VarChar(255) // Cached Slack display name
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([slack_user_id])
+  @@map("slack_user_mappings")
+}
+
+// Slack message thread tracking (for reply sync)
+model SlackMessageThread {
+  id              String   @id @default(uuid()) @db.Uuid
+
+  // What was sent
+  entity_type     String   @db.VarChar(50)  // 'task', 'comment'
+  entity_id       String   @db.Uuid
+
+  // Slack message identifiers
+  slack_channel   String   @db.VarChar(50)  // DM channel ID
+  slack_ts        String   @db.VarChar(50)  // Message timestamp (Slack's message ID)
+  slack_user_id   String   @db.VarChar(50)  // Who received the DM
+
+  created_at      DateTime @default(now())
+
+  @@unique([entity_type, entity_id, slack_user_id])
+  @@index([slack_ts])
+  @@map("slack_message_threads")
+}
+
+// Email digest queue for batching non-critical notifications
+model EmailDigestQueue {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  notification_type NotificationType
+
+  // Content
+  title             String           @db.VarChar(255)
+  message           String?          @db.Text
+  entity_type       String?          @db.VarChar(50)
+  entity_id         String?          @db.Uuid
+
+  // Status
+  processed         Boolean          @default(false)
+  processed_at      DateTime?
+
+  created_at        DateTime         @default(now())
+
+  @@index([user_id])
+  @@index([processed, created_at])
+  @@map("email_digest_queue")
 }
 
 // ============================================
@@ -142,6 +239,13 @@ enum NotificationType {
   comment_added
   retainer_alert
   system_alert
+}
+
+enum NotificationPriority {
+  low       // Digest only
+  normal    // Standard routing
+  high      // Immediate on enabled channels
+  critical  // Force immediate on all enabled channels
 }
 
 enum MaintenanceFrequency {
