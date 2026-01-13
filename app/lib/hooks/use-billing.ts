@@ -34,6 +34,7 @@ export interface ClientUnbilledData {
   isRetainer: boolean;
   retainerHours: number | null;
   usedRetainerHoursThisMonth: number;
+  overageMinutes: number;
   milestones: UnbilledMilestone[];
   tasks: UnbilledTask[];
   totalMilestoneAmount: number;

@@ -35,6 +35,7 @@ interface ClientUnbilledData {
   isRetainer: boolean;
   retainerHours: number | null;
   usedRetainerHoursThisMonth: number;
+  overageMinutes: number; // Minutes over retainer (0 if not retainer or under)
   milestones: UnbilledMilestone[];
   tasks: UnbilledTask[];
   totalMilestoneAmount: number;
@@ -91,12 +92,20 @@ export async function GET(request: NextRequest) {
 
     // Get completed billable tasks that haven't been invoiced
     // Must have billable time entries, task must be billable, and no running timer
+    // Excludes: support tickets, fixed-price project tasks (they bill via milestones)
     const completedTasks = await prisma.task.findMany({
       where: {
         status: 'done',
         invoiced: false,
         is_deleted: false,
         is_billable: true, // Only fetch tasks marked as billable
+        is_support: false, // Exclude support tickets
+        // Exclude tasks from fixed-price projects (they bill via milestones)
+        OR: [
+          { project_id: null }, // Ad-hoc tasks always included
+          { project: { billing_type: { not: 'fixed' } } }, // Non-fixed projects
+          { project: { billing_type: null } }, // Projects without billing type
+        ],
         // Must have at least one billable time entry
         time_entries: {
           some: {
@@ -119,6 +128,7 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             name: true,
+            billing_type: true, // Need for retainer check
             client_id: true,
             client: {
               select: {
@@ -133,6 +143,22 @@ export async function GET(request: NextRequest) {
                     name: true,
                   },
                 },
+              },
+            },
+          },
+        },
+        // Direct client relation for ad-hoc tasks
+        client: {
+          select: {
+            id: true,
+            name: true,
+            hourly_rate: true,
+            retainer_hours: true,
+            parent_agency_id: true,
+            parent_agency: {
+              select: {
+                id: true,
+                name: true,
               },
             },
           },
@@ -166,8 +192,10 @@ export async function GET(request: NextRequest) {
     });
 
     completedTasks.forEach((t) => {
-      if (t.project?.client_id) {
-        clientIds.add(t.project.client_id);
+      // Include client from project or direct client relation (ad-hoc tasks)
+      const clientId = t.project?.client_id || t.client?.id;
+      if (clientId) {
+        clientIds.add(clientId);
       }
     });
 
@@ -238,15 +266,20 @@ export async function GET(request: NextRequest) {
 
       if (!clientDataMap.has(clientId)) {
         const retainerMinutes = retainerUsageByClient.get(clientId) || 0;
+        const retainerHours = client.retainer_hours ? Number(client.retainer_hours) : null;
+        const retainerMinutesLimit = retainerHours ? retainerHours * 60 : 0;
+        const overageMinutes = retainerMinutesLimit > 0 ? Math.max(retainerMinutes - retainerMinutesLimit, 0) : 0;
+
         clientDataMap.set(clientId, {
           clientId: client.id,
           clientName: client.name,
           parentAgencyId: client.parent_agency_id,
           parentAgencyName: client.parent_agency?.name || null,
           hourlyRate: client.hourly_rate ? Number(client.hourly_rate) : null,
-          isRetainer: client.retainer_hours !== null && Number(client.retainer_hours) > 0,
-          retainerHours: client.retainer_hours ? Number(client.retainer_hours) : null,
+          isRetainer: retainerHours !== null && retainerHours > 0,
+          retainerHours,
           usedRetainerHoursThisMonth: Math.round((retainerMinutes / 60) * 100) / 100,
+          overageMinutes,
           milestones: [],
           tasks: [],
           totalMilestoneAmount: 0,
@@ -271,22 +304,28 @@ export async function GET(request: NextRequest) {
 
     // Process tasks
     for (const task of completedTasks) {
-      if (!task.project?.client) continue;
+      // Get client from project or direct client relation (for ad-hoc tasks)
+      const client = task.project?.client || task.client;
+      if (!client) continue;
 
-      const client = task.project.client;
       const clientId = client.id;
 
       if (!clientDataMap.has(clientId)) {
         const retainerMinutes = retainerUsageByClient.get(clientId) || 0;
+        const retainerHours = client.retainer_hours ? Number(client.retainer_hours) : null;
+        const retainerMinutesLimit = retainerHours ? retainerHours * 60 : 0;
+        const overageMinutes = retainerMinutesLimit > 0 ? Math.max(retainerMinutes - retainerMinutesLimit, 0) : 0;
+
         clientDataMap.set(clientId, {
           clientId: client.id,
           clientName: client.name,
           parentAgencyId: client.parent_agency_id,
           parentAgencyName: client.parent_agency?.name || null,
           hourlyRate: client.hourly_rate ? Number(client.hourly_rate) : null,
-          isRetainer: client.retainer_hours !== null && Number(client.retainer_hours) > 0,
-          retainerHours: client.retainer_hours ? Number(client.retainer_hours) : null,
+          isRetainer: retainerHours !== null && retainerHours > 0,
+          retainerHours,
           usedRetainerHoursThisMonth: Math.round((retainerMinutes / 60) * 100) / 100,
+          overageMinutes,
           milestones: [],
           tasks: [],
           totalMilestoneAmount: 0,
@@ -301,9 +340,6 @@ export async function GET(request: NextRequest) {
         (sum, entry) => sum + (entry.duration || 0),
         0
       );
-
-      // Check if task has any billable time
-      const hasBillableTime = task.time_entries.some((e) => e.is_billable);
 
       clientData.tasks.push({
         id: task.id,

@@ -342,7 +342,13 @@ export default function QuestDetailPage() {
             <div className="flex items-center gap-4 mt-1 text-sm flex-wrap">
               {/* Project */}
               <div className="flex items-center gap-1">
-                <FolderKanban className="h-4 w-4 text-text-sub" />
+                {task.project_id ? (
+                  <Link href={`/projects/${task.project_id}`} className="text-text-sub hover:text-primary">
+                    <FolderKanban className="h-4 w-4" />
+                  </Link>
+                ) : (
+                  <FolderKanban className="h-4 w-4 text-text-sub" />
+                )}
                 <ProjectSelect
                   value={task.project_id || null}
                   onChange={handleProjectChange}
@@ -353,7 +359,13 @@ export default function QuestDetailPage() {
 
               {/* Client */}
               <div className="flex items-center gap-1">
-                <Building2 className="h-4 w-4 text-text-sub" />
+                {task.client ? (
+                  <Link href={`/clients/${task.client.id}`} className="text-text-sub hover:text-primary">
+                    <Building2 className="h-4 w-4" />
+                  </Link>
+                ) : (
+                  <Building2 className="h-4 w-4 text-text-sub" />
+                )}
                 {task.project_id ? (
                   task.client ? (
                     <Link
@@ -377,7 +389,13 @@ export default function QuestDetailPage() {
 
               {/* Site */}
               <div className="flex items-center gap-1">
-                <Globe className="h-4 w-4 text-text-sub" />
+                {task.site ? (
+                  <Link href={`/sites/${task.site.id}`} className="text-text-sub hover:text-primary">
+                    <Globe className="h-4 w-4" />
+                  </Link>
+                ) : (
+                  <Globe className="h-4 w-4 text-text-sub" />
+                )}
                 {task.project_id ? (
                   task.site ? (
                     <Link

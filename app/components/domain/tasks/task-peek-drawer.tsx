@@ -233,10 +233,16 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
           ) : task ? (
             <div className="space-y-5">
               {/* Context: Project, Client, Site - editable fields */}
-              <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-4 text-sm flex-wrap">
                 {/* Project */}
-                <div className="flex items-center gap-2">
-                  <FolderKanban className="h-4 w-4 text-text-sub flex-shrink-0" />
+                <div className="flex items-center gap-1">
+                  {task.project_id ? (
+                    <Link href={`/projects/${task.project_id}`} className="text-text-sub hover:text-primary">
+                      <FolderKanban className="h-4 w-4" />
+                    </Link>
+                  ) : (
+                    <FolderKanban className="h-4 w-4 text-text-sub" />
+                  )}
                   <ProjectSelect
                     value={task.project_id || null}
                     onChange={handleProjectChange}
@@ -246,23 +252,26 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 </div>
 
                 {/* Client */}
-                <div className="flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-text-sub flex-shrink-0" />
+                <div className="flex items-center gap-1">
+                  {task.client ? (
+                    <Link href={`/clients/${task.client.id}`} className="text-text-sub hover:text-primary">
+                      <Building2 className="h-4 w-4" />
+                    </Link>
+                  ) : (
+                    <Building2 className="h-4 w-4 text-text-sub" />
+                  )}
                   {task.project_id ? (
-                    // When task has project, show client as link (from project)
                     task.client ? (
                       <Link
                         href={`/clients/${task.client.id}`}
                         className="text-text-sub hover:text-primary"
                       >
                         {task.client.name}
-                        <span className="text-xs ml-1 opacity-60">(from project)</span>
                       </Link>
                     ) : (
                       <span className="text-text-sub italic">No client</span>
                     )
                   ) : (
-                    // When ad-hoc, allow editing client
                     <ClientSelect
                       value={task.client_id || null}
                       onChange={(client_id) => saveImmediate({ client_id })}
@@ -273,23 +282,26 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                 </div>
 
                 {/* Site */}
-                <div className="flex items-center gap-2">
-                  <Globe className="h-4 w-4 text-text-sub flex-shrink-0" />
+                <div className="flex items-center gap-1">
+                  {task.site ? (
+                    <Link href={`/sites/${task.site.id}`} className="text-text-sub hover:text-primary">
+                      <Globe className="h-4 w-4" />
+                    </Link>
+                  ) : (
+                    <Globe className="h-4 w-4 text-text-sub" />
+                  )}
                   {task.project_id ? (
-                    // When task has project, show site as link (from project)
                     task.site ? (
                       <Link
                         href={`/sites/${task.site.id}`}
                         className="text-text-sub hover:text-primary"
                       >
                         {task.site.name}
-                        <span className="text-xs ml-1 opacity-60">(from project)</span>
                       </Link>
                     ) : (
                       <span className="text-text-sub italic">No site</span>
                     )
                   ) : (
-                    // When ad-hoc, allow editing site
                     <SiteSelect
                       value={task.site_id || null}
                       onChange={(site_id) => saveImmediate({ site_id })}
