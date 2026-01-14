@@ -18,10 +18,13 @@ interface UnbilledTask {
   title: string;
   time_spent_minutes: number;
   estimated_minutes: number | null;
+  energy_estimate: number | null;
+  mystery_factor: string | null;
   project_id: string | null;
   project_name: string | null;
   is_billable: boolean;
   billing_target: number | null;
+  billing_amount: number | null;
   is_retainer_work: boolean;
   completed_at: string | null;
 }
@@ -341,15 +344,34 @@ export async function GET(request: NextRequest) {
         0
       );
 
+      // Check if task has a fixed billing amount
+      const hasBillingAmount = task.billing_amount && Number(task.billing_amount) > 0;
+
+      // Retainer filtering logic:
+      // - Tasks with billing_amount ALWAYS show (fixed fee takes precedence)
+      // - Retainer work for retainer clients within their limit should be HIDDEN
+      if (!hasBillingAmount && task.is_retainer_work && clientData.isRetainer) {
+        const retainerMinutesLimit = (clientData.retainerHours || 0) * 60;
+        const currentUsage = retainerUsageByClient.get(clientId) || 0;
+
+        // If client is within retainer limit, skip this task (covered by retainer)
+        if (currentUsage <= retainerMinutesLimit) {
+          continue;
+        }
+      }
+
       clientData.tasks.push({
         id: task.id,
         title: task.title,
         time_spent_minutes: timeSpentMinutes,
         estimated_minutes: task.estimated_minutes,
+        energy_estimate: task.energy_estimate,
+        mystery_factor: task.mystery_factor,
         project_id: task.project?.id || null,
         project_name: task.project?.name || null,
         is_billable: task.is_billable,
         billing_target: task.billing_target ? Number(task.billing_target) : null,
+        billing_amount: task.billing_amount ? Number(task.billing_amount) : null,
         is_retainer_work: task.is_retainer_work,
         completed_at: task.completed_at?.toISOString() || null,
       });

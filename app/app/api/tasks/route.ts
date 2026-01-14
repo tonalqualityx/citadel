@@ -34,6 +34,7 @@ const createTaskSchema = z.object({
   // Billing fields
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
+  billing_amount: z.number().min(0).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
   is_support: z.boolean().optional(),
 });
@@ -353,6 +354,7 @@ export async function POST(request: NextRequest) {
         // Billing fields - auto-suggest retainer work for retainer clients/projects
         is_billable: data.is_billable ?? true,
         billing_target: data.billing_target,
+        billing_amount: data.billing_amount,
         is_retainer_work: data.is_retainer_work ?? isRetainerProject,
         is_support: data.is_support ?? false,
         created_by_id: auth.userId,

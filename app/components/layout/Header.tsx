@@ -13,6 +13,7 @@ import { NotificationBell } from '@/components/domain/notifications';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useConsoleCapture } from '@/lib/hooks/use-console-capture';
 import { Avatar } from '@/components/ui/avatar';
+import { apiClient } from '@/lib/api/client';
 
 export function Header() {
   const router = useRouter();
@@ -26,6 +27,8 @@ export function Header() {
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
+    // Clear token expiry tracking
+    apiClient.markLoggedOut();
     // Clear all cached data to prevent stale user info on next login
     queryClient.clear();
     router.push('/login');

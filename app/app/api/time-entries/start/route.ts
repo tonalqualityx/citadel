@@ -91,6 +91,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Auto-assign task to current user if unassigned
+    await prisma.task.updateMany({
+      where: {
+        id: task_id,
+        assignee_id: null,
+      },
+      data: {
+        assignee_id: auth.userId,
+      },
+    });
+
     return NextResponse.json({ timer });
   } catch (error) {
     return handleApiError(error);

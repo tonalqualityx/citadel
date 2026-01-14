@@ -8,6 +8,7 @@ import { ChevronRight, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { apiClient } from '@/lib/api/client';
 
 interface NavItem {
   name: string;
@@ -140,6 +141,7 @@ export function Sidebar() {
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
+    apiClient.markLoggedOut();
     router.push('/login');
     router.refresh();
   }

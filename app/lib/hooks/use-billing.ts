@@ -17,10 +17,13 @@ export interface UnbilledTask {
   title: string;
   time_spent_minutes: number;
   estimated_minutes: number | null;
+  energy_estimate: number | null;
+  mystery_factor: string | null;
   project_id: string | null;
   project_name: string | null;
   is_billable: boolean;
   billing_target: number | null;
+  billing_amount: number | null;
   is_retainer_work: boolean;
   completed_at: string | null;
 }

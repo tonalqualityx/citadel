@@ -365,6 +365,7 @@ export function formatTaskResponse(task: any) {
     // Billing
     is_billable: task.is_billable ?? true,
     billing_target: task.billing_target ? Number(task.billing_target) : null,
+    billing_amount: task.billing_amount ? Number(task.billing_amount) : null,
     is_retainer_work: task.is_retainer_work ?? false,
     is_support: task.is_support ?? false,
     invoiced: task.invoiced ?? false,

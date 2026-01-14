@@ -24,10 +24,14 @@ export function useAuth() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['auth', 'me'],
     queryFn: async (): Promise<AuthResponse> => {
-      return apiClient.get<AuthResponse>('/auth/me');
+      const response = await apiClient.get<AuthResponse>('/auth/me');
+      // Mark token expiry on successful auth check
+      apiClient.markLoggedIn();
+      return response;
     },
     staleTime: 5 * 60 * 1000, // Consider fresh for 5 minutes
     retry: false,
+    refetchOnWindowFocus: false, // Prevent logout issues when returning to tab
   });
 
   return {

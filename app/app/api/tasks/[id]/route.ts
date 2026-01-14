@@ -61,6 +61,7 @@ const updateTaskSchema = z.object({
   // Billing fields (PM/Admin only)
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
+  billing_amount: z.number().min(0).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
   is_support: z.boolean().optional(),
   // Time tracking
@@ -405,6 +406,7 @@ export async function PATCH(
     if (auth.role !== 'tech') {
       if (data.is_billable !== undefined) updateData.is_billable = data.is_billable;
       if (data.billing_target !== undefined) updateData.billing_target = data.billing_target;
+      if (data.billing_amount !== undefined) updateData.billing_amount = data.billing_amount;
       if (data.is_retainer_work !== undefined) updateData.is_retainer_work = data.is_retainer_work;
       if (data.is_support !== undefined) updateData.is_support = data.is_support;
     }

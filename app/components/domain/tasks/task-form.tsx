@@ -41,6 +41,7 @@ const taskSchema = z.object({
   // Billing fields (PM/Admin only - API enforces role restriction)
   is_billable: z.boolean(),
   billing_target: z.string().optional(), // String for input, convert to number
+  billing_amount: z.string().optional(), // String for input, convert to number
   is_retainer_work: z.boolean(),
 });
 
@@ -99,6 +100,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
       // Billing fields
       is_billable: task?.is_billable ?? true,
       billing_target: task?.billing_target?.toString() || '',
+      billing_amount: task?.billing_amount?.toString() || '',
       is_retainer_work: task?.is_retainer_work ?? false,
     },
   });
@@ -165,6 +167,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
         // Billing fields (API enforces PM/Admin-only restriction)
         is_billable: data.is_billable,
         billing_target: data.billing_target ? parseInt(data.billing_target) : null,
+        billing_amount: data.billing_amount ? parseFloat(data.billing_amount) : null,
         is_retainer_work: data.is_retainer_work,
       };
 
@@ -410,6 +413,20 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
                 {...register('billing_target')}
                 placeholder="No cap"
               />
+            </div>
+
+            <div>
+              <Input
+                label="Fixed Billing Amount ($)"
+                type="number"
+                min={0}
+                step={0.01}
+                {...register('billing_amount')}
+                placeholder="Use hourly rate"
+              />
+              <p className="text-xs text-text-sub mt-1">
+                If set, bills this amount instead of hourly calculation
+              </p>
             </div>
           </div>
         </div>

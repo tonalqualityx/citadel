@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
+import { apiClient } from '@/lib/api/client';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -35,6 +36,8 @@ export default function LoginPage() {
         throw new Error(data.error || 'Login failed');
       }
 
+      // Track token expiry for proactive refresh
+      apiClient.markLoggedIn();
       // Clear any stale cached data from previous session
       queryClient.clear();
       router.push('/dashboard');

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { taskKeys, TaskFilters, projectKeys } from '@/lib/api/query-keys';
 import { showToast } from '@/lib/hooks/use-toast';
+import { useTimer } from '@/lib/contexts/timer-context';
 
 export interface Task {
   id: string;
@@ -58,6 +59,7 @@ export interface Task {
   // Billing
   is_billable: boolean;
   billing_target: number | null;
+  billing_amount: number | null;
   is_retainer_work: boolean;
   is_support: boolean;
   invoiced: boolean;
@@ -167,11 +169,17 @@ export function useCreateTask() {
 
 export function useUpdateTask() {
   const queryClient = useQueryClient();
+  const { taskId: timerTaskId, stopTimer, isRunning } = useTimer();
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateTaskInput }) =>
       apiClient.patch<Task>(`/tasks/${id}`, data),
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      // Auto-stop timer if task is marked as done and timer is running on this task
+      if (variables.data.status === 'done' && isRunning && timerTaskId === variables.id) {
+        stopTimer();
+      }
+
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.setQueryData(taskKeys.detail(data.id), data);
@@ -190,6 +198,7 @@ export function useUpdateTask() {
  */
 export function useUpdateTaskInProject(projectId: string) {
   const queryClient = useQueryClient();
+  const { taskId: timerTaskId, stopTimer, isRunning } = useTimer();
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateTaskInput }) =>
@@ -220,7 +229,12 @@ export function useUpdateTaskInProject(projectId: string) {
         queryClient.setQueryData(projectKeys.detail(projectId), context.previousProject);
       }
     },
-    onSettled: () => {
+    onSettled: (data, error, variables) => {
+      // Auto-stop timer if task is marked as done and timer is running on this task
+      if (variables.data.status === 'done' && isRunning && timerTaskId === variables.id) {
+        stopTimer();
+      }
+
       // Always refetch after error or success to ensure cache is in sync
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
@@ -230,11 +244,17 @@ export function useUpdateTaskInProject(projectId: string) {
 
 export function useUpdateTaskStatus() {
   const queryClient = useQueryClient();
+  const { taskId: timerTaskId, stopTimer, isRunning } = useTimer();
 
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       apiClient.patch<Task>(`/tasks/${id}`, { status }),
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      // Auto-stop timer if task is marked as done and timer is running on this task
+      if (variables.status === 'done' && isRunning && timerTaskId === variables.id) {
+        stopTimer();
+      }
+
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
       queryClient.setQueryData(taskKeys.detail(data.id), data);
       if (data.project_id) {

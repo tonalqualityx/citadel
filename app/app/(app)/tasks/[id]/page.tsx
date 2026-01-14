@@ -23,6 +23,7 @@ import {
   Battery,
   Play,
   Square,
+  DollarSign,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -34,6 +35,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import {
   TaskStatusInlineSelect,
   PriorityInlineSelect,
@@ -721,6 +724,77 @@ export default function QuestDetailPage() {
 
           {/* Comments */}
           <CommentSection taskId={taskId} defaultExpanded={true} />
+
+          {/* Billing - PM/Admin only */}
+          {isPmOrAdmin && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Billing
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="is_billable"
+                      checked={task.is_billable}
+                      onCheckedChange={(checked) => saveImmediate({ is_billable: !!checked })}
+                    />
+                    <label htmlFor="is_billable" className="text-sm text-text-main cursor-pointer">
+                      Billable
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="is_retainer_work"
+                      checked={task.is_retainer_work}
+                      onCheckedChange={(checked) => saveImmediate({ is_retainer_work: !!checked })}
+                    />
+                    <label htmlFor="is_retainer_work" className="text-sm text-text-main cursor-pointer">
+                      Retainer Work
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="text-sm text-text-sub block mb-1">Billing Cap (minutes)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={task.billing_target ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value ? parseInt(e.target.value) : null;
+                        saveImmediate({ billing_target: value });
+                      }}
+                      placeholder="No cap"
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm text-text-sub block mb-1">Fixed Billing Amount ($)</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={task.billing_amount ?? ''}
+                      onChange={(e) => {
+                        const value = e.target.value ? parseFloat(e.target.value) : null;
+                        saveImmediate({ billing_amount: value });
+                      }}
+                      placeholder="Use hourly rate"
+                      className="w-full"
+                    />
+                    <p className="text-xs text-text-sub mt-1">
+                      If set, bills this amount instead of hourly calculation
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Details */}
           <Card>

@@ -798,6 +798,7 @@ model Task {
   billing_target    Decimal?      @db.Decimal(10, 2)
   is_retainer_work  Boolean       @default(false)
   is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
+  billing_amount    Decimal?      @db.Decimal(10, 2)  // Fixed dollar amount (overrides hourly calc)
 
   // Time tracking
   no_time_needed    Boolean       @default(false) // Task completed without time tracking

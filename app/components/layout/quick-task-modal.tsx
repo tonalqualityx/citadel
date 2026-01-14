@@ -13,6 +13,7 @@ import { useSites } from '@/lib/hooks/use-sites';
 import { useSops } from '@/lib/hooks/use-sops';
 import { useUsers } from '@/lib/hooks/use-users';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
@@ -43,6 +44,7 @@ const quickTaskSchema = z.object({
   energy_estimate: z.string().optional(),
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']),
+  billing_amount: z.string().optional(),
 }).refine(
   (data) => !data.site_id || data.task_type,
   { message: 'Task type is required when a site is selected', path: ['task_type'] }
@@ -53,6 +55,8 @@ type QuickTaskFormData = z.infer<typeof quickTaskSchema>;
 export function QuickTaskModal() {
   const router = useRouter();
   const { t } = useTerminology();
+  const { user } = useAuth();
+  const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
   const [open, setOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const createTask = useCreateTask();
@@ -85,6 +89,7 @@ export function QuickTaskModal() {
       energy_estimate: '',
       mystery_factor: 'none',
       battery_impact: 'average_drain',
+      billing_amount: '',
     },
   });
 
@@ -230,6 +235,7 @@ export function QuickTaskModal() {
         battery_impact: data.battery_impact,
         status: 'not_started' as const,
         is_support: data.task_type === 'support',
+        billing_amount: data.billing_amount ? parseFloat(data.billing_amount) : null,
       };
 
       const task = await createTask.mutateAsync(payload);
@@ -416,6 +422,26 @@ export function QuickTaskModal() {
                 />
               </div>
             </div>
+
+            {/* Billing - PM/Admin only */}
+            {isPmOrAdmin && (
+              <div className="pt-4 border-t border-border">
+                <h4 className="text-sm font-medium text-text-sub mb-3">Billing</h4>
+                <div className="max-w-xs">
+                  <Input
+                    label="Fixed Billing Amount ($)"
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    {...register('billing_amount')}
+                    placeholder="Use hourly rate"
+                  />
+                  <p className="text-xs text-text-sub mt-1">
+                    If set, bills this amount instead of hourly calculation
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Buttons */}
             <div className="flex justify-end gap-3 pt-4 border-t border-border">

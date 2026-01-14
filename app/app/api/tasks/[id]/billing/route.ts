@@ -8,6 +8,7 @@ import { formatTaskResponse } from '@/lib/api/formatters';
 const updateBillingSchema = z.object({
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
+  billing_amount: z.number().min(0).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
   invoiced: z.boolean().optional(),
 });
@@ -43,6 +44,10 @@ export async function PATCH(
 
     if (data.billing_target !== undefined) {
       updateData.billing_target = data.billing_target;
+    }
+
+    if (data.billing_amount !== undefined) {
+      updateData.billing_amount = data.billing_amount;
     }
 
     if (data.is_retainer_work !== undefined) {

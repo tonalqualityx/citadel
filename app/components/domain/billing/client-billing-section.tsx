@@ -11,12 +11,17 @@ import { MilestoneTable } from './milestone-table';
 import { TaskBillingTable } from './task-billing-table';
 import { RetainerSummary } from './retainer-summary';
 import { minutesToDecimalHours } from '@/lib/utils/time';
+import {
+  type EstimateType,
+  calculateBillingAmount,
+  formatCurrency,
+} from '@/lib/calculations/billing';
 
 interface ClientBillingSectionProps {
   clientData: ClientUnbilledData;
 }
 
-function formatCurrency(amount: number): string {
+function formatCurrencyDisplay(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -29,6 +34,7 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
   const [isOpen, setIsOpen] = React.useState(true);
   const [selectedMilestones, setSelectedMilestones] = React.useState<Set<string>>(new Set());
   const [selectedTasks, setSelectedTasks] = React.useState<Set<string>>(new Set());
+  const [estimateTypes, setEstimateTypes] = React.useState<Record<string, EstimateType>>({});
 
   const batchInvoiceMutation = useBatchInvoice();
 
@@ -38,9 +44,22 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
 
   // Calculate totals for display
   const taskHours = minutesToDecimalHours(clientData.totalTaskMinutes);
-  const estimatedTaskValue = clientData.hourlyRate
-    ? clientData.totalTaskMinutes / 60 * clientData.hourlyRate
-    : null;
+
+  // Calculate total task amount based on estimate types
+  const totalTaskAmount = React.useMemo(() => {
+    return clientData.tasks.reduce((sum, task) => {
+      const estimateType = estimateTypes[task.id] || 'mid';
+      const amount = calculateBillingAmount(task, clientData.hourlyRate, estimateType);
+      return sum + (amount || 0);
+    }, 0);
+  }, [clientData.tasks, clientData.hourlyRate, estimateTypes]);
+
+  const handleEstimateTypeChange = React.useCallback((taskId: string, type: EstimateType) => {
+    setEstimateTypes((prev) => ({
+      ...prev,
+      [taskId]: type,
+    }));
+  }, []);
 
   const handleSelectAllMilestones = (checked: boolean) => {
     if (checked) {
@@ -138,7 +157,7 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
                 )}
                 {clientData.hourlyRate && (
                   <span className="text-xs text-text-sub">
-                    {formatCurrency(clientData.hourlyRate)}/hr
+                    {formatCurrencyDisplay(clientData.hourlyRate)}/hr
                   </span>
                 )}
               </div>
@@ -217,9 +236,12 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
               </h4>
               <TaskBillingTable
                 tasks={clientData.tasks}
+                hourlyRate={clientData.hourlyRate}
                 selectedIds={selectedTasks}
                 onSelectAll={handleSelectAllTasks}
                 onSelectOne={handleSelectTask}
+                estimateTypes={estimateTypes}
+                onEstimateTypeChange={handleEstimateTypeChange}
               />
             </div>
           )}
@@ -230,20 +252,26 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
               <span className="font-medium text-text-main">Totals:</span>
               {hasMilestones && (
                 <span className="ml-4">
-                  Milestones: {formatCurrency(clientData.totalMilestoneAmount)}
+                  Milestones: {formatCurrencyDisplay(clientData.totalMilestoneAmount)}
                 </span>
               )}
               {hasTasks && (
                 <span className="ml-4">
                   Tasks: {taskHours} hrs
-                  {estimatedTaskValue && (
-                    <span className="text-text-sub ml-1">
-                      (~{formatCurrency(estimatedTaskValue)})
+                  {totalTaskAmount > 0 && (
+                    <span className="font-medium text-text-main ml-1">
+                      ({formatCurrency(totalTaskAmount)})
                     </span>
                   )}
                 </span>
               )}
             </div>
+            {/* Grand total */}
+            {(hasMilestones || hasTasks) && (
+              <div className="text-sm font-medium text-text-main">
+                Total: {formatCurrency(clientData.totalMilestoneAmount + totalTaskAmount)}
+              </div>
+            )}
           </div>
         </div>
       )}
