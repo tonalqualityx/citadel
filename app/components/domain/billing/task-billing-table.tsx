@@ -7,6 +7,7 @@ import { type UnbilledTask, useMarkTaskInvoiced, useUpdateTaskBilling } from '@/
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { formatDurationMinutes } from '@/lib/utils/time';
 import {
   type EstimateType,
@@ -22,6 +23,7 @@ interface TaskBillingTableProps {
   onSelectOne: (id: string, checked: boolean) => void;
   estimateTypes: Record<string, EstimateType>;
   onEstimateTypeChange: (taskId: string, type: EstimateType) => void;
+  isRetainer?: boolean;
 }
 
 function formatDate(dateString: string | null): string {
@@ -48,6 +50,7 @@ export function TaskBillingTable({
   onSelectOne,
   estimateTypes,
   onEstimateTypeChange,
+  isRetainer = false,
 }: TaskBillingTableProps) {
   const markInvoicedMutation = useMarkTaskInvoiced();
   const updateBillingMutation = useUpdateTaskBilling();
@@ -72,6 +75,13 @@ export function TaskBillingTable({
     await updateBillingMutation.mutateAsync({
       taskId,
       data: { is_retainer_work: !currentlyRetainer },
+    });
+  };
+
+  const handleToggleWaiveOverage = async (taskId: string, currentlyWaived: boolean) => {
+    await updateBillingMutation.mutateAsync({
+      taskId,
+      data: { waive_overage: !currentlyWaived },
     });
   };
 
@@ -116,6 +126,14 @@ export function TaskBillingTable({
             <th className="px-3 py-2 text-center text-xs font-medium text-text-sub uppercase tracking-wider w-20">
               Billable
             </th>
+            <th className="px-3 py-2 text-center text-xs font-medium text-text-sub uppercase tracking-wider w-28">
+              Overage
+            </th>
+            {isRetainer && (
+              <th className="px-3 py-2 text-center text-xs font-medium text-text-sub uppercase tracking-wider w-20">
+                Waive
+              </th>
+            )}
             <th className="px-3 py-2 text-right text-xs font-medium text-text-sub uppercase tracking-wider w-32">
               Action
             </th>
@@ -213,6 +231,26 @@ export function TaskBillingTable({
                     disabled={updateBillingMutation.isPending}
                   />
                 </td>
+                <td className="px-3 py-2 text-center">
+                  {task.is_overage_task ? (
+                    <Badge variant="warning" size="sm">
+                      {formatDurationMinutes(task.overage_minutes)} overage
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-text-sub">Covered</span>
+                  )}
+                </td>
+                {isRetainer && (
+                  <td className="px-3 py-2 text-center">
+                    {task.is_overage_task && (
+                      <Checkbox
+                        checked={task.waive_overage}
+                        onCheckedChange={() => handleToggleWaiveOverage(task.id, task.waive_overage)}
+                        disabled={updateBillingMutation.isPending}
+                      />
+                    )}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-right">
                   <Button
                     variant="ghost"

@@ -27,6 +27,9 @@ interface UnbilledTask {
   billing_amount: number | null;
   is_retainer_work: boolean;
   completed_at: string | null;
+  is_overage_task: boolean;     // True if task exceeds retainer
+  overage_minutes: number;      // Minutes of this task that are overage
+  waive_overage: boolean;       // From database field
 }
 
 interface ClientUnbilledData {
@@ -39,6 +42,8 @@ interface ClientUnbilledData {
   retainerHours: number | null;
   usedRetainerHoursThisMonth: number;
   overageMinutes: number; // Minutes over retainer (0 if not retainer or under)
+  retainerCoveredMinutes: number;   // Total minutes covered by retainer
+  billableOverageMinutes: number;   // Overage minutes that are NOT waived
   milestones: UnbilledMilestone[];
   tasks: UnbilledTask[];
   totalMilestoneAmount: number;
@@ -56,8 +61,10 @@ interface UnbilledResponse {
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('[unbilled] Starting request...');
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
+    console.log('[unbilled] Auth passed, fetching data...');
 
     // Get triggered milestones (billing_status = 'triggered')
     const triggeredMilestones = await prisma.milestone.findMany({
@@ -128,42 +135,17 @@ export async function GET(request: NextRequest) {
       },
       include: {
         project: {
-          select: {
-            id: true,
-            name: true,
-            billing_type: true, // Need for retainer check
-            client_id: true,
+          include: {
             client: {
-              select: {
-                id: true,
-                name: true,
-                hourly_rate: true,
-                retainer_hours: true,
-                parent_agency_id: true,
-                parent_agency: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
+              include: {
+                parent_agency: true,
               },
             },
           },
         },
-        // Direct client relation for ad-hoc tasks
         client: {
-          select: {
-            id: true,
-            name: true,
-            hourly_rate: true,
-            retainer_hours: true,
-            parent_agency_id: true,
-            parent_agency: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
+          include: {
+            parent_agency: true,
           },
         },
         time_entries: {
@@ -208,8 +190,8 @@ export async function GET(request: NextRequest) {
     if (clientIds.size > 0) {
       const clientIdArray = Array.from(clientIds);
 
-      // Get billable time entries for this month for retainer clients
-      const retainerTimeEntries = await prisma.timeEntry.groupBy({
+      // Get billable time entries for this month - from projects
+      const projectTimeEntries = await prisma.timeEntry.groupBy({
         by: ['project_id'],
         where: {
           project: {
@@ -230,7 +212,7 @@ export async function GET(request: NextRequest) {
       // Get project to client mapping
       const projectClientMap = await prisma.project.findMany({
         where: {
-          id: { in: retainerTimeEntries.map((e) => e.project_id).filter(Boolean) as string[] },
+          id: { in: projectTimeEntries.map((e) => e.project_id).filter(Boolean) as string[] },
         },
         select: {
           id: true,
@@ -245,8 +227,8 @@ export async function GET(request: NextRequest) {
         }
       });
 
-      // Sum up by client
-      retainerTimeEntries.forEach((entry) => {
+      // Sum up project-based entries by client
+      projectTimeEntries.forEach((entry) => {
         if (entry.project_id) {
           const clientId = projectToClient.get(entry.project_id);
           if (clientId) {
@@ -255,6 +237,45 @@ export async function GET(request: NextRequest) {
           }
         }
       });
+
+      // Also get time entries from ad-hoc tasks (tasks with direct client_id, no project)
+      try {
+        const adHocTimeEntries = await prisma.timeEntry.findMany({
+          where: {
+            project_id: null,
+            task_id: { not: null },
+            task: {
+              client_id: { in: clientIdArray },
+            },
+            is_billable: true,
+            is_deleted: false,
+            started_at: {
+              gte: monthPeriod.start,
+              lte: monthPeriod.end,
+            },
+          },
+          select: {
+            duration: true,
+            task: {
+              select: {
+                client_id: true,
+              },
+            },
+          },
+        });
+
+        // Add ad-hoc task time to client totals
+        adHocTimeEntries.forEach((entry) => {
+          const clientId = entry.task?.client_id;
+          if (clientId) {
+            const currentMinutes = retainerUsageByClient.get(clientId) || 0;
+            retainerUsageByClient.set(clientId, currentMinutes + (entry.duration || 0));
+          }
+        });
+      } catch (adHocError) {
+        console.error('Error fetching ad-hoc time entries:', adHocError);
+        // Continue without ad-hoc entries
+      }
     }
 
     // Group by client
@@ -283,6 +304,8 @@ export async function GET(request: NextRequest) {
           retainerHours,
           usedRetainerHoursThisMonth: Math.round((retainerMinutes / 60) * 100) / 100,
           overageMinutes,
+          retainerCoveredMinutes: 0,   // Will be calculated after tasks are collected
+          billableOverageMinutes: 0,   // Will be calculated after tasks are collected
           milestones: [],
           tasks: [],
           totalMilestoneAmount: 0,
@@ -329,6 +352,8 @@ export async function GET(request: NextRequest) {
           retainerHours,
           usedRetainerHoursThisMonth: Math.round((retainerMinutes / 60) * 100) / 100,
           overageMinutes,
+          retainerCoveredMinutes: 0,   // Will be calculated after tasks are collected
+          billableOverageMinutes: 0,   // Will be calculated after tasks are collected
           milestones: [],
           tasks: [],
           totalMilestoneAmount: 0,
@@ -344,22 +369,9 @@ export async function GET(request: NextRequest) {
         0
       );
 
-      // Check if task has a fixed billing amount
-      const hasBillingAmount = task.billing_amount && Number(task.billing_amount) > 0;
-
-      // Retainer filtering logic:
-      // - Tasks with billing_amount ALWAYS show (fixed fee takes precedence)
-      // - Retainer work for retainer clients within their limit should be HIDDEN
-      if (!hasBillingAmount && task.is_retainer_work && clientData.isRetainer) {
-        const retainerMinutesLimit = (clientData.retainerHours || 0) * 60;
-        const currentUsage = retainerUsageByClient.get(clientId) || 0;
-
-        // If client is within retainer limit, skip this task (covered by retainer)
-        if (currentUsage <= retainerMinutesLimit) {
-          continue;
-        }
-      }
-
+      // Show all tasks - retainer work is shown for tracking purposes
+      // The UI will indicate which tasks are covered by retainer vs billable overage
+      // Initial overage values are set to defaults; they'll be calculated per-client later
       clientData.tasks.push({
         id: task.id,
         title: task.title,
@@ -374,13 +386,98 @@ export async function GET(request: NextRequest) {
         billing_amount: task.billing_amount ? Number(task.billing_amount) : null,
         is_retainer_work: task.is_retainer_work,
         completed_at: task.completed_at?.toISOString() || null,
+        is_overage_task: false,        // Will be calculated for retainer clients
+        overage_minutes: 0,            // Will be calculated for retainer clients
+        waive_overage: task.waive_overage || false,
       });
 
       clientData.totalTaskMinutes += timeSpentMinutes;
     }
 
-    // Convert map to array and calculate summary
-    const byClient = Array.from(clientDataMap.values());
+    // Calculate per-task overage for retainer clients
+    // Sort tasks by completed_at (oldest first, nulls last) and "consume" retainer hours chronologically
+    for (const clientData of clientDataMap.values()) {
+      if (!clientData.isRetainer || !clientData.retainerHours) {
+        // Non-retainer clients: no overage calculation needed
+        // retainerCoveredMinutes and billableOverageMinutes stay at 0
+        continue;
+      }
+
+      const retainerMinutesLimit = clientData.retainerHours * 60;
+      let remainingRetainer = retainerMinutesLimit;
+
+      // Separate retainer tasks from fixed-price tasks
+      // Retainer tasks: explicitly marked OR no billing_amount set
+      // Fixed-price tasks: have billing_amount set
+      const retainerTasks = clientData.tasks.filter(
+        t => t.is_retainer_work || t.billing_amount === null
+      );
+      const fixedPriceTasks = clientData.tasks.filter(
+        t => !t.is_retainer_work && t.billing_amount !== null
+      );
+
+      // Sort retainer tasks: completed_at ascending, nulls last
+      const sortedTasks = [...retainerTasks].sort((a, b) => {
+        if (a.completed_at === null && b.completed_at === null) return 0;
+        if (a.completed_at === null) return 1;
+        if (b.completed_at === null) return -1;
+        return new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime();
+      });
+
+      // Calculate overage for retainer tasks chronologically
+      for (const task of sortedTasks) {
+        if (remainingRetainer >= task.time_spent_minutes) {
+          // Fully covered by retainer
+          task.is_overage_task = false;
+          task.overage_minutes = 0;
+          remainingRetainer -= task.time_spent_minutes;
+        } else if (remainingRetainer > 0) {
+          // Partially covered - spans the retainer limit
+          task.is_overage_task = true;
+          task.overage_minutes = task.time_spent_minutes - remainingRetainer;
+          remainingRetainer = 0;
+        } else {
+          // Fully overage - retainer exhausted
+          task.is_overage_task = true;
+          task.overage_minutes = task.time_spent_minutes;
+        }
+      }
+
+      // Fixed-price tasks are always billable separately (not part of retainer)
+      for (const task of fixedPriceTasks) {
+        task.is_overage_task = false; // Not overage, just separate billing
+        task.overage_minutes = 0; // Billed at fixed amount, not hourly
+      }
+
+      // Update the clientData.tasks with the calculated values
+      // (We mutated the tasks in sortedTasks, but they're references to the same objects)
+
+      // Calculate client-level overage totals
+      clientData.retainerCoveredMinutes = clientData.tasks.reduce(
+        (sum, t) => sum + (t.time_spent_minutes - t.overage_minutes),
+        0
+      );
+      clientData.billableOverageMinutes = clientData.tasks.reduce(
+        (sum, t) => sum + (t.waive_overage ? 0 : t.overage_minutes),
+        0
+      );
+    }
+
+    // Convert map to array
+    const allClients = Array.from(clientDataMap.values());
+
+    // Filter clients based on billability criteria:
+    // - Retainer clients: include only if they have billableOverageMinutes > 0 OR unbilled milestones
+    // - Non-retainer clients: include if they have any unbilled items (milestones or tasks)
+    const byClient = allClients.filter((client) => {
+      if (client.isRetainer) {
+        // Retainer client: must have billable overage OR unbilled milestones
+        return client.billableOverageMinutes > 0 || client.milestones.length > 0;
+      } else {
+        // Non-retainer client: include if they have any unbilled items
+        return client.milestones.length > 0 || client.tasks.length > 0;
+      }
+    });
 
     // Sort by client name
     byClient.sort((a, b) => a.clientName.localeCompare(b.clientName));
@@ -396,8 +493,10 @@ export async function GET(request: NextRequest) {
       summary,
     };
 
+    console.log('[unbilled] Success, returning', byClient.length, 'clients');
     return NextResponse.json(response);
   } catch (error) {
+    console.error('[unbilled] Error:', error);
     return handleApiError(error);
   }
 }

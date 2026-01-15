@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/inline-edit';
 import { ClientActivityTab } from '@/components/domain/clients/client-activity-tab';
 import { ClientSitesTab } from '@/components/domain/clients/client-sites-tab';
+import { ClientRetainerTab } from '@/components/domain/clients/client-retainer-tab';
 import type { UpdateClientInput, ClientType, ClientStatus } from '@/types/entities';
 
 interface Props {
@@ -39,7 +40,7 @@ const CLIENT_STATUS_OPTIONS = [
   { value: 'delinquent', label: 'Delinquent' },
 ];
 
-type TabType = 'details' | 'sites' | 'activity';
+type TabType = 'details' | 'sites' | 'activity' | 'retainer';
 
 export default function ClientDetailPage({ params }: Props) {
   const { id } = use(params);
@@ -197,6 +198,19 @@ export default function ClientDetailPage({ params }: Props) {
           >
             Activity
           </button>
+          {client.retainer_hours && Number(client.retainer_hours) > 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('retainer')}
+              className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'retainer'
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-sub hover:text-text-main'
+              }`}
+            >
+              Retainer
+            </button>
+          )}
         </nav>
       </div>
 
@@ -330,9 +344,14 @@ export default function ClientDetailPage({ params }: Props) {
         </div>
       ) : activeTab === 'sites' ? (
         <ClientSitesTab clientId={id} />
-      ) : (
+      ) : activeTab === 'activity' ? (
         <ClientActivityTab clientId={id} />
-      )}
+      ) : activeTab === 'retainer' && client.retainer_hours ? (
+        <ClientRetainerTab
+          clientId={id}
+          retainerHours={Number(client.retainer_hours)}
+        />
+      ) : null}
 
       {/* Saving indicator */}
       {updateClient.isPending && (

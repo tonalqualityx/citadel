@@ -11,6 +11,7 @@ const updateBillingSchema = z.object({
   billing_amount: z.number().min(0).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
   invoiced: z.boolean().optional(),
+  waive_overage: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -52,6 +53,10 @@ export async function PATCH(
 
     if (data.is_retainer_work !== undefined) {
       updateData.is_retainer_work = data.is_retainer_work;
+    }
+
+    if (data.waive_overage !== undefined) {
+      updateData.waive_overage = data.waive_overage;
     }
 
     // Handle invoiced update

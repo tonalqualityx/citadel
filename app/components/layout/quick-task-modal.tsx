@@ -5,15 +5,17 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
 import { useCreateTask } from '@/lib/hooks/use-tasks';
 import { useProjects } from '@/lib/hooks/use-projects';
-import { useClients } from '@/lib/hooks/use-clients';
+import { useClients, useClientRetainer } from '@/lib/hooks/use-clients';
 import { useSites } from '@/lib/hooks/use-sites';
 import { useSops } from '@/lib/hooks/use-sops';
 import { useUsers } from '@/lib/hooks/use-users';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { addBusinessDays, formatDateForInput } from '@/lib/utils/time';
+import { energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
@@ -45,6 +47,7 @@ const quickTaskSchema = z.object({
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']),
   billing_amount: z.string().optional(),
+  due_date: z.string().optional(),
 }).refine(
   (data) => !data.site_id || data.task_type,
   { message: 'Task type is required when a site is selected', path: ['task_type'] }
@@ -86,10 +89,11 @@ export function QuickTaskModal() {
       sop_id: '',
       assignee_id: '',
       priority: '3',
-      energy_estimate: '',
-      mystery_factor: 'none',
+      energy_estimate: '1', // 15 minutes
+      mystery_factor: 'average', // "Some"
       battery_impact: 'average_drain',
       billing_amount: '',
+      due_date: formatDateForInput(addBusinessDays(new Date(), 4)),
     },
   });
 
@@ -98,6 +102,11 @@ export function QuickTaskModal() {
   const selectedSopId = watch('sop_id');
   const selectedProjectId = watch('project_id');
   const selectedSiteId = watch('site_id');
+  const dueDate = watch('due_date');
+  const energyEstimate = watch('energy_estimate');
+  const mysteryFactor = watch('mystery_factor');
+  const billingAmount = watch('billing_amount');
+  const taskType = watch('task_type');
 
   // Fetch sites filtered by client
   const { data: sitesData, isLoading: sitesLoading } = useSites({
@@ -122,6 +131,111 @@ export function QuickTaskModal() {
       })),
     ];
   }, [projectsData, selectedClientId]);
+
+  // Determine the effective client ID (from project or direct selection)
+  const effectiveClientId = React.useMemo(() => {
+    if (selectedProjectId) {
+      const project = projectsData?.projects?.find(p => p.id === selectedProjectId);
+      return project?.client?.id || null;
+    }
+    return selectedClientId || null;
+  }, [selectedProjectId, selectedClientId, projectsData]);
+
+  // Get the client data to check for retainer
+  const effectiveClient = React.useMemo(() => {
+    if (!effectiveClientId) return null;
+    return clientsData?.clients?.find(c => c.id === effectiveClientId) || null;
+  }, [effectiveClientId, clientsData]);
+
+  // Calculate which month to check based on due date
+  const targetMonth = React.useMemo(() => {
+    if (!dueDate) {
+      // No due date - use current month
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    // Parse due date and get its month
+    const date = new Date(dueDate);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }, [dueDate]);
+
+  // Fetch retainer usage for the target month
+  const { data: retainerData } = useClientRetainer(
+    effectiveClientId || undefined,
+    targetMonth
+  );
+
+  // Calculate retainer warning
+  const retainerWarning = React.useMemo(() => {
+    // Only show warning if:
+    // 1. Client has retainer hours
+    // 2. We have retainer data for the month
+    // 3. We have energy estimate to calculate cost
+    // 4. No fixed billing amount (fixed amounts don't consume retainer hours)
+    // 5. Not a support task (support tasks don't consume retainer)
+
+    if (!effectiveClient?.retainer_hours) return null;
+    if (!retainerData) return null;
+    if (!energyEstimate) return null;
+
+    // Show info message for support tasks
+    if (taskType === 'support') {
+      return {
+        status: 'info' as const,
+        title: 'Support Task',
+        message: 'This task is marked as support and will not consume retainer hours or be billed.',
+      };
+    }
+
+    if (billingAmount) return null; // Fixed billing doesn't use retainer hours
+
+    const retainerHours = Number(effectiveClient.retainer_hours);
+    const retainerMinutes = retainerHours * 60;
+
+    // Calculate estimated minutes for this task
+    const baseMinutes = energyToMinutes(parseInt(energyEstimate));
+    const multiplier = getMysteryMultiplier(mysteryFactor);
+    const estimatedMinutes = Math.round(baseMinutes * multiplier);
+    const estimatedHours = estimatedMinutes / 60;
+
+    // Current usage from API (actual + scheduled)
+    const currentUsedMinutes = retainerData.usedMinutes || 0;
+    const currentScheduledMinutes = retainerData.scheduledMinutes || 0;
+    const currentTotalMinutes = currentUsedMinutes + currentScheduledMinutes;
+
+    // Projected usage after adding this task
+    const projectedTotalMinutes = currentTotalMinutes + estimatedMinutes;
+    const projectedHours = projectedTotalMinutes / 60;
+    const projectedPercent = Math.round((projectedTotalMinutes / retainerMinutes) * 100);
+
+    // No warning if below 75% threshold
+    if (projectedPercent < 75) return null;
+
+    // Critical warning if at or over 100%
+    if (projectedPercent >= 100) {
+      const overageHours = (projectedTotalMinutes - retainerMinutes) / 60;
+      return {
+        status: 'critical',
+        title: 'Retainer Exceeded',
+        message: `This task will exceed the ${retainerHours}h retainer by ${overageHours.toFixed(1)}h (${projectedPercent}% total). Overage will be billed at hourly rate.`,
+      };
+    }
+
+    // Warning if 75-99%
+    return {
+      status: 'warning',
+      title: 'Approaching Retainer Limit',
+      message: `This task will use ${estimatedHours.toFixed(1)}h, bringing total to ${projectedHours.toFixed(1)}h of ${retainerHours}h (${projectedPercent}%).`,
+    };
+  }, [
+    effectiveClient,
+    retainerData,
+    energyEstimate,
+    mysteryFactor,
+    billingAmount,
+    taskType,
+  ]);
 
   // Apply SOP defaults when SOP is selected
   React.useEffect(() => {
@@ -236,6 +350,7 @@ export function QuickTaskModal() {
         status: 'not_started' as const,
         is_support: data.task_type === 'support',
         billing_amount: data.billing_amount ? parseFloat(data.billing_amount) : null,
+        due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
       };
 
       const task = await createTask.mutateAsync(payload);
@@ -423,25 +538,78 @@ export function QuickTaskModal() {
               </div>
             </div>
 
-            {/* Billing - PM/Admin only */}
-            {isPmOrAdmin && (
+            {/* Retainer Warning - shown when client has retainer and task would impact it */}
+            {retainerWarning && (
               <div className="pt-4 border-t border-border">
-                <h4 className="text-sm font-medium text-text-sub mb-3">Billing</h4>
-                <div className="max-w-xs">
-                  <Input
-                    label="Fixed Billing Amount ($)"
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    {...register('billing_amount')}
-                    placeholder="Use hourly rate"
-                  />
-                  <p className="text-xs text-text-sub mt-1">
-                    If set, bills this amount instead of hourly calculation
-                  </p>
+                <div className={`rounded-lg p-3 ${
+                  retainerWarning.status === 'critical'
+                    ? 'bg-red-50 border border-red-200'
+                    : retainerWarning.status === 'info'
+                    ? 'bg-blue-50 border border-blue-200'
+                    : 'bg-amber-50 border border-amber-200'
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className={`h-5 w-5 mt-0.5 ${
+                      retainerWarning.status === 'critical'
+                        ? 'text-red-600'
+                        : retainerWarning.status === 'info'
+                        ? 'text-blue-600'
+                        : 'text-amber-600'
+                    }`} />
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium ${
+                        retainerWarning.status === 'critical'
+                          ? 'text-red-900'
+                          : retainerWarning.status === 'info'
+                          ? 'text-blue-900'
+                          : 'text-amber-900'
+                      }`}>
+                        {retainerWarning.title}
+                      </p>
+                      <p className={`text-xs mt-1 ${
+                        retainerWarning.status === 'critical'
+                          ? 'text-red-700'
+                          : retainerWarning.status === 'info'
+                          ? 'text-blue-700'
+                          : 'text-amber-700'
+                      }`}>
+                        {retainerWarning.message}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Section 4: Scheduling & Billing */}
+            <div className="pt-4 border-t border-border">
+              <h4 className="text-sm font-medium text-text-sub mb-3">Scheduling & Billing</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Input
+                    label="Due Date"
+                    type="date"
+                    {...register('due_date')}
+                    error={errors.due_date?.message}
+                  />
+                  <p className="text-xs text-text-sub mt-1">Default: 4 business days</p>
+                </div>
+
+                {isPmOrAdmin && (
+                  <div>
+                    <Input
+                      label="Fixed Billing ($)"
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      {...register('billing_amount')}
+                      placeholder="Use hourly rate"
+                    />
+                    <p className="text-xs text-text-sub mt-1">Overrides hourly calc</p>
+                  </div>
+                )}
+              </div>
+            </div>
 
             {/* Buttons */}
             <div className="flex justify-end gap-3 pt-4 border-t border-border">

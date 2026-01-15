@@ -52,9 +52,15 @@ function SummaryCard({ title, value, icon, subtitle }: SummaryCardProps) {
 }
 
 export function BillingDashboard() {
+  const [mounted, setMounted] = React.useState(false);
   const { data, isLoading, error } = useUnbilledItems();
 
-  if (isLoading) {
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Show loading state until mounted to prevent hydration mismatch
+  if (!mounted || isLoading) {
     return (
       <div className="p-6">
         <div className="flex items-center justify-center min-h-[400px]">

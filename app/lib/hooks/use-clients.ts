@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
-import { clientKeys, clientActivityKeys } from '@/lib/api/query-keys';
+import { clientKeys, clientActivityKeys, clientRetainerKeys } from '@/lib/api/query-keys';
 import { showToast } from '@/lib/hooks/use-toast';
 import type {
   ClientWithRelations,
@@ -163,6 +163,66 @@ export function useClientActivity(
       return apiClient.get<ClientActivityResponse>(url);
     },
     enabled: !!clientId,
+  });
+}
+
+// Client Retainer types
+export interface RetainerTask {
+  id: string;
+  title: string;
+  project_name: string | null;
+  project_id: string | null;
+  time_spent_minutes: number;
+  completed_at: string | null;
+  is_retainer_work: boolean;
+  invoiced: boolean;
+}
+
+export interface ScheduledRetainerTask {
+  id: string;
+  title: string;
+  project_name: string | null;
+  project_id: string | null;
+  due_date: string | null;
+  status: string;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  energy_estimate: number | null;
+  mystery_factor: string;
+  estimated_minutes_min: number;
+  estimated_minutes_max: number;
+  is_retainer_work: boolean;
+}
+
+export interface ClientRetainerResponse {
+  month: string;
+  period: { start: string; end: string };
+  retainerHours: number;
+  // Actual usage
+  usedMinutes: number;
+  overageMinutes: number;
+  tasks: RetainerTask[];
+  // Scheduled usage
+  scheduledMinutes: number;
+  scheduledTasks: ScheduledRetainerTask[];
+  // Projected totals
+  projectedTotalMinutes: number;
+  projectedOverageMinutes: number;
+  // Unscheduled warning
+  unscheduledTasksCount: number;
+  unscheduledMinutes: number;
+}
+
+/**
+ * Fetch retainer usage for a client for a specific month
+ */
+export function useClientRetainer(clientId: string | undefined, month: string) {
+  return useQuery({
+    queryKey: clientRetainerKeys.byClient(clientId!, month),
+    queryFn: async (): Promise<ClientRetainerResponse> => {
+      return apiClient.get<ClientRetainerResponse>(`/clients/${clientId}/retainer?month=${month}`);
+    },
+    enabled: !!clientId && !!month,
   });
 }
 

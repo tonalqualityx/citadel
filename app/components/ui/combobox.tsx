@@ -107,7 +107,7 @@ export function Combobox({
         disabled={disabled}
         className={cn(
           'w-full h-10 px-3 rounded-lg border border-border bg-surface',
-          'text-sm text-left flex items-center justify-between gap-2',
+          'text-sm text-text-main text-left flex items-center justify-between gap-2',
           'focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary',
           'disabled:opacity-50 disabled:cursor-not-allowed',
           'transition-colors',
@@ -477,7 +477,7 @@ export function CreatableCombobox({
         disabled={disabled}
         className={cn(
           'w-full h-10 px-3 rounded-lg border border-border bg-surface',
-          'text-sm text-left flex items-center justify-between gap-2',
+          'text-sm text-text-main text-left flex items-center justify-between gap-2',
           'focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary',
           'disabled:opacity-50 disabled:cursor-not-allowed',
           'transition-colors',

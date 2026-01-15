@@ -26,6 +26,9 @@ export interface UnbilledTask {
   billing_amount: number | null;
   is_retainer_work: boolean;
   completed_at: string | null;
+  is_overage_task: boolean;     // True if task exceeds retainer
+  overage_minutes: number;      // Minutes of this task that are overage
+  waive_overage: boolean;       // Whether to waive overage charges
 }
 
 export interface ClientUnbilledData {
@@ -38,6 +41,8 @@ export interface ClientUnbilledData {
   retainerHours: number | null;
   usedRetainerHoursThisMonth: number;
   overageMinutes: number;
+  retainerCoveredMinutes: number;   // Total minutes covered by retainer
+  billableOverageMinutes: number;   // Overage minutes that are NOT waived
   milestones: UnbilledMilestone[];
   tasks: UnbilledTask[];
   totalMilestoneAmount: number;
@@ -135,6 +140,7 @@ export function useUpdateTaskBilling() {
         billing_target?: number | null;
         is_retainer_work?: boolean;
         invoiced?: boolean;
+        waive_overage?: boolean;
       };
     }) => apiClient.patch(`/tasks/${taskId}/billing`, data),
     onSuccess: (_, variables) => {
@@ -148,6 +154,11 @@ export function useUpdateTaskBilling() {
         showToast.success('Task marked as retainer work');
       } else if (variables.data.is_retainer_work === false) {
         showToast.success('Task marked as project work');
+      }
+      if (variables.data.waive_overage === true) {
+        showToast.success('Overage waived');
+      } else if (variables.data.waive_overage === false) {
+        showToast.success('Overage will be billed');
       }
     },
     onError: (error) => {

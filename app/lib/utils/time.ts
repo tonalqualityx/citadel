@@ -168,3 +168,43 @@ export function formatRelativeTime(date: string | Date): string {
     year: then.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
   });
 }
+
+/**
+ * Add business days to a date (skips weekends)
+ * @param startDate - The starting date
+ * @param businessDays - Number of business days to add
+ * @returns The resulting date after adding business days
+ */
+export function addBusinessDays(startDate: Date, businessDays: number): Date {
+  const result = new Date(startDate);
+
+  // If starting on a weekend, advance to Monday first
+  while (result.getDay() === 0 || result.getDay() === 6) {
+    result.setDate(result.getDate() + 1);
+  }
+
+  let daysAdded = 0;
+  while (daysAdded < businessDays) {
+    result.setDate(result.getDate() + 1);
+    const dayOfWeek = result.getDay();
+
+    // Skip weekends (0 = Sunday, 6 = Saturday)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      daysAdded++;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Format a date as YYYY-MM-DD for HTML date inputs
+ * @param date - The date to format
+ * @returns Formatted string in YYYY-MM-DD format
+ */
+export function formatDateForInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}

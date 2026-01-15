@@ -54,6 +54,11 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
     }, 0);
   }, [clientData.tasks, clientData.hourlyRate, estimateTypes]);
 
+  // Calculate retainer-specific values
+  const retainerCoveredHours = minutesToDecimalHours(clientData.retainerCoveredMinutes);
+  const billableOverageHours = minutesToDecimalHours(clientData.billableOverageMinutes);
+  const billableOverageAmount = (clientData.billableOverageMinutes / 60) * (clientData.hourlyRate || 0);
+
   const handleEstimateTypeChange = React.useCallback((taskId: string, type: EstimateType) => {
     setEstimateTypes((prev) => ({
       ...prev,
@@ -242,6 +247,7 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
                 onSelectOne={handleSelectTask}
                 estimateTypes={estimateTypes}
                 onEstimateTypeChange={handleEstimateTypeChange}
+                isRetainer={clientData.isRetainer}
               />
             </div>
           )}
@@ -255,7 +261,7 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
                   Milestones: {formatCurrencyDisplay(clientData.totalMilestoneAmount)}
                 </span>
               )}
-              {hasTasks && (
+              {hasTasks && !clientData.isRetainer && (
                 <span className="ml-4">
                   Tasks: {taskHours} hrs
                   {totalTaskAmount > 0 && (
@@ -265,11 +271,35 @@ export function ClientBillingSection({ clientData }: ClientBillingSectionProps) 
                   )}
                 </span>
               )}
+              {/* Retainer subtotals */}
+              {clientData.isRetainer && hasTasks && (
+                <>
+                  <span className="ml-4">
+                    <span className="text-text-sub">Covered by Retainer:</span>{' '}
+                    <span className="text-text-main">{retainerCoveredHours} hrs</span>
+                  </span>
+                  <span className="ml-4">
+                    <span className="text-text-sub">Billable Overage:</span>{' '}
+                    <span className="text-text-main">
+                      {billableOverageHours} hrs
+                      {billableOverageAmount > 0 && (
+                        <span className="font-medium ml-1">
+                          ({formatCurrency(billableOverageAmount)})
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </>
+              )}
             </div>
             {/* Grand total */}
             {(hasMilestones || hasTasks) && (
               <div className="text-sm font-medium text-text-main">
-                Total: {formatCurrency(clientData.totalMilestoneAmount + totalTaskAmount)}
+                Total: {formatCurrency(
+                  clientData.isRetainer
+                    ? clientData.totalMilestoneAmount + billableOverageAmount
+                    : clientData.totalMilestoneAmount + totalTaskAmount
+                )}
               </div>
             )}
           </div>

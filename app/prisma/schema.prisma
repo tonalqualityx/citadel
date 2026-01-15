@@ -799,6 +799,7 @@ model Task {
   is_retainer_work  Boolean       @default(false)
   is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
   billing_amount    Decimal?      @db.Decimal(10, 2)  // Fixed dollar amount (overrides hourly calc)
+  waive_overage     Boolean       @default(false)     // Waive overage charges for retainer billing
 
   // Time tracking
   no_time_needed    Boolean       @default(false) // Task completed without time tracking

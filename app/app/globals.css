@@ -15,6 +15,7 @@
   --color-border-warm: var(--border);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-error: var(--error);
 
   /* Fonts */
   --font-sans: "Inter", system-ui, sans-serif;
@@ -59,6 +60,8 @@
     --success-subtle: #EDF4EF;
     --warning: #C4A24D;           /* muted gold - NOT red, never red */
     --warning-subtle: #FBF7ED;
+    --error: #B91C1C;             /* muted red for errors/over limit */
+    --error-subtle: #FEF2F2;
 
     /* Legacy variable mapping */
     --primary: var(--accent);
@@ -87,6 +90,8 @@
     --success-subtle: #EDF4EF;
     --warning: #C4A24D;
     --warning-subtle: #FBF7ED;
+    --error: #B91C1C;
+    --error-subtle: #FEF2F2;
   }
 
   /*
@@ -111,6 +116,8 @@
     --success-subtle: #1E2A20;
     --warning: #D4B95D;
     --warning-subtle: #2A2820;
+    --error: #F87171;             /* lightened red for dark bg */
+    --error-subtle: #2A1E1E;
   }
 
   /*
@@ -135,6 +142,8 @@
     --success-subtle: #1E2A20;
     --warning: #D4B95D;
     --warning-subtle: #2A2820;
+    --error: #F87171;             /* lightened red for dark bg */
+    --error-subtle: #2A1E1E;
   }
 
   /* System preference - matches user's OS setting */
@@ -155,6 +164,8 @@
       --success-subtle: #1E2A20;
       --warning: #D4B95D;
       --warning-subtle: #2A2820;
+      --error: #F87171;
+      --error-subtle: #2A1E1E;
     }
   }
 

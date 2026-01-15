@@ -92,8 +92,8 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
       assignee_id: task?.assignee_id || '',
       function_id: task?.function_id || '',
       sop_id: task?.sop_id || '',
-      energy_estimate: task?.energy_estimate?.toString() || '',
-      mystery_factor: (task?.mystery_factor as any) || 'none',
+      energy_estimate: task?.energy_estimate?.toString() || '1', // Default: 15 minutes
+      mystery_factor: (task?.mystery_factor as any) || 'average', // Default: "Some"
       battery_impact: (task?.battery_impact as any) || 'average_drain',
       due_date: task?.due_date?.split('T')[0] || '',
       notes: task?.notes || '',

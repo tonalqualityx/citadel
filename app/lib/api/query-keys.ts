@@ -135,6 +135,13 @@ export const clientActivityKeys = {
     [...clientActivityKeys.all, clientId, filters] as const,
 };
 
+// Client Retainer keys
+export const clientRetainerKeys = {
+  all: ['client-retainer'] as const,
+  byClient: (clientId: string, month: string) =>
+    [...clientRetainerKeys.all, clientId, month] as const,
+};
+
 // App Settings keys
 export const appSettingsKeys = {
   all: ['app-settings'] as const,
@@ -153,5 +160,6 @@ export const queryKeys = {
   referenceData: referenceDataKeys,
   dnsProviders: dnsProviderKeys,
   clientActivity: clientActivityKeys,
+  clientRetainer: clientRetainerKeys,
   appSettings: appSettingsKeys,
 };
