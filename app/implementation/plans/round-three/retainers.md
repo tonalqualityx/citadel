@@ -112,7 +112,7 @@ Two related features:
   - [x] Write: Create `components/domain/clients/client-retainer-tab.tsx`
   - [x] Write: Add month selector (prev/next arrows + navigation)
   - [x] Write: Add usage summary (retainer hours, used, remaining/overage)
-  - [x] Write: Add usage progress bar with color coding
+  - [x] Write: Add usage progress bar with color coding 
   - [x] Write: Add task breakdown table
   - [x] Review: Verified loading and error states
   - [ ] Test: Write component tests (deferred - optional)
