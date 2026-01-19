@@ -2,8 +2,11 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Globe, ExternalLink, Plus, X } from 'lucide-react';
+import { useQueries } from '@tanstack/react-query';
+import { Globe, ExternalLink, Plus, X, Building2, ChevronDown, ChevronRight } from 'lucide-react';
 import { useSites, useUpdateSite } from '@/lib/hooks/use-sites';
+import { apiClient } from '@/lib/api/client';
+import { siteKeys } from '@/lib/api/query-keys';
 import { TaskList, type TaskListColumn } from '@/components/ui/task-list';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
@@ -14,16 +17,44 @@ import {
 } from '@/components/ui/inline-edit';
 import { AddSiteModal } from './add-site-modal';
 import { showToast } from '@/lib/hooks/use-toast';
-import type { SiteWithRelations, UpdateSiteInput } from '@/types/entities';
+import type { SiteWithRelations, UpdateSiteInput, SiteListResponse } from '@/types/entities';
+
+interface SubClient {
+  id: string;
+  name: string;
+  status: string;
+}
 
 interface ClientSitesTabProps {
   clientId: string;
+  subClients?: SubClient[];
 }
 
-export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
+export function ClientSitesTab({ clientId, subClients = [] }: ClientSitesTabProps) {
   const [isAddSiteOpen, setIsAddSiteOpen] = React.useState(false);
+  const [collapsedSubClients, setCollapsedSubClients] = React.useState<Set<string>>(new Set());
   const { data, isLoading } = useSites({ client_id: clientId, limit: 100 });
   const updateSite = useUpdateSite();
+
+  // Fetch sites for each sub-client using useQueries
+  const subClientSitesQueries = useQueries({
+    queries: subClients.map(subClient => ({
+      queryKey: siteKeys.list({ client_id: subClient.id, limit: 100 }),
+      queryFn: () => apiClient.get<SiteListResponse>(`/sites?client_id=${subClient.id}&limit=100`),
+    })),
+  });
+
+  const toggleSubClientCollapse = (subClientId: string) => {
+    setCollapsedSubClients(prev => {
+      const next = new Set(prev);
+      if (next.has(subClientId)) {
+        next.delete(subClientId);
+      } else {
+        next.add(subClientId);
+      }
+      return next;
+    });
+  };
 
   const handleRemoveSite = async (siteId: string) => {
     try {
@@ -196,7 +227,9 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
     },
   ];
 
-  if (isLoading) {
+  const subClientsLoading = subClientSitesQueries.some(q => q.isLoading);
+
+  if (isLoading || subClientsLoading) {
     return (
       <div className="flex justify-center items-center min-h-[200px]">
         <Spinner size="md" />
@@ -206,11 +239,27 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
 
   const sites = data?.sites || [];
 
+  // Calculate total sites including sub-clients
+  const subClientSiteCounts = subClientSitesQueries.map(q => q.data?.sites?.length || 0);
+  const totalSubClientSites = subClientSiteCounts.reduce((sum, count) => sum + count, 0);
+  const totalSites = sites.length + totalSubClientSites;
+
+  // Get all site IDs for the add modal (to exclude already assigned sites)
+  const allSiteIds = [
+    ...sites.map(s => s.id),
+    ...subClientSitesQueries.flatMap(q => q.data?.sites?.map(s => s.id) || []),
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-text-sub">
-          {sites.length} site{sites.length !== 1 ? 's' : ''}
+          {totalSites} site{totalSites !== 1 ? 's' : ''}
+          {subClients.length > 0 && totalSubClientSites > 0 && (
+            <span className="text-text-sub ml-1">
+              ({sites.length} direct, {totalSubClientSites} from sub-clients)
+            </span>
+          )}
         </h3>
         <Button size="sm" onClick={() => setIsAddSiteOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
@@ -218,6 +267,7 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
         </Button>
       </div>
 
+      {/* Direct sites */}
       <TaskList<SiteWithRelations>
         tasks={sites}
         columns={columns}
@@ -228,6 +278,55 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
         emptyMessage="No sites for this client"
         showHeaders={true}
       />
+
+      {/* Sub-client sites */}
+      {subClients.length > 0 && subClients.map((subClient, index) => {
+        const subClientSites = subClientSitesQueries[index]?.data?.sites || [];
+        if (subClientSites.length === 0) return null;
+
+        const isCollapsed = collapsedSubClients.has(subClient.id);
+
+        return (
+          <div key={subClient.id} className="border border-border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleSubClientCollapse(subClient.id)}
+              className="w-full flex items-center gap-2 px-4 py-3 bg-surface-alt hover:bg-surface-2 transition-colors"
+            >
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4 text-text-sub" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-text-sub" />
+              )}
+              <Building2 className="h-4 w-4 text-text-sub" />
+              <Link
+                href={`/clients/${subClient.id}`}
+                className="font-medium text-text-main hover:text-primary hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {subClient.name}
+              </Link>
+              <span className="text-sm text-text-sub">
+                ({subClientSites.length} site{subClientSites.length !== 1 ? 's' : ''})
+              </span>
+            </button>
+            {!isCollapsed && (
+              <div className="border-t border-border">
+                <TaskList<SiteWithRelations>
+                  tasks={subClientSites}
+                  columns={columns}
+                  onTaskUpdate={handleSiteUpdate}
+                  onTaskClick={(site) => {
+                    window.location.href = `/sites/${site.id}`;
+                  }}
+                  emptyMessage="No sites"
+                  showHeaders={false}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Saving indicator */}
       {updateSite.isPending && (
@@ -242,7 +341,7 @@ export function ClientSitesTab({ clientId }: ClientSitesTabProps) {
         open={isAddSiteOpen}
         onOpenChange={setIsAddSiteOpen}
         clientId={clientId}
-        existingSiteIds={sites.map((s) => s.id)}
+        existingSiteIds={allSiteIds}
       />
     </div>
   );

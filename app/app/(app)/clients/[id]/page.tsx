@@ -343,7 +343,7 @@ export default function ClientDetailPage({ params }: Props) {
           </Card>
         </div>
       ) : activeTab === 'sites' ? (
-        <ClientSitesTab clientId={id} />
+        <ClientSitesTab clientId={id} subClients={client.sub_clients} />
       ) : activeTab === 'activity' ? (
         <ClientActivityTab clientId={id} />
       ) : activeTab === 'retainer' && client.retainer_hours ? (

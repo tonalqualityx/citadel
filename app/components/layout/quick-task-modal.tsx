@@ -114,9 +114,13 @@ export function QuickTaskModal() {
     limit: 100,
   });
 
-  // Filter projects by client if one is selected
+  // Filter projects by client if one is selected, and exclude inactive statuses
   const projectOptions = React.useMemo(() => {
     let projects = projectsData?.projects || [];
+
+    // Exclude done, suspended, and cancelled projects
+    const excludedStatuses = ['done', 'suspended', 'cancelled'];
+    projects = projects.filter((p) => !excludedStatuses.includes(p.status));
 
     // If a client is selected, filter to only that client's projects
     if (selectedClientId) {
