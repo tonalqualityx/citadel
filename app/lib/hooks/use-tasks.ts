@@ -70,6 +70,13 @@ export interface Task {
   created_by: { id: string; name: string } | null;
   blocked_by?: { id: string; title: string; status: string }[];
   blocking?: { id: string; title: string; status: string }[];
+  time_entries?: {
+    id: string;
+    duration: number;
+    started_at: string;
+    description: string | null;
+    user: { id: string; name: string };
+  }[];
   is_deleted: boolean;
   created_at: string;
   updated_at: string;

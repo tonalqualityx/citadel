@@ -363,6 +363,13 @@ export function formatTaskResponse(task: any) {
       title: t.title,
       status: t.status,
     })),
+    time_entries: task.time_entries?.map((e: any) => ({
+      id: e.id,
+      duration: e.duration,
+      started_at: e.started_at,
+      description: e.description,
+      user: e.user ? { id: e.user.id, name: e.user.name } : null,
+    })),
     // Billing
     is_billable: task.is_billable ?? true,
     billing_target: task.billing_target ? Number(task.billing_target) : null,

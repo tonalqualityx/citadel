@@ -71,6 +71,7 @@ import {
 } from '@/lib/calculations/status';
 import { CommentSection } from '@/components/domain/tasks/comment-section';
 import { ReviewSection } from '@/components/domain/tasks/review-section';
+import { TimeEntriesSection } from '@/components/domain/tasks/time-entries-section';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
 
@@ -794,6 +795,11 @@ export default function QuestDetailPage() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* Time Entries - PM/Admin only */}
+          {isPmOrAdmin && task.time_entries && task.time_entries.length > 0 && (
+            <TimeEntriesSection timeEntries={task.time_entries} />
           )}
 
           {/* Details */}
