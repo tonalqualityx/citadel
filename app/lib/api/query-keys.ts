@@ -66,6 +66,7 @@ export const userFunctionKeys = {
 export interface ProjectFilters {
   search?: string;
   status?: 'quote' | 'queue' | 'ready' | 'in_progress' | 'review' | 'done' | 'suspended' | 'cancelled';
+  statuses?: string[]; // Multiple statuses - comma-separated when sent to API
   type?: 'project' | 'retainer' | 'internal';
   client_id?: string;
   site_id?: string;

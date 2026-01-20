@@ -16,6 +16,10 @@ interface RetainerTask {
   completed_at: string | null;
   is_retainer_work: boolean;
   invoiced: boolean;
+  energy_estimate: number | null;
+  mystery_factor: string;
+  estimated_minutes_min: number;
+  estimated_minutes_max: number;
 }
 
 // Task scheduled for this month (has due_date, not done, no time logged)
@@ -198,6 +202,8 @@ export async function GET(
             invoiced: true,
             completed_at: true,
             project_id: true,
+            energy_estimate: true,
+            mystery_factor: true,
             project: {
               select: {
                 name: true,
@@ -235,6 +241,8 @@ export async function GET(
             is_support: true,
             invoiced: true,
             completed_at: true,
+            energy_estimate: true,
+            mystery_factor: true,
           },
         },
       },
@@ -250,6 +258,8 @@ export async function GET(
       completed_at: Date | null;
       is_retainer_work: boolean;
       invoiced: boolean;
+      energy_estimate: number | null;
+      mystery_factor: MysteryFactor;
     }>();
 
     // Track task IDs that have time logged (to exclude from scheduled)
@@ -284,6 +294,8 @@ export async function GET(
           completed_at: entry.task.completed_at,
           is_retainer_work: entry.task.is_retainer_work,
           invoiced: entry.task.invoiced,
+          energy_estimate: entry.task.energy_estimate,
+          mystery_factor: entry.task.mystery_factor,
         });
       }
     }
@@ -317,21 +329,37 @@ export async function GET(
           completed_at: entry.task.completed_at,
           is_retainer_work: entry.task.is_retainer_work,
           invoiced: entry.task.invoiced,
+          energy_estimate: entry.task.energy_estimate,
+          mystery_factor: entry.task.mystery_factor,
         });
       }
     }
 
     // Build tasks array
-    const tasks: RetainerTask[] = Array.from(taskTimeMap.values()).map(task => ({
-      id: task.id,
-      title: task.title,
-      project_name: task.project_name,
-      project_id: task.project_id,
-      time_spent_minutes: task.time_spent_minutes,
-      completed_at: task.completed_at?.toISOString() || null,
-      is_retainer_work: task.is_retainer_work,
-      invoiced: task.invoiced,
-    }));
+    const tasks: RetainerTask[] = Array.from(taskTimeMap.values()).map(task => {
+      const baseMinutes = task.energy_estimate
+        ? energyToMinutes(task.energy_estimate)
+        : 0;
+      const maxMinutes = calculateTaskEstimateMax(
+        task.energy_estimate,
+        task.mystery_factor
+      );
+
+      return {
+        id: task.id,
+        title: task.title,
+        project_name: task.project_name,
+        project_id: task.project_id,
+        time_spent_minutes: task.time_spent_minutes,
+        completed_at: task.completed_at?.toISOString() || null,
+        is_retainer_work: task.is_retainer_work,
+        invoiced: task.invoiced,
+        energy_estimate: task.energy_estimate,
+        mystery_factor: task.mystery_factor,
+        estimated_minutes_min: baseMinutes,
+        estimated_minutes_max: maxMinutes,
+      };
+    });
 
     // Sort tasks by time spent (descending)
     tasks.sort((a, b) => b.time_spent_minutes - a.time_spent_minutes);

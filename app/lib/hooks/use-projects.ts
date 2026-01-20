@@ -98,10 +98,15 @@ export interface UpdateProjectInput extends Partial<CreateProjectInput> {}
 export function useProjects(filters: ProjectFilters = {}) {
   return useQuery({
     queryKey: projectKeys.list(filters),
-    queryFn: () =>
-      apiClient.get<ProjectListResponse>('/projects', {
-        params: filters as Record<string, any>,
-      }),
+    queryFn: () => {
+      // Convert statuses array to comma-separated string for API
+      const { statuses, ...rest } = filters;
+      const params: Record<string, any> = { ...rest };
+      if (statuses && statuses.length > 0) {
+        params.statuses = statuses.join(',');
+      }
+      return apiClient.get<ProjectListResponse>('/projects', { params });
+    },
   });
 }
 

@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DataTable, Column } from '@/components/ui/data-table';
 import { SearchInput } from '@/components/ui/search-input';
 import { Select } from '@/components/ui/select';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
 import {
@@ -38,6 +39,9 @@ const statusOptions = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
+// Default to showing active statuses (excludes done, suspended, cancelled)
+const DEFAULT_STATUSES = ['quote', 'queue', 'ready', 'in_progress', 'review'];
+
 const typeOptions = [
   { value: 'project', label: 'Project' },
   { value: 'retainer', label: 'Retainer' },
@@ -49,7 +53,7 @@ export default function ProjectsPage() {
   const { t } = useTerminology();
   const { isTech } = useAuth();
   const [search, setSearch] = React.useState('');
-  const [status, setStatus] = React.useState('');
+  const [statuses, setStatuses] = React.useState<string[]>(DEFAULT_STATUSES);
   const [type, setType] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [isCreateOpen, setIsCreateOpen] = React.useState(false);
@@ -63,7 +67,7 @@ export default function ProjectsPage() {
 
   React.useEffect(() => {
     setPage(1);
-  }, [search, status, type]);
+  }, [search, statuses, type]);
 
   // Don't render anything while redirecting tech users
   if (isTech) {
@@ -73,7 +77,7 @@ export default function ProjectsPage() {
   const { data, isLoading, error } = useProjects({
     page,
     search: search || undefined,
-    status: status as any || undefined,
+    statuses: statuses.length > 0 ? statuses : undefined,
     type: type as any || undefined,
   });
 
@@ -262,12 +266,12 @@ export default function ProjectsPage() {
               placeholder={`Search ${t('projects').toLowerCase()}...`}
               className="md:w-64"
             />
-            <Select
+            <MultiSelect
               options={statusOptions}
-              value={status}
-              onChange={setStatus}
+              value={statuses}
+              onChange={setStatuses}
               placeholder="All statuses"
-              className="md:w-40"
+              className="md:w-48"
             />
             <Select
               options={typeOptions}
@@ -290,13 +294,13 @@ export default function ProjectsPage() {
               icon={<FolderKanban className="h-12 w-12" />}
               title={`No ${t('projects').toLowerCase()} found`}
               description={
-                search || status || type
+                search || statuses.length > 0 || type
                   ? 'Try adjusting your filters'
                   : `Get started by creating your first ${t('project').toLowerCase()}`
               }
               action={
                 !search &&
-                !status &&
+                statuses.length === 0 &&
                 !type && (
                   <Button onClick={() => setIsCreateOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" />

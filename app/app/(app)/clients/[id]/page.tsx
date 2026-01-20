@@ -22,7 +22,7 @@ import {
 import { ClientActivityTab } from '@/components/domain/clients/client-activity-tab';
 import { ClientSitesTab } from '@/components/domain/clients/client-sites-tab';
 import { ClientRetainerTab } from '@/components/domain/clients/client-retainer-tab';
-import type { UpdateClientInput, ClientType, ClientStatus } from '@/types/entities';
+import type { UpdateClientInput, ClientType, ClientStatus, RetainerUsageMode } from '@/types/entities';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -350,6 +350,10 @@ export default function ClientDetailPage({ params }: Props) {
         <ClientRetainerTab
           clientId={id}
           retainerHours={Number(client.retainer_hours)}
+          usageMode={client.retainer_usage_mode}
+          onUsageModeChange={(mode: RetainerUsageMode) => {
+            updateClient.mutate({ id, data: { retainer_usage_mode: mode } });
+          }}
         />
       ) : null}
 

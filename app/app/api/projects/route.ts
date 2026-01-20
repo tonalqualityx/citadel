@@ -31,9 +31,13 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || undefined;
     const status = searchParams.get('status') as any;
+    const statuses = searchParams.get('statuses'); // comma-separated list
     const type = searchParams.get('type') as any;
     const clientId = searchParams.get('client_id') || undefined;
     const siteId = searchParams.get('site_id') || undefined;
+
+    // Parse multiple statuses if provided
+    const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
 
     const where: any = {
       is_deleted: false,
@@ -43,7 +47,8 @@ export async function GET(request: NextRequest) {
           { description: { contains: search, mode: 'insensitive' } },
         ],
       }),
-      ...(status && { status }),
+      // Support both single status and multiple statuses
+      ...(statusList ? { status: { in: statusList } } : status ? { status } : {}),
       ...(type && { type }),
       ...(clientId && { client_id: clientId }),
       ...(siteId && { site_id: siteId }),

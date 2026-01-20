@@ -430,8 +430,9 @@ model Client {
   phone           String?      @db.VarChar(50)
 
   // Billing
-  retainer_hours  Decimal?     @db.Decimal(5, 2)
-  hourly_rate     Decimal?     @db.Decimal(10, 2)
+  retainer_hours      Decimal?           @db.Decimal(5, 2)
+  hourly_rate         Decimal?           @db.Decimal(10, 2)
+  retainer_usage_mode RetainerUsageMode  @default(medium)
 
   // Relationships
   parent_agency_id String?     @db.Uuid
@@ -467,6 +468,13 @@ enum ClientStatus {
   active
   inactive
   delinquent
+}
+
+enum RetainerUsageMode {
+  low
+  medium
+  high
+  actual
 }
 
 // ============================================

@@ -176,6 +176,10 @@ export interface RetainerTask {
   completed_at: string | null;
   is_retainer_work: boolean;
   invoiced: boolean;
+  energy_estimate: number | null;
+  mystery_factor: string;
+  estimated_minutes_min: number;
+  estimated_minutes_max: number;
 }
 
 export interface ScheduledRetainerTask {

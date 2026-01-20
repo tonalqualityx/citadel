@@ -1,6 +1,7 @@
 // Client types
 export type ClientType = 'direct' | 'agency_partner' | 'sub_client';
 export type ClientStatus = 'active' | 'inactive' | 'delinquent';
+export type RetainerUsageMode = 'low' | 'medium' | 'high' | 'actual';
 export type HostedBy = 'indelible' | 'client' | 'other';
 
 export interface Client {
@@ -13,6 +14,7 @@ export interface Client {
   phone: string | null;
   retainer_hours: number | null;
   hourly_rate: number | null;
+  retainer_usage_mode: RetainerUsageMode;
   parent_agency_id: string | null;
   notes: string | null;
   is_deleted: boolean;
@@ -50,6 +52,7 @@ export interface UpdateClientInput {
   phone?: string | null;
   retainer_hours?: number;
   hourly_rate?: number;
+  retainer_usage_mode?: RetainerUsageMode;
   parent_agency_id?: string;
   notes?: string | null;
 }

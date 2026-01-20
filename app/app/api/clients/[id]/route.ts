@@ -14,6 +14,7 @@ const updateClientSchema = z.object({
   phone: z.string().max(50).optional().nullable(),
   retainer_hours: z.number().min(0).optional().nullable(),
   hourly_rate: z.number().min(0).optional().nullable(),
+  retainer_usage_mode: z.enum(['low', 'medium', 'high', 'actual']).optional(),
   parent_agency_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
 });

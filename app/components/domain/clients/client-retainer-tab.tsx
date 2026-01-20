@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Clock,
   AlertCircle,
   AlertTriangle,
@@ -13,6 +14,7 @@ import {
   Calendar,
   Folder,
   FileText,
+  Calculator,
 } from 'lucide-react';
 import {
   useClientRetainer,
@@ -27,10 +29,64 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { TaskList, type TaskListGroup, type TaskListColumn } from '@/components/ui/task-list';
 import { energyToMinutes, getMysteryMultiplier, formatDuration } from '@/lib/calculations/energy';
 import { MysteryFactor } from '@prisma/client';
+import { Tooltip } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils/cn';
+
+// Usage mode types and options
+export type UsageMode = 'low' | 'medium' | 'high' | 'actual';
+
+const usageModeOptions: { value: UsageMode; label: string; description: string }[] = [
+  { value: 'actual', label: 'Actual', description: 'Time actually logged' },
+  { value: 'low', label: 'Low', description: 'Minimum estimate' },
+  { value: 'medium', label: 'Medium', description: 'Midpoint of estimate range' },
+  { value: 'high', label: 'High', description: 'Maximum estimate' },
+];
+
+
+/**
+ * Calculate completed task minutes based on usage mode
+ */
+function calculateCompletedMinutes(
+  tasks: RetainerTask[],
+  mode: UsageMode
+): number {
+  return tasks.reduce((sum, task) => {
+    switch (mode) {
+      case 'low':
+        return sum + task.estimated_minutes_min;
+      case 'medium':
+        return sum + Math.round((task.estimated_minutes_min + task.estimated_minutes_max) / 2);
+      case 'high':
+        return sum + task.estimated_minutes_max;
+      case 'actual':
+      default:
+        return sum + task.time_spent_minutes;
+    }
+  }, 0);
+}
+
+/**
+ * Get display minutes for a single task based on mode
+ */
+function getTaskDisplayMinutes(task: RetainerTask, mode: UsageMode): number {
+  switch (mode) {
+    case 'low':
+      return task.estimated_minutes_min;
+    case 'medium':
+      return Math.round((task.estimated_minutes_min + task.estimated_minutes_max) / 2);
+    case 'high':
+      return task.estimated_minutes_max;
+    case 'actual':
+    default:
+      return task.time_spent_minutes;
+  }
+}
 
 interface ClientRetainerTabProps {
   clientId: string;
   retainerHours: number;
+  usageMode: UsageMode;
+  onUsageModeChange: (mode: UsageMode) => void;
 }
 
 /**
@@ -123,7 +179,7 @@ const scheduledBarStyle: React.CSSProperties = {
   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(255,255,255,0.2) 3px, rgba(255,255,255,0.2) 6px)',
 };
 
-export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTabProps) {
+export function ClientRetainerTab({ clientId, retainerHours, usageMode, onUsageModeChange }: ClientRetainerTabProps) {
   const router = useRouter();
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth);
 
@@ -142,6 +198,12 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
 
   const isCurrentMonth = selectedMonth === getCurrentMonth();
   const canGoNext = !isCurrentMonth;
+
+  // Calculate completed minutes based on usage mode
+  const adjustedUsedMinutes = useMemo(() => {
+    if (!data?.tasks) return data?.usedMinutes || 0;
+    return calculateCompletedMinutes(data.tasks, usageMode);
+  }, [data?.tasks, data?.usedMinutes, usageMode]);
 
   // Group tasks by project
   const { completedGroups, scheduledGroups } = useMemo(() => {
@@ -226,12 +288,12 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
   }, [data?.tasks, data?.scheduledTasks]);
 
   // Column definitions for completed tasks
-  const completedColumns: TaskListColumn<RetainerTask>[] = [
+  const completedColumns: TaskListColumn<RetainerTask>[] = useMemo(() => [
     {
       key: 'title',
       header: 'Task',
       width: 'minmax(200px, 1fr)',
-      cell: (task) => (
+      cell: (task: RetainerTask) => (
         <div className="min-w-0">
           <span className="font-medium text-text-main truncate block">{task.title}</span>
         </div>
@@ -239,11 +301,11 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
     },
     {
       key: 'time_spent',
-      header: 'Logged',
+      header: usageMode === 'actual' ? 'Logged' : 'Estimate',
       width: '80px',
-      cell: (task) => (
+      cell: (task: RetainerTask) => (
         <span className="text-sm font-medium text-text-main">
-          {formatHours(task.time_spent_minutes)}
+          {formatHours(getTaskDisplayMinutes(task, usageMode))}
         </span>
       ),
     },
@@ -251,11 +313,11 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
       key: 'status',
       header: '',
       width: '80px',
-      cell: (task) => (
+      cell: (task: RetainerTask) => (
         task.invoiced ? <Badge variant="success" size="sm">Invoiced</Badge> : null
       ),
     },
-  ];
+  ], [usageMode]);
 
   // Column definitions for scheduled tasks
   const scheduledColumns: TaskListColumn<ScheduledRetainerTask>[] = [
@@ -324,17 +386,20 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
   }
 
   const {
-    usedMinutes = 0,
     scheduledMinutes = 0,
-    projectedTotalMinutes = 0,
     tasks = [],
     scheduledTasks = [],
     unscheduledTasksCount = 0,
     unscheduledMinutes = 0,
   } = data || {};
 
+  // Use adjusted completed minutes based on usage mode
+  const usedMinutes = adjustedUsedMinutes;
   const retainerMinutes = retainerHours * 60;
   const remainingMinutes = Math.max(retainerMinutes - usedMinutes, 0);
+
+  // Recalculate projected total with adjusted completed minutes
+  const projectedTotalMinutes = usedMinutes + scheduledMinutes;
   const projectedRemainingMinutes = Math.max(retainerMinutes - projectedTotalMinutes, 0);
 
   // Percentages for progress bar
@@ -354,9 +419,37 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
           <ChevronLeft className="h-4 w-4 mr-1" />
           Previous
         </Button>
-        <h2 className="text-lg font-semibold text-text-main">
-          {formatMonthDisplay(selectedMonth)}
-        </h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-semibold text-text-main">
+            {formatMonthDisplay(selectedMonth)}
+          </h2>
+          {/* Usage Mode Selector */}
+          <div className="flex items-center gap-2">
+            <Tooltip content="How to calculate completed task time">
+              <Calculator className="h-4 w-4 text-text-sub" />
+            </Tooltip>
+            <div className="relative">
+              <select
+                value={usageMode}
+                onChange={(e) => onUsageModeChange(e.target.value as UsageMode)}
+                className={cn(
+                  'h-8 pl-2 pr-7 rounded-lg border border-border-warm bg-surface',
+                  'text-sm text-text-main appearance-none cursor-pointer',
+                  'focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary',
+                  'transition-colors'
+                )}
+                title="Usage calculation mode"
+              >
+                {usageModeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-sub pointer-events-none" />
+            </div>
+          </div>
+        </div>
         <Button
           variant="ghost"
           size="sm"
@@ -410,12 +503,14 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
           <CardContent className="py-4">
             <div className="flex items-center gap-2 text-sm text-text-sub">
               <CheckCircle className="h-4 w-4" style={{ color: getStatusColor(actualStatus) }} />
-              Actual
+              {usageMode === 'actual' ? 'Actual' : 'Completed'}
             </div>
             <div className="text-2xl font-semibold text-text-main mt-1">
               {formatHours(usedMinutes)}
             </div>
-            <div className="text-xs text-text-sub">{usagePercent}% used</div>
+            <div className="text-xs text-text-sub">
+              {usagePercent}% {usageMode === 'actual' ? 'used' : `(${usageMode} est.)`}
+            </div>
           </CardContent>
         </Card>
 
@@ -521,7 +616,9 @@ export function ClientRetainerTab({ clientId, retainerHours }: ClientRetainerTab
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Completed This Month</CardTitle>
-            <Badge variant="default">{formatHours(usedMinutes)} logged</Badge>
+            <Badge variant="default">
+              {formatHours(usedMinutes)} {usageMode === 'actual' ? 'logged' : 'estimated'}
+            </Badge>
           </div>
         </CardHeader>
         <CardContent className="pt-0">

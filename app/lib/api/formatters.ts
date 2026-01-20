@@ -9,6 +9,7 @@ export function formatClientResponse(client: any) {
     phone: client.phone,
     retainer_hours: client.retainer_hours ? Number(client.retainer_hours) : null,
     hourly_rate: client.hourly_rate ? Number(client.hourly_rate) : null,
+    retainer_usage_mode: client.retainer_usage_mode,
     parent_agency_id: client.parent_agency_id,
     parent_agency: client.parent_agency || null,
     notes: client.notes,
