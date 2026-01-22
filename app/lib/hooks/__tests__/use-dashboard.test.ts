@@ -152,6 +152,7 @@ describe('Dashboard type guards', () => {
     inProgressTasks: [],
     timeThisWeekMinutes: 0,
     timeTodayMinutes: 0,
+    completedToday: [],
   };
 
   const pmData: PmDashboardData = {
@@ -164,6 +165,7 @@ describe('Dashboard type guards', () => {
     myProjects: [],
     retainerAlerts: [],
     recentCompletions: [],
+    completedToday: [],
   };
 
   const adminData: AdminDashboardData = {

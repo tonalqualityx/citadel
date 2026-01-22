@@ -77,6 +77,15 @@ export interface TechDashboardData extends DashboardBaseData {
   inProgressTasks: DashboardTask[];
   timeThisWeekMinutes: number;
   timeTodayMinutes: number;
+  completedToday: {
+    id: string;
+    title: string;
+    energy_estimate: number | null;
+    mystery_factor: string;
+    completed_at: string;
+    assignee: { id: string; name: string } | null;
+    project: { id: string; name: string } | null;
+  }[];
 }
 
 // PM user dashboard data
@@ -99,6 +108,15 @@ export interface PmDashboardData extends DashboardBaseData {
     assignee: { id: string; name: string } | null;
     project: { id: string; name: string } | null;
     completed_at: string;
+  }[];
+  completedToday: {
+    id: string;
+    title: string;
+    energy_estimate: number | null;
+    mystery_factor: string;
+    completed_at: string;
+    assignee: { id: string; name: string } | null;
+    project: { id: string; name: string } | null;
   }[];
 }
 

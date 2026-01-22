@@ -101,7 +101,42 @@ export function AdminOverlook({ data, myTasksSort, onMyTasksSortChange }: AdminO
   };
 
   // Calculate focus task estimates for meter
-  const focusEstimates = calculateFocusEstimates(data.focusTasks.items);
+  // Combine currently focused tasks + completed tasks to keep bar stable
+  const focusEstimates = React.useMemo(() => {
+    // Start with currently focused tasks
+    const result = calculateFocusEstimates(data.focusTasks.items);
+
+    // Add completed tasks from today to prevent bar from shrinking
+    if (data.completedToday) {
+      data.completedToday.forEach((task) => {
+        const baseMinutes = energyToMinutes(task.energy_estimate || 1);
+        const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
+        const multiplier = getMysteryMultiplier(mysteryFactor);
+
+        result.min += baseMinutes;
+        result.max += Math.round(baseMinutes * multiplier);
+      });
+    }
+
+    return result;
+  }, [data.focusTasks.items, data.completedToday]);
+
+  // Calculate completed minutes for completion tracking
+  const completedMinutes = React.useMemo(() => {
+    if (!data.completedToday) return 0;
+
+    return data.completedToday.reduce((total, task) => {
+      const baseMinutes = energyToMinutes(task.energy_estimate || 1);
+      const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
+      const mysteryMultiplier = getMysteryMultiplier(mysteryFactor);
+      const highMinutes = baseMinutes * mysteryMultiplier;
+
+      // Match battery level logic
+      if (batteryLevel === 'full') return total + baseMinutes;
+      if (batteryLevel === 'depleted') return total + highMinutes;
+      return total + (baseMinutes + highMinutes) / 2; // mid
+    }, 0);
+  }, [data.completedToday, batteryLevel]);
 
   const handleTaskClick = (task: DashboardTask) => {
     setPeekTaskId(task.id);
@@ -214,6 +249,7 @@ export function AdminOverlook({ data, myTasksSort, onMyTasksSortChange }: AdminO
               onBatteryLevelChange={setBatteryLevel}
               estimatedMinutesLow={focusEstimates.min}
               estimatedMinutesHigh={focusEstimates.max}
+              completedMinutes={completedMinutes}
             />
             <TaskList<DashboardTask>
               tasks={data.focusTasks.items}

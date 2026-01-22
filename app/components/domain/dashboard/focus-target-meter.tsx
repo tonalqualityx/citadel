@@ -13,6 +13,7 @@ interface FocusTargetMeterProps {
   onBatteryLevelChange: (level: BatteryLevel) => void;
   estimatedMinutesLow: number;
   estimatedMinutesHigh: number;
+  completedMinutes: number; // Minutes of completed work today
 }
 
 const BATTERY_OPTIONS: { value: BatteryLevel; label: string }[] = [
@@ -40,6 +41,7 @@ export function FocusTargetMeter({
   onBatteryLevelChange,
   estimatedMinutesLow,
   estimatedMinutesHigh,
+  completedMinutes,
 }: FocusTargetMeterProps) {
   const [hoursInputValue, setHoursInputValue] = React.useState(availableHours.toString());
   const batterySelectId = React.useId();
@@ -78,6 +80,7 @@ export function FocusTargetMeter({
   const lowPercent = availableMinutes > 0 ? (estimatedMinutesLow / availableMinutes) * 100 : 0;
   const highPercent = availableMinutes > 0 ? (estimatedMinutesHigh / availableMinutes) * 100 : 0;
   const selectedPercent = availableMinutes > 0 ? (selectedMinutes / availableMinutes) * 100 : 0;
+  const completedPercent = availableMinutes > 0 ? (completedMinutes / availableMinutes) * 100 : 0;
 
   // Determine status and message based on selected estimate
   let status: 'comfortable' | 'balanced' | 'over' = 'comfortable';
@@ -102,10 +105,12 @@ export function FocusTargetMeter({
         return 'bg-red-500';
       case 'balanced':
         return 'bg-amber-500';
-      default:
-        return 'bg-green-500';
+      default: // comfortable
+        return 'bg-blue-500';
     }
   };
+
+  const barColor = getBarColor();
 
   // Empty state
   if (!hasEstimates) {
@@ -206,19 +211,26 @@ export function FocusTargetMeter({
       <div className="relative mb-2">
         {/* Bar background (0 to capacity) */}
         <div className="h-4 bg-surface rounded-full overflow-hidden relative">
-          {/* Range band showing potential extent (0 to high) - faded */}
+          {/* Layer 1: HIGH estimate (light/transparent) */}
           <div
-            className={`absolute inset-y-0 left-0 rounded-full transition-all ${getBarColor()}`}
+            className={`absolute inset-y-0 left-0 rounded-full transition-all ${barColor} opacity-30`}
+            style={{ width: `${Math.min(highPercent, 100)}%` }}
+          />
+          {/* Layer 2: LOW estimate (solid) */}
+          <div
+            className={`absolute inset-y-0 left-0 rounded-full transition-all ${barColor}`}
             style={{
-              width: `${Math.min(highPercent, 100)}%`,
-              opacity: 0.3,
+              width: `${Math.min(lowPercent, 100)}%`,
             }}
           />
-          {/* Filled portion up to selected estimate - solid */}
-          <div
-            className={`absolute inset-y-0 left-0 rounded-full transition-all ${getBarColor()}`}
-            style={{ width: `${Math.min(selectedPercent, 100)}%` }}
-          />
+          {/* Layer 3: Completed work overlay */}
+          {completedPercent > 0 && (
+            <div
+              className="absolute inset-y-0 left-0 bg-green-500 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(completedPercent, 100)}%` }}
+              title={`Completed: ${formatHours(completedMinutes)}`}
+            />
+          )}
         </div>
         {/* Capacity marker at 100% */}
         <div className="absolute top-0 bottom-0 right-0 w-0.5 bg-text-sub/30" />

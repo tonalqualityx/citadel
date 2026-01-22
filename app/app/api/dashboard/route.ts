@@ -240,6 +240,22 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority') {
     _sum: { duration: true },
   });
 
+  // Completed tasks today (for focus meter completion tracking)
+  const completedToday = await prisma.task.findMany({
+    where: {
+      is_deleted: false,
+      status: 'done',
+      completed_at: { gte: today },
+      assignee_id: userId,
+    },
+    include: {
+      assignee: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true } },
+    },
+    orderBy: { completed_at: 'desc' },
+    take: 50, // Reasonable daily max
+  });
+
   return {
     myTasks: {
       items: formattedTasks,
@@ -251,6 +267,15 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority') {
     inProgressTasks,
     timeThisWeekMinutes: timeThisWeek._sum.duration || 0,
     timeTodayMinutes: timeToday._sum.duration || 0,
+    completedToday: completedToday.map((t) => ({
+      id: t.id,
+      title: t.title,
+      energy_estimate: t.energy_estimate,
+      mystery_factor: t.mystery_factor,
+      completed_at: t.completed_at?.toISOString() || '',
+      assignee: t.assignee,
+      project: t.project,
+    })),
   };
 }
 
@@ -452,6 +477,23 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority') {
     take: 5,
   });
 
+  // Completed tasks today (for focus meter completion tracking)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const completedToday = await prisma.task.findMany({
+    where: {
+      is_deleted: false,
+      status: 'done',
+      completed_at: { gte: today },
+    },
+    include: {
+      assignee: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true } },
+    },
+    orderBy: { completed_at: 'desc' },
+    take: 50, // Reasonable daily max
+  });
+
   // Helper to format task (generic to handle different includes)
   const formatTaskGeneric = (t: any) => ({
     id: t.id,
@@ -509,6 +551,15 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority') {
       assignee: t.assignee,
       project: t.project,
       completed_at: t.completed_at?.toISOString(),
+    })),
+    completedToday: completedToday.map((t) => ({
+      id: t.id,
+      title: t.title,
+      energy_estimate: t.energy_estimate,
+      mystery_factor: t.mystery_factor,
+      completed_at: t.completed_at?.toISOString() || '',
+      assignee: t.assignee,
+      project: t.project,
     })),
   };
 }

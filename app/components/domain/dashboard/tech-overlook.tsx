@@ -118,7 +118,42 @@ export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOve
   const focusTasks = data.myTasks.items.filter((t) => t.is_focus);
 
   // Calculate focus task estimates for meter
-  const focusEstimates = calculateFocusEstimates(focusTasks);
+  // Combine currently focused tasks + completed tasks to keep bar stable
+  const focusEstimates = React.useMemo(() => {
+    // Start with currently focused tasks
+    const result = calculateFocusEstimates(focusTasks);
+
+    // Add completed tasks from today to prevent bar from shrinking
+    if (data.completedToday) {
+      data.completedToday.forEach((task) => {
+        const baseMinutes = energyToMinutes(task.energy_estimate || 1);
+        const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
+        const multiplier = getMysteryMultiplier(mysteryFactor);
+
+        result.min += baseMinutes;
+        result.max += Math.round(baseMinutes * multiplier);
+      });
+    }
+
+    return result;
+  }, [focusTasks, data.completedToday]);
+
+  // Calculate completed minutes for completion tracking
+  const completedMinutes = React.useMemo(() => {
+    if (!data.completedToday) return 0;
+
+    return data.completedToday.reduce((total, task) => {
+      const baseMinutes = energyToMinutes(task.energy_estimate || 1);
+      const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
+      const mysteryMultiplier = getMysteryMultiplier(mysteryFactor);
+      const highMinutes = baseMinutes * mysteryMultiplier;
+
+      // Match battery level logic
+      if (batteryLevel === 'full') return total + baseMinutes;
+      if (batteryLevel === 'depleted') return total + highMinutes;
+      return total + (baseMinutes + highMinutes) / 2; // mid
+    }, 0);
+  }, [data.completedToday, batteryLevel]);
 
   // Task grouping for My Tasks section
   const { groupBy, setGroupBy, groups } = useTaskGrouping(data.myTasks.items, {
@@ -202,6 +237,7 @@ export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOve
               onBatteryLevelChange={setBatteryLevel}
               estimatedMinutesLow={focusEstimates.min}
               estimatedMinutesHigh={focusEstimates.max}
+              completedMinutes={completedMinutes}
             />
             <TaskList<DashboardTask>
               tasks={focusTasks}
