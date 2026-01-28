@@ -835,7 +835,7 @@ export default function QuestDetailPage() {
                     </dd>
                   </div>
                 )}
-                {task.created_by && (
+                {task.created_by?.name && (
                   <div>
                     <dt className="text-text-sub">Created by</dt>
                     <dd className="text-text-main">{task.created_by.name}</dd>

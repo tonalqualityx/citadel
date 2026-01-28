@@ -196,6 +196,10 @@ export function useUpdateTask() {
         });
       }
     },
+    onError: (error) => {
+      console.error('Failed to update task:', error);
+      showToast.apiError(error, 'Failed to update task');
+    },
   });
 }
 
