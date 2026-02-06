@@ -43,6 +43,7 @@ model User {
   comments              Comment[]
   password_reset_tokens PasswordResetToken[]
   activity_logs         ActivityLog[]
+  api_keys              ApiKey[]
   sites_maintained      Site[]                 @relation("SiteMaintainer")
   bug_report_notifications AppSettings[]       @relation("BugReportNotifyUser")
 
@@ -75,6 +76,25 @@ model Session {
   @@index([user_id])
   @@index([expires_at])
   @@map("sessions")
+}
+
+model ApiKey {
+  id           String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  name         String    @db.VarChar(100)
+  key_hash     String    @db.VarChar(255)
+  key_prefix   String    @db.VarChar(20)
+  last_used_at DateTime?
+  expires_at   DateTime?
+  is_revoked   Boolean   @default(false)
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([key_hash])
+  @@index([user_id])
+  @@map("api_keys")
 }
 
 // ============================================

@@ -7,7 +7,7 @@ import { formatProjectResponse } from '@/lib/api/formatters';
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
-  description: z.string().optional(),
+  description: z.any().optional(), // Can be string or BlockNote document (array)
   status: z
     .enum(['quote', 'queue', 'ready', 'in_progress', 'review', 'done', 'suspended', 'cancelled'])
     .optional(),

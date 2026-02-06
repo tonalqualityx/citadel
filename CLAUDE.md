@@ -403,6 +403,22 @@ await logStatusChange(userId, 'task', taskId, oldStatus, newStatus);
 
 ---
 
+## 11. API Route Registry (REQUIRED)
+
+### The Rule
+**When adding, modifying, or removing any API endpoint, you MUST update the route registry at `/lib/api/registry.ts`.**
+
+### Why This Matters
+The API is consumed by external LLM agents (e.g., Openclaw) that discover available endpoints by calling `GET /api/docs`. If the registry is stale, external tools will fail or miss capabilities.
+
+### What to Update
+- Adding a new route: Add its entry to the registry with path, methods, params, and description
+- Changing query params or body schema: Update the corresponding registry entry
+- Removing a route: Remove its registry entry
+- Changing auth requirements: Update the `auth` and `roles` fields
+
+---
+
 ## Quick Reference: File Locations
 
 | Purpose | Location |
@@ -414,4 +430,5 @@ await logStatusChange(userId, 'task', taskId, oldStatus, newStatus);
 | Calculations | `/lib/calculations/` |
 | API Helpers | `/lib/api/` |
 | Services | `/lib/services/` |
+| API Route Registry | `/lib/api/registry.ts` |
 | Database | `/prisma/schema.prisma` |

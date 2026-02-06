@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User } from 'lucide-react';
+import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -215,6 +215,20 @@ export default function GuildPage() {
               />
             ))}
           </div>
+        </SettingsCard>
+
+        {/* API Keys */}
+        <SettingsCard
+          icon={Key}
+          title="API Keys"
+          description="Manage API keys for external tool access."
+        >
+          <a
+            href="/settings/api-keys"
+            className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 font-medium"
+          >
+            Manage API keys →
+          </a>
         </SettingsCard>
 
         {/* Notification Preferences */}

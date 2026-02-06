@@ -8,7 +8,7 @@ import { canTransitionProjectStatus } from '@/lib/calculations/status';
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  description: z.string().optional().nullable(),
+  description: z.any().optional().nullable(), // Can be string or BlockNote document (array)
   type: z.enum(['project', 'retainer', 'internal']).optional(),
   billing_type: z.enum(['fixed', 'hourly', 'retainer', 'none']).optional().nullable(),
   client_id: z.string().uuid().optional(),

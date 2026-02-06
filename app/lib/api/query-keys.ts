@@ -143,6 +143,12 @@ export const clientRetainerKeys = {
     [...clientRetainerKeys.all, clientId, month] as const,
 };
 
+// API Key keys
+export const apiKeyKeys = {
+  all: ['api-keys'] as const,
+  lists: () => [...apiKeyKeys.all, 'list'] as const,
+};
+
 // App Settings keys
 export const appSettingsKeys = {
   all: ['app-settings'] as const,
@@ -157,6 +163,7 @@ export const queryKeys = {
   projects: projectKeys,
   tasks: taskKeys,
   billing: billingKeys,
+  apiKeys: apiKeyKeys,
   integrations: integrationKeys,
   referenceData: referenceDataKeys,
   dnsProviders: dnsProviderKeys,

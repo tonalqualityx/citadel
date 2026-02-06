@@ -11,7 +11,7 @@ export type ActivityAction =
   | 'completed'
   | 'commented';
 
-export type EntityType = 'task' | 'project' | 'client' | 'site' | 'sop' | 'comment';
+export type EntityType = 'task' | 'project' | 'client' | 'site' | 'sop' | 'comment' | 'api_key';
 
 export interface ActivityLogInput {
   userId: string;
