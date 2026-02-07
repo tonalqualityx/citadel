@@ -1,0 +1,171 @@
+import type { ApiEndpoint } from './index';
+
+export const timeEntryEndpoints: ApiEndpoint[] = [
+  {
+    path: '/api/time-entries',
+    group: 'time-entries',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List time entries with pagination and filters.',
+        auth: 'required',
+        queryParams: [
+          { name: 'user_id', type: 'uuid', required: false, description: 'Filter by user' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'Filter by task' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'Filter by project' },
+          { name: 'start_date', type: 'ISO-8601', required: false, description: 'From date' },
+          { name: 'end_date', type: 'ISO-8601', required: false, description: 'To date' },
+          { name: 'page', type: 'number', required: false, description: 'Page number' },
+          { name: 'limit', type: 'number', required: false, description: 'Items per page' },
+        ],
+        responseExample: {
+          time_entries: [{
+            id: 'uuid',
+            user_id: 'uuid',
+            user: { id: 'uuid', name: 'string' },
+            task_id: 'uuid|null',
+            task: { id: 'uuid', title: 'string' },
+            project_id: 'uuid|null',
+            project: { id: 'uuid', name: 'string' },
+            started_at: 'ISO-8601',
+            ended_at: 'ISO-8601|null',
+            duration: 'number|null',
+            description: 'string|null',
+            is_billable: 'boolean',
+            is_running: 'boolean',
+            created_at: 'ISO-8601',
+          }],
+          pagination: { page: 'number', limit: 'number', total: 'number', totalPages: 'number' },
+        },
+        responseNotes: 'duration is in minutes. is_running=true means the timer has no ended_at yet. Non-admin users only see their own entries unless filtered by project.',
+      },
+      {
+        method: 'POST',
+        summary: 'Create a manual time entry.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'task_id', type: 'uuid', required: false, description: 'Task ID' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'Project ID' },
+          { name: 'started_at', type: 'ISO-8601', required: true, description: 'Start time' },
+          { name: 'ended_at', type: 'ISO-8601', required: false, description: 'End time' },
+          { name: 'duration', type: 'number', required: false, description: 'Duration in minutes' },
+          { name: 'description', type: 'string', required: false, description: 'Description' },
+          { name: 'is_billable', type: 'boolean', required: false, description: 'Whether billable' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          task_id: 'uuid|null',
+          project_id: 'uuid|null',
+          started_at: 'ISO-8601',
+          ended_at: 'ISO-8601|null',
+          duration: 'number|null',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/time-entries/:id',
+    group: 'time-entries',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Get a time entry.',
+        auth: 'required',
+        responseExample: {
+          id: 'uuid',
+          user_id: 'uuid',
+          user: { id: 'uuid', name: 'string' },
+          task_id: 'uuid|null',
+          task: { id: 'uuid', title: 'string' },
+          project_id: 'uuid|null',
+          started_at: 'ISO-8601',
+          ended_at: 'ISO-8601|null',
+          duration: 'number|null',
+          description: 'string|null',
+          is_billable: 'boolean',
+          created_at: 'ISO-8601',
+        },
+      },
+      {
+        method: 'PATCH',
+        summary: 'Update a time entry.',
+        auth: 'required',
+        responseExample: {
+          id: 'uuid',
+          duration: 'number|null',
+          updated_at: 'ISO-8601',
+        },
+      },
+      {
+        method: 'DELETE',
+        summary: 'Soft delete a time entry.',
+        auth: 'required',
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/time-entries/active',
+    group: 'time-entries',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Get the current user\'s running timer (if any).',
+        auth: 'required',
+        responseExample: {
+          id: 'uuid',
+          task_id: 'uuid|null',
+          task: { id: 'uuid', title: 'string' },
+          project_id: 'uuid|null',
+          project: { id: 'uuid', name: 'string' },
+          started_at: 'ISO-8601',
+          description: 'string|null',
+        },
+        responseNotes: 'Returns null if no timer is running.',
+      },
+    ],
+  },
+  {
+    path: '/api/time-entries/start',
+    group: 'time-entries',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Start a new timer. Stops any existing running timer first.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'task_id', type: 'uuid', required: false, description: 'Task to track time for' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'Project ID' },
+          { name: 'description', type: 'string', required: false, description: 'Description' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          task_id: 'uuid|null',
+          project_id: 'uuid|null',
+          started_at: 'ISO-8601',
+          stopped_entry: { id: 'uuid', duration: 'number' },
+        },
+        responseNotes: 'stopped_entry is included if a previously running timer was auto-stopped.',
+      },
+    ],
+  },
+  {
+    path: '/api/time-entries/:id/stop',
+    group: 'time-entries',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Stop a running timer and calculate duration.',
+        auth: 'required',
+        responseExample: {
+          id: 'uuid',
+          started_at: 'ISO-8601',
+          ended_at: 'ISO-8601',
+          duration: 'number',
+        },
+        responseNotes: 'duration is calculated from started_at to ended_at in minutes.',
+      },
+    ],
+  },
+];

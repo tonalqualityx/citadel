@@ -16,8 +16,8 @@ const execAsync = promisify(exec);
 export const TABLE_GROUPS = {
   users: {
     name: 'Users & Auth',
-    description: 'User accounts, preferences, sessions',
-    tables: ['users', 'user_preferences', 'sessions', 'password_reset_tokens'],
+    description: 'User accounts, preferences, sessions, API keys, function assignments',
+    tables: ['users', 'user_preferences', 'sessions', 'password_reset_tokens', 'api_keys', 'user_functions'],
   },
   reference: {
     name: 'Reference Data',
@@ -31,13 +31,13 @@ export const TABLE_GROUPS = {
   },
   projects: {
     name: 'Projects',
-    description: 'Projects, phases, team assignments, milestones',
-    tables: ['projects', 'project_phases', 'project_team_assignments', 'milestones', 'project_pages'],
+    description: 'Projects, phases, team assignments, milestones, resource links',
+    tables: ['projects', 'project_phases', 'project_team_assignments', 'milestones', 'project_pages', 'resource_links'],
   },
   tasks: {
     name: 'Tasks',
-    description: 'Tasks, comments, time entries',
-    tables: ['tasks', 'comments', 'time_entries'],
+    description: 'Tasks, comments, time entries, dependencies',
+    tables: ['tasks', 'comments', 'time_entries', '_TaskDependencies'],
   },
   sops: {
     name: 'SOPs & Recipes',
@@ -46,8 +46,13 @@ export const TABLE_GROUPS = {
   },
   activity: {
     name: 'Activity',
-    description: 'Activity logs, notifications, maintenance logs',
-    tables: ['activity_logs', 'notifications', 'maintenance_generation_logs'],
+    description: 'Activity logs, notifications, notification preferences, Slack mappings, maintenance logs',
+    tables: ['activity_logs', 'notifications', 'notification_preferences', 'slack_user_mappings', 'slack_message_threads', 'email_digest_queue', 'slack_notification_batch', 'maintenance_generation_logs'],
+  },
+  settings: {
+    name: 'App Settings',
+    description: 'Application configuration',
+    tables: ['app_settings'],
   },
 } as const;
 
@@ -58,8 +63,10 @@ const TABLE_ORDER = [
   // Users (no deps)
   'users',
   'user_preferences',
+  'api_keys',
   // Reference data (no deps except functions for sops)
   'functions',
+  'user_functions',
   'hosting_plans',
   'maintenance_plans',
   'tools',
@@ -84,8 +91,10 @@ const TABLE_ORDER = [
   'project_team_assignments',
   'milestones',
   'project_pages',
+  'resource_links',
   // Tasks (→ projects, clients, project_phases, users, functions, sops)
   'tasks',
+  '_TaskDependencies',
   'time_entries',
   'comments',
   // Auth/activity (→ users)
@@ -93,8 +102,15 @@ const TABLE_ORDER = [
   'password_reset_tokens',
   'activity_logs',
   'notifications',
+  'notification_preferences',
+  'slack_user_mappings',
+  'slack_message_threads',
+  'email_digest_queue',
+  'slack_notification_batch',
   // Maintenance generation logs (→ maintenance_plans, sites)
   'maintenance_generation_logs',
+  // Settings
+  'app_settings',
 ];
 
 /**
