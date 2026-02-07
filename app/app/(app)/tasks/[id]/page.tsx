@@ -415,6 +415,7 @@ export default function QuestDetailPage() {
                   <SiteSelect
                     value={task.site_id || null}
                     onChange={(site_id) => saveImmediate({ site_id })}
+                    clientId={task.client_id}
                     placeholder="No site"
                     allowClear
                   />

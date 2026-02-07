@@ -41,6 +41,7 @@ const updateTaskSchema = z.object({
   is_focus: z.boolean().optional(), // User focus flag
   project_id: z.string().uuid().optional().nullable(),
   client_id: z.string().uuid().optional().nullable(),
+  site_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(),
   sort_order: z.number().optional(),
   assignee_id: z.string().uuid().optional().nullable(),
@@ -114,6 +115,59 @@ async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
   }
 
   return task;
+}
+
+/**
+ * When a task's status changes, propagate that change to dependent tasks:
+ * - If completed: unblock tasks where all blockers are now done
+ * - If reopened from done: re-block dependent tasks that are in active states
+ */
+async function propagateBlockingStatus(taskId: string, newStatus: string, oldStatus: string) {
+  // Only propagate when status actually changed
+  if (newStatus === oldStatus) return;
+
+  if (newStatus === 'done') {
+    // Find tasks blocked by this one that are currently in "blocked" status
+    const dependentTasks = await prisma.task.findMany({
+      where: {
+        blocked_by: { some: { id: taskId } },
+        status: 'blocked',
+        is_deleted: false,
+      },
+      include: {
+        blocked_by: {
+          where: { status: { not: 'done' }, is_deleted: false },
+          select: { id: true },
+        },
+      },
+    });
+
+    // Unblock tasks that have no remaining incomplete blockers
+    const toUnblock = dependentTasks.filter(t => t.blocked_by.length === 0);
+    if (toUnblock.length > 0) {
+      await prisma.task.updateMany({
+        where: { id: { in: toUnblock.map(t => t.id) } },
+        data: { status: 'not_started' },
+      });
+    }
+  } else if (oldStatus === 'done') {
+    // Reopening a completed blocker — re-block dependent tasks in active states
+    const dependentTasks = await prisma.task.findMany({
+      where: {
+        blocked_by: { some: { id: taskId } },
+        status: { notIn: ['blocked', 'done', 'abandoned'] },
+        is_deleted: false,
+      },
+      select: { id: true },
+    });
+
+    if (dependentTasks.length > 0) {
+      await prisma.task.updateMany({
+        where: { id: { in: dependentTasks.map(t => t.id) } },
+        data: { status: 'blocked' },
+      });
+    }
+  }
 }
 
 export async function GET(
@@ -254,6 +308,9 @@ export async function PATCH(
         statusData.status
       );
 
+      // Propagate blocking status to dependent tasks
+      await propagateBlockingStatus(id, statusData.status, existingTask.status);
+
       return NextResponse.json(formatTaskResponse(task));
     }
 
@@ -274,6 +331,7 @@ export async function PATCH(
         'battery_impact',
         'due_date',
         'no_time_needed',
+        'site_id',
       ];
       const attemptedFields = Object.keys(body);
       const disallowedFields = attemptedFields.filter(
@@ -332,6 +390,7 @@ export async function PATCH(
     if (data.is_focus !== undefined) updateData.is_focus = data.is_focus;
     if (data.project_id !== undefined) updateData.project_id = data.project_id;
     if (clientIdUpdate !== undefined) updateData.client_id = clientIdUpdate;
+    if (data.site_id !== undefined) updateData.site_id = data.site_id;
     if (data.phase !== undefined) updateData.phase = data.phase;
     if (data.sort_order !== undefined) updateData.sort_order = data.sort_order;
     if (data.assignee_id !== undefined) updateData.assignee_id = data.assignee_id;

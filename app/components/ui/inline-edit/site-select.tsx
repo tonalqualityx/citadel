@@ -13,6 +13,7 @@ interface SiteSelectProps {
   className?: string;
   excludeIds?: string[]; // Exclude sites from the list (e.g., sites already assigned to a client)
   allowClear?: boolean; // Whether to show the "Clear selection" option (default: true)
+  clientId?: string | null; // Filter sites by client
 }
 
 export function SiteSelect({
@@ -22,6 +23,7 @@ export function SiteSelect({
   className = '',
   excludeIds = [],
   allowClear = true,
+  clientId,
 }: SiteSelectProps) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
@@ -30,7 +32,7 @@ export function SiteSelect({
   const buttonRef = React.useRef<HTMLButtonElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const searchRef = React.useRef<HTMLInputElement>(null);
-  const { data, isLoading } = useSites({ limit: 100 });
+  const { data, isLoading } = useSites({ limit: 100, client_id: clientId || undefined });
 
   const sites = React.useMemo(() => {
     let list = data?.sites || [];
