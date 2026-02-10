@@ -19,6 +19,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'phase', type: 'string', required: false, description: 'Filter by phase' },
           { name: 'my_tasks', type: 'boolean', required: false, description: 'Only tasks assigned to current user' },
           { name: 'pending_review', type: 'boolean', required: false, description: 'Tasks awaiting review approval' },
+          { name: 'active_only', type: 'boolean', required: false, description: 'When true, excludes done and abandoned tasks. Ignored if status or statuses is provided.' },
           { name: 'page', type: 'number', required: false, description: 'Page number' },
           { name: 'limit', type: 'number', required: false, description: 'Items per page' },
         ],

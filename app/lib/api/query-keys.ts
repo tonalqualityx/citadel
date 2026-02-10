@@ -90,6 +90,7 @@ export interface TaskFilters {
   search?: string;
   status?: string; // Single status (legacy)
   statuses?: string[]; // Multiple statuses - comma-separated when sent to API
+  active_only?: boolean; // Excludes done and abandoned tasks (ignored if status/statuses provided)
   priority?: number;
   project_id?: string;
   assignee_id?: string;

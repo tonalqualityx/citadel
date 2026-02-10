@@ -219,8 +219,8 @@ describe('POST /api/tasks', () => {
       expect(mockTaskCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            project: { connect: { id: projectId } },
-            client: { connect: { id: clientId } }, // Auto-populated from project
+            project_id: projectId,
+            client_id: clientId, // Auto-populated from project
           }),
         })
       );
@@ -280,7 +280,7 @@ describe('POST /api/tasks', () => {
       expect(mockTaskCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            client: { connect: { id: clientId } },
+            client_id: clientId,
           }),
         })
       );
@@ -314,6 +314,7 @@ describe('POST /api/tasks', () => {
     it('sends notification when assigned to another user', async () => {
       mockTaskCreate.mockResolvedValue({
         ...mockCreatedTask,
+        assignee_id: assigneeId,
         assignee: { id: assigneeId, name: 'Test Assignee', email: 'assignee@test.com', avatar_url: null },
       });
       mockUserFindUnique.mockResolvedValue({ name: 'Creator Name' });
@@ -374,7 +375,7 @@ describe('POST /api/tasks', () => {
       expect(mockTaskCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            sop: { connect: { id: sopId } },
+            sop_id: sopId,
             energy_estimate: 4,
             mystery_factor: 'average',
             battery_impact: 'high_drain',
@@ -659,8 +660,8 @@ describe('POST /api/tasks', () => {
             description: 'Task description',
             status: 'in_progress',
             priority: 2,
-            project: { connect: { id: projectId } },
-            assignee: { connect: { id: assigneeId } },
+            project_id: projectId,
+            assignee_id: assigneeId,
             energy_estimate: 4,
             mystery_factor: 'average',
             battery_impact: 'high_drain',
@@ -819,6 +820,53 @@ describe('GET /api/tasks', () => {
         }),
       })
     );
+  });
+
+  describe('active_only filter', () => {
+    it('excludes done and abandoned tasks when active_only=true', async () => {
+      const request = createGetRequest({ active_only: 'true' });
+      await GET(request);
+
+      expect(mockTaskFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({ status: { notIn: ['done', 'abandoned'] } }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('is ignored when statuses param is provided', async () => {
+      const request = createGetRequest({ active_only: 'true', statuses: 'done' });
+      await GET(request);
+
+      expect(mockTaskFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({ status: { in: ['done'] } }),
+            ]),
+          }),
+        })
+      );
+    });
+
+    it('is ignored when status param is provided', async () => {
+      const request = createGetRequest({ active_only: 'true', status: 'done' });
+      await GET(request);
+
+      expect(mockTaskFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({ status: 'done' }),
+            ]),
+          }),
+        })
+      );
+    });
   });
 
   describe('Tech user access control', () => {

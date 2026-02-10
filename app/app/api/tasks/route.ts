@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
     const phase = searchParams.get('phase') || undefined;
     const myTasks = searchParams.get('my_tasks') === 'true';
     const pendingReview = searchParams.get('pending_review') === 'true';
+    const activeOnly = searchParams.get('active_only') === 'true';
 
     // Parse multiple statuses if provided
     const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
@@ -67,8 +68,14 @@ export async function GET(request: NextRequest) {
     // Build base where clause
     const baseConditions: any = {
       is_deleted: false,
-      // Support both single status and multiple statuses
-      ...(statusList ? { status: { in: statusList } } : status ? { status } : {}),
+      // Support both single status and multiple statuses; active_only excludes done/abandoned when no explicit status filter
+      ...(statusList
+        ? { status: { in: statusList } }
+        : status
+          ? { status }
+          : activeOnly
+            ? { status: { notIn: ['done', 'abandoned'] } }
+            : {}),
       ...(priority && { priority }),
       ...(projectId && { project_id: projectId }),
       ...(phase && { phase }),

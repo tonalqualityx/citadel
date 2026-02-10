@@ -21,14 +21,28 @@ This document contains development rules and patterns for the Indelible codebase
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  1. PLAN PHASE - Main Agent                                        │
-│     - Create implementation plan                                    │
+│  1. IMPACT ANALYSIS PHASE - Sub-Agents (BEFORE any code changes)   │
+│     a) Codebase Impact Agent:                                      │
+│        - Search for all callers/consumers of code being changed    │
+│        - Identify imports, type references, and dependent modules  │
+│        - Report any code that may break from the planned changes   │
+│     b) Test Impact Agent:                                          │
+│        - Search for all test files that test the affected code     │
+│        - Grep for test assertions referencing changed interfaces,  │
+│          function signatures, or behavior                          │
+│        - Report which tests need updating and why                  │
+│     - Main agent incorporates findings into the plan               │
+└─────────────────────────────────────────────────────────────────────┘
+                                 ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│  2. PLAN PHASE - Main Agent                                        │
+│     - Create implementation plan (includes test update plan)       │
 │     - Save plan to /implementation/plans/FEATURE-NAME.md           │
 │     - Get user approval before proceeding                          │
 └─────────────────────────────────────────────────────────────────────┘
                                  ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│  2. IMPLEMENT PHASE - Sub-Agents                                   │
+│  3. IMPLEMENT PHASE - Sub-Agents                                   │
 │     - Dispatch sub-agents for specific tasks:                      │
 │       • API routes (read existing patterns, write new routes)      │
 │       • React hooks (read existing hooks, write new hooks)         │
@@ -38,11 +52,13 @@ This document contains development rules and patterns for the Indelible codebase
 └─────────────────────────────────────────────────────────────────────┘
                                  ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│  3. TEST PHASE - Sub-Agents                                        │
-│     - Run TypeScript compilation check                             │
+│  4. TEST PHASE - Sub-Agents                                        │
+│     - Update existing tests identified in Impact Analysis phase    │
 │     - Write unit tests for new functionality                       │
-│     - Run existing tests to prevent regressions                    │
+│     - Run TypeScript compilation check                             │
+│     - Run ALL affected test files to prevent regressions           │
 │     - Fix any failures before marking complete                     │
+│     - ALL tests must pass — zero known-broken tests allowed        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,6 +85,9 @@ Brief description of what we're building.
 2. Step two
 3. ...
 
+## Tests to Update (from Impact Analysis)
+- [ ] `path/to/existing.test.ts` - What assertions need changing and why
+
 ## Tests to Write
 - [ ] Test case 1
 - [ ] Test case 2
@@ -79,6 +98,26 @@ Brief description of what we're building.
 - [ ] Unit tests pass
 - [ ] No regressions in existing tests
 ```
+
+### Impact Analysis (REQUIRED before implementation)
+
+**Before writing any code**, dispatch two sub-agents in parallel:
+
+```
+Sub-Agent A: "Codebase Impact Analysis"
+  → Search for all imports/callers of files being changed
+  → Check for type references, interface consumers, downstream modules
+  → Report: files that may break, behavior changes, breaking API contracts
+
+Sub-Agent B: "Test Impact Analysis"
+  → Grep for test files covering changed code (e.g., __tests__/*.test.ts)
+  → Read test assertions that reference changed function signatures,
+    Prisma call shapes, interface fields, or response formats
+  → Report: which test files need updates, specific assertions that
+    will break, and what the new expected values should be
+```
+
+**The plan MUST include a "Tests to Update" section** listing every existing test that needs modification, in addition to new tests to write. No test file should be left broken by implementation changes.
 
 ### Sub-Agent Dispatch Pattern
 
@@ -113,10 +152,17 @@ Sub-Agent 5: "Run tests and type check"
 
 ### Testing Requirements
 
+**Zero Broken Tests Policy**: Every change must leave all tests passing. If your implementation changes break existing tests, you MUST fix those tests as part of the same change. Never leave known-broken tests behind.
+
 **Unit Tests Are Required** for:
 - API route handlers (test request/response)
 - Utility functions in `/lib/calculations/`
 - React hooks (test with React Testing Library)
+
+**Existing Test Maintenance**:
+- When changing a function signature, Prisma call shape, interface, or response format, update ALL test assertions that reference the old shape
+- When changing behavior (e.g., adding a filter), verify existing tests still pass with the new logic
+- Common drift patterns to watch for: Prisma `connect` vs flat scalar IDs, added `include` blocks, renamed fields, new required parameters
 
 **Test Files Location**:
 - Place tests next to source files: `component.tsx` → `component.test.tsx`
