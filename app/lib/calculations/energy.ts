@@ -1,10 +1,16 @@
 import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
-const MYSTERY_MULTIPLIERS: Record<MysteryFactor, number> = {
+export const MYSTERY_MULTIPLIERS: Record<MysteryFactor, number> = {
   none: 1.0,
-  average: 1.4,
-  significant: 1.75,
-  no_idea: 2.5,
+  average: 1.61,
+  significant: 2.5,
+  no_idea: 4.2,
+};
+
+export const BATTERY_MULTIPLIERS: Record<BatteryImpact, number> = {
+  average_drain: 1.1,
+  high_drain: 1.61,
+  energizing: 1.0,
 };
 
 // Energy to minutes mapping (based on your system)
@@ -21,6 +27,10 @@ const ENERGY_TO_MINUTES: Record<number, number> = {
 
 export function getMysteryMultiplier(factor: MysteryFactor): number {
   return MYSTERY_MULTIPLIERS[factor];
+}
+
+export function getBatteryMultiplier(impact: BatteryImpact): number {
+  return BATTERY_MULTIPLIERS[impact];
 }
 
 export function getMysteryFactorLabel(factor: MysteryFactor): string {
@@ -47,14 +57,16 @@ export function energyToMinutes(energy: number): number {
 }
 
 export function calculateEstimatedMinutes(
-  energyEstimate: number | null,
-  mysteryFactor: MysteryFactor
+  energyEstimate: number | null | undefined,
+  mysteryFactor: MysteryFactor,
+  batteryImpact: BatteryImpact = 'average_drain'
 ): number | null {
   if (!energyEstimate) return null;
 
   const baseMinutes = energyToMinutes(energyEstimate);
-  const multiplier = getMysteryMultiplier(mysteryFactor);
-  return Math.round(baseMinutes * multiplier);
+  const mysteryMultiplier = getMysteryMultiplier(mysteryFactor);
+  const batteryMultiplier = getBatteryMultiplier(batteryImpact);
+  return Math.round(baseMinutes * mysteryMultiplier * batteryMultiplier);
 }
 
 export function formatDuration(minutes: number): string {
@@ -137,6 +149,7 @@ export interface TaskForEstimate {
   status: string;
   energy_estimate: number | null;
   mystery_factor: MysteryFactor;
+  battery_impact?: BatteryImpact | null;
   estimated_minutes: number | null;
 }
 
@@ -167,9 +180,10 @@ export function calculateProjectEstimates(tasks: TaskForEstimate[], timeSpentMin
       const baseMinutes = energyToMinutes(task.energy_estimate);
       incompleteMinutesMin += baseMinutes;
 
-      // Weighted minutes with mystery factor
-      const multiplier = getMysteryMultiplier(task.mystery_factor);
-      incompleteMinutesMax += Math.round(baseMinutes * multiplier);
+      // Weighted minutes with mystery factor and battery impact
+      const mysteryMult = getMysteryMultiplier(task.mystery_factor);
+      const batteryMult = getBatteryMultiplier(task.battery_impact || 'average_drain');
+      incompleteMinutesMax += Math.round(baseMinutes * mysteryMult * batteryMult);
     } else if (task.estimated_minutes) {
       // If no energy estimate but has manual estimated_minutes, use that
       incompleteMinutesMin += task.estimated_minutes;

@@ -3,8 +3,8 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
 import { getMonthPeriod, getCurrentMonthPeriod } from '@/lib/calculations/retainer';
-import { energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
-import { MysteryFactor } from '@prisma/client';
+import { energyToMinutes, getMysteryMultiplier, getBatteryMultiplier } from '@/lib/calculations/energy';
+import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
 // Task with time logged this month
 interface RetainerTask {
@@ -87,12 +87,14 @@ function formatMonthString(date: Date): string {
  */
 function calculateTaskEstimateMax(
   energyEstimate: number | null,
-  mysteryFactor: MysteryFactor
+  mysteryFactor: MysteryFactor,
+  batteryImpact: BatteryImpact = 'average_drain'
 ): number {
   if (!energyEstimate) return 0;
   const baseMinutes = energyToMinutes(energyEstimate);
-  const multiplier = getMysteryMultiplier(mysteryFactor);
-  return Math.round(baseMinutes * multiplier);
+  const mysteryMult = getMysteryMultiplier(mysteryFactor);
+  const batteryMult = getBatteryMultiplier(batteryImpact);
+  return Math.round(baseMinutes * mysteryMult * batteryMult);
 }
 
 /**
@@ -204,6 +206,7 @@ export async function GET(
             project_id: true,
             energy_estimate: true,
             mystery_factor: true,
+            battery_impact: true,
             project: {
               select: {
                 name: true,
@@ -243,6 +246,7 @@ export async function GET(
             completed_at: true,
             energy_estimate: true,
             mystery_factor: true,
+            battery_impact: true,
           },
         },
       },
@@ -260,6 +264,7 @@ export async function GET(
       invoiced: boolean;
       energy_estimate: number | null;
       mystery_factor: MysteryFactor;
+      battery_impact: BatteryImpact;
     }>();
 
     // Track task IDs that have time logged (to exclude from scheduled)
@@ -296,6 +301,7 @@ export async function GET(
           invoiced: entry.task.invoiced,
           energy_estimate: entry.task.energy_estimate,
           mystery_factor: entry.task.mystery_factor,
+          battery_impact: entry.task.battery_impact,
         });
       }
     }
@@ -331,6 +337,7 @@ export async function GET(
           invoiced: entry.task.invoiced,
           energy_estimate: entry.task.energy_estimate,
           mystery_factor: entry.task.mystery_factor,
+          battery_impact: entry.task.battery_impact,
         });
       }
     }
@@ -342,7 +349,8 @@ export async function GET(
         : 0;
       const maxMinutes = calculateTaskEstimateMax(
         task.energy_estimate,
-        task.mystery_factor
+        task.mystery_factor,
+        task.battery_impact
       );
 
       return {
@@ -415,6 +423,7 @@ export async function GET(
         status: true,
         energy_estimate: true,
         mystery_factor: true,
+        battery_impact: true,
         is_retainer_work: true,
         assignee_id: true,
         assignee: {
@@ -444,7 +453,8 @@ export async function GET(
         : 0;
       const maxMinutes = calculateTaskEstimateMax(
         task.energy_estimate,
-        task.mystery_factor as MysteryFactor
+        task.mystery_factor as MysteryFactor,
+        (task.battery_impact as BatteryImpact) || 'average_drain'
       );
 
       scheduledMinutes += maxMinutes;
@@ -515,6 +525,7 @@ export async function GET(
         id: true,
         energy_estimate: true,
         mystery_factor: true,
+        battery_impact: true,
       },
     });
 
@@ -527,7 +538,8 @@ export async function GET(
     for (const task of unscheduledTasksFiltered) {
       unscheduledMinutes += calculateTaskEstimateMax(
         task.energy_estimate,
-        task.mystery_factor as MysteryFactor
+        task.mystery_factor as MysteryFactor,
+        (task.battery_impact as BatteryImpact) || 'average_drain'
       );
     }
 

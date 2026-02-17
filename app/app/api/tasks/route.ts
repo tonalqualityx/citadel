@@ -7,7 +7,7 @@ import { formatTaskResponse } from '@/lib/api/formatters';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
-import { MysteryFactor } from '@prisma/client';
+import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
@@ -302,10 +302,12 @@ export async function POST(request: NextRequest) {
     // Calculate estimated minutes if energy estimate provided
     const energyEstimate = data.energy_estimate ?? sopDefaults.energy_estimate;
     const mysteryFactor = data.mystery_factor || sopDefaults.mystery_factor || 'none';
+    const batteryImpact = data.battery_impact || sopDefaults.battery_impact || 'average_drain';
     const estimatedMinutes = energyEstimate
       ? calculateEstimatedMinutes(
           energyEstimate,
-          mysteryFactor as MysteryFactor
+          mysteryFactor as MysteryFactor,
+          batteryImpact as BatteryImpact
         )
       : null;
 

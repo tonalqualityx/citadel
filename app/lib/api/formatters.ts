@@ -116,6 +116,7 @@ export function formatProjectResponse(project: any) {
       status: t.status,
       energy_estimate: t.energy_estimate,
       mystery_factor: t.mystery_factor || 'none',
+      battery_impact: t.battery_impact || 'average_drain',
       estimated_minutes: t.estimated_minutes,
     })),
     0 // TODO: sum time entries when available

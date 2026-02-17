@@ -151,7 +151,7 @@ export async function PATCH(
           created_by: { select: { id: true, name: true } },
           tasks: {
             where: { is_deleted: false },
-            select: { estimated_minutes: true, status: true, energy_estimate: true, mystery_factor: true },
+            select: { estimated_minutes: true, status: true, energy_estimate: true, mystery_factor: true, battery_impact: true },
           },
         },
       });
@@ -200,7 +200,7 @@ export async function PATCH(
           created_by: { select: { id: true, name: true } },
           tasks: {
             where: { is_deleted: false },
-            select: { estimated_minutes: true, status: true },
+            select: { estimated_minutes: true, status: true, energy_estimate: true, mystery_factor: true, battery_impact: true },
           },
         },
       });
@@ -251,7 +251,7 @@ export async function PATCH(
         created_by: { select: { id: true, name: true } },
         tasks: {
           where: { is_deleted: false },
-          select: { estimated_minutes: true, status: true },
+          select: { estimated_minutes: true, status: true, energy_estimate: true, mystery_factor: true, battery_impact: true },
         },
       },
     });

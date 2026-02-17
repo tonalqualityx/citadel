@@ -8,7 +8,7 @@ import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logStatusChange, logUpdate, logDelete } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
-import { MysteryFactor, TaskStatus } from '@prisma/client';
+import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Schema for requirement items (flat items)
 const requirementItemSchema = z.object({
@@ -347,12 +347,13 @@ export async function PATCH(
 
     const data = updateTaskSchema.parse(body);
 
-    // Calculate estimated minutes if energy estimate changes
+    // Calculate estimated minutes if energy estimate, mystery, or battery changes
     let estimatedMinutes = existingTask.estimated_minutes;
-    if (data.energy_estimate !== undefined || data.mystery_factor !== undefined) {
+    if (data.energy_estimate !== undefined || data.mystery_factor !== undefined || data.battery_impact !== undefined) {
       const energy = data.energy_estimate ?? existingTask.energy_estimate;
       const mystery = (data.mystery_factor ?? existingTask.mystery_factor) as MysteryFactor;
-      estimatedMinutes = energy ? calculateEstimatedMinutes(energy, mystery) : null;
+      const battery = (data.battery_impact ?? existingTask.battery_impact) as BatteryImpact;
+      estimatedMinutes = energy ? calculateEstimatedMinutes(energy, mystery, battery) : null;
     }
 
     // Determine client_id update

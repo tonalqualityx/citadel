@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
           },
           tasks: {
             where: { is_deleted: false },
-            select: { estimated_minutes: true, status: true },
+            select: { estimated_minutes: true, status: true, energy_estimate: true, mystery_factor: true, battery_impact: true },
           },
           _count: {
             select: { team_assignments: true },

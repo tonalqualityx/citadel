@@ -30,6 +30,7 @@ import {
   getMysteryFactorLabel,
   energyToMinutes,
   getMysteryMultiplier,
+  getBatteryMultiplier,
 } from '@/lib/calculations/energy';
 import { MysteryFactor } from '@prisma/client';
 import type { TaskListColumn, TaskLike } from './task-list';
@@ -604,8 +605,9 @@ export function rangedEstimateColumn(): TaskListColumn {
       // Calculate base and max minutes
       const baseMinutes = energyToMinutes(task.energy_estimate);
       const mysteryFactor = (task.mystery_factor || 'none') as MysteryFactor;
-      const multiplier = getMysteryMultiplier(mysteryFactor);
-      const maxMinutes = Math.round(baseMinutes * multiplier);
+      const mysteryMultiplier = getMysteryMultiplier(mysteryFactor);
+      const batteryMultiplier = getBatteryMultiplier((task.battery_impact as any) || 'average_drain');
+      const maxMinutes = Math.round(baseMinutes * mysteryMultiplier * batteryMultiplier);
 
       // Get time spent (supports both naming conventions)
       const timeSpent = task.time_spent_minutes ?? task.time_logged_minutes ?? 0;
@@ -618,13 +620,16 @@ export function rangedEstimateColumn(): TaskListColumn {
 
       // Format the range
       let rangeText: string;
-      if (baseMinutes === maxMinutes || mysteryFactor === 'none') {
+      if (baseMinutes === maxMinutes) {
         rangeText = formatDuration(baseMinutes);
       } else {
         rangeText = `${formatDuration(baseMinutes)} - ${formatDuration(maxMinutes)}`;
       }
 
-      const tooltipContent = `Energy: ${task.energy_estimate}, Mystery: ${getMysteryFactorLabel(mysteryFactor)}${timeSpent > 0 ? `, Logged: ${formatDuration(timeSpent)}` : ''}`;
+      const batteryLabel = task.battery_impact && task.battery_impact !== 'average_drain'
+        ? `, Battery: ${getBatteryImpactLabel(task.battery_impact as any)}`
+        : '';
+      const tooltipContent = `Energy: ${task.energy_estimate}, Mystery: ${getMysteryFactorLabel(mysteryFactor)}${batteryLabel}${timeSpent > 0 ? `, Logged: ${formatDuration(timeSpent)}` : ''}`;
 
       return (
         <Tooltip content={tooltipContent}>

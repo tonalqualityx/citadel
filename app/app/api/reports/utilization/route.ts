@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
+import { energyToMinutes, getMysteryMultiplier, getBatteryMultiplier } from '@/lib/calculations/energy';
 import { differenceInDays } from 'date-fns';
 
 export interface UserUtilization {
@@ -201,6 +201,7 @@ export async function GET(request: NextRequest) {
         due_date: true,
         energy_estimate: true,
         mystery_factor: true,
+        battery_impact: true,
         estimated_minutes: true,
         time_entries: {
           where: { is_deleted: false },
@@ -255,9 +256,10 @@ export async function GET(request: NextRequest) {
         let baseReservedMinutes = 0;
         if (task.energy_estimate) {
           const baseMinutes = energyToMinutes(task.energy_estimate);
-          const multiplier = getMysteryMultiplier(task.mystery_factor);
+          const mysteryMult = getMysteryMultiplier(task.mystery_factor);
+          const batteryMult = getBatteryMultiplier(task.battery_impact || 'average_drain');
           const minMinutes = baseMinutes;
-          const maxMinutes = baseMinutes * multiplier;
+          const maxMinutes = baseMinutes * mysteryMult * batteryMult;
           baseReservedMinutes = (minMinutes + maxMinutes) / 2;
         } else if (task.estimated_minutes) {
           baseReservedMinutes = task.estimated_minutes;

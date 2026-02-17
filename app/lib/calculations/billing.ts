@@ -1,4 +1,4 @@
-import { energyToMinutes, getMysteryMultiplier } from './energy';
+import { energyToMinutes, getMysteryMultiplier, getBatteryMultiplier } from './energy';
 
 export type EstimateType = 'actual' | 'low' | 'mid' | 'high';
 
@@ -7,6 +7,7 @@ export interface TaskForBilling {
   time_spent_minutes: number;
   energy_estimate?: number | null;
   mystery_factor?: string | null;
+  battery_impact?: string | null;
 }
 
 export interface BillingEstimates {
@@ -32,8 +33,11 @@ export function calculateBillingEstimates(task: TaskForBilling): BillingEstimate
   const mysteryFactor = (task.mystery_factor as 'none' | 'average' | 'significant' | 'no_idea') || 'none';
   const multiplier = getMysteryMultiplier(mysteryFactor);
 
+  const batteryFactor = (task.battery_impact as 'average_drain' | 'high_drain' | 'energizing') || 'average_drain';
+  const batteryMultiplier = getBatteryMultiplier(batteryFactor);
+
   const low = baseMinutes;
-  const high = Math.round(baseMinutes * multiplier);
+  const high = Math.round(baseMinutes * multiplier * batteryMultiplier);
   const mid = Math.round((low + high) / 2);
 
   return { low, mid, high, actual };

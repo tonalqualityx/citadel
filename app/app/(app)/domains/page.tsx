@@ -12,6 +12,8 @@ import { DataTable, Column } from '@/components/ui/data-table';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonTable } from '@/components/ui/skeleton';
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalBody } from '@/components/ui/modal';
+import { DomainForm } from '@/components/domain/domain-form';
 
 interface Domain {
   id: string;
@@ -26,6 +28,7 @@ export default function DomainsPage() {
   const router = useRouter();
   const { t } = useTerminology();
   const [search, setSearch] = React.useState('');
+  const [isCreateOpen, setIsCreateOpen] = React.useState(false);
   const [page, setPage] = React.useState(1);
 
   const { data, isLoading, error } = useDomains({ page, search: search || undefined });
@@ -93,7 +96,7 @@ export default function DomainsPage() {
           <h1 className="text-2xl font-semibold text-text-main">{t('domains')}</h1>
           <p className="text-text-sub">Manage domain registrations</p>
         </div>
-        <Button>
+        <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           New Domain
         </Button>
@@ -133,6 +136,19 @@ export default function DomainsPage() {
           )}
         </CardContent>
       </Card>
+      <Modal open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <ModalContent size="lg">
+          <ModalHeader>
+            <ModalTitle>New Domain</ModalTitle>
+          </ModalHeader>
+          <ModalBody>
+            <DomainForm
+              onSuccess={() => setIsCreateOpen(false)}
+              onCancel={() => setIsCreateOpen(false)}
+            />
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

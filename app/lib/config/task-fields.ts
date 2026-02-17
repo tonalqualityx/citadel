@@ -3,6 +3,8 @@
  * These are used across SOPs, Tasks, and Recipe Tasks for consistency.
  */
 
+import { MYSTERY_MULTIPLIERS, BATTERY_MULTIPLIERS } from '@/lib/calculations/energy';
+
 // ============================================
 // TASK STATUS (workflow status)
 // ============================================
@@ -115,10 +117,10 @@ export function getEnergyOption(value: number | null | undefined) {
 // ============================================
 
 export const MYSTERY_OPTIONS = [
-  { value: 'none', label: 'None', multiplier: 1.0, color: 'text-green-800', bg: 'bg-green-100' },
-  { value: 'average', label: 'Some', multiplier: 1.61, color: 'text-amber-800', bg: 'bg-amber-100' },
-  { value: 'significant', label: 'Significant', multiplier: 2.5, color: 'text-orange-800', bg: 'bg-orange-100' },
-  { value: 'no_idea', label: 'No Idea', multiplier: 4.2, color: 'text-red-800', bg: 'bg-red-100' },
+  { value: 'none', label: 'None', multiplier: MYSTERY_MULTIPLIERS.none, color: 'text-green-800', bg: 'bg-green-100' },
+  { value: 'average', label: 'Some', multiplier: MYSTERY_MULTIPLIERS.average, color: 'text-amber-800', bg: 'bg-amber-100' },
+  { value: 'significant', label: 'Significant', multiplier: MYSTERY_MULTIPLIERS.significant, color: 'text-orange-800', bg: 'bg-orange-100' },
+  { value: 'no_idea', label: 'No Idea', multiplier: MYSTERY_MULTIPLIERS.no_idea, color: 'text-red-800', bg: 'bg-red-100' },
 ] as const;
 
 export type MysteryValue = (typeof MYSTERY_OPTIONS)[number]['value'];
@@ -132,9 +134,9 @@ export function getMysteryOption(value: string | null | undefined) {
 // ============================================
 
 export const BATTERY_OPTIONS = [
-  { value: 'average_drain', label: 'Avg Drain', multiplier: 1.1, color: 'text-amber-800', bg: 'bg-amber-100' },
-  { value: 'high_drain', label: 'High Drain', multiplier: 1.61, color: 'text-orange-800', bg: 'bg-orange-100' },
-  { value: 'energizing', label: 'Energizing', multiplier: 1.0, color: 'text-green-800', bg: 'bg-green-100' },
+  { value: 'average_drain', label: 'Avg Drain', multiplier: BATTERY_MULTIPLIERS.average_drain, color: 'text-amber-800', bg: 'bg-amber-100' },
+  { value: 'high_drain', label: 'High Drain', multiplier: BATTERY_MULTIPLIERS.high_drain, color: 'text-orange-800', bg: 'bg-orange-100' },
+  { value: 'energizing', label: 'Energizing', multiplier: BATTERY_MULTIPLIERS.energizing, color: 'text-green-800', bg: 'bg-green-100' },
 ] as const;
 
 export type BatteryValue = (typeof BATTERY_OPTIONS)[number]['value'];

@@ -55,7 +55,7 @@ vi.mock('@/lib/services/notifications', () => ({
 
 // Mock energy calculations
 vi.mock('@/lib/calculations/energy', () => ({
-  calculateEstimatedMinutes: vi.fn((energy, mystery) => energy * 30),
+  calculateEstimatedMinutes: vi.fn((energy, mystery, battery) => energy * 30),
 }));
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
