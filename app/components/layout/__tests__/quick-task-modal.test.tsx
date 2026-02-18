@@ -39,6 +39,10 @@ vi.mock('@/lib/hooks/use-clients', () => ({
     },
     isLoading: false,
   }),
+  useClientRetainer: () => ({
+    data: undefined,
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/lib/hooks/use-sites', () => ({
@@ -312,8 +316,8 @@ describe('QuickTaskModal', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Billing')).toBeInTheDocument();
-        expect(screen.getByLabelText(/fixed billing amount/i)).toBeInTheDocument();
+        expect(screen.getByText('Scheduling & Billing')).toBeInTheDocument();
+        expect(screen.getByLabelText(/fixed billing/i)).toBeInTheDocument();
       });
     });
   });

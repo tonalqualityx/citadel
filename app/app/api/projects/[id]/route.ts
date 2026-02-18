@@ -231,20 +231,28 @@ export async function PATCH(
       }
     }
 
+    // Build update data explicitly to avoid Prisma type conflicts with JSON fields
+    const updateData: Record<string, any> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) {
+      updateData.description = data.description ? JSON.stringify(data.description) : null;
+    }
+    if (data.type !== undefined) updateData.type = data.type;
+    if (data.billing_type !== undefined) updateData.billing_type = data.billing_type;
+    if (data.client_id !== undefined) updateData.client_id = data.client_id;
+    if (data.site_id !== undefined) updateData.site_id = data.site_id;
+    if (data.start_date !== undefined) updateData.start_date = data.start_date ? new Date(data.start_date) : null;
+    if (data.target_date !== undefined) updateData.target_date = data.target_date ? new Date(data.target_date) : null;
+    if (data.completed_date !== undefined) updateData.completed_date = data.completed_date ? new Date(data.completed_date) : null;
+    if (data.budget_amount !== undefined) updateData.budget_amount = data.budget_amount;
+    if (data.budget_hours !== undefined) updateData.budget_hours = data.budget_hours;
+    if (data.hourly_rate !== undefined) updateData.hourly_rate = data.hourly_rate;
+    if (data.is_retainer !== undefined) updateData.is_retainer = data.is_retainer;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+
     const project = await prisma.project.update({
       where: { id },
-      data: {
-        ...data,
-        start_date: data.start_date !== undefined
-          ? (data.start_date ? new Date(data.start_date) : null)
-          : undefined,
-        target_date: data.target_date !== undefined
-          ? (data.target_date ? new Date(data.target_date) : null)
-          : undefined,
-        completed_date: data.completed_date !== undefined
-          ? (data.completed_date ? new Date(data.completed_date) : null)
-          : undefined,
-      },
+      data: updateData,
       include: {
         client: { select: { id: true, name: true, status: true } },
         site: { select: { id: true, name: true, url: true } },

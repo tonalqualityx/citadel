@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addBusinessDays, formatDateForInput } from '../time';
+import { addBusinessDays, formatDateForInput, getStartOfDayForTimezone, getStartOfWeekForTimezone } from '../time';
 
 describe('addBusinessDays', () => {
   it('adds business days correctly when no weekends are crossed', () => {
@@ -104,5 +104,112 @@ describe('formatDateForInput', () => {
     const evening = new Date('2026-06-15T18:00:00');
     expect(formatDateForInput(morning)).toBe(formatDateForInput(evening));
     expect(formatDateForInput(morning)).toBe('2026-06-15');
+  });
+});
+
+describe('getStartOfDayForTimezone', () => {
+  it('returns a Date object', () => {
+    const result = getStartOfDayForTimezone('America/New_York');
+    expect(result).toBeInstanceOf(Date);
+  });
+
+  it('returns midnight UTC when timezone is UTC', () => {
+    const result = getStartOfDayForTimezone('UTC');
+    const now = new Date();
+    const expectedMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    // Allow 2 seconds tolerance for test execution time
+    expect(Math.abs(result.getTime() - expectedMidnight.getTime())).toBeLessThan(2000);
+  });
+
+  it('returns correct UTC offset for America/New_York (UTC-5 or UTC-4)', () => {
+    const result = getStartOfDayForTimezone('America/New_York');
+    // Midnight in New York is either 04:00 UTC (EDT) or 05:00 UTC (EST)
+    const utcHour = result.getUTCHours();
+    expect([4, 5]).toContain(utcHour);
+    expect(result.getUTCMinutes()).toBe(0);
+    expect(result.getUTCSeconds()).toBe(0);
+  });
+
+  it('returns correct UTC offset for Asia/Tokyo (UTC+9, no DST)', () => {
+    const result = getStartOfDayForTimezone('Asia/Tokyo');
+    // Midnight Tokyo = 15:00 UTC previous day
+    expect(result.getUTCHours()).toBe(15);
+    expect(result.getUTCMinutes()).toBe(0);
+  });
+
+  it('returns a date earlier than or equal to now', () => {
+    const now = new Date();
+    const result = getStartOfDayForTimezone('America/Los_Angeles');
+    expect(result.getTime()).toBeLessThanOrEqual(now.getTime());
+  });
+
+  it('returns a date within the last 24 hours', () => {
+    const now = new Date();
+    const result = getStartOfDayForTimezone('Pacific/Auckland');
+    const diff = now.getTime() - result.getTime();
+    expect(diff).toBeLessThanOrEqual(24 * 60 * 60 * 1000);
+    expect(diff).toBeGreaterThanOrEqual(0);
+  });
+
+  it('falls back to server local time when timezone is null', () => {
+    const result = getStartOfDayForTimezone(null);
+    const serverMidnight = new Date();
+    serverMidnight.setHours(0, 0, 0, 0);
+    expect(result.getTime()).toBe(serverMidnight.getTime());
+  });
+
+  it('falls back to server local time when timezone is undefined', () => {
+    const result = getStartOfDayForTimezone(undefined);
+    const serverMidnight = new Date();
+    serverMidnight.setHours(0, 0, 0, 0);
+    expect(result.getTime()).toBe(serverMidnight.getTime());
+  });
+
+  it('falls back to server local time for invalid timezone', () => {
+    const result = getStartOfDayForTimezone('Invalid/Timezone');
+    const serverMidnight = new Date();
+    serverMidnight.setHours(0, 0, 0, 0);
+    expect(result.getTime()).toBe(serverMidnight.getTime());
+  });
+
+  it('handles half-hour offset timezone (Asia/Kolkata UTC+5:30)', () => {
+    const result = getStartOfDayForTimezone('Asia/Kolkata');
+    // Midnight Kolkata = 18:30 UTC previous day
+    expect(result.getUTCHours()).toBe(18);
+    expect(result.getUTCMinutes()).toBe(30);
+  });
+});
+
+describe('getStartOfWeekForTimezone', () => {
+  it('returns a Date object', () => {
+    const result = getStartOfWeekForTimezone('America/New_York');
+    expect(result).toBeInstanceOf(Date);
+  });
+
+  it('returns a Monday in the specified timezone', () => {
+    const result = getStartOfWeekForTimezone('UTC');
+    const dayStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      weekday: 'short',
+    }).format(result);
+    expect(dayStr).toBe('Mon');
+  });
+
+  it('returns a date within the last 7 days', () => {
+    const now = new Date();
+    const result = getStartOfWeekForTimezone('Europe/London');
+    const diff = now.getTime() - result.getTime();
+    expect(diff).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
+    expect(diff).toBeGreaterThanOrEqual(0);
+  });
+
+  it('falls back for null timezone', () => {
+    const result = getStartOfWeekForTimezone(null);
+    expect(result).toBeInstanceOf(Date);
+  });
+
+  it('falls back for invalid timezone', () => {
+    const result = getStartOfWeekForTimezone('Not/Real');
+    expect(result).toBeInstanceOf(Date);
   });
 });

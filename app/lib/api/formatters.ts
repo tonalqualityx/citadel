@@ -141,7 +141,7 @@ export function formatProjectResponse(project: any) {
   return {
     id: project.id,
     name: project.name,
-    description: project.description,
+    description: parseJsonField(project.description),
     status: project.status,
     type: project.type,
     client_id: project.client_id,

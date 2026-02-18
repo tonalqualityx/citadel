@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { getStartOfWeek } from '@/lib/utils/time';
+import { getStartOfDayForTimezone, getStartOfWeekForTimezone } from '@/lib/utils/time';
 import { ProjectStatus, TaskStatus } from '@prisma/client';
 
 // Non-readonly arrays for Prisma compatibility
@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
     // Parse orderBy param for myTasks sorting
     const { searchParams } = new URL(request.url);
     const orderBy = searchParams.get('orderBy') || 'priority';
+    const tz = searchParams.get('tz') || null;
 
     // Base data all roles need
     const baseData = await getBaseData(auth.userId);
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getTechDashboard(auth.userId, orderBy)),
+        ...(await getTechDashboard(auth.userId, orderBy, tz)),
       });
     }
 
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getPmDashboard(auth.userId, orderBy)),
+        ...(await getPmDashboard(auth.userId, orderBy, tz)),
       });
     }
 
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getAdminDashboard(auth.userId, orderBy)),
+        ...(await getAdminDashboard(auth.userId, orderBy, tz)),
       });
     }
 
@@ -121,7 +122,7 @@ const LIMITS = {
   blockedTasks: 5,
 };
 
-async function getTechDashboard(userId: string, orderBy: string = 'priority') {
+async function getTechDashboard(userId: string, orderBy: string = 'priority', tz: string | null = null) {
   const visibleStatuses: ProjectStatus[] = [
     ProjectStatus.ready,
     ProjectStatus.in_progress,
@@ -218,7 +219,7 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority') {
   const inProgressTasks = allFormattedTasks.filter((t) => t.status === 'in_progress');
 
   // Time this week
-  const weekStart = getStartOfWeek();
+  const weekStart = getStartOfWeekForTimezone(tz);
   const timeThisWeek = await prisma.timeEntry.aggregate({
     where: {
       user_id: userId,
@@ -229,8 +230,7 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority') {
   });
 
   // Time today
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getStartOfDayForTimezone(tz);
   const timeToday = await prisma.timeEntry.aggregate({
     where: {
       user_id: userId,
@@ -279,7 +279,7 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority') {
   };
 }
 
-async function getPmDashboard(userId: string, orderBy: string = 'priority') {
+async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: string | null = null) {
   // Define where clauses for reuse
   // Focus tasks also excludes blocked - users shouldn't work on blocked tasks
   const focusTasksWhere = {
@@ -478,8 +478,7 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority') {
   });
 
   // Completed tasks today (for focus meter completion tracking)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getStartOfDayForTimezone(tz);
   const completedToday = await prisma.task.findMany({
     where: {
       is_deleted: false,
@@ -564,9 +563,9 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority') {
   };
 }
 
-async function getAdminDashboard(userId: string, orderBy: string = 'priority') {
+async function getAdminDashboard(userId: string, orderBy: string = 'priority', tz: string | null = null) {
   // Get all PM dashboard data
-  const pmData = await getPmDashboard(userId, orderBy);
+  const pmData = await getPmDashboard(userId, orderBy, tz);
 
   // All active projects
   const allActiveProjects = await prisma.project.findMany({
@@ -589,7 +588,7 @@ async function getAdminDashboard(userId: string, orderBy: string = 'priority') {
   });
 
   // Team utilization (simple version)
-  const teamUtilization = await getTeamUtilization();
+  const teamUtilization = await getTeamUtilization(tz);
 
   // System stats
   const systemStats = await getSystemStats();
@@ -659,8 +658,8 @@ async function getRetainerAlerts() {
   return alerts.sort((a, b) => b.percent_used - a.percent_used);
 }
 
-async function getTeamUtilization() {
-  const weekStart = getStartOfWeek();
+async function getTeamUtilization(tz: string | null = null) {
+  const weekStart = getStartOfWeekForTimezone(tz);
 
   // Get all users with time entries this week
   const users = await prisma.user.findMany({

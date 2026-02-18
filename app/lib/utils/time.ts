@@ -208,3 +208,74 @@ export function formatDateForInput(date: Date): string {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+/**
+ * Get the start of today (midnight) in a specific IANA timezone,
+ * returned as a UTC Date object.
+ *
+ * Falls back to server-local time if timezone is missing or invalid.
+ */
+export function getStartOfDayForTimezone(timezone?: string | null): Date {
+  if (!timezone) {
+    return getStartOfToday();
+  }
+
+  try {
+    const now = new Date();
+
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: false,
+    }).formatToParts(now);
+
+    const rawHour = parseInt(parts.find((p) => p.type === 'hour')!.value, 10);
+    const hour = rawHour === 24 ? 0 : rawHour;
+    const minute = parseInt(parts.find((p) => p.type === 'minute')!.value, 10);
+    const second = parseInt(parts.find((p) => p.type === 'second')!.value, 10);
+
+    // Milliseconds elapsed since midnight in the user's timezone
+    const elapsedMs = (hour * 3600 + minute * 60 + second) * 1000;
+
+    // UTC timestamp corresponding to midnight in the user's timezone
+    const startOfDay = new Date(now.getTime() - elapsedMs);
+    startOfDay.setMilliseconds(0);
+
+    return startOfDay;
+  } catch {
+    return getStartOfToday();
+  }
+}
+
+/**
+ * Get the start of the current week (Monday midnight) in a specific IANA timezone,
+ * returned as a UTC Date object.
+ *
+ * Falls back to server-local time if timezone is missing or invalid.
+ */
+export function getStartOfWeekForTimezone(timezone?: string | null): Date {
+  if (!timezone) {
+    return getStartOfWeek();
+  }
+
+  try {
+    const now = new Date();
+
+    const dayStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+    }).format(now);
+
+    const dayMap: Record<string, number> = {
+      Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
+    };
+    const daysSinceMonday = dayMap[dayStr] ?? 0;
+
+    const startOfToday = getStartOfDayForTimezone(timezone);
+    return new Date(startOfToday.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000);
+  } catch {
+    return getStartOfWeek();
+  }
+}

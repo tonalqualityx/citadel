@@ -9,6 +9,10 @@ export const dashboardEndpoints: ApiEndpoint[] = [
         method: 'GET',
         summary: 'Get role-specific dashboard data (tasks, metrics, alerts). Returns different data based on user role.',
         auth: 'required',
+        queryParams: [
+          { name: 'orderBy', type: 'string', required: false, description: 'Sort order for My Tasks: priority, due_date, or estimate' },
+          { name: 'tz', type: 'string', required: false, description: 'IANA timezone name (e.g., America/New_York). Used to compute "today" boundaries. Defaults to server timezone if omitted.' },
+        ],
         responseExample: {
           tasks: [{ id: 'uuid', title: 'string', status: 'string', priority: 'number', project: { id: 'uuid', name: 'string' }, time_logged_minutes: 'number' }],
           metrics: { tasks_due_today: 'number', tasks_in_progress: 'number', hours_this_week: 'number' },

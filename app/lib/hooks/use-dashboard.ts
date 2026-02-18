@@ -147,11 +147,21 @@ interface DashboardOptions {
   enabled?: boolean;
 }
 
+function getUserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return '';
+  }
+}
+
 export function useDashboard(options: DashboardOptions = {}) {
   const orderBy = options.orderBy || 'priority';
+  const tz = getUserTimezone();
+  const tzParam = tz ? `&tz=${encodeURIComponent(tz)}` : '';
   return useQuery({
-    queryKey: ['dashboard', { orderBy }],
-    queryFn: () => apiClient.get<DashboardData>(`/dashboard?orderBy=${orderBy}`),
+    queryKey: ['dashboard', { orderBy, tz }],
+    queryFn: () => apiClient.get<DashboardData>(`/dashboard?orderBy=${orderBy}${tzParam}`),
     refetchInterval: 30000, // Refresh every 30 seconds
     enabled: options.enabled !== false,
   });
