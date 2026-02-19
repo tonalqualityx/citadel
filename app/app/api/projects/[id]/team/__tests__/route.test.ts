@@ -233,6 +233,69 @@ describe('POST /api/projects/[id]/team', () => {
       ['pm', 'admin']
     );
   });
+
+  it('returns 400 when user exists but has no UserFunction qualification', async () => {
+    // This test documents the current behavior where users MUST have
+    // a UserFunction record to be assigned to a project team
+    mockProjectFindUnique.mockResolvedValue({ id: 'proj-123', name: 'Test Project' });
+    mockUserFindUnique.mockResolvedValue({ id: '550e8400-e29b-41d4-a716-446655440000', name: 'Unqualified User', is_active: true });
+    mockFunctionFindUnique.mockResolvedValue({ id: '550e8400-e29b-41d4-a716-446655440001', name: 'Developer', is_active: true });
+    // No UserFunction record exists - this is the key issue
+    mockUserFunctionFindUnique.mockResolvedValue(null);
+
+    const request = createPostRequest({
+      user_id: '550e8400-e29b-41d4-a716-446655440000',
+      function_id: '550e8400-e29b-41d4-a716-446655440001',
+    });
+    const response = await POST(request, { params: mockParams });
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain('not qualified');
+  });
+
+  it('allows assignment when user has UserFunction qualification', async () => {
+    // User has the required qualification - use valid UUIDs
+    const userId = '550e8400-e29b-41d4-a716-446655440010';
+    const functionId = '550e8400-e29b-41d4-a716-446655440011';
+    
+    mockProjectFindUnique.mockResolvedValue({ id: 'proj-123', name: 'Test Project' });
+    mockUserFindUnique.mockResolvedValue({ id: userId, name: 'Qualified User', is_active: true });
+    mockFunctionFindUnique.mockResolvedValue({ id: functionId, name: 'Developer', is_active: true });
+    // UserFunction record exists - user is qualified
+    mockUserFunctionFindUnique.mockResolvedValue({ 
+      id: 'uf-123', 
+      user_id: userId, 
+      function_id: functionId,
+      is_primary: true,
+    });
+    mockAssignmentFindUnique.mockResolvedValue(null);
+    mockAssignmentCreate.mockResolvedValue({
+      id: 'assign-123',
+      project_id: 'proj-123',
+      user_id: userId,
+      function_id: functionId,
+      is_lead: false,
+      user: { id: userId, name: 'Qualified User', email: 'qualified@example.com' },
+      function: { id: functionId, name: 'Developer' },
+    });
+
+    const request = createPostRequest({
+      user_id: userId,
+      function_id: functionId,
+    });
+    const response = await POST(request, { params: mockParams });
+
+    expect(response.status).toBe(201);
+    expect(mockUserFunctionFindUnique).toHaveBeenCalledWith({
+      where: {
+        user_id_function_id: {
+          user_id: userId,
+          function_id: functionId,
+        },
+      },
+    });
+  });
 });
 
 describe('GET /api/projects/[id]/team', () => {
