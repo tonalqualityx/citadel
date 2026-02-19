@@ -72,19 +72,6 @@ export async function POST(
       throw new ApiError('Function not found', 404);
     }
 
-    // Verify user is qualified for this function
-    const userFunction = await prisma.userFunction.findUnique({
-      where: {
-        user_id_function_id: {
-          user_id: data.user_id,
-          function_id: data.function_id,
-        },
-      },
-    });
-    if (!userFunction) {
-      throw new ApiError('User is not qualified for this function', 400);
-    }
-
     // Check if function is already assigned to this project
     const existing = await prisma.projectTeamAssignment.findUnique({
       where: {

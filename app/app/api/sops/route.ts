@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
         title: data.title,
         content: data.content ?? undefined,
         function_id: data.function_id,
-        tags: data.tags,
+        tags: data.tags?.length ? data.tags : undefined,
         template_requirements: data.template_requirements ?? undefined,
         next_review_at: data.next_review_at ? new Date(data.next_review_at) : null,
         // Task template fields

@@ -51,7 +51,7 @@ describe('POST /api/sops', () => {
     });
   });
 
-  it('successfully creates a basic SOP with title only', async () => {
+  it('successfully creates a basic SOP with title only (no tags)', async () => {
     const requestBody = {
       title: 'Test SOP',
     };
@@ -83,10 +83,92 @@ describe('POST /api/sops', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           title: 'Test SOP',
-          tags: [],
+          tags: undefined,
           default_priority: 3,
           mystery_factor: 'none',
           battery_impact: 'average_drain',
+        }),
+      })
+    );
+  });
+
+  it('successfully creates a SOP with tags provided', async () => {
+    const requestBody = {
+      title: 'Test SOP With Tags',
+      tags: ['onboarding', 'documentation'],
+    };
+
+    mockSopCreate.mockResolvedValue({
+      id: 'sop-124',
+      title: 'Test SOP With Tags',
+      content: null,
+      function_id: null,
+      tags: ['onboarding', 'documentation'],
+      default_priority: 3,
+      energy_estimate: null,
+      mystery_factor: 'none',
+      battery_impact: 'average_drain',
+      template_requirements: null,
+      review_requirements: null,
+      next_review_at: null,
+      is_active: true,
+      created_at: new Date(),
+      updated_at: new Date(),
+      function: null,
+    });
+
+    const request = createPostRequest(requestBody);
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockSopCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: 'Test SOP With Tags',
+          tags: ['onboarding', 'documentation'],
+          default_priority: 3,
+          mystery_factor: 'none',
+          battery_impact: 'average_drain',
+        }),
+      })
+    );
+  });
+
+  it('converts empty tags array to undefined (avoids Prisma 500 error)', async () => {
+    const requestBody = {
+      title: 'Test SOP With Empty Tags',
+      tags: [],
+    };
+
+    mockSopCreate.mockResolvedValue({
+      id: 'sop-125',
+      title: 'Test SOP With Empty Tags',
+      content: null,
+      function_id: null,
+      tags: [],
+      default_priority: 3,
+      energy_estimate: null,
+      mystery_factor: 'none',
+      battery_impact: 'average_drain',
+      template_requirements: null,
+      review_requirements: null,
+      next_review_at: null,
+      is_active: true,
+      created_at: new Date(),
+      updated_at: new Date(),
+      function: null,
+    });
+
+    const request = createPostRequest(requestBody);
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    // Empty array should be converted to undefined to avoid Prisma SQLite error
+    expect(mockSopCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: 'Test SOP With Empty Tags',
+          tags: undefined,
         }),
       })
     );
