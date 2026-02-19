@@ -8,7 +8,7 @@ import { formatTeamAssignmentResponse } from '@/lib/api/formatters';
 const addTeamMemberSchema = z.object({
   user_id: z.string().uuid(),
   function_id: z.string().uuid(),
-  is_lead: z.boolean().optional(),
+  is_lead: z.boolean().optional().default(false),
 });
 
 export async function GET(
@@ -103,7 +103,7 @@ export async function POST(
         project_id: id,
         user_id: data.user_id,
         function_id: data.function_id,
-        is_lead: data.is_lead || false,
+        is_lead: data.is_lead,
       },
       include: {
         user: { select: { id: true, name: true, email: true } },

@@ -1,0 +1,1207 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USERS & AUTH
+// ============================================
+
+model User {
+  id                    String    @id @default(uuid()) @db.Uuid
+  email                 String    @unique @db.VarChar(255)
+  password_hash         String    @db.VarChar(255)
+  name                  String    @db.VarChar(255)
+  role                  UserRole  @default(tech)
+  avatar_url            String?   @db.VarChar(500)
+  is_active             Boolean   @default(true)
+  target_hours_per_week Int       @default(40) // Target utilization hours per week
+  last_login_at         DateTime?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  // Relations
+  preferences           UserPreference?
+  sessions              Session[]
+  notifications         Notification[]
+  notification_preferences NotificationPreference[]
+  slack_mapping         SlackUserMapping?
+  email_digest_queue    EmailDigestQueue[]
+  slack_notification_batch SlackNotificationBatch[]
+  projects_created      Project[]              @relation("ProjectCreatedBy")
+  team_assignments      ProjectTeamAssignment[]
+  user_functions        UserFunction[]
+  tasks_assigned        Task[]                 @relation("TaskAssignee")
+  tasks_created         Task[]                 @relation("TaskCreatedBy")
+  tasks_reviewing       Task[]                 @relation("TaskReviewer")
+  tasks_approved        Task[]                 @relation("TaskApprovedBy")
+  time_entries          TimeEntry[]
+  comments              Comment[]
+  password_reset_tokens PasswordResetToken[]
+  activity_logs         ActivityLog[]
+  api_keys              ApiKey[]
+  sites_maintained      Site[]                 @relation("SiteMaintainer")
+  bug_report_notifications AppSettings[]       @relation("BugReportNotifyUser")
+
+  @@map("users")
+}
+
+model UserPreference {
+  id                  String           @id @default(uuid()) @db.Uuid
+  user_id             String           @unique @db.Uuid
+  naming_convention   NamingConvention @default(awesome)
+  theme               Theme            @default(system)
+  notification_bundle Boolean          @default(true)
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model Session {
+  id            String   @id @default(uuid()) @db.Uuid
+  user_id       String   @db.Uuid
+  refresh_token String   @unique @db.VarChar(500)
+  expires_at    DateTime
+  created_at    DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([expires_at])
+  @@map("sessions")
+}
+
+model ApiKey {
+  id           String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  name         String    @db.VarChar(100)
+  key_hash     String    @db.VarChar(255)
+  key_prefix   String    @db.VarChar(20)
+  last_used_at DateTime?
+  expires_at   DateTime?
+  is_revoked   Boolean   @default(false)
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([key_hash])
+  @@index([user_id])
+  @@map("api_keys")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model Notification {
+  id           String           @id @default(uuid()) @db.Uuid
+  user_id      String           @db.Uuid
+  user         User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  // Content
+  type         NotificationType
+  title        String           @db.VarChar(255)
+  message      String?          @db.Text
+
+  // Reference
+  entity_type  String?          @db.VarChar(50)
+  entity_id    String?          @db.Uuid
+
+  // Priority for routing
+  priority     NotificationPriority @default(normal)
+
+  // Status
+  is_read      Boolean          @default(false)
+  read_at      DateTime?
+
+  // Bundling
+  bundle_key   String?          @db.VarChar(100)
+  bundle_count Int              @default(1)
+
+  // Delivery tracking
+  email_sent      Boolean   @default(false)
+  email_sent_at   DateTime?
+  slack_sent      Boolean   @default(false)
+  slack_sent_at   DateTime?
+
+  // Metadata
+  created_at   DateTime         @default(now())
+
+  @@index([user_id])
+  @@index([is_read])
+  @@index([bundle_key])
+  @@index([created_at])
+  @@map("notifications")
+}
+
+// User-level notification preferences (matrix of type x channel)
+model NotificationPreference {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  notification_type NotificationType
+
+  // Channel toggles
+  in_app            Boolean          @default(true)
+  email             Boolean          @default(false)
+  slack             Boolean          @default(false)
+
+  // Admin override (if set, user cannot change)
+  admin_override    Boolean          @default(false)
+  overridden_by_id  String?          @db.Uuid
+  overridden_at     DateTime?
+
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+
+  @@unique([user_id, notification_type])
+  @@index([user_id])
+  @@map("notification_preferences")
+}
+
+// Slack user mappings (Citadel User -> Slack User ID)
+model SlackUserMapping {
+  id              String   @id @default(uuid()) @db.Uuid
+  user_id         String   @unique @db.Uuid
+  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  slack_user_id   String   @db.VarChar(50)  // Slack's user ID (e.g., "U01234ABCDE")
+  slack_team_id   String   @db.VarChar(50)  // Slack workspace ID
+  display_name    String?  @db.VarChar(255) // Cached Slack display name
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([slack_user_id])
+  @@map("slack_user_mappings")
+}
+
+// Slack message thread tracking (for reply sync)
+model SlackMessageThread {
+  id              String   @id @default(uuid()) @db.Uuid
+
+  // What was sent
+  entity_type     String   @db.VarChar(50)  // 'task', 'comment'
+  entity_id       String   @db.Uuid
+
+  // Slack message identifiers
+  slack_channel   String   @db.VarChar(50)  // DM channel ID
+  slack_ts        String   @db.VarChar(50)  // Message timestamp (Slack's message ID)
+  slack_user_id   String   @db.VarChar(50)  // Who received the DM
+
+  created_at      DateTime @default(now())
+
+  @@unique([entity_type, entity_id, slack_user_id])
+  @@index([slack_ts])
+  @@map("slack_message_threads")
+}
+
+// Email digest queue for batching non-critical notifications
+model EmailDigestQueue {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  notification_type NotificationType
+
+  // Content
+  title             String           @db.VarChar(255)
+  message           String?          @db.Text
+  entity_type       String?          @db.VarChar(50)
+  entity_id         String?          @db.Uuid
+
+  // Status
+  processed         Boolean          @default(false)
+  processed_at      DateTime?
+
+  created_at        DateTime         @default(now())
+
+  @@index([user_id])
+  @@index([processed, created_at])
+  @@map("email_digest_queue")
+}
+
+// Slack notification batch queue for grouping project task notifications
+model SlackNotificationBatch {
+  id                String           @id @default(uuid()) @db.Uuid
+  user_id           String           @db.Uuid
+  user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  project_id        String           @db.Uuid
+  task_id           String           @db.Uuid
+  notification_type NotificationType
+
+  // Content
+  title             String           @db.VarChar(255)
+  message           String?          @db.Text
+
+  // Batching control
+  batch_key         String           @db.VarChar(100) // user_id:project_id combo
+  batch_ready_at    DateTime         // When this batch should be sent
+
+  // Status
+  processed         Boolean          @default(false)
+  processed_at      DateTime?
+
+  created_at        DateTime         @default(now())
+
+  @@index([user_id])
+  @@index([batch_key, processed])
+  @@index([batch_ready_at, processed])
+  @@map("slack_notification_batch")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  tech
+  pm
+  admin
+}
+
+enum NamingConvention {
+  awesome
+  standard
+}
+
+enum Theme {
+  light
+  dim
+  dark
+  system
+}
+
+enum NotificationType {
+  task_assigned
+  task_status_changed
+  task_mentioned
+  task_due_soon
+  task_overdue
+  project_status_changed
+  review_requested
+  comment_added
+  retainer_alert
+  system_alert
+}
+
+enum NotificationPriority {
+  low       // Digest only
+  normal    // Standard routing
+  high      // Immediate on enabled channels
+  critical  // Force immediate on all enabled channels
+}
+
+enum MaintenanceFrequency {
+  monthly        // Every month
+  bi_monthly     // Every 2 months
+  quarterly      // Every 3 months
+  semi_annually  // Every 6 months
+  annually       // Every 12 months
+}
+
+// ============================================
+// REFERENCE DATA
+// ============================================
+
+model Function {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(100)
+  primary_focus String?  @db.Text
+  sort_order    Int      @default(0)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  // Relations
+  team_assignments ProjectTeamAssignment[]
+  user_functions   UserFunction[]
+  tasks            Task[]
+  sops             Sop[]
+
+  @@map("functions")
+}
+
+// UserFunction - tracks which functions a user is qualified to perform
+model UserFunction {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  function_id String   @db.Uuid
+  function    Function @relation(fields: [function_id], references: [id], onDelete: Cascade)
+  is_primary  Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  @@unique([user_id, function_id])
+  @@index([user_id])
+  @@index([function_id])
+  @@map("user_functions")
+}
+
+model HostingPlan {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(100)
+  rate         Decimal  @db.Decimal(10, 2)
+  agency_rate  Decimal? @db.Decimal(10, 2)
+  monthly_cost Decimal? @db.Decimal(10, 2)
+  vendor_plan  String?  @db.VarChar(100)
+  details      String?  @db.Text
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  sites Site[]
+
+  @@map("hosting_plans")
+}
+
+model MaintenancePlan {
+  id          String               @id @default(uuid()) @db.Uuid
+  name        String               @db.VarChar(100)
+  rate        Decimal              @db.Decimal(10, 2)
+  agency_rate Decimal?             @db.Decimal(10, 2)
+  hours       Decimal?             @db.Decimal(5, 2)
+  details     String?              @db.Text
+  frequency   MaintenanceFrequency @default(monthly)
+  is_active   Boolean              @default(true)
+  created_at  DateTime             @default(now())
+  updated_at  DateTime             @updatedAt
+
+  // Relations
+  sites           Site[]
+  sops            MaintenancePlanSop[]
+  generation_logs MaintenanceGenerationLog[]
+
+  @@map("maintenance_plans")
+}
+
+// Junction table for MaintenancePlan ↔ SOP
+model MaintenancePlanSop {
+  id                  String          @id @default(uuid()) @db.Uuid
+  maintenance_plan_id String          @db.Uuid
+  maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
+  sop_id              String          @db.Uuid
+  sop                 Sop             @relation(fields: [sop_id], references: [id], onDelete: Cascade)
+  sort_order          Int             @default(0)
+
+  @@unique([maintenance_plan_id, sop_id])
+  @@index([maintenance_plan_id])
+  @@index([sop_id])
+  @@map("maintenance_plan_sops")
+}
+
+model Tool {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(100)
+  category    String?  @db.VarChar(50)
+  url         String?  @db.VarChar(500)
+  description String?  @db.Text
+  license_key String?  @db.VarChar(255)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("tools")
+}
+
+model Integration {
+  id          String   @id @default(uuid()) @db.Uuid
+  provider    String   @unique @db.VarChar(50)
+  config      Json     @default("{}")
+  is_active   Boolean  @default(false)
+  updated_at  DateTime @updatedAt
+  updated_by  String?  @db.Uuid
+
+  @@map("integrations")
+}
+
+model DnsProvider {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  is_active Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relations
+  domains   Domain[]
+
+  @@map("dns_providers")
+}
+
+// ============================================
+// CLIENTS (PATRONS)
+// ============================================
+
+model Client {
+  id              String       @id @default(uuid()) @db.Uuid
+  name            String       @db.VarChar(255)
+  type            ClientType   @default(direct)
+  status          ClientStatus @default(active)
+
+  // Contact info
+  primary_contact String?      @db.VarChar(255)
+  email           String?      @db.VarChar(255)
+  phone           String?      @db.VarChar(50)
+
+  // Billing
+  retainer_hours      Decimal?           @db.Decimal(5, 2)
+  hourly_rate         Decimal?           @db.Decimal(10, 2)
+  retainer_usage_mode RetainerUsageMode  @default(medium)
+
+  // Relationships
+  parent_agency_id String?     @db.Uuid
+  parent_agency    Client?     @relation("AgencySubClients", fields: [parent_agency_id], references: [id])
+  sub_clients      Client[]    @relation("AgencySubClients")
+
+  // Notes
+  notes           String?      @db.Text
+
+  // Metadata
+  is_deleted      Boolean      @default(false)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  // Relations
+  sites    Site[]
+  projects Project[]
+  tasks    Task[]
+
+  @@index([type])
+  @@index([status])
+  @@index([parent_agency_id])
+  @@map("clients")
+}
+
+enum ClientType {
+  direct
+  agency_partner
+  sub_client
+}
+
+enum ClientStatus {
+  active
+  inactive
+  delinquent
+}
+
+enum RetainerUsageMode {
+  low
+  medium
+  high
+  actual
+}
+
+// ============================================
+// SITES
+// ============================================
+
+model Site {
+  id                  String           @id @default(uuid()) @db.Uuid
+  name                String           @db.VarChar(255)
+  url                 String?          @db.VarChar(500)
+
+  // Client relationship (optional - sites can exist without a client)
+  client_id           String?          @db.Uuid
+  client              Client?          @relation(fields: [client_id], references: [id])
+
+  // Hosting
+  hosted_by           HostedBy         @default(indelible)
+  platform            String?          @db.VarChar(100)
+  hosting_plan_id     String?          @db.Uuid
+  hosting_plan        HostingPlan?     @relation(fields: [hosting_plan_id], references: [id])
+  hosting_discount    Decimal?         @db.Decimal(10, 2)  // Fixed $ discount off hosting plan rate
+
+  // Maintenance
+  maintenance_plan_id      String?          @db.Uuid
+  maintenance_plan         MaintenancePlan? @relation(fields: [maintenance_plan_id], references: [id])
+  maintenance_assignee_id  String?          @db.Uuid
+  maintenance_assignee     User?            @relation("SiteMaintainer", fields: [maintenance_assignee_id], references: [id])
+
+  // Notes
+  notes               String?          @db.Text
+
+  // Metadata
+  is_deleted          Boolean          @default(false)
+  created_at          DateTime         @default(now())
+  updated_at          DateTime         @updatedAt
+
+  // Relations
+  domains                   Domain[]
+  projects                  Project[]
+  tasks                     Task[]
+  maintenance_generation_logs MaintenanceGenerationLog[]
+
+  @@index([client_id])
+  @@index([hosting_plan_id])
+  @@index([maintenance_plan_id])
+  @@index([maintenance_assignee_id])
+  @@map("sites")
+}
+
+enum HostedBy {
+  indelible
+  client
+  other
+}
+
+// ============================================
+// DOMAINS
+// ============================================
+
+model Domain {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String    @db.VarChar(255)
+
+  // Site relationship (optional - domain may exist without being linked to a site)
+  site_id    String?   @db.Uuid
+  site       Site?     @relation(fields: [site_id], references: [id])
+
+  // Domain details
+  registrar  String?   @db.VarChar(100)
+  expires_at DateTime?
+  is_primary Boolean   @default(false)
+
+  // Ownership - whose account is domain registered under
+  registered_by  DomainOwnership?
+
+  // DNS Management
+  dns_provider_id String?      @db.Uuid
+  dns_provider    DnsProvider? @relation(fields: [dns_provider_id], references: [id])
+  dns_managed_by  DomainOwnership?
+
+  // Notes
+  notes      String?   @db.Text
+
+  // Metadata
+  is_deleted Boolean   @default(false)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+
+  @@index([site_id])
+  @@index([dns_provider_id])
+  @@map("domains")
+}
+
+enum DomainOwnership {
+  indelible
+  client
+}
+
+// ============================================
+// PROJECTS (PACTS)
+// ============================================
+
+model Project {
+  id              String        @id @default(uuid()) @db.Uuid
+  name            String        @db.VarChar(255)
+  description     String?       @db.Text
+
+  // Status
+  status          ProjectStatus @default(quote)
+
+  // Relationships
+  client_id       String        @db.Uuid
+  client          Client        @relation(fields: [client_id], references: [id])
+  site_id         String?       @db.Uuid
+  site            Site?         @relation(fields: [site_id], references: [id])
+  recipe_id       String?       @db.Uuid
+  recipe          Recipe?       @relation(fields: [recipe_id], references: [id])
+
+  // Type
+  type            ProjectType   @default(project)
+
+  // Dates
+  start_date      DateTime?
+  target_date     DateTime?
+  completed_date  DateTime?
+
+  // Budget & Billing
+  billing_type      BillingType?  // How project is billed
+  budget_hours      Decimal?      @db.Decimal(8, 2)  // Agreed hours (after quote accepted)
+  hourly_rate       Decimal?      @db.Decimal(10, 2) // Rate for this project
+  budget_amount     Decimal?      @db.Decimal(10, 2) // Total dollar amount
+  budget_locked     Boolean       @default(false)
+  budget_locked_at  DateTime?
+  budget_locked_by_id String?     @db.Uuid
+  is_retainer       Boolean       @default(false)
+
+  // Notes
+  notes           String?       @db.Text
+
+  // Metadata
+  is_deleted      Boolean       @default(false)
+  created_at      DateTime      @default(now())
+  updated_at      DateTime      @updatedAt
+  created_by_id   String?       @db.Uuid
+  created_by      User?         @relation("ProjectCreatedBy", fields: [created_by_id], references: [id])
+
+  // Relations
+  phases           ProjectPhase[]
+  tasks            Task[]
+  team_assignments ProjectTeamAssignment[]
+  milestones       Milestone[]
+  time_entries     TimeEntry[]
+  pages            ProjectPage[]
+  resource_links   ResourceLink[]
+  app_settings_bug_report AppSettings[]
+
+  @@index([client_id])
+  @@index([recipe_id])
+  @@index([site_id])
+  @@index([status])
+  @@index([type])
+  @@map("projects")
+}
+
+// ============================================
+// PROJECT PHASES
+// ============================================
+
+model ProjectPhase {
+  id          String   @id @default(uuid()) @db.Uuid
+  project_id  String   @db.Uuid
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name        String   @db.VarChar(100)
+  icon        String?  @db.VarChar(50) // Icon name from icon picker
+  sort_order  Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  // Relations
+  tasks       Task[]
+  milestones  Milestone[]
+  app_settings_bug_report AppSettings[]
+
+  @@index([project_id])
+  @@map("project_phases")
+}
+
+enum ProjectStatus {
+  quote       // Proposal stage, tasks hidden from assignees
+  queue       // Approved but not started, tasks hidden
+  ready       // Ready to work, tasks visible
+  in_progress // Active work, tasks visible
+  review      // Final review, tasks visible
+  done        // Completed
+  suspended   // On hold, tasks hidden
+  cancelled   // Cancelled
+}
+
+enum ProjectType {
+  project  // Standard project
+  retainer // Ongoing retainer work
+  internal // Internal task collection
+}
+
+enum BillingType {
+  fixed     // Fixed price project
+  hourly    // Bill for actual hours
+  retainer  // Uses client's retainer_hours
+  none      // Internal/non-billable
+}
+
+// ============================================
+// RESOURCE LINKS
+// ============================================
+
+model ResourceLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  project_id  String   @db.Uuid
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name        String   @db.VarChar(100)
+  url         String   @db.VarChar(500)
+  icon        String?  @db.VarChar(50)  // Icon name (e.g., "figma", "drive", "github")
+  sort_order  Int      @default(0)
+  is_deleted  Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([project_id])
+  @@map("resource_links")
+}
+
+// ============================================
+// PROJECT TEAM ASSIGNMENTS
+// ============================================
+
+model ProjectTeamAssignment {
+  id          String   @id @default(uuid()) @db.Uuid
+  project_id  String   @db.Uuid
+  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id])
+  function_id String   @db.Uuid
+  function    Function @relation(fields: [function_id], references: [id])
+  is_lead     Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  @@unique([project_id, function_id])
+  @@index([project_id])
+  @@index([user_id])
+  @@index([function_id])
+  @@map("project_team_assignments")
+}
+
+// ============================================
+// TASKS (QUESTS)
+// ============================================
+
+model Task {
+  id                String        @id @default(uuid()) @db.Uuid
+  title             String        @db.VarChar(500)
+  description       String?       @db.Text
+
+  // Status
+  status            TaskStatus    @default(not_started)
+  priority          Int           @default(3) // 1=highest, 5=lowest
+  is_focus          Boolean       @default(false) // User's personal focus flag
+
+  // Project relationship (nullable for ad-hoc tasks)
+  project_id        String?       @db.Uuid
+  project           Project?      @relation(fields: [project_id], references: [id])
+
+  // Client relationship (always set - derived from project or set directly for ad-hoc)
+  client_id         String?       @db.Uuid
+  client            Client?       @relation(fields: [client_id], references: [id])
+
+  // Site relationship (for maintenance tasks)
+  site_id           String?       @db.Uuid
+  site              Site?         @relation(fields: [site_id], references: [id])
+
+  // Maintenance task fields
+  is_maintenance_task  Boolean    @default(false)
+  maintenance_period   String?    @db.VarChar(20)  // e.g., "2025-01" for Jan 2025
+
+  // Phase grouping
+  phase             String?       @db.VarChar(100) // Legacy - kept for migration
+  phase_id          String?       @db.Uuid
+  project_phase     ProjectPhase? @relation(fields: [phase_id], references: [id])
+  sort_order        Int           @default(0)
+
+  // Assignment
+  assignee_id       String?       @db.Uuid
+  assignee          User?         @relation("TaskAssignee", fields: [assignee_id], references: [id])
+  function_id       String?       @db.Uuid
+  function          Function?     @relation(fields: [function_id], references: [id])
+
+  // Energy estimation
+  energy_estimate   Int?          // 1-8 scale
+  mystery_factor    MysteryFactor @default(none)
+  estimated_minutes Int?          // Calculated or manual
+  battery_impact    BatteryImpact @default(average_drain)
+
+  // Dates
+  due_date          DateTime?
+  started_at        DateTime?
+  completed_at      DateTime?
+
+  // Requirements (stored as JSON)
+  requirements        Json?         // Array of requirement items (visible to all)
+  review_requirements Json?         // PM/Admin-only QA checklist (Quality Gate)
+
+  // Review workflow
+  needs_review        Boolean       @default(true)  // Whether task requires approval when done
+  reviewer_id         String?       @db.Uuid        // Who reviews/approves the task
+  reviewer            User?         @relation("TaskReviewer", fields: [reviewer_id], references: [id])
+  approved            Boolean       @default(false) // Whether task has been approved
+  approved_at         DateTime?                     // When it was approved
+  approved_by_id      String?       @db.Uuid        // Who approved it
+  approved_by         User?         @relation("TaskApprovedBy", fields: [approved_by_id], references: [id])
+
+  // SOP reference
+  sop_id            String?       @db.Uuid
+  sop               Sop?          @relation(fields: [sop_id], references: [id])
+
+  // Billing
+  invoiced          Boolean       @default(false)
+  invoiced_at       DateTime?
+  invoiced_by_id    String?       @db.Uuid
+  is_billable       Boolean       @default(true)
+  billing_target    Decimal?      @db.Decimal(10, 2)
+  is_retainer_work  Boolean       @default(false)
+  is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
+  billing_amount    Decimal?      @db.Decimal(10, 2)  // Fixed dollar amount (overrides hourly calc)
+  waive_overage     Boolean       @default(false)     // Waive overage charges for retainer billing
+
+  // Time tracking
+  no_time_needed    Boolean       @default(false) // Task completed without time tracking
+
+  // Notes
+  notes             String?       @db.Text
+
+  // Metadata
+  is_deleted        Boolean       @default(false)
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  created_by_id     String?       @db.Uuid
+  created_by        User?         @relation("TaskCreatedBy", fields: [created_by_id], references: [id])
+
+  // Self-referential dependencies
+  blocked_by        Task[]        @relation("TaskDependencies")
+  blocking          Task[]        @relation("TaskDependencies")
+
+  // Relations
+  time_entries      TimeEntry[]
+  comments          Comment[]
+
+  @@index([project_id])
+  @@index([client_id])
+  @@index([site_id])
+  @@index([assignee_id])
+  @@index([status])
+  @@index([priority])
+  @@index([phase])
+  @@index([phase_id])
+  @@index([sop_id])
+  @@index([invoiced])
+  @@index([is_maintenance_task])
+  @@index([is_support])
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  not_started
+  in_progress
+  review
+  done
+  blocked
+  abandoned
+}
+
+enum MysteryFactor {
+  none        // 1x multiplier
+  average     // 1.4x multiplier
+  significant // 1.75x multiplier
+  no_idea     // 2.5x multiplier
+}
+
+enum BatteryImpact {
+  average_drain  // Default - normal cognitive load
+  high_drain     // Taxing - don't stack these
+  energizing     // Gives energy back
+}
+
+enum MilestoneBillingStatus {
+  pending     // Not triggered yet
+  triggered   // Ready to invoice
+  invoiced    // Has been invoiced
+}
+
+// ============================================
+// MILESTONES
+// ============================================
+
+model Milestone {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String    @db.VarChar(255)
+  project_id   String    @db.Uuid
+  project      Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  // Optional phase linkage
+  phase_id     String?   @db.Uuid
+  phase        ProjectPhase? @relation(fields: [phase_id], references: [id])
+
+  target_date  DateTime?
+  completed_at DateTime?
+  notes        String?   @db.Text
+  sort_order   Int       @default(0)
+
+  // Billing fields
+  billing_amount    Decimal?              @db.Decimal(10, 2)  // Fixed dollar amount
+  billing_status    MilestoneBillingStatus @default(pending)
+  triggered_at      DateTime?
+  triggered_by_id   String?   @db.Uuid
+  invoiced_at       DateTime?
+  invoiced_by_id    String?   @db.Uuid
+
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  @@index([project_id])
+  @@index([phase_id])
+  @@index([billing_status])
+  @@map("milestones")
+}
+
+// ============================================
+// RECIPES (PROJECT TEMPLATES)
+// ============================================
+
+model Recipe {
+  id               String        @id @default(uuid()) @db.Uuid
+  name             String        @db.VarChar(255)
+  description      Json?         // BlockNote JSON content
+
+  // Configuration
+  default_type     ProjectType   @default(project)
+  requires_sitemap Boolean       @default(false) // Show sitemap step in wizard?
+
+  // Metadata
+  is_active        Boolean       @default(true)
+  created_at       DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+
+  // Relations
+  phases           RecipePhase[]
+  projects         Project[]
+
+  @@map("recipes")
+}
+
+model RecipePhase {
+  id          String       @id @default(uuid()) @db.Uuid
+  recipe_id   String       @db.Uuid
+  recipe      Recipe       @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+  name        String       @db.VarChar(100)
+  icon        String?      @db.VarChar(50) // Icon name from icon picker
+  sort_order  Int          @default(0)
+
+  // Relations
+  tasks       RecipeTask[]
+
+  @@index([recipe_id])
+  @@map("recipe_phases")
+}
+
+model RecipeTask {
+  id              String      @id @default(uuid()) @db.Uuid
+  phase_id        String      @db.Uuid
+  phase           RecipePhase @relation(fields: [phase_id], references: [id], onDelete: Cascade)
+
+  // SOP is the source of truth for task attributes
+  sop_id          String      @db.Uuid // Required - all task attributes come from SOP
+  sop             Sop         @relation(fields: [sop_id], references: [id])
+
+  // Title override - if null, use SOP title during generation
+  // Useful when same SOP is used multiple times (e.g., "Page Build - Homepage")
+  title           String?     @db.VarChar(500)
+
+  // Variable task settings (for sitemap expansion)
+  is_variable     Boolean     @default(false)
+  variable_source String?     @db.VarChar(50) // 'sitemap_page' | null
+
+  // Ordering
+  sort_order      Int         @default(0)
+
+  // Dependencies (other recipe tasks this depends on)
+  depends_on_ids  String[]    @db.Uuid
+
+  @@index([phase_id])
+  @@index([sop_id])
+  @@map("recipe_tasks")
+}
+
+// ============================================
+// SOPS (STANDARD OPERATING PROCEDURES)
+// ============================================
+
+model Sop {
+  id                    String    @id @default(uuid()) @db.Uuid
+  title                 String    @db.VarChar(255)
+
+  // Content (TipTap JSON format - step-by-step instructions)
+  content               Json?
+
+  // Classification
+  function_id           String?   @db.Uuid
+  function              Function? @relation(fields: [function_id], references: [id])
+  tags                  String[]  @db.VarChar(50)
+
+  // Task template defaults (when creating tasks from this SOP)
+  default_priority      Int           @default(3)        // 1=highest, 5=lowest
+  energy_estimate       Int?                             // 1-8 scale
+  mystery_factor        MysteryFactor @default(none)
+  battery_impact        BatteryImpact @default(average_drain)
+  estimated_minutes     Int?                             // Calculated or manual
+  needs_review          Boolean       @default(true)     // Whether tasks from this SOP need review
+
+  // Template requirements (copied to tasks as checklist)
+  template_requirements Json?         // Visible to all roles - task completion checklist
+  setup_requirements    Json?         // PM/Admin-only - checklist for prepping task before assignment
+  review_requirements   Json?         // PM/Admin-only - checklist for reviewing completed task
+
+  // Review tracking
+  last_reviewed_at      DateTime?
+  next_review_at        DateTime?
+
+  // Metadata
+  is_active             Boolean   @default(true)
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  // Relations
+  tasks                 Task[]
+  recipe_tasks          RecipeTask[]
+  maintenance_plan_sops MaintenancePlanSop[]
+
+  @@index([function_id])
+  @@map("sops")
+}
+
+// ============================================
+// PROJECT PAGES (SITEMAP)
+// ============================================
+
+model ProjectPage {
+  id            String   @id @default(uuid()) @db.Uuid
+  project_id    String   @db.Uuid
+  project       Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name          String   @db.VarChar(255)
+  page_type     String?  @db.VarChar(50)
+  needs_design  Boolean  @default(false)
+  notes         String?  @db.Text
+  sort_order    Int      @default(0)
+
+  @@index([project_id])
+  @@map("project_pages")
+}
+
+// ============================================
+// TIME ENTRIES
+// ============================================
+
+model TimeEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id])
+  task_id     String?  @db.Uuid
+  task        Task?    @relation(fields: [task_id], references: [id])
+  project_id  String?  @db.Uuid
+  project     Project? @relation(fields: [project_id], references: [id])
+
+  // Time data
+  started_at  DateTime
+  ended_at    DateTime?
+  duration    Int       @default(0) // Duration in minutes
+  is_running  Boolean   @default(false)
+  description String?   @db.Text
+
+  // Billing
+  is_billable Boolean  @default(true)
+  hourly_rate Decimal? @db.Decimal(10, 2)
+
+  // Metadata
+  is_deleted  Boolean  @default(false)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([user_id])
+  @@index([task_id])
+  @@index([project_id])
+  @@index([started_at])
+  @@index([is_running])
+  @@map("time_entries")
+}
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+model ActivityLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+  user        User     @relation(fields: [user_id], references: [id])
+  action      String   @db.VarChar(50) // created, updated, deleted, status_changed, assigned
+  entity_type String   @db.VarChar(50) // task, project, client, etc.
+  entity_id   String   @db.Uuid
+  entity_name String?  @db.VarChar(255) // Snapshot of name at time of action
+  changes     Json?    // Before/after for updates
+  created_at  DateTime @default(now())
+
+  @@index([entity_type, entity_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("activity_logs")
+}
+
+// ============================================
+// PASSWORD RESET TOKENS
+// ============================================
+
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  user_id    String    @db.Uuid
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  token      String    @unique @db.VarChar(255)
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  @@index([token])
+  @@index([user_id])
+  @@index([expires_at])
+  @@map("password_reset_tokens")
+}
+
+// ============================================
+// COMMENTS
+// ============================================
+
+model Comment {
+  id         String   @id @default(uuid()) @db.Uuid
+  task_id    String   @db.Uuid
+  task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user_id    String   @db.Uuid
+  user       User     @relation(fields: [user_id], references: [id])
+  content    String   @db.Text
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([task_id])
+  @@index([user_id])
+  @@index([created_at])
+  @@map("comments")
+}
+
+// ============================================
+// MAINTENANCE GENERATION TRACKING
+// ============================================
+
+model MaintenanceGenerationLog {
+  id                  String          @id @default(uuid()) @db.Uuid
+  maintenance_plan_id String          @db.Uuid
+  maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
+  site_id             String          @db.Uuid
+  site                Site            @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  period              String          @db.VarChar(20)  // "2025-01", "2025-Q1", etc.
+  tasks_created       Int
+  tasks_abandoned     Int             @default(0)
+  generated_at        DateTime        @default(now())
+
+  @@unique([maintenance_plan_id, site_id, period])
+  @@index([maintenance_plan_id])
+  @@index([site_id])
+  @@index([period])
+  @@map("maintenance_generation_logs")
+}
+
+// ============================================
+// APP SETTINGS (SINGLETON)
+// ============================================
+
+model AppSettings {
+  id                          String    @id @default("singleton")
+
+  // Bug reporting configuration
+  bug_report_project_id       String?   @db.Uuid
+  bug_report_phase_id         String?   @db.Uuid
+  bug_report_notify_user_id   String?   @db.Uuid
+
+  created_at                  DateTime  @default(now())
+  updated_at                  DateTime  @updatedAt
+
+  // Relations
+  bug_report_project          Project?      @relation(fields: [bug_report_project_id], references: [id])
+  bug_report_phase            ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
+  bug_report_notify_user      User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
+
+  @@map("app_settings")
+}
