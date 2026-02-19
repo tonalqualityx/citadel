@@ -73,9 +73,6 @@ const updateStatusSchema = z.object({
   status: z.enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']),
 });
 
-// Project statuses where tasks are visible to Tech users
-const VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review', 'done'];
-
 async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
   const task = await prisma.task.findUnique({
     where: { id: taskId, is_deleted: false },
@@ -92,11 +89,11 @@ async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
   if (auth.role === 'tech') {
     let isVisible = false;
 
-    // Ad-hoc tasks assigned to the user
-    if (!task.project_id && task.assignee_id === auth.userId) {
+    // Tech users can view tasks where they are the assignee
+    if (task.assignee_id === auth.userId) {
       isVisible = true;
     }
-    // Tasks in projects where user is a team member
+    // OR tasks in projects where they are a team member
     else if (task.project_id) {
       const isTeamMember = await prisma.projectTeamAssignment.findFirst({
         where: {
