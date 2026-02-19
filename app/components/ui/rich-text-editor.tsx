@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useEffect } from 'react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
 import {
@@ -244,6 +244,12 @@ export function RichTextEditor({
   readOnly = false,
   className = '',
 }: RichTextEditorProps) {
+  // Client-side only check to prevent SSR issues with BlockNote
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Parse initial content - BlockNote expects an array of blocks
   const initialContent = useMemo(() => {
     return ensureBlockNoteFormat(content);
@@ -264,6 +270,15 @@ export function RichTextEditor({
 
   // Detect dark mode
   const isDark = useIsDarkMode();
+
+  // Prevent SSR issues by not rendering until client-side
+  if (!mounted) {
+    return (
+      <div className={`blocknote-wrapper ${className}`} data-readonly={readOnly}>
+        <div className="rich-text-loading">Loading editor...</div>
+      </div>
+    );
+  }
 
   return (
     <div className={`blocknote-wrapper ${className}`} data-readonly={readOnly}>
