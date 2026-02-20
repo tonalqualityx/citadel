@@ -44,11 +44,10 @@ export async function POST(request: NextRequest) {
     const data = createDnsProviderSchema.parse(body);
 
     // Check for duplicate name (case-insensitive)
-    const existing = await prisma.dnsProvider.findFirst({
-      where: {
-        name: { equals: data.name, mode: 'insensitive' },
-      },
-    });
+    const allProviders = await prisma.dnsProvider.findMany();
+    const existing = allProviders.find(
+      (p) => p.name.toLowerCase() === data.name.toLowerCase()
+    );
 
     if (existing) {
       // If it exists but is inactive, reactivate it
