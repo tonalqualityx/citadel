@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { deserializeDependsOnIds } from '@/lib/db/recipe-tasks-compat';
 
 const updateRecipeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -77,7 +78,7 @@ export async function GET(
           is_variable: task.is_variable,
           variable_source: task.variable_source,
           sort_order: task.sort_order,
-          depends_on_ids: task.depends_on_ids,
+          depends_on_ids: deserializeDependsOnIds(task.depends_on_ids),
           // SOP data (source of truth for task attributes)
           sop: task.sop,
         })),
