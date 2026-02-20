@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { serializeTags, deserializeTags, buildTagFilter } from '@/lib/db/tags-compat';
 import type { Prisma } from '@prisma/client';
 
 const createSopSchema = z.object({
@@ -50,13 +49,13 @@ export async function GET(request: NextRequest) {
     }
 
     if (tag) {
-      where.tags = buildTagFilter(tag) as Prisma.StringNullableListFilter;
+      where.tags = { has: tag };
     }
 
     if (search) {
       where.OR = [
         { title: { contains: search, mode: 'insensitive' } },
-        { tags: buildTagFilter(search) as Prisma.StringNullableListFilter },
+        { tags: { has: search } },
       ];
     }
 
@@ -83,7 +82,7 @@ export async function GET(request: NextRequest) {
       id: sop.id,
       title: sop.title,
       function: sop.function,
-      tags: deserializeTags(sop.tags),
+      tags: sop.tags ?? [],
       is_active: sop.is_active,
       // Task template fields
       default_priority: sop.default_priority,
@@ -127,7 +126,7 @@ export async function POST(request: NextRequest) {
         title: data.title,
         content: data.content ?? undefined,
         function_id: data.function_id,
-        tags: serializeTags(data.tags) as Prisma.SopCreateInput['tags'],
+        tags: data.tags,
         template_requirements: data.template_requirements ?? undefined,
         next_review_at: data.next_review_at ? new Date(data.next_review_at) : null,
         // Task template fields

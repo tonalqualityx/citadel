@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE "sops" ALTER COLUMN "tags" SET DEFAULT ARRAY[]::VARCHAR(50)[];

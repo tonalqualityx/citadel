@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { deserializeDependsOnIds } from '@/lib/db/recipe-tasks-compat';
 import { ProjectStatus, ProjectType, Prisma } from '@prisma/client';
 
 // Enhanced task mapping to support variable task expansion
@@ -264,7 +263,7 @@ export async function POST(request: NextRequest) {
       // Set up task dependencies based on recipe_task.depends_on_ids
       for (const phase of recipe.phases) {
         for (const recipeTask of phase.tasks) {
-          const dependsOnIds = deserializeDependsOnIds(recipeTask.depends_on_ids);
+          const dependsOnIds = recipeTask.depends_on_ids ?? [];
           if (!dependsOnIds.length) continue;
 
           const dependentMapping = taskMappings.get(recipeTask.id);
