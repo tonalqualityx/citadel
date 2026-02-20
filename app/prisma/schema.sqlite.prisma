@@ -902,7 +902,7 @@ model Sop {
 
   function_id           String?
   function              Function? @relation(fields: [function_id], references: [id])
-  tags                  String
+  tags                  String    @default("[]")
 
   default_priority      Int           @default(3)
   energy_estimate       Int?

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, notFound } from '@/lib/api/errors';
+import { serializeTags, deserializeTags } from '@/lib/db/tags-compat';
 import type { Prisma } from '@prisma/client';
 
 const updateSopSchema = z.object({
@@ -82,7 +83,7 @@ export async function GET(
         title: sop.title,
         content: sop.content,
         function: sop.function,
-        tags: sop.tags,
+        tags: deserializeTags(sop.tags),
         template_requirements: sop.template_requirements,
         setup_requirements: sop.setup_requirements,
         review_requirements: sop.review_requirements,
@@ -142,7 +143,9 @@ export async function PATCH(
         ? { connect: { id: data.function_id } }
         : { disconnect: true };
     }
-    if (data.tags !== undefined) updateData.tags = data.tags;
+    if (data.tags !== undefined) {
+      updateData.tags = serializeTags(data.tags) as Prisma.SopUpdateInput['tags'];
+    }
     if (data.template_requirements !== undefined) {
       updateData.template_requirements = data.template_requirements;
     }

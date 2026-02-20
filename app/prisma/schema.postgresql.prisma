@@ -1012,7 +1012,7 @@ model Sop {
   // Classification
   function_id           String?   @db.Uuid
   function              Function? @relation(fields: [function_id], references: [id])
-  tags                  String[]  @db.VarChar(50)
+  tags                  String[]  @default([]) @db.VarChar(50)
 
   // Task template defaults (when creating tasks from this SOP)
   default_priority      Int           @default(3)        // 1=highest, 5=lowest

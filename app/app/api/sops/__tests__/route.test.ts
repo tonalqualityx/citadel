@@ -83,7 +83,7 @@ describe('POST /api/sops', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           title: 'Test SOP',
-          tags: undefined,
+          tags: [],
           default_priority: 3,
           mystery_factor: 'none',
           battery_impact: 'average_drain',
@@ -134,7 +134,7 @@ describe('POST /api/sops', () => {
     );
   });
 
-  it('converts empty tags array to undefined (avoids Prisma 500 error)', async () => {
+  it('sends empty tags array to database (uses @default([]) in schema)', async () => {
     const requestBody = {
       title: 'Test SOP With Empty Tags',
       tags: [],
@@ -163,12 +163,12 @@ describe('POST /api/sops', () => {
     const response = await POST(request);
 
     expect(response.status).toBe(201);
-    // Empty array should be converted to undefined to avoid Prisma SQLite error
+    // Empty array is now sent directly - schema has @default([]) for PostgreSQL
     expect(mockSopCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           title: 'Test SOP With Empty Tags',
-          tags: undefined,
+          tags: [],
         }),
       })
     );

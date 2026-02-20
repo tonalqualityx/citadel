@@ -4,7 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -13,19 +13,18 @@ datasource db {
 // ============================================
 
 model User {
-  id                    String    @id @default(uuid()) @db.Uuid
-  email                 String    @unique @db.VarChar(255)
-  password_hash         String    @db.VarChar(255)
-  name                  String    @db.VarChar(255)
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  password_hash         String
+  name                  String
   role                  UserRole  @default(tech)
-  avatar_url            String?   @db.VarChar(500)
+  avatar_url            String?
   is_active             Boolean   @default(true)
-  target_hours_per_week Int       @default(40) // Target utilization hours per week
+  target_hours_per_week Int       @default(40)
   last_login_at         DateTime?
   created_at            DateTime  @default(now())
   updated_at            DateTime  @updatedAt
 
-  // Relations
   preferences           UserPreference?
   sessions              Session[]
   notifications         Notification[]
@@ -52,8 +51,8 @@ model User {
 }
 
 model UserPreference {
-  id                  String           @id @default(uuid()) @db.Uuid
-  user_id             String           @unique @db.Uuid
+  id                  String           @id @default(uuid())
+  user_id             String           @unique
   naming_convention   NamingConvention @default(awesome)
   theme               Theme            @default(system)
   notification_bundle Boolean          @default(true)
@@ -66,9 +65,9 @@ model UserPreference {
 }
 
 model Session {
-  id            String   @id @default(uuid()) @db.Uuid
-  user_id       String   @db.Uuid
-  refresh_token String   @unique @db.VarChar(500)
+  id            String   @id @default(uuid())
+  user_id       String
+  refresh_token String   @unique
   expires_at    DateTime
   created_at    DateTime @default(now())
 
@@ -80,11 +79,11 @@ model Session {
 }
 
 model ApiKey {
-  id           String    @id @default(uuid()) @db.Uuid
-  user_id      String    @db.Uuid
-  name         String    @db.VarChar(100)
-  key_hash     String    @db.VarChar(255)
-  key_prefix   String    @db.VarChar(20)
+  id           String    @id @default(uuid())
+  user_id      String
+  name         String
+  key_hash     String
+  key_prefix   String
   last_used_at DateTime?
   expires_at   DateTime?
   is_revoked   Boolean   @default(false)
@@ -103,37 +102,30 @@ model ApiKey {
 // ============================================
 
 model Notification {
-  id           String           @id @default(uuid()) @db.Uuid
-  user_id      String           @db.Uuid
+  id           String           @id @default(uuid())
+  user_id      String
   user         User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  // Content
   type         NotificationType
-  title        String           @db.VarChar(255)
-  message      String?          @db.Text
+  title        String
+  message      String?
 
-  // Reference
-  entity_type  String?          @db.VarChar(50)
-  entity_id    String?          @db.Uuid
+  entity_type  String?
+  entity_id    String?
 
-  // Priority for routing
   priority     NotificationPriority @default(normal)
 
-  // Status
   is_read      Boolean          @default(false)
   read_at      DateTime?
 
-  // Bundling
-  bundle_key   String?          @db.VarChar(100)
+  bundle_key   String?
   bundle_count Int              @default(1)
 
-  // Delivery tracking
   email_sent      Boolean   @default(false)
   email_sent_at   DateTime?
   slack_sent      Boolean   @default(false)
   slack_sent_at   DateTime?
 
-  // Metadata
   created_at   DateTime         @default(now())
 
   @@index([user_id])
@@ -143,21 +135,18 @@ model Notification {
   @@map("notifications")
 }
 
-// User-level notification preferences (matrix of type x channel)
 model NotificationPreference {
-  id                String           @id @default(uuid()) @db.Uuid
-  user_id           String           @db.Uuid
+  id                String           @id @default(uuid())
+  user_id           String
   user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   notification_type NotificationType
 
-  // Channel toggles
   in_app            Boolean          @default(true)
   email             Boolean          @default(false)
   slack             Boolean          @default(false)
 
-  // Admin override (if set, user cannot change)
   admin_override    Boolean          @default(false)
-  overridden_by_id  String?          @db.Uuid
+  overridden_by_id  String?
   overridden_at     DateTime?
 
   created_at        DateTime         @default(now())
@@ -168,14 +157,13 @@ model NotificationPreference {
   @@map("notification_preferences")
 }
 
-// Slack user mappings (Citadel User -> Slack User ID)
 model SlackUserMapping {
-  id              String   @id @default(uuid()) @db.Uuid
-  user_id         String   @unique @db.Uuid
+  id              String   @id @default(uuid())
+  user_id         String   @unique
   user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  slack_user_id   String   @db.VarChar(50)  // Slack's user ID (e.g., "U01234ABCDE")
-  slack_team_id   String   @db.VarChar(50)  // Slack workspace ID
-  display_name    String?  @db.VarChar(255) // Cached Slack display name
+  slack_user_id   String
+  slack_team_id   String
+  display_name    String?
 
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -184,18 +172,15 @@ model SlackUserMapping {
   @@map("slack_user_mappings")
 }
 
-// Slack message thread tracking (for reply sync)
 model SlackMessageThread {
-  id              String   @id @default(uuid()) @db.Uuid
+  id              String   @id @default(uuid())
 
-  // What was sent
-  entity_type     String   @db.VarChar(50)  // 'task', 'comment'
-  entity_id       String   @db.Uuid
+  entity_type     String
+  entity_id       String
 
-  // Slack message identifiers
-  slack_channel   String   @db.VarChar(50)  // DM channel ID
-  slack_ts        String   @db.VarChar(50)  // Message timestamp (Slack's message ID)
-  slack_user_id   String   @db.VarChar(50)  // Who received the DM
+  slack_channel   String
+  slack_ts        String
+  slack_user_id   String
 
   created_at      DateTime @default(now())
 
@@ -204,20 +189,17 @@ model SlackMessageThread {
   @@map("slack_message_threads")
 }
 
-// Email digest queue for batching non-critical notifications
 model EmailDigestQueue {
-  id                String           @id @default(uuid()) @db.Uuid
-  user_id           String           @db.Uuid
+  id                String           @id @default(uuid())
+  user_id           String
   user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   notification_type NotificationType
 
-  // Content
-  title             String           @db.VarChar(255)
-  message           String?          @db.Text
-  entity_type       String?          @db.VarChar(50)
-  entity_id         String?          @db.Uuid
+  title             String
+  message           String?
+  entity_type       String?
+  entity_id         String?
 
-  // Status
   processed         Boolean          @default(false)
   processed_at      DateTime?
 
@@ -228,24 +210,20 @@ model EmailDigestQueue {
   @@map("email_digest_queue")
 }
 
-// Slack notification batch queue for grouping project task notifications
 model SlackNotificationBatch {
-  id                String           @id @default(uuid()) @db.Uuid
-  user_id           String           @db.Uuid
+  id                String           @id @default(uuid())
+  user_id           String
   user              User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  project_id        String           @db.Uuid
-  task_id           String           @db.Uuid
+  project_id        String
+  task_id           String
   notification_type NotificationType
 
-  // Content
-  title             String           @db.VarChar(255)
-  message           String?          @db.Text
+  title             String
+  message           String?
 
-  // Batching control
-  batch_key         String           @db.VarChar(100) // user_id:project_id combo
-  batch_ready_at    DateTime         // When this batch should be sent
+  batch_key         String
+  batch_ready_at    DateTime
 
-  // Status
   processed         Boolean          @default(false)
   processed_at      DateTime?
 
@@ -293,18 +271,18 @@ enum NotificationType {
 }
 
 enum NotificationPriority {
-  low       // Digest only
-  normal    // Standard routing
-  high      // Immediate on enabled channels
-  critical  // Force immediate on all enabled channels
+  low
+  normal
+  high
+  critical
 }
 
 enum MaintenanceFrequency {
-  monthly        // Every month
-  bi_monthly     // Every 2 months
-  quarterly      // Every 3 months
-  semi_annually  // Every 6 months
-  annually       // Every 12 months
+  monthly
+  bi_monthly
+  quarterly
+  semi_annually
+  annually
 }
 
 // ============================================
@@ -312,15 +290,14 @@ enum MaintenanceFrequency {
 // ============================================
 
 model Function {
-  id            String   @id @default(uuid()) @db.Uuid
-  name          String   @db.VarChar(100)
-  primary_focus String?  @db.Text
+  id            String   @id @default(uuid())
+  name          String
+  primary_focus String?
   sort_order    Int      @default(0)
   is_active     Boolean  @default(true)
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
-  // Relations
   team_assignments ProjectTeamAssignment[]
   user_functions   UserFunction[]
   tasks            Task[]
@@ -329,12 +306,11 @@ model Function {
   @@map("functions")
 }
 
-// UserFunction - tracks which functions a user is qualified to perform
 model UserFunction {
-  id          String   @id @default(uuid()) @db.Uuid
-  user_id     String   @db.Uuid
+  id          String   @id @default(uuid())
+  user_id     String
   user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  function_id String   @db.Uuid
+  function_id String
   function    Function @relation(fields: [function_id], references: [id], onDelete: Cascade)
   is_primary  Boolean  @default(false)
   created_at  DateTime @default(now())
@@ -346,13 +322,13 @@ model UserFunction {
 }
 
 model HostingPlan {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String   @db.VarChar(100)
-  rate         Decimal  @db.Decimal(10, 2)
-  agency_rate  Decimal? @db.Decimal(10, 2)
-  monthly_cost Decimal? @db.Decimal(10, 2)
-  vendor_plan  String?  @db.VarChar(100)
-  details      String?  @db.Text
+  id           String   @id @default(uuid())
+  name         String
+  rate         Float
+  agency_rate  Float?
+  monthly_cost Float?
+  vendor_plan  String?
+  details      String?
   is_active    Boolean  @default(true)
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
@@ -363,18 +339,17 @@ model HostingPlan {
 }
 
 model MaintenancePlan {
-  id          String               @id @default(uuid()) @db.Uuid
-  name        String               @db.VarChar(100)
-  rate        Decimal              @db.Decimal(10, 2)
-  agency_rate Decimal?             @db.Decimal(10, 2)
-  hours       Decimal?             @db.Decimal(5, 2)
-  details     String?              @db.Text
+  id          String               @id @default(uuid())
+  name        String
+  rate        Float
+  agency_rate Float?
+  hours       Float?
+  details     String?
   frequency   MaintenanceFrequency @default(monthly)
   is_active   Boolean              @default(true)
   created_at  DateTime             @default(now())
   updated_at  DateTime             @updatedAt
 
-  // Relations
   sites           Site[]
   sops            MaintenancePlanSop[]
   generation_logs MaintenanceGenerationLog[]
@@ -382,12 +357,11 @@ model MaintenancePlan {
   @@map("maintenance_plans")
 }
 
-// Junction table for MaintenancePlan ↔ SOP
 model MaintenancePlanSop {
-  id                  String          @id @default(uuid()) @db.Uuid
-  maintenance_plan_id String          @db.Uuid
+  id                  String          @id @default(uuid())
+  maintenance_plan_id String
   maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
-  sop_id              String          @db.Uuid
+  sop_id              String
   sop                 Sop             @relation(fields: [sop_id], references: [id], onDelete: Cascade)
   sort_order          Int             @default(0)
 
@@ -398,12 +372,12 @@ model MaintenancePlanSop {
 }
 
 model Tool {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(100)
-  category    String?  @db.VarChar(50)
-  url         String?  @db.VarChar(500)
-  description String?  @db.Text
-  license_key String?  @db.VarChar(255)
+  id          String   @id @default(uuid())
+  name        String
+  category    String?
+  url         String?
+  description String?
+  license_key String?
   is_active   Boolean  @default(true)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
@@ -412,24 +386,23 @@ model Tool {
 }
 
 model Integration {
-  id          String   @id @default(uuid()) @db.Uuid
-  provider    String   @unique @db.VarChar(50)
+  id          String   @id @default(uuid())
+  provider    String   @unique
   config      Json     @default("{}")
   is_active   Boolean  @default(false)
   updated_at  DateTime @updatedAt
-  updated_by  String?  @db.Uuid
+  updated_by  String?
 
   @@map("integrations")
 }
 
 model DnsProvider {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique @db.VarChar(100)
+  id        String   @id @default(uuid())
+  name      String   @unique
   is_active Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  // Relations
   domains   Domain[]
 
   @@map("dns_providers")
@@ -440,35 +413,29 @@ model DnsProvider {
 // ============================================
 
 model Client {
-  id              String       @id @default(uuid()) @db.Uuid
-  name            String       @db.VarChar(255)
+  id              String       @id @default(uuid())
+  name            String
   type            ClientType   @default(direct)
   status          ClientStatus @default(active)
 
-  // Contact info
-  primary_contact String?      @db.VarChar(255)
-  email           String?      @db.VarChar(255)
-  phone           String?      @db.VarChar(50)
+  primary_contact String?
+  email           String?
+  phone           String?
 
-  // Billing
-  retainer_hours      Decimal?           @db.Decimal(5, 2)
-  hourly_rate         Decimal?           @db.Decimal(10, 2)
+  retainer_hours      Float?
+  hourly_rate         Float?
   retainer_usage_mode RetainerUsageMode  @default(medium)
 
-  // Relationships
-  parent_agency_id String?     @db.Uuid
+  parent_agency_id String?
   parent_agency    Client?     @relation("AgencySubClients", fields: [parent_agency_id], references: [id])
   sub_clients      Client[]    @relation("AgencySubClients")
 
-  // Notes
-  notes           String?      @db.Text
+  notes           String?
 
-  // Metadata
   is_deleted      Boolean      @default(false)
   created_at      DateTime     @default(now())
   updated_at      DateTime     @updatedAt
 
-  // Relations
   sites    Site[]
   projects Project[]
   tasks    Task[]
@@ -503,36 +470,30 @@ enum RetainerUsageMode {
 // ============================================
 
 model Site {
-  id                  String           @id @default(uuid()) @db.Uuid
-  name                String           @db.VarChar(255)
-  url                 String?          @db.VarChar(500)
+  id                  String           @id @default(uuid())
+  name                String
+  url                 String?
 
-  // Client relationship (optional - sites can exist without a client)
-  client_id           String?          @db.Uuid
+  client_id           String?
   client              Client?          @relation(fields: [client_id], references: [id])
 
-  // Hosting
   hosted_by           HostedBy         @default(indelible)
-  platform            String?          @db.VarChar(100)
-  hosting_plan_id     String?          @db.Uuid
+  platform            String?
+  hosting_plan_id     String?
   hosting_plan        HostingPlan?     @relation(fields: [hosting_plan_id], references: [id])
-  hosting_discount    Decimal?         @db.Decimal(10, 2)  // Fixed $ discount off hosting plan rate
+  hosting_discount    Float?
 
-  // Maintenance
-  maintenance_plan_id      String?          @db.Uuid
+  maintenance_plan_id      String?
   maintenance_plan         MaintenancePlan? @relation(fields: [maintenance_plan_id], references: [id])
-  maintenance_assignee_id  String?          @db.Uuid
+  maintenance_assignee_id  String?
   maintenance_assignee     User?            @relation("SiteMaintainer", fields: [maintenance_assignee_id], references: [id])
 
-  // Notes
-  notes               String?          @db.Text
+  notes               String?
 
-  // Metadata
   is_deleted          Boolean          @default(false)
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 
-  // Relations
   domains                   Domain[]
   projects                  Project[]
   tasks                     Task[]
@@ -556,30 +517,24 @@ enum HostedBy {
 // ============================================
 
 model Domain {
-  id         String    @id @default(uuid()) @db.Uuid
-  name       String    @db.VarChar(255)
+  id         String    @id @default(uuid())
+  name       String
 
-  // Site relationship (optional - domain may exist without being linked to a site)
-  site_id    String?   @db.Uuid
+  site_id    String?
   site       Site?     @relation(fields: [site_id], references: [id])
 
-  // Domain details
-  registrar  String?   @db.VarChar(100)
+  registrar  String?
   expires_at DateTime?
   is_primary Boolean   @default(false)
 
-  // Ownership - whose account is domain registered under
   registered_by  DomainOwnership?
 
-  // DNS Management
-  dns_provider_id String?      @db.Uuid
+  dns_provider_id String?
   dns_provider    DnsProvider? @relation(fields: [dns_provider_id], references: [id])
   dns_managed_by  DomainOwnership?
 
-  // Notes
-  notes      String?   @db.Text
+  notes      String?
 
-  // Metadata
   is_deleted Boolean   @default(false)
   created_at DateTime  @default(now())
   updated_at DateTime  @updatedAt
@@ -599,50 +554,42 @@ enum DomainOwnership {
 // ============================================
 
 model Project {
-  id              String        @id @default(uuid()) @db.Uuid
-  name            String        @db.VarChar(255)
-  description     String?       @db.Text
+  id              String        @id @default(uuid())
+  name            String
+  description     String?
 
-  // Status
   status          ProjectStatus @default(quote)
 
-  // Relationships
-  client_id       String        @db.Uuid
+  client_id       String
   client          Client        @relation(fields: [client_id], references: [id])
-  site_id         String?       @db.Uuid
+  site_id         String?
   site            Site?         @relation(fields: [site_id], references: [id])
-  recipe_id       String?       @db.Uuid
+  recipe_id       String?
   recipe          Recipe?       @relation(fields: [recipe_id], references: [id])
 
-  // Type
   type            ProjectType   @default(project)
 
-  // Dates
   start_date      DateTime?
   target_date     DateTime?
   completed_date  DateTime?
 
-  // Budget & Billing
-  billing_type      BillingType?  // How project is billed
-  budget_hours      Decimal?      @db.Decimal(8, 2)  // Agreed hours (after quote accepted)
-  hourly_rate       Decimal?      @db.Decimal(10, 2) // Rate for this project
-  budget_amount     Decimal?      @db.Decimal(10, 2) // Total dollar amount
+  billing_type      BillingType?
+  budget_hours      Float?
+  hourly_rate       Float?
+  budget_amount     Float?
   budget_locked     Boolean       @default(false)
   budget_locked_at  DateTime?
-  budget_locked_by_id String?     @db.Uuid
+  budget_locked_by_id String?
   is_retainer       Boolean       @default(false)
 
-  // Notes
-  notes           String?       @db.Text
+  notes           String?
 
-  // Metadata
   is_deleted      Boolean       @default(false)
   created_at      DateTime      @default(now())
   updated_at      DateTime      @updatedAt
-  created_by_id   String?       @db.Uuid
+  created_by_id   String?
   created_by      User?         @relation("ProjectCreatedBy", fields: [created_by_id], references: [id])
 
-  // Relations
   phases           ProjectPhase[]
   tasks            Task[]
   team_assignments ProjectTeamAssignment[]
@@ -660,21 +607,16 @@ model Project {
   @@map("projects")
 }
 
-// ============================================
-// PROJECT PHASES
-// ============================================
-
 model ProjectPhase {
-  id          String   @id @default(uuid()) @db.Uuid
-  project_id  String   @db.Uuid
+  id          String   @id @default(uuid())
+  project_id  String
   project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  name        String   @db.VarChar(100)
-  icon        String?  @db.VarChar(50) // Icon name from icon picker
+  name        String
+  icon        String?
   sort_order  Int      @default(0)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  // Relations
   tasks       Task[]
   milestones  Milestone[]
   app_settings_bug_report AppSettings[]
@@ -684,40 +626,36 @@ model ProjectPhase {
 }
 
 enum ProjectStatus {
-  quote       // Proposal stage, tasks hidden from assignees
-  queue       // Approved but not started, tasks hidden
-  ready       // Ready to work, tasks visible
-  in_progress // Active work, tasks visible
-  review      // Final review, tasks visible
-  done        // Completed
-  suspended   // On hold, tasks hidden
-  cancelled   // Cancelled
+  quote
+  queue
+  ready
+  in_progress
+  review
+  done
+  suspended
+  cancelled
 }
 
 enum ProjectType {
-  project  // Standard project
-  retainer // Ongoing retainer work
-  internal // Internal task collection
+  project
+  retainer
+  internal
 }
 
 enum BillingType {
-  fixed     // Fixed price project
-  hourly    // Bill for actual hours
-  retainer  // Uses client's retainer_hours
-  none      // Internal/non-billable
+  fixed
+  hourly
+  retainer
+  none
 }
 
-// ============================================
-// RESOURCE LINKS
-// ============================================
-
 model ResourceLink {
-  id          String   @id @default(uuid()) @db.Uuid
-  project_id  String   @db.Uuid
+  id          String   @id @default(uuid())
+  project_id  String
   project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  name        String   @db.VarChar(100)
-  url         String   @db.VarChar(500)
-  icon        String?  @db.VarChar(50)  // Icon name (e.g., "figma", "drive", "github")
+  name        String
+  url         String
+  icon        String?
   sort_order  Int      @default(0)
   is_deleted  Boolean  @default(false)
   created_at  DateTime @default(now())
@@ -727,17 +665,13 @@ model ResourceLink {
   @@map("resource_links")
 }
 
-// ============================================
-// PROJECT TEAM ASSIGNMENTS
-// ============================================
-
 model ProjectTeamAssignment {
-  id          String   @id @default(uuid()) @db.Uuid
-  project_id  String   @db.Uuid
+  id          String   @id @default(uuid())
+  project_id  String
   project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  user_id     String   @db.Uuid
+  user_id     String
   user        User     @relation(fields: [user_id], references: [id])
-  function_id String   @db.Uuid
+  function_id String
   function    Function @relation(fields: [function_id], references: [id])
   is_lead     Boolean  @default(false)
   created_at  DateTime @default(now())
@@ -754,100 +688,82 @@ model ProjectTeamAssignment {
 // ============================================
 
 model Task {
-  id                String        @id @default(uuid()) @db.Uuid
-  title             String        @db.VarChar(500)
-  description       String?       @db.Text
+  id                String        @id @default(uuid())
+  title             String
+  description       String?
 
-  // Status
   status            TaskStatus    @default(not_started)
-  priority          Int           @default(3) // 1=highest, 5=lowest
-  is_focus          Boolean       @default(false) // User's personal focus flag
+  priority          Int           @default(3)
+  is_focus          Boolean       @default(false)
 
-  // Project relationship (nullable for ad-hoc tasks)
-  project_id        String?       @db.Uuid
+  project_id        String?
   project           Project?      @relation(fields: [project_id], references: [id])
 
-  // Client relationship (always set - derived from project or set directly for ad-hoc)
-  client_id         String?       @db.Uuid
+  client_id         String?
   client            Client?       @relation(fields: [client_id], references: [id])
 
-  // Site relationship (for maintenance tasks)
-  site_id           String?       @db.Uuid
+  site_id           String?
   site              Site?         @relation(fields: [site_id], references: [id])
 
-  // Maintenance task fields
   is_maintenance_task  Boolean    @default(false)
-  maintenance_period   String?    @db.VarChar(20)  // e.g., "2025-01" for Jan 2025
+  maintenance_period   String?
 
-  // Phase grouping
-  phase             String?       @db.VarChar(100) // Legacy - kept for migration
-  phase_id          String?       @db.Uuid
+  phase             String?
+  phase_id          String?
   project_phase     ProjectPhase? @relation(fields: [phase_id], references: [id])
   sort_order        Int           @default(0)
 
-  // Assignment
-  assignee_id       String?       @db.Uuid
+  assignee_id       String?
   assignee          User?         @relation("TaskAssignee", fields: [assignee_id], references: [id])
-  function_id       String?       @db.Uuid
+  function_id       String?
   function          Function?     @relation(fields: [function_id], references: [id])
 
-  // Energy estimation
-  energy_estimate   Int?          // 1-8 scale
+  energy_estimate   Int?
   mystery_factor    MysteryFactor @default(none)
-  estimated_minutes Int?          // Calculated or manual
+  estimated_minutes Int?
   battery_impact    BatteryImpact @default(average_drain)
 
-  // Dates
   due_date          DateTime?
   started_at        DateTime?
   completed_at      DateTime?
 
-  // Requirements (stored as JSON)
-  requirements        Json?         // Array of requirement items (visible to all)
-  review_requirements Json?         // PM/Admin-only QA checklist (Quality Gate)
+  requirements        Json?
+  review_requirements Json?
 
-  // Review workflow
-  needs_review        Boolean       @default(true)  // Whether task requires approval when done
-  reviewer_id         String?       @db.Uuid        // Who reviews/approves the task
+  needs_review        Boolean       @default(true)
+  reviewer_id         String?
   reviewer            User?         @relation("TaskReviewer", fields: [reviewer_id], references: [id])
-  approved            Boolean       @default(false) // Whether task has been approved
-  approved_at         DateTime?                     // When it was approved
-  approved_by_id      String?       @db.Uuid        // Who approved it
+  approved            Boolean       @default(false)
+  approved_at         DateTime?
+  approved_by_id      String?
   approved_by         User?         @relation("TaskApprovedBy", fields: [approved_by_id], references: [id])
 
-  // SOP reference
-  sop_id            String?       @db.Uuid
+  sop_id            String?
   sop               Sop?          @relation(fields: [sop_id], references: [id])
 
-  // Billing
   invoiced          Boolean       @default(false)
   invoiced_at       DateTime?
-  invoiced_by_id    String?       @db.Uuid
+  invoiced_by_id    String?
   is_billable       Boolean       @default(true)
-  billing_target    Decimal?      @db.Decimal(10, 2)
+  billing_target    Float?
   is_retainer_work  Boolean       @default(false)
-  is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
-  billing_amount    Decimal?      @db.Decimal(10, 2)  // Fixed dollar amount (overrides hourly calc)
-  waive_overage     Boolean       @default(false)     // Waive overage charges for retainer billing
+  is_support        Boolean       @default(false)
+  billing_amount    Float?
+  waive_overage     Boolean       @default(false)
 
-  // Time tracking
-  no_time_needed    Boolean       @default(false) // Task completed without time tracking
+  no_time_needed    Boolean       @default(false)
 
-  // Notes
-  notes             String?       @db.Text
+  notes             String?
 
-  // Metadata
   is_deleted        Boolean       @default(false)
   created_at        DateTime      @default(now())
   updated_at        DateTime      @updatedAt
-  created_by_id     String?       @db.Uuid
+  created_by_id     String?
   created_by        User?         @relation("TaskCreatedBy", fields: [created_by_id], references: [id])
 
-  // Self-referential dependencies
   blocked_by        Task[]        @relation("TaskDependencies")
   blocking          Task[]        @relation("TaskDependencies")
 
-  // Relations
   time_entries      TimeEntry[]
   comments          Comment[]
 
@@ -876,50 +792,44 @@ enum TaskStatus {
 }
 
 enum MysteryFactor {
-  none        // 1x multiplier
-  average     // 1.4x multiplier
-  significant // 1.75x multiplier
-  no_idea     // 2.5x multiplier
+  none
+  average
+  significant
+  no_idea
 }
 
 enum BatteryImpact {
-  average_drain  // Default - normal cognitive load
-  high_drain     // Taxing - don't stack these
-  energizing     // Gives energy back
+  average_drain
+  high_drain
+  energizing
 }
 
 enum MilestoneBillingStatus {
-  pending     // Not triggered yet
-  triggered   // Ready to invoice
-  invoiced    // Has been invoiced
+  pending
+  triggered
+  invoiced
 }
 
-// ============================================
-// MILESTONES
-// ============================================
-
 model Milestone {
-  id           String    @id @default(uuid()) @db.Uuid
-  name         String    @db.VarChar(255)
-  project_id   String    @db.Uuid
+  id           String    @id @default(uuid())
+  name         String
+  project_id   String
   project      Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
 
-  // Optional phase linkage
-  phase_id     String?   @db.Uuid
+  phase_id     String?
   phase        ProjectPhase? @relation(fields: [phase_id], references: [id])
 
   target_date  DateTime?
   completed_at DateTime?
-  notes        String?   @db.Text
+  notes        String?
   sort_order   Int       @default(0)
 
-  // Billing fields
-  billing_amount    Decimal?              @db.Decimal(10, 2)  // Fixed dollar amount
+  billing_amount    Float?
   billing_status    MilestoneBillingStatus @default(pending)
   triggered_at      DateTime?
-  triggered_by_id   String?   @db.Uuid
+  triggered_by_id   String?
   invoiced_at       DateTime?
-  invoiced_by_id    String?   @db.Uuid
+  invoiced_by_id    String?
 
   created_at   DateTime  @default(now())
   updated_at   DateTime  @updatedAt
@@ -930,25 +840,18 @@ model Milestone {
   @@map("milestones")
 }
 
-// ============================================
-// RECIPES (PROJECT TEMPLATES)
-// ============================================
-
 model Recipe {
-  id               String        @id @default(uuid()) @db.Uuid
-  name             String        @db.VarChar(255)
-  description      Json?         // BlockNote JSON content
+  id               String        @id @default(uuid())
+  name             String
+  description      Json?
 
-  // Configuration
   default_type     ProjectType   @default(project)
-  requires_sitemap Boolean       @default(false) // Show sitemap step in wizard?
+  requires_sitemap Boolean       @default(false)
 
-  // Metadata
   is_active        Boolean       @default(true)
   created_at       DateTime      @default(now())
   updated_at       DateTime      @updatedAt
 
-  // Relations
   phases           RecipePhase[]
   projects         Project[]
 
@@ -956,14 +859,13 @@ model Recipe {
 }
 
 model RecipePhase {
-  id          String       @id @default(uuid()) @db.Uuid
-  recipe_id   String       @db.Uuid
+  id          String       @id @default(uuid())
+  recipe_id   String
   recipe      Recipe       @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
-  name        String       @db.VarChar(100)
-  icon        String?      @db.VarChar(50) // Icon name from icon picker
+  name        String
+  icon        String?
   sort_order  Int          @default(0)
 
-  // Relations
   tasks       RecipeTask[]
 
   @@index([recipe_id])
@@ -971,72 +873,55 @@ model RecipePhase {
 }
 
 model RecipeTask {
-  id              String      @id @default(uuid()) @db.Uuid
-  phase_id        String      @db.Uuid
+  id              String      @id @default(uuid())
+  phase_id        String
   phase           RecipePhase @relation(fields: [phase_id], references: [id], onDelete: Cascade)
 
-  // SOP is the source of truth for task attributes
-  sop_id          String      @db.Uuid // Required - all task attributes come from SOP
+  sop_id          String
   sop             Sop         @relation(fields: [sop_id], references: [id])
 
-  // Title override - if null, use SOP title during generation
-  // Useful when same SOP is used multiple times (e.g., "Page Build - Homepage")
-  title           String?     @db.VarChar(500)
+  title           String?
 
-  // Variable task settings (for sitemap expansion)
   is_variable     Boolean     @default(false)
-  variable_source String?     @db.VarChar(50) // 'sitemap_page' | null
+  variable_source String?
 
-  // Ordering
   sort_order      Int         @default(0)
 
-  // Dependencies (other recipe tasks this depends on)
-  depends_on_ids  String[]    @db.Uuid
+  depends_on_ids  String
 
   @@index([phase_id])
   @@index([sop_id])
   @@map("recipe_tasks")
 }
 
-// ============================================
-// SOPS (STANDARD OPERATING PROCEDURES)
-// ============================================
-
 model Sop {
-  id                    String    @id @default(uuid()) @db.Uuid
-  title                 String    @db.VarChar(255)
+  id                    String    @id @default(uuid())
+  title                 String
 
-  // Content (TipTap JSON format - step-by-step instructions)
   content               Json?
 
-  // Classification
-  function_id           String?   @db.Uuid
+  function_id           String?
   function              Function? @relation(fields: [function_id], references: [id])
-  tags                  String[]  @db.VarChar(50)
+  tags                  String    @default("[]")
 
-  // Task template defaults (when creating tasks from this SOP)
-  default_priority      Int           @default(3)        // 1=highest, 5=lowest
-  energy_estimate       Int?                             // 1-8 scale
+  default_priority      Int           @default(3)
+  energy_estimate       Int?
   mystery_factor        MysteryFactor @default(none)
   battery_impact        BatteryImpact @default(average_drain)
-  estimated_minutes     Int?                             // Calculated or manual
-  needs_review          Boolean       @default(true)     // Whether tasks from this SOP need review
+  estimated_minutes     Int?
+  needs_review          Boolean       @default(true)
 
-  // Template requirements (copied to tasks as checklist)
-  template_requirements Json?         // Visible to all roles - task completion checklist
-  setup_requirements    Json?         // PM/Admin-only - checklist for prepping task before assignment
-  review_requirements   Json?         // PM/Admin-only - checklist for reviewing completed task
+  template_requirements Json?
+  setup_requirements    Json?
+  review_requirements   Json?
 
-  // Review tracking
   last_reviewed_at      DateTime?
   next_review_at        DateTime?
 
-  // Metadata
   is_active             Boolean   @default(true)
   created_at            DateTime  @default(now())
   updated_at            DateTime  @updatedAt
 
-  // Relations
   tasks                 Task[]
   recipe_tasks          RecipeTask[]
   maintenance_plan_sops MaintenancePlanSop[]
@@ -1045,49 +930,38 @@ model Sop {
   @@map("sops")
 }
 
-// ============================================
-// PROJECT PAGES (SITEMAP)
-// ============================================
-
 model ProjectPage {
-  id            String   @id @default(uuid()) @db.Uuid
-  project_id    String   @db.Uuid
+  id            String   @id @default(uuid())
+  project_id    String
   project       Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  name          String   @db.VarChar(255)
-  page_type     String?  @db.VarChar(50)
+  name          String
+  page_type     String?
   needs_design  Boolean  @default(false)
-  notes         String?  @db.Text
+  notes         String?
   sort_order    Int      @default(0)
 
   @@index([project_id])
   @@map("project_pages")
 }
 
-// ============================================
-// TIME ENTRIES
-// ============================================
-
 model TimeEntry {
-  id          String   @id @default(uuid()) @db.Uuid
-  user_id     String   @db.Uuid
+  id          String   @id @default(uuid())
+  user_id     String
   user        User     @relation(fields: [user_id], references: [id])
-  task_id     String?  @db.Uuid
+  task_id     String?
   task        Task?    @relation(fields: [task_id], references: [id])
-  project_id  String?  @db.Uuid
+  project_id  String?
   project     Project? @relation(fields: [project_id], references: [id])
 
-  // Time data
   started_at  DateTime
   ended_at    DateTime?
-  duration    Int       @default(0) // Duration in minutes
+  duration    Int       @default(0)
   is_running  Boolean   @default(false)
-  description String?   @db.Text
+  description String?
 
-  // Billing
   is_billable Boolean  @default(true)
-  hourly_rate Decimal? @db.Decimal(10, 2)
+  hourly_rate Float?
 
-  // Metadata
   is_deleted  Boolean  @default(false)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
@@ -1100,19 +974,15 @@ model TimeEntry {
   @@map("time_entries")
 }
 
-// ============================================
-// ACTIVITY LOG
-// ============================================
-
 model ActivityLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  user_id     String   @db.Uuid
+  id          String   @id @default(uuid())
+  user_id     String
   user        User     @relation(fields: [user_id], references: [id])
-  action      String   @db.VarChar(50) // created, updated, deleted, status_changed, assigned
-  entity_type String   @db.VarChar(50) // task, project, client, etc.
-  entity_id   String   @db.Uuid
-  entity_name String?  @db.VarChar(255) // Snapshot of name at time of action
-  changes     Json?    // Before/after for updates
+  action      String
+  entity_type String
+  entity_id   String
+  entity_name String?
+  changes     Json?
   created_at  DateTime @default(now())
 
   @@index([entity_type, entity_id])
@@ -1121,15 +991,11 @@ model ActivityLog {
   @@map("activity_logs")
 }
 
-// ============================================
-// PASSWORD RESET TOKENS
-// ============================================
-
 model PasswordResetToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  user_id    String    @db.Uuid
+  id         String    @id @default(uuid())
+  user_id    String
   user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  token      String    @unique @db.VarChar(255)
+  token      String    @unique
   expires_at DateTime
   used_at    DateTime?
   created_at DateTime  @default(now())
@@ -1140,17 +1006,13 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-// ============================================
-// COMMENTS
-// ============================================
-
 model Comment {
-  id         String   @id @default(uuid()) @db.Uuid
-  task_id    String   @db.Uuid
+  id         String   @id @default(uuid())
+  task_id    String
   task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
-  user_id    String   @db.Uuid
+  user_id    String
   user       User     @relation(fields: [user_id], references: [id])
-  content    String   @db.Text
+  content    String
   is_deleted Boolean  @default(false)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1161,17 +1023,13 @@ model Comment {
   @@map("comments")
 }
 
-// ============================================
-// MAINTENANCE GENERATION TRACKING
-// ============================================
-
 model MaintenanceGenerationLog {
-  id                  String          @id @default(uuid()) @db.Uuid
-  maintenance_plan_id String          @db.Uuid
+  id                  String          @id @default(uuid())
+  maintenance_plan_id String
   maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
-  site_id             String          @db.Uuid
+  site_id             String
   site                Site            @relation(fields: [site_id], references: [id], onDelete: Cascade)
-  period              String          @db.VarChar(20)  // "2025-01", "2025-Q1", etc.
+  period              String
   tasks_created       Int
   tasks_abandoned     Int             @default(0)
   generated_at        DateTime        @default(now())
@@ -1183,22 +1041,16 @@ model MaintenanceGenerationLog {
   @@map("maintenance_generation_logs")
 }
 
-// ============================================
-// APP SETTINGS (SINGLETON)
-// ============================================
-
 model AppSettings {
   id                          String    @id @default("singleton")
 
-  // Bug reporting configuration
-  bug_report_project_id       String?   @db.Uuid
-  bug_report_phase_id         String?   @db.Uuid
-  bug_report_notify_user_id   String?   @db.Uuid
+  bug_report_project_id       String?
+  bug_report_phase_id         String?
+  bug_report_notify_user_id   String?
 
   created_at                  DateTime  @default(now())
   updated_at                  DateTime  @updatedAt
 
-  // Relations
   bug_report_project          Project?      @relation(fields: [bug_report_project_id], references: [id])
   bug_report_phase            ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
   bug_report_notify_user      User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
