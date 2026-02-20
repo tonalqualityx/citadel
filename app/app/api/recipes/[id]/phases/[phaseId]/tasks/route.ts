@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { serializeDependsOnIds, deserializeDependsOnIds } from '@/lib/db/recipe-tasks-compat';
+import type { Prisma } from '@prisma/client';
 
 // Detect circular dependencies using DFS
 function detectCircularDependency(
@@ -106,7 +108,7 @@ export async function POST(
         is_variable: data.is_variable ?? false,
         variable_source: data.variable_source || null,
         sort_order: sortOrder,
-        depends_on_ids: data.depends_on_ids ?? [],
+        depends_on_ids: serializeDependsOnIds(data.depends_on_ids) as Prisma.RecipeTaskCreateInput['depends_on_ids'],
       },
       include: {
         sop: {
@@ -173,7 +175,7 @@ export async function PATCH(
       is_variable?: boolean;
       variable_source?: string | null;
       sort_order?: number;
-      depends_on_ids?: string[];
+      depends_on_ids?: Prisma.RecipeTaskUpdateInput['depends_on_ids'];
     } = {};
 
     if (parsed.sop_id !== undefined) {
@@ -223,13 +225,19 @@ export async function PATCH(
           select: { id: true, depends_on_ids: true },
         });
 
-        const hasCircle = detectCircularDependency(task_id, parsed.depends_on_ids, allTasks);
+        // Deserialize depends_on_ids for circular dependency check
+        const deserializedTasks = allTasks.map(t => ({
+          id: t.id,
+          depends_on_ids: deserializeDependsOnIds(t.depends_on_ids),
+        }));
+
+        const hasCircle = detectCircularDependency(task_id, parsed.depends_on_ids, deserializedTasks);
         if (hasCircle) {
           throw new ApiError('Cannot add dependencies: would create circular dependency', 400);
         }
       }
 
-      updatePayload.depends_on_ids = parsed.depends_on_ids;
+      updatePayload.depends_on_ids = serializeDependsOnIds(parsed.depends_on_ids) as Prisma.RecipeTaskUpdateInput['depends_on_ids'];
     }
 
     const task = await prisma.recipeTask.update({
