@@ -201,7 +201,8 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
     [saveImmediate]
   );
 
-  const hasBlockers = task?.blocked_by && task.blocked_by.length > 0;
+  const incompleteBlockers = task?.blocked_by?.filter((b: any) => b.status !== 'done') || [];
+  const hasBlockers = incompleteBlockers.length > 0;
   const isBlocking = task?.blocking && task.blocking.length > 0;
   const isAwaitingApproval = task?.status === 'done' && task?.needs_review && !task?.approved;
 
@@ -517,7 +518,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                     <div className="flex-1">
                       <div className="text-sm font-medium text-red-700">Blocked by:</div>
                       <div className="space-y-1 mt-1">
-                        {task.blocked_by?.map((blocker: any) => (
+                        {incompleteBlockers.map((blocker: any) => (
                           <Link
                             key={blocker.id}
                             href={`/tasks/${blocker.id}`}
