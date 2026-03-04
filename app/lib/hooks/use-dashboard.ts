@@ -184,17 +184,19 @@ export function isAdminDashboard(data: DashboardData): data is AdminDashboardDat
 export function useLoadMoreDashboard(orderBy: TaskSortBy = 'priority') {
   const queryClient = useQueryClient();
   const [loadingLists, setLoadingLists] = React.useState<Set<DashboardListType>>(new Set());
+  const tz = getUserTimezone();
 
   const loadMore = React.useCallback(async (listType: DashboardListType, currentCount: number) => {
     setLoadingLists(prev => new Set(prev).add(listType));
 
     try {
+      const tzParam = tz ? `&tz=${encodeURIComponent(tz)}` : '';
       const result = await apiClient.get<PaginatedList<DashboardTask>>(
-        `/dashboard/load-more?list=${listType}&skip=${currentCount}&orderBy=${orderBy}`
+        `/dashboard/load-more?list=${listType}&skip=${currentCount}&orderBy=${orderBy}${tzParam}`
       );
 
       // Update the dashboard cache with the new items
-      queryClient.setQueryData<DashboardData>(['dashboard', { orderBy }], (oldData) => {
+      queryClient.setQueryData<DashboardData>(['dashboard', { orderBy, tz }], (oldData) => {
         if (!oldData) return oldData;
 
         const listKey = listType as keyof DashboardData;
