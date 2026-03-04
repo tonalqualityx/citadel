@@ -484,6 +484,7 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
       is_deleted: false,
       status: 'done',
       completed_at: { gte: today },
+      assignee_id: userId,
     },
     include: {
       assignee: { select: { id: true, name: true } },
