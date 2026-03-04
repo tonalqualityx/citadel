@@ -303,7 +303,8 @@ export default function QuestDetailPage() {
     );
   }
 
-  const hasBlockers = task.blocked_by && task.blocked_by.length > 0;
+  const incompleteBlockers = task.blocked_by?.filter((b) => b.status !== 'done') || [];
+  const hasBlockers = incompleteBlockers.length > 0;
   const isBlocking = task.blocking && task.blocking.length > 0;
 
   return (
@@ -488,7 +489,7 @@ export default function QuestDetailPage() {
                 <div className="font-medium text-red-700">This {t('task').toLowerCase()} is blocked</div>
                 <div className="text-sm text-red-600 mt-1">
                   Waiting on:{' '}
-                  {task.blocked_by?.map((blocker, i) => (
+                  {incompleteBlockers.map((blocker, i) => (
                     <React.Fragment key={blocker.id}>
                       {i > 0 && ', '}
                       <Link
@@ -497,9 +498,7 @@ export default function QuestDetailPage() {
                       >
                         {blocker.title}
                       </Link>
-                      {blocker.status !== 'done' && (
-                        <span className="text-red-400"> ({getTaskStatusLabel(blocker.status as any)})</span>
-                      )}
+                      <span className="text-red-400"> ({getTaskStatusLabel(blocker.status as any)})</span>
                     </React.Fragment>
                   ))}
                 </div>
