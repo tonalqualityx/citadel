@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
+import { getStartOfDayForTimezone, getStartOfWeekForTimezone } from '@/lib/utils/time';
 import { ProjectStatus, TaskStatus } from '@prisma/client';
 
 const PAGE_SIZE = 10;
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest) {
     const skip = parseInt(searchParams.get('skip') || '0', 10);
     const take = parseInt(searchParams.get('take') || String(PAGE_SIZE), 10);
     const orderBy = searchParams.get('orderBy') || 'priority';
+    const tz = searchParams.get('tz') || null;
 
     if (!list) {
       return NextResponse.json({ error: 'Missing list parameter' }, { status: 400 });
@@ -50,7 +52,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid list parameter' }, { status: 400 });
     }
 
-    const result = await getListItems(auth.userId, auth.role, list, skip, take, orderBy);
+    const result = await getListItems(auth.userId, auth.role, list, skip, take, orderBy, tz);
     return NextResponse.json(result);
   } catch (error) {
     return handleApiError(error);
@@ -63,7 +65,8 @@ async function getListItems(
   list: ListType,
   skip: number,
   take: number,
-  orderBy: string = 'priority'
+  orderBy: string = 'priority',
+  tz: string | null = null
 ) {
   const taskInclude = {
     assignee: { select: { id: true, name: true } },
@@ -80,6 +83,8 @@ async function getListItems(
       where: { is_deleted: false },
       select: { duration: true },
     },
+    client: { select: { id: true, name: true } },
+    site: { select: { id: true, name: true } },
   };
 
   const formatTask = (t: any) => ({
@@ -97,6 +102,8 @@ async function getListItems(
     needs_review: t.needs_review,
     approved: t.approved,
     assignee: t.assignee,
+    client: t.client,
+    site: t.site,
     project: t.project,
     updated_at: t.updated_at?.toISOString(),
   });
