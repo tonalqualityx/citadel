@@ -84,6 +84,7 @@ import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { ProjectBriefTab } from '@/components/domain/projects/project-brief-tab';
+import { RichTextRenderer } from '@/components/ui/rich-text-editor';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { BulkEditTasksModal } from '@/components/domain/tasks/bulk-edit-tasks-modal';
 import { showToast } from '@/lib/hooks/use-toast';
@@ -1214,8 +1215,8 @@ export default function ProjectDetailPage() {
                 {project.description && (
                   <div className="md:col-span-2">
                     <dt className="text-sm text-text-sub">Description</dt>
-                    <dd className="text-text-main whitespace-pre-wrap">
-                      {project.description}
+                    <dd className="text-text-main">
+                      <RichTextRenderer content={project.description} />
                     </dd>
                   </div>
                 )}
