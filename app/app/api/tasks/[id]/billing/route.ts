@@ -94,8 +94,8 @@ export async function PATCH(
         sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
         created_by: { select: { id: true, name: true } },
         project_phase: { select: { id: true, name: true, icon: true, sort_order: true } },
-        blocked_by: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } } } },
-        blocking: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } } } },
+        blocked_by: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } } },
+        blocking: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } } },
         time_entries: {
           where: { is_deleted: false },
           select: { id: true, duration: true },

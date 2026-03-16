@@ -360,6 +360,7 @@ export function formatTaskResponse(task: any) {
       status: t.status,
       assignee_id: t.assignee_id,
       assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
+      project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
     })),
     blocking: task.blocking?.map((t: any) => ({
       id: t.id,
@@ -367,6 +368,7 @@ export function formatTaskResponse(task: any) {
       status: t.status,
       assignee_id: t.assignee_id,
       assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
+      project: t.project ? { id: t.project.id, name: t.project.name, status: t.project.status } : null,
     })),
     time_entries: task.time_entries?.map((e: any) => ({
       id: e.id,
