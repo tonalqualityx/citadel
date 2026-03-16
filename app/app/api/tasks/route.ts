@@ -146,10 +146,10 @@ export async function GET(request: NextRequest) {
           sop: { select: { id: true, title: true } },
           created_by: { select: { id: true, name: true } },
           blocked_by: {
-            select: { id: true, title: true, status: true },
+            select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } } },
           },
           blocking: {
-            select: { id: true, title: true, status: true },
+            select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } } },
           },
           time_entries: {
             where: { is_deleted: false },

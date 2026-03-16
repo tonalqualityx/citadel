@@ -358,11 +358,15 @@ export function formatTaskResponse(task: any) {
       id: t.id,
       title: t.title,
       status: t.status,
+      assignee_id: t.assignee_id,
+      assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
     })),
     blocking: task.blocking?.map((t: any) => ({
       id: t.id,
       title: t.title,
       status: t.status,
+      assignee_id: t.assignee_id,
+      assignee: t.assignee ? { id: t.assignee.id, name: t.assignee.name } : null,
     })),
     time_entries: task.time_entries?.map((e: any) => ({
       id: e.id,
