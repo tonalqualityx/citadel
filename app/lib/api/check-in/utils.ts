@@ -119,6 +119,125 @@ export function calcTimeSpent(task: { time_entries?: { duration: number }[] }): 
   return task.time_entries.reduce((sum, e) => sum + (e.duration || 0), 0);
 }
 
+// --- Consolidation ---
+
+interface TaskWithProject {
+  id: string;
+  project?: { id: string; name: string } | null;
+  project_id?: string | null;
+  due_date?: Date | string | null;
+  [key: string]: any;
+}
+
+interface ConsolidatedProject {
+  project: { id: string; name: string } | null;
+  task_count: number;
+  nearest_due_date: string | null;
+}
+
+interface ConsolidatedBlockingProject extends ConsolidatedProject {
+  blocked_persons: { name: string; nearest_due_date: string | null }[];
+}
+
+export interface ConsolidatedSection<T> {
+  individual: T[];
+  consolidated: ConsolidatedProject[];
+}
+
+export interface ConsolidatedBlockingSection<T> {
+  individual: T[];
+  consolidated: ConsolidatedBlockingProject[];
+}
+
+/**
+ * Consolidate tasks by project: ≤2 per project shown individually, 3+ collapsed to a project line.
+ * Consolidated lines show project name + nearest due date only.
+ */
+export function consolidateByProject<T extends TaskWithProject>(tasks: T[]): ConsolidatedSection<T> {
+  const byProject = new Map<string, T[]>();
+  for (const task of tasks) {
+    const key = (task.project_id || task.project?.id || '_none');
+    if (!byProject.has(key)) byProject.set(key, []);
+    byProject.get(key)!.push(task);
+  }
+
+  const individual: T[] = [];
+  const consolidated: ConsolidatedProject[] = [];
+
+  for (const [, projectTasks] of byProject) {
+    if (projectTasks.length <= 2) {
+      individual.push(...projectTasks);
+    } else {
+      consolidated.push({
+        project: projectTasks[0].project ? { id: projectTasks[0].project.id, name: projectTasks[0].project.name } : null,
+        task_count: projectTasks.length,
+        nearest_due_date: getNearestDueDate(projectTasks),
+      });
+    }
+  }
+
+  return { individual, consolidated };
+}
+
+/**
+ * Consolidate blocking tasks by project, including who is blocked per project.
+ */
+export function consolidateBlockingByProject<T extends TaskWithProject & { blocking_details?: any[] }>(
+  tasks: T[]
+): ConsolidatedBlockingSection<T> {
+  const byProject = new Map<string, T[]>();
+  for (const task of tasks) {
+    const key = (task.project_id || task.project?.id || '_none');
+    if (!byProject.has(key)) byProject.set(key, []);
+    byProject.get(key)!.push(task);
+  }
+
+  const individual: T[] = [];
+  const consolidated: ConsolidatedBlockingProject[] = [];
+
+  for (const [, projectTasks] of byProject) {
+    if (projectTasks.length <= 2) {
+      individual.push(...projectTasks);
+    } else {
+      // Gather all blocked persons across tasks in this project
+      const personMap = new Map<string, string | null>();
+      for (const t of projectTasks) {
+        for (const bd of (t.blocking_details || [])) {
+          const existing = personMap.get(bd.user);
+          if (!existing || (bd.due_date && (!existing || bd.due_date < existing))) {
+            personMap.set(bd.user, bd.due_date || null);
+          }
+        }
+      }
+
+      consolidated.push({
+        project: projectTasks[0].project ? { id: projectTasks[0].project.id, name: projectTasks[0].project.name } : null,
+        task_count: projectTasks.length,
+        nearest_due_date: getNearestDueDate(projectTasks),
+        blocked_persons: Array.from(personMap.entries()).map(([name, due]) => ({
+          name,
+          nearest_due_date: due,
+        })),
+      });
+    }
+  }
+
+  return { individual, consolidated };
+}
+
+/**
+ * Find nearest due date from a list of tasks
+ */
+function getNearestDueDate(tasks: TaskWithProject[]): string | null {
+  let nearest: Date | null = null;
+  for (const t of tasks) {
+    if (!t.due_date) continue;
+    const d = t.due_date instanceof Date ? t.due_date : new Date(t.due_date);
+    if (!nearest || d < nearest) nearest = d;
+  }
+  return nearest ? nearest.toISOString().split('T')[0] : null;
+}
+
 /**
  * Standard Prisma include block for check-in queries
  */

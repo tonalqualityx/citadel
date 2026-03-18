@@ -8,6 +8,8 @@ import {
   getActiveBadges,
   getDaysOverdue,
   calcTimeSpent,
+  consolidateByProject,
+  consolidateBlockingByProject,
 } from '../utils';
 
 // Helper: create dates at noon UTC to avoid timezone boundary issues
@@ -17,7 +19,6 @@ function d(dateStr: string): Date {
 
 describe('isBusinessDay', () => {
   it('returns true for Monday-Friday', () => {
-    // 2026-03-16 is Monday
     expect(isBusinessDay(d('2026-03-16'))).toBe(true); // Mon
     expect(isBusinessDay(d('2026-03-17'))).toBe(true); // Tue
     expect(isBusinessDay(d('2026-03-18'))).toBe(true); // Wed
@@ -33,28 +34,25 @@ describe('isBusinessDay', () => {
 
 describe('addBusinessDays', () => {
   it('adds business days skipping weekends', () => {
-    // 2026-03-18 is Wednesday, +5 business days = 2026-03-25 (Wed)
     const result = addBusinessDays(d('2026-03-18'), 5);
     expect(result.getDate()).toBe(25);
-    expect(result.getMonth()).toBe(2); // March = 2
+    expect(result.getMonth()).toBe(2);
   });
 
   it('skips a weekend', () => {
-    // 2026-03-20 is Friday, +1 business day = 2026-03-23 (Monday)
     const result = addBusinessDays(d('2026-03-20'), 1);
     expect(result.getDate()).toBe(23);
     expect(result.getMonth()).toBe(2);
   });
 
   it('handles zero days', () => {
-    const input = d('2026-03-18');
-    const result = addBusinessDays(input, 0);
+    const result = addBusinessDays(d('2026-03-18'), 0);
     expect(result.getDate()).toBe(18);
   });
 });
 
 describe('isWithinBusinessDays', () => {
-  const today = d('2026-03-18'); // Wednesday
+  const today = d('2026-03-18');
 
   it('returns true for null due date', () => {
     expect(isWithinBusinessDays(null, 5, today)).toBe(true);
@@ -65,13 +63,18 @@ describe('isWithinBusinessDays', () => {
   });
 
   it('returns true for task due within window', () => {
-    // 5 business days from Wed 3/18 = Wed 3/25
     expect(isWithinBusinessDays(d('2026-03-25'), 5, today)).toBe(true);
   });
 
   it('returns false for task due beyond window', () => {
-    // 6 business days out = Thu 3/26
     expect(isWithinBusinessDays(d('2026-03-26'), 5, today)).toBe(false);
+  });
+
+  it('handles 2 business day window', () => {
+    // Wed + 2 biz days = Fri Mar 20
+    expect(isWithinBusinessDays(d('2026-03-20'), 2, today)).toBe(true);
+    // Mon Mar 23 is 3 biz days out
+    expect(isWithinBusinessDays(d('2026-03-23'), 2, today)).toBe(false);
   });
 });
 
@@ -172,7 +175,7 @@ describe('getActiveBadges', () => {
 });
 
 describe('getDaysOverdue', () => {
-  const today = d('2026-03-18'); // Wednesday
+  const today = d('2026-03-18');
 
   it('returns 0 for null due date', () => {
     expect(getDaysOverdue(null, today)).toBe(0);
@@ -187,12 +190,10 @@ describe('getDaysOverdue', () => {
   });
 
   it('counts business days overdue', () => {
-    // Due Monday 3/16, today Wednesday 3/18 = 2 business days overdue
     expect(getDaysOverdue(d('2026-03-16'), today)).toBe(2);
   });
 
   it('skips weekends when counting overdue days', () => {
-    // Due Friday 3/13, today Wednesday 3/18 = 3 business days (Mon, Tue, Wed)
     expect(getDaysOverdue(d('2026-03-13'), today)).toBe(3);
   });
 });
@@ -212,5 +213,86 @@ describe('calcTimeSpent', () => {
     expect(calcTimeSpent({
       time_entries: [{ duration: 0 }, { duration: 60 }],
     })).toBe(60);
+  });
+});
+
+describe('consolidateByProject', () => {
+  const proj = (id: string, name: string) => ({ id, name });
+
+  it('returns tasks individually when ≤2 per project', () => {
+    const tasks = [
+      { id: '1', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-20') },
+      { id: '2', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-21') },
+      { id: '3', project: proj('p2', 'Beta'), project_id: 'p2', due_date: d('2026-03-19') },
+    ];
+    const result = consolidateByProject(tasks);
+    expect(result.individual).toHaveLength(3);
+    expect(result.consolidated).toHaveLength(0);
+  });
+
+  it('consolidates when 3+ tasks from same project', () => {
+    const tasks = [
+      { id: '1', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-22') },
+      { id: '2', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-20') },
+      { id: '3', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-25') },
+      { id: '4', project: proj('p2', 'Beta'), project_id: 'p2', due_date: d('2026-03-19') },
+    ];
+    const result = consolidateByProject(tasks);
+    expect(result.individual).toHaveLength(1); // Beta task
+    expect(result.consolidated).toHaveLength(1);
+    expect(result.consolidated[0].project!.name).toBe('Alpha');
+    expect(result.consolidated[0].task_count).toBe(3);
+    expect(result.consolidated[0].nearest_due_date).toBe('2026-03-20');
+  });
+
+  it('handles tasks with no due date in consolidated group', () => {
+    const tasks = [
+      { id: '1', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: null },
+      { id: '2', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: null },
+      { id: '3', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-20') },
+    ];
+    const result = consolidateByProject(tasks);
+    expect(result.consolidated).toHaveLength(1);
+    expect(result.consolidated[0].nearest_due_date).toBe('2026-03-20');
+  });
+
+  it('returns null nearest_due_date when all tasks have no due date', () => {
+    const tasks = [
+      { id: '1', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: null },
+      { id: '2', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: null },
+      { id: '3', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: null },
+    ];
+    const result = consolidateByProject(tasks);
+    expect(result.consolidated[0].nearest_due_date).toBeNull();
+  });
+});
+
+describe('consolidateBlockingByProject', () => {
+  const proj = (id: string, name: string) => ({ id, name });
+
+  it('includes blocked persons in consolidated entries', () => {
+    const tasks = [
+      { id: '1', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-20'), blocking_details: [{ user: 'Sabeen', due_date: '2026-03-21', urgency: 'urgent' as const, task: 'T1' }] },
+      { id: '2', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-22'), blocking_details: [{ user: 'Sabeen', due_date: '2026-03-23', urgency: 'standard' as const, task: 'T2' }] },
+      { id: '3', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-24'), blocking_details: [{ user: 'Ange', due_date: '2026-03-25', urgency: 'standard' as const, task: 'T3' }] },
+    ];
+    const result = consolidateBlockingByProject(tasks);
+    expect(result.consolidated).toHaveLength(1);
+    expect(result.consolidated[0].task_count).toBe(3);
+    expect(result.consolidated[0].blocked_persons).toHaveLength(2);
+    const sabeen = result.consolidated[0].blocked_persons.find((p) => p.name === 'Sabeen');
+    expect(sabeen).toBeDefined();
+    expect(sabeen!.nearest_due_date).toBe('2026-03-21');
+    const ange = result.consolidated[0].blocked_persons.find((p) => p.name === 'Ange');
+    expect(ange).toBeDefined();
+  });
+
+  it('keeps ≤2 tasks individual', () => {
+    const tasks = [
+      { id: '1', project: proj('p1', 'Alpha'), project_id: 'p1', due_date: d('2026-03-20'), blocking_details: [{ user: 'Sabeen', due_date: '2026-03-21', urgency: 'urgent' as const, task: 'T1' }] },
+    ];
+    const result = consolidateBlockingByProject(tasks);
+    expect(result.individual).toHaveLength(1);
+    expect(result.consolidated).toHaveLength(0);
   });
 });
