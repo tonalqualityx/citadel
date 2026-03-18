@@ -278,4 +278,30 @@ export const taskEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/check-in',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Pre-computed daily check-in data. Moves task classification, blocker resolution, and badge computation server-side.',
+        auth: 'required',
+        queryParams: [
+          { name: 'user_id', type: 'uuid', required: true, description: 'User ID to generate check-in for' },
+          { name: 'variant', type: 'string', required: true, description: 'team_member (simple briefing) or pm (full dashboard)' },
+        ],
+        responseExample: {
+          variant: 'team_member|pm',
+          user: { id: 'uuid', name: 'string' },
+          generated_at: 'ISO-8601',
+          ready_to_work: [{ id: 'uuid', title: 'string', status: 'string', priority: 'number', estimated_minutes: 'number|null', due_date: 'ISO-8601|null', project: { id: 'uuid', name: 'string' }, badges: ['overdue|due_today|due_tomorrow|high_priority'], days_overdue: 'number', time_spent_minutes: 'number' }],
+          upcoming_blocked: {
+            individual: [{ id: 'uuid', title: 'string', priority: 'number', due_date: 'ISO-8601|null', project: { id: 'uuid', name: 'string' }, waiting_on: [{ user: 'string', task: 'string' }] }],
+            consolidated: [{ project: { id: 'uuid', name: 'string' }, task_count: 'number', sample_titles: ['string'], waiting_on: [{ user: 'string', task_count: 'number', sample_task: 'string' }] }],
+          },
+        },
+        responseNotes: 'team_member variant returns ready_to_work + upcoming_blocked. pm variant returns focus_tasks, blocking_others (urgent/standard), falling_behind, upcoming, unassigned, review_queue. Each task appears in only the first section it qualifies for (hierarchical dedup). Tech users can only query themselves; PM/Admin can query any user.',
+      },
+    ],
+  },
 ];
