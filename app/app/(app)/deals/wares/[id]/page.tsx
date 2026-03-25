@@ -81,11 +81,11 @@ export default function WareDetailPage() {
   const recipeOptions = React.useMemo(
     () =>
       recipesData?.recipes
-        ?.filter((r) => r.is_active)
-        .map((r) => ({
+        ?.filter((r: any) => r.is_active)
+        .map((r: any) => ({
           value: r.id,
           label: r.name,
-          description: r.description || undefined,
+          description: typeof r.description === 'string' ? r.description : undefined,
         })) ?? [],
     [recipesData]
   );
