@@ -22,6 +22,7 @@ import {
 import { ClientActivityTab } from '@/components/domain/clients/client-activity-tab';
 import { ClientSitesTab } from '@/components/domain/clients/client-sites-tab';
 import { ClientRetainerTab } from '@/components/domain/clients/client-retainer-tab';
+import { MeetingList } from '@/components/domain/meetings/MeetingList';
 import type { UpdateClientInput, ClientType, ClientStatus, RetainerUsageMode } from '@/types/entities';
 
 interface Props {
@@ -40,7 +41,7 @@ const CLIENT_STATUS_OPTIONS = [
   { value: 'delinquent', label: 'Delinquent' },
 ];
 
-type TabType = 'details' | 'sites' | 'activity' | 'retainer';
+type TabType = 'details' | 'sites' | 'meetings' | 'activity' | 'retainer';
 
 export default function ClientDetailPage({ params }: Props) {
   const { id } = use(params);
@@ -186,6 +187,17 @@ export default function ClientDetailPage({ params }: Props) {
             }`}
           >
             {t('sites')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('meetings')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'meetings'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-sub hover:text-text-main'
+            }`}
+          >
+            Meetings
           </button>
           <button
             type="button"
@@ -344,6 +356,8 @@ export default function ClientDetailPage({ params }: Props) {
         </div>
       ) : activeTab === 'sites' ? (
         <ClientSitesTab clientId={id} subClients={client.sub_clients} />
+      ) : activeTab === 'meetings' ? (
+        <MeetingList clientId={id} />
       ) : activeTab === 'activity' ? (
         <ClientActivityTab clientId={id} />
       ) : activeTab === 'retainer' && client.retainer_hours ? (

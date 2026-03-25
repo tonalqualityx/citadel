@@ -504,7 +504,7 @@ async function main() {
     take: 5,
   });
 
-  console.log('\n🏰 Creating Pacts (Projects)...');
+  console.log('\n🏰 Creating Commissions (Projects)...');
 
   // Sample projects with various statuses
   const sampleProjects = [

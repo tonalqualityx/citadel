@@ -1,0 +1,321 @@
+import type { ApiEndpoint } from './index';
+
+export const meetingEndpoints: ApiEndpoint[] = [
+  {
+    path: '/api/meetings',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List meetings with pagination and filters.',
+        auth: 'required',
+        queryParams: [
+          { name: 'search', type: 'string', required: false, description: 'Search by title' },
+          { name: 'client_id', type: 'uuid', required: false, description: 'Filter by client ID' },
+          { name: 'accord_id', type: 'uuid', required: false, description: 'Filter by linked accord ID' },
+          { name: 'date_from', type: 'string', required: false, description: 'Filter meetings on or after this date (ISO-8601)' },
+          { name: 'date_to', type: 'string', required: false, description: 'Filter meetings on or before this date (ISO-8601)' },
+          { name: 'page', type: 'number', required: false, description: 'Page number (default 1)' },
+          { name: 'limit', type: 'number', required: false, description: 'Items per page (default 50)' },
+        ],
+        responseExample: {
+          meetings: [{
+            id: 'uuid',
+            title: 'string',
+            client_id: 'uuid',
+            client: { id: 'uuid', name: 'string', status: 'string' },
+            meeting_date: 'ISO-8601',
+            summary: 'string|null',
+            transcript_url: 'string|null',
+            recording_url: 'string|null',
+            client_attendees: 'string|null',
+            transcript_not_available: 'boolean',
+            recording_not_available: 'boolean',
+            created_by: { id: 'uuid', name: 'string' },
+            attendees: [{ id: 'uuid', user_id: 'uuid', user: { id: 'uuid', name: 'string' } }],
+            meeting_accords: [{ id: 'uuid', accord_id: 'uuid', accord: { id: 'uuid', name: 'string', status: 'string' } }],
+            meeting_projects: [{ id: 'uuid', project_id: 'uuid', project: { id: 'uuid', name: 'string' } }],
+            meeting_charters: [{ id: 'uuid', charter_id: 'uuid', charter: { id: 'uuid', name: 'string' } }],
+            tasks_count: 'number',
+          }],
+          pagination: { page: 'number', limit: 'number', total: 'number', totalPages: 'number' },
+        },
+      },
+      {
+        method: 'POST',
+        summary: 'Create a new meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'title', type: 'string', required: true, description: 'Meeting title' },
+          { name: 'client_id', type: 'uuid', required: true, description: 'Client ID' },
+          { name: 'meeting_date', type: 'ISO-8601', required: true, description: 'Meeting date/time' },
+          { name: 'summary', type: 'string', required: false, description: 'Meeting summary or notes' },
+          { name: 'transcript_url', type: 'string', required: false, description: 'URL to transcript' },
+          { name: 'recording_url', type: 'string', required: false, description: 'URL to recording' },
+          { name: 'client_attendees', type: 'string', required: false, description: 'Client-side attendee names (free text)' },
+          { name: 'transcript_not_available', type: 'boolean', required: false, description: 'Mark transcript as not available' },
+          { name: 'recording_not_available', type: 'boolean', required: false, description: 'Mark recording as not available' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          title: 'string',
+          client_id: 'uuid',
+          meeting_date: 'ISO-8601',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/incomplete',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List incomplete meetings for the current user (missing summary, transcript, or recording).',
+        auth: 'required',
+        responseExample: {
+          meetings: [{
+            id: 'uuid',
+            title: 'string',
+            client_id: 'uuid',
+            client: { id: 'uuid', name: 'string' },
+            meeting_date: 'ISO-8601',
+            summary: 'string|null',
+            transcript_url: 'string|null',
+            recording_url: 'string|null',
+            transcript_not_available: 'boolean',
+            recording_not_available: 'boolean',
+          }],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Get meeting details with attendees, linked accords, projects, and charters.',
+        auth: 'required',
+        responseExample: {
+          id: 'uuid',
+          title: 'string',
+          client_id: 'uuid',
+          client: { id: 'uuid', name: 'string', status: 'string' },
+          meeting_date: 'ISO-8601',
+          summary: 'string|null',
+          transcript_url: 'string|null',
+          recording_url: 'string|null',
+          client_attendees: 'string|null',
+          transcript_not_available: 'boolean',
+          recording_not_available: 'boolean',
+          created_by: { id: 'uuid', name: 'string' },
+          attendees: [{ id: 'uuid', user_id: 'uuid', user: { id: 'uuid', name: 'string' } }],
+          meeting_accords: [{ id: 'uuid', accord_id: 'uuid', accord: { id: 'uuid', name: 'string', status: 'string' } }],
+          meeting_projects: [{ id: 'uuid', project_id: 'uuid', project: { id: 'uuid', name: 'string' } }],
+          meeting_charters: [{ id: 'uuid', charter_id: 'uuid', charter: { id: 'uuid', name: 'string' } }],
+          tasks: [{ id: 'uuid', title: 'string', status: 'string' }],
+          is_deleted: 'boolean',
+          created_at: 'ISO-8601',
+          updated_at: 'ISO-8601',
+        },
+      },
+      {
+        method: 'PATCH',
+        summary: 'Update a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'title', type: 'string', required: false, description: 'Meeting title' },
+          { name: 'client_id', type: 'uuid', required: false, description: 'Client ID' },
+          { name: 'meeting_date', type: 'ISO-8601', required: false, description: 'Meeting date/time' },
+          { name: 'summary', type: 'string', required: false, description: 'Meeting summary or notes' },
+          { name: 'transcript_url', type: 'string', required: false, description: 'URL to transcript' },
+          { name: 'recording_url', type: 'string', required: false, description: 'URL to recording' },
+          { name: 'client_attendees', type: 'string', required: false, description: 'Client-side attendee names (free text)' },
+          { name: 'transcript_not_available', type: 'boolean', required: false, description: 'Mark transcript as not available' },
+          { name: 'recording_not_available', type: 'boolean', required: false, description: 'Mark recording as not available' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          title: 'string',
+          meeting_date: 'ISO-8601',
+          updated_at: 'ISO-8601',
+        },
+      },
+      {
+        method: 'DELETE',
+        summary: 'Soft delete a meeting.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/attendees',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Add an attendee to a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'user_id', type: 'uuid', required: true, description: 'User ID of the attendee' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          meeting_id: 'uuid',
+          user_id: 'uuid',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/attendees/:attendeeId',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'DELETE',
+        summary: 'Remove an attendee from a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/accords',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Link an accord to a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'accord_id', type: 'uuid', required: true, description: 'Accord ID to link' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          meeting_id: 'uuid',
+          accord_id: 'uuid',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/accords/:accordId',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'DELETE',
+        summary: 'Unlink an accord from a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/projects',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Link a project to a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'project_id', type: 'uuid', required: true, description: 'Project ID to link' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          meeting_id: 'uuid',
+          project_id: 'uuid',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/projects/:projectId',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'DELETE',
+        summary: 'Unlink a project from a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/charters',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Link a charter to a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'charter_id', type: 'uuid', required: true, description: 'Charter ID to link' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          meeting_id: 'uuid',
+          charter_id: 'uuid',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/charters/:charterId',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'DELETE',
+        summary: 'Unlink a charter from a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/meetings/:id/tasks',
+    group: 'meetings',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Create a task from a meeting.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'title', type: 'string', required: true, description: 'Task title' },
+          { name: 'project_id', type: 'uuid', required: true, description: 'Project to assign the task to' },
+          { name: 'assignee_id', type: 'uuid', required: false, description: 'User to assign the task to' },
+          { name: 'description', type: 'string', required: false, description: 'Task description' },
+          { name: 'priority', type: 'number', required: false, description: 'Priority (1-5, default 3)' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          title: 'string',
+          meeting_id: 'uuid',
+          project_id: 'uuid',
+          status: 'string',
+          created_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+];

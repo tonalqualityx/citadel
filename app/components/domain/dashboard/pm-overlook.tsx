@@ -21,6 +21,7 @@ import { FocusTargetMeter } from './focus-target-meter';
 import { ProjectQuickList } from './project-quick-list';
 import { RetainerAlert } from './retainer-alert';
 import { TimeclockIssues } from './timeclock-issues';
+import { IncompleteMeetings } from './incomplete-meetings';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatElapsedTime } from '@/lib/utils/time';
@@ -363,6 +364,9 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
         <div className="space-y-6">
           {/* Timeclock Issues */}
           <TimeclockIssues />
+
+          {/* Incomplete Meetings */}
+          <IncompleteMeetings />
 
           {/* Retainer Alerts */}
           {data.retainerAlerts.length > 0 && (

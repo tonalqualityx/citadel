@@ -37,6 +37,7 @@ const createTaskSchema = z.object({
   billing_amount: z.number().min(0).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
   is_support: z.boolean().optional(),
+  accord_id: z.string().uuid().optional().nullable(),
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
       ? parseInt(searchParams.get('priority')!)
       : undefined;
     const projectId = searchParams.get('project_id') || undefined;
+    const accordId = searchParams.get('accord_id') || undefined;
     const assigneeId = searchParams.get('assignee_id') || undefined;
     const phase = searchParams.get('phase') || undefined;
     const myTasks = searchParams.get('my_tasks') === 'true';
@@ -78,6 +80,7 @@ export async function GET(request: NextRequest) {
             : {}),
       ...(priority && { priority }),
       ...(projectId && { project_id: projectId }),
+      ...(accordId && { accord_id: accordId }),
       ...(phase && { phase }),
       // Pending review filter: done tasks that need review and aren't approved
       ...(pendingReview && {
@@ -366,6 +369,7 @@ export async function POST(request: NextRequest) {
         billing_amount: data.billing_amount,
         is_retainer_work: data.is_retainer_work ?? isRetainerProject,
         is_support: data.is_support ?? false,
+        accord_id: data.accord_id,
         created_by_id: auth.userId,
       },
       include: {

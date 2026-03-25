@@ -47,6 +47,17 @@ model User {
   api_keys              ApiKey[]
   sites_maintained      Site[]                 @relation("SiteMaintainer")
   bug_report_notifications AppSettings[]       @relation("BugReportNotifyUser")
+  accords_owned           Accord[]                @relation("AccordOwner")
+  accords_payment_confirmed Accord[]              @relation("AccordPaymentConfirmedBy")
+  meeting_attendees     MeetingAttendee[]        @relation("MeetingAttendee")
+  meetings_created      Meeting[]                @relation("MeetingCreatedBy")
+  proposals_created       Proposal[]              @relation("ProposalCreatedBy")
+  msa_versions_created    MsaVersion[]            @relation("MsaVersionCreatedBy")
+  contracts_created       Contract[]              @relation("ContractCreatedBy")
+  addendums_created       Addendum[]              @relation("AddendumCreatedBy")
+  addendums_overridden    Addendum[]              @relation("AddendumOverriddenBy")
+  charters_created        Charter[]               @relation("CharterCreatedBy")
+  sales_automation_rules  SalesAutomationRule[]   @relation("SalesAutomationAssignee")
 
   @@map("users")
 }
@@ -307,6 +318,54 @@ enum MaintenanceFrequency {
   annually       // Every 12 months
 }
 
+enum AccordStatus {
+  lead
+  meeting
+  proposal
+  contract
+  signed
+  active
+  lost
+}
+
+enum ProposalStatus {
+  draft
+  sent
+  accepted
+  rejected
+  changes_requested
+}
+
+enum ContractStatus {
+  draft
+  sent
+  signed
+}
+
+enum AddendumStatus {
+  draft
+  sent
+  accepted
+  rejected
+  changes_requested
+}
+
+enum WareType {
+  commission
+  charter
+}
+
+enum CharterBillingPeriod {
+  monthly
+  annually
+}
+
+enum CharterStatus {
+  active
+  paused
+  cancelled
+}
+
 // ============================================
 // REFERENCE DATA
 // ============================================
@@ -357,7 +416,8 @@ model HostingPlan {
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
 
-  sites Site[]
+  sites      Site[]
+  keep_items AccordKeepItem[] @relation("KeepHostingPlan")
 
   @@map("hosting_plans")
 }
@@ -378,6 +438,7 @@ model MaintenancePlan {
   sites           Site[]
   sops            MaintenancePlanSop[]
   generation_logs MaintenanceGenerationLog[]
+  keep_items      AccordKeepItem[] @relation("KeepMaintenancePlan")
 
   @@map("maintenance_plans")
 }
@@ -472,6 +533,10 @@ model Client {
   sites    Site[]
   projects Project[]
   tasks    Task[]
+  accords               Accord[]
+  charters              Charter[]
+  client_msa_signatures ClientMsaSignature[]
+  meetings              Meeting[]
 
   @@index([type])
   @@index([status])
@@ -537,6 +602,8 @@ model Site {
   projects                  Project[]
   tasks                     Task[]
   maintenance_generation_logs MaintenanceGenerationLog[]
+  charters                  Charter[]
+  keep_items                AccordKeepItem[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
@@ -595,7 +662,7 @@ enum DomainOwnership {
 }
 
 // ============================================
-// PROJECTS (PACTS)
+// PROJECTS (COMMISSIONS)
 // ============================================
 
 model Project {
@@ -632,6 +699,12 @@ model Project {
   budget_locked_by_id String?     @db.Uuid
   is_retainer       Boolean       @default(false)
 
+  // Sales pipeline
+  accord_id         String?   @db.Uuid
+  accord            Accord?   @relation(fields: [accord_id], references: [id])
+  scope_locked      Boolean   @default(false)
+  scope_locked_at   DateTime?
+
   // Notes
   notes           String?       @db.Text
 
@@ -651,6 +724,9 @@ model Project {
   pages            ProjectPage[]
   resource_links   ResourceLink[]
   app_settings_bug_report AppSettings[]
+  accord_commission_items AccordCommissionItem[]
+  charter_commissions     CharterCommission[]
+  meeting_projects        MeetingProject[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -775,6 +851,14 @@ model Task {
   site_id           String?       @db.Uuid
   site              Site?         @relation(fields: [site_id], references: [id])
 
+  // Sales pipeline
+  charter_id        String?   @db.Uuid
+  charter           Charter?  @relation(fields: [charter_id], references: [id])
+  accord_id         String?   @db.Uuid
+  accord            Accord?   @relation(fields: [accord_id], references: [id])
+  meeting_id        String?   @db.Uuid
+  meeting           Meeting?  @relation(fields: [meeting_id], references: [id])
+
   // Maintenance task fields
   is_maintenance_task  Boolean    @default(false)
   maintenance_period   String?    @db.VarChar(20)  // e.g., "2025-01" for Jan 2025
@@ -848,8 +932,9 @@ model Task {
   blocking          Task[]        @relation("TaskDependencies")
 
   // Relations
-  time_entries      TimeEntry[]
-  comments          Comment[]
+  time_entries         TimeEntry[]
+  comments             Comment[]
+  charter_renewal_logs CharterRenewalLog[]
 
   @@index([project_id])
   @@index([client_id])
@@ -863,6 +948,9 @@ model Task {
   @@index([invoiced])
   @@index([is_maintenance_task])
   @@index([is_support])
+  @@index([charter_id])
+  @@index([accord_id])
+  @@index([meeting_id])
   @@map("tasks")
 }
 
@@ -951,6 +1039,7 @@ model Recipe {
   // Relations
   phases           RecipePhase[]
   projects         Project[]
+  wares            Ware[]
 
   @@map("recipes")
 }
@@ -1040,6 +1129,7 @@ model Sop {
   tasks                 Task[]
   recipe_tasks          RecipeTask[]
   maintenance_plan_sops MaintenancePlanSop[]
+  charter_scheduled_tasks CharterScheduledTask[]
 
   @@index([function_id])
   @@map("sops")
@@ -1204,4 +1294,604 @@ model AppSettings {
   bug_report_notify_user      User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
 
   @@map("app_settings")
+}
+
+// ============================================
+// SALES PIPELINE (PARLEY)
+// ============================================
+
+model Ware {
+  id                     String               @id @default(uuid()) @db.Uuid
+  name                   String               @db.VarChar(255)
+  description            String?              @db.Text
+  type                   WareType
+  charter_billing_period CharterBillingPeriod?
+  base_price             Decimal?             @db.Decimal(10, 2)
+  price_tiers            Json?
+  contract_language      String?              @db.Text
+  default_schedule       Json?
+  recipe_id              String?              @db.Uuid
+  recipe                 Recipe?              @relation(fields: [recipe_id], references: [id])
+  renewal_lead_time_days  Int?
+  default_duration_months Int?
+  sort_order             Int                  @default(0)
+  is_active              Boolean              @default(true)
+  is_deleted             Boolean              @default(false)
+  created_at             DateTime             @default(now())
+  updated_at             DateTime             @updatedAt
+
+  // Relations
+  charter_wares           CharterWare[]
+  accord_charter_items    AccordCharterItem[]
+  accord_commission_items AccordCommissionItem[]
+
+  @@index([type])
+  @@index([is_active])
+  @@map("wares")
+}
+
+model Accord {
+  id                      String       @id @default(uuid()) @db.Uuid
+  name                    String       @db.VarChar(255)
+  status                  AccordStatus @default(lead)
+  client_id               String?      @db.Uuid
+  client                  Client?      @relation(fields: [client_id], references: [id])
+  owner_id                String       @db.Uuid
+  owner                   User         @relation("AccordOwner", fields: [owner_id], references: [id])
+  lead_name               String?      @db.VarChar(255)
+  lead_business_name      String?      @db.VarChar(255)
+  lead_email              String?      @db.VarChar(255)
+  lead_phone              String?      @db.VarChar(50)
+  lead_notes              String?      @db.Text
+  rejection_reason        String?      @db.Text
+  payment_confirmed       Boolean      @default(false)
+  payment_confirmed_at    DateTime?
+  payment_confirmed_by_id String?      @db.Uuid
+  payment_confirmed_by    User?        @relation("AccordPaymentConfirmedBy", fields: [payment_confirmed_by_id], references: [id])
+  total_value             Decimal?     @db.Decimal(10, 2)
+  entered_current_status_at DateTime   @default(now())
+  lost_at                 DateTime?
+  signed_at               DateTime?
+  is_deleted              Boolean      @default(false)
+  created_at              DateTime     @default(now())
+  updated_at              DateTime     @updatedAt
+
+  // Relations
+  charter_items       AccordCharterItem[]
+  commission_items    AccordCommissionItem[]
+  keep_items          AccordKeepItem[]
+  charter_renewal_logs CharterRenewalLog[]
+  meeting_accords     MeetingAccord[]
+  proposals           Proposal[]
+  contracts           Contract[]
+  addendums           Addendum[]
+  projects            Project[]
+  charters            Charter[]
+  tasks               Task[]
+  automation_logs     SalesAutomationLog[]
+
+  @@index([client_id])
+  @@index([owner_id])
+  @@index([status])
+  @@index([entered_current_status_at])
+  @@map("accords")
+}
+
+// ============================================
+// MEETINGS
+// ============================================
+
+model Meeting {
+  id                        String   @id @default(uuid()) @db.Uuid
+  title                     String   @db.VarChar(255)
+  client_id                 String   @db.Uuid
+  client                    Client   @relation(fields: [client_id], references: [id])
+  meeting_date              DateTime
+  summary                   String?  @db.Text
+  notes                     String?  @db.Text
+  transcript_url            String?  @db.VarChar(500)
+  recording_url             String?  @db.VarChar(500)
+  client_attendees          String?  @db.Text
+  transcript_not_available  Boolean  @default(false)
+  recording_not_available   Boolean  @default(false)
+  created_by_id             String   @db.Uuid
+  created_by                User     @relation("MeetingCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted                Boolean  @default(false)
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  // Relations
+  attendees        MeetingAttendee[]
+  meeting_accords  MeetingAccord[]
+  meeting_projects MeetingProject[]
+  meeting_charters MeetingCharter[]
+  tasks            Task[]
+
+  @@index([client_id])
+  @@index([meeting_date])
+  @@index([created_by_id])
+  @@map("meetings")
+}
+
+model MeetingAttendee {
+  id         String   @id @default(uuid()) @db.Uuid
+  meeting_id String   @db.Uuid
+  meeting    Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+  user_id    String   @db.Uuid
+  user       User     @relation("MeetingAttendee", fields: [user_id], references: [id])
+  created_at DateTime @default(now())
+
+  @@unique([meeting_id, user_id])
+  @@index([meeting_id])
+  @@map("meeting_attendees")
+}
+
+model MeetingAccord {
+  id         String   @id @default(uuid()) @db.Uuid
+  meeting_id String   @db.Uuid
+  meeting    Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+  accord_id  String   @db.Uuid
+  accord     Accord   @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now())
+
+  @@unique([meeting_id, accord_id])
+  @@index([meeting_id])
+  @@index([accord_id])
+  @@map("meeting_accords")
+}
+
+model MeetingProject {
+  id         String   @id @default(uuid()) @db.Uuid
+  meeting_id String   @db.Uuid
+  meeting    Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+  project_id String   @db.Uuid
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now())
+
+  @@unique([meeting_id, project_id])
+  @@index([meeting_id])
+  @@index([project_id])
+  @@map("meeting_projects")
+}
+
+model MeetingCharter {
+  id         String   @id @default(uuid()) @db.Uuid
+  meeting_id String   @db.Uuid
+  meeting    Meeting  @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+  charter_id String   @db.Uuid
+  charter    Charter  @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  created_at DateTime @default(now())
+
+  @@unique([meeting_id, charter_id])
+  @@index([meeting_id])
+  @@index([charter_id])
+  @@map("meeting_charters")
+}
+
+model AccordCharterItem {
+  id                         String               @id @default(uuid()) @db.Uuid
+  accord_id                  String               @db.Uuid
+  accord                     Accord               @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  ware_id                    String               @db.Uuid
+  ware                       Ware                 @relation(fields: [ware_id], references: [id])
+  name_override              String?              @db.VarChar(255)
+  price_tier                 String?              @db.VarChar(100)
+  base_price                 Decimal              @db.Decimal(10, 2)
+  discount_type              String?              @db.VarChar(10)
+  discount_value             Decimal?             @db.Decimal(10, 2)
+  final_price                Decimal              @db.Decimal(10, 2)
+  billing_period             CharterBillingPeriod
+  duration_months            Int
+  total_contract_value       Decimal              @db.Decimal(10, 2)
+  charter_id                 String?              @db.Uuid
+  charter                    Charter?             @relation(fields: [charter_id], references: [id])
+  contract_language_override String?              @db.Text
+  addendum_id                String?              @db.Uuid
+  addendum                   Addendum?            @relation(fields: [addendum_id], references: [id])
+  sort_order                 Int                  @default(0)
+  is_deleted                 Boolean              @default(false)
+  created_at                 DateTime             @default(now())
+  updated_at                 DateTime             @updatedAt
+
+  @@index([accord_id])
+  @@index([ware_id])
+  @@index([charter_id])
+  @@index([addendum_id])
+  @@map("accord_charter_items")
+}
+
+model AccordCommissionItem {
+  id                         String    @id @default(uuid()) @db.Uuid
+  accord_id                  String    @db.Uuid
+  accord                     Accord    @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  ware_id                    String    @db.Uuid
+  ware                       Ware      @relation(fields: [ware_id], references: [id])
+  name_override              String?   @db.VarChar(255)
+  estimated_price            Decimal?  @db.Decimal(10, 2)
+  project_id                 String?   @db.Uuid
+  project                    Project?  @relation(fields: [project_id], references: [id])
+  discount_type              String?   @db.VarChar(10)
+  discount_value             Decimal?  @db.Decimal(10, 2)
+  final_price                Decimal?  @db.Decimal(10, 2)
+  contract_language_override String?   @db.Text
+  addendum_id                String?   @db.Uuid
+  addendum                   Addendum? @relation(fields: [addendum_id], references: [id])
+  sort_order                 Int       @default(0)
+  is_deleted                 Boolean   @default(false)
+  created_at                 DateTime  @default(now())
+  updated_at                 DateTime  @updatedAt
+
+  @@index([accord_id])
+  @@index([ware_id])
+  @@index([project_id])
+  @@index([addendum_id])
+  @@map("accord_commission_items")
+}
+
+model AccordKeepItem {
+  id                           String           @id @default(uuid()) @db.Uuid
+  accord_id                    String           @db.Uuid
+  accord                       Accord           @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  site_id                      String?          @db.Uuid
+  site                         Site?            @relation(fields: [site_id], references: [id])
+  site_name_placeholder        String?          @db.VarChar(255)
+  domain_name                  String?          @db.VarChar(255)
+  hosting_plan_id              String?          @db.Uuid
+  hosting_plan                 HostingPlan?     @relation("KeepHostingPlan", fields: [hosting_plan_id], references: [id])
+  maintenance_plan_id          String?          @db.Uuid
+  maintenance_plan             MaintenancePlan? @relation("KeepMaintenancePlan", fields: [maintenance_plan_id], references: [id])
+  hosting_price                Decimal?         @db.Decimal(10, 2)
+  hosting_discount_type        String?          @db.VarChar(10)
+  hosting_discount_value       Decimal?         @db.Decimal(10, 2)
+  hosting_final_price          Decimal?         @db.Decimal(10, 2)
+  maintenance_price            Decimal?         @db.Decimal(10, 2)
+  maintenance_discount_type    String?          @db.VarChar(10)
+  maintenance_discount_value   Decimal?         @db.Decimal(10, 2)
+  maintenance_final_price      Decimal?         @db.Decimal(10, 2)
+  monthly_total                Decimal?         @db.Decimal(10, 2)
+  is_client_hosted             Boolean          @default(false)
+  contract_language_override   String?          @db.Text
+  addendum_id                  String?          @db.Uuid
+  addendum                     Addendum?        @relation(fields: [addendum_id], references: [id])
+  sort_order                   Int              @default(0)
+  is_deleted                   Boolean          @default(false)
+  created_at                   DateTime         @default(now())
+  updated_at                   DateTime         @updatedAt
+
+  @@index([accord_id])
+  @@index([site_id])
+  @@index([hosting_plan_id])
+  @@index([maintenance_plan_id])
+  @@index([addendum_id])
+  @@map("accord_keep_items")
+}
+
+model CharterRenewalLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  charter_id   String   @db.Uuid
+  charter      Charter  @relation(fields: [charter_id], references: [id])
+  renewal_date DateTime @db.Date
+  task_id      String?  @db.Uuid
+  task         Task?    @relation(fields: [task_id], references: [id])
+  accord_id    String?  @db.Uuid
+  accord       Accord?  @relation(fields: [accord_id], references: [id])
+  created_at   DateTime @default(now())
+
+  @@unique([charter_id, renewal_date])
+  @@index([charter_id])
+  @@index([accord_id])
+  @@map("charter_renewal_logs")
+}
+
+model Proposal {
+  id                    String         @id @default(uuid()) @db.Uuid
+  accord_id             String         @db.Uuid
+  accord                Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  version               Int
+  content               String         @db.Text
+  status                ProposalStatus @default(draft)
+  pricing_snapshot      Json
+  sent_at               DateTime?
+  client_responded_at   DateTime?
+  client_note           String?        @db.Text
+  portal_token          String?        @db.VarChar(128)
+  portal_token_expires_at DateTime?
+  created_by_id         String         @db.Uuid
+  created_by            User           @relation("ProposalCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted            Boolean        @default(false)
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @updatedAt
+
+  @@unique([accord_id, version])
+  @@index([accord_id])
+  @@index([portal_token])
+  @@map("proposals")
+}
+
+model MsaVersion {
+  id             String   @id @default(uuid()) @db.Uuid
+  version        String   @db.VarChar(20)
+  content        String   @db.Text
+  effective_date DateTime @db.Date
+  is_current     Boolean  @default(false)
+  change_summary String?  @db.Text
+  created_by_id  String   @db.Uuid
+  created_by     User     @relation("MsaVersionCreatedBy", fields: [created_by_id], references: [id])
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  // Relations
+  contracts            Contract[]
+  client_msa_signatures ClientMsaSignature[]
+
+  @@map("msa_versions")
+}
+
+model Contract {
+  id                    String         @id @default(uuid()) @db.Uuid
+  accord_id             String         @db.Uuid
+  accord                Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  version               Int
+  content               String         @db.Text
+  msa_version_id        String         @db.Uuid
+  msa_version           MsaVersion     @relation(fields: [msa_version_id], references: [id])
+  status                ContractStatus @default(draft)
+  pricing_snapshot      Json
+  sent_at               DateTime?
+  signed_at             DateTime?
+  signer_name           String?        @db.VarChar(255)
+  signer_email          String?        @db.VarChar(255)
+  signer_ip             String?        @db.VarChar(45)
+  signer_user_agent     String?        @db.Text
+  content_snapshot      String?        @db.Text
+  portal_token          String?        @db.VarChar(128)
+  portal_token_expires_at DateTime?
+  created_by_id         String         @db.Uuid
+  created_by            User           @relation("ContractCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted            Boolean        @default(false)
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @updatedAt
+
+  @@unique([accord_id, version])
+  @@index([accord_id])
+  @@index([portal_token])
+  @@map("contracts")
+}
+
+model Addendum {
+  id                    String         @id @default(uuid()) @db.Uuid
+  accord_id             String         @db.Uuid
+  accord                Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  version               Int
+  title                 String         @db.VarChar(255)
+  description           String         @db.Text
+  contract_content      String         @db.Text
+  status                AddendumStatus @default(draft)
+  pricing_snapshot      Json
+  changes               Json
+  sent_at               DateTime?
+  client_responded_at   DateTime?
+  client_note           String?        @db.Text
+  signed_at             DateTime?
+  signer_name           String?        @db.VarChar(255)
+  signer_email          String?        @db.VarChar(255)
+  signer_ip             String?        @db.VarChar(45)
+  signer_user_agent     String?        @db.Text
+  content_snapshot      String?        @db.Text
+  portal_token          String?        @db.VarChar(128)
+  portal_token_expires_at DateTime?
+  is_override           Boolean        @default(false)
+  override_reason       String?        @db.Text
+  overridden_by_id      String?        @db.Uuid
+  overridden_by         User?          @relation("AddendumOverriddenBy", fields: [overridden_by_id], references: [id])
+  created_by_id         String         @db.Uuid
+  created_by            User           @relation("AddendumCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted            Boolean        @default(false)
+  created_at            DateTime       @default(now())
+  updated_at            DateTime       @updatedAt
+
+  // Relations
+  charter_items    AccordCharterItem[]
+  commission_items AccordCommissionItem[]
+  keep_items       AccordKeepItem[]
+
+  @@unique([accord_id, version])
+  @@index([accord_id])
+  @@index([portal_token])
+  @@map("addendums")
+}
+
+model ClientMsaSignature {
+  id              String     @id @default(uuid()) @db.Uuid
+  client_id       String     @db.Uuid
+  client          Client     @relation(fields: [client_id], references: [id])
+  msa_version_id  String     @db.Uuid
+  msa_version     MsaVersion @relation(fields: [msa_version_id], references: [id])
+  signed_at       DateTime
+  signer_name     String     @db.VarChar(255)
+  signer_email    String     @db.VarChar(255)
+  signer_ip       String?    @db.VarChar(45)
+  signer_user_agent String?  @db.Text
+  portal_token    String?    @db.VarChar(128)
+  created_at      DateTime   @default(now())
+
+  @@unique([client_id, msa_version_id])
+  @@index([client_id])
+  @@map("client_msa_signatures")
+}
+
+model Charter {
+  id                  String               @id @default(uuid()) @db.Uuid
+  name                String               @db.VarChar(255)
+  client_id           String               @db.Uuid
+  client              Client               @relation(fields: [client_id], references: [id])
+  accord_id           String?              @db.Uuid
+  accord              Accord?              @relation(fields: [accord_id], references: [id])
+  status              CharterStatus        @default(active)
+  billing_period      CharterBillingPeriod
+  budget_hours        Decimal?             @db.Decimal(6, 2)
+  hourly_rate         Decimal?             @db.Decimal(8, 2)
+  budget_amount       Decimal?             @db.Decimal(10, 2)
+  start_date          DateTime             @db.Date
+  end_date            DateTime?            @db.Date
+  duration_months     Int?
+  renewal_date        DateTime?            @db.Date
+  site_id             String?              @db.Uuid
+  site                Site?                @relation(fields: [site_id], references: [id])
+  paused_at           DateTime?
+  cancelled_at        DateTime?
+  cancellation_reason String?              @db.Text
+  created_by_id       String               @db.Uuid
+  created_by          User                 @relation("CharterCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted          Boolean              @default(false)
+  created_at          DateTime             @default(now())
+  updated_at          DateTime             @updatedAt
+
+  // Relations
+  charter_wares          CharterWare[]
+  scheduled_tasks        CharterScheduledTask[]
+  generation_logs        CharterGenerationLog[]
+  charter_commissions    CharterCommission[]
+  charter_items          AccordCharterItem[]
+  renewal_logs           CharterRenewalLog[]
+  tasks                  Task[]
+  meeting_charters       MeetingCharter[]
+
+  @@index([client_id])
+  @@index([accord_id])
+  @@index([status])
+  @@index([site_id])
+  @@map("charters")
+}
+
+model CharterWare {
+  id                   String          @id @default(uuid()) @db.Uuid
+  charter_id           String          @db.Uuid
+  charter              Charter         @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  ware_id              String          @db.Uuid
+  ware                 Ware            @relation(fields: [ware_id], references: [id])
+  price                Decimal         @db.Decimal(10, 2)
+  is_active            Boolean         @default(true)
+  deactivated_at       DateTime?
+  addendum_id          String?         @db.Uuid
+  created_at           DateTime        @default(now())
+  updated_at           DateTime        @updatedAt
+
+  // Relations
+  scheduled_tasks CharterScheduledTask[]
+
+  @@index([charter_id])
+  @@index([ware_id])
+  @@map("charter_wares")
+}
+
+model CharterScheduledTask {
+  id              String       @id @default(uuid()) @db.Uuid
+  charter_id      String       @db.Uuid
+  charter         Charter      @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  charter_ware_id String?      @db.Uuid
+  charter_ware    CharterWare? @relation(fields: [charter_ware_id], references: [id])
+  sop_id          String       @db.Uuid
+  sop             Sop          @relation(fields: [sop_id], references: [id])
+  cadence         String       @db.VarChar(20)
+  sort_order      Int          @default(0)
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  // Relations
+  generation_logs CharterGenerationLog[]
+
+  @@index([charter_id])
+  @@index([sop_id])
+  @@map("charter_scheduled_tasks")
+}
+
+model CharterGenerationLog {
+  id                String               @id @default(uuid()) @db.Uuid
+  charter_id        String               @db.Uuid
+  charter           Charter              @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  scheduled_task_id String               @db.Uuid
+  scheduled_task    CharterScheduledTask @relation(fields: [scheduled_task_id], references: [id], onDelete: Cascade)
+  period            String               @db.VarChar(20)
+  tasks_created     Int
+  tasks_abandoned   Int                  @default(0)
+  generated_at      DateTime             @default(now())
+
+  @@unique([charter_id, scheduled_task_id, period])
+  @@index([charter_id])
+  @@map("charter_generation_logs")
+}
+
+model CharterCommission {
+  id                         String    @id @default(uuid()) @db.Uuid
+  charter_id                 String    @db.Uuid
+  charter                    Charter   @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  commission_id              String    @db.Uuid
+  commission                 Project   @relation(fields: [commission_id], references: [id])
+  allocated_hours_per_period Decimal?  @db.Decimal(6, 2)
+  start_period               String    @db.VarChar(20)
+  end_period                 String?   @db.VarChar(20)
+  is_active                  Boolean   @default(true)
+  completed_at               DateTime?
+  created_at                 DateTime  @default(now())
+  updated_at                 DateTime  @updatedAt
+
+  @@index([charter_id])
+  @@index([commission_id])
+  @@map("charter_commissions")
+}
+
+model PortalSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  token_type  String   @db.VarChar(20)
+  entity_id   String   @db.Uuid
+  ip_address  String   @db.VarChar(45)
+  user_agent  String?  @db.Text
+  action      String   @db.VarChar(20)
+  metadata    Json?
+  created_at  DateTime @default(now())
+
+  @@index([token_type, entity_id])
+  @@index([created_at])
+  @@map("portal_sessions")
+}
+
+model SalesAutomationRule {
+  id                   String       @id @default(uuid()) @db.Uuid
+  name                 String       @db.VarChar(255)
+  trigger_type         String       @db.VarChar(20)
+  trigger_status       AccordStatus
+  trigger_from_status  AccordStatus?
+  time_threshold_hours Int?
+  action_type          String       @db.VarChar(20)
+  task_template        Json
+  assignee_rule        String       @db.VarChar(20)
+  assignee_user_id     String?      @db.Uuid
+  assignee_user        User?        @relation("SalesAutomationAssignee", fields: [assignee_user_id], references: [id])
+  is_active            Boolean      @default(true)
+  sort_order           Int          @default(0)
+  created_at           DateTime     @default(now())
+  updated_at           DateTime     @updatedAt
+
+  @@index([trigger_status])
+  // Relations
+  automation_logs SalesAutomationLog[]
+
+  @@index([is_active])
+  @@map("sales_automation_rules")
+}
+
+model SalesAutomationLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  rule_id     String   @db.Uuid
+  rule        SalesAutomationRule @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+  accord_id   String   @db.Uuid
+  accord      Accord   @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  task_id     String?  @db.Uuid
+  fired_at    DateTime @default(now())
+
+  @@unique([rule_id, accord_id])
+  @@index([accord_id])
+  @@map("sales_automation_logs")
 }

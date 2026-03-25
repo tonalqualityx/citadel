@@ -179,7 +179,7 @@ export default function GuildPage() {
                 updatePreferences.mutate({ naming_convention: value })
               }
               title="Awesome Mode"
-              description="Patrons, Pacts, Quests, Runes, Rituals"
+              description="Patrons, Commissions, Quests, Runes, Rituals"
               isPending={updatePreferences.isPending}
             />
             <NamingOption
@@ -271,6 +271,7 @@ export default function GuildPage() {
             </a>
           </div>
         </SettingsCard>
+
       </div>
     </div>
   );

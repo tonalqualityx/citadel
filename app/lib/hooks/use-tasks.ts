@@ -118,6 +118,7 @@ export interface CreateTaskInput {
   battery_impact?: string;
   due_date?: string | null;
   notes?: string | null;
+  accord_id?: string | null;
 }
 
 export interface UpdateTaskInput extends Partial<CreateTaskInput> {
@@ -136,8 +137,11 @@ export function useTasks(filters: TaskFilters = {}) {
     queryKey: taskKeys.list(filters),
     queryFn: () => {
       // Convert statuses array to comma-separated string for API
-      const { statuses, ...rest } = filters;
+      const { statuses, accord_id, ...rest } = filters;
       const params: Record<string, any> = { ...rest };
+      if (accord_id) {
+        params.accord_id = accord_id;
+      }
       if (statuses && statuses.length > 0) {
         params.statuses = statuses.join(',');
       }

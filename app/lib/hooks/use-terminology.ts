@@ -5,14 +5,26 @@ const TERMS = {
   // Entities
   client: { awesome: 'Patron', standard: 'Client' },
   clients: { awesome: 'Patrons', standard: 'Clients' },
-  project: { awesome: 'Pact', standard: 'Project' },
-  projects: { awesome: 'Pacts', standard: 'Projects' },
+  project: { awesome: 'Commission', standard: 'Project' },
+  projects: { awesome: 'Commissions', standard: 'Projects' },
   task: { awesome: 'Quest', standard: 'Task' },
   tasks: { awesome: 'Quests', standard: 'Tasks' },
   sop: { awesome: 'Rune', standard: 'SOP' },
   sops: { awesome: 'Runes', standard: 'SOPs' },
   recipe: { awesome: 'Ritual', standard: 'Template' },
   recipes: { awesome: 'Rituals', standard: 'Templates' },
+  deal: { awesome: 'Accord', standard: 'Deal' },
+  deals: { awesome: 'Accords', standard: 'Deals' },
+  retainer: { awesome: 'Charter', standard: 'Retainer' },
+  retainers: { awesome: 'Charters', standard: 'Retainers' },
+  product: { awesome: 'Ware', standard: 'Product' },
+  products: { awesome: 'Wares', standard: 'Products' },
+  meeting: { awesome: 'Meeting', standard: 'Meeting' },
+  meetings: { awesome: 'Meetings', standard: 'Meetings' },
+  keep: { awesome: 'Keep', standard: 'Site Service' },
+  keeps: { awesome: 'Keeps', standard: 'Site Services' },
+  commission: { awesome: 'Commission', standard: 'Project' },
+  commissions: { awesome: 'Commissions', standard: 'Projects' },
 
   // Navigation sections
   dashboard: { awesome: 'Overlook', standard: 'Dashboard' },
@@ -22,13 +34,18 @@ const TERMS = {
   grimoire: { awesome: 'Grimoire', standard: 'Knowledge' },
   guild: { awesome: 'Guild', standard: 'Settings' },
   armory: { awesome: 'Armory', standard: 'Resources' },
+  parley: { awesome: 'Parley', standard: 'Sales' },
 
   // Actions
   newClient: { awesome: 'New Patron', standard: 'New Client' },
-  newProject: { awesome: 'New Pact', standard: 'New Project' },
+  newProject: { awesome: 'New Commission', standard: 'New Project' },
   newTask: { awesome: 'New Quest', standard: 'New Task' },
   newSop: { awesome: 'New Rune', standard: 'New SOP' },
   newRecipe: { awesome: 'New Ritual', standard: 'New Template' },
+  newDeal: { awesome: 'New Accord', standard: 'New Deal' },
+  newRetainer: { awesome: 'New Charter', standard: 'New Retainer' },
+  newProduct: { awesome: 'New Ware', standard: 'New Product' },
+  newKeep: { awesome: 'New Keep', standard: 'New Site Service' },
 
   // Misc
   site: { awesome: 'Site', standard: 'Site' },

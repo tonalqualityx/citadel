@@ -46,6 +46,17 @@ import { billingEndpoints } from './billing';
 import { referenceEndpoints } from './reference';
 import { adminEndpoints } from './admin';
 import { miscEndpoints } from './misc';
+import { wareEndpoints } from './wares';
+import { accordEndpoints } from './accords';
+import { proposalEndpoints } from './proposals';
+import { msaEndpoints } from './msa';
+import { portalEndpoints } from './portal';
+import { contractEndpoints } from './contracts';
+import { onboardingEndpoints } from './onboarding';
+import { charterEndpoints } from './charters';
+import { automationEndpoints } from './automation';
+import { addendumEndpoints } from './addendums';
+import { meetingEndpoints } from './meetings';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -61,6 +72,17 @@ export const apiRegistry: ApiEndpoint[] = [
   ...referenceEndpoints,
   ...adminEndpoints,
   ...miscEndpoints,
+  ...wareEndpoints,
+  ...accordEndpoints,
+  ...proposalEndpoints,
+  ...msaEndpoints,
+  ...portalEndpoints,
+  ...contractEndpoints,
+  ...onboardingEndpoints,
+  ...charterEndpoints,
+  ...automationEndpoints,
+  ...addendumEndpoints,
+  ...meetingEndpoints,
 ];
 
 /**
@@ -77,6 +99,11 @@ export const apiEnums = {
   billingTypes: ['fixed', 'hourly', 'retainer', 'none'],
   clientStatuses: ['active', 'inactive', 'delinquent'],
   clientTypes: ['direct', 'agency_partner', 'sub_client'],
+  wareTypes: ['commission', 'charter'],
+  accordStatuses: ['lead', 'meeting', 'proposal', 'contract', 'signed', 'active', 'lost'],
+  charterBillingPeriods: ['monthly', 'annually'],
+  proposalStatuses: ['draft', 'sent', 'accepted', 'rejected', 'changes_requested'],
+  contractStatuses: ['draft', 'sent', 'signed'],
 };
 
 /**

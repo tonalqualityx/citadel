@@ -114,6 +114,21 @@ export function Sidebar() {
     ],
   };
 
+  // Parley section - PM/Admin only
+  const parleySection: NavSection = {
+    title: t('parley'),
+    emoji: '🤝',
+    defaultOpen: true,
+    items: [
+      { name: t('deals'), href: '/deals', emoji: '📋' },
+      { name: t('meetings'), href: '/meetings', emoji: '📅' },
+      { name: t('retainers'), href: '/charters', emoji: '📜' },
+      { name: t('products'), href: '/deals/wares', emoji: '📦' },
+      { name: 'MSA', href: '/deals/msa', emoji: '📄' },
+      { name: 'Automation', href: '/deals/automation', emoji: '⚡' },
+    ],
+  };
+
   const knowledgeSection: NavSection = {
     title: t('grimoire'),
     emoji: '📖',
@@ -178,6 +193,9 @@ export function Sidebar() {
 
           {/* Collapsible sections */}
           <CollapsibleSection section={workSection} pathname={pathname} />
+          {isPmOrAdmin && (
+            <CollapsibleSection section={parleySection} pathname={pathname} />
+          )}
           <CollapsibleSection section={knowledgeSection} pathname={pathname} />
 
           {/* Settings */}

@@ -50,6 +50,8 @@ type TaskFormData = z.infer<typeof taskSchema>;
 interface TaskFormProps {
   task?: Task;
   defaultProjectId?: string;
+  defaultClientId?: string;
+  defaultAccordId?: string;
   onSuccess?: () => void;
   onCancel?: () => void;
 }
@@ -63,7 +65,7 @@ const statusOptions = [
   { value: 'abandoned', label: 'Abandoned' },
 ];
 
-export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFormProps) {
+export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccordId, onSuccess, onCancel }: TaskFormProps) {
   const isEdit = !!task;
   const { t } = useTerminology();
   const createTask = useCreateTask();
@@ -87,7 +89,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
       status: (task?.status as any) || 'not_started',
       priority: task?.priority?.toString() || '3',
       project_id: task?.project_id || defaultProjectId || '',
-      client_id: task?.client_id || '',
+      client_id: task?.client_id || defaultClientId || '',
       phase: task?.phase || '',
       assignee_id: task?.assignee_id || '',
       function_id: task?.function_id || '',
@@ -169,6 +171,7 @@ export function TaskForm({ task, defaultProjectId, onSuccess, onCancel }: TaskFo
         billing_target: data.billing_target ? parseInt(data.billing_target) : null,
         billing_amount: data.billing_amount ? parseFloat(data.billing_amount) : null,
         is_retainer_work: data.is_retainer_work,
+        ...(defaultAccordId && !isEdit ? { accord_id: defaultAccordId } : {}),
       };
 
       if (isEdit) {

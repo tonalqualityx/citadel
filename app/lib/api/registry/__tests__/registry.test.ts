@@ -51,7 +51,9 @@ describe('API Registry', () => {
     const expectedGroups = [
       'auth', 'dashboard', 'clients', 'projects', 'tasks',
       'time-entries', 'sites', 'sops', 'users', 'billing',
-      'reference', 'admin', 'misc',
+      'reference', 'admin', 'misc', 'wares', 'accords',
+      'proposals', 'msa', 'portal', 'contracts', 'onboarding', 'charter',
+      'automation', 'addendums', 'meetings',
     ];
 
     it('contains all expected groups', () => {

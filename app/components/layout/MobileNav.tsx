@@ -83,6 +83,19 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     ],
   };
 
+  const parleySection: NavSection = {
+    title: t('parley'),
+    emoji: '🤝',
+    items: [
+      { name: t('deals'), href: '/deals', emoji: '📋' },
+      { name: t('meetings'), href: '/meetings', emoji: '📅' },
+      { name: t('retainers'), href: '/charters', emoji: '📜' },
+      { name: t('products'), href: '/deals/wares', emoji: '📦' },
+      { name: 'MSA', href: '/deals/msa', emoji: '📄' },
+      { name: 'Automation', href: '/deals/automation', emoji: '⚡' },
+    ],
+  };
+
   const knowledgeSection: NavSection = {
     title: t('grimoire'),
     emoji: '📖',
@@ -152,6 +165,9 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
 
           {/* Work section */}
           <NavSectionBlock section={workSection} pathname={pathname} />
+
+          {/* Parley section - PM/Admin only */}
+          {isPmOrAdmin && <NavSectionBlock section={parleySection} pathname={pathname} />}
 
           {/* Knowledge section */}
           <NavSectionBlock section={knowledgeSection} pathname={pathname} />

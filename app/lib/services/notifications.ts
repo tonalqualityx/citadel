@@ -237,7 +237,7 @@ export async function notifyProjectStatusChanged(
     await createNotification({
       userId,
       type: 'project_status_changed',
-      title: `Pact "${project.name}" is now ${statusLabels[newStatus] || newStatus}`,
+      title: `Commission "${project.name}" is now ${statusLabels[newStatus] || newStatus}`,
       entityType: 'project',
       entityId: projectId,
       bundleKey: `project_status_${userId}`,
@@ -266,6 +266,38 @@ export async function notifyRetainerAlert(
   }
 }
 
+export async function notifyContractSent(
+  contractId: string,
+  accordName: string,
+  recipientId: string
+) {
+  await createNotification({
+    userId: recipientId,
+    type: 'system_alert',
+    title: `Contract sent: ${accordName}`,
+    message: 'Contract is ready for client signing',
+    entityType: 'contract',
+    entityId: contractId,
+    priority: 'high',
+  });
+}
+
+export async function notifyContractSigned(
+  accordId: string,
+  accordName: string,
+  pmUserId: string
+) {
+  await createNotification({
+    userId: pmUserId,
+    type: 'system_alert',
+    title: `Contract signed: ${accordName}`,
+    message: 'Client has signed the contract',
+    entityType: 'accord',
+    entityId: accordId,
+    priority: 'high',
+  });
+}
+
 export async function notifyBugReported(
   taskId: string,
   taskTitle: string,
@@ -285,5 +317,44 @@ export async function notifyBugReported(
     message: `Reported by ${reporterName}`,
     entityType: 'task',
     entityId: taskId,
+  });
+}
+
+export async function notifyAddendumSent(
+  addendumId: string,
+  accordName: string,
+  recipientId: string
+) {
+  await createNotification({
+    userId: recipientId,
+    type: 'system_alert',
+    title: `Addendum sent: ${accordName}`,
+    message: 'Addendum is ready for client review',
+    entityType: 'addendum',
+    entityId: addendumId,
+    priority: 'high',
+  });
+}
+
+export async function notifyAddendumResponse(
+  accordId: string,
+  accordName: string,
+  response: string,
+  pmUserId: string
+) {
+  const statusLabels: Record<string, string> = {
+    accepted: 'accepted',
+    rejected: 'rejected',
+    changes_requested: 'requested changes on',
+  };
+
+  await createNotification({
+    userId: pmUserId,
+    type: 'system_alert',
+    title: `Addendum ${statusLabels[response] || response}: ${accordName}`,
+    message: `Client has ${statusLabels[response] || response} the addendum`,
+    entityType: 'accord',
+    entityId: accordId,
+    priority: 'high',
   });
 }

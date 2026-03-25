@@ -84,6 +84,7 @@ import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { ProjectBriefTab } from '@/components/domain/projects/project-brief-tab';
+import { MeetingList } from '@/components/domain/meetings/MeetingList';
 import { RichTextRenderer } from '@/components/ui/rich-text-editor';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { BulkEditTasksModal } from '@/components/domain/tasks/bulk-edit-tasks-modal';
@@ -604,6 +605,7 @@ export default function ProjectDetailPage() {
           <TabsTrigger value="workload">Workload</TabsTrigger>
           <TabsTrigger value="time">Time</TabsTrigger>
           <TabsTrigger value="team">Team</TabsTrigger>
+          <TabsTrigger value="meetings">Meetings</TabsTrigger>
           <TabsTrigger value="details">Details</TabsTrigger>
         </TabsList>
 
@@ -1163,6 +1165,10 @@ export default function ProjectDetailPage() {
 
         <TabsContent value="team" className="mt-4">
           <ProjectTeamTab projectId={project.id} tasks={project.tasks} />
+        </TabsContent>
+
+        <TabsContent value="meetings" className="mt-4">
+          <MeetingList projectId={project.id} clientId={project.client?.id} />
         </TabsContent>
 
         <TabsContent value="details" className="mt-4 space-y-6">

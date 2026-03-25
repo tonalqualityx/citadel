@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         take: 5,
       }),
 
-      // Projects (Pacts)
+      // Projects (Commissions)
       prisma.project.findMany({
         where: {
           is_deleted: false,
