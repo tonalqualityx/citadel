@@ -18,6 +18,7 @@ import { addBusinessDays, formatDateForInput } from '@/lib/utils/time';
 import { energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Combobox } from '@/components/ui/combobox';
 import { Spinner } from '@/components/ui/spinner';
 import {
@@ -46,7 +47,8 @@ const quickTaskSchema = z.object({
   energy_estimate: z.string().optional(),
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']),
-  billing_amount: z.string().optional(),
+  is_billable: z.boolean(),
+  is_retainer_work: z.boolean(),
   due_date: z.string().optional(),
 }).refine(
   (data) => !data.site_id || data.task_type,
@@ -92,7 +94,8 @@ export function QuickTaskModal() {
       energy_estimate: '1', // 15 minutes
       mystery_factor: 'average', // "Some"
       battery_impact: 'average_drain',
-      billing_amount: '',
+      is_billable: true,
+      is_retainer_work: false,
       due_date: formatDateForInput(addBusinessDays(new Date(), 4)),
     },
   });
@@ -105,7 +108,7 @@ export function QuickTaskModal() {
   const dueDate = watch('due_date');
   const energyEstimate = watch('energy_estimate');
   const mysteryFactor = watch('mystery_factor');
-  const billingAmount = watch('billing_amount');
+  const isRetainerWork = watch('is_retainer_work');
   const taskType = watch('task_type');
 
   // Fetch sites filtered by client
@@ -176,7 +179,7 @@ export function QuickTaskModal() {
     // 1. Client has retainer hours
     // 2. We have retainer data for the month
     // 3. We have energy estimate to calculate cost
-    // 4. No fixed billing amount (fixed amounts don't consume retainer hours)
+    // 4. Task is marked as retainer work
     // 5. Not a support task (support tasks don't consume retainer)
 
     if (!effectiveClient?.retainer_hours) return null;
@@ -192,7 +195,7 @@ export function QuickTaskModal() {
       };
     }
 
-    if (billingAmount) return null; // Fixed billing doesn't use retainer hours
+    if (!isRetainerWork) return null; // Only warn about retainer when task is retainer work
 
     const retainerHours = Number(effectiveClient.retainer_hours);
     const retainerMinutes = retainerHours * 60;
@@ -237,7 +240,7 @@ export function QuickTaskModal() {
     retainerData,
     energyEstimate,
     mysteryFactor,
-    billingAmount,
+    isRetainerWork,
     taskType,
   ]);
 
@@ -288,6 +291,17 @@ export function QuickTaskModal() {
       setValue('task_type', undefined);
     }
   }, [selectedSiteId, setValue]);
+
+  // Auto-set billing defaults based on client retainer status
+  React.useEffect(() => {
+    if (effectiveClient?.retainer_hours) {
+      setValue('is_retainer_work', true);
+      setValue('is_billable', false);
+    } else {
+      setValue('is_retainer_work', false);
+      setValue('is_billable', !!effectiveClientId); // Billable if there's a client
+    }
+  }, [effectiveClientId, effectiveClient, setValue]);
 
   const clientOptions = React.useMemo(() => {
     return [
@@ -353,7 +367,8 @@ export function QuickTaskModal() {
         battery_impact: data.battery_impact,
         status: 'not_started' as const,
         is_support: data.task_type === 'support',
-        billing_amount: data.billing_amount ? parseFloat(data.billing_amount) : null,
+        is_billable: data.is_billable,
+        is_retainer_work: data.is_retainer_work,
         due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
       };
 
@@ -599,19 +614,28 @@ export function QuickTaskModal() {
                   <p className="text-xs text-text-sub mt-1">Default: 4 business days</p>
                 </div>
 
-                {isPmOrAdmin && (
-                  <div>
-                    <Input
-                      label="Fixed Billing ($)"
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      {...register('billing_amount')}
-                      placeholder="Use hourly rate"
+                <div className="flex flex-col gap-3 justify-center">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="quick-is-billable"
+                      checked={watch('is_billable')}
+                      onCheckedChange={(checked) => setValue('is_billable', !!checked)}
                     />
-                    <p className="text-xs text-text-sub mt-1">Overrides hourly calc</p>
+                    <label htmlFor="quick-is-billable" className="text-sm text-text-main cursor-pointer">
+                      Billable
+                    </label>
                   </div>
-                )}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="quick-is-retainer"
+                      checked={watch('is_retainer_work')}
+                      onCheckedChange={(checked) => setValue('is_retainer_work', !!checked)}
+                    />
+                    <label htmlFor="quick-is-retainer" className="text-sm text-text-main cursor-pointer">
+                      Retainer Work
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
 

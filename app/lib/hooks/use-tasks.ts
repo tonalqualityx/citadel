@@ -193,7 +193,7 @@ export function useUpdateTask() {
 
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.setQueryData(taskKeys.detail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(data.id) });
       if (data.project_id) {
         queryClient.invalidateQueries({
           queryKey: projectKeys.detail(data.project_id),
@@ -271,7 +271,7 @@ export function useUpdateTaskStatus() {
       }
 
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
-      queryClient.setQueryData(taskKeys.detail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(data.id) });
       if (data.project_id) {
         queryClient.invalidateQueries({
           queryKey: projectKeys.detail(data.project_id),

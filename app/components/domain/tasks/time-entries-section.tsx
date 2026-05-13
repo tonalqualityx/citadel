@@ -49,10 +49,10 @@ export function TimeEntriesSection({ timeEntries }: TimeEntriesSectionProps) {
                 key={entry.id}
                 className="flex items-start gap-3 p-2 rounded border border-border"
               >
-                <Avatar name={entry.user.name} size="sm" />
+                <Avatar name={entry.user?.name || 'Unknown'} size="sm" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-text-main">
-                    {entry.user.name}
+                    {entry.user?.name || 'Unknown'}
                   </div>
                   <div className="text-sm text-text-sub">
                     {formatDurationMinutes(entry.duration)} &middot;{' '}

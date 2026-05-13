@@ -29,7 +29,7 @@ export async function GET(
 
     return NextResponse.json({
       id: signature.id,
-      client: { name: signature.client.name },
+      client: { name: signature.client?.name || 'Unknown' },
       msa_version: {
         version: signature.msa_version.version,
         content: signature.msa_version.content,

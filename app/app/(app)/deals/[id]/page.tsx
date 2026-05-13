@@ -18,7 +18,9 @@ import {
   Eye,
   Pencil,
   CheckSquare,
+  StickyNote,
 } from 'lucide-react';
+import { RichTextEditor, type BlockNoteContent } from '@/components/ui/rich-text-editor';
 import {
   useAccord,
   useUpdateAccord,
@@ -140,6 +142,27 @@ export default function AccordDetailPage() {
   const [viewingContractId, setViewingContractId] = React.useState<string | null>(null);
   const [editingContractId, setEditingContractId] = React.useState<string | null>(null);
 
+  // Notes editor state
+  const notesContent = React.useMemo<BlockNoteContent | null>(() => {
+    if (!accord?.notes) return null;
+    try {
+      return JSON.parse(accord.notes);
+    } catch {
+      return null;
+    }
+  }, [accord?.notes]);
+
+  const saveNotesTimeout = React.useRef<NodeJS.Timeout | null>(null);
+  const handleNotesChange = React.useCallback(
+    (content: BlockNoteContent) => {
+      if (saveNotesTimeout.current) clearTimeout(saveNotesTimeout.current);
+      saveNotesTimeout.current = setTimeout(() => {
+        updateAccord.mutate({ id, data: { notes: JSON.stringify(content) } });
+      }, 1000);
+    },
+    [id, updateAccord]
+  );
+
   // Task create/peek state
   const [isTaskCreateOpen, setIsTaskCreateOpen] = React.useState(false);
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -203,7 +226,7 @@ export default function AccordDetailPage() {
 
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold text-text-main">
               {accord.name}
@@ -213,8 +236,9 @@ export default function AccordDetailPage() {
             </Badge>
           </div>
 
-          <div className="flex items-center gap-4 text-sm text-text-sub">
-            {accord.client ? (
+          {/* Contact Info Row — editable inline */}
+          {accord.client ? (
+            <div className="flex items-center gap-4 text-sm text-text-sub">
               <Link
                 href={`/clients/${accord.client.id}`}
                 className="hover:text-primary transition-colors flex items-center gap-1"
@@ -222,30 +246,73 @@ export default function AccordDetailPage() {
                 <Building2 className="h-4 w-4" />
                 {accord.client.name}
               </Link>
-            ) : accord.lead_name ? (
+              {accord.owner && (
+                <span className="flex items-center gap-2">
+                  <Avatar
+                    src={accord.owner.avatar_url}
+                    name={accord.owner.name}
+                    size="xs"
+                  />
+                  {accord.owner.name}
+                </span>
+              )}
               <span className="flex items-center gap-1">
-                <User className="h-4 w-4" />
-                {accord.lead_name}
-                {accord.lead_business_name && ` - ${accord.lead_business_name}`}
+                <Calendar className="h-4 w-4" />
+                {formatDate(accord.created_at)}
               </span>
-            ) : null}
-
-            {accord.owner && (
-              <span className="flex items-center gap-2">
-                <Avatar
-                  src={accord.owner.avatar_url}
-                  name={accord.owner.name}
-                  size="xs"
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5 text-text-sub" />
+                <InlineText
+                  value={accord.lead_name}
+                  onChange={(val) => updateAccord.mutate({ id, data: { lead_name: val } })}
+                  placeholder="Lead name..."
                 />
-                {accord.owner.name}
               </span>
-            )}
-
-            <span className="flex items-center gap-1">
-              <Calendar className="h-4 w-4" />
-              {formatDate(accord.created_at)}
-            </span>
-          </div>
+              <span className="flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5 text-text-sub" />
+                <InlineText
+                  value={accord.lead_business_name}
+                  onChange={(val) => updateAccord.mutate({ id, data: { lead_business_name: val } })}
+                  placeholder="Business..."
+                />
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5 text-text-sub" />
+                <InlineText
+                  value={accord.lead_email}
+                  onChange={(val) => updateAccord.mutate({ id, data: { lead_email: val } })}
+                  placeholder="Email..."
+                  type="email"
+                />
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-text-sub" />
+                <InlineText
+                  value={accord.lead_phone}
+                  onChange={(val) => updateAccord.mutate({ id, data: { lead_phone: val } })}
+                  placeholder="Phone..."
+                  type="tel"
+                />
+              </span>
+              {accord.owner && (
+                <span className="flex items-center gap-2 text-text-sub">
+                  <Avatar
+                    src={accord.owner.avatar_url}
+                    name={accord.owner.name}
+                    size="xs"
+                  />
+                  {accord.owner.name}
+                </span>
+              )}
+              <span className="flex items-center gap-1 text-text-sub">
+                <Calendar className="h-3.5 w-3.5" />
+                {formatDate(accord.created_at)}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="text-right">
@@ -300,122 +367,70 @@ export default function AccordDetailPage() {
         </TabsList>
 
         {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6 mt-4">
-          {/* Lead / Client Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                {accord.client ? t('client') : 'Lead'} Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {accord.client ? (
-                <div className="flex items-center gap-3">
-                  <Building2 className="h-5 w-5 text-text-sub" />
-                  <div>
-                    <Link
-                      href={`/clients/${accord.client.id}`}
-                      className="font-medium text-text-main hover:text-primary transition-colors"
-                    >
-                      {accord.client.name}
-                    </Link>
-                    <Badge variant="default" size="sm" className="ml-2">
-                      {accord.client.status}
-                    </Badge>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-text-sub flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-xs text-text-sub">Name</div>
-                      <InlineText
-                        value={accord.lead_name}
-                        onChange={(val) => updateAccord.mutate({ id, data: { lead_name: val } })}
-                        placeholder="Add lead name..."
-                      />
+        <TabsContent value="overview" className="mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column — Notes & Summary */}
+            <div className="space-y-6">
+              {/* Notes */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <StickyNote className="h-4 w-4" />
+                    Notes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RichTextEditor
+                    content={notesContent}
+                    onChange={handleNotesChange}
+                    placeholder="Add notes about this deal..."
+                  />
+                </CardContent>
+              </Card>
+
+              {/* Proposals Summary */}
+              {proposalsData?.proposals && proposalsData.proposals.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Latest Proposal</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm text-text-main font-medium">
+                          Version {proposalsData.proposals[0].version}
+                        </span>
+                        <span className="text-sm text-text-sub ml-2">
+                          {formatDate(proposalsData.proposals[0].created_at)}
+                        </span>
+                      </div>
+                      <Badge
+                        variant={
+                          proposalsData.proposals[0].status === 'accepted'
+                            ? 'success'
+                            : proposalsData.proposals[0].status === 'rejected'
+                              ? 'error'
+                              : proposalsData.proposals[0].status === 'sent'
+                                ? 'info'
+                                : 'default'
+                        }
+                        size="sm"
+                      >
+                        {proposalsData.proposals[0].status.replace('_', ' ')}
+                      </Badge>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-text-sub flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-xs text-text-sub">Business</div>
-                      <InlineText
-                        value={accord.lead_business_name}
-                        onChange={(val) => updateAccord.mutate({ id, data: { lead_business_name: val } })}
-                        placeholder="Add business name..."
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-text-sub flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-xs text-text-sub">Email</div>
-                      <InlineText
-                        value={accord.lead_email}
-                        onChange={(val) => updateAccord.mutate({ id, data: { lead_email: val } })}
-                        placeholder="Add email..."
-                        type="email"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-text-sub flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-xs text-text-sub">Phone</div>
-                      <InlineText
-                        value={accord.lead_phone}
-                        onChange={(val) => updateAccord.mutate({ id, data: { lead_phone: val } })}
-                        placeholder="Add phone..."
-                        type="tel"
-                      />
-                    </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               )}
-            </CardContent>
-          </Card>
+            </div>
 
-          {/* Line Items — Three Sections */}
-          <CharterItemsSection accordId={id} />
-          <CommissionItemsSection accordId={id} clientId={accord.client_id} />
-          <KeepItemsSection accordId={id} clientId={accord.client_id} />
-
-          {/* Proposals Summary */}
-          {proposalsData?.proposals && proposalsData.proposals.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Latest Proposal</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-sm text-text-main font-medium">
-                      Version {proposalsData.proposals[0].version}
-                    </span>
-                    <span className="text-sm text-text-sub ml-2">
-                      {formatDate(proposalsData.proposals[0].created_at)}
-                    </span>
-                  </div>
-                  <Badge
-                    variant={
-                      proposalsData.proposals[0].status === 'accepted'
-                        ? 'success'
-                        : proposalsData.proposals[0].status === 'rejected'
-                          ? 'error'
-                          : proposalsData.proposals[0].status === 'sent'
-                            ? 'info'
-                            : 'default'
-                    }
-                    size="sm"
-                  >
-                    {proposalsData.proposals[0].status.replace('_', ' ')}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+            {/* Right Column — Line Items */}
+            <div className="lg:col-span-2 space-y-6">
+              <CharterItemsSection accordId={id} />
+              <CommissionItemsSection accordId={id} clientId={accord.client_id} />
+              <KeepItemsSection accordId={id} clientId={accord.client_id} />
+            </div>
+          </div>
         </TabsContent>
 
         {/* Meetings Tab */}

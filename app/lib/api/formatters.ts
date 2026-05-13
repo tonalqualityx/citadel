@@ -393,6 +393,7 @@ export function formatAccordResponse(accord: any) {
     lead_email: accord.lead_email,
     lead_phone: accord.lead_phone,
     lead_notes: accord.lead_notes,
+    notes: accord.notes,
     rejection_reason: accord.rejection_reason,
     payment_confirmed: accord.payment_confirmed,
     payment_confirmed_at: accord.payment_confirmed_at,

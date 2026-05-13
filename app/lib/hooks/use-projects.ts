@@ -142,7 +142,7 @@ export function useUpdateProject() {
       apiClient.patch<Project>(`/projects/${id}`, data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-      queryClient.setQueryData(projectKeys.detail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(data.id) });
       showToast.updated('Project');
     },
     onError: (error) => {
@@ -159,7 +159,7 @@ export function useUpdateProjectStatus() {
       apiClient.patch<Project>(`/projects/${id}`, { status }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-      queryClient.setQueryData(projectKeys.detail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(data.id) });
     },
   });
 }
@@ -193,7 +193,7 @@ export function useLockProjectBudget() {
       apiClient.patch<Project>(`/projects/${id}`, { lock_budget: true, ...data }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-      queryClient.setQueryData(projectKeys.detail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: projectKeys.detail(data.id) });
     },
   });
 }

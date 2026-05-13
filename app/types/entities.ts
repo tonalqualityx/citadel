@@ -259,6 +259,7 @@ export interface Accord {
   lead_email: string | null;
   lead_phone: string | null;
   lead_notes: string | null;
+  notes: string | null;
   rejection_reason: string | null;
   payment_confirmed: boolean;
   payment_confirmed_at: string | null;
@@ -378,6 +379,7 @@ export interface UpdateAccordInput {
   lead_email?: string | null;
   lead_phone?: string | null;
   lead_notes?: string | null;
+  notes?: string | null;
   rejection_reason?: string | null;
   payment_confirmed?: boolean;
 }

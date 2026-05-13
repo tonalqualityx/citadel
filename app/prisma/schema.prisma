@@ -1343,6 +1343,7 @@ model Accord {
   lead_email              String?      @db.VarChar(255)
   lead_phone              String?      @db.VarChar(50)
   lead_notes              String?      @db.Text
+  notes                   String?      @db.Text
   rejection_reason        String?      @db.Text
   payment_confirmed       Boolean      @default(false)
   payment_confirmed_at    DateTime?

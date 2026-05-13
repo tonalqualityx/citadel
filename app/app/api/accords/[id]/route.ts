@@ -14,6 +14,7 @@ const updateAccordSchema = z.object({
   lead_email: z.string().email().optional().nullable().or(z.literal('')),
   lead_phone: z.string().max(50).optional().nullable(),
   lead_notes: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
   rejection_reason: z.string().optional().nullable(),
   payment_confirmed: z.boolean().optional(),
 });
