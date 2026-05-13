@@ -218,7 +218,7 @@ export async function generateCharterTasks(charterId: string): Promise<CharterGe
           is_maintenance_task: false,
           maintenance_period: currentPeriod,
           due_date: dueDate,
-          is_billable: true,
+          is_billable: false,
           is_retainer_work: true,
         },
       });

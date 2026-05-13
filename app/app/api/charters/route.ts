@@ -87,7 +87,15 @@ export async function POST(request: NextRequest) {
 
     const charter = await prisma.charter.create({
       data: {
-        ...data,
+        name: data.name,
+        client_id: data.client_id,
+        accord_id: data.accord_id,
+        billing_period: data.billing_period,
+        budget_hours: data.budget_hours,
+        hourly_rate: data.hourly_rate,
+        budget_amount: data.budget_amount,
+        start_date: new Date(data.start_date),
+        end_date: data.end_date ? new Date(data.end_date) : undefined,
         created_by_id: auth.userId,
       },
       include: {
