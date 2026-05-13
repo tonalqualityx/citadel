@@ -25,6 +25,9 @@ export interface Task {
   // Direct site relationship (for ad-hoc tasks without a project)
   site_id: string | null;
   site: { id: string; name: string } | null;
+  // Charter relationship (for retainer tasks)
+  charter_id: string | null;
+  charter: { id: string; name: string } | null;
   phase: string | null;
   sort_order: number;
   assignee_id: string | null;

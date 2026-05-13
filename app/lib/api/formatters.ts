@@ -858,6 +858,10 @@ export function formatTaskResponse(task: any) {
     site: task.site
       ? { id: task.site.id, name: task.site.name, url: task.site.url }
       : null,
+    charter_id: task.charter_id,
+    charter: task.charter
+      ? { id: task.charter.id, name: task.charter.name }
+      : null,
     is_maintenance_task: task.is_maintenance_task ?? false,
     maintenance_period: task.maintenance_period,
     time_spent_minutes: timeSpentMinutes,

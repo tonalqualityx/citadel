@@ -38,6 +38,7 @@ const createTaskSchema = z.object({
   is_retainer_work: z.boolean().optional(),
   is_support: z.boolean().optional(),
   accord_id: z.string().uuid().optional().nullable(),
+  charter_id: z.string().uuid().optional().nullable(),
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -142,6 +143,7 @@ export async function GET(request: NextRequest) {
             },
           },
           client: { select: { id: true, name: true } },
+          charter: { select: { id: true, name: true } },
           assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
           reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
           approved_by: { select: { id: true, name: true } },
@@ -224,6 +226,23 @@ export async function POST(request: NextRequest) {
         if (!isAssigned) {
           throw new ApiError('You are not assigned to this project', 403);
         }
+      }
+    }
+
+    // If charter_id provided, validate it exists and auto-set billing flags
+    let charterClientId: string | null = null;
+    if (data.charter_id) {
+      const charter = await prisma.charter.findUnique({
+        where: { id: data.charter_id, is_deleted: false },
+        select: { id: true, client_id: true },
+      });
+      if (!charter) {
+        throw new ApiError('Charter not found', 404);
+      }
+      charterClientId = charter.client_id;
+      // Inherit client from charter if not set via project
+      if (!clientId) {
+        clientId = charter.client_id;
       }
     }
 
@@ -363,13 +382,17 @@ export async function POST(request: NextRequest) {
         started_at: startedAt,
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: data.notes,
-        // Billing fields - auto-suggest retainer work for retainer clients/projects
-        is_billable: data.is_billable ?? true,
+        // Billing fields - charter tasks are never billable (already invoiced via charter)
+        is_billable: data.charter_id ? false : (data.is_billable ?? true),
         billing_target: data.billing_target,
         billing_amount: data.billing_amount,
-        is_retainer_work: data.is_retainer_work ?? isRetainerProject,
+        is_retainer_work: data.charter_id ? true : (data.is_retainer_work ?? isRetainerProject),
         is_support: data.is_support ?? false,
         accord_id: data.accord_id,
+        charter_id: data.charter_id,
+        maintenance_period: data.charter_id
+          ? (() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; })()
+          : undefined,
         created_by_id: auth.userId,
       },
       include: {
@@ -382,6 +405,7 @@ export async function POST(request: NextRequest) {
           },
         },
         client: { select: { id: true, name: true } },
+        charter: { select: { id: true, name: true } },
         site: { select: { id: true, name: true, url: true } },
         project_phase: {
           select: { id: true, name: true, icon: true, sort_order: true },

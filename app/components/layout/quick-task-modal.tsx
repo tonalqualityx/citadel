@@ -14,6 +14,7 @@ import { useSops } from '@/lib/hooks/use-sops';
 import { useUsers } from '@/lib/hooks/use-users';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
+import { useCharters } from '@/lib/hooks/use-charters';
 import { addBusinessDays, formatDateForInput } from '@/lib/utils/time';
 import { energyToMinutes, getMysteryMultiplier } from '@/lib/calculations/energy';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ const quickTaskSchema = z.object({
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']),
   is_billable: z.boolean(),
   is_retainer_work: z.boolean(),
+  charter_id: z.string().optional(),
   due_date: z.string().optional(),
 }).refine(
   (data) => !data.site_id || data.task_type,
@@ -69,6 +71,7 @@ export function QuickTaskModal() {
   const { data: clientsData, isLoading: clientsLoading } = useClients({ limit: 100, status: 'active' });
   const { data: sopsData, isLoading: sopsLoading } = useSops({ limit: 100 });
   const { data: usersData, isLoading: usersLoading } = useUsers();
+  const { data: chartersData } = useCharters({ status: 'active', limit: 100 });
 
   // Track if SOP defaults have been applied to avoid overwriting user changes
   const [sopApplied, setSopApplied] = React.useState<string | null>(null);
@@ -96,6 +99,7 @@ export function QuickTaskModal() {
       battery_impact: 'average_drain',
       is_billable: true,
       is_retainer_work: false,
+      charter_id: '',
       due_date: formatDateForInput(addBusinessDays(new Date(), 4)),
     },
   });
@@ -104,6 +108,7 @@ export function QuickTaskModal() {
   const selectedClientId = watch('client_id');
   const selectedSopId = watch('sop_id');
   const selectedProjectId = watch('project_id');
+  const selectedCharterId = watch('charter_id');
   const selectedSiteId = watch('site_id');
   const dueDate = watch('due_date');
   const energyEstimate = watch('energy_estimate');
@@ -276,6 +281,7 @@ export function QuickTaskModal() {
       setValue('client_id', '');
       setValue('site_id', '');
       setValue('task_type', undefined);
+      setValue('charter_id', '');
     }
   }, [selectedProjectId, setValue]);
 
@@ -283,6 +289,7 @@ export function QuickTaskModal() {
   React.useEffect(() => {
     setValue('site_id', '');
     setValue('task_type', undefined);
+    setValue('charter_id', '');
   }, [selectedClientId, setValue]);
 
   // When site is cleared, clear task_type
@@ -292,16 +299,20 @@ export function QuickTaskModal() {
     }
   }, [selectedSiteId, setValue]);
 
-  // Auto-set billing defaults based on client retainer status
+  // Auto-set billing defaults based on charter or client retainer status
   React.useEffect(() => {
-    if (effectiveClient?.retainer_hours) {
+    if (selectedCharterId) {
+      // Charter tasks are never billable — already invoiced via charter
+      setValue('is_retainer_work', true);
+      setValue('is_billable', false);
+    } else if (effectiveClient?.retainer_hours) {
       setValue('is_retainer_work', true);
       setValue('is_billable', false);
     } else {
       setValue('is_retainer_work', false);
       setValue('is_billable', !!effectiveClientId); // Billable if there's a client
     }
-  }, [effectiveClientId, effectiveClient, setValue]);
+  }, [effectiveClientId, effectiveClient, selectedCharterId, setValue]);
 
   const clientOptions = React.useMemo(() => {
     return [
@@ -351,6 +362,22 @@ export function QuickTaskModal() {
     ];
   }, [usersData]);
 
+  // Charter options - filtered by effective client
+  const charterOptions = React.useMemo(() => {
+    let charters = chartersData?.charters || [];
+    if (effectiveClientId) {
+      charters = charters.filter((c: any) => c.client_id === effectiveClientId);
+    }
+    return [
+      { value: '', label: `No ${t('retainer').toLowerCase()}` },
+      ...charters.map((c: any) => ({
+        value: c.id,
+        label: c.name,
+        description: c.client?.name,
+      })),
+    ];
+  }, [chartersData, effectiveClientId, t]);
+
   const handleCreate = async (data: QuickTaskFormData, openAfter: boolean) => {
     setIsSubmitting(true);
     try {
@@ -369,6 +396,7 @@ export function QuickTaskModal() {
         is_support: data.task_type === 'support',
         is_billable: data.is_billable,
         is_retainer_work: data.is_retainer_work,
+        charter_id: data.charter_id || null,
         due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
       };
 
@@ -520,6 +548,18 @@ export function QuickTaskModal() {
                     onChange={(value) => setValue('sop_id', value || '')}
                     placeholder="No Rune"
                     searchPlaceholder="Search runes..."
+                  />
+                )}
+
+                {/* Charter - show when client has active charters */}
+                {effectiveClientId && charterOptions.length > 1 && (
+                  <Combobox
+                    label={t('retainer')}
+                    options={charterOptions}
+                    value={watch('charter_id') || null}
+                    onChange={(value) => setValue('charter_id', value || '')}
+                    placeholder={`No ${t('retainer').toLowerCase()}`}
+                    searchPlaceholder={`Search ${t('retainers').toLowerCase()}...`}
                   />
                 )}
               </div>

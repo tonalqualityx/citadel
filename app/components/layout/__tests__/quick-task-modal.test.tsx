@@ -70,6 +70,13 @@ vi.mock('@/lib/hooks/use-users', () => ({
   }),
 }));
 
+vi.mock('@/lib/hooks/use-charters', () => ({
+  useCharters: () => ({
+    data: { charters: [] },
+    isLoading: false,
+  }),
+}));
+
 vi.mock('@/lib/hooks/use-terminology', () => ({
   useTerminology: () => ({
     t: (key: string) => {
@@ -317,7 +324,7 @@ describe('QuickTaskModal', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Scheduling & Billing')).toBeInTheDocument();
-        expect(screen.getByLabelText(/fixed billing/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/billable/i)).toBeInTheDocument();
       });
     });
   });

@@ -24,6 +24,7 @@ import {
   Play,
   Square,
   DollarSign,
+  Scroll,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -422,6 +423,21 @@ export default function QuestDetailPage() {
                   />
                 )}
               </div>
+
+              {/* Charter */}
+              {task.charter && (
+                <div className="flex items-center gap-1">
+                  <Link href={`/charters/${task.charter.id}`} className="text-text-sub hover:text-primary">
+                    <Scroll className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    href={`/charters/${task.charter.id}`}
+                    className="text-text-sub hover:text-primary"
+                  >
+                    {task.charter.name}
+                  </Link>
+                </div>
+              )}
             </div>
             {/* Resource Links - only for project tasks */}
             {task.project && (

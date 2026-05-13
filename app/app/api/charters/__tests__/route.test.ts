@@ -107,7 +107,7 @@ describe('POST /api/charters', () => {
           name: 'New Charter',
           client_id: '550e8400-e29b-41d4-a716-446655440000',
           billing_period: 'monthly',
-          start_date: '2026-01-01',
+          start_date: new Date('2026-01-01'),
           created_by_id: 'user-1',
         }),
       })
@@ -137,7 +137,7 @@ describe('POST /api/charters', () => {
           budget_hours: 40,
           hourly_rate: 150,
           budget_amount: 6000,
-          end_date: '2026-12-31',
+          end_date: new Date('2026-12-31'),
         }),
       })
     );
