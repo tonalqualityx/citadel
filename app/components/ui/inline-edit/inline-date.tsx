@@ -20,11 +20,15 @@ export function InlineDate({
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const displayDate = value
-    ? new Date(value).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
+    ? (() => {
+        const parts = value.split('T')[0].split('-');
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return d.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        });
+      })()
     : null;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

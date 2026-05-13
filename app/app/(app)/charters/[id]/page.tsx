@@ -530,7 +530,9 @@ function formatCurrency(amount: number | null) {
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return '--';
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  const parts = dateStr.split('T')[0].split('-');
+  const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

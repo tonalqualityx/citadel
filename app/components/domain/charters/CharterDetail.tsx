@@ -4,6 +4,9 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { InlineText } from '@/components/ui/inline-edit/inline-text';
+import { InlineSelect } from '@/components/ui/inline-edit/inline-select';
+import { useUpdateCharter } from '@/lib/hooks/use-charters';
 import type {
   CharterWithRelations,
   CharterStatus,
@@ -34,7 +37,10 @@ function formatCurrency(value: number | null): string {
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '--';
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  // Parse as local date to avoid UTC timezone shift (e.g. 5/1 showing as 4/30)
+  const parts = dateStr.split('T')[0].split('-');
+  const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -46,6 +52,12 @@ function formatBillingPeriod(period: string): string {
 }
 
 export function CharterDetail({ charter }: CharterDetailProps) {
+  const updateCharter = useUpdateCharter();
+
+  const handleUpdate = (field: string, value: string | number | null) => {
+    updateCharter.mutate({ id: charter.id, data: { [field]: value } });
+  };
+
   return (
     <div className="space-y-6">
       {/* Charter Info */}
@@ -78,25 +90,48 @@ export function CharterDetail({ charter }: CharterDetailProps) {
             <div>
               <dt className="text-text-sub">Billing Period</dt>
               <dd className="text-text-main font-medium mt-0.5">
-                {formatBillingPeriod(charter.billing_period)}
+                <InlineSelect
+                  value={charter.billing_period}
+                  options={[
+                    { value: 'monthly', label: 'Monthly' },
+                    { value: 'annually', label: 'Annually' },
+                  ]}
+                  onChange={(val) => handleUpdate('billing_period', val)}
+                  allowClear={false}
+                />
               </dd>
             </div>
             <div>
               <dt className="text-text-sub">Budget Hours</dt>
               <dd className="text-text-main font-medium mt-0.5">
-                {charter.budget_hours != null ? `${charter.budget_hours}h` : '--'}
+                <InlineText
+                  value={charter.budget_hours != null ? String(charter.budget_hours) : null}
+                  onChange={(val) => handleUpdate('budget_hours', val ? Number(val) : null)}
+                  type="number"
+                  placeholder="Set hours..."
+                />
               </dd>
             </div>
             <div>
               <dt className="text-text-sub">Hourly Rate</dt>
               <dd className="text-text-main font-medium mt-0.5">
-                {formatCurrency(charter.hourly_rate)}
+                <InlineText
+                  value={charter.hourly_rate != null ? String(charter.hourly_rate) : null}
+                  onChange={(val) => handleUpdate('hourly_rate', val ? Number(val) : null)}
+                  type="number"
+                  placeholder="Set rate..."
+                />
               </dd>
             </div>
             <div>
               <dt className="text-text-sub">Budget Amount</dt>
               <dd className="text-text-main font-medium mt-0.5">
-                {formatCurrency(charter.budget_amount)}
+                <InlineText
+                  value={charter.budget_amount != null ? String(charter.budget_amount) : null}
+                  onChange={(val) => handleUpdate('budget_amount', val ? Number(val) : null)}
+                  type="number"
+                  placeholder="Set amount..."
+                />
               </dd>
             </div>
             <div>

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils/cn';
@@ -14,12 +15,41 @@ interface UsageTrackerProps {
 interface UsageTask {
   id: string;
   title: string;
+  status: string;
+  estimated_minutes: number | null;
+  estimate_low_minutes: number | null;
+  estimate_high_minutes: number | null;
   time_spent_minutes: number;
 }
 
 interface UsageData {
   used_hours: number;
+  planned_low_hours: number;
+  planned_high_hours: number;
+  hourly_rate: number | null;
+  spent_amount: number | null;
+  anticipated_low_amount: number | null;
+  anticipated_high_amount: number | null;
+  budget_amount: number | null;
   tasks?: UsageTask[];
+}
+
+const COMPLETED_STATUSES = ['done', 'abandoned'];
+
+function formatH(hours: number): string {
+  if (hours < 1 && hours > 0) {
+    return `${Math.round(hours * 60)}m`;
+  }
+  return `${hours.toFixed(1)}h`;
+}
+
+function formatMoney(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
@@ -49,9 +79,34 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
   }
 
   const usedHours = usage.used_hours ?? 0;
+  const plannedLow = usage.planned_low_hours ?? 0;
+  const plannedHigh = usage.planned_high_hours ?? 0;
   const hasBudget = budgetHours != null && budgetHours > 0;
-  const percentage = hasBudget ? Math.min((usedHours / budgetHours) * 100, 100) : 0;
-  const isOverBudget = hasBudget && usedHours > budgetHours;
+
+  // Committed = used + planned range
+  const committedLow = usedHours + plannedLow;
+  const committedHigh = usedHours + plannedHigh;
+
+  // Percentages for stacked bar
+  const usedPct = hasBudget ? (usedHours / budgetHours) * 100 : 0;
+  const plannedLowPct = hasBudget ? (plannedLow / budgetHours) * 100 : 0;
+  const plannedHighPct = hasBudget ? (plannedHigh / budgetHours) * 100 : 0;
+  const isOverBudget = hasBudget && committedHigh > budgetHours;
+
+  // Bar color based on high-end commitment
+  const totalHighPct = usedPct + plannedHighPct;
+  const barColor = totalHighPct > 100
+    ? 'bg-[var(--error)]'
+    : totalHighPct > 80
+      ? 'bg-[var(--warning)]'
+      : 'bg-[var(--success)]';
+
+  const completedTasks = (usage.tasks ?? []).filter((t) =>
+    COMPLETED_STATUSES.includes(t.status)
+  );
+  const plannedTasks = (usage.tasks ?? []).filter(
+    (t) => !COMPLETED_STATUSES.includes(t.status)
+  );
 
   return (
     <Card>
@@ -59,11 +114,24 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
         <CardTitle>Usage</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Hours summary */}
+        {/* Summary line */}
         <div className="flex items-baseline justify-between">
-          <span className="text-2xl font-semibold text-text-main">
-            {usedHours.toFixed(1)}h
-          </span>
+          <div className="flex items-baseline gap-3">
+            <span className="text-2xl font-semibold text-text-main">
+              {formatH(usedHours)}
+            </span>
+            <span className="text-sm text-text-sub">used</span>
+            {(plannedLow > 0 || plannedHigh > 0) && (
+              <>
+                <span className="text-lg font-medium text-text-sub">
+                  + {plannedLow === plannedHigh
+                    ? formatH(plannedLow)
+                    : `${formatH(plannedLow)} – ${formatH(plannedHigh)}`}
+                </span>
+                <span className="text-sm text-text-sub">planned</span>
+              </>
+            )}
+          </div>
           {hasBudget && (
             <span className="text-sm text-text-sub">
               of {budgetHours}h budget
@@ -71,53 +139,176 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
           )}
         </div>
 
-        {/* Progress bar */}
+        {/* Layered progress bar */}
         {hasBudget && (
           <div className="space-y-1">
-            <div className="h-2 w-full rounded-full bg-background-light overflow-hidden">
+            <div className="h-3 w-full rounded-full bg-background-light overflow-hidden relative">
+              {/* Layer 1: High estimate range (lightest) */}
+              {plannedHighPct > 0 && (
+                <div
+                  className={cn('absolute inset-y-0 left-0 rounded-full transition-all opacity-20', barColor)}
+                  style={{ width: `${Math.min(usedPct + plannedHighPct, 100)}%` }}
+                />
+              )}
+              {/* Layer 2: Low estimate range (medium) */}
+              {plannedLowPct > 0 && (
+                <div
+                  className={cn('absolute inset-y-0 left-0 rounded-full transition-all opacity-40', barColor)}
+                  style={{ width: `${Math.min(usedPct + plannedLowPct, 100)}%` }}
+                />
+              )}
+              {/* Layer 3: Actual used (solid) */}
               <div
-                className={cn(
-                  'h-full rounded-full transition-all',
-                  isOverBudget
-                    ? 'bg-[var(--error)]'
-                    : percentage > 80
-                      ? 'bg-[var(--warning)]'
-                      : 'bg-[var(--success)]'
-                )}
-                style={{ width: `${Math.min(percentage, 100)}%` }}
+                className={cn('absolute inset-y-0 left-0 rounded-full transition-all', barColor)}
+                style={{ width: `${Math.min(usedPct, 100)}%` }}
               />
             </div>
             <div className="flex justify-between text-xs text-text-sub">
-              <span>{percentage.toFixed(0)}% used</span>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1">
+                  <span className={cn('inline-block w-2 h-2 rounded-full', barColor)} />
+                  Used {usedPct.toFixed(0)}%
+                </span>
+                {(plannedLow > 0 || plannedHigh > 0) && (
+                  <span className="flex items-center gap-1">
+                    <span className={cn('inline-block w-2 h-2 rounded-full opacity-30', barColor)} />
+                    Planned {plannedLow === plannedHigh
+                      ? `${(usedPct + plannedLowPct).toFixed(0)}%`
+                      : `${(usedPct + plannedLowPct).toFixed(0)}–${(usedPct + plannedHighPct).toFixed(0)}%`}
+                  </span>
+                )}
+              </div>
               {isOverBudget && (
                 <span className="text-[var(--error)] font-medium">
-                  {(usedHours - budgetHours).toFixed(1)}h over
+                  {formatH(committedHigh - budgetHours)} over
                 </span>
               )}
             </div>
           </div>
         )}
 
-        {/* Task breakdown */}
-        {usage.tasks && usage.tasks.length > 0 && (
-          <div className="pt-2 border-t border-border-warm">
-            <h4 className="text-xs font-medium text-text-sub uppercase tracking-wide mb-2">
-              Tasks
-            </h4>
-            <div className="space-y-2">
-              {usage.tasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span className="text-text-main truncate mr-4">
-                    {task.title}
-                  </span>
-                  <span className="text-text-sub whitespace-nowrap">
-                    {(task.time_spent_minutes / 60).toFixed(1)}h
+        {/* Spend summary */}
+        {usage.hourly_rate != null && (
+          <div className="pt-3 border-t border-border-warm">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-text-sub block text-xs uppercase tracking-wide mb-1">Spent</span>
+                <span className="text-text-main font-semibold">
+                  {formatMoney(usage.spent_amount ?? 0)}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-sub block text-xs uppercase tracking-wide mb-1">Anticipated</span>
+                <span className="text-text-main font-medium">
+                  {usage.anticipated_low_amount === usage.anticipated_high_amount
+                    ? formatMoney(usage.anticipated_low_amount ?? 0)
+                    : `${formatMoney(usage.anticipated_low_amount ?? 0)} – ${formatMoney(usage.anticipated_high_amount ?? 0)}`}
+                </span>
+              </div>
+              {usage.budget_amount != null && (
+                <div>
+                  <span className="text-text-sub block text-xs uppercase tracking-wide mb-1">Budget</span>
+                  <span className="text-text-main font-medium">
+                    {formatMoney(usage.budget_amount)}
                   </span>
                 </div>
-              ))}
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Two-column task breakdown */}
+        {(completedTasks.length > 0 || plannedTasks.length > 0) && (
+          <div className="pt-2 border-t border-border-warm grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Completed */}
+            <div>
+              <h4 className="text-xs font-medium text-text-sub uppercase tracking-wide mb-2">
+                Completed
+              </h4>
+              {completedTasks.length > 0 ? (
+                <div className="space-y-2">
+                  {completedTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <Link
+                        href={`/tasks/${task.id}`}
+                        className="text-text-main truncate mr-4 hover:text-primary transition-colors"
+                      >
+                        {task.title}
+                      </Link>
+                      <span className="text-text-sub whitespace-nowrap">
+                        {formatH(task.time_spent_minutes / 60)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between text-sm font-medium pt-1 border-t border-border-warm">
+                    <span className="text-text-sub">Total</span>
+                    <span className="text-text-main">{formatH(usedHours)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-text-sub italic">No completed tasks</p>
+              )}
+            </div>
+
+            {/* Planned */}
+            <div>
+              <h4 className="text-xs font-medium text-text-sub uppercase tracking-wide mb-2">
+                Planned
+              </h4>
+              {plannedTasks.length > 0 ? (
+                <div className="space-y-2">
+                  {plannedTasks.map((task) => {
+                    const low = task.estimate_low_minutes;
+                    const high = task.estimate_high_minutes;
+                    const hasTime = task.time_spent_minutes > 0;
+                    const hasRange = low != null && high != null;
+
+                    let display: string;
+                    if (hasTime) {
+                      display = formatH(task.time_spent_minutes / 60);
+                    } else if (hasRange) {
+                      display = low === high
+                        ? formatH(low / 60)
+                        : `${formatH(low / 60)} – ${formatH(high / 60)}`;
+                    } else {
+                      display = '--';
+                    }
+
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-center justify-between text-sm"
+                      >
+                        <Link
+                          href={`/tasks/${task.id}`}
+                          className="text-text-main truncate mr-4 hover:text-primary transition-colors"
+                        >
+                          {task.title}
+                        </Link>
+                        <span className="text-text-sub whitespace-nowrap">
+                          {display}
+                          {!hasTime && hasRange && (
+                            <span className="text-xs ml-1 opacity-60">est</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center justify-between text-sm font-medium pt-1 border-t border-border-warm">
+                    <span className="text-text-sub">Total</span>
+                    <span className="text-text-main">
+                      {plannedLow === plannedHigh
+                        ? formatH(plannedLow)
+                        : `${formatH(plannedLow)} – ${formatH(plannedHigh)}`}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-text-sub italic">No planned tasks</p>
+              )}
             </div>
           </div>
         )}
