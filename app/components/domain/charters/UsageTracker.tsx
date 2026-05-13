@@ -14,7 +14,7 @@ interface UsageTrackerProps {
 interface UsageTask {
   id: string;
   title: string;
-  time_spent: number;
+  time_spent_minutes: number;
 }
 
 interface UsageData {
@@ -114,7 +114,7 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
                     {task.title}
                   </span>
                   <span className="text-text-sub whitespace-nowrap">
-                    {task.time_spent.toFixed(1)}h
+                    {(task.time_spent_minutes / 60).toFixed(1)}h
                   </span>
                 </div>
               ))}

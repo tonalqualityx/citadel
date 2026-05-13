@@ -6,7 +6,7 @@ import { useCreateTimeEntry, useUpdateTimeEntry, TimeEntry } from '@/lib/hooks/u
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 import { Textarea } from '@/components/ui/textarea';
 
 interface TimeEntryFormProps {
@@ -63,18 +63,26 @@ export function TimeEntryForm({
   const [description, setDescription] = React.useState(entry?.description || '');
   const [isBillable, setIsBillable] = React.useState(entry?.is_billable ?? true);
 
-  // Fetch tasks for selector
-  const { data: tasksData } = useTasks({ limit: 100 });
+  // Fetch active tasks for selector
+  const { data: tasksData } = useTasks({ active_only: true, limit: 200 });
 
   const createEntry = useCreateTimeEntry();
   const updateEntry = useUpdateTimeEntry();
 
   const taskOptions = React.useMemo(() => {
     if (!tasksData?.tasks) return [];
-    return tasksData.tasks.map((task) => ({
-      value: task.id,
-      label: task.project ? `${task.title} (${task.project.name})` : task.title,
-    }));
+    return tasksData.tasks.map((task) => {
+      const context: string[] = [];
+      const clientName = task.project?.client?.name || task.client?.name;
+      if (clientName) context.push(clientName);
+      if (task.project) context.push(task.project.name);
+      if (task.charter) context.push(task.charter.name);
+      return {
+        value: task.id,
+        label: task.title,
+        description: context.length > 0 ? context.join(' · ') : undefined,
+      };
+    });
   }, [tasksData?.tasks]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -115,12 +123,14 @@ export function TimeEntryForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Task selector */}
-      <Select
+      <Combobox
         label={`${t('task')} (optional)`}
         options={taskOptions}
-        value={taskId}
-        onChange={setTaskId}
+        value={taskId || null}
+        onChange={(val) => setTaskId(val || '')}
         placeholder={`Select a ${t('task').toLowerCase()}...`}
+        searchPlaceholder={`Search ${t('tasks').toLowerCase()}...`}
+        allowClear
       />
 
       {/* Date */}
