@@ -94,6 +94,8 @@ export interface TaskFilters {
   priority?: number;
   project_id?: string;
   accord_id?: string;
+  charter_id?: string;
+  maintenance_period?: string;
   assignee_id?: string;
   phase?: string;
   my_tasks?: boolean;

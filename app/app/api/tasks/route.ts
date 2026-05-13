@@ -61,6 +61,8 @@ export async function GET(request: NextRequest) {
     const accordId = searchParams.get('accord_id') || undefined;
     const assigneeId = searchParams.get('assignee_id') || undefined;
     const phase = searchParams.get('phase') || undefined;
+    const charterId = searchParams.get('charter_id') || undefined;
+    const maintenancePeriod = searchParams.get('maintenance_period') || undefined;
     const myTasks = searchParams.get('my_tasks') === 'true';
     const pendingReview = searchParams.get('pending_review') === 'true';
     const activeOnly = searchParams.get('active_only') === 'true';
@@ -82,6 +84,8 @@ export async function GET(request: NextRequest) {
       ...(priority && { priority }),
       ...(projectId && { project_id: projectId }),
       ...(accordId && { accord_id: accordId }),
+      ...(charterId && { charter_id: charterId }),
+      ...(maintenancePeriod && { maintenance_period: maintenancePeriod }),
       ...(phase && { phase }),
       // Pending review filter: done tasks that need review and aren't approved
       ...(pendingReview && {

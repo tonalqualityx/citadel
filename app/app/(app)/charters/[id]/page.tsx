@@ -28,6 +28,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CharterDetail } from '@/components/domain/charters/CharterDetail';
 import { UsageTracker } from '@/components/domain/charters/UsageTracker';
+import { CharterKanban } from '@/components/domain/charters/CharterKanban';
 import { MeetingList } from '@/components/domain/meetings/MeetingList';
 import type { CharterStatus, CharterScheduledTaskItem, CharterWareItem, CharterCommissionItem } from '@/types/entities';
 
@@ -152,6 +153,7 @@ export default function CharterDetailPage() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="tasks">{t('tasks')}</TabsTrigger>
           <TabsTrigger value="schedule">Schedule</TabsTrigger>
           <TabsTrigger value="wares">{t('products')}</TabsTrigger>
           <TabsTrigger value="commissions">Commissions</TabsTrigger>
@@ -165,6 +167,12 @@ export default function CharterDetailPage() {
               budgetHours={charter.budget_hours}
             />
             <CharterDetail charter={charter} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="tasks">
+          <div className="mt-4">
+            <CharterKanban charterId={charter.id} />
           </div>
         </TabsContent>
 

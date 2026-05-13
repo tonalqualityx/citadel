@@ -140,10 +140,16 @@ export function useTasks(filters: TaskFilters = {}) {
     queryKey: taskKeys.list(filters),
     queryFn: () => {
       // Convert statuses array to comma-separated string for API
-      const { statuses, accord_id, ...rest } = filters;
+      const { statuses, accord_id, charter_id, maintenance_period, ...rest } = filters;
       const params: Record<string, any> = { ...rest };
       if (accord_id) {
         params.accord_id = accord_id;
+      }
+      if (charter_id) {
+        params.charter_id = charter_id;
+      }
+      if (maintenance_period) {
+        params.maintenance_period = maintenance_period;
       }
       if (statuses && statuses.length > 0) {
         params.statuses = statuses.join(',');
