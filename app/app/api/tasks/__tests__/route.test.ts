@@ -869,6 +869,56 @@ describe('GET /api/tasks', () => {
     });
   });
 
+  it('supports charter_id filter', async () => {
+    const charterId = '550e8400-e29b-41d4-a716-446655440099';
+    const request = createGetRequest({ charter_id: charterId });
+    await GET(request);
+
+    expect(mockTaskFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({ charter_id: charterId }),
+          ]),
+        }),
+      })
+    );
+  });
+
+  it('supports maintenance_period filter', async () => {
+    const request = createGetRequest({ maintenance_period: '2026-05' });
+    await GET(request);
+
+    expect(mockTaskFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({ maintenance_period: '2026-05' }),
+          ]),
+        }),
+      })
+    );
+  });
+
+  it('supports charter_id and maintenance_period together', async () => {
+    const charterId = '550e8400-e29b-41d4-a716-446655440099';
+    const request = createGetRequest({ charter_id: charterId, maintenance_period: '2026-05' });
+    await GET(request);
+
+    expect(mockTaskFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              charter_id: charterId,
+              maintenance_period: '2026-05',
+            }),
+          ]),
+        }),
+      })
+    );
+  });
+
   describe('Tech user access control', () => {
     beforeEach(() => {
       mockRequireAuth.mockResolvedValue({

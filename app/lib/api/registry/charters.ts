@@ -160,11 +160,27 @@ export const charterEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Get period usage breakdown for a charter.',
+        summary: 'Get period usage breakdown for a charter including hours, spend, and task details.',
         auth: 'required',
         queryParams: [
           { name: 'period', type: 'string', required: false, description: 'Period (e.g., 2026-03). Defaults to current month.' },
         ],
+        responseExample: {
+          charter_id: 'uuid',
+          period: '2026-05',
+          budget_hours: 'number|null',
+          hourly_rate: 'number|null',
+          used_hours: 'number',
+          planned_low_hours: 'number',
+          planned_high_hours: 'number',
+          spent_amount: 'number|null',
+          anticipated_low_amount: 'number|null',
+          anticipated_high_amount: 'number|null',
+          budget_amount: 'number|null',
+          tasks_count: 'number',
+          tasks: [{ id: 'uuid', title: 'string', status: 'string', estimate_low_minutes: 'number|null', estimate_high_minutes: 'number|null', time_spent_minutes: 'number' }],
+        },
+        responseNotes: 'Spend fields (spent_amount, anticipated amounts, budget_amount) are only populated when hourly_rate is set. Estimate ranges are computed from energy × mystery × battery.',
       },
     ],
   },

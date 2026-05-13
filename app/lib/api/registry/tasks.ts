@@ -16,6 +16,8 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'priority', type: 'number', required: false, description: 'Priority filter (1-5)' },
           { name: 'project_id', type: 'uuid', required: false, description: 'Filter by project' },
           { name: 'assignee_id', type: 'uuid', required: false, description: 'Filter by assignee' },
+          { name: 'charter_id', type: 'uuid', required: false, description: 'Filter by charter' },
+          { name: 'maintenance_period', type: 'string', required: false, description: 'Filter by period (e.g., 2026-05)' },
           { name: 'phase', type: 'string', required: false, description: 'Filter by phase' },
           { name: 'my_tasks', type: 'boolean', required: false, description: 'Only tasks assigned to current user' },
           { name: 'pending_review', type: 'boolean', required: false, description: 'Tasks awaiting review approval' },
