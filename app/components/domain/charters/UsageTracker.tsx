@@ -114,7 +114,7 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
         <CardTitle>Usage</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Summary line */}
+        {/* Summary line — hours left, spend right */}
         <div className="flex items-baseline justify-between">
           <div className="flex items-baseline gap-3">
             <span className="text-2xl font-semibold text-text-main">
@@ -131,11 +131,46 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
                 <span className="text-sm text-text-sub">planned</span>
               </>
             )}
+            {hasBudget && (
+              <span className="text-sm text-text-sub">
+                of {budgetHours}h
+              </span>
+            )}
           </div>
-          {hasBudget && (
-            <span className="text-sm text-text-sub">
-              of {budgetHours}h budget
-            </span>
+          {usage.hourly_rate != null && (
+            <div className="flex items-baseline gap-3 text-right">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl font-semibold text-text-main">
+                  {formatMoney(usage.spent_amount ?? 0)}
+                </span>
+                <span className="text-sm text-text-sub">spent</span>
+              </div>
+              {usage.budget_amount != null && (() => {
+                const anticipated = usage.anticipated_high_amount ?? 0;
+                const budget = usage.budget_amount;
+                const diff = anticipated - budget;
+                const pctOver = budget > 0 ? (diff / budget) * 100 : 0;
+
+                let statusColor: string;
+                let statusText: string;
+                if (pctOver > 0) {
+                  statusColor = 'text-[var(--error)]';
+                  statusText = `${formatMoney(diff)} over`;
+                } else if (pctOver < -10) {
+                  statusColor = 'text-[var(--warning)]';
+                  statusText = `${formatMoney(Math.abs(diff))} under`;
+                } else {
+                  statusColor = 'text-[var(--success)]';
+                  statusText = formatMoney(anticipated);
+                }
+
+                return (
+                  <span className={cn('text-sm font-medium', statusColor)}>
+                    {statusText}
+                  </span>
+                );
+              })()}
+            </div>
           )}
         </div>
 
@@ -182,36 +217,6 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
                 <span className="text-[var(--error)] font-medium">
                   {formatH(committedHigh - budgetHours)} over
                 </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Spend summary */}
-        {usage.hourly_rate != null && (
-          <div className="pt-3 border-t border-border-warm">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-text-sub block text-xs uppercase tracking-wide mb-1">Spent</span>
-                <span className="text-text-main font-semibold">
-                  {formatMoney(usage.spent_amount ?? 0)}
-                </span>
-              </div>
-              <div>
-                <span className="text-text-sub block text-xs uppercase tracking-wide mb-1">Anticipated</span>
-                <span className="text-text-main font-medium">
-                  {usage.anticipated_low_amount === usage.anticipated_high_amount
-                    ? formatMoney(usage.anticipated_low_amount ?? 0)
-                    : `${formatMoney(usage.anticipated_low_amount ?? 0)} – ${formatMoney(usage.anticipated_high_amount ?? 0)}`}
-                </span>
-              </div>
-              {usage.budget_amount != null && (
-                <div>
-                  <span className="text-text-sub block text-xs uppercase tracking-wide mb-1">Budget</span>
-                  <span className="text-text-main font-medium">
-                    {formatMoney(usage.budget_amount)}
-                  </span>
-                </div>
               )}
             </div>
           </div>

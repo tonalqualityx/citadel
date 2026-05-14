@@ -24,7 +24,6 @@ import {
   getBatteryMultiplier,
   formatHours,
 } from '@/lib/calculations/energy';
-import type { MysteryFactor, BatteryImpact } from '@prisma/client';
 
 interface CharterKanbanProps {
   charterId: string;
@@ -50,6 +49,40 @@ const STATUS_FOR_COLUMN: Record<ColumnId, string> = {
   done: 'done',
 };
 
+const COLUMN_COLORS: Record<ColumnId, {
+  columnBg: string;
+  columnHeader: string;
+  countBg: string;
+  cardBg: string;
+  cardBorder: string;
+  dropRing: string;
+}> = {
+  ready: {
+    columnBg: 'bg-slate-50 dark:bg-slate-900/30',
+    columnHeader: 'text-slate-500',
+    countBg: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+    cardBg: 'bg-slate-50 dark:bg-slate-800/50',
+    cardBorder: 'border-slate-200 dark:border-slate-700',
+    dropRing: 'ring-slate-300',
+  },
+  in_progress: {
+    columnBg: 'bg-blue-50 dark:bg-blue-950/30',
+    columnHeader: 'text-blue-600 dark:text-blue-400',
+    countBg: 'bg-blue-200 text-blue-700 dark:bg-blue-800 dark:text-blue-200',
+    cardBg: 'bg-blue-50 dark:bg-blue-900/30',
+    cardBorder: 'border-blue-200 dark:border-blue-800',
+    dropRing: 'ring-blue-300',
+  },
+  done: {
+    columnBg: 'bg-emerald-50 dark:bg-emerald-950/30',
+    columnHeader: 'text-emerald-600 dark:text-emerald-400',
+    countBg: 'bg-emerald-200 text-emerald-700 dark:bg-emerald-800 dark:text-emerald-200',
+    cardBg: 'bg-emerald-50 dark:bg-emerald-900/30',
+    cardBorder: 'border-emerald-200 dark:border-emerald-800',
+    dropRing: 'ring-emerald-300',
+  },
+};
+
 function getCurrentPeriod(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -68,8 +101,8 @@ function isPendingReview(task: Task): boolean {
 function getEstimateRange(task: Task): string | null {
   if (!task.energy_estimate) return null;
   const base = energyToMinutes(task.energy_estimate);
-  const mystery = getMysteryMultiplier(task.mystery_factor as MysteryFactor);
-  const battery = getBatteryMultiplier(task.battery_impact as BatteryImpact);
+  const mystery = getMysteryMultiplier(task.mystery_factor as any);
+  const battery = getBatteryMultiplier(task.battery_impact as any);
   const high = Math.round(base * mystery * battery);
   if (base === high) return formatHours(base);
   return `${formatHours(base)} – ${formatHours(high)}`;
@@ -175,33 +208,35 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
 
 function KanbanColumn({ column, tasks }: { column: Column; tasks: Task[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const colors = COLUMN_COLORS[column.id];
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-lg bg-background-light p-3 min-h-[200px] transition-colors',
-        isOver && 'ring-2 ring-primary/40'
+        'rounded-lg p-3 min-h-[200px] transition-all',
+        colors.columnBg,
+        isOver && `ring-2 ${colors.dropRing}`
       )}
     >
       <div className="flex items-center justify-between mb-3">
-        <h4 className="text-xs font-semibold text-text-sub uppercase tracking-wide">
+        <h4 className={cn('text-xs font-semibold uppercase tracking-wide', colors.columnHeader)}>
           {column.title}
         </h4>
-        <span className="text-xs text-text-sub bg-surface px-1.5 py-0.5 rounded-full">
+        <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', colors.countBg)}>
           {tasks.length}
         </span>
       </div>
       <div className="space-y-2">
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} />
+          <TaskCard key={task.id} task={task} columnId={column.id} />
         ))}
       </div>
     </div>
   );
 }
 
-function TaskCard({ task, isDragOverlay }: { task: Task; isDragOverlay?: boolean }) {
+function TaskCard({ task, isDragOverlay, columnId }: { task: Task; isDragOverlay?: boolean; columnId?: ColumnId }) {
   const overdue = isOverdue(task);
   const pendingReview = isPendingReview(task);
   const estimate = getEstimateRange(task);
@@ -209,13 +244,18 @@ function TaskCard({ task, isDragOverlay }: { task: Task; isDragOverlay?: boolean
     ? formatHours(task.time_spent_minutes)
     : null;
 
+  // Determine column for color — use provided or derive from status
+  const col = columnId ?? (COLUMNS.find((c) => c.statuses.includes(task.status))?.id ?? 'ready');
+  const colors = COLUMN_COLORS[col];
+
   return (
     <div
       className={cn(
-        'bg-surface rounded-lg border p-3 text-sm transition-shadow',
+        'rounded-lg border p-3 text-sm transition-shadow',
+        colors.cardBg,
         overdue
-          ? 'border-[var(--error)] shadow-sm'
-          : 'border-border-warm',
+          ? 'border-[var(--error)] border-2 shadow-sm'
+          : colors.cardBorder,
         isDragOverlay && 'shadow-lg rotate-2',
         !isDragOverlay && 'cursor-grab active:cursor-grabbing hover:shadow-sm'
       )}
