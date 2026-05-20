@@ -385,17 +385,27 @@ export async function GET(
         is_deleted: false,
         is_support: false, // Exclude support tasks
         due_date: {
-          gte: period.start,
           lte: period.end,
         },
         status: {
           notIn: ['done', 'abandoned'],
         },
         OR: [
-          // Explicitly marked as retainer work
-          { is_retainer_work: true },
-          // Project is marked as retainer
-          { project: { is_retainer: true } },
+          // Explicitly marked as retainer work for this client
+          {
+            is_retainer_work: true,
+            OR: [
+              { project: { client_id: clientId } },
+              { client_id: clientId, project_id: null },
+            ],
+          },
+          // Project is marked as retainer for this client
+          {
+            project: {
+              is_retainer: true,
+              client_id: clientId,
+            },
+          },
           // For retainer clients: include all tasks without fixed billing_amount
           ...(retainerHours > 0 ? [{
             billing_amount: null,
@@ -497,10 +507,21 @@ export async function GET(
           notIn: ['done', 'abandoned'],
         },
         OR: [
-          // Explicitly marked as retainer work
-          { is_retainer_work: true },
-          // Project is marked as retainer
-          { project: { is_retainer: true } },
+          // Explicitly marked as retainer work for this client
+          {
+            is_retainer_work: true,
+            OR: [
+              { project: { client_id: clientId } },
+              { client_id: clientId, project_id: null },
+            ],
+          },
+          // Project is marked as retainer for this client
+          {
+            project: {
+              is_retainer: true,
+              client_id: clientId,
+            },
+          },
           // For retainer clients: include all tasks without fixed billing_amount
           ...(retainerHours > 0 ? [{
             billing_amount: null,
