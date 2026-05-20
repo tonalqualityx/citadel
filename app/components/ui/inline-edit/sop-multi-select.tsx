@@ -132,8 +132,8 @@ export function SopMultiSelect({
       ref={dropdownRef}
       className={
         variant === 'input'
-          ? 'absolute left-0 right-0 top-full mt-1 z-[9999] bg-surface border border-border rounded-lg shadow-lg'
-          : 'fixed z-[9999] bg-surface border border-border rounded-lg shadow-lg'
+          ? 'absolute left-0 right-0 top-full mt-1 z-50 bg-surface border border-border rounded-lg shadow-lg'
+          : 'fixed z-50 bg-surface border border-border rounded-lg shadow-lg'
       }
       style={
         variant === 'input'

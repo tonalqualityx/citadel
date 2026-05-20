@@ -190,7 +190,7 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="grid grid-cols-3 gap-4 min-h-[300px]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[18rem]">
         {COLUMNS.map((col) => (
           <KanbanColumn
             key={col.id}
@@ -214,7 +214,7 @@ function KanbanColumn({ column, tasks }: { column: Column; tasks: Task[] }) {
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-lg p-3 min-h-[200px] transition-all',
+        'rounded-lg p-3 min-h-[12rem] transition-all',
         colors.columnBg,
         isOver && `ring-2 ${colors.dropRing}`
       )}

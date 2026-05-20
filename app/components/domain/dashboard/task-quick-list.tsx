@@ -94,7 +94,7 @@ export function TaskQuickList({
               {getStatusIcon(task.status)}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-text-main truncate">
+                  <span className="font-medium text-text-main truncate" title={task.title}>
                     {task.title}
                   </span>
                   <span

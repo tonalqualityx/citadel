@@ -117,7 +117,7 @@ export function CommandPalette() {
       />
 
       {/* Modal */}
-      <div className="flex min-h-full items-start justify-center p-4 pt-[15vh]">
+      <div className="flex min-h-full items-start justify-center p-4 pt-[min(15vh,6rem)]">
         <div className="relative w-full max-w-xl transform rounded-xl bg-surface shadow-2xl ring-1 ring-black/10 transition-all">
           {/* Search Input */}
           <div className="flex items-center border-b border-border-warm px-4">
@@ -138,7 +138,7 @@ export function CommandPalette() {
           </div>
 
           {/* Results */}
-          <div className="max-h-80 overflow-y-auto py-2">
+          <div className="max-h-[min(20rem,60vh)] overflow-y-auto py-2">
             {query.length < 2 ? (
               <div className="px-4 py-8 text-center text-text-sub">
                 <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />

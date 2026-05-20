@@ -67,7 +67,7 @@ export function Header() {
             // Dispatch keyboard event to open command palette
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }));
           }}
-          className="relative w-full max-w-sm rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-left text-sm text-text-sub shadow-inner transition-all hover:bg-background-light/80 focus:ring-2 focus:ring-primary/20"
+          className="relative w-full max-w-[min(24rem,50vw)] rounded-lg border-0 bg-background-light py-2 pl-10 pr-4 text-left text-sm text-text-sub shadow-inner transition-all hover:bg-background-light/80 focus:ring-2 focus:ring-primary/20"
         >
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-5 w-5 text-text-sub" />
@@ -112,7 +112,7 @@ export function Header() {
                 className="fixed inset-0 z-10"
                 onClick={() => setShowUserMenu(false)}
               />
-              <div className="absolute right-0 mt-2 w-48 rounded-lg bg-surface py-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
+              <div className="absolute right-0 mt-2 w-[min(12rem,calc(100vw-4rem))] rounded-lg bg-surface py-1 shadow-lg ring-1 ring-black ring-opacity-5 z-20">
                 <button
                   onClick={handleLogout}
                   className="flex w-full items-center px-4 py-2 text-sm text-text-main hover:bg-background-light transition-colors"

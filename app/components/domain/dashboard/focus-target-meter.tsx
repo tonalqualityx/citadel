@@ -151,7 +151,7 @@ export function FocusTargetMeter({
               min={0.5}
               max={12}
               step={0.5}
-              className="w-14 h-9 px-2 text-sm text-right bg-surface border border-border-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+              className="w-16 h-9 px-2 text-sm text-right bg-surface border border-border-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
             />
             <span className="text-sm text-text-sub">hrs</span>
           </div>
@@ -201,7 +201,7 @@ export function FocusTargetMeter({
             min={0.5}
             max={12}
             step={0.5}
-            className="w-14 h-9 px-2 text-sm text-right bg-surface border border-border-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+            className="w-16 h-9 px-2 text-sm text-right bg-surface border border-border-warm rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
           />
           <span className="text-sm text-text-sub">hrs</span>
         </div>
@@ -210,7 +210,7 @@ export function FocusTargetMeter({
       {/* Progress bar container */}
       <div className="relative mb-2">
         {/* Bar background (0 to capacity) */}
-        <div className="h-4 bg-surface rounded-full overflow-hidden relative">
+        <div className="h-5 bg-surface rounded-full overflow-visible relative">
           {/* Layer 1: HIGH estimate (light/transparent) */}
           <div
             className={`absolute inset-y-0 left-0 rounded-full transition-all ${barColor} opacity-30`}
@@ -252,7 +252,7 @@ export function FocusTargetMeter({
       </div>
 
       {/* Estimate labels */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span className="text-text-sub">
           Low: <span className={`font-medium ${batteryLevel === 'full' ? statusColor : 'text-text-main'}`}>
             {formatHours(estimatedMinutesLow)}

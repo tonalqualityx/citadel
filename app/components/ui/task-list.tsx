@@ -202,7 +202,7 @@ export function TaskList<T extends TaskLike = TaskLike>({
         key={task.id}
         data-task-row
         className={cn(
-          'grid items-center gap-4 px-4 py-3 border-b border-border',
+          'grid items-center gap-4 px-4 py-3 border-b border-border min-w-[50rem]',
           'transition-colors hover:bg-surface-alt cursor-pointer group',
           isSelected && 'bg-primary/5'
         )}
@@ -309,11 +309,11 @@ export function TaskList<T extends TaskLike = TaskLike>({
   }
 
   return (
-    <div className={cn('rounded-lg border border-border-warm', className)}>
+    <div className={cn('rounded-lg border border-border-warm overflow-x-auto', className)}>
       {/* Header row */}
       {showHeaders && (
         <div
-          className="grid items-center gap-4 px-4 py-2 bg-surface-alt border-b border-border-warm"
+          className="grid items-center gap-4 px-4 py-2 bg-surface-alt border-b border-border-warm min-w-[50rem]"
           style={{ gridTemplateColumns }}
         >
           {selectable && (

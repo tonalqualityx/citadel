@@ -62,7 +62,7 @@ export function ProjectQuickList({
               <FolderKanban className="h-4 w-4 text-text-sub" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-text-main truncate">
+                  <span className="font-medium text-text-main truncate" title={project.name}>
                     {project.name}
                   </span>
                   <Badge variant="default" className={statusColors[project.status]}>

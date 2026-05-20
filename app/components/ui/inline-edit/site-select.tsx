@@ -103,7 +103,7 @@ export function SiteSelect({
   const dropdown = isOpen && (
     <div
       ref={dropdownRef}
-      className="fixed z-[9999] w-72 bg-surface border border-border rounded-lg shadow-lg"
+      className="fixed z-50 w-[min(18rem,calc(100vw-2rem))] bg-surface border border-border rounded-lg shadow-lg"
       style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
     >
       {/* Search input */}

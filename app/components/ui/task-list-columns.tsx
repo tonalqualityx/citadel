@@ -210,7 +210,7 @@ export function statusColumn(options?: EditableColumnOptions): TaskListColumn {
   return {
     key: 'status',
     header: 'Status',
-    width: '120px',
+    width: '7.5rem',
     cell: (task, onUpdate) => {
       if (options?.editable) {
         return (
@@ -271,7 +271,7 @@ export function priorityColumn(options?: EditableColumnOptions): TaskListColumn 
   return {
     key: 'priority',
     header: 'Priority',
-    width: '100px',
+    width: '6.25rem',
     cell: (task, onUpdate) => {
       if (options?.editable) {
         return (
@@ -301,7 +301,7 @@ export function assigneeColumn(options?: EditableColumnOptions): TaskListColumn 
   return {
     key: 'assignee',
     header: 'Assignee',
-    width: '160px',
+    width: '10rem',
     cell: (task, onUpdate) => {
       if (options?.editable) {
         return (
@@ -351,7 +351,7 @@ export function energyColumn(options?: EditableColumnOptions): TaskListColumn {
   return {
     key: 'energy',
     header: 'Energy',
-    width: '100px',
+    width: '6.25rem',
     cell: (task, onUpdate) => {
       if (options?.editable) {
         return (
@@ -384,7 +384,7 @@ export function mysteryColumn(options?: EditableColumnOptions): TaskListColumn {
   return {
     key: 'mystery',
     header: 'Mystery',
-    width: '100px',
+    width: '6.25rem',
     cell: (task, onUpdate) => {
       if (options?.editable) {
         return (
@@ -418,7 +418,7 @@ export function batteryColumn(options?: EditableColumnOptions): TaskListColumn {
   return {
     key: 'battery',
     header: 'Battery',
-    width: '110px',
+    width: '6.875rem',
     cell: (task, onUpdate) => {
       if (options?.editable) {
         return (
@@ -452,7 +452,7 @@ export function dueDateColumn(options?: EditableColumnOptions): TaskListColumn {
   return {
     key: 'due_date',
     header: 'Due',
-    width: '120px',
+    width: '7.5rem',
     cell: (task, onUpdate) => {
       const inputId = `due-date-${task.id}`;
 
@@ -502,7 +502,7 @@ export function estimateColumn(): TaskListColumn {
   return {
     key: 'estimate',
     header: 'Estimate',
-    width: '90px',
+    width: '5.625rem',
     cell: (task) => (
       <Tooltip content="Time Estimate">
         <span className="text-sm text-text-sub">
@@ -596,7 +596,7 @@ export function rangedEstimateColumn(): TaskListColumn {
   return {
     key: 'ranged_estimate',
     header: 'Estimate',
-    width: '120px',
+    width: '7.5rem',
     cell: (task: any) => {
       if (!task.energy_estimate) {
         return <span className="text-sm text-text-sub">-</span>;
@@ -655,7 +655,7 @@ export function timeSpentColumn<T extends TaskWithTimeSpent>(): TaskListColumn<T
   return {
     key: 'time_spent',
     header: 'Logged',
-    width: '80px',
+    width: '5rem',
     cell: (task) => {
       const minutes = task.time_spent_minutes ?? task.time_logged_minutes;
       return (
@@ -714,7 +714,7 @@ export function approveColumn<T extends TaskWithReview>(options: {
   return {
     key: 'approve',
     header: '',
-    width: '90px',
+    width: '5.625rem',
     cell: (task) => {
       // Only show for tasks that are done, need review, and aren't approved yet
       const showApprove = task.status === 'done' && task.needs_review && !task.approved;

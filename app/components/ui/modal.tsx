@@ -39,7 +39,7 @@ const ModalContent = React.forwardRef<
       ref={ref}
       className={cn(
         'fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%]',
-        'w-full max-h-[85vh] overflow-auto',
+        'w-full max-h-[min(85vh,calc(100dvh-2rem))] overflow-auto',
         'bg-surface rounded-lg shadow-lg border border-border-warm',
         'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
@@ -47,10 +47,10 @@ const ModalContent = React.forwardRef<
         'data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]',
         'data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]',
         {
-          'max-w-sm': size === 'sm',
-          'max-w-md': size === 'md',
-          'max-w-lg': size === 'lg',
-          'max-w-xl': size === 'xl',
+          'max-w-[min(24rem,calc(100vw-2rem))]': size === 'sm',
+          'max-w-[min(28rem,calc(100vw-2rem))]': size === 'md',
+          'max-w-[min(32rem,calc(100vw-2rem))]': size === 'lg',
+          'max-w-[min(36rem,calc(100vw-2rem))]': size === 'xl',
         },
         className
       )}

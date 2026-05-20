@@ -240,6 +240,7 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
                       <Link
                         href={`/tasks/${task.id}`}
                         className="text-text-main truncate mr-4 hover:text-primary transition-colors"
+                        title={task.title}
                       >
                         {task.title}
                       </Link>
@@ -290,6 +291,7 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
                         <Link
                           href={`/tasks/${task.id}`}
                           className="text-text-main truncate mr-4 hover:text-primary transition-colors"
+                          title={task.title}
                         >
                           {task.title}
                         </Link>

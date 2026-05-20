@@ -246,7 +246,7 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
       )}
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Left Column - Tasks */}
         <div className="lg:col-span-2 space-y-6">
           {/* Focus Tasks */}

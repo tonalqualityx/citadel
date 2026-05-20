@@ -94,7 +94,7 @@ export function ClientSelect({
   const dropdown = isOpen && (
     <div
       ref={dropdownRef}
-      className="fixed z-[9999] w-64 bg-surface border border-border rounded-lg shadow-lg"
+      className="fixed z-50 w-[min(16rem,calc(100vw-2rem))] bg-surface border border-border rounded-lg shadow-lg"
       style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
     >
       {/* Search input */}

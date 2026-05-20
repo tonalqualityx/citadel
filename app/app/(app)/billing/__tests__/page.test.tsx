@@ -60,7 +60,7 @@ describe('BillingPage', () => {
 
       // The inner div should have the centering classes
       const innerDiv = outerDiv.firstChild as HTMLElement;
-      expect(innerDiv).toHaveClass('flex', 'items-center', 'justify-center', 'min-h-[400px]');
+      expect(innerDiv).toHaveClass('flex', 'items-center', 'justify-center', 'min-h-[25rem]');
 
       // Should contain a spinner
       const spinner = screen.getByRole('status', { name: /loading/i });

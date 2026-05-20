@@ -241,7 +241,7 @@
 
 /* Custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 0.25rem;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {

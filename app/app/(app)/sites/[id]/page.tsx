@@ -68,7 +68,7 @@ export default function SiteDetailPage({ params }: Props) {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center min-h-[400px]">
+      <div className="flex justify-center items-center min-h-[25rem]">
         <Spinner size="lg" />
       </div>
     );

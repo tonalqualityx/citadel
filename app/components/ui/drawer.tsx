@@ -61,10 +61,10 @@ const DrawerContent = React.forwardRef<
         side === 'left' && 'left-0 top-0 border-r border-border drawer-content-left',
         // Sizes
         {
-          'w-[300px]': size === 'sm',
-          'w-[400px]': size === 'md',
-          'w-[500px]': size === 'lg',
-          'w-[600px]': size === 'xl',
+          'w-[min(90vw,300px)]': size === 'sm',
+          'w-[min(90vw,400px)]': size === 'md',
+          'w-[min(90vw,500px)]': size === 'lg',
+          'w-[min(90vw,600px)]': size === 'xl',
         },
         className
       )}

@@ -61,9 +61,9 @@ export function CharterList({ charters, onSelect }: CharterListProps) {
               onClick={() => onSelect(charter.id)}
             >
               <td className="py-3 pr-4">
-                <span className="font-medium text-text-main">{charter.name}</span>
+                <span className="font-medium text-text-main" title={charter.name}>{charter.name}</span>
               </td>
-              <td className="py-3 pr-4 text-text-sub">
+              <td className="py-3 pr-4 text-text-sub" title={charter.client?.name ?? 'No client'}>
                 {charter.client?.name ?? 'No client'}
               </td>
               <td className="py-3 pr-4">

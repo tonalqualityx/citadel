@@ -320,7 +320,7 @@ export default function DealsPage() {
 
   if (isLoading && viewMode === 'kanban') {
     return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
+      <div className="p-6 flex items-center justify-center min-h-[25rem]">
         <Spinner size="lg" />
       </div>
     );

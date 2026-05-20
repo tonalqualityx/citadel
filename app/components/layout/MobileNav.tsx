@@ -130,7 +130,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 left-0 z-50 w-72 bg-background-light shadow-xl lg:hidden animate-in slide-in-from-left duration-200">
+      <div className="fixed inset-y-0 left-0 z-50 w-[min(85vw,18rem)] bg-background-light shadow-xl lg:hidden animate-in slide-in-from-left duration-200">
         {/* Header */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-border-warm">
           <span className="text-lg font-bold text-text-main">Menu</span>

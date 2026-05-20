@@ -403,7 +403,7 @@ export default function ProjectDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
+      <div className="p-6 flex items-center justify-center min-h-[25rem]">
         <Spinner size="lg" />
       </div>
     );
@@ -513,7 +513,7 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Stats Cards */}
-      <div className={`grid grid-cols-1 gap-4 ${isPmOrAdmin ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${isPmOrAdmin ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center gap-3">

@@ -26,7 +26,7 @@ export default async function AppLayout({
     <AppProviders>
       <div className="min-h-screen bg-background-light">
         <Sidebar />
-        <div className="lg:pl-[240px]">
+        <div className="lg:pl-60">
           <Header />
           <main className="p-6">{children}</main>
         </div>

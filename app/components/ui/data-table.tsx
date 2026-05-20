@@ -71,7 +71,7 @@ export function DataTable<T>({
 
   return (
     <div className="w-full">
-      <div className="rounded-lg border border-border-warm overflow-hidden">
+      <div className="rounded-lg border border-border-warm overflow-x-auto">
         <table className="w-full border-collapse">
           <thead className="bg-background-light">
             <tr>
