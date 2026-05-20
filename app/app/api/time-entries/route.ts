@@ -7,6 +7,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 const createTimeEntrySchema = z.object({
   task_id: z.string().uuid().optional().nullable(),
   project_id: z.string().uuid().optional().nullable(),
+  user_id: z.string().uuid().optional(), // Admin override — create entry for another user
   started_at: z.string().datetime(),
   ended_at: z.string().datetime().optional().nullable(),
   duration: z.number().min(0), // Duration in minutes
@@ -90,6 +91,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const data = createTimeEntrySchema.parse(body);
 
+    // Admin/PM can create entries for other users
+    let entryUserId = auth.userId;
+    if (data.user_id && data.user_id !== auth.userId) {
+      if (auth.role === 'tech') {
+        throw new ApiError('Not authorized to create entries for other users', 403);
+      }
+      entryUserId = data.user_id;
+    }
+
     // Resolve project_id from task if not provided
     let projectId = data.project_id;
     if (!projectId && data.task_id) {
@@ -104,7 +114,7 @@ export async function POST(request: NextRequest) {
       data: {
         task_id: data.task_id,
         project_id: projectId,
-        user_id: auth.userId,
+        user_id: entryUserId,
         started_at: new Date(data.started_at),
         ended_at: data.ended_at ? new Date(data.ended_at) : null,
         duration: data.duration,

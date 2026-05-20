@@ -13,6 +13,7 @@ interface TimeEntryFormProps {
   entry?: TimeEntry | null;
   defaultDate?: Date;
   defaultTaskId?: string;
+  userId?: string; // Admin override — create/edit entry for this user
   onSuccess?: () => void;
   onCancel?: () => void;
 }
@@ -21,6 +22,7 @@ export function TimeEntryForm({
   entry,
   defaultDate,
   defaultTaskId,
+  userId,
   onSuccess,
   onCancel,
 }: TimeEntryFormProps) {
@@ -71,7 +73,7 @@ export function TimeEntryForm({
 
   const taskOptions = React.useMemo(() => {
     if (!tasksData?.tasks) return [];
-    return tasksData.tasks.map((task) => {
+    const options = tasksData.tasks.map((task) => {
       const context: string[] = [];
       const clientName = task.project?.client?.name || task.client?.name;
       if (clientName) context.push(clientName);
@@ -83,7 +85,18 @@ export function TimeEntryForm({
         description: context.length > 0 ? context.join(' · ') : undefined,
       };
     });
-  }, [tasksData?.tasks]);
+
+    // Include current entry's task if not already in the list (e.g., completed task)
+    if (entry?.task && !options.some((o) => o.value === entry.task!.id)) {
+      options.unshift({
+        value: entry.task.id,
+        label: entry.task.title,
+        description: entry.project?.name || undefined,
+      });
+    }
+
+    return options;
+  }, [tasksData?.tasks, entry?.task, entry?.project?.name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,7 +123,7 @@ export function TimeEntryForm({
       if (isEdit && entry) {
         await updateEntry.mutateAsync({ id: entry.id, data });
       } else {
-        await createEntry.mutateAsync(data);
+        await createEntry.mutateAsync({ ...data, ...(userId && { user_id: userId }) });
       }
       onSuccess?.();
     } catch (error) {

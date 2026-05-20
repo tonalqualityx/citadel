@@ -64,8 +64,8 @@ export async function PATCH(
       throw new ApiError('Time entry not found', 404);
     }
 
-    // Only the owner can edit their entries
-    if (existing.user_id !== auth.userId) {
+    // Owner or admin/pm can edit entries
+    if (existing.user_id !== auth.userId && auth.role === 'tech') {
       throw new ApiError('Not authorized', 403);
     }
 
@@ -111,8 +111,8 @@ export async function DELETE(
       throw new ApiError('Time entry not found', 404);
     }
 
-    // Only the owner can delete their entries
-    if (existing.user_id !== auth.userId) {
+    // Owner or admin/pm can delete entries
+    if (existing.user_id !== auth.userId && auth.role === 'tech') {
       throw new ApiError('Not authorized', 403);
     }
 

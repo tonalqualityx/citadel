@@ -17,11 +17,14 @@ import {
   Layers,
 } from 'lucide-react';
 import { useTimeEntries, useDeleteTimeEntry, TimeEntry } from '@/lib/hooks/use-time-entries';
+import { useAuth } from '@/lib/hooks/use-auth';
+import { useUsers } from '@/lib/hooks/use-users';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
+import { Combobox } from '@/components/ui/combobox';
 import {
   Modal,
   ModalContent,
@@ -67,6 +70,24 @@ function formatInputDate(date: Date): string {
 export default function ChroniclesPage() {
   const searchParams = useSearchParams();
   const projectIdParam = searchParams.get('project_id');
+  const { user: currentUser, isAdmin, isPmOrAdmin } = useAuth();
+  const [viewingUserId, setViewingUserId] = React.useState<string | null>(null);
+
+  // Load users for admin/pm user switcher
+  const { data: usersData } = useUsers();
+  const userOptions = React.useMemo(() => {
+    if (!usersData?.users || !currentUser) return [];
+    return usersData.users
+      .filter((u) => u.is_active)
+      .map((u) => ({
+        value: u.id,
+        label: u.name,
+        description: u.id === currentUser.id ? 'You' : u.role,
+      }));
+  }, [usersData?.users, currentUser]);
+
+  // The effective user_id for queries — null means "self" (API default)
+  const effectiveUserId = viewingUserId || currentUser?.id || undefined;
 
   const [viewMode, setViewMode] = React.useState<ViewMode>('day');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('none');
@@ -121,6 +142,7 @@ export default function ChroniclesPage() {
     start_date: dateRange.start.toISOString(),
     end_date: dateRange.end.toISOString(),
     project_id: projectIdParam || undefined,
+    user_id: effectiveUserId,
     limit: 500,
   });
 
@@ -252,6 +274,22 @@ export default function ChroniclesPage() {
           Add Time Entry
         </Button>
       </div>
+
+      {/* Admin user switcher */}
+      {isPmOrAdmin && userOptions.length > 0 && (
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-text-sub whitespace-nowrap">Viewing for:</label>
+          <Combobox
+            options={userOptions}
+            value={effectiveUserId || null}
+            onChange={(val) => setViewingUserId(val === currentUser?.id ? null : val)}
+            placeholder="Select user..."
+            searchPlaceholder="Search team members..."
+            allowClear={false}
+            className="w-64"
+          />
+        </div>
+      )}
 
       {/* View Controls */}
       <Card>
@@ -618,6 +656,7 @@ export default function ChroniclesPage() {
             <TimeEntryForm
               entry={editingEntry}
               defaultDate={selectedDate}
+              userId={viewingUserId || undefined}
               onSuccess={handleCreateSuccess}
               onCancel={() => {
                 setIsCreateOpen(false);

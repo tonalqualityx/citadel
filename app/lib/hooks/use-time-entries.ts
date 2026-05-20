@@ -74,6 +74,7 @@ export function useTimeEntry(id: string) {
 interface CreateTimeEntryInput {
   task_id?: string | null;
   project_id?: string | null;
+  user_id?: string;
   started_at: string;
   ended_at?: string | null;
   duration: number;
