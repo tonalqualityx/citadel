@@ -48,6 +48,7 @@ export interface Project {
   budget_locked: boolean;
   budget_locked_at: string | null;
   is_retainer: boolean;
+  workload_completed_mode: 'low' | 'medium' | 'high' | 'actual';
   // Calculated from tasks
   calculated: ProjectCalculated;
   // Health (only for active projects)
@@ -93,7 +94,9 @@ export interface CreateProjectInput {
   notes?: string | null;
 }
 
-export interface UpdateProjectInput extends Partial<CreateProjectInput> {}
+export interface UpdateProjectInput extends Partial<CreateProjectInput> {
+  workload_completed_mode?: 'low' | 'medium' | 'high' | 'actual';
+}
 
 export function useProjects(filters: ProjectFilters = {}) {
   return useQuery({

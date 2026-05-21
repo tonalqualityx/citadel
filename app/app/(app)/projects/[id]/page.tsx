@@ -1152,6 +1152,10 @@ export default function ProjectDetailPage() {
             projectId={project.id}
             tasks={project.tasks || []}
             teamAssignments={project.team_assignments || []}
+            workloadCompletedMode={project.workload_completed_mode || 'high'}
+            onModeChange={(mode) => {
+              updateProject.mutate({ id: project.id, data: { workload_completed_mode: mode } });
+            }}
           />
         </TabsContent>
 

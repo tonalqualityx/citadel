@@ -7,6 +7,7 @@ import {
   calculateEstimatedMinutes,
   energyToMinutes,
   calculateProjectEstimates,
+  calculateCompletedMinutesForMode,
 } from '../energy';
 
 describe('MYSTERY_MULTIPLIERS', () => {
@@ -153,5 +154,59 @@ describe('calculateProjectEstimates', () => {
     // Completed task should contribute to completedEnergyMinutes, not incomplete
     expect(result.completedTaskCount).toBe(1);
     expect(result.completedEnergyMinutes).toBe(60); // baseMinutes for energy 3
+  });
+});
+
+describe('calculateCompletedMinutesForMode', () => {
+  // energy=3 (60 min base), mystery=average (1.61x), battery=average_drain (1.1x)
+  // low = 60 * 1.1 = 66
+  // high = 60 * 1.61 * 1.1 = 106 (rounded)
+  // medium = (66 + 106) / 2 = 86
+
+  const energy = 3;
+  const mystery = 'average' as const;
+  const battery = 'average_drain' as const;
+  const estimated = 106; // pre-calculated high
+  const timeSpent = 45;
+
+  it('returns low estimate: base × battery (no mystery)', () => {
+    const result = calculateCompletedMinutesForMode('low', energy, mystery, battery, estimated, timeSpent);
+    expect(result).toBe(66); // 60 * 1.1
+  });
+
+  it('returns high estimate: base × mystery × battery', () => {
+    const result = calculateCompletedMinutesForMode('high', energy, mystery, battery, estimated, timeSpent);
+    expect(result).toBe(106); // 60 * 1.61 * 1.1
+  });
+
+  it('returns medium estimate: average of low and high', () => {
+    const result = calculateCompletedMinutesForMode('medium', energy, mystery, battery, estimated, timeSpent);
+    expect(result).toBe(86); // (66 + 106) / 2
+  });
+
+  it('returns actual time spent for actual mode', () => {
+    const result = calculateCompletedMinutesForMode('actual', energy, mystery, battery, estimated, timeSpent);
+    expect(result).toBe(45);
+  });
+
+  it('returns 0 for actual mode with no time logged', () => {
+    const result = calculateCompletedMinutesForMode('actual', energy, mystery, battery, estimated, null);
+    expect(result).toBe(0);
+  });
+
+  it('falls back to estimated_minutes when no energy_estimate', () => {
+    const result = calculateCompletedMinutesForMode('high', null, mystery, battery, 120, timeSpent);
+    expect(result).toBe(120);
+  });
+
+  it('returns 0 when no energy_estimate and no estimated_minutes', () => {
+    const result = calculateCompletedMinutesForMode('high', null, mystery, battery, null, timeSpent);
+    expect(result).toBe(0);
+  });
+
+  it('handles high_drain battery correctly', () => {
+    // energy=3 (60 min), mystery=none (1.0), battery=high_drain (1.61)
+    const result = calculateCompletedMinutesForMode('low', 3, 'none' as any, 'high_drain', null, null);
+    expect(result).toBe(97); // 60 * 1.61 = 96.6 → 97
   });
 });

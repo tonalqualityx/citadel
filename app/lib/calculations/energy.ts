@@ -142,6 +142,55 @@ export function getBatteryImpactIcon(impact: BatteryImpact): string {
 }
 
 // ============================================
+// WORKLOAD COMPLETED MODE
+// ============================================
+
+export type WorkloadCompletedMode = 'low' | 'medium' | 'high' | 'actual';
+
+/**
+ * Calculate minutes for a completed task based on the workload display mode.
+ * - low: base minutes × battery (no mystery multiplier)
+ * - high: base × mystery × battery (full estimated_minutes)
+ * - medium: average of low and high
+ * - actual: use time_spent_minutes from logged time entries
+ */
+export function calculateCompletedMinutesForMode(
+  mode: WorkloadCompletedMode,
+  energyEstimate: number | null,
+  mysteryFactor: MysteryFactor,
+  batteryImpact: BatteryImpact | string | null,
+  estimatedMinutes: number | null,
+  timeSpentMinutes: number | null,
+): number {
+  if (mode === 'actual') {
+    return timeSpentMinutes || 0;
+  }
+
+  if (!energyEstimate) {
+    // No energy estimate — fall back to estimated_minutes or 0
+    return estimatedMinutes || 0;
+  }
+
+  const base = energyToMinutes(energyEstimate);
+  const battery = getBatteryMultiplier((batteryImpact as BatteryImpact) || 'average_drain');
+  const mystery = getMysteryMultiplier(mysteryFactor);
+
+  const low = Math.round(base * battery);
+  const high = Math.round(base * mystery * battery);
+
+  switch (mode) {
+    case 'low':
+      return low;
+    case 'high':
+      return high;
+    case 'medium':
+      return Math.round((low + high) / 2);
+    default:
+      return high;
+  }
+}
+
+// ============================================
 // PROJECT ESTIMATES
 // ============================================
 

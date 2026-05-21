@@ -163,6 +163,7 @@ export function formatProjectResponse(project: any) {
     budget_locked: project.budget_locked,
     budget_locked_at: project.budget_locked_at,
     is_retainer: project.is_retainer,
+    workload_completed_mode: project.workload_completed_mode || 'high',
     // Calculated estimates from tasks
     calculated: {
       estimated_hours_min: estimates.estimatedHoursMin,

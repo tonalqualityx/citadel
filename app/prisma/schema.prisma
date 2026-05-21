@@ -705,6 +705,9 @@ model Project {
   scope_locked      Boolean   @default(false)
   scope_locked_at   DateTime?
 
+  // Workload display
+  workload_completed_mode WorkloadCompletedMode @default(high)
+
   // Notes
   notes           String?       @db.Text
 
@@ -781,6 +784,13 @@ enum BillingType {
   hourly    // Bill for actual hours
   retainer  // Uses client's retainer_hours
   none      // Internal/non-billable
+}
+
+enum WorkloadCompletedMode {
+  low      // base minutes × battery (no mystery multiplier)
+  medium   // average of low and high
+  high     // base × mystery × battery (full estimated_minutes)
+  actual   // sum of logged time entries
 }
 
 // ============================================
