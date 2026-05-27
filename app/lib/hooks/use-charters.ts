@@ -231,3 +231,15 @@ export function useCharterUsage(charterId: string | undefined, period?: string) 
     enabled: !!charterId,
   });
 }
+
+export function useCharterCommissionTasks(charterId: string | undefined, period?: string) {
+  return useQuery({
+    queryKey: charterKeys.commissionTasks(charterId!, period),
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (period) params.set('period', period);
+      return apiClient.get<{ tasks: any[] }>(`/charters/${charterId}/commission-tasks?${params.toString()}`);
+    },
+    enabled: !!charterId,
+  });
+}

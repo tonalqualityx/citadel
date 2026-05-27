@@ -238,6 +238,7 @@ export const charterKeys = {
   detail: (id: string) => [...charterKeys.details(), id] as const,
   byClient: (clientId: string) => [...charterKeys.all, 'byClient', clientId] as const,
   usage: (id: string, period?: string) => [...charterKeys.all, 'usage', id, period] as const,
+  commissionTasks: (id: string, period?: string) => [...charterKeys.all, 'commissionTasks', id, period] as const,
 };
 
 // Addendum keys

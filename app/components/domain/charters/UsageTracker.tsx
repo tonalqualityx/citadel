@@ -12,6 +12,8 @@ interface UsageTrackerProps {
   budgetHours: number | null;
 }
 
+type TaskType = 'scheduled' | 'ad_hoc' | 'commission';
+
 interface UsageTask {
   id: string;
   title: string;
@@ -20,6 +22,14 @@ interface UsageTask {
   estimate_low_minutes: number | null;
   estimate_high_minutes: number | null;
   time_spent_minutes: number;
+  task_type: TaskType;
+  project_name: string | null;
+}
+
+interface CommissionAllocation {
+  commission_id: string;
+  commission_name: string | null;
+  allocated_hours_per_period: number | null;
 }
 
 interface UsageData {
@@ -31,10 +41,20 @@ interface UsageData {
   anticipated_low_amount: number | null;
   anticipated_high_amount: number | null;
   budget_amount: number | null;
+  commission_allocations?: CommissionAllocation[];
+  total_allocated_hours?: number;
   tasks?: UsageTask[];
 }
 
 const COMPLETED_STATUSES = ['done', 'abandoned'];
+
+const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  scheduled: 'Scheduled',
+  ad_hoc: 'Ad Hoc',
+  commission: 'Commission',
+};
+
+const TASK_TYPE_ORDER: TaskType[] = ['scheduled', 'commission', 'ad_hoc'];
 
 function formatH(hours: number): string {
   if (hours < 1 && hours > 0) {
@@ -50,6 +70,150 @@ function formatMoney(amount: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+function groupByType(tasks: UsageTask[]): Map<TaskType, UsageTask[]> {
+  const groups = new Map<TaskType, UsageTask[]>();
+  for (const task of tasks) {
+    const type = task.task_type || 'ad_hoc';
+    const arr = groups.get(type) ?? [];
+    arr.push(task);
+    groups.set(type, arr);
+  }
+  return groups;
+}
+
+function TaskGroup({
+  type,
+  tasks,
+  isCompleted,
+}: {
+  type: TaskType;
+  tasks: UsageTask[];
+  isCompleted: boolean;
+}) {
+  return (
+    <div className="space-y-1">
+      <h5 className="text-[10px] font-semibold text-text-sub/60 uppercase tracking-wider">
+        {TASK_TYPE_LABELS[type]}
+        {type === 'commission' && tasks[0]?.project_name && (
+          <span className="normal-case font-normal ml-1">— {tasks[0].project_name}</span>
+        )}
+      </h5>
+      {tasks.map((task) => {
+        if (isCompleted) {
+          return (
+            <div key={task.id} className="flex items-center justify-between text-sm">
+              <Link
+                href={`/tasks/${task.id}`}
+                className="text-text-main truncate mr-4 hover:text-primary transition-colors"
+                title={task.title}
+              >
+                {task.title}
+              </Link>
+              <span className="text-text-sub whitespace-nowrap">
+                {formatH(task.time_spent_minutes / 60)}
+              </span>
+            </div>
+          );
+        }
+
+        const low = task.estimate_low_minutes;
+        const high = task.estimate_high_minutes;
+        const hasTime = task.time_spent_minutes > 0;
+        const hasRange = low != null && high != null;
+
+        let display: string;
+        if (hasTime) {
+          display = formatH(task.time_spent_minutes / 60);
+        } else if (hasRange) {
+          display = low === high
+            ? formatH(low / 60)
+            : `${formatH(low / 60)} – ${formatH(high / 60)}`;
+        } else {
+          display = '--';
+        }
+
+        return (
+          <div key={task.id} className="flex items-center justify-between text-sm">
+            <Link
+              href={`/tasks/${task.id}`}
+              className="text-text-main truncate mr-4 hover:text-primary transition-colors"
+              title={task.title}
+            >
+              {task.title}
+            </Link>
+            <span className="text-text-sub whitespace-nowrap">
+              {display}
+              {!hasTime && hasRange && (
+                <span className="text-xs ml-1 opacity-60">est</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TaskColumn({
+  title,
+  tasks,
+  isCompleted,
+  totalDisplay,
+}: {
+  title: string;
+  tasks: UsageTask[];
+  isCompleted: boolean;
+  totalDisplay: string;
+}) {
+  const grouped = groupByType(tasks);
+  const orderedTypes = TASK_TYPE_ORDER.filter((t) => grouped.has(t));
+  const hasMultipleTypes = orderedTypes.length > 1;
+
+  return (
+    <div>
+      <h4 className="text-xs font-medium text-text-sub uppercase tracking-wide mb-2">
+        {title}
+      </h4>
+      {tasks.length > 0 ? (
+        <div className="space-y-3">
+          {hasMultipleTypes ? (
+            orderedTypes.map((type) => (
+              <TaskGroup
+                key={type}
+                type={type}
+                tasks={grouped.get(type)!}
+                isCompleted={isCompleted}
+              />
+            ))
+          ) : (
+            // Single type — no sub-headers needed
+            orderedTypes.map((type) => (
+              <div key={type} className="space-y-1">
+                {grouped.get(type)!.map((task) => (
+                  <TaskGroup
+                    key={task.id}
+                    type={type}
+                    tasks={[task]}
+                    isCompleted={isCompleted}
+                  />
+                ))}
+              </div>
+            ))
+          )}
+          <div className="flex items-center justify-between text-sm font-medium pt-1 border-t border-border-warm">
+            <span className="text-text-sub">Total</span>
+            <span className="text-text-main">{totalDisplay}</span>
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-text-sub italic">
+          No {title.toLowerCase()} tasks
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
@@ -101,12 +265,21 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
       ? 'bg-[var(--warning)]'
       : 'bg-[var(--success)]';
 
-  const completedTasks = (usage.tasks ?? []).filter((t) =>
+  const allTasks = usage.tasks ?? [];
+  const completedTasks = allTasks.filter((t) =>
     COMPLETED_STATUSES.includes(t.status)
   );
-  const plannedTasks = (usage.tasks ?? []).filter(
+  const plannedTasks = allTasks.filter(
     (t) => !COMPLETED_STATUSES.includes(t.status)
   );
+
+  const plannedTotalDisplay = plannedLow === plannedHigh
+    ? formatH(plannedLow)
+    : `${formatH(plannedLow)} – ${formatH(plannedHigh)}`;
+
+  // Commission allocation info
+  const allocations = usage.commission_allocations ?? [];
+  const totalAllocated = usage.total_allocated_hours ?? 0;
 
   return (
     <Card>
@@ -174,6 +347,17 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
           )}
         </div>
 
+        {/* Budget allocation breakdown */}
+        {hasBudget && totalAllocated > 0 && (
+          <div className="text-xs text-text-sub flex items-center gap-3">
+            <span>Budget: {budgetHours}h</span>
+            <span>•</span>
+            <span>Commission allocation: {totalAllocated}h</span>
+            <span>•</span>
+            <span>Available: {Math.max(0, budgetHours - totalAllocated)}h</span>
+          </div>
+        )}
+
         {/* Layered progress bar */}
         {hasBudget && (
           <div className="space-y-1">
@@ -225,98 +409,18 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
         {/* Two-column task breakdown */}
         {(completedTasks.length > 0 || plannedTasks.length > 0) && (
           <div className="pt-2 border-t border-border-warm grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Completed */}
-            <div>
-              <h4 className="text-xs font-medium text-text-sub uppercase tracking-wide mb-2">
-                Completed
-              </h4>
-              {completedTasks.length > 0 ? (
-                <div className="space-y-2">
-                  {completedTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <Link
-                        href={`/tasks/${task.id}`}
-                        className="text-text-main truncate mr-4 hover:text-primary transition-colors"
-                        title={task.title}
-                      >
-                        {task.title}
-                      </Link>
-                      <span className="text-text-sub whitespace-nowrap">
-                        {formatH(task.time_spent_minutes / 60)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="flex items-center justify-between text-sm font-medium pt-1 border-t border-border-warm">
-                    <span className="text-text-sub">Total</span>
-                    <span className="text-text-main">{formatH(usedHours)}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-text-sub italic">No completed tasks</p>
-              )}
-            </div>
-
-            {/* Planned */}
-            <div>
-              <h4 className="text-xs font-medium text-text-sub uppercase tracking-wide mb-2">
-                Planned
-              </h4>
-              {plannedTasks.length > 0 ? (
-                <div className="space-y-2">
-                  {plannedTasks.map((task) => {
-                    const low = task.estimate_low_minutes;
-                    const high = task.estimate_high_minutes;
-                    const hasTime = task.time_spent_minutes > 0;
-                    const hasRange = low != null && high != null;
-
-                    let display: string;
-                    if (hasTime) {
-                      display = formatH(task.time_spent_minutes / 60);
-                    } else if (hasRange) {
-                      display = low === high
-                        ? formatH(low / 60)
-                        : `${formatH(low / 60)} – ${formatH(high / 60)}`;
-                    } else {
-                      display = '--';
-                    }
-
-                    return (
-                      <div
-                        key={task.id}
-                        className="flex items-center justify-between text-sm"
-                      >
-                        <Link
-                          href={`/tasks/${task.id}`}
-                          className="text-text-main truncate mr-4 hover:text-primary transition-colors"
-                          title={task.title}
-                        >
-                          {task.title}
-                        </Link>
-                        <span className="text-text-sub whitespace-nowrap">
-                          {display}
-                          {!hasTime && hasRange && (
-                            <span className="text-xs ml-1 opacity-60">est</span>
-                          )}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  <div className="flex items-center justify-between text-sm font-medium pt-1 border-t border-border-warm">
-                    <span className="text-text-sub">Total</span>
-                    <span className="text-text-main">
-                      {plannedLow === plannedHigh
-                        ? formatH(plannedLow)
-                        : `${formatH(plannedLow)} – ${formatH(plannedHigh)}`}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-text-sub italic">No planned tasks</p>
-              )}
-            </div>
+            <TaskColumn
+              title="Planned"
+              tasks={plannedTasks}
+              isCompleted={false}
+              totalDisplay={plannedTotalDisplay}
+            />
+            <TaskColumn
+              title="Completed"
+              tasks={completedTasks}
+              isCompleted={true}
+              totalDisplay={formatH(usedHours)}
+            />
           </div>
         )}
       </CardContent>

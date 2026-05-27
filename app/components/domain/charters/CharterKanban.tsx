@@ -14,10 +14,12 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { useDroppable } from '@dnd-kit/core';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils/cn';
 import { useTasks, useUpdateTaskStatus, type Task } from '@/lib/hooks/use-tasks';
+import { useCharterCommissionTasks } from '@/lib/hooks/use-charters';
 import {
   energyToMinutes,
   getMysteryMultiplier,
@@ -29,6 +31,7 @@ interface CharterKanbanProps {
   charterId: string;
 }
 
+type TaskType = 'scheduled' | 'ad_hoc' | 'commission';
 type ColumnId = 'ready' | 'in_progress' | 'done';
 
 interface Column {
@@ -83,9 +86,23 @@ const COLUMN_COLORS: Record<ColumnId, {
   },
 };
 
+const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  scheduled: 'Scheduled',
+  ad_hoc: 'Ad Hoc',
+  commission: 'Commission',
+};
+
+const TASK_TYPE_ORDER: TaskType[] = ['scheduled', 'commission', 'ad_hoc'];
+
 function getCurrentPeriod(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function classifyTask(task: Task): TaskType {
+  if (task.project_id) return 'commission';
+  if ((task as any).is_retainer_work) return 'scheduled';
+  return 'ad_hoc';
 }
 
 function isOverdue(task: Task): boolean {
@@ -110,33 +127,66 @@ function getEstimateRange(task: Task): string | null {
 
 export function CharterKanban({ charterId }: CharterKanbanProps) {
   const period = getCurrentPeriod();
-  const { data, isLoading, isError } = useTasks({
+  const { data: charterData, isLoading: charterLoading, isError: charterError } = useTasks({
     charter_id: charterId,
     maintenance_period: period,
     limit: 200,
   });
+  const { data: commissionData, isLoading: commissionLoading } = useCharterCommissionTasks(charterId, period);
   const updateStatus = useUpdateTaskStatus();
   const [activeTask, setActiveTask] = React.useState<Task | null>(null);
+  const [collapsedTypes, setCollapsedTypes] = React.useState<Set<TaskType>>(new Set());
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor)
   );
 
-  const tasks = data?.tasks ?? [];
+  const charterTasks = charterData?.tasks ?? [];
+  const commissionTasks = commissionData?.tasks ?? [];
 
-  const tasksByColumn = React.useMemo(() => {
-    const map: Record<ColumnId, Task[]> = { ready: [], in_progress: [], done: [] };
-    for (const task of tasks) {
-      const col = COLUMNS.find((c) => c.statuses.includes(task.status));
-      if (col) map[col.id].push(task);
-      else map.ready.push(task);
+  // Merge charter + commission tasks, dedup by id
+  const allTasks = React.useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Task[] = [];
+    for (const task of [...charterTasks, ...commissionTasks]) {
+      if (!seen.has(task.id)) {
+        seen.add(task.id);
+        merged.push(task);
+      }
     }
-    return map;
-  }, [tasks]);
+    return merged;
+  }, [charterTasks, commissionTasks]);
+
+  // Group by type, then by column
+  const tasksByTypeAndColumn = React.useMemo(() => {
+    const result = new Map<TaskType, Record<ColumnId, Task[]>>();
+    for (const task of allTasks) {
+      const type = classifyTask(task);
+      if (!result.has(type)) {
+        result.set(type, { ready: [], in_progress: [], done: [] });
+      }
+      const cols = result.get(type)!;
+      const col = COLUMNS.find((c) => c.statuses.includes(task.status));
+      if (col) cols[col.id].push(task);
+      else cols.ready.push(task);
+    }
+    return result;
+  }, [allTasks]);
+
+  const activeTypes = TASK_TYPE_ORDER.filter((t) => tasksByTypeAndColumn.has(t));
+
+  const toggleType = (type: TaskType) => {
+    setCollapsedTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
-    const task = tasks.find((t) => t.id === event.active.id);
+    const task = allTasks.find((t) => t.id === event.active.id);
     setActiveTask(task ?? null);
   };
 
@@ -146,8 +196,12 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
     if (!over) return;
 
     const taskId = active.id as string;
-    const targetColumn = over.id as ColumnId;
-    const task = tasks.find((t) => t.id === taskId);
+    // Extract the column id from the droppable id (format: "type-columnId")
+    const overId = over.id as string;
+    const targetColumn = overId.includes('-')
+      ? overId.split('-').pop() as ColumnId
+      : overId as ColumnId;
+    const task = allTasks.find((t) => t.id === taskId);
     if (!task) return;
 
     const currentColumn = COLUMNS.find((c) => c.statuses.includes(task.status));
@@ -159,6 +213,8 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
     }
   };
 
+  const isLoading = charterLoading || commissionLoading;
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -167,7 +223,7 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
     );
   }
 
-  if (isError) {
+  if (charterError) {
     return (
       <div className="text-center py-12 text-text-sub text-sm">
         Failed to load tasks.
@@ -175,7 +231,7 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
     );
   }
 
-  if (tasks.length === 0) {
+  if (allTasks.length === 0) {
     return (
       <div className="text-center py-12 text-text-sub text-sm">
         No tasks for this period.
@@ -183,6 +239,40 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
     );
   }
 
+  // If only one type, render flat kanban (no swimlanes)
+  if (activeTypes.length <= 1) {
+    const tasksByColumn: Record<ColumnId, Task[]> = { ready: [], in_progress: [], done: [] };
+    for (const task of allTasks) {
+      const col = COLUMNS.find((c) => c.statuses.includes(task.status));
+      if (col) tasksByColumn[col.id].push(task);
+      else tasksByColumn.ready.push(task);
+    }
+
+    return (
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[18rem]">
+          {COLUMNS.map((col) => (
+            <KanbanColumn
+              key={col.id}
+              column={col}
+              tasks={tasksByColumn[col.id]}
+              droppableId={col.id}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {activeTask && <TaskCard task={activeTask} isDragOverlay />}
+        </DragOverlay>
+      </DndContext>
+    );
+  }
+
+  // Multiple types — render swimlanes
   return (
     <DndContext
       sensors={sensors}
@@ -190,14 +280,65 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[18rem]">
-        {COLUMNS.map((col) => (
-          <KanbanColumn
-            key={col.id}
-            column={col}
-            tasks={tasksByColumn[col.id]}
-          />
-        ))}
+      <div className="space-y-4">
+        {/* Column headers */}
+        <div className="grid grid-cols-[200px_1fr_1fr_1fr] gap-4">
+          <div /> {/* spacer for swimlane label */}
+          {COLUMNS.map((col) => {
+            const colors = COLUMN_COLORS[col.id];
+            const count = activeTypes.reduce((sum, type) => {
+              const cols = tasksByTypeAndColumn.get(type);
+              return sum + (cols ? cols[col.id].length : 0);
+            }, 0);
+            return (
+              <div key={col.id} className="flex items-center justify-between px-3">
+                <h4 className={cn('text-xs font-semibold uppercase tracking-wide', colors.columnHeader)}>
+                  {col.title}
+                </h4>
+                <span className={cn('text-xs px-1.5 py-0.5 rounded-full font-medium', colors.countBg)}>
+                  {count}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Swimlanes by type */}
+        {activeTypes.map((type) => {
+          const cols = tasksByTypeAndColumn.get(type)!;
+          const isCollapsed = collapsedTypes.has(type);
+          const totalCount = cols.ready.length + cols.in_progress.length + cols.done.length;
+
+          return (
+            <div key={type}>
+              {/* Swimlane header */}
+              <button
+                onClick={() => toggleType(type)}
+                className="flex items-center gap-2 mb-2 text-sm font-medium text-text-main hover:text-primary transition-colors w-full text-left"
+              >
+                {isCollapsed
+                  ? <ChevronRight className="h-4 w-4 text-text-sub" />
+                  : <ChevronDown className="h-4 w-4 text-text-sub" />
+                }
+                <span>{TASK_TYPE_LABELS[type]}</span>
+                <span className="text-xs text-text-sub font-normal">({totalCount})</span>
+              </button>
+
+              {!isCollapsed && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[8rem]">
+                  {COLUMNS.map((col) => (
+                    <KanbanColumn
+                      key={`${type}-${col.id}`}
+                      column={col}
+                      tasks={cols[col.id]}
+                      droppableId={`${type}-${col.id}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <DragOverlay>
         {activeTask && <TaskCard task={activeTask} isDragOverlay />}
@@ -206,15 +347,23 @@ export function CharterKanban({ charterId }: CharterKanbanProps) {
   );
 }
 
-function KanbanColumn({ column, tasks }: { column: Column; tasks: Task[] }) {
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+function KanbanColumn({
+  column,
+  tasks,
+  droppableId,
+}: {
+  column: Column;
+  tasks: Task[];
+  droppableId: string;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
   const colors = COLUMN_COLORS[column.id];
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        'rounded-lg p-3 min-h-[12rem] transition-all',
+        'rounded-lg p-3 min-h-[8rem] transition-all',
         colors.columnBg,
         isOver && `ring-2 ${colors.dropRing}`
       )}
@@ -244,7 +393,6 @@ function TaskCard({ task, isDragOverlay, columnId }: { task: Task; isDragOverlay
     ? formatHours(task.time_spent_minutes)
     : null;
 
-  // Determine column for color — use provided or derive from status
   const col = columnId ?? (COLUMNS.find((c) => c.statuses.includes(task.status))?.id ?? 'ready');
   const colors = COLUMN_COLORS[col];
 
