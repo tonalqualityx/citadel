@@ -9,7 +9,8 @@ import { useProjects } from '@/lib/hooks/use-projects';
 import { useClients } from '@/lib/hooks/use-clients';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useFunctions } from '@/lib/hooks/use-reference-data';
-import { useSops } from '@/lib/hooks/use-sops';
+import { type Sop } from '@/lib/hooks/use-sops';
+import { SopSelector } from '@/components/domain/recipes/sop-selector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -73,7 +74,6 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
   const { data: projectsData, isLoading: projectsLoading } = useProjects({ limit: 100 });
   const { data: clientsData, isLoading: clientsLoading } = useClients({ limit: 100, status: 'active' });
   const { data: functionsData, isLoading: functionsLoading } = useFunctions();
-  const { data: sopsData, isLoading: sopsLoading } = useSops();
 
   const {
     register,
@@ -107,6 +107,32 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
     },
   });
 
+  // When an SOP is selected, populate form fields with its defaults
+  const handleSopChange = React.useCallback(
+    (sopId: string | null, sop: Sop | null) => {
+      setValue('sop_id', sopId || '');
+      if (sop) {
+        // Apply SOP defaults to form fields
+        if (sop.default_priority) {
+          setValue('priority', sop.default_priority.toString());
+        }
+        if (sop.energy_estimate) {
+          setValue('energy_estimate', sop.energy_estimate.toString());
+        }
+        if (sop.mystery_factor) {
+          setValue('mystery_factor', sop.mystery_factor as any);
+        }
+        if (sop.battery_impact) {
+          setValue('battery_impact', sop.battery_impact as any);
+        }
+        if (sop.function?.id) {
+          setValue('function_id', sop.function.id);
+        }
+      }
+    },
+    [setValue]
+  );
+
   const projectOptions = React.useMemo(() => {
     return [
       { value: '', label: 'No project (ad-hoc)' },
@@ -136,16 +162,6 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
       })) || []),
     ];
   }, [functionsData]);
-
-  const sopOptions = React.useMemo(() => {
-    return [
-      { value: '', label: 'No Rune' },
-      ...(sopsData?.sops?.map((s) => ({
-        value: s.id,
-        label: s.title,
-      })) || []),
-    ];
-  }, [sopsData]);
 
   const onSubmit = async (data: TaskFormData) => {
     try {
@@ -297,24 +313,12 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-text-main mb-1">
-            Rune
-          </label>
-          {sopsLoading ? (
-            <div className="h-10 flex items-center">
-              <Spinner size="sm" />
-            </div>
-          ) : (
-            <Select
-              options={sopOptions}
-              value={watch('sop_id') || ''}
-              onChange={(value) => {
-                const event = { target: { value, name: 'sop_id' } };
-                register('sop_id').onChange(event as any);
-              }}
-              placeholder="Select rune..."
-            />
-          )}
+          <SopSelector
+            value={watch('sop_id') || null}
+            onChange={handleSopChange}
+            showLabel={true}
+            showPreview={true}
+          />
         </div>
 
         <div>
