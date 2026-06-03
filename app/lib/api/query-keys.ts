@@ -318,6 +318,54 @@ export const accordKeepItemKeys = {
   byAccord: (accordId: string) => [...accordKeepItemKeys.all, accordId] as const,
 };
 
+// ============================================
+// TROUBADOR
+// ============================================
+
+export interface TroubadorRunFilters {
+  stage?: string;
+  statuses?: string;
+  client_id?: string;
+  site_id?: string;
+  assignee_id?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface TroubadorScheduleFilters {
+  status?: string;
+  client_id?: string;
+  page?: number;
+  limit?: number;
+}
+
+export const troubadorRunKeys = {
+  all: ['troubador-runs'] as const,
+  lists: () => [...troubadorRunKeys.all, 'list'] as const,
+  list: (filters: TroubadorRunFilters) => [...troubadorRunKeys.lists(), filters] as const,
+  details: () => [...troubadorRunKeys.all, 'detail'] as const,
+  detail: (id: string) => [...troubadorRunKeys.details(), id] as const,
+};
+
+export const troubadorScheduleKeys = {
+  all: ['troubador-schedules'] as const,
+  lists: () => [...troubadorScheduleKeys.all, 'list'] as const,
+  list: (filters: TroubadorScheduleFilters) => [...troubadorScheduleKeys.lists(), filters] as const,
+  details: () => [...troubadorScheduleKeys.all, 'detail'] as const,
+  detail: (id: string) => [...troubadorScheduleKeys.details(), id] as const,
+};
+
+export const troubadorArticleKeys = {
+  all: ['troubador-articles'] as const,
+  details: () => [...troubadorArticleKeys.all, 'detail'] as const,
+  detail: (id: string) => [...troubadorArticleKeys.details(), id] as const,
+};
+
+export const troubadorCalendarKeys = {
+  all: ['troubador-calendar'] as const,
+  bySite: (siteId: string) => [...troubadorCalendarKeys.all, 'site', siteId] as const,
+};
+
 // Consolidated query keys for convenience
 export const queryKeys = {
   clients: clientKeys,
@@ -345,4 +393,8 @@ export const queryKeys = {
   accordCharterItems: accordCharterItemKeys,
   accordCommissionItems: accordCommissionItemKeys,
   accordKeepItems: accordKeepItemKeys,
+  troubadorRuns: troubadorRunKeys,
+  troubadorSchedules: troubadorScheduleKeys,
+  troubadorArticles: troubadorArticleKeys,
+  troubadorCalendar: troubadorCalendarKeys,
 };

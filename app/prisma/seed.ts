@@ -1,4 +1,5 @@
 import { PrismaClient, UserRole, ClientType, ClientStatus, ProjectStatus, ProjectType, TaskStatus, MysteryFactor, BatteryImpact } from '@prisma/client';
+import { TROUBADOR_SERVICE_EMAIL } from '../lib/troubador/helpers';
 import bcrypt from 'bcryptjs';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -109,6 +110,21 @@ async function main() {
     userMap.set(user.email, created.id);
     console.log(`  ✓ Created user: ${user.email}`);
   }
+
+  // Troubador service account — the Bast-machine worker authenticates as this user.
+  const troubadorUser = await prisma.user.upsert({
+    where: { email: TROUBADOR_SERVICE_EMAIL },
+    update: {},
+    create: {
+      email: TROUBADOR_SERVICE_EMAIL,
+      name: 'Troubador',
+      role: UserRole.pm,
+      is_active: true,
+      password_hash: passwordHash,
+    },
+  });
+  userMap.set(TROUBADOR_SERVICE_EMAIL, troubadorUser.id);
+  console.log(`  ✓ Created user: ${TROUBADOR_SERVICE_EMAIL}`);
 
   // Seed from CSV files
   const seedDir = path.join(__dirname, '../../implementation/seed');

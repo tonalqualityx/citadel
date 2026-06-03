@@ -20,6 +20,8 @@ const DEFAULT_PREFERENCES: Record<
   comment_added: { in_app: true, email: false, slack: true },
   retainer_alert: { in_app: true, email: true, slack: true },
   system_alert: { in_app: true, email: true, slack: true },
+  article_needs_review: { in_app: true, email: false, slack: true },
+  troubador_run_created: { in_app: true, email: false, slack: true },
 };
 
 export interface NotificationPreferenceRow {

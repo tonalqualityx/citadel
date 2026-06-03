@@ -58,6 +58,10 @@ model User {
   addendums_overridden    Addendum[]              @relation("AddendumOverriddenBy")
   charters_created        Charter[]               @relation("CharterCreatedBy")
   sales_automation_rules  SalesAutomationRule[]   @relation("SalesAutomationAssignee")
+  troubador_runs_assigned          TroubadorRun[]      @relation("RunEditor")
+  troubador_schedules_default_editor TroubadorSchedule[] @relation("ScheduleDefaultEditor")
+  troubador_articles_approved      Article[]           @relation("ArticleApprovedBy")
+  troubador_article_comments       ArticleComment[]
 
   @@map("users")
 }
@@ -301,6 +305,8 @@ enum NotificationType {
   comment_added
   retainer_alert
   system_alert
+  article_needs_review
+  troubador_run_created
 }
 
 enum NotificationPriority {
@@ -537,6 +543,9 @@ model Client {
   charters              Charter[]
   client_msa_signatures ClientMsaSignature[]
   meetings              Meeting[]
+  troubador_schedules   TroubadorSchedule[]
+  troubador_runs        TroubadorRun[]
+  articles              Article[]
 
   @@index([type])
   @@index([status])
@@ -592,6 +601,15 @@ model Site {
   // Notes
   notes               String?          @db.Text
 
+  // Troubador publishing config (reserved; publishing execution deferred to Bast cron)
+  site_type           SiteType?                            // eleventy | wordpress; null until configured
+  repo_url            String?          @db.VarChar(500)    // Eleventy: git repo
+  repo_branch         String?          @db.VarChar(100)    // Eleventy: branch
+  content_dir         String?          @db.VarChar(255)    // Eleventy: content directory
+  wp_base_url         String?          @db.VarChar(500)    // WordPress: REST base URL
+  wp_default_author   String?          @db.VarChar(255)    // WordPress: default author
+  wp_default_category String?          @db.VarChar(255)    // WordPress: default category
+
   // Metadata
   is_deleted          Boolean          @default(false)
   created_at          DateTime         @default(now())
@@ -604,6 +622,9 @@ model Site {
   maintenance_generation_logs MaintenanceGenerationLog[]
   charters                  Charter[]
   keep_items                AccordKeepItem[]
+  troubador_schedules       TroubadorSchedule[]
+  troubador_runs            TroubadorRun[]
+  articles                  Article[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
@@ -1905,4 +1926,249 @@ model SalesAutomationLog {
   @@unique([rule_id, accord_id])
   @@index([accord_id])
   @@map("sales_automation_logs")
+}
+
+// ============================================
+// TROUBADOR CONTENT CONTROL PLANE
+// ============================================
+
+enum TroubadorRunStage {
+  planning
+  topic_selection
+  researching
+  ready_for_interview
+  in_production
+  done
+  cancelled
+}
+
+enum ArticleStatus {
+  pending_research
+  researched
+  drafting
+  in_review        // ready for editor review/approval
+  needs_revision
+  approved
+  scheduled
+  published
+  postponed        // parked; doesn't block run->done; reactivatable / to backlog
+  dropped          // permanent removal
+}
+
+enum ArticleCheckState {
+  pending
+  passed
+  check_failed     // non-compliance check failed; surfaced flagged
+  compliance_hold  // fail-closed; parked, not in normal review queue
+}
+
+enum InterviewStatus {
+  pending
+  in_progress
+  complete
+}
+
+enum ScheduleStatus {
+  active
+  paused
+  ended
+}
+
+enum SiteType {
+  eleventy
+  wordpress
+}
+
+enum TopicArchetype {
+  pillar
+  thought_leadership
+  case_study
+  how_to
+  commodity
+}
+
+model TroubadorSchedule {
+  id                   String         @id @default(uuid()) @db.Uuid
+  client_id            String         @db.Uuid
+  client               Client         @relation(fields: [client_id], references: [id])
+  site_id              String         @db.Uuid
+  site                 Site           @relation(fields: [site_id], references: [id])
+
+  name                 String         @db.VarChar(255)
+  status               ScheduleStatus @default(active)
+
+  // Cadence model: "keep the calendar full"
+  target_article_count Int            @default(4)
+  publish_per_week     Decimal        @default(2) @db.Decimal(5, 2)
+  lead_time_days       Int            @default(7)
+
+  overarching_goals    String?        @db.Text
+
+  default_assignee_id  String?        @db.Uuid
+  default_assignee     User?          @relation("ScheduleDefaultEditor", fields: [default_assignee_id], references: [id])
+
+  allow_concurrent     Boolean        @default(false)
+  start_date           DateTime
+  skip_next            Boolean        @default(false)
+  last_run_at          DateTime?
+
+  is_deleted           Boolean        @default(false)
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
+  created_by_id        String?        @db.Uuid
+
+  runs                 TroubadorRun[]
+
+  @@index([client_id])
+  @@index([site_id])
+  @@index([status])
+  @@index([default_assignee_id])
+  @@map("troubador_schedules")
+}
+
+model TroubadorRun {
+  id               String             @id @default(uuid()) @db.Uuid
+  client_id        String             @db.Uuid
+  client           Client             @relation(fields: [client_id], references: [id])
+  site_id          String             @db.Uuid
+  site             Site               @relation(fields: [site_id], references: [id])
+  schedule_id      String?            @db.Uuid
+  schedule         TroubadorSchedule? @relation(fields: [schedule_id], references: [id])
+
+  title            String             @db.VarChar(255)
+  stage            TroubadorRunStage  @default(planning)
+
+  // Per-run brief (inherits schedule goals; editor-refined in Planning)
+  brief            String?            @db.Text
+  goal_type        String?            @db.VarChar(50)
+  target_offering  String?            @db.VarChar(255)
+  must_cover       String?            @db.Text
+  avoid            String?            @db.Text
+
+  // Human gates (signals the worker reads; never self-advanced past)
+  ready            Boolean            @default(false)
+  selection_ready  Boolean            @default(false)
+
+  assignee_id      String?            @db.Uuid
+  assignee         User?              @relation("RunEditor", fields: [assignee_id], references: [id])
+
+  // Worker lease (single-flight + claim for run-level work)
+  claimed_at       DateTime?
+  claimed_by_id    String?            @db.Uuid
+
+  is_deleted       Boolean            @default(false)
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+  created_by_id    String?            @db.Uuid
+
+  proposals        TopicProposal[]
+  articles         Article[]
+  interview        Interview?
+
+  @@index([client_id])
+  @@index([site_id])
+  @@index([schedule_id])
+  @@index([stage])
+  @@index([assignee_id])
+  @@map("troubador_runs")
+}
+
+model TopicProposal {
+  id                 String          @id @default(uuid()) @db.Uuid
+  run_id             String          @db.Uuid
+  run                TroubadorRun    @relation(fields: [run_id], references: [id], onDelete: Cascade)
+
+  title              String          @db.VarChar(500)
+  archetype          TopicArchetype?
+  primary_keyword    String?         @db.VarChar(255)
+  search_volume      Int?
+  keyword_difficulty Int?
+  rationale          String?         @db.Text
+  source             String          @default("troubador")
+  selected           Boolean         @default(false)
+  saved_for_later    Boolean         @default(false)
+
+  created_at         DateTime        @default(now())
+  updated_at         DateTime        @updatedAt
+
+  @@index([run_id])
+  @@map("troubador_topic_proposals")
+}
+
+model Article {
+  id               String            @id @default(uuid()) @db.Uuid
+  run_id           String            @db.Uuid
+  run              TroubadorRun      @relation(fields: [run_id], references: [id], onDelete: Cascade)
+  // denormalized for cross-run queries (worker queue, site calendar, backlog)
+  client_id        String            @db.Uuid
+  client           Client            @relation(fields: [client_id], references: [id])
+  site_id          String            @db.Uuid
+  site             Site              @relation(fields: [site_id], references: [id])
+
+  slug             String            @db.VarChar(255)
+  title            String            @db.VarChar(500)
+  status           ArticleStatus     @default(pending_research)
+  check_state      ArticleCheckState @default(pending)
+  check_report     Json?
+
+  research_summary String?           @db.Text
+  body             String?           @db.Text
+  social_copy      String?           @db.Text
+
+  suggested_date   DateTime?
+  scheduled_date   DateTime?
+  published_url    String?           @db.VarChar(500)
+
+  approved_at      DateTime?
+  approved_by_id   String?           @db.Uuid
+  approved_by      User?             @relation("ArticleApprovedBy", fields: [approved_by_id], references: [id])
+  locked           Boolean           @default(false)
+
+  claimed_at       DateTime?
+  claimed_by_id    String?           @db.Uuid
+
+  is_deleted       Boolean           @default(false)
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+
+  comments         ArticleComment[]
+
+  @@unique([run_id, slug])
+  @@index([run_id])
+  @@index([client_id])
+  @@index([site_id])
+  @@index([status])
+  @@index([scheduled_date])
+  @@map("troubador_articles")
+}
+
+model ArticleComment {
+  id          String   @id @default(uuid()) @db.Uuid
+  article_id  String   @db.Uuid
+  article     Article  @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  user_id     String?  @db.Uuid
+  user        User?    @relation(fields: [user_id], references: [id])
+  content     String   @db.Text
+  is_feedback Boolean  @default(true)
+  resolved    Boolean  @default(false)
+  is_deleted  Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  @@index([article_id])
+  @@index([created_at])
+  @@map("troubador_article_comments")
+}
+
+model Interview {
+  id           String          @id @default(uuid()) @db.Uuid
+  run_id       String          @unique @db.Uuid
+  run          TroubadorRun    @relation(fields: [run_id], references: [id], onDelete: Cascade)
+  status       InterviewStatus @default(pending)
+  questions    Json?
+  transcript   String?         @db.Text
+  completed_at DateTime?
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  @@map("troubador_interviews")
 }

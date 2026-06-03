@@ -57,6 +57,7 @@ import { charterEndpoints } from './charters';
 import { automationEndpoints } from './automation';
 import { addendumEndpoints } from './addendums';
 import { meetingEndpoints } from './meetings';
+import { troubadorEndpoints } from './troubador';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -83,6 +84,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...automationEndpoints,
   ...addendumEndpoints,
   ...meetingEndpoints,
+  ...troubadorEndpoints,
 ];
 
 /**
@@ -104,6 +106,13 @@ export const apiEnums = {
   charterBillingPeriods: ['monthly', 'annually'],
   proposalStatuses: ['draft', 'sent', 'accepted', 'rejected', 'changes_requested'],
   contractStatuses: ['draft', 'sent', 'signed'],
+  troubadorRunStages: ['planning', 'topic_selection', 'researching', 'ready_for_interview', 'in_production', 'done', 'cancelled'],
+  articleStatuses: ['pending_research', 'researched', 'drafting', 'in_review', 'needs_revision', 'approved', 'scheduled', 'published', 'postponed', 'dropped'],
+  articleCheckStates: ['pending', 'passed', 'check_failed', 'compliance_hold'],
+  interviewStatuses: ['pending', 'in_progress', 'complete'],
+  scheduleStatuses: ['active', 'paused', 'ended'],
+  siteTypes: ['eleventy', 'wordpress'],
+  topicArchetypes: ['pillar', 'thought_leadership', 'case_study', 'how_to', 'commodity'],
 };
 
 /**

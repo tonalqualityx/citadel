@@ -53,7 +53,7 @@ describe('API Registry', () => {
       'time-entries', 'sites', 'sops', 'users', 'billing',
       'reference', 'admin', 'misc', 'wares', 'accords',
       'proposals', 'msa', 'portal', 'contracts', 'onboarding', 'charter',
-      'automation', 'addendums', 'meetings',
+      'automation', 'addendums', 'meetings', 'troubador',
     ];
 
     it('contains all expected groups', () => {

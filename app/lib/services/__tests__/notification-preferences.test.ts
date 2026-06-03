@@ -116,13 +116,15 @@ describe('notification-preferences service', () => {
 
       const result = await getAllPreferencesForUser(TEST_USER_ID);
 
-      // Should have all 10 notification types
-      expect(result.preferences).toHaveLength(10);
+      // Should have all 12 notification types (incl. Troubador: article_needs_review, troubador_run_created)
+      expect(result.preferences).toHaveLength(12);
       expect(result.slackConnected).toBe(false);
 
       // Verify it includes all types
       const types = result.preferences.map((p) => p.notification_type);
       expect(types).toContain('task_assigned');
+      expect(types).toContain('article_needs_review');
+      expect(types).toContain('troubador_run_created');
       expect(types).toContain('task_status_changed');
       expect(types).toContain('system_alert');
     });

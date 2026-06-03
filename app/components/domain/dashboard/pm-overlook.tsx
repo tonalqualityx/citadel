@@ -22,6 +22,7 @@ import { ProjectQuickList } from './project-quick-list';
 import { RetainerAlert } from './retainer-alert';
 import { TimeclockIssues } from './timeclock-issues';
 import { IncompleteMeetings } from './incomplete-meetings';
+import { TroubadorReviewQueue } from '@/components/domain/troubador/TroubadorReviewQueue';
 import { TaskPeekDrawer } from '@/components/domain/tasks/task-peek-drawer';
 import { Button } from '@/components/ui/button';
 import { formatElapsedTime } from '@/lib/utils/time';
@@ -244,6 +245,9 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
           </div>
         </div>
       )}
+
+      {/* Troubador editor queue — articles awaiting review + runs needing action */}
+      <TroubadorReviewQueue />
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

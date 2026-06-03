@@ -20,6 +20,8 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   comment_added: 'New Comment',
   retainer_alert: 'Retainer Alert',
   system_alert: 'System Alert',
+  article_needs_review: 'Article Needs Review',
+  troubador_run_created: 'New Content Run',
 };
 
 // Notification type icons/emojis for email
@@ -34,6 +36,8 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   comment_added: '💬',
   retainer_alert: '📉',
   system_alert: '⚠️',
+  article_needs_review: '✍️',
+  troubador_run_created: '📝',
 };
 
 /**

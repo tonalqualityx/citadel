@@ -112,6 +112,8 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   comment_added: 'New Comment',
   retainer_alert: 'Retainer Alert',
   system_alert: 'System Alert',
+  article_needs_review: 'Article Needs Review',
+  troubador_run_created: 'New Content Run',
 };
 
 // Notification type descriptions
@@ -126,4 +128,6 @@ export const NOTIFICATION_TYPE_DESCRIPTIONS: Record<NotificationType, string> = 
   comment_added: 'When someone comments on a task you\'re involved in',
   retainer_alert: 'When a client\'s retainer hours are running low',
   system_alert: 'Important system notifications',
+  article_needs_review: 'When a Troubador article is ready for your review',
+  troubador_run_created: 'When a scheduled content run is created for you',
 };

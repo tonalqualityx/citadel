@@ -138,6 +138,17 @@ export function Sidebar() {
     ],
   };
 
+  const troubadorSection: NavSection = {
+    title: 'Troubador',
+    emoji: '✍️',
+    defaultOpen: true,
+    items: [
+      { name: 'Content Board', href: '/troubador', emoji: '📋' },
+      { name: 'Schedules', href: '/troubador/schedules', emoji: '🗓️' },
+      { name: 'Calendar', href: '/troubador/calendar', emoji: '📆' },
+    ],
+  };
+
   const adminSection: NavSection = {
     title: 'Admin',
     emoji: '🔐',
@@ -195,6 +206,9 @@ export function Sidebar() {
           <CollapsibleSection section={workSection} pathname={pathname} />
           {isPmOrAdmin && (
             <CollapsibleSection section={parleySection} pathname={pathname} />
+          )}
+          {isPmOrAdmin && (
+            <CollapsibleSection section={troubadorSection} pathname={pathname} />
           )}
           <CollapsibleSection section={knowledgeSection} pathname={pathname} />
 
