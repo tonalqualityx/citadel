@@ -54,6 +54,18 @@ export const TABLE_GROUPS = {
     description: 'Application configuration',
     tables: ['app_settings'],
   },
+  troubador: {
+    name: 'Troubador',
+    description: 'Content schedules, runs, topic proposals, articles, feedback, interviews',
+    tables: [
+      'troubador_schedules',
+      'troubador_runs',
+      'troubador_topic_proposals',
+      'troubador_articles',
+      'troubador_article_comments',
+      'troubador_interviews',
+    ],
+  },
 } as const;
 
 export type TableGroup = keyof typeof TABLE_GROUPS;
@@ -109,6 +121,13 @@ const TABLE_ORDER = [
   'slack_notification_batch',
   // Maintenance generation logs (→ maintenance_plans, sites)
   'maintenance_generation_logs',
+  // Troubador (→ clients, sites, users, projects all above)
+  'troubador_schedules',                 // → clients, sites, users
+  'troubador_runs',                      // → clients, sites, users, troubador_schedules
+  'troubador_topic_proposals',           // → troubador_runs
+  'troubador_articles',                  // → troubador_runs, clients, sites, users
+  'troubador_article_comments',          // → troubador_articles, users
+  'troubador_interviews',                // → troubador_runs
   // Settings
   'app_settings',
 ];
