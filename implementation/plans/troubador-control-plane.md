@@ -105,8 +105,22 @@ reserved now.
 - [ ] **PENDING (Reshi): apply migration** — free port 5432 (quorionis-postgres), then `cd app && npx prisma migrate dev` (or `migrate deploy`)
 - [ ] No push to production / no deploy without Reshi approval
 
-## Status: BUILD COMPLETE (pending DB migration + manual run-through)
-All code written, typechecks, and tests pass. Committed to branch `feat/troubador-control-plane`.
-Cannot exercise the running app until the DB is migrated (blocker above). Deferred by design:
-publishing execution (Bast cron, later phase).
+## Skill-side worker — NOT BUILT (follow-up)
+The Citadel control plane + API are done. The **Troubador skill itself has no Citadel-worker
+loop yet** — it still writes files to `~/Documents/Troubador/`. A follow-up is needed to teach the
+skill to operate the board via the API. Required skill behaviors:
+- Poll `GET /api/troubador/work-queue` (auth as the "Troubador" service user via API key) and act on
+  each item: `generate_proposals`, `create_articles`, `research_article`, `post_interview_questions`,
+  `draft_article`, `rewrite_article` (and later `publish_article`).
+- Claim leases (`/runs/:id/claim`, `/articles/:id/claim`) before working an item.
+- **Interview completion is NOT a UI button (by design).** When the human finishes the live CLI
+  interview for a run, the skill must call `POST /api/troubador/runs/:id/interview-complete` itself
+  (with the transcript) to advance the run to In Production. The board intentionally has no
+  human "mark interview complete" control.
+- Respect human gates — never advance past `ready` / `selection_ready` / approval.
+
+## Status: BUILD COMPLETE — Citadel side (pending prod migration + skill-side worker)
+Citadel control plane code written, typechecks, tests pass; migration applied to local DB (5433)
+and exercised end-to-end via manual worker calls. Committed to branch `feat/troubador-control-plane`.
+Deferred by design: publishing execution (Bast cron) and the **skill-side worker** (above).
 ```

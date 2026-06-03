@@ -96,25 +96,8 @@ export function useUpdateProposals(runId: string) {
   });
 }
 
-export function useCompleteInterview(runId: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data?: { transcript?: string }) =>
-      apiClient.post<{ run_id: string; stage: string }>(
-        `/troubador/runs/${runId}/interview-complete`,
-        data ?? {}
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: troubadorRunKeys.detail(runId) });
-      queryClient.invalidateQueries({ queryKey: troubadorRunKeys.lists() });
-      showToast.success('Interview marked complete — writing can begin');
-    },
-    onError: (error) => {
-      showToast.apiError(error, 'Failed to mark interview complete');
-    },
-  });
-}
+// NOTE: interview-complete has no UI hook by design. The Troubador CLI skill calls
+// POST /api/troubador/runs/:id/interview-complete itself when the live interview wraps.
 
 // ============================================
 // ARTICLES

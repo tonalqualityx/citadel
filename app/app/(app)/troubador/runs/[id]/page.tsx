@@ -16,7 +16,6 @@ import {
   useTroubadorRun,
   useUpdateRun,
   useUpdateProposals,
-  useCompleteInterview,
 } from '@/lib/hooks/use-troubador';
 import { StageBadge } from '@/components/domain/troubador/StageBadge';
 import { ArticleTable } from '@/components/domain/troubador/ArticleTable';
@@ -29,7 +28,6 @@ import type { Proposal, RunDetail } from '@/lib/types/troubador';
  */
 function StageActionBar({ run }: { run: RunDetail }) {
   const updateRun = useUpdateRun();
-  const completeInterview = useCompleteInterview(run.id);
   const selectedCount = (run.proposals ?? []).filter((p) => p.selected).length;
 
   let icon = <FileText className="h-5 w-5" />;
@@ -78,16 +76,10 @@ function StageActionBar({ run }: { run: RunDetail }) {
       break;
     case 'ready_for_interview':
       icon = <Mic className="h-5 w-5 text-fuchsia-500" />;
+      // No human button here by design: Troubador runs the interview in the CLI and
+      // marks it complete itself when the conversation wraps (advancing to writing).
       message =
-        'Run the interview with the client in the CLI, then mark it complete to start writing.';
-      action = (
-        <Button
-          disabled={completeInterview.isPending}
-          onClick={() => completeInterview.mutate(undefined)}
-        >
-          Mark interview complete
-        </Button>
-      );
+        'Prep questions are ready. Run the interview with the client in the CLI — Troubador will mark it complete and start writing when you finish.';
       break;
     case 'in_production': {
       icon = <FileText className="h-5 w-5 text-emerald-500" />;
@@ -297,7 +289,8 @@ function InterviewTab({ run }: { run: RunDetail }) {
       </p>
       <p className="text-xs text-text-sub">
         These questions are prep material — email them to the client, then run the live
-        interview in the CLI. Use “Mark interview complete” above when you’re done.
+        interview in the CLI. Troubador marks the interview complete and starts writing
+        automatically when the conversation wraps.
       </p>
       {Array.isArray(questions) && questions.length > 0 ? (
         <div>
