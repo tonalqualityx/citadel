@@ -3,29 +3,132 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Plus, CheckCircle2, Clock, Mic, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils/cn';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   useTroubadorRun,
   useUpdateRun,
   useUpdateProposals,
+  useCompleteInterview,
 } from '@/lib/hooks/use-troubador';
 import { StageBadge } from '@/components/domain/troubador/StageBadge';
 import { ArticleTable } from '@/components/domain/troubador/ArticleTable';
 import type { Proposal, RunDetail } from '@/lib/types/troubador';
 
+/**
+ * Persistent action bar that always shows the current step and the button needed
+ * to advance it, regardless of which tab is open. This is the single place a human
+ * operates the run's gates (ready / selection_ready / interview complete).
+ */
+function StageActionBar({ run }: { run: RunDetail }) {
+  const updateRun = useUpdateRun();
+  const completeInterview = useCompleteInterview(run.id);
+  const selectedCount = (run.proposals ?? []).filter((p) => p.selected).length;
+
+  let icon = <FileText className="h-5 w-5" />;
+  let tone = 'border-border-warm bg-surface';
+  let message: React.ReactNode = null;
+  let action: React.ReactNode = null;
+
+  switch (run.stage) {
+    case 'planning':
+      icon = <FileText className="h-5 w-5 text-amber-500" />;
+      if (run.ready) {
+        message = '✓ Marked ready. The worker will propose topics on its next run.';
+      } else {
+        message = 'Add a brief, then mark this run ready — the worker will propose topics.';
+        action = (
+          <Button
+            disabled={updateRun.isPending}
+            onClick={() => updateRun.mutate({ id: run.id, data: { ready: true } })}
+          >
+            Mark ready
+          </Button>
+        );
+      }
+      break;
+    case 'topic_selection':
+      icon = <CheckCircle2 className="h-5 w-5 text-sky-500" />;
+      if (run.selection_ready) {
+        message = '✓ Selection locked. The worker will create articles and start research.';
+      } else {
+        message = `Pick the topics to write (${selectedCount} selected), then lock the selection.`;
+        action = (
+          <Button
+            disabled={updateRun.isPending || selectedCount === 0}
+            onClick={() =>
+              updateRun.mutate({ id: run.id, data: { selection_ready: true } })
+            }
+          >
+            Selection ready{selectedCount ? ` (${selectedCount})` : ''}
+          </Button>
+        );
+      }
+      break;
+    case 'researching':
+      icon = <Clock className="h-5 w-5 text-violet-500" />;
+      message = '⏳ The worker is researching the selected topics.';
+      break;
+    case 'ready_for_interview':
+      icon = <Mic className="h-5 w-5 text-fuchsia-500" />;
+      message =
+        'Run the interview with the client in the CLI, then mark it complete to start writing.';
+      action = (
+        <Button
+          disabled={completeInterview.isPending}
+          onClick={() => completeInterview.mutate(undefined)}
+        >
+          Mark interview complete
+        </Button>
+      );
+      break;
+    case 'in_production': {
+      icon = <FileText className="h-5 w-5 text-emerald-500" />;
+      const needsReview = run.article_stats?.in_review ?? 0;
+      message =
+        needsReview > 0
+          ? `${needsReview} article${needsReview === 1 ? '' : 's'} awaiting your review — open the Articles tab.`
+          : 'Review, approve, and schedule articles in the Articles tab.';
+      break;
+    }
+    case 'done':
+      icon = <CheckCircle2 className="h-5 w-5 text-emerald-500" />;
+      tone = 'border-emerald-500/30 bg-emerald-500/5';
+      message = '✓ All articles published. This run is done.';
+      break;
+    case 'cancelled':
+      message = 'This run was cancelled.';
+      break;
+  }
+
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-4 rounded-lg border p-4 flex-wrap',
+        tone
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {icon}
+        <p className="text-sm text-text-main">{message}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
 function BriefTab({ run }: { run: RunDetail }) {
   const updateRun = useUpdateRun();
   const [brief, setBrief] = React.useState(run.brief ?? '');
   const [goalType, setGoalType] = React.useState(run.goal_type ?? '');
-  const [targetOffering, setTargetOffering] = React.useState(
-    run.target_offering ?? ''
-  );
+  const [targetOffering, setTargetOffering] = React.useState(run.target_offering ?? '');
   const [mustCover, setMustCover] = React.useState(run.must_cover ?? '');
   const [avoid, setAvoid] = React.useState(run.avoid ?? '');
 
@@ -40,70 +143,25 @@ function BriefTab({ run }: { run: RunDetail }) {
   const handleSave = () => {
     updateRun.mutate({
       id: run.id,
-      data: {
-        brief,
-        goal_type: goalType,
-        target_offering: targetOffering,
-        must_cover: mustCover,
-        avoid,
-      },
+      data: { brief, goal_type: goalType, target_offering: targetOffering, must_cover: mustCover, avoid },
     });
   };
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <Textarea
-        label="Brief"
-        value={brief}
-        rows={5}
-        onChange={(e) => setBrief(e.target.value)}
-      />
-      <Input
-        label="Goal type"
-        value={goalType}
-        onChange={(e) => setGoalType(e.target.value)}
-      />
+      <Textarea label="Brief" value={brief} rows={5} onChange={(e) => setBrief(e.target.value)} />
+      <Input label="Goal type" value={goalType} onChange={(e) => setGoalType(e.target.value)} />
       <Input
         label="Target offering"
         value={targetOffering}
         onChange={(e) => setTargetOffering(e.target.value)}
       />
-      <Textarea
-        label="Must cover"
-        value={mustCover}
-        rows={3}
-        onChange={(e) => setMustCover(e.target.value)}
-      />
-      <Textarea
-        label="Avoid"
-        value={avoid}
-        rows={3}
-        onChange={(e) => setAvoid(e.target.value)}
-      />
+      <Textarea label="Must cover" value={mustCover} rows={3} onChange={(e) => setMustCover(e.target.value)} />
+      <Textarea label="Avoid" value={avoid} rows={3} onChange={(e) => setAvoid(e.target.value)} />
       <div className="flex items-center gap-2">
         <Button onClick={handleSave} disabled={updateRun.isPending}>
           Save brief
         </Button>
-        {run.stage === 'planning' && (
-          <Button
-            variant="secondary"
-            disabled={updateRun.isPending || run.ready}
-            onClick={() => updateRun.mutate({ id: run.id, data: { ready: true } })}
-          >
-            {run.ready ? 'Marked ready' : 'Mark ready'}
-          </Button>
-        )}
-        {run.stage === 'topic_selection' && (
-          <Button
-            variant="secondary"
-            disabled={updateRun.isPending || run.selection_ready}
-            onClick={() =>
-              updateRun.mutate({ id: run.id, data: { selection_ready: true } })
-            }
-          >
-            {run.selection_ready ? 'Selection ready' : 'Selection ready'}
-          </Button>
-        )}
       </div>
     </div>
   );
@@ -115,29 +173,29 @@ function TopicsTab({ run }: { run: RunDetail }) {
   const [newKeyword, setNewKeyword] = React.useState('');
 
   const toggleSelect = (p: Proposal) => {
-    if (p.selected) {
-      updateProposals.mutate({ deselect: [p.id] });
-    } else {
-      updateProposals.mutate({ select: [p.id] });
-    }
+    updateProposals.mutate(p.selected ? { deselect: [p.id] } : { select: [p.id] });
   };
-
   const toggleSaveForLater = (p: Proposal) => {
     updateProposals.mutate({ save_for_later: [p.id] });
   };
-
   const addCustom = () => {
     const title = newTitle.trim();
     if (!title) return;
-    updateProposals.mutate({
-      add: [{ title, primary_keyword: newKeyword.trim() || undefined }],
-    });
+    updateProposals.mutate({ add: [{ title, primary_keyword: newKeyword.trim() || undefined }] });
     setNewTitle('');
     setNewKeyword('');
   };
 
+  const selectedCount = (run.proposals ?? []).filter((p) => p.selected).length;
+
   return (
     <div className="space-y-4 max-w-2xl">
+      {(run.proposals ?? []).length > 0 && (
+        <p className="text-sm text-text-sub">
+          <span className="font-medium text-text-main">{selectedCount}</span> of{' '}
+          {run.proposals.length} topics marked to write.
+        </p>
+      )}
       <div className="space-y-2">
         {(run.proposals ?? []).length === 0 ? (
           <p className="text-sm text-text-sub">No proposed topics yet.</p>
@@ -145,20 +203,27 @@ function TopicsTab({ run }: { run: RunDetail }) {
           run.proposals.map((p) => (
             <div
               key={p.id}
-              className="flex items-start gap-3 rounded-lg border border-border-warm bg-surface p-3"
+              className={cn(
+                'flex items-start gap-3 rounded-lg border p-3 transition-colors',
+                p.selected
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-warm bg-surface'
+              )}
             >
-              <Checkbox
-                checked={!!p.selected}
-                onCheckedChange={() => toggleSelect(p)}
-              />
+              <Checkbox checked={!!p.selected} onCheckedChange={() => toggleSelect(p)} />
               <div className="min-w-0 flex-1">
-                <p className="font-medium text-text-main">{p.title}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-medium text-text-main">{p.title}</p>
+                  {p.selected && (
+                    <Badge variant="success" size="sm">
+                      ✓ Will write
+                    </Badge>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 text-xs text-text-sub mt-0.5 flex-wrap">
                   {p.primary_keyword && <span>kw: {p.primary_keyword}</span>}
                   {p.archetype && <span>· {p.archetype}</span>}
-                  {p.save_for_later && (
-                    <span className="text-warning">· Saved for later</span>
-                  )}
+                  {p.save_for_later && <span className="text-warning">· Saved for later</span>}
                 </div>
               </div>
               <Button
@@ -178,22 +243,14 @@ function TopicsTab({ run }: { run: RunDetail }) {
         <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub">
           Add custom topic
         </h4>
-        <Input
-          label="Title"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-        />
+        <Input label="Title" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
         <Input
           label="Primary keyword (optional)"
           value={newKeyword}
           onChange={(e) => setNewKeyword(e.target.value)}
         />
         <div className="flex justify-end">
-          <Button
-            size="sm"
-            onClick={addCustom}
-            disabled={!newTitle.trim() || updateProposals.isPending}
-          >
+          <Button size="sm" onClick={addCustom} disabled={!newTitle.trim() || updateProposals.isPending}>
             <Plus className="h-4 w-4" /> Add topic
           </Button>
         </div>
@@ -205,7 +262,11 @@ function TopicsTab({ run }: { run: RunDetail }) {
 function InterviewTab({ run }: { run: RunDetail }) {
   const interview = run.interview;
   if (!interview) {
-    return <p className="text-sm text-text-sub">No interview data yet.</p>;
+    return (
+      <p className="text-sm text-text-sub">
+        No interview yet — the worker posts prep questions once research is done.
+      </p>
+    );
   }
 
   const questions = interview.questions;
@@ -222,9 +283,7 @@ function InterviewTab({ run }: { run: RunDetail }) {
       return (
         <li key={i} className="text-sm">
           <span className="text-text-main">{obj.question}</span>
-          {obj.answer && (
-            <span className="block text-text-sub mt-0.5">{obj.answer}</span>
-          )}
+          {obj.answer && <span className="block text-text-sub mt-0.5">{obj.answer}</span>}
         </li>
       );
     }
@@ -234,17 +293,18 @@ function InterviewTab({ run }: { run: RunDetail }) {
   return (
     <div className="space-y-4 max-w-2xl">
       <p className="text-sm text-text-sub">
-        Status:{' '}
-        <span className="text-text-main">{interview.status ?? 'unknown'}</span>
+        Status: <span className="text-text-main">{interview.status ?? 'unknown'}</span>
+      </p>
+      <p className="text-xs text-text-sub">
+        These questions are prep material — email them to the client, then run the live
+        interview in the CLI. Use “Mark interview complete” above when you’re done.
       </p>
       {Array.isArray(questions) && questions.length > 0 ? (
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub mb-2">
             Questions
           </h4>
-          <ul className="space-y-2 list-disc pl-5">
-            {questions.map(renderQuestion)}
-          </ul>
+          <ul className="space-y-2 list-disc pl-5">{questions.map(renderQuestion)}</ul>
         </div>
       ) : (
         <p className="text-sm text-text-sub">No interview questions yet.</p>
@@ -268,9 +328,7 @@ export default function RunDetailPage() {
 
   if (isError || !run) {
     return (
-      <div className="text-center py-12 text-text-sub text-sm">
-        Failed to load run.
-      </div>
+      <div className="text-center py-12 text-text-sub text-sm">Failed to load run.</div>
     );
   }
 
@@ -296,6 +354,9 @@ export default function RunDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Always-visible current-step + action */}
+      <StageActionBar run={run} />
 
       <Tabs defaultValue="brief">
         <TabsList>
