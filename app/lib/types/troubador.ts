@@ -66,6 +66,7 @@ export interface ArticleComment {
   id: string;
   content: string;
   is_feedback: boolean;
+  resolved: boolean;
   user: NamedRef | null;
   created_at: string;
 }

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useAddArticleComment } from '@/lib/hooks/use-troubador';
+import { cn } from '@/lib/utils/cn';
 import type { ArticleComment } from '@/lib/types/troubador';
 
 function formatDate(value: string): string {
@@ -73,18 +74,28 @@ export function FeedbackThread({
           sorted.map((c) => (
             <div
               key={c.id}
-              className="rounded-lg border border-border-warm bg-background-light p-3 text-sm"
+              className={cn(
+                'rounded-lg border bg-background-light p-3 text-sm',
+                c.is_feedback && c.resolved
+                  ? 'border-border-warm opacity-70'
+                  : 'border-border-warm'
+              )}
             >
               <div className="flex items-center justify-between gap-2 mb-1">
                 <span className="font-medium text-text-main">
-                  {c.user?.name ?? 'Unknown'}
+                  {c.user?.name ?? 'Troubador'}
                 </span>
                 <div className="flex items-center gap-2">
-                  {c.is_feedback && (
-                    <Badge variant="warning" size="sm">
-                      Feedback
-                    </Badge>
-                  )}
+                  {c.is_feedback &&
+                    (c.resolved ? (
+                      <Badge variant="success" size="sm">
+                        ✓ Addressed
+                      </Badge>
+                    ) : (
+                      <Badge variant="warning" size="sm">
+                        Feedback
+                      </Badge>
+                    ))}
                   <span className="text-xs text-text-sub">
                     {formatDate(c.created_at)}
                   </span>

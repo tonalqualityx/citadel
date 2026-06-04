@@ -16,6 +16,9 @@ vi.mock('@/lib/db/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    articleComment: {
+      updateMany: vi.fn(),
+    },
     troubadorRun: {
       update: vi.fn(),
     },
@@ -39,6 +42,7 @@ const mockFindFirst = prisma.article.findFirst as Mock;
 const mockFindMany = prisma.article.findMany as Mock;
 const mockFindUnique = prisma.article.findUnique as Mock;
 const mockUpdate = prisma.article.update as Mock;
+const mockCommentUpdateMany = prisma.articleComment.updateMany as Mock;
 
 const BOT = { userId: 'bot-1', role: 'pm', email: 'troubador@indelible.bot' };
 const HUMAN = { userId: 'editor-1', role: 'pm', email: 'mike@becomeindelible.com' };
@@ -125,6 +129,28 @@ describe('PATCH /api/troubador/articles/[id]', () => {
 
     expect(res.status).toBe(409);
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('resolves outstanding feedback when a rewrite returns the article to review', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'needs_revision' }));
+
+    const res = await PATCH(patchReq({ body: 'revised', status: 'in_review' }), { params });
+
+    expect(res.status).toBe(200);
+    expect(mockCommentUpdateMany).toHaveBeenCalledWith({
+      where: { article_id: 'a1', is_feedback: true, resolved: false },
+      data: { resolved: true },
+    });
+  });
+
+  it('does NOT resolve feedback when the transition is not needs_revision -> in_review', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+
+    await PATCH(patchReq({ status: 'in_review' }), { params });
+
+    expect(mockCommentUpdateMany).not.toHaveBeenCalled();
   });
 
   it('notifies the editor when the worker moves an article to in_review', async () => {

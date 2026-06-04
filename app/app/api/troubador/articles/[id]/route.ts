@@ -182,6 +182,14 @@ export async function PATCH(
 
     await prisma.article.update({ where: { id }, data: update });
 
+    // A rewrite that returns the article to review resolves its outstanding feedback.
+    if (article.status === 'needs_revision' && update.status === 'in_review') {
+      await prisma.articleComment.updateMany({
+        where: { article_id: id, is_feedback: true, resolved: false },
+        data: { resolved: true },
+      });
+    }
+
     if (statusChange) {
       const sc = statusChange as { from: string; to: string };
       logStatusChange(auth.userId, 'article', id, article.title, sc.from, sc.to);
