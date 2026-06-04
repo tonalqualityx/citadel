@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatArticleCommentResponse } from '@/lib/api/troubador-formatters';
+import { recomputeProductionStage } from '@/lib/troubador/run-stage';
 
 const schema = z.object({
   content: z.string().min(1),
@@ -42,6 +43,8 @@ export async function POST(
         where: { id },
         data: { status: 'needs_revision', locked: false },
       });
+      // Reopening an article may pull the run back from Publishing to In Production.
+      await recomputeProductionStage(article.run_id);
     }
 
     return NextResponse.json({

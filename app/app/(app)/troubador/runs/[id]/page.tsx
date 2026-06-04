@@ -87,7 +87,19 @@ function StageActionBar({ run }: { run: RunDetail }) {
       message =
         needsReview > 0
           ? `${needsReview} article${needsReview === 1 ? '' : 's'} awaiting your review — open the Articles tab.`
-          : 'Review, approve, and schedule articles in the Articles tab.';
+          : 'Review and approve articles in the Articles tab. The run moves to Publishing once they’re all approved.';
+      break;
+    }
+    case 'publishing': {
+      icon = <CheckCircle2 className="h-5 w-5 text-sky-500" />;
+      tone = 'border-sky-500/30 bg-sky-500/5';
+      const scheduled = run.article_stats?.scheduled ?? 0;
+      const approved = run.article_stats?.approved ?? 0;
+      message =
+        `All articles approved — set publish dates in the Articles tab` +
+        (approved > 0 ? ` (${approved} not yet scheduled).` : '.') +
+        ' Publishing itself runs via the Bast cron.';
+      void scheduled;
       break;
     }
     case 'done':

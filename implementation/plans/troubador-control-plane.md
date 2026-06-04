@@ -112,6 +112,10 @@ skill to operate the board via the API. Required skill behaviors:
 - Poll `GET /api/troubador/work-queue` (auth as the "Troubador" service user via API key) and act on
   each item: `generate_proposals`, `create_articles`, `research_article`, `post_interview_questions`,
   `draft_article`, `rewrite_article` (and later `publish_article`).
+- **On `draft_article`, set a suggested publish date** (`suggested_date` on the article PATCH),
+  derived from the schedule's publish cadence + the site's existing publishing calendar (avoid
+  same-site same-day). This pre-fills the date so the human only adjusts; the Article detail
+  already surfaces `suggested_date`. (Today this is unset because drafting was hand-faked.)
 - Claim leases (`/runs/:id/claim`, `/articles/:id/claim`) before working an item.
 - **Interview completion is NOT a UI button (by design).** When the human finishes the live CLI
   interview for a run, the skill must call `POST /api/troubador/runs/:id/interview-complete` itself

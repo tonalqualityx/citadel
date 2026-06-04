@@ -56,8 +56,15 @@ not all" smooth.
 | 2 | **Topic Selection** | Editor (human) | Worker has posted ~20 proposals. Editor checks topics, adds custom ones, marks ready. | Human sets `selection_ready` |
 | 3 | **Researching** | Worker | Researches each selected topic one at a time; writes research per article. | Worker advances when all articles researched |
 | 4 | **Ready for Interview** | Editor (human, in CLI) | Worker has posted **consolidated prep questions** to the card (emailed to client as prep). Editor runs the live, dynamic interview in CLI off the Bast machine. | **Troubador skill advances the run itself** on interview completion — not a manual flag |
-| 5 | **In Production** | Worker + Editor (per article) | Everything post-interview happens here at the **article** level: drafting → review → approve/revise → schedule. The run sits in one honest column while its articles diverge. | All non-dropped articles `published` |
-| 6 | **Done** | — | terminal | — |
+| 5 | **In Production** | Worker + Editor (per article) | Post-interview, per **article**: drafting → review → approve/revise. The run sits here while any live article is still being written or reviewed. | All live articles approved → Publishing |
+| 6 | **Publishing** | Editor + (cron) | All live articles are approved; editor sets/confirms publish dates; the Bast cron publishes each on its date. Visible column so an approved-but-unpublished run doesn't look stalled. | All live articles published/postponed → Done |
+| 7 | **Done** | — | terminal | — |
+
+> Stage sync (`lib/troubador/run-stage.ts`): the run auto-moves **in_production → publishing** when no
+> live (non-dropped) article is still in a writing/review status, and **→ done** when every live
+> article is published or postponed. Reopening an approved article via feedback pulls it back to
+> in_production. ("publishing" was added after initial build per the over-collapse of the original
+> Scheduling column — see history.)
 
 Plus run lifecycle states off the main flow: **Cancelled** (and Schedules can be Paused — see §5).
 
@@ -250,6 +257,7 @@ enum TroubadorRunStage {
   researching
   ready_for_interview
   in_production
+  publishing
   done
   cancelled
 }

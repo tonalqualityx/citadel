@@ -20,6 +20,7 @@ vi.mock('@/lib/db/prisma', () => ({
       updateMany: vi.fn(),
     },
     troubadorRun: {
+      findUnique: vi.fn(),
       update: vi.fn(),
     },
   },
@@ -43,6 +44,7 @@ const mockFindMany = prisma.article.findMany as Mock;
 const mockFindUnique = prisma.article.findUnique as Mock;
 const mockUpdate = prisma.article.update as Mock;
 const mockCommentUpdateMany = prisma.articleComment.updateMany as Mock;
+const mockRunFindUnique = prisma.troubadorRun.findUnique as Mock;
 
 const BOT = { userId: 'bot-1', role: 'pm', email: 'troubador@indelible.bot' };
 const HUMAN = { userId: 'editor-1', role: 'pm', email: 'mike@becomeindelible.com' };
@@ -76,6 +78,7 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     mockUpdate.mockResolvedValue({});
     mockFindMany.mockResolvedValue([]);
     mockFindUnique.mockResolvedValue(articleRow());
+    mockRunFindUnique.mockResolvedValue({ stage: 'in_production' });
   });
 
   it('forbids the Troubador worker from approving (403)', async () => {

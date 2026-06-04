@@ -147,7 +147,7 @@ export const troubadorEndpoints: ApiEndpoint[] = [
             {
               id: 'uuid',
               title: 'string',
-              stage: 'planning|topic_selection|researching|ready_for_interview|in_production|done|cancelled',
+              stage: 'planning|topic_selection|researching|ready_for_interview|in_production|publishing|done|cancelled',
               ready: 'boolean',
               selection_ready: 'boolean',
               client: { id: 'uuid', name: 'string' },

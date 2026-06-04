@@ -7,6 +7,7 @@ const STAGE_LABELS: Record<RunStage, string> = {
   researching: 'Researching',
   ready_for_interview: 'Ready for Interview',
   in_production: 'In Production',
+  publishing: 'Publishing',
   done: 'Done',
   cancelled: 'Cancelled',
 };
@@ -20,6 +21,7 @@ const STAGE_VARIANTS: Record<
   researching: 'info',
   ready_for_interview: 'warning',
   in_production: 'purple',
+  publishing: 'info',
   done: 'success',
   cancelled: 'error',
 };

@@ -28,6 +28,7 @@ const BOARD_STAGES: { id: RunStage; title: string }[] = [
   { id: 'researching', title: 'Researching' },
   { id: 'ready_for_interview', title: 'Ready for Interview' },
   { id: 'in_production', title: 'In Production' },
+  { id: 'publishing', title: 'Publishing' },
   { id: 'done', title: 'Done' },
 ];
 
@@ -149,6 +150,7 @@ export default function TroubadorBoardPage() {
       researching: [],
       ready_for_interview: [],
       in_production: [],
+      publishing: [],
       done: [],
       cancelled: [],
     };

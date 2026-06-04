@@ -7,6 +7,7 @@ import { formatArticleResponse } from '@/lib/api/troubador-formatters';
 import { isTroubadorBot, utcDayKey } from '@/lib/troubador/helpers';
 import { logStatusChange } from '@/lib/services/activity';
 import { notifyArticleNeedsReview } from '@/lib/services/troubador-notifications';
+import { recomputeProductionStage } from '@/lib/troubador/run-stage';
 
 const articleDetailInclude = {
   client: { select: { id: true, name: true } },
@@ -18,21 +19,6 @@ const articleDetailInclude = {
     orderBy: { created_at: 'desc' as const },
   },
 };
-
-// If every non-dropped article in the run is published or postponed, the run is done.
-async function maybeAdvanceRunToDone(runId: string) {
-  const articles = await prisma.article.findMany({
-    where: { run_id: runId, is_deleted: false, status: { not: 'dropped' } },
-    select: { status: true },
-  });
-  if (articles.length === 0) return;
-  const allTerminal = articles.every(
-    (a) => a.status === 'published' || a.status === 'postponed'
-  );
-  if (allTerminal) {
-    await prisma.troubadorRun.update({ where: { id: runId }, data: { stage: 'done' } });
-  }
-}
 
 export async function GET(
   request: NextRequest,
@@ -195,7 +181,7 @@ export async function PATCH(
       logStatusChange(auth.userId, 'article', id, article.title, sc.from, sc.to);
     }
     if (advanceRun) {
-      await maybeAdvanceRunToDone(article.run_id);
+      await recomputeProductionStage(article.run_id);
     }
     if (notifyReview) {
       notifyArticleNeedsReview(article.id).catch(() => {});

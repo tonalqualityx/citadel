@@ -1938,6 +1938,7 @@ enum TroubadorRunStage {
   researching
   ready_for_interview
   in_production
+  publishing            // all live articles approved; scheduling / awaiting publish
   done
   cancelled
 }

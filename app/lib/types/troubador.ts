@@ -6,6 +6,7 @@ export type RunStage =
   | 'researching'
   | 'ready_for_interview'
   | 'in_production'
+  | 'publishing'
   | 'done'
   | 'cancelled';
 
