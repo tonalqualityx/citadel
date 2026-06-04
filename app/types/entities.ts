@@ -66,7 +66,21 @@ export interface ClientListResponse {
 }
 
 // Site types
-export interface Site {
+export type SiteType = 'eleventy' | 'wordpress' | 'handoff';
+
+export interface SitePublishingConfig {
+  site_type: SiteType | null;
+  repo_url: string | null;
+  repo_branch: string | null;
+  content_dir: string | null;
+  wp_base_url: string | null;
+  wp_default_author: string | null;
+  wp_default_category: string | null;
+  handoff_method: string | null;
+  handoff_recipient: string | null;
+}
+
+export interface Site extends SitePublishingConfig {
   id: string;
   name: string;
   url: string | null;
@@ -115,6 +129,16 @@ export interface UpdateSiteInput {
   maintenance_plan_id?: string | null;
   maintenance_assignee_id?: string | null;
   notes?: string | null;
+  // Troubador publishing config
+  site_type?: SiteType | null;
+  repo_url?: string | null;
+  repo_branch?: string | null;
+  content_dir?: string | null;
+  wp_base_url?: string | null;
+  wp_default_author?: string | null;
+  wp_default_category?: string | null;
+  handoff_method?: string | null;
+  handoff_recipient?: string | null;
 }
 
 export interface SiteListResponse {

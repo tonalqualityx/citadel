@@ -64,6 +64,16 @@ export function formatSiteResponse(site: any) {
         }
       : null,
     notes: site.notes,
+    // Troubador publishing config
+    site_type: site.site_type ?? null,
+    repo_url: site.repo_url ?? null,
+    repo_branch: site.repo_branch ?? null,
+    content_dir: site.content_dir ?? null,
+    wp_base_url: site.wp_base_url ?? null,
+    wp_default_author: site.wp_default_author ?? null,
+    wp_default_category: site.wp_default_category ?? null,
+    handoff_method: site.handoff_method ?? null,
+    handoff_recipient: site.handoff_recipient ?? null,
     domains_count: site._count?.domains ?? site.domains?.length ?? 0,
     domains: site.domains?.map(formatDomainResponse),
     primary_domain: primaryDomain ? formatDomainResponse(primaryDomain) : null,

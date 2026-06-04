@@ -23,6 +23,7 @@ import {
   ClientSelect,
 } from '@/components/ui/inline-edit';
 import { SiteDomainsCard } from '@/components/domain/sites/site-domains-card';
+import { SitePublishingCard } from '@/components/domain/sites/site-publishing-card';
 import { showToast } from '@/lib/hooks/use-toast';
 import type { UpdateSiteInput, HostedBy } from '@/types/entities';
 
@@ -237,6 +238,9 @@ export default function SiteDetailPage({ params }: Props) {
             )}
           </CardContent>
         </Card>
+
+        {/* Troubador publishing config */}
+        <SitePublishingCard site={site} onUpdate={handleUpdate} />
 
         {/* Domains - Inline management */}
         <SiteDomainsCard siteId={site.id} domains={site.domains || []} />

@@ -15,6 +15,16 @@ const updateSiteSchema = z.object({
   maintenance_plan_id: z.string().uuid().optional().nullable(),
   maintenance_assignee_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // Troubador publishing config
+  site_type: z.enum(['eleventy', 'wordpress', 'handoff']).optional().nullable(),
+  repo_url: z.string().max(500).optional().nullable(),
+  repo_branch: z.string().max(100).optional().nullable(),
+  content_dir: z.string().max(255).optional().nullable(),
+  wp_base_url: z.string().max(500).optional().nullable(),
+  wp_default_author: z.string().max(255).optional().nullable(),
+  wp_default_category: z.string().max(255).optional().nullable(),
+  handoff_method: z.string().max(50).optional().nullable(),
+  handoff_recipient: z.string().max(255).optional().nullable(),
 });
 
 export async function GET(
