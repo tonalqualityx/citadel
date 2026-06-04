@@ -64,7 +64,8 @@ const patchArticleSchema = z.object({
   status: articleStatusEnum.optional(),
   title: z.string().optional(),
   scheduled_date: z.string().nullable().optional(),
-  action: z.enum(['approve', 'drop', 'postpone', 'reactivate', 'schedule']).optional(),
+  published_url: z.string().optional(),
+  action: z.enum(['approve', 'drop', 'postpone', 'reactivate', 'schedule', 'publish']).optional(),
 });
 
 export async function PATCH(
@@ -84,9 +85,25 @@ export async function PATCH(
     const bot = isTroubadorBot(auth);
     const data = patchArticleSchema.parse(await request.json());
 
-    // Worker cannot touch locked (approved) copy.
+    // Worker cannot EDIT locked (approved) copy — but it may publish/schedule it.
     if (bot && article.locked) {
-      throw new ApiError('Article is approved and locked', 409);
+      const touchesContent =
+        data.research_summary !== undefined ||
+        data.body !== undefined ||
+        data.social_copy !== undefined ||
+        data.title !== undefined ||
+        data.check_state !== undefined ||
+        data.check_report !== undefined;
+      const nonPublishAction =
+        data.action !== undefined && !['publish', 'schedule'].includes(data.action);
+      const badStatus =
+        data.status !== undefined && !['scheduled', 'published'].includes(data.status);
+      if (touchesContent || nonPublishAction || badStatus) {
+        throw new ApiError(
+          'Article is approved and locked — worker may only publish/schedule it',
+          409
+        );
+      }
     }
 
     const update: Record<string, unknown> = {};
@@ -118,6 +135,15 @@ export async function PATCH(
       if (article.status === 'postponed') {
         setStatus('needs_revision');
       }
+    }
+
+    // Publishing — worker (or human) marks the approved copy live.
+    if (data.action === 'publish' || data.status === 'published') {
+      setStatus('published');
+      advanceRun = true;
+    }
+    if (data.published_url !== undefined) {
+      update.published_url = data.published_url;
     }
 
     // Scheduling (action 'schedule' or scheduled_date provided)

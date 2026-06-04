@@ -156,6 +156,31 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     expect(mockCommentUpdateMany).not.toHaveBeenCalled();
   });
 
+  it('lets the worker publish an approved/locked article (sets published + url) without 409', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'scheduled', locked: true }));
+
+    const res = await PATCH(
+      patchReq({ action: 'publish', published_url: 'https://site.com/post' }),
+      { params }
+    );
+
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.status).toBe('published');
+    expect(data.published_url).toBe('https://site.com/post');
+  });
+
+  it('still blocks the worker from EDITING locked copy (409)', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'approved', locked: true }));
+
+    const res = await PATCH(patchReq({ body: 'worker tries to rewrite' }), { params });
+
+    expect(res.status).toBe(409);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('notifies the editor when the worker moves an article to in_review', async () => {
     const { notifyArticleNeedsReview } = await import(
       '@/lib/services/troubador-notifications'

@@ -601,14 +601,16 @@ model Site {
   // Notes
   notes               String?          @db.Text
 
-  // Troubador publishing config (reserved; publishing execution deferred to Bast cron)
-  site_type           SiteType?                            // eleventy | wordpress; null until configured
+  // Troubador publishing config
+  site_type           SiteType?                            // eleventy | wordpress | handoff; null until configured
   repo_url            String?          @db.VarChar(500)    // Eleventy: git repo
   repo_branch         String?          @db.VarChar(100)    // Eleventy: branch
-  content_dir         String?          @db.VarChar(255)    // Eleventy: content directory
+  content_dir         String?          @db.VarChar(255)    // Eleventy: content directory (build instructions live in-repo)
   wp_base_url         String?          @db.VarChar(500)    // WordPress: REST base URL
   wp_default_author   String?          @db.VarChar(255)    // WordPress: default author
   wp_default_category String?          @db.VarChar(255)    // WordPress: default category
+  handoff_method      String?          @db.VarChar(50)     // Handoff: e.g. citadel_card | email | drive
+  handoff_recipient   String?          @db.VarChar(255)    // Handoff: who receives the package
 
   // Metadata
   is_deleted          Boolean          @default(false)
@@ -1978,6 +1980,7 @@ enum ScheduleStatus {
 enum SiteType {
   eleventy
   wordpress
+  handoff
 }
 
 enum TopicArchetype {
