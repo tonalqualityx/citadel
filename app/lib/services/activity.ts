@@ -11,7 +11,7 @@ export type ActivityAction =
   | 'completed'
   | 'commented';
 
-export type EntityType = 'task' | 'project' | 'client' | 'site' | 'sop' | 'comment' | 'api_key' | 'meeting' | 'troubador_run' | 'troubador_schedule' | 'article';
+export type EntityType = 'task' | 'project' | 'client' | 'client_contact' | 'site' | 'sop' | 'comment' | 'api_key' | 'meeting' | 'troubador_run' | 'troubador_schedule' | 'article';
 
 export interface ActivityLogInput {
   userId: string;

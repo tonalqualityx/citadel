@@ -10,18 +10,26 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import type { SiteWithRelations, CreateSiteInput, UpdateSiteInput } from '@/types/entities';
+import type { SiteWithRelations, CreateSiteInput, UpdateSiteInput, SiteType } from '@/types/entities';
 
 const siteSchema = z.object({
   name: z.string().min(1, 'Name is required').max(255),
   url: z.string().url('Invalid URL').optional().or(z.literal('')),
   client_id: z.string().uuid('Please select a client'),
   hosted_by: z.enum(['indelible', 'client', 'other']),
+  site_type: z.enum(['eleventy', 'wordpress', 'handoff']).or(z.literal('')),
   platform: z.string().max(100).optional(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional(),
 });
+
+const siteTypeOptions = [
+  { value: '', label: 'Not set' },
+  { value: 'eleventy', label: 'Eleventy (Wright build)' },
+  { value: 'wordpress', label: 'WordPress' },
+  { value: 'handoff', label: 'Handoff' },
+];
 
 type SiteFormData = z.infer<typeof siteSchema>;
 
@@ -62,6 +70,7 @@ export function SiteForm({ site, defaultClientId, onSuccess, onCancel }: SiteFor
       url: site?.url || '',
       client_id: site?.client_id || defaultClientId || '',
       hosted_by: site?.hosted_by || 'indelible',
+      site_type: site?.site_type || '',
       platform: site?.platform || '',
       hosting_plan_id: site?.hosting_plan_id ?? null,
       maintenance_plan_id: site?.maintenance_plan_id ?? null,
@@ -74,6 +83,7 @@ export function SiteForm({ site, defaultClientId, onSuccess, onCancel }: SiteFor
       const payload = {
         ...data,
         url: data.url || undefined,
+        site_type: data.site_type || null,
       };
 
       if (isEditing) {
@@ -130,13 +140,26 @@ export function SiteForm({ site, defaultClientId, onSuccess, onCancel }: SiteFor
             onChange={(value) => setValue('hosted_by', value as SiteFormData['hosted_by'])}
           />
         </div>
-        <Input
-          label="Platform"
-          {...register('platform')}
-          error={errors.platform?.message}
-          placeholder="WordPress, Shopify, etc."
-        />
+        <div>
+          <label className="block text-sm font-medium text-text-main mb-1.5">Site Type</label>
+          <Select
+            options={siteTypeOptions}
+            value={watch('site_type')}
+            onChange={(value) => setValue('site_type', value as SiteType | '')}
+            placeholder="Select a type..."
+          />
+          <p className="mt-1 text-xs text-text-sub">
+            Drives publishing and email routing. Set Eleventy for Wright builds.
+          </p>
+        </div>
       </div>
+
+      <Input
+        label="Platform (optional detail)"
+        {...register('platform')}
+        error={errors.platform?.message}
+        placeholder="e.g. WordPress 6.4, Shopify — free-text notes only"
+      />
 
       <div>
         <label className="block text-sm font-medium text-text-main mb-1.5">Notes</label>

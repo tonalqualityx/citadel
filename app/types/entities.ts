@@ -109,9 +109,11 @@ export interface SiteWithRelations extends Site {
 
 export interface CreateSiteInput {
   name: string;
+  url?: string;
   client_id: string;
   hosted_by?: HostedBy;
   platform?: string;
+  site_type?: SiteType | null;
   hosting_plan_id?: string;
   hosting_discount?: number;
   maintenance_plan_id?: string;
@@ -1031,4 +1033,43 @@ export interface MeetingListResponse {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+// ============================================
+// CLIENT CONTACTS (email-check authorization gate)
+// ============================================
+
+export interface ClientContact {
+  id: string;
+  client_id: string;
+  name: string | null;
+  email: string;
+  role: string | null;
+  can_initiate_work: boolean;
+  is_primary: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientContactListResponse {
+  contacts: ClientContact[];
+}
+
+export interface CreateClientContactInput {
+  name?: string | null;
+  email: string;
+  role?: string | null;
+  can_initiate_work?: boolean;
+  is_primary?: boolean;
+  notes?: string | null;
+}
+
+export interface UpdateClientContactInput {
+  name?: string | null;
+  email?: string;
+  role?: string | null;
+  can_initiate_work?: boolean;
+  is_primary?: boolean;
+  notes?: string | null;
 }

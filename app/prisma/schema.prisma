@@ -546,11 +546,37 @@ model Client {
   troubador_schedules   TroubadorSchedule[]
   troubador_runs        TroubadorRun[]
   articles              Article[]
+  contacts              ClientContact[]
 
   @@index([type])
   @@index([status])
   @@index([parent_agency_id])
   @@map("clients")
+}
+
+// Authorized contacts for a client. Drives the email-check authorization gate:
+// only a contact with can_initiate_work may trigger work via email. The same email
+// can appear under multiple clients (one row each), e.g. agency contacts.
+model ClientContact {
+  id                String   @id @default(uuid()) @db.Uuid
+  client_id         String   @db.Uuid
+  client            Client   @relation(fields: [client_id], references: [id])
+
+  name              String?  @db.VarChar(255)
+  email             String   @db.VarChar(255)
+  role              String?  @db.VarChar(100)
+  can_initiate_work Boolean  @default(false)
+  is_primary        Boolean  @default(false)
+  notes             String?  @db.Text
+
+  is_deleted        Boolean  @default(false)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@unique([client_id, email])
+  @@index([email])
+  @@index([client_id])
+  @@map("client_contacts")
 }
 
 enum ClientType {

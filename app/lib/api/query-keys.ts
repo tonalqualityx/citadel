@@ -30,6 +30,11 @@ export const clientKeys = {
   detail: (id: string) => [...clientKeys.details(), id] as const,
 };
 
+export const clientContactKeys = {
+  all: ['client-contacts'] as const,
+  byClient: (clientId: string) => [...clientContactKeys.all, 'byClient', clientId] as const,
+};
+
 export const siteKeys = {
   all: ['sites'] as const,
   lists: () => [...siteKeys.all, 'list'] as const,
