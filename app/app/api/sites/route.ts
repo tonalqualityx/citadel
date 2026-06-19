@@ -7,9 +7,11 @@ import { formatSiteResponse } from '@/lib/api/formatters';
 
 const createSiteSchema = z.object({
   name: z.string().min(1).max(255),
+  url: z.string().max(500).optional(),
   client_id: z.string().uuid(),
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional(),
+  site_type: z.enum(['eleventy', 'wordpress', 'handoff']).optional().nullable(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
   hosting_discount: z.number().min(0).optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),

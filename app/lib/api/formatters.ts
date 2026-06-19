@@ -1,3 +1,18 @@
+export function formatClientContactResponse(contact: any) {
+  return {
+    id: contact.id,
+    client_id: contact.client_id,
+    name: contact.name,
+    email: contact.email,
+    role: contact.role,
+    can_initiate_work: contact.can_initiate_work,
+    is_primary: contact.is_primary,
+    notes: contact.notes,
+    created_at: contact.created_at,
+    updated_at: contact.updated_at,
+  };
+}
+
 export function formatClientResponse(client: any) {
   return {
     id: client.id,

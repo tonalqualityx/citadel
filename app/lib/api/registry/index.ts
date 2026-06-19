@@ -58,6 +58,7 @@ import { automationEndpoints } from './automation';
 import { addendumEndpoints } from './addendums';
 import { meetingEndpoints } from './meetings';
 import { troubadorEndpoints } from './troubador';
+import { contactEndpoints } from './contacts';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -85,6 +86,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...addendumEndpoints,
   ...meetingEndpoints,
   ...troubadorEndpoints,
+  ...contactEndpoints,
 ];
 
 /**
