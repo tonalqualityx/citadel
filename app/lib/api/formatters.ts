@@ -96,6 +96,7 @@ export function formatSiteResponse(site: any) {
     staging_auth_user: site.staging_auth_user ?? null,
     staging_auth_password: site.staging_auth_password ?? null,
     bast_enabled: site.bast_enabled ?? false,
+    auto_deploy: site.auto_deploy ?? false,
     domains_count: site._count?.domains ?? site.domains?.length ?? 0,
     domains: site.domains?.map(formatDomainResponse),
     primary_domain: primaryDomain ? formatDomainResponse(primaryDomain) : null,

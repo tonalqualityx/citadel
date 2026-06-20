@@ -66,7 +66,7 @@ export interface ClientListResponse {
 }
 
 // Site types
-export type SiteType = 'eleventy' | 'wordpress' | 'handoff';
+export type SiteType = 'eleventy' | 'wordpress' | 'handoff' | 'custom';
 
 export interface SitePublishingConfig {
   site_type: SiteType | null;
@@ -85,6 +85,7 @@ export interface SitePublishingConfig {
   staging_auth_user: string | null;
   staging_auth_password: string | null;
   bast_enabled: boolean;
+  auto_deploy: boolean;
 }
 
 export interface Site extends SitePublishingConfig {
@@ -155,6 +156,7 @@ export interface UpdateSiteInput {
   staging_auth_user?: string | null;
   staging_auth_password?: string | null;
   bast_enabled?: boolean;
+  auto_deploy?: boolean;
 }
 
 export interface SiteListResponse {

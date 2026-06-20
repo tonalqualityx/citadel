@@ -113,7 +113,7 @@ export const apiEnums = {
   articleCheckStates: ['pending', 'passed', 'check_failed', 'compliance_hold'],
   interviewStatuses: ['pending', 'in_progress', 'complete'],
   scheduleStatuses: ['active', 'paused', 'ended'],
-  siteTypes: ['eleventy', 'wordpress', 'handoff'],
+  siteTypes: ['eleventy', 'wordpress', 'handoff', 'custom'],
   topicArchetypes: ['pillar', 'thought_leadership', 'case_study', 'how_to', 'commodity'],
 };
 

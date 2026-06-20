@@ -650,6 +650,7 @@ model Site {
   staging_auth_user   String?          @db.VarChar(255)    // basic-auth user for the staging gate
   staging_auth_password String?        @db.VarChar(255)    // basic-auth password (gate only, not secret)
   bast_enabled        Boolean          @default(false)     // Bast may auto-execute work on this site
+  auto_deploy         Boolean          @default(false)     // deploy straight to prod (true) vs staging→approval (false); per-site, allowed on client sites that pre-authorize
 
   // Metadata
   is_deleted          Boolean          @default(false)
@@ -2049,6 +2050,7 @@ enum SiteType {
   eleventy
   wordpress
   handoff
+  custom // bespoke dev build (e.g. a Next.js app like Citadel); not an Eleventy/WP publish target
 }
 
 enum TopicArchetype {

@@ -11,7 +11,7 @@ const createSiteSchema = z.object({
   client_id: z.string().uuid(),
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional(),
-  site_type: z.enum(['eleventy', 'wordpress', 'handoff']).optional().nullable(),
+  site_type: z.enum(['eleventy', 'wordpress', 'handoff', 'custom']).optional().nullable(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
   hosting_discount: z.number().min(0).optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
@@ -24,6 +24,7 @@ const createSiteSchema = z.object({
   staging_auth_user: z.string().max(255).optional().nullable(),
   staging_auth_password: z.string().max(255).optional().nullable(),
   bast_enabled: z.boolean().optional(),
+  auto_deploy: z.boolean().optional(),
 });
 
 export async function GET(request: NextRequest) {
