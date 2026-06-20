@@ -10,6 +10,7 @@ const SITE_TYPE_OPTIONS = [
   { value: 'eleventy', label: 'Eleventy (git)' },
   { value: 'wordpress', label: 'WordPress (REST)' },
   { value: 'handoff', label: 'Handoff' },
+  { value: 'custom', label: 'Custom (dev build)' },
 ];
 
 /**
@@ -119,6 +120,17 @@ export function SitePublishingCard({
           <Switch
             checked={site.bast_enabled ?? false}
             onCheckedChange={(bast_enabled) => onUpdate({ bast_enabled })}
+          />
+        </div>
+
+        <div className="pt-2 mt-2 border-t border-border flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-text-main">Auto-deploy to production</p>
+            <p className="text-xs text-text-sub">On: ship straight to prod. Off: stage and wait for client approval.</p>
+          </div>
+          <Switch
+            checked={site.auto_deploy ?? false}
+            onCheckedChange={(auto_deploy) => onUpdate({ auto_deploy })}
           />
         </div>
 

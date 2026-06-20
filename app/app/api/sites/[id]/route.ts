@@ -16,7 +16,7 @@ const updateSiteSchema = z.object({
   maintenance_assignee_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
   // Troubador publishing config
-  site_type: z.enum(['eleventy', 'wordpress', 'handoff']).optional().nullable(),
+  site_type: z.enum(['eleventy', 'wordpress', 'handoff', 'custom']).optional().nullable(),
   repo_url: z.string().max(500).optional().nullable(),
   repo_branch: z.string().max(100).optional().nullable(),
   content_dir: z.string().max(255).optional().nullable(),
@@ -32,6 +32,7 @@ const updateSiteSchema = z.object({
   staging_auth_user: z.string().max(255).optional().nullable(),
   staging_auth_password: z.string().max(255).optional().nullable(),
   bast_enabled: z.boolean().optional(),
+  auto_deploy: z.boolean().optional(),
 });
 
 export async function GET(

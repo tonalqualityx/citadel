@@ -17,7 +17,7 @@ const siteSchema = z.object({
   url: z.string().url('Invalid URL').optional().or(z.literal('')),
   client_id: z.string().uuid('Please select a client'),
   hosted_by: z.enum(['indelible', 'client', 'other']),
-  site_type: z.enum(['eleventy', 'wordpress', 'handoff']).or(z.literal('')),
+  site_type: z.enum(['eleventy', 'wordpress', 'handoff', 'custom']).or(z.literal('')),
   platform: z.string().max(100).optional(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
@@ -29,6 +29,7 @@ const siteTypeOptions = [
   { value: 'eleventy', label: 'Eleventy (Wright build)' },
   { value: 'wordpress', label: 'WordPress' },
   { value: 'handoff', label: 'Handoff' },
+  { value: 'custom', label: 'Custom (dev build)' },
 ];
 
 type SiteFormData = z.infer<typeof siteSchema>;
