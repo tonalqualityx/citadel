@@ -39,6 +39,16 @@ const createTaskSchema = z.object({
   is_support: z.boolean().optional(),
   accord_id: z.string().uuid().optional().nullable(),
   charter_id: z.string().uuid().optional().nullable(),
+  // Bast triage: classification + provenance
+  tags: z.array(z.string().max(50)).optional(),
+  source: z.enum(['portal', 'email', 'internal']).optional(),
+  source_ref: z.string().max(255).optional().nullable(),
+  requested_by_contact_id: z.string().uuid().optional().nullable(),
+  // Client staging approval
+  staging_preview_url: z.string().max(500).optional().nullable(),
+  staging_deployed_at: z.string().datetime().optional().nullable(),
+  client_approved_at: z.string().datetime().optional().nullable(),
+  approved_by_contact_id: z.string().uuid().optional().nullable(),
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -66,6 +76,11 @@ export async function GET(request: NextRequest) {
     const myTasks = searchParams.get('my_tasks') === 'true';
     const pendingReview = searchParams.get('pending_review') === 'true';
     const activeOnly = searchParams.get('active_only') === 'true';
+    const source = searchParams.get('source') || undefined;
+    // tags: comma-separated; matches tasks that have ALL of them (e.g. "bast-doable,stack:eleventy")
+    const tagList = searchParams.get('tags')
+      ? searchParams.get('tags')!.split(',').map((t) => t.trim()).filter(Boolean)
+      : null;
 
     // Parse multiple statuses if provided
     const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
@@ -87,6 +102,8 @@ export async function GET(request: NextRequest) {
       ...(charterId && { charter_id: charterId }),
       ...(maintenancePeriod && { maintenance_period: maintenancePeriod }),
       ...(phase && { phase }),
+      ...(source && { source }),
+      ...(tagList && { tags: { hasEvery: tagList } }),
       // Pending review filter: done tasks that need review and aren't approved
       ...(pendingReview && {
         status: 'done',
@@ -397,6 +414,15 @@ export async function POST(request: NextRequest) {
         maintenance_period: data.charter_id
           ? (() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; })()
           : undefined,
+        // Bast triage: classification + provenance
+        tags: data.tags ?? undefined,
+        source: data.source,
+        source_ref: data.source_ref,
+        requested_by_contact_id: data.requested_by_contact_id,
+        staging_preview_url: data.staging_preview_url,
+        staging_deployed_at: data.staging_deployed_at ? new Date(data.staging_deployed_at) : null,
+        client_approved_at: data.client_approved_at ? new Date(data.client_approved_at) : null,
+        approved_by_contact_id: data.approved_by_contact_id,
         created_by_id: auth.userId,
       },
       include: {

@@ -89,6 +89,13 @@ export function formatSiteResponse(site: any) {
     wp_default_category: site.wp_default_category ?? null,
     handoff_method: site.handoff_method ?? null,
     handoff_recipient: site.handoff_recipient ?? null,
+    // Staging + Bast worker config
+    prod_branch: site.prod_branch ?? null,
+    staging_branch: site.staging_branch ?? null,
+    staging_url: site.staging_url ?? null,
+    staging_auth_user: site.staging_auth_user ?? null,
+    staging_auth_password: site.staging_auth_password ?? null,
+    bast_enabled: site.bast_enabled ?? false,
     domains_count: site._count?.domains ?? site.domains?.length ?? 0,
     domains: site.domains?.map(formatDomainResponse),
     primary_domain: primaryDomain ? formatDomainResponse(primaryDomain) : null,
@@ -891,6 +898,15 @@ export function formatTaskResponse(task: any) {
     is_maintenance_task: task.is_maintenance_task ?? false,
     maintenance_period: task.maintenance_period,
     time_spent_minutes: timeSpentMinutes,
+    // Bast triage: classification + provenance + staging approval
+    tags: task.tags ?? [],
+    source: task.source,
+    source_ref: task.source_ref,
+    requested_by_contact_id: task.requested_by_contact_id,
+    staging_preview_url: task.staging_preview_url,
+    staging_deployed_at: task.staging_deployed_at,
+    client_approved_at: task.client_approved_at,
+    approved_by_contact_id: task.approved_by_contact_id,
     project: task.project
       ? {
           id: task.project.id,

@@ -78,6 +78,13 @@ export interface SitePublishingConfig {
   wp_default_category: string | null;
   handoff_method: string | null;
   handoff_recipient: string | null;
+  // Staging + Bast worker config
+  prod_branch: string | null;
+  staging_branch: string | null;
+  staging_url: string | null;
+  staging_auth_user: string | null;
+  staging_auth_password: string | null;
+  bast_enabled: boolean;
 }
 
 export interface Site extends SitePublishingConfig {
@@ -141,6 +148,13 @@ export interface UpdateSiteInput {
   wp_default_category?: string | null;
   handoff_method?: string | null;
   handoff_recipient?: string | null;
+  // Staging + Bast worker config
+  prod_branch?: string | null;
+  staging_branch?: string | null;
+  staging_url?: string | null;
+  staging_auth_user?: string | null;
+  staging_auth_password?: string | null;
+  bast_enabled?: boolean;
 }
 
 export interface SiteListResponse {

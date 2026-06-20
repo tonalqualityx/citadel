@@ -573,6 +573,10 @@ model ClientContact {
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
 
+  // Tasks this contact requested / approved (Bast worker provenance)
+  requested_tasks   Task[]   @relation("TaskRequestedByContact")
+  approved_tasks    Task[]   @relation("TaskApprovedByContact")
+
   @@unique([client_id, email])
   @@index([email])
   @@index([client_id])
@@ -637,6 +641,15 @@ model Site {
   wp_default_category String?          @db.VarChar(255)    // WordPress: default category
   handoff_method      String?          @db.VarChar(50)     // Handoff: e.g. citadel_card | email | drive
   handoff_recipient   String?          @db.VarChar(255)    // Handoff: who receives the package
+
+  // Staging + Bast worker config. Deploy mechanics live in the repo's GH Action; these are
+  // just the pointers Bast needs. staging_auth is a low-stakes gate (keep Google/bots out).
+  prod_branch         String?          @db.VarChar(100)    // defaults to repo_branch if null
+  staging_branch      String?          @db.VarChar(100)    // e.g. 'staging'
+  staging_url         String?          @db.VarChar(500)    // convention: staging.{primary-domain}
+  staging_auth_user   String?          @db.VarChar(255)    // basic-auth user for the staging gate
+  staging_auth_password String?        @db.VarChar(255)    // basic-auth password (gate only, not secret)
+  bast_enabled        Boolean          @default(false)     // Bast may auto-execute work on this site
 
   // Metadata
   is_deleted          Boolean          @default(false)
@@ -979,6 +992,22 @@ model Task {
   // Notes
   notes             String?       @db.Text
 
+  // Classification & source (Bast triage). tags carry triage states (bast-doable,
+  // needs-info, awaiting-client-approval, ...) AND classification namespaces (stack:eleventy,
+  // kind:content, ...).
+  tags                     String[]       @default([]) @db.VarChar(50)
+  source                   TaskSource     @default(internal)
+  source_ref               String?        @db.VarChar(255) // email message-id / portal submission id
+  requested_by_contact_id  String?        @db.Uuid
+  requested_by_contact     ClientContact? @relation("TaskRequestedByContact", fields: [requested_by_contact_id], references: [id])
+
+  // Client staging approval (clients are not Users — approval is by ClientContact)
+  staging_preview_url      String?        @db.VarChar(500)
+  staging_deployed_at      DateTime?
+  client_approved_at       DateTime?
+  approved_by_contact_id   String?        @db.Uuid
+  approved_by_contact      ClientContact? @relation("TaskApprovedByContact", fields: [approved_by_contact_id], references: [id])
+
   // Metadata
   is_deleted        Boolean       @default(false)
   created_at        DateTime      @default(now())
@@ -1010,6 +1039,9 @@ model Task {
   @@index([charter_id])
   @@index([accord_id])
   @@index([meeting_id])
+  @@index([source])
+  @@index([requested_by_contact_id])
+  @@index([approved_by_contact_id])
   @@map("tasks")
 }
 
@@ -1020,6 +1052,12 @@ enum TaskStatus {
   done
   blocked
   abandoned
+}
+
+enum TaskSource {
+  portal
+  email
+  internal
 }
 
 enum MysteryFactor {
@@ -1161,6 +1199,10 @@ model Sop {
   function_id           String?   @db.Uuid
   function              Function? @relation(fields: [function_id], references: [id])
   tags                  String[]  @default([]) @db.VarChar(50)
+
+  // Capability gate: this kind of work is automatable by Bast (combined AND'd with
+  // Site.bast_enabled — Bast auto-executes only when both are true).
+  bast_executable       Boolean   @default(false)
 
   // Task template defaults (when creating tasks from this SOP)
   default_priority      Int           @default(3)        // 1=highest, 5=lowest

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { InlineText, InlineSelect } from '@/components/ui/inline-edit';
+import { Switch } from '@/components/ui/switch';
 import type { SiteWithRelations, UpdateSiteInput, SiteType } from '@/types/entities';
 
 const SITE_TYPE_OPTIONS = [
@@ -68,8 +69,58 @@ export function SitePublishingCard({
               Build details (filename, frontmatter, future-date filter) live in the repo&apos;s{' '}
               <code>troubador.config.json</code>.
             </p>
+
+            <div className="pt-2 mt-2 border-t border-border">
+              <p className="text-xs font-semibold text-text-main mb-2">Staging &amp; deploy</p>
+              <Field label="Prod branch">
+                <InlineText
+                  value={site.prod_branch}
+                  onChange={(prod_branch) => onUpdate({ prod_branch })}
+                  placeholder="main (defaults to repo branch)"
+                />
+              </Field>
+              <Field label="Staging branch">
+                <InlineText
+                  value={site.staging_branch}
+                  onChange={(staging_branch) => onUpdate({ staging_branch })}
+                  placeholder="staging"
+                />
+              </Field>
+              <Field label="Staging URL">
+                <InlineText
+                  value={site.staging_url}
+                  onChange={(staging_url) => onUpdate({ staging_url })}
+                  placeholder="staging.example.com"
+                />
+              </Field>
+              <Field label="Staging auth user">
+                <InlineText
+                  value={site.staging_auth_user}
+                  onChange={(staging_auth_user) => onUpdate({ staging_auth_user })}
+                  placeholder="basic-auth user (keeps bots out)"
+                />
+              </Field>
+              <Field label="Staging auth password">
+                <InlineText
+                  value={site.staging_auth_password}
+                  onChange={(staging_auth_password) => onUpdate({ staging_auth_password })}
+                  placeholder="basic-auth password (gate only)"
+                />
+              </Field>
+            </div>
           </>
         )}
+
+        <div className="pt-2 mt-2 border-t border-border flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold text-text-main">Bast may auto-edit this site</p>
+            <p className="text-xs text-text-sub">Only when the matched SOP is also Bast-executable.</p>
+          </div>
+          <Switch
+            checked={site.bast_enabled ?? false}
+            onCheckedChange={(bast_enabled) => onUpdate({ bast_enabled })}
+          />
+        </div>
 
         {type === 'wordpress' && (
           <>

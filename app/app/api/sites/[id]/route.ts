@@ -25,6 +25,13 @@ const updateSiteSchema = z.object({
   wp_default_category: z.string().max(255).optional().nullable(),
   handoff_method: z.string().max(50).optional().nullable(),
   handoff_recipient: z.string().max(255).optional().nullable(),
+  // Staging + Bast worker config
+  prod_branch: z.string().max(100).optional().nullable(),
+  staging_branch: z.string().max(100).optional().nullable(),
+  staging_url: z.string().max(500).optional().nullable(),
+  staging_auth_user: z.string().max(255).optional().nullable(),
+  staging_auth_password: z.string().max(255).optional().nullable(),
+  bast_enabled: z.boolean().optional(),
 });
 
 export async function GET(

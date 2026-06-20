@@ -37,6 +37,7 @@ interface Sop {
   estimated_minutes: number | null;
   tags: string[];
   is_active: boolean;
+  bast_executable?: boolean;
   // Task template fields
   default_priority?: number;
   energy_estimate?: number | null;
@@ -61,6 +62,7 @@ export function SopForm({ sop }: SopFormProps) {
   const [content, setContent] = React.useState<unknown>(sop?.content || null);
   const [functionId, setFunctionId] = React.useState(sop?.function?.id || '');
   const [isActive, setIsActive] = React.useState(sop?.is_active ?? true);
+  const [bastExecutable, setBastExecutable] = React.useState(sop?.bast_executable ?? false);
 
   // Task template fields
   const [defaultPriority, setDefaultPriority] = React.useState(
@@ -116,6 +118,7 @@ export function SopForm({ sop }: SopFormProps) {
       content,
       function_id: functionId || null,
       is_active: isActive,
+      bast_executable: bastExecutable,
       // Task template fields
       default_priority: parseInt(defaultPriority),
       energy_estimate: energyEstimate ? parseInt(energyEstimate) : null,
@@ -268,15 +271,26 @@ export function SopForm({ sop }: SopFormProps) {
       </Card>
 
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-            className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary"
-          />
-          <span className="text-sm text-text-main">Active</span>
-        </label>
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+              className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary"
+            />
+            <span className="text-sm text-text-main">Active</span>
+          </label>
+          <label className="flex items-center gap-2" title="Bast may auto-execute work from this SOP (combined with a Bast-enabled site)">
+            <input
+              type="checkbox"
+              checked={bastExecutable}
+              onChange={(e) => setBastExecutable(e.target.checked)}
+              className="h-4 w-4 rounded border-border-warm text-primary focus:ring-primary"
+            />
+            <span className="text-sm text-text-main">Bast-executable</span>
+          </label>
+        </div>
 
         <div className="flex gap-3">
           <Button

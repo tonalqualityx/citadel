@@ -67,6 +67,15 @@ const updateTaskSchema = z.object({
   is_support: z.boolean().optional(),
   // Time tracking
   no_time_needed: z.boolean().optional(),
+  // Bast triage: classification + provenance + staging approval
+  tags: z.array(z.string().max(50)).optional(),
+  source: z.enum(['portal', 'email', 'internal']).optional(),
+  source_ref: z.string().max(255).optional().nullable(),
+  requested_by_contact_id: z.string().uuid().optional().nullable(),
+  staging_preview_url: z.string().max(500).optional().nullable(),
+  staging_deployed_at: z.string().datetime().optional().nullable(),
+  client_approved_at: z.string().datetime().optional().nullable(),
+  approved_by_contact_id: z.string().uuid().optional().nullable(),
 });
 
 const updateStatusSchema = z.object({
@@ -472,6 +481,20 @@ export async function PATCH(
 
     // Time tracking fields
     if (data.no_time_needed !== undefined) updateData.no_time_needed = data.no_time_needed;
+
+    // Bast triage: classification + provenance + staging approval
+    if (data.tags !== undefined) updateData.tags = data.tags;
+    if (data.source !== undefined) updateData.source = data.source;
+    if (data.source_ref !== undefined) updateData.source_ref = data.source_ref;
+    if (data.requested_by_contact_id !== undefined) updateData.requested_by_contact_id = data.requested_by_contact_id;
+    if (data.staging_preview_url !== undefined) updateData.staging_preview_url = data.staging_preview_url;
+    if (data.staging_deployed_at !== undefined) {
+      updateData.staging_deployed_at = data.staging_deployed_at ? new Date(data.staging_deployed_at) : null;
+    }
+    if (data.client_approved_at !== undefined) {
+      updateData.client_approved_at = data.client_approved_at ? new Date(data.client_approved_at) : null;
+    }
+    if (data.approved_by_contact_id !== undefined) updateData.approved_by_contact_id = data.approved_by_contact_id;
 
     const task = await prisma.task.update({
       where: { id },
