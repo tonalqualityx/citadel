@@ -10,6 +10,7 @@ const updateSopSchema = z.object({
   content: z.any().optional(),
   function_id: z.string().uuid().optional().nullable(),
   tags: z.array(z.string().max(50)).optional(),
+  bast_executable: z.boolean().optional(),
   template_requirements: z.any().optional().nullable(),
   is_active: z.boolean().optional(),
   next_review_at: z.string().datetime().optional().nullable(),
@@ -83,6 +84,7 @@ export async function GET(
         content: sop.content,
         function: sop.function,
         tags: sop.tags ?? [],
+        bast_executable: sop.bast_executable ?? false,
         template_requirements: sop.template_requirements,
         setup_requirements: sop.setup_requirements,
         review_requirements: sop.review_requirements,
@@ -145,6 +147,7 @@ export async function PATCH(
     if (data.tags !== undefined) {
       updateData.tags = data.tags;
     }
+    if (data.bast_executable !== undefined) updateData.bast_executable = data.bast_executable;
     if (data.template_requirements !== undefined) {
       updateData.template_requirements = data.template_requirements;
     }

@@ -10,6 +10,7 @@ const createSopSchema = z.object({
   content: z.any().optional(),
   function_id: z.string().uuid().optional().nullable(),
   tags: z.array(z.string().max(50)).optional().default([]),
+  bast_executable: z.boolean().optional().default(false),
   template_requirements: z.any().optional().nullable(),
   next_review_at: z.string().datetime().optional().nullable(),
   // Task template fields
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest) {
       title: sop.title,
       function: sop.function,
       tags: sop.tags ?? [],
+      bast_executable: sop.bast_executable ?? false,
       is_active: sop.is_active,
       // Task template fields
       default_priority: sop.default_priority,
@@ -127,6 +129,7 @@ export async function POST(request: NextRequest) {
         content: data.content ?? undefined,
         function_id: data.function_id,
         tags: data.tags,
+        bast_executable: data.bast_executable,
         template_requirements: data.template_requirements ?? undefined,
         next_review_at: data.next_review_at ? new Date(data.next_review_at) : null,
         // Task template fields

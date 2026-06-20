@@ -17,6 +17,13 @@ const createSiteSchema = z.object({
   maintenance_plan_id: z.string().uuid().optional().nullable(),
   maintenance_assignee_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional(),
+  // Staging + Bast worker config
+  prod_branch: z.string().max(100).optional().nullable(),
+  staging_branch: z.string().max(100).optional().nullable(),
+  staging_url: z.string().max(500).optional().nullable(),
+  staging_auth_user: z.string().max(255).optional().nullable(),
+  staging_auth_password: z.string().max(255).optional().nullable(),
+  bast_enabled: z.boolean().optional(),
 });
 
 export async function GET(request: NextRequest) {
