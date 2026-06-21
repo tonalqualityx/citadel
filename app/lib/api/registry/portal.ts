@@ -76,6 +76,31 @@ export const portalEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/portal/articles/:id',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "A single article for the logged-in client's full-screen review/edit screen (C4), client-scoped via the A2 projection. Requires a client_session cookie.",
+        auth: 'session',
+        responseExample: {
+          article: {
+            id: 'uuid',
+            title: 'string',
+            status: 'in_review',
+            body: 'string|null',
+            comments: [{ id: 'uuid', content: 'string', author_name: 'string|null', created_at: 'ISO-8601' }],
+            created_at: 'ISO-8601',
+            updated_at: 'ISO-8601',
+          },
+        },
+        responseNotes:
+          '401 without a valid client session; 403 when the article belongs to a different client; 404 if it does not exist or is still an internal draft stage (existence not leaked). Internal fields never leak (allow-list projection).',
+      },
+    ],
+  },
+  {
     path: '/api/portal/tasks/:token',
     group: 'portal',
     methods: [
