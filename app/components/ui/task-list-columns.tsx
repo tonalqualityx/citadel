@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Calendar, ExternalLink, AlertCircle, Clock, CircleDot, CheckCircle2, Circle } from 'lucide-react';
 import { Avatar } from './avatar';
 import { Badge } from './badge';
+import { TagChips } from './tag-chips';
 import { Tooltip } from './tooltip';
 import {
   TaskStatusInlineSelect,
@@ -197,6 +198,9 @@ export function titleColumn(options?: TitleColumnOptions): TaskListColumn {
         </div>
         {options?.showProject && task.project && (
           <div className="text-sm text-text-sub truncate">{task.project.name}</div>
+        )}
+        {Array.isArray(task.tags) && task.tags.length > 0 && (
+          <TagChips tags={task.tags} className="mt-1" />
         )}
       </div>
     ),

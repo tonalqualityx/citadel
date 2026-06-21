@@ -40,6 +40,7 @@ import {
   DrawerCloseButton,
 } from '@/components/ui/drawer';
 import { Badge } from '@/components/ui/badge';
+import { TagChips } from '@/components/ui/tag-chips';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -454,6 +455,11 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                   </div>
                 </Tooltip>
               </div>
+
+              {/* Tags - triage state + stack:/kind: classification (read-only) */}
+              {task.tags && task.tags.length > 0 && (
+                <TagChips tags={task.tags} size="default" />
+              )}
 
               {/* Time Estimate with Progress Bar */}
               {(() => {

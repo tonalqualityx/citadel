@@ -11,6 +11,8 @@ export interface Task {
   status: string;
   priority: number;
   is_focus: boolean;
+  // Triage-state + stack:/kind: classification tags (read-only display; see bast-work-support)
+  tags: string[];
   project_id: string | null;
   project: {
     id: string;

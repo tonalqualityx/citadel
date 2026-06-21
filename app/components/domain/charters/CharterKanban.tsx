@@ -16,6 +16,7 @@ import {
 import { useDroppable } from '@dnd-kit/core';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { TagChips } from '@/components/ui/tag-chips';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils/cn';
 import { useTasks, useUpdateTaskStatus, type Task } from '@/lib/hooks/use-tasks';
@@ -433,6 +434,10 @@ function TaskCard({ task, isDragOverlay, columnId }: { task: Task; isDragOverlay
           <Badge variant="error" size="sm">Overdue</Badge>
         )}
       </div>
+
+      {task.tags && task.tags.length > 0 && (
+        <TagChips tags={task.tags} className="mt-2" />
+      )}
 
       <div className="flex items-center justify-between mt-2 text-xs text-text-sub">
         <div className="flex items-center gap-2">
