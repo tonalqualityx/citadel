@@ -12,6 +12,7 @@ export const sopEndpoints: ApiEndpoint[] = [
         queryParams: [
           { name: 'search', type: 'string', required: false, description: 'Search by title' },
           { name: 'function_id', type: 'uuid', required: false, description: 'Filter by function' },
+          { name: 'tag', type: 'string', required: false, description: 'Filter to SOPs that have this exact tag' },
           { name: 'is_active', type: 'boolean', required: false, description: 'Filter by active status' },
           { name: 'page', type: 'number', required: false, description: 'Page number' },
           { name: 'limit', type: 'number', required: false, description: 'Items per page' },
@@ -43,6 +44,18 @@ export const sopEndpoints: ApiEndpoint[] = [
           { name: 'bast_executable', type: 'boolean', required: false, description: 'Capability gate: this KIND of work is automatable by Bast in principle (default false). AND-ed with Site.bast_enabled.' },
         ],
         responseExample: { id: 'uuid', title: 'string', created_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/sops/tags',
+    group: 'sops',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Distinct list of tags across active SOPs (sorted). Powers the SOP list tag filter.',
+        auth: 'required',
+        responseExample: { tags: ['string'] },
       },
     ],
   },

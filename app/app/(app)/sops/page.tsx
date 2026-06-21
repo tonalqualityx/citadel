@@ -4,8 +4,9 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, FileText, Pencil, Trash2, X, Filter } from 'lucide-react';
-import { useSops, useBulkDeleteSops } from '@/lib/hooks/use-sops';
+import { useSops, useSopTags, useBulkDeleteSops } from '@/lib/hooks/use-sops';
 import { useFunctions } from '@/lib/hooks/use-reference-data';
+import { parseTag } from '@/lib/utils/task-tags';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { Button } from '@/components/ui/button';
@@ -39,16 +40,19 @@ export default function SopsPage() {
   const { isAdmin } = useAuth();
   const [search, setSearch] = React.useState('');
   const [functionId, setFunctionId] = React.useState('');
+  const [tag, setTag] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = React.useState(false);
 
   const { data: functionsData } = useFunctions();
+  const { data: tagsData } = useSopTags();
   const { data, isLoading, error } = useSops({
     page,
     search: search || undefined,
     function_id: functionId || undefined,
+    tag: tag || undefined,
   });
   const bulkDelete = useBulkDeleteSops();
 
@@ -61,15 +65,27 @@ export default function SopsPage() {
     return [{ value: '', label: 'All Functions' }, ...opts];
   }, [functionsData?.functions]);
 
-  // Clear selection when page, search, or function filter changes
+  // Build tag options for filter (prettified labels, namespace prefix kept legible)
+  const tagOptions = React.useMemo(() => {
+    const opts = (tagsData?.tags || []).map((raw) => {
+      const parsed = parseTag(raw);
+      return {
+        value: raw,
+        label: parsed.namespace ? `${parsed.namespace}: ${parsed.label}` : parsed.label,
+      };
+    });
+    return [{ value: '', label: 'All Tags' }, ...opts];
+  }, [tagsData?.tags]);
+
+  // Clear selection when page, search, or filters change
   React.useEffect(() => {
     setSelectedIds([]);
-  }, [page, search, functionId]);
+  }, [page, search, functionId, tag]);
 
   // Reset page when filters change
   React.useEffect(() => {
     setPage(1);
-  }, [search, functionId]);
+  }, [search, functionId, tag]);
 
   const handleBulkEditSuccess = () => {
     setSelectedIds([]);
@@ -184,15 +200,25 @@ export default function SopsPage() {
               placeholder="All Functions"
               className="sm:w-48"
             />
-            {functionId && (
+            <Select
+              options={tagOptions}
+              value={tag}
+              onChange={setTag}
+              placeholder="All Tags"
+              className="sm:w-48"
+            />
+            {(functionId || tag) && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setFunctionId('')}
+                onClick={() => {
+                  setFunctionId('');
+                  setTag('');
+                }}
                 className="self-start"
               >
                 <X className="h-4 w-4 mr-1" />
-                Clear filter
+                Clear filter{functionId && tag ? 's' : ''}
               </Button>
             )}
           </div>

@@ -90,6 +90,14 @@ export function useSops(filters: SopFilters = {}) {
   });
 }
 
+// Distinct tags across active SOPs — powers the SOP list tag filter.
+export function useSopTags() {
+  return useQuery({
+    queryKey: ['sops', 'tags'],
+    queryFn: () => apiClient.get<{ tags: string[] }>('/sops/tags'),
+  });
+}
+
 export function useSop(id: string | null) {
   return useQuery({
     queryKey: ['sops', id],
