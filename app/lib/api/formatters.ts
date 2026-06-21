@@ -294,7 +294,7 @@ export function formatMilestoneResponse(milestone: any) {
 }
 
 // Helper to parse JSON strings (description/notes are stored as JSON strings in Text fields)
-function parseJsonField(value: any): any {
+export function parseJsonField(value: any): any {
   if (!value) return null;
   if (typeof value === 'object') return value; // Already parsed
   try {
