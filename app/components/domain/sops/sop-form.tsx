@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
+import { TagEditor } from '@/components/ui/tag-editor';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   PriorityFormSelect,
@@ -61,6 +62,7 @@ export function SopForm({ sop }: SopFormProps) {
   const [title, setTitle] = React.useState(sop?.title || '');
   const [content, setContent] = React.useState<unknown>(sop?.content || null);
   const [functionId, setFunctionId] = React.useState(sop?.function?.id || '');
+  const [tags, setTags] = React.useState<string[]>(sop?.tags || []);
   const [isActive, setIsActive] = React.useState(sop?.is_active ?? true);
   const [bastExecutable, setBastExecutable] = React.useState(sop?.bast_executable ?? false);
 
@@ -117,6 +119,7 @@ export function SopForm({ sop }: SopFormProps) {
       title: title.trim(),
       content,
       function_id: functionId || null,
+      tags,
       is_active: isActive,
       bast_executable: bastExecutable,
       // Task template fields
@@ -153,6 +156,15 @@ export function SopForm({ sop }: SopFormProps) {
             onChange={setFunctionId}
             placeholder="Select function (optional)"
           />
+
+          <div>
+            <label className="block text-sm font-medium text-text-main mb-1">Tags</label>
+            <p className="text-sm text-text-sub mb-2">
+              Classification tags (e.g. <code>stack:eleventy</code>, <code>kind:setup</code>) used
+              for filtering and triage.
+            </p>
+            <TagEditor tags={tags} onChange={setTags} placeholder="Add a tag…" />
+          </div>
         </CardContent>
       </Card>
 

@@ -30,6 +30,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Tooltip } from '@/components/ui/tooltip';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { InlineFunctionSelect } from '@/components/ui/function-select';
+import { TagEditor } from '@/components/ui/tag-editor';
 import { SectionedRequirementsEditor, type RequirementEntry } from '@/components/ui/sectioned-requirements-editor';
 import {
   StatusInlineSelect,
@@ -431,6 +432,24 @@ export default function SopDetailPage({ params }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Tags */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Tags</CardTitle>
+          <p className="text-sm text-text-sub">
+            Classification tags (e.g. <code>stack:eleventy</code>, <code>kind:setup</code>) used for
+            filtering and triage.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <TagEditor
+            tags={sop.tags}
+            onChange={(tags) => saveImmediate({ tags })}
+            placeholder="Add a tag…"
+          />
+        </CardContent>
+      </Card>
 
       {/* Task Template Defaults */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
