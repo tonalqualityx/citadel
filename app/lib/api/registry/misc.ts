@@ -15,15 +15,20 @@ export const miscEndpoints: ApiEndpoint[] = [
           task_id: 'uuid',
           user_id: 'uuid',
           user: { id: 'uuid', name: 'string', avatar_url: 'string|null' },
+          is_internal: 'boolean',
           created_at: 'ISO-8601',
           updated_at: 'ISO-8601',
         },
       },
       {
         method: 'PATCH',
-        summary: 'Update a comment.',
+        summary: 'Update a comment (edit content and/or toggle the internal/team flag).',
         auth: 'required',
-        responseExample: { id: 'uuid', content: 'string', updated_at: 'ISO-8601' },
+        bodySchema: [
+          { name: 'content', type: 'string', required: false, description: 'New comment text' },
+          { name: 'is_internal', type: 'boolean', required: false, description: 'Toggle whether the comment is an internal note hidden from clients (team UI toggle)' },
+        ],
+        responseExample: { id: 'uuid', content: 'string', is_internal: 'boolean', updated_at: 'ISO-8601' },
       },
       {
         method: 'DELETE',

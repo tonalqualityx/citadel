@@ -4,10 +4,14 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { createNotification } from '@/lib/services/notifications';
+import { clientVisibleCommentWhere } from '@/lib/comments/visibility';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
   mentioned_user_ids: z.array(z.string().uuid()).max(50).optional(),
+  // Team/Bast-only: mark a comment as an internal note hidden from clients.
+  // Defaults to client-visible (false). Client questions must stay false.
+  is_internal: z.boolean().optional(),
 });
 
 // Format comment for response
@@ -26,6 +30,7 @@ function formatComment(comment: any) {
       : null,
     content: comment.content,
     mentioned_user_ids: comment.mentioned_user_ids ?? [],
+    is_internal: comment.is_internal ?? false,
     created_at: comment.created_at,
     updated_at: comment.updated_at,
   };
@@ -78,12 +83,15 @@ export async function GET(
       }
     }
 
+    // Client-facing surfaces (audience=client) never see internal/team notes.
+    const audience = request.nextUrl.searchParams.get('audience');
+    const baseWhere = { task_id: taskId, is_deleted: false };
+    const where =
+      audience === 'client' ? clientVisibleCommentWhere(baseWhere) : baseWhere;
+
     // Fetch comments
     const comments = await prisma.comment.findMany({
-      where: {
-        task_id: taskId,
-        is_deleted: false,
-      },
+      where,
       include: {
         user: {
           select: {
@@ -174,6 +182,7 @@ export async function POST(
         user_id: auth.userId,
         content: data.content,
         mentioned_user_ids: mentionedUserIds,
+        is_internal: data.is_internal ?? false,
       },
       include: {
         user: {

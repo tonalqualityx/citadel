@@ -14,6 +14,7 @@ export interface Comment {
   } | null;
   content: string;
   mentioned_user_ids: string[];
+  is_internal: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -26,10 +27,12 @@ export interface CommentsResponse {
 export interface CreateCommentInput {
   content: string;
   mentioned_user_ids?: string[];
+  is_internal?: boolean;
 }
 
 export interface UpdateCommentInput {
-  content: string;
+  content?: string;
+  is_internal?: boolean;
 }
 
 // Query keys for comments

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { MessageSquare, ChevronDown, Send, Pencil, Trash2, X, Check } from 'lucide-react';
+import { MessageSquare, ChevronDown, Send, Pencil, Trash2, X, Check, Eye, EyeOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '@/lib/hooks/use-auth';
 import {
@@ -86,6 +86,14 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
     await deleteComment.mutateAsync(id);
   };
 
+  // Team-only: toggle whether a comment is an internal note (hidden from clients).
+  const handleToggleInternal = async (comment: Comment) => {
+    await updateComment.mutateAsync({
+      id: comment.id,
+      data: { is_internal: !comment.is_internal },
+    });
+  };
+
   const canEditComment = (comment: Comment) => {
     return comment.user_id === user?.id || isPmOrAdmin;
   };
@@ -120,6 +128,15 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
           </span>
           {comment.updated_at !== comment.created_at && (
             <span className="text-xs text-text-sub italic">(edited)</span>
+          )}
+          {comment.is_internal && (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded"
+              title="Internal note — hidden from clients"
+            >
+              <EyeOff className="h-3 w-3" />
+              Internal
+            </span>
           )}
         </div>
 
@@ -169,6 +186,24 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
             </p>
             {canEditComment(comment) && (
               <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {isPmOrAdmin && (
+                  <button
+                    onClick={() => handleToggleInternal(comment)}
+                    className="p-1 text-text-sub hover:text-primary rounded"
+                    title={
+                      comment.is_internal
+                        ? 'Make client-visible'
+                        : 'Mark internal (hide from clients)'
+                    }
+                    disabled={updateComment.isPending}
+                  >
+                    {comment.is_internal ? (
+                      <Eye className="h-3 w-3" />
+                    ) : (
+                      <EyeOff className="h-3 w-3" />
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={() => handleStartEdit(comment)}
                   className="p-1 text-text-sub hover:text-primary rounded"

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { POST } from '../route';
+import { POST, GET } from '../route';
 
 // Mock the auth middleware
 vi.mock('@/lib/auth/middleware', () => ({
@@ -11,7 +11,7 @@ vi.mock('@/lib/auth/middleware', () => ({
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     task: { findUnique: vi.fn() },
-    comment: { create: vi.fn() },
+    comment: { create: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn(), findMany: vi.fn() },
     projectTeamAssignment: { findFirst: vi.fn() },
   },
@@ -30,6 +30,7 @@ import type { Mock } from 'vitest';
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockTaskFindUnique = prisma.task.findUnique as Mock;
 const mockCommentCreate = prisma.comment.create as Mock;
+const mockCommentFindMany = prisma.comment.findMany as Mock;
 const mockUserFindUnique = prisma.user.findUnique as Mock;
 const mockUserFindMany = prisma.user.findMany as Mock;
 const mockCreateNotification = vi.mocked(createNotification);
@@ -67,6 +68,7 @@ beforeEach(() => {
     user_id: AUTHOR,
     content: data.content,
     mentioned_user_ids: data.mentioned_user_ids,
+    is_internal: data.is_internal ?? false,
     created_at: new Date(),
     updated_at: new Date(),
     user: { id: AUTHOR, name: 'Bast', email: 'b@x.com', avatar_url: null },
@@ -155,5 +157,74 @@ describe('POST /api/tasks/[id]/comments', () => {
       ([arg]) => (arg as { type: string }).type === 'task_mentioned'
     );
     expect(mentionNotifs).toHaveLength(0);
+  });
+
+  it('defaults new comments to client-visible (is_internal=false)', async () => {
+    mockUserFindMany.mockResolvedValue([]);
+
+    const res = await POST(postRequest({ content: 'client question' }), ctx);
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.is_internal).toBe(false);
+    expect(mockCommentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ is_internal: false }),
+      })
+    );
+  });
+
+  it('honors is_internal=true for internal/team notes', async () => {
+    mockUserFindMany.mockResolvedValue([]);
+
+    const res = await POST(
+      postRequest({ content: '~ Bast shipped commit abc123', is_internal: true }),
+      ctx
+    );
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.is_internal).toBe(true);
+    expect(mockCommentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ is_internal: true }),
+      })
+    );
+  });
+});
+
+function getRequest(query = ''): NextRequest {
+  return new NextRequest(
+    `http://localhost:3000/api/tasks/${TASK_ID}/comments${query}`,
+    { method: 'GET' }
+  );
+}
+
+describe('GET /api/tasks/[id]/comments', () => {
+  beforeEach(() => {
+    mockTaskFindUnique.mockResolvedValue({
+      id: TASK_ID,
+      project_id: null,
+      project: null,
+      assignee_id: ASSIGNEE,
+    });
+    mockCommentFindMany.mockResolvedValue([]);
+  });
+
+  it('returns the full team view (no audience filter) by default', async () => {
+    const res = await GET(getRequest(), ctx);
+    expect(res.status).toBe(200);
+    const where = mockCommentFindMany.mock.calls[0][0].where;
+    expect(where).not.toHaveProperty('is_internal');
+    expect(where).toMatchObject({ task_id: TASK_ID, is_deleted: false });
+  });
+
+  it('filters to client-visible comments when audience=client', async () => {
+    const res = await GET(getRequest('?audience=client'), ctx);
+    expect(res.status).toBe(200);
+    const where = mockCommentFindMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({
+      task_id: TASK_ID,
+      is_deleted: false,
+      is_internal: false,
+    });
   });
 });

@@ -1345,6 +1345,10 @@ model Comment {
   content    String   @db.Text
   mentioned_user_ids String[] @default([]) @db.Uuid
   is_deleted Boolean  @default(false)
+  // Internal/team notes (incl. Bast's automated technical summaries) are never shown
+  // to clients. Defaults false so new comments are client-visible. Client questions
+  // must stay false; only team/Bast technical notes are flagged true.
+  is_internal Boolean  @default(false)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

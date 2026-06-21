@@ -212,6 +212,9 @@ export const taskEndpoints: ApiEndpoint[] = [
         method: 'GET',
         summary: 'List comments on a task.',
         auth: 'required',
+        queryParams: [
+          { name: 'audience', type: 'string', required: false, description: "Pass 'client' to return only client-visible comments (is_internal=false); omit for the full team view." },
+        ],
         responseExample: {
           comments: [{
             id: 'uuid',
@@ -220,6 +223,7 @@ export const taskEndpoints: ApiEndpoint[] = [
             user_id: 'uuid',
             user: { id: 'uuid', name: 'string', avatar_url: 'string|null' },
             mentioned_user_ids: ['uuid'],
+            is_internal: 'boolean',
             created_at: 'ISO-8601',
             updated_at: 'ISO-8601',
           }],
@@ -232,6 +236,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'content', type: 'string', required: true, description: 'Comment text' },
           { name: 'mentioned_user_ids', type: 'string[]', required: false, description: 'User ids (uuid) mentioned in the comment; each is notified (task_mentioned)' },
+          { name: 'is_internal', type: 'boolean', required: false, description: 'Mark as an internal/team note hidden from clients (default false). Client-facing questions must stay false.' },
         ],
         responseExample: {
           id: 'uuid',
@@ -239,6 +244,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           task_id: 'uuid',
           user_id: 'uuid',
           mentioned_user_ids: ['uuid'],
+          is_internal: 'boolean',
           created_at: 'ISO-8601',
         },
       },

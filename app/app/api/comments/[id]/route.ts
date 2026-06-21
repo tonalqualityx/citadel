@@ -4,9 +4,16 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 
-const updateCommentSchema = z.object({
-  content: z.string().min(1, 'Comment cannot be empty').max(10000),
-});
+const updateCommentSchema = z
+  .object({
+    content: z.string().min(1, 'Comment cannot be empty').max(10000).optional(),
+    // Team toggle: hide/show a comment from clients. Client-authored comments
+    // must always remain client-visible (enforced where clients author).
+    is_internal: z.boolean().optional(),
+  })
+  .refine((d) => d.content !== undefined || d.is_internal !== undefined, {
+    message: 'Provide content or is_internal to update',
+  });
 
 // Format comment for response
 function formatComment(comment: any) {
@@ -23,6 +30,7 @@ function formatComment(comment: any) {
         }
       : null,
     content: comment.content,
+    is_internal: comment.is_internal ?? false,
     created_at: comment.created_at,
     updated_at: comment.updated_at,
   };
@@ -127,10 +135,14 @@ export async function PATCH(
       throw new ApiError('You can only edit your own comments', 403);
     }
 
-    // Update the comment
+    // Update the comment (content edit and/or internal-flag toggle)
+    const updateData: { content?: string; is_internal?: boolean } = {};
+    if (data.content !== undefined) updateData.content = data.content;
+    if (data.is_internal !== undefined) updateData.is_internal = data.is_internal;
+
     const comment = await prisma.comment.update({
       where: { id },
-      data: { content: data.content },
+      data: updateData,
       include: {
         user: {
           select: {
