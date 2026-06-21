@@ -26,42 +26,42 @@ model User {
   updated_at            DateTime  @updatedAt
 
   // Relations
-  preferences           UserPreference?
-  sessions              Session[]
-  notifications         Notification[]
-  notification_preferences NotificationPreference[]
-  slack_mapping         SlackUserMapping?
-  email_digest_queue    EmailDigestQueue[]
-  slack_notification_batch SlackNotificationBatch[]
-  projects_created      Project[]              @relation("ProjectCreatedBy")
-  team_assignments      ProjectTeamAssignment[]
-  user_functions        UserFunction[]
-  tasks_assigned        Task[]                 @relation("TaskAssignee")
-  tasks_created         Task[]                 @relation("TaskCreatedBy")
-  tasks_reviewing       Task[]                 @relation("TaskReviewer")
-  tasks_approved        Task[]                 @relation("TaskApprovedBy")
-  time_entries          TimeEntry[]
-  comments              Comment[]
-  password_reset_tokens PasswordResetToken[]
-  activity_logs         ActivityLog[]
-  api_keys              ApiKey[]
-  sites_maintained      Site[]                 @relation("SiteMaintainer")
-  bug_report_notifications AppSettings[]       @relation("BugReportNotifyUser")
-  accords_owned           Accord[]                @relation("AccordOwner")
-  accords_payment_confirmed Accord[]              @relation("AccordPaymentConfirmedBy")
-  meeting_attendees     MeetingAttendee[]        @relation("MeetingAttendee")
-  meetings_created      Meeting[]                @relation("MeetingCreatedBy")
-  proposals_created       Proposal[]              @relation("ProposalCreatedBy")
-  msa_versions_created    MsaVersion[]            @relation("MsaVersionCreatedBy")
-  contracts_created       Contract[]              @relation("ContractCreatedBy")
-  addendums_created       Addendum[]              @relation("AddendumCreatedBy")
-  addendums_overridden    Addendum[]              @relation("AddendumOverriddenBy")
-  charters_created        Charter[]               @relation("CharterCreatedBy")
-  sales_automation_rules  SalesAutomationRule[]   @relation("SalesAutomationAssignee")
-  troubador_runs_assigned          TroubadorRun[]      @relation("RunEditor")
-  troubador_schedules_default_editor TroubadorSchedule[] @relation("ScheduleDefaultEditor")
-  troubador_articles_approved      Article[]           @relation("ArticleApprovedBy")
-  troubador_article_comments       ArticleComment[]
+  preferences                        UserPreference?
+  sessions                           Session[]
+  notifications                      Notification[]
+  notification_preferences           NotificationPreference[]
+  slack_mapping                      SlackUserMapping?
+  email_digest_queue                 EmailDigestQueue[]
+  slack_notification_batch           SlackNotificationBatch[]
+  projects_created                   Project[]                @relation("ProjectCreatedBy")
+  team_assignments                   ProjectTeamAssignment[]
+  user_functions                     UserFunction[]
+  tasks_assigned                     Task[]                   @relation("TaskAssignee")
+  tasks_created                      Task[]                   @relation("TaskCreatedBy")
+  tasks_reviewing                    Task[]                   @relation("TaskReviewer")
+  tasks_approved                     Task[]                   @relation("TaskApprovedBy")
+  time_entries                       TimeEntry[]
+  comments                           Comment[]
+  password_reset_tokens              PasswordResetToken[]
+  activity_logs                      ActivityLog[]
+  api_keys                           ApiKey[]
+  sites_maintained                   Site[]                   @relation("SiteMaintainer")
+  bug_report_notifications           AppSettings[]            @relation("BugReportNotifyUser")
+  accords_owned                      Accord[]                 @relation("AccordOwner")
+  accords_payment_confirmed          Accord[]                 @relation("AccordPaymentConfirmedBy")
+  meeting_attendees                  MeetingAttendee[]        @relation("MeetingAttendee")
+  meetings_created                   Meeting[]                @relation("MeetingCreatedBy")
+  proposals_created                  Proposal[]               @relation("ProposalCreatedBy")
+  msa_versions_created               MsaVersion[]             @relation("MsaVersionCreatedBy")
+  contracts_created                  Contract[]               @relation("ContractCreatedBy")
+  addendums_created                  Addendum[]               @relation("AddendumCreatedBy")
+  addendums_overridden               Addendum[]               @relation("AddendumOverriddenBy")
+  charters_created                   Charter[]                @relation("CharterCreatedBy")
+  sales_automation_rules             SalesAutomationRule[]    @relation("SalesAutomationAssignee")
+  troubador_runs_assigned            TroubadorRun[]           @relation("RunEditor")
+  troubador_schedules_default_editor TroubadorSchedule[]      @relation("ScheduleDefaultEditor")
+  troubador_articles_approved        Article[]                @relation("ArticleApprovedBy")
+  troubador_article_comments         ArticleComment[]
 
   @@map("users")
 }
@@ -118,38 +118,38 @@ model ApiKey {
 // ============================================
 
 model Notification {
-  id           String           @id @default(uuid()) @db.Uuid
-  user_id      String           @db.Uuid
-  user         User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid()) @db.Uuid
+  user_id String @db.Uuid
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   // Content
-  type         NotificationType
-  title        String           @db.VarChar(255)
-  message      String?          @db.Text
+  type    NotificationType
+  title   String           @db.VarChar(255)
+  message String?          @db.Text
 
   // Reference
-  entity_type  String?          @db.VarChar(50)
-  entity_id    String?          @db.Uuid
+  entity_type String? @db.VarChar(50)
+  entity_id   String? @db.Uuid
 
   // Priority for routing
-  priority     NotificationPriority @default(normal)
+  priority NotificationPriority @default(normal)
 
   // Status
-  is_read      Boolean          @default(false)
-  read_at      DateTime?
+  is_read Boolean   @default(false)
+  read_at DateTime?
 
   // Bundling
-  bundle_key   String?          @db.VarChar(100)
-  bundle_count Int              @default(1)
+  bundle_key   String? @db.VarChar(100)
+  bundle_count Int     @default(1)
 
   // Delivery tracking
-  email_sent      Boolean   @default(false)
-  email_sent_at   DateTime?
-  slack_sent      Boolean   @default(false)
-  slack_sent_at   DateTime?
+  email_sent    Boolean   @default(false)
+  email_sent_at DateTime?
+  slack_sent    Boolean   @default(false)
+  slack_sent_at DateTime?
 
   // Metadata
-  created_at   DateTime         @default(now())
+  created_at DateTime @default(now())
 
   @@index([user_id])
   @@index([is_read])
@@ -166,17 +166,17 @@ model NotificationPreference {
   notification_type NotificationType
 
   // Channel toggles
-  in_app            Boolean          @default(true)
-  email             Boolean          @default(false)
-  slack             Boolean          @default(false)
+  in_app Boolean @default(true)
+  email  Boolean @default(false)
+  slack  Boolean @default(false)
 
   // Admin override (if set, user cannot change)
-  admin_override    Boolean          @default(false)
-  overridden_by_id  String?          @db.Uuid
-  overridden_at     DateTime?
+  admin_override   Boolean   @default(false)
+  overridden_by_id String?   @db.Uuid
+  overridden_at    DateTime?
 
-  created_at        DateTime         @default(now())
-  updated_at        DateTime         @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@unique([user_id, notification_type])
   @@index([user_id])
@@ -185,15 +185,15 @@ model NotificationPreference {
 
 // Slack user mappings (Citadel User -> Slack User ID)
 model SlackUserMapping {
-  id              String   @id @default(uuid()) @db.Uuid
-  user_id         String   @unique @db.Uuid
-  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  slack_user_id   String   @db.VarChar(50)  // Slack's user ID (e.g., "U01234ABCDE")
-  slack_team_id   String   @db.VarChar(50)  // Slack workspace ID
-  display_name    String?  @db.VarChar(255) // Cached Slack display name
+  id            String  @id @default(uuid()) @db.Uuid
+  user_id       String  @unique @db.Uuid
+  user          User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  slack_user_id String  @db.VarChar(50) // Slack's user ID (e.g., "U01234ABCDE")
+  slack_team_id String  @db.VarChar(50) // Slack workspace ID
+  display_name  String? @db.VarChar(255) // Cached Slack display name
 
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([slack_user_id])
   @@map("slack_user_mappings")
@@ -201,18 +201,18 @@ model SlackUserMapping {
 
 // Slack message thread tracking (for reply sync)
 model SlackMessageThread {
-  id              String   @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
   // What was sent
-  entity_type     String   @db.VarChar(50)  // 'task', 'comment'
-  entity_id       String   @db.Uuid
+  entity_type String @db.VarChar(50) // 'task', 'comment'
+  entity_id   String @db.Uuid
 
   // Slack message identifiers
-  slack_channel   String   @db.VarChar(50)  // DM channel ID
-  slack_ts        String   @db.VarChar(50)  // Message timestamp (Slack's message ID)
-  slack_user_id   String   @db.VarChar(50)  // Who received the DM
+  slack_channel String @db.VarChar(50) // DM channel ID
+  slack_ts      String @db.VarChar(50) // Message timestamp (Slack's message ID)
+  slack_user_id String @db.VarChar(50) // Who received the DM
 
-  created_at      DateTime @default(now())
+  created_at DateTime @default(now())
 
   @@unique([entity_type, entity_id, slack_user_id])
   @@index([slack_ts])
@@ -227,16 +227,16 @@ model EmailDigestQueue {
   notification_type NotificationType
 
   // Content
-  title             String           @db.VarChar(255)
-  message           String?          @db.Text
-  entity_type       String?          @db.VarChar(50)
-  entity_id         String?          @db.Uuid
+  title       String  @db.VarChar(255)
+  message     String? @db.Text
+  entity_type String? @db.VarChar(50)
+  entity_id   String? @db.Uuid
 
   // Status
-  processed         Boolean          @default(false)
-  processed_at      DateTime?
+  processed    Boolean   @default(false)
+  processed_at DateTime?
 
-  created_at        DateTime         @default(now())
+  created_at DateTime @default(now())
 
   @@index([user_id])
   @@index([processed, created_at])
@@ -253,18 +253,18 @@ model SlackNotificationBatch {
   notification_type NotificationType
 
   // Content
-  title             String           @db.VarChar(255)
-  message           String?          @db.Text
+  title   String  @db.VarChar(255)
+  message String? @db.Text
 
   // Batching control
-  batch_key         String           @db.VarChar(100) // user_id:project_id combo
-  batch_ready_at    DateTime         // When this batch should be sent
+  batch_key      String   @db.VarChar(100) // user_id:project_id combo
+  batch_ready_at DateTime // When this batch should be sent
 
   // Status
-  processed         Boolean          @default(false)
-  processed_at      DateTime?
+  processed    Boolean   @default(false)
+  processed_at DateTime?
 
-  created_at        DateTime         @default(now())
+  created_at DateTime @default(now())
 
   @@index([user_id])
   @@index([batch_key, processed])
@@ -310,18 +310,18 @@ enum NotificationType {
 }
 
 enum NotificationPriority {
-  low       // Digest only
-  normal    // Standard routing
-  high      // Immediate on enabled channels
-  critical  // Force immediate on all enabled channels
+  low // Digest only
+  normal // Standard routing
+  high // Immediate on enabled channels
+  critical // Force immediate on all enabled channels
 }
 
 enum MaintenanceFrequency {
-  monthly        // Every month
-  bi_monthly     // Every 2 months
-  quarterly      // Every 3 months
-  semi_annually  // Every 6 months
-  annually       // Every 12 months
+  monthly // Every month
+  bi_monthly // Every 2 months
+  quarterly // Every 3 months
+  semi_annually // Every 6 months
+  annually // Every 12 months
 }
 
 enum AccordStatus {
@@ -444,7 +444,7 @@ model MaintenancePlan {
   sites           Site[]
   sops            MaintenancePlanSop[]
   generation_logs MaintenanceGenerationLog[]
-  keep_items      AccordKeepItem[] @relation("KeepMaintenancePlan")
+  keep_items      AccordKeepItem[]           @relation("KeepMaintenancePlan")
 
   @@map("maintenance_plans")
 }
@@ -479,25 +479,25 @@ model Tool {
 }
 
 model Integration {
-  id          String   @id @default(uuid()) @db.Uuid
-  provider    String   @unique @db.VarChar(50)
-  config      Json     @default("{}")
-  is_active   Boolean  @default(false)
-  updated_at  DateTime @updatedAt
-  updated_by  String?  @db.Uuid
+  id         String   @id @default(uuid()) @db.Uuid
+  provider   String   @unique @db.VarChar(50)
+  config     Json     @default("{}")
+  is_active  Boolean  @default(false)
+  updated_at DateTime @updatedAt
+  updated_by String?  @db.Uuid
 
   @@map("integrations")
 }
 
 model DnsProvider {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String   @unique @db.VarChar(100)
-  is_active Boolean  @default(true)
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String   @unique @db.VarChar(100)
+  is_active  Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   // Relations
-  domains   Domain[]
+  domains Domain[]
 
   @@map("dns_providers")
 }
@@ -507,38 +507,38 @@ model DnsProvider {
 // ============================================
 
 model Client {
-  id              String       @id @default(uuid()) @db.Uuid
-  name            String       @db.VarChar(255)
-  type            ClientType   @default(direct)
-  status          ClientStatus @default(active)
+  id     String       @id @default(uuid()) @db.Uuid
+  name   String       @db.VarChar(255)
+  type   ClientType   @default(direct)
+  status ClientStatus @default(active)
 
   // Contact info
-  primary_contact String?      @db.VarChar(255)
-  email           String?      @db.VarChar(255)
-  phone           String?      @db.VarChar(50)
+  primary_contact String? @db.VarChar(255)
+  email           String? @db.VarChar(255)
+  phone           String? @db.VarChar(50)
 
   // Billing
-  retainer_hours      Decimal?           @db.Decimal(5, 2)
-  hourly_rate         Decimal?           @db.Decimal(10, 2)
-  retainer_usage_mode RetainerUsageMode  @default(medium)
+  retainer_hours      Decimal?          @db.Decimal(5, 2)
+  hourly_rate         Decimal?          @db.Decimal(10, 2)
+  retainer_usage_mode RetainerUsageMode @default(medium)
 
   // Relationships
-  parent_agency_id String?     @db.Uuid
-  parent_agency    Client?     @relation("AgencySubClients", fields: [parent_agency_id], references: [id])
-  sub_clients      Client[]    @relation("AgencySubClients")
+  parent_agency_id String?  @db.Uuid
+  parent_agency    Client?  @relation("AgencySubClients", fields: [parent_agency_id], references: [id])
+  sub_clients      Client[] @relation("AgencySubClients")
 
   // Notes
-  notes           String?      @db.Text
+  notes String? @db.Text
 
   // Metadata
-  is_deleted      Boolean      @default(false)
-  created_at      DateTime     @default(now())
-  updated_at      DateTime     @updatedAt
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  sites    Site[]
-  projects Project[]
-  tasks    Task[]
+  sites                 Site[]
+  projects              Project[]
+  tasks                 Task[]
   accords               Accord[]
   charters              Charter[]
   client_msa_signatures ClientMsaSignature[]
@@ -558,27 +558,30 @@ model Client {
 // only a contact with can_initiate_work may trigger work via email. The same email
 // can appear under multiple clients (one row each), e.g. agency contacts.
 model ClientContact {
-  id                String   @id @default(uuid()) @db.Uuid
-  client_id         String   @db.Uuid
-  client            Client   @relation(fields: [client_id], references: [id])
+  id        String @id @default(uuid()) @db.Uuid
+  client_id String @db.Uuid
+  client    Client @relation(fields: [client_id], references: [id])
 
-  name              String?  @db.VarChar(255)
-  email             String   @db.VarChar(255)
-  role              String?  @db.VarChar(100)
-  can_initiate_work Boolean  @default(false)
-  is_primary        Boolean  @default(false)
-  notes             String?  @db.Text
+  name              String? @db.VarChar(255)
+  email             String  @db.VarChar(255)
+  role              String? @db.VarChar(100)
+  can_initiate_work Boolean @default(false)
+  is_primary        Boolean @default(false)
+  notes             String? @db.Text
 
-  is_deleted        Boolean  @default(false)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @updatedAt
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Tasks this contact requested / approved (Bast worker provenance)
-  requested_tasks   Task[]   @relation("TaskRequestedByContact")
-  approved_tasks    Task[]   @relation("TaskApprovedByContact")
+  requested_tasks Task[] @relation("TaskRequestedByContact")
+  approved_tasks  Task[] @relation("TaskApprovedByContact")
+
+  // Articles this contact approved via the client portal
+  approved_articles Article[] @relation("ArticleApprovedByContact")
 
   // Client-portal login sessions issued to this contact (magic-link → 7-day session)
-  portal_sessions   PortalSession[]
+  portal_sessions PortalSession[]
 
   @@unique([client_id, email])
   @@index([email])
@@ -610,66 +613,66 @@ enum RetainerUsageMode {
 // ============================================
 
 model Site {
-  id                  String           @id @default(uuid()) @db.Uuid
-  name                String           @db.VarChar(255)
-  url                 String?          @db.VarChar(500)
+  id   String  @id @default(uuid()) @db.Uuid
+  name String  @db.VarChar(255)
+  url  String? @db.VarChar(500)
 
   // Client relationship (optional - sites can exist without a client)
-  client_id           String?          @db.Uuid
-  client              Client?          @relation(fields: [client_id], references: [id])
+  client_id String? @db.Uuid
+  client    Client? @relation(fields: [client_id], references: [id])
 
   // Hosting
-  hosted_by           HostedBy         @default(indelible)
-  platform            String?          @db.VarChar(100)
-  hosting_plan_id     String?          @db.Uuid
-  hosting_plan        HostingPlan?     @relation(fields: [hosting_plan_id], references: [id])
-  hosting_discount    Decimal?         @db.Decimal(10, 2)  // Fixed $ discount off hosting plan rate
+  hosted_by        HostedBy     @default(indelible)
+  platform         String?      @db.VarChar(100)
+  hosting_plan_id  String?      @db.Uuid
+  hosting_plan     HostingPlan? @relation(fields: [hosting_plan_id], references: [id])
+  hosting_discount Decimal?     @db.Decimal(10, 2) // Fixed $ discount off hosting plan rate
 
   // Maintenance
-  maintenance_plan_id      String?          @db.Uuid
-  maintenance_plan         MaintenancePlan? @relation(fields: [maintenance_plan_id], references: [id])
-  maintenance_assignee_id  String?          @db.Uuid
-  maintenance_assignee     User?            @relation("SiteMaintainer", fields: [maintenance_assignee_id], references: [id])
+  maintenance_plan_id     String?          @db.Uuid
+  maintenance_plan        MaintenancePlan? @relation(fields: [maintenance_plan_id], references: [id])
+  maintenance_assignee_id String?          @db.Uuid
+  maintenance_assignee    User?            @relation("SiteMaintainer", fields: [maintenance_assignee_id], references: [id])
 
   // Notes
-  notes               String?          @db.Text
+  notes String? @db.Text
 
   // Troubador publishing config
-  site_type           SiteType?                            // eleventy | wordpress | handoff; null until configured
-  repo_url            String?          @db.VarChar(500)    // Eleventy: git repo
-  repo_branch         String?          @db.VarChar(100)    // Eleventy: branch
-  content_dir         String?          @db.VarChar(255)    // Eleventy: content directory (build instructions live in-repo)
-  wp_base_url         String?          @db.VarChar(500)    // WordPress: REST base URL
-  wp_default_author   String?          @db.VarChar(255)    // WordPress: default author
-  wp_default_category String?          @db.VarChar(255)    // WordPress: default category
-  handoff_method      String?          @db.VarChar(50)     // Handoff: e.g. citadel_card | email | drive
-  handoff_recipient   String?          @db.VarChar(255)    // Handoff: who receives the package
+  site_type           SiteType? // eleventy | wordpress | handoff; null until configured
+  repo_url            String?   @db.VarChar(500) // Eleventy: git repo
+  repo_branch         String?   @db.VarChar(100) // Eleventy: branch
+  content_dir         String?   @db.VarChar(255) // Eleventy: content directory (build instructions live in-repo)
+  wp_base_url         String?   @db.VarChar(500) // WordPress: REST base URL
+  wp_default_author   String?   @db.VarChar(255) // WordPress: default author
+  wp_default_category String?   @db.VarChar(255) // WordPress: default category
+  handoff_method      String?   @db.VarChar(50) // Handoff: e.g. citadel_card | email | drive
+  handoff_recipient   String?   @db.VarChar(255) // Handoff: who receives the package
 
   // Staging + Bast worker config. Deploy mechanics live in the repo's GH Action; these are
   // just the pointers Bast needs. staging_auth is a low-stakes gate (keep Google/bots out).
-  prod_branch         String?          @db.VarChar(100)    // defaults to repo_branch if null
-  staging_branch      String?          @db.VarChar(100)    // e.g. 'staging'
-  staging_url         String?          @db.VarChar(500)    // convention: staging.{primary-domain}
-  staging_auth_user   String?          @db.VarChar(255)    // basic-auth user for the staging gate
-  staging_auth_password String?        @db.VarChar(255)    // basic-auth password (gate only, not secret)
-  bast_enabled        Boolean          @default(false)     // Bast may auto-execute work on this site
-  auto_deploy         Boolean          @default(false)     // deploy straight to prod (true) vs staging→approval (false); per-site, allowed on client sites that pre-authorize
+  prod_branch           String? @db.VarChar(100) // defaults to repo_branch if null
+  staging_branch        String? @db.VarChar(100) // e.g. 'staging'
+  staging_url           String? @db.VarChar(500) // convention: staging.{primary-domain}
+  staging_auth_user     String? @db.VarChar(255) // basic-auth user for the staging gate
+  staging_auth_password String? @db.VarChar(255) // basic-auth password (gate only, not secret)
+  bast_enabled          Boolean @default(false) // Bast may auto-execute work on this site
+  auto_deploy           Boolean @default(false) // deploy straight to prod (true) vs staging→approval (false); per-site, allowed on client sites that pre-authorize
 
   // Metadata
-  is_deleted          Boolean          @default(false)
-  created_at          DateTime         @default(now())
-  updated_at          DateTime         @updatedAt
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  domains                   Domain[]
-  projects                  Project[]
-  tasks                     Task[]
+  domains                     Domain[]
+  projects                    Project[]
+  tasks                       Task[]
   maintenance_generation_logs MaintenanceGenerationLog[]
-  charters                  Charter[]
-  keep_items                AccordKeepItem[]
-  troubador_schedules       TroubadorSchedule[]
-  troubador_runs            TroubadorRun[]
-  articles                  Article[]
+  charters                    Charter[]
+  keep_items                  AccordKeepItem[]
+  troubador_schedules         TroubadorSchedule[]
+  troubador_runs              TroubadorRun[]
+  articles                    Article[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
@@ -689,12 +692,12 @@ enum HostedBy {
 // ============================================
 
 model Domain {
-  id         String    @id @default(uuid()) @db.Uuid
-  name       String    @db.VarChar(255)
+  id   String @id @default(uuid()) @db.Uuid
+  name String @db.VarChar(255)
 
   // Site relationship (optional - domain may exist without being linked to a site)
-  site_id    String?   @db.Uuid
-  site       Site?     @relation(fields: [site_id], references: [id])
+  site_id String? @db.Uuid
+  site    Site?   @relation(fields: [site_id], references: [id])
 
   // Domain details
   registrar  String?   @db.VarChar(100)
@@ -702,20 +705,20 @@ model Domain {
   is_primary Boolean   @default(false)
 
   // Ownership - whose account is domain registered under
-  registered_by  DomainOwnership?
+  registered_by DomainOwnership?
 
   // DNS Management
-  dns_provider_id String?      @db.Uuid
-  dns_provider    DnsProvider? @relation(fields: [dns_provider_id], references: [id])
+  dns_provider_id String?          @db.Uuid
+  dns_provider    DnsProvider?     @relation(fields: [dns_provider_id], references: [id])
   dns_managed_by  DomainOwnership?
 
   // Notes
-  notes      String?   @db.Text
+  notes String? @db.Text
 
   // Metadata
-  is_deleted Boolean   @default(false)
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([site_id])
   @@index([dns_provider_id])
@@ -732,44 +735,44 @@ enum DomainOwnership {
 // ============================================
 
 model Project {
-  id              String        @id @default(uuid()) @db.Uuid
-  name            String        @db.VarChar(255)
-  description     String?       @db.Text
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @db.VarChar(255)
+  description String? @db.Text
 
   // Status
-  status          ProjectStatus @default(quote)
+  status ProjectStatus @default(quote)
 
   // Relationships
-  client_id       String        @db.Uuid
-  client          Client        @relation(fields: [client_id], references: [id])
-  site_id         String?       @db.Uuid
-  site            Site?         @relation(fields: [site_id], references: [id])
-  recipe_id       String?       @db.Uuid
-  recipe          Recipe?       @relation(fields: [recipe_id], references: [id])
+  client_id String  @db.Uuid
+  client    Client  @relation(fields: [client_id], references: [id])
+  site_id   String? @db.Uuid
+  site      Site?   @relation(fields: [site_id], references: [id])
+  recipe_id String? @db.Uuid
+  recipe    Recipe? @relation(fields: [recipe_id], references: [id])
 
   // Type
-  type            ProjectType   @default(project)
+  type ProjectType @default(project)
 
   // Dates
-  start_date      DateTime?
-  target_date     DateTime?
-  completed_date  DateTime?
+  start_date     DateTime?
+  target_date    DateTime?
+  completed_date DateTime?
 
   // Budget & Billing
-  billing_type      BillingType?  // How project is billed
-  budget_hours      Decimal?      @db.Decimal(8, 2)  // Agreed hours (after quote accepted)
-  hourly_rate       Decimal?      @db.Decimal(10, 2) // Rate for this project
-  budget_amount     Decimal?      @db.Decimal(10, 2) // Total dollar amount
-  budget_locked     Boolean       @default(false)
-  budget_locked_at  DateTime?
-  budget_locked_by_id String?     @db.Uuid
-  is_retainer       Boolean       @default(false)
+  billing_type        BillingType? // How project is billed
+  budget_hours        Decimal?     @db.Decimal(8, 2) // Agreed hours (after quote accepted)
+  hourly_rate         Decimal?     @db.Decimal(10, 2) // Rate for this project
+  budget_amount       Decimal?     @db.Decimal(10, 2) // Total dollar amount
+  budget_locked       Boolean      @default(false)
+  budget_locked_at    DateTime?
+  budget_locked_by_id String?      @db.Uuid
+  is_retainer         Boolean      @default(false)
 
   // Sales pipeline
-  accord_id         String?   @db.Uuid
-  accord            Accord?   @relation(fields: [accord_id], references: [id])
-  scope_locked      Boolean   @default(false)
-  scope_locked_at   DateTime?
+  accord_id       String?   @db.Uuid
+  accord          Accord?   @relation(fields: [accord_id], references: [id])
+  scope_locked    Boolean   @default(false)
+  scope_locked_at DateTime?
 
   // Workload display
   workload_completed_mode WorkloadCompletedMode @default(high)
@@ -779,23 +782,23 @@ model Project {
   dependencies_ordering_only Boolean @default(false)
 
   // Notes
-  notes           String?       @db.Text
+  notes String? @db.Text
 
   // Metadata
-  is_deleted      Boolean       @default(false)
-  created_at      DateTime      @default(now())
-  updated_at      DateTime      @updatedAt
-  created_by_id   String?       @db.Uuid
-  created_by      User?         @relation("ProjectCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  created_by_id String?  @db.Uuid
+  created_by    User?    @relation("ProjectCreatedBy", fields: [created_by_id], references: [id])
 
   // Relations
-  phases           ProjectPhase[]
-  tasks            Task[]
-  team_assignments ProjectTeamAssignment[]
-  milestones       Milestone[]
-  time_entries     TimeEntry[]
-  pages            ProjectPage[]
-  resource_links   ResourceLink[]
+  phases                  ProjectPhase[]
+  tasks                   Task[]
+  team_assignments        ProjectTeamAssignment[]
+  milestones              Milestone[]
+  time_entries            TimeEntry[]
+  pages                   ProjectPage[]
+  resource_links          ResourceLink[]
   app_settings_bug_report AppSettings[]
   accord_commission_items AccordCommissionItem[]
   charter_commissions     CharterCommission[]
@@ -814,18 +817,18 @@ model Project {
 // ============================================
 
 model ProjectPhase {
-  id          String   @id @default(uuid()) @db.Uuid
-  project_id  String   @db.Uuid
-  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  name        String   @db.VarChar(100)
-  icon        String?  @db.VarChar(50) // Icon name from icon picker
-  sort_order  Int      @default(0)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id         String   @id @default(uuid()) @db.Uuid
+  project_id String   @db.Uuid
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name       String   @db.VarChar(100)
+  icon       String?  @db.VarChar(50) // Icon name from icon picker
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  tasks       Task[]
-  milestones  Milestone[]
+  tasks                   Task[]
+  milestones              Milestone[]
   app_settings_bug_report AppSettings[]
 
   @@index([project_id])
@@ -833,34 +836,34 @@ model ProjectPhase {
 }
 
 enum ProjectStatus {
-  quote       // Proposal stage, tasks hidden from assignees
-  queue       // Approved but not started, tasks hidden
-  ready       // Ready to work, tasks visible
+  quote // Proposal stage, tasks hidden from assignees
+  queue // Approved but not started, tasks hidden
+  ready // Ready to work, tasks visible
   in_progress // Active work, tasks visible
-  review      // Final review, tasks visible
-  done        // Completed
-  suspended   // On hold, tasks hidden
-  cancelled   // Cancelled
+  review // Final review, tasks visible
+  done // Completed
+  suspended // On hold, tasks hidden
+  cancelled // Cancelled
 }
 
 enum ProjectType {
-  project  // Standard project
+  project // Standard project
   retainer // Ongoing retainer work
   internal // Internal task collection
 }
 
 enum BillingType {
-  fixed     // Fixed price project
-  hourly    // Bill for actual hours
-  retainer  // Uses client's retainer_hours
-  none      // Internal/non-billable
+  fixed // Fixed price project
+  hourly // Bill for actual hours
+  retainer // Uses client's retainer_hours
+  none // Internal/non-billable
 }
 
 enum WorkloadCompletedMode {
-  low      // base minutes × battery (no mystery multiplier)
-  medium   // average of low and high
-  high     // base × mystery × battery (full estimated_minutes)
-  actual   // sum of logged time entries
+  low // base minutes × battery (no mystery multiplier)
+  medium // average of low and high
+  high // base × mystery × battery (full estimated_minutes)
+  actual // sum of logged time entries
 }
 
 // ============================================
@@ -868,16 +871,16 @@ enum WorkloadCompletedMode {
 // ============================================
 
 model ResourceLink {
-  id          String   @id @default(uuid()) @db.Uuid
-  project_id  String   @db.Uuid
-  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  name        String   @db.VarChar(100)
-  url         String   @db.VarChar(500)
-  icon        String?  @db.VarChar(50)  // Icon name (e.g., "figma", "drive", "github")
-  sort_order  Int      @default(0)
-  is_deleted  Boolean  @default(false)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  id         String   @id @default(uuid()) @db.Uuid
+  project_id String   @db.Uuid
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name       String   @db.VarChar(100)
+  url        String   @db.VarChar(500)
+  icon       String?  @db.VarChar(50) // Icon name (e.g., "figma", "drive", "github")
+  sort_order Int      @default(0)
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([project_id])
   @@map("resource_links")
@@ -910,126 +913,126 @@ model ProjectTeamAssignment {
 // ============================================
 
 model Task {
-  id                String        @id @default(uuid()) @db.Uuid
-  title             String        @db.VarChar(500)
-  description       String?       @db.Text
+  id          String  @id @default(uuid()) @db.Uuid
+  title       String  @db.VarChar(500)
+  description String? @db.Text
 
   // Status
-  status            TaskStatus    @default(not_started)
-  priority          Int           @default(3) // 1=highest, 5=lowest
-  is_focus          Boolean       @default(false) // User's personal focus flag
+  status   TaskStatus @default(not_started)
+  priority Int        @default(3) // 1=highest, 5=lowest
+  is_focus Boolean    @default(false) // User's personal focus flag
 
   // Project relationship (nullable for ad-hoc tasks)
-  project_id        String?       @db.Uuid
-  project           Project?      @relation(fields: [project_id], references: [id])
+  project_id String?  @db.Uuid
+  project    Project? @relation(fields: [project_id], references: [id])
 
   // Client relationship (always set - derived from project or set directly for ad-hoc)
-  client_id         String?       @db.Uuid
-  client            Client?       @relation(fields: [client_id], references: [id])
+  client_id String? @db.Uuid
+  client    Client? @relation(fields: [client_id], references: [id])
 
   // Site relationship (for maintenance tasks)
-  site_id           String?       @db.Uuid
-  site              Site?         @relation(fields: [site_id], references: [id])
+  site_id String? @db.Uuid
+  site    Site?   @relation(fields: [site_id], references: [id])
 
   // Sales pipeline
-  charter_id        String?   @db.Uuid
-  charter           Charter?  @relation(fields: [charter_id], references: [id])
-  accord_id         String?   @db.Uuid
-  accord            Accord?   @relation(fields: [accord_id], references: [id])
-  meeting_id        String?   @db.Uuid
-  meeting           Meeting?  @relation(fields: [meeting_id], references: [id])
+  charter_id String?  @db.Uuid
+  charter    Charter? @relation(fields: [charter_id], references: [id])
+  accord_id  String?  @db.Uuid
+  accord     Accord?  @relation(fields: [accord_id], references: [id])
+  meeting_id String?  @db.Uuid
+  meeting    Meeting? @relation(fields: [meeting_id], references: [id])
 
   // Maintenance task fields
-  is_maintenance_task  Boolean    @default(false)
-  maintenance_period   String?    @db.VarChar(20)  // e.g., "2025-01" for Jan 2025
+  is_maintenance_task Boolean @default(false)
+  maintenance_period  String? @db.VarChar(20) // e.g., "2025-01" for Jan 2025
 
   // Phase grouping
-  phase             String?       @db.VarChar(100) // Legacy - kept for migration
-  phase_id          String?       @db.Uuid
-  project_phase     ProjectPhase? @relation(fields: [phase_id], references: [id])
-  sort_order        Int           @default(0)
+  phase         String?       @db.VarChar(100) // Legacy - kept for migration
+  phase_id      String?       @db.Uuid
+  project_phase ProjectPhase? @relation(fields: [phase_id], references: [id])
+  sort_order    Int           @default(0)
 
   // Assignment
-  assignee_id       String?       @db.Uuid
-  assignee          User?         @relation("TaskAssignee", fields: [assignee_id], references: [id])
-  function_id       String?       @db.Uuid
-  function          Function?     @relation(fields: [function_id], references: [id])
+  assignee_id String?   @db.Uuid
+  assignee    User?     @relation("TaskAssignee", fields: [assignee_id], references: [id])
+  function_id String?   @db.Uuid
+  function    Function? @relation(fields: [function_id], references: [id])
 
   // Energy estimation
-  energy_estimate   Int?          // 1-8 scale
+  energy_estimate   Int? // 1-8 scale
   mystery_factor    MysteryFactor @default(none)
-  estimated_minutes Int?          // Calculated or manual
+  estimated_minutes Int? // Calculated or manual
   battery_impact    BatteryImpact @default(average_drain)
 
   // Dates
-  due_date          DateTime?
-  started_at        DateTime?
-  completed_at      DateTime?
+  due_date     DateTime?
+  started_at   DateTime?
+  completed_at DateTime?
 
   // Requirements (stored as JSON)
-  requirements        Json?         // Array of requirement items (visible to all)
-  review_requirements Json?         // PM/Admin-only QA checklist (Quality Gate)
+  requirements        Json? // Array of requirement items (visible to all)
+  review_requirements Json? // PM/Admin-only QA checklist (Quality Gate)
 
   // Review workflow
-  needs_review        Boolean       @default(true)  // Whether task requires approval when done
-  reviewer_id         String?       @db.Uuid        // Who reviews/approves the task
-  reviewer            User?         @relation("TaskReviewer", fields: [reviewer_id], references: [id])
-  approved            Boolean       @default(false) // Whether task has been approved
-  approved_at         DateTime?                     // When it was approved
-  approved_by_id      String?       @db.Uuid        // Who approved it
-  approved_by         User?         @relation("TaskApprovedBy", fields: [approved_by_id], references: [id])
+  needs_review   Boolean   @default(true) // Whether task requires approval when done
+  reviewer_id    String?   @db.Uuid // Who reviews/approves the task
+  reviewer       User?     @relation("TaskReviewer", fields: [reviewer_id], references: [id])
+  approved       Boolean   @default(false) // Whether task has been approved
+  approved_at    DateTime? // When it was approved
+  approved_by_id String?   @db.Uuid // Who approved it
+  approved_by    User?     @relation("TaskApprovedBy", fields: [approved_by_id], references: [id])
 
   // SOP reference
-  sop_id            String?       @db.Uuid
-  sop               Sop?          @relation(fields: [sop_id], references: [id])
+  sop_id String? @db.Uuid
+  sop    Sop?    @relation(fields: [sop_id], references: [id])
 
   // Billing
-  invoiced          Boolean       @default(false)
-  invoiced_at       DateTime?
-  invoiced_by_id    String?       @db.Uuid
-  is_billable       Boolean       @default(true)
-  billing_target    Decimal?      @db.Decimal(10, 2)
-  is_retainer_work  Boolean       @default(false)
-  is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
-  billing_amount    Decimal?      @db.Decimal(10, 2)  // Fixed dollar amount (overrides hourly calc)
-  waive_overage     Boolean       @default(false)     // Waive overage charges for retainer billing
+  invoiced         Boolean   @default(false)
+  invoiced_at      DateTime?
+  invoiced_by_id   String?   @db.Uuid
+  is_billable      Boolean   @default(true)
+  billing_target   Decimal?  @db.Decimal(10, 2)
+  is_retainer_work Boolean   @default(false)
+  is_support       Boolean   @default(false) // Support task (covered by hosting/maintenance)
+  billing_amount   Decimal?  @db.Decimal(10, 2) // Fixed dollar amount (overrides hourly calc)
+  waive_overage    Boolean   @default(false) // Waive overage charges for retainer billing
 
   // Time tracking
-  no_time_needed    Boolean       @default(false) // Task completed without time tracking
+  no_time_needed Boolean @default(false) // Task completed without time tracking
 
   // Notes
-  notes             String?       @db.Text
+  notes String? @db.Text
 
   // Classification & source (Bast triage). tags carry triage states (bast-doable,
   // needs-info, awaiting-client-approval, ...) AND classification namespaces (stack:eleventy,
   // kind:content, ...).
-  tags                     String[]       @default([]) @db.VarChar(50)
-  source                   TaskSource     @default(internal)
-  source_ref               String?        @db.VarChar(255) // email message-id / portal submission id
-  requested_by_contact_id  String?        @db.Uuid
-  requested_by_contact     ClientContact? @relation("TaskRequestedByContact", fields: [requested_by_contact_id], references: [id])
+  tags                    String[]       @default([]) @db.VarChar(50)
+  source                  TaskSource     @default(internal)
+  source_ref              String?        @db.VarChar(255) // email message-id / portal submission id
+  requested_by_contact_id String?        @db.Uuid
+  requested_by_contact    ClientContact? @relation("TaskRequestedByContact", fields: [requested_by_contact_id], references: [id])
 
   // Client staging approval (clients are not Users — approval is by ClientContact)
-  staging_preview_url      String?        @db.VarChar(500)
-  staging_deployed_at      DateTime?
-  client_approved_at       DateTime?
-  approved_by_contact_id   String?        @db.Uuid
-  approved_by_contact      ClientContact? @relation("TaskApprovedByContact", fields: [approved_by_contact_id], references: [id])
+  staging_preview_url    String?        @db.VarChar(500)
+  staging_deployed_at    DateTime?
+  client_approved_at     DateTime?
+  approved_by_contact_id String?        @db.Uuid
+  approved_by_contact    ClientContact? @relation("TaskApprovedByContact", fields: [approved_by_contact_id], references: [id])
 
   // Per-task client approval portal token (mirrors Proposal/Contract pattern)
-  portal_token             String?        @db.VarChar(128)
-  portal_token_expires_at  DateTime?
+  portal_token            String?   @db.VarChar(128)
+  portal_token_expires_at DateTime?
 
   // Metadata
-  is_deleted        Boolean       @default(false)
-  created_at        DateTime      @default(now())
-  updated_at        DateTime      @updatedAt
-  created_by_id     String?       @db.Uuid
-  created_by        User?         @relation("TaskCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  created_by_id String?  @db.Uuid
+  created_by    User?    @relation("TaskCreatedBy", fields: [created_by_id], references: [id])
 
   // Self-referential dependencies
-  blocked_by        Task[]        @relation("TaskDependencies")
-  blocking          Task[]        @relation("TaskDependencies")
+  blocked_by Task[] @relation("TaskDependencies")
+  blocking   Task[] @relation("TaskDependencies")
 
   // Relations
   time_entries         TimeEntry[]
@@ -1074,22 +1077,22 @@ enum TaskSource {
 }
 
 enum MysteryFactor {
-  none        // 1x multiplier
-  average     // 1.4x multiplier
+  none // 1x multiplier
+  average // 1.4x multiplier
   significant // 1.75x multiplier
-  no_idea     // 2.5x multiplier
+  no_idea // 2.5x multiplier
 }
 
 enum BatteryImpact {
-  average_drain  // Default - normal cognitive load
-  high_drain     // Taxing - don't stack these
-  energizing     // Gives energy back
+  average_drain // Default - normal cognitive load
+  high_drain // Taxing - don't stack these
+  energizing // Gives energy back
 }
 
 enum MilestoneBillingStatus {
-  pending     // Not triggered yet
-  triggered   // Ready to invoice
-  invoiced    // Has been invoiced
+  pending // Not triggered yet
+  triggered // Ready to invoice
+  invoiced // Has been invoiced
 }
 
 // ============================================
@@ -1097,14 +1100,14 @@ enum MilestoneBillingStatus {
 // ============================================
 
 model Milestone {
-  id           String    @id @default(uuid()) @db.Uuid
-  name         String    @db.VarChar(255)
-  project_id   String    @db.Uuid
-  project      Project   @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  id         String  @id @default(uuid()) @db.Uuid
+  name       String  @db.VarChar(255)
+  project_id String  @db.Uuid
+  project    Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
 
   // Optional phase linkage
-  phase_id     String?   @db.Uuid
-  phase        ProjectPhase? @relation(fields: [phase_id], references: [id])
+  phase_id String?       @db.Uuid
+  phase    ProjectPhase? @relation(fields: [phase_id], references: [id])
 
   target_date  DateTime?
   completed_at DateTime?
@@ -1112,15 +1115,15 @@ model Milestone {
   sort_order   Int       @default(0)
 
   // Billing fields
-  billing_amount    Decimal?              @db.Decimal(10, 2)  // Fixed dollar amount
-  billing_status    MilestoneBillingStatus @default(pending)
-  triggered_at      DateTime?
-  triggered_by_id   String?   @db.Uuid
-  invoiced_at       DateTime?
-  invoiced_by_id    String?   @db.Uuid
+  billing_amount  Decimal?               @db.Decimal(10, 2) // Fixed dollar amount
+  billing_status  MilestoneBillingStatus @default(pending)
+  triggered_at    DateTime?
+  triggered_by_id String?                @db.Uuid
+  invoiced_at     DateTime?
+  invoiced_by_id  String?                @db.Uuid
 
-  created_at   DateTime  @default(now())
-  updated_at   DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([project_id])
   @@index([phase_id])
@@ -1133,64 +1136,64 @@ model Milestone {
 // ============================================
 
 model Recipe {
-  id               String        @id @default(uuid()) @db.Uuid
-  name             String        @db.VarChar(255)
-  description      Json?         // BlockNote JSON content
+  id          String @id @default(uuid()) @db.Uuid
+  name        String @db.VarChar(255)
+  description Json? // BlockNote JSON content
 
   // Configuration
-  default_type     ProjectType   @default(project)
-  requires_sitemap Boolean       @default(false) // Show sitemap step in wizard?
+  default_type     ProjectType @default(project)
+  requires_sitemap Boolean     @default(false) // Show sitemap step in wizard?
 
   // Metadata
-  is_active        Boolean       @default(true)
-  created_at       DateTime      @default(now())
-  updated_at       DateTime      @updatedAt
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  phases           RecipePhase[]
-  projects         Project[]
-  wares            Ware[]
+  phases   RecipePhase[]
+  projects Project[]
+  wares    Ware[]
 
   @@map("recipes")
 }
 
 model RecipePhase {
-  id          String       @id @default(uuid()) @db.Uuid
-  recipe_id   String       @db.Uuid
-  recipe      Recipe       @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
-  name        String       @db.VarChar(100)
-  icon        String?      @db.VarChar(50) // Icon name from icon picker
-  sort_order  Int          @default(0)
+  id         String  @id @default(uuid()) @db.Uuid
+  recipe_id  String  @db.Uuid
+  recipe     Recipe  @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+  name       String  @db.VarChar(100)
+  icon       String? @db.VarChar(50) // Icon name from icon picker
+  sort_order Int     @default(0)
 
   // Relations
-  tasks       RecipeTask[]
+  tasks RecipeTask[]
 
   @@index([recipe_id])
   @@map("recipe_phases")
 }
 
 model RecipeTask {
-  id              String      @id @default(uuid()) @db.Uuid
-  phase_id        String      @db.Uuid
-  phase           RecipePhase @relation(fields: [phase_id], references: [id], onDelete: Cascade)
+  id       String      @id @default(uuid()) @db.Uuid
+  phase_id String      @db.Uuid
+  phase    RecipePhase @relation(fields: [phase_id], references: [id], onDelete: Cascade)
 
   // SOP is the source of truth for task attributes
-  sop_id          String      @db.Uuid // Required - all task attributes come from SOP
-  sop             Sop         @relation(fields: [sop_id], references: [id])
+  sop_id String @db.Uuid // Required - all task attributes come from SOP
+  sop    Sop    @relation(fields: [sop_id], references: [id])
 
   // Title override - if null, use SOP title during generation
   // Useful when same SOP is used multiple times (e.g., "Page Build - Homepage")
-  title           String?     @db.VarChar(500)
+  title String? @db.VarChar(500)
 
   // Variable task settings (for sitemap expansion)
-  is_variable     Boolean     @default(false)
-  variable_source String?     @db.VarChar(50) // 'sitemap_page' | null
+  is_variable     Boolean @default(false)
+  variable_source String? @db.VarChar(50) // 'sitemap_page' | null
 
   // Ordering
-  sort_order      Int         @default(0)
+  sort_order Int @default(0)
 
   // Dependencies (other recipe tasks this depends on)
-  depends_on_ids  String[]    @db.Uuid
+  depends_on_ids String[] @db.Uuid
 
   @@index([phase_id])
   @@index([sop_id])
@@ -1202,47 +1205,47 @@ model RecipeTask {
 // ============================================
 
 model Sop {
-  id                    String    @id @default(uuid()) @db.Uuid
-  title                 String    @db.VarChar(255)
+  id    String @id @default(uuid()) @db.Uuid
+  title String @db.VarChar(255)
 
   // Content (TipTap JSON format - step-by-step instructions)
-  content               Json?
+  content Json?
 
   // Classification
-  function_id           String?   @db.Uuid
-  function              Function? @relation(fields: [function_id], references: [id])
-  tags                  String[]  @default([]) @db.VarChar(50)
+  function_id String?   @db.Uuid
+  function    Function? @relation(fields: [function_id], references: [id])
+  tags        String[]  @default([]) @db.VarChar(50)
 
   // Capability gate: this kind of work is automatable by Bast (combined AND'd with
   // Site.bast_enabled — Bast auto-executes only when both are true).
-  bast_executable       Boolean   @default(false)
+  bast_executable Boolean @default(false)
 
   // Task template defaults (when creating tasks from this SOP)
-  default_priority      Int           @default(3)        // 1=highest, 5=lowest
-  energy_estimate       Int?                             // 1-8 scale
-  mystery_factor        MysteryFactor @default(none)
-  battery_impact        BatteryImpact @default(average_drain)
-  estimated_minutes     Int?                             // Calculated or manual
-  needs_review          Boolean       @default(true)     // Whether tasks from this SOP need review
+  default_priority  Int           @default(3) // 1=highest, 5=lowest
+  energy_estimate   Int? // 1-8 scale
+  mystery_factor    MysteryFactor @default(none)
+  battery_impact    BatteryImpact @default(average_drain)
+  estimated_minutes Int? // Calculated or manual
+  needs_review      Boolean       @default(true) // Whether tasks from this SOP need review
 
   // Template requirements (copied to tasks as checklist)
-  template_requirements Json?         // Visible to all roles - task completion checklist
-  setup_requirements    Json?         // PM/Admin-only - checklist for prepping task before assignment
-  review_requirements   Json?         // PM/Admin-only - checklist for reviewing completed task
+  template_requirements Json? // Visible to all roles - task completion checklist
+  setup_requirements    Json? // PM/Admin-only - checklist for prepping task before assignment
+  review_requirements   Json? // PM/Admin-only - checklist for reviewing completed task
 
   // Review tracking
-  last_reviewed_at      DateTime?
-  next_review_at        DateTime?
+  last_reviewed_at DateTime?
+  next_review_at   DateTime?
 
   // Metadata
-  is_active             Boolean   @default(true)
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  tasks                 Task[]
-  recipe_tasks          RecipeTask[]
-  maintenance_plan_sops MaintenancePlanSop[]
+  tasks                   Task[]
+  recipe_tasks            RecipeTask[]
+  maintenance_plan_sops   MaintenancePlanSop[]
   charter_scheduled_tasks CharterScheduledTask[]
 
   @@index([function_id])
@@ -1254,14 +1257,14 @@ model Sop {
 // ============================================
 
 model ProjectPage {
-  id            String   @id @default(uuid()) @db.Uuid
-  project_id    String   @db.Uuid
-  project       Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  name          String   @db.VarChar(255)
-  page_type     String?  @db.VarChar(50)
-  needs_design  Boolean  @default(false)
-  notes         String?  @db.Text
-  sort_order    Int      @default(0)
+  id           String  @id @default(uuid()) @db.Uuid
+  project_id   String  @db.Uuid
+  project      Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  name         String  @db.VarChar(255)
+  page_type    String? @db.VarChar(50)
+  needs_design Boolean @default(false)
+  notes        String? @db.Text
+  sort_order   Int     @default(0)
 
   @@index([project_id])
   @@map("project_pages")
@@ -1272,13 +1275,13 @@ model ProjectPage {
 // ============================================
 
 model TimeEntry {
-  id          String   @id @default(uuid()) @db.Uuid
-  user_id     String   @db.Uuid
-  user        User     @relation(fields: [user_id], references: [id])
-  task_id     String?  @db.Uuid
-  task        Task?    @relation(fields: [task_id], references: [id])
-  project_id  String?  @db.Uuid
-  project     Project? @relation(fields: [project_id], references: [id])
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  user       User     @relation(fields: [user_id], references: [id])
+  task_id    String?  @db.Uuid
+  task       Task?    @relation(fields: [task_id], references: [id])
+  project_id String?  @db.Uuid
+  project    Project? @relation(fields: [project_id], references: [id])
 
   // Time data
   started_at  DateTime
@@ -1292,9 +1295,9 @@ model TimeEntry {
   hourly_rate Decimal? @db.Decimal(10, 2)
 
   // Metadata
-  is_deleted  Boolean  @default(false)
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([user_id])
   @@index([task_id])
@@ -1316,7 +1319,7 @@ model ActivityLog {
   entity_type String   @db.VarChar(50) // task, project, client, etc.
   entity_id   String   @db.Uuid
   entity_name String?  @db.VarChar(255) // Snapshot of name at time of action
-  changes     Json?    // Before/after for updates
+  changes     Json? // Before/after for updates
   created_at  DateTime @default(now())
 
   @@index([entity_type, entity_id])
@@ -1349,20 +1352,20 @@ model PasswordResetToken {
 // ============================================
 
 model Comment {
-  id         String   @id @default(uuid()) @db.Uuid
-  task_id    String   @db.Uuid
-  task       Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
-  user_id    String   @db.Uuid
-  user       User     @relation(fields: [user_id], references: [id])
-  content    String   @db.Text
+  id                 String   @id @default(uuid()) @db.Uuid
+  task_id            String   @db.Uuid
+  task               Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user_id            String   @db.Uuid
+  user               User     @relation(fields: [user_id], references: [id])
+  content            String   @db.Text
   mentioned_user_ids String[] @default([]) @db.Uuid
-  is_deleted Boolean  @default(false)
+  is_deleted         Boolean  @default(false)
   // Internal/team notes (incl. Bast's automated technical summaries) are never shown
   // to clients. Defaults false so new comments are client-visible. Client questions
   // must stay false; only team/Bast technical notes are flagged true.
-  is_internal Boolean  @default(false)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  is_internal        Boolean  @default(false)
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
 
   @@index([task_id])
   @@index([user_id])
@@ -1380,7 +1383,7 @@ model MaintenanceGenerationLog {
   maintenance_plan    MaintenancePlan @relation(fields: [maintenance_plan_id], references: [id], onDelete: Cascade)
   site_id             String          @db.Uuid
   site                Site            @relation(fields: [site_id], references: [id], onDelete: Cascade)
-  period              String          @db.VarChar(20)  // "2025-01", "2025-Q1", etc.
+  period              String          @db.VarChar(20) // "2025-01", "2025-Q1", etc.
   tasks_created       Int
   tasks_abandoned     Int             @default(0)
   generated_at        DateTime        @default(now())
@@ -1397,20 +1400,20 @@ model MaintenanceGenerationLog {
 // ============================================
 
 model AppSettings {
-  id                          String    @id @default("singleton")
+  id String @id @default("singleton")
 
   // Bug reporting configuration
-  bug_report_project_id       String?   @db.Uuid
-  bug_report_phase_id         String?   @db.Uuid
-  bug_report_notify_user_id   String?   @db.Uuid
+  bug_report_project_id     String? @db.Uuid
+  bug_report_phase_id       String? @db.Uuid
+  bug_report_notify_user_id String? @db.Uuid
 
-  created_at                  DateTime  @default(now())
-  updated_at                  DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // Relations
-  bug_report_project          Project?      @relation(fields: [bug_report_project_id], references: [id])
-  bug_report_phase            ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
-  bug_report_notify_user      User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
+  bug_report_project     Project?      @relation(fields: [bug_report_project_id], references: [id])
+  bug_report_phase       ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
+  bug_report_notify_user User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
 
   @@map("app_settings")
 }
@@ -1420,24 +1423,24 @@ model AppSettings {
 // ============================================
 
 model Ware {
-  id                     String               @id @default(uuid()) @db.Uuid
-  name                   String               @db.VarChar(255)
-  description            String?              @db.Text
-  type                   WareType
-  charter_billing_period CharterBillingPeriod?
-  base_price             Decimal?             @db.Decimal(10, 2)
-  price_tiers            Json?
-  contract_language      String?              @db.Text
-  default_schedule       Json?
-  recipe_id              String?              @db.Uuid
-  recipe                 Recipe?              @relation(fields: [recipe_id], references: [id])
+  id                      String                @id @default(uuid()) @db.Uuid
+  name                    String                @db.VarChar(255)
+  description             String?               @db.Text
+  type                    WareType
+  charter_billing_period  CharterBillingPeriod?
+  base_price              Decimal?              @db.Decimal(10, 2)
+  price_tiers             Json?
+  contract_language       String?               @db.Text
+  default_schedule        Json?
+  recipe_id               String?               @db.Uuid
+  recipe                  Recipe?               @relation(fields: [recipe_id], references: [id])
   renewal_lead_time_days  Int?
   default_duration_months Int?
-  sort_order             Int                  @default(0)
-  is_active              Boolean              @default(true)
-  is_deleted             Boolean              @default(false)
-  created_at             DateTime             @default(now())
-  updated_at             DateTime             @updatedAt
+  sort_order              Int                   @default(0)
+  is_active               Boolean               @default(true)
+  is_deleted              Boolean               @default(false)
+  created_at              DateTime              @default(now())
+  updated_at              DateTime              @updatedAt
 
   // Relations
   charter_wares           CharterWare[]
@@ -1450,45 +1453,45 @@ model Ware {
 }
 
 model Accord {
-  id                      String       @id @default(uuid()) @db.Uuid
-  name                    String       @db.VarChar(255)
-  status                  AccordStatus @default(lead)
-  client_id               String?      @db.Uuid
-  client                  Client?      @relation(fields: [client_id], references: [id])
-  owner_id                String       @db.Uuid
-  owner                   User         @relation("AccordOwner", fields: [owner_id], references: [id])
-  lead_name               String?      @db.VarChar(255)
-  lead_business_name      String?      @db.VarChar(255)
-  lead_email              String?      @db.VarChar(255)
-  lead_phone              String?      @db.VarChar(50)
-  lead_notes              String?      @db.Text
-  notes                   String?      @db.Text
-  rejection_reason        String?      @db.Text
-  payment_confirmed       Boolean      @default(false)
-  payment_confirmed_at    DateTime?
-  payment_confirmed_by_id String?      @db.Uuid
-  payment_confirmed_by    User?        @relation("AccordPaymentConfirmedBy", fields: [payment_confirmed_by_id], references: [id])
-  total_value             Decimal?     @db.Decimal(10, 2)
-  entered_current_status_at DateTime   @default(now())
-  lost_at                 DateTime?
-  signed_at               DateTime?
-  is_deleted              Boolean      @default(false)
-  created_at              DateTime     @default(now())
-  updated_at              DateTime     @updatedAt
+  id                        String       @id @default(uuid()) @db.Uuid
+  name                      String       @db.VarChar(255)
+  status                    AccordStatus @default(lead)
+  client_id                 String?      @db.Uuid
+  client                    Client?      @relation(fields: [client_id], references: [id])
+  owner_id                  String       @db.Uuid
+  owner                     User         @relation("AccordOwner", fields: [owner_id], references: [id])
+  lead_name                 String?      @db.VarChar(255)
+  lead_business_name        String?      @db.VarChar(255)
+  lead_email                String?      @db.VarChar(255)
+  lead_phone                String?      @db.VarChar(50)
+  lead_notes                String?      @db.Text
+  notes                     String?      @db.Text
+  rejection_reason          String?      @db.Text
+  payment_confirmed         Boolean      @default(false)
+  payment_confirmed_at      DateTime?
+  payment_confirmed_by_id   String?      @db.Uuid
+  payment_confirmed_by      User?        @relation("AccordPaymentConfirmedBy", fields: [payment_confirmed_by_id], references: [id])
+  total_value               Decimal?     @db.Decimal(10, 2)
+  entered_current_status_at DateTime     @default(now())
+  lost_at                   DateTime?
+  signed_at                 DateTime?
+  is_deleted                Boolean      @default(false)
+  created_at                DateTime     @default(now())
+  updated_at                DateTime     @updatedAt
 
   // Relations
-  charter_items       AccordCharterItem[]
-  commission_items    AccordCommissionItem[]
-  keep_items          AccordKeepItem[]
+  charter_items        AccordCharterItem[]
+  commission_items     AccordCommissionItem[]
+  keep_items           AccordKeepItem[]
   charter_renewal_logs CharterRenewalLog[]
-  meeting_accords     MeetingAccord[]
-  proposals           Proposal[]
-  contracts           Contract[]
-  addendums           Addendum[]
-  projects            Project[]
-  charters            Charter[]
-  tasks               Task[]
-  automation_logs     SalesAutomationLog[]
+  meeting_accords      MeetingAccord[]
+  proposals            Proposal[]
+  contracts            Contract[]
+  addendums            Addendum[]
+  projects             Project[]
+  charters             Charter[]
+  tasks                Task[]
+  automation_logs      SalesAutomationLog[]
 
   @@index([client_id])
   @@index([owner_id])
@@ -1502,23 +1505,23 @@ model Accord {
 // ============================================
 
 model Meeting {
-  id                        String   @id @default(uuid()) @db.Uuid
-  title                     String   @db.VarChar(255)
-  client_id                 String   @db.Uuid
-  client                    Client   @relation(fields: [client_id], references: [id])
-  meeting_date              DateTime
-  summary                   String?  @db.Text
-  notes                     String?  @db.Text
-  transcript_url            String?  @db.VarChar(500)
-  recording_url             String?  @db.VarChar(500)
-  client_attendees          String?  @db.Text
-  transcript_not_available  Boolean  @default(false)
-  recording_not_available   Boolean  @default(false)
-  created_by_id             String   @db.Uuid
-  created_by                User     @relation("MeetingCreatedBy", fields: [created_by_id], references: [id])
-  is_deleted                Boolean  @default(false)
-  created_at                DateTime @default(now())
-  updated_at                DateTime @updatedAt
+  id                       String   @id @default(uuid()) @db.Uuid
+  title                    String   @db.VarChar(255)
+  client_id                String   @db.Uuid
+  client                   Client   @relation(fields: [client_id], references: [id])
+  meeting_date             DateTime
+  summary                  String?  @db.Text
+  notes                    String?  @db.Text
+  transcript_url           String?  @db.VarChar(500)
+  recording_url            String?  @db.VarChar(500)
+  client_attendees         String?  @db.Text
+  transcript_not_available Boolean  @default(false)
+  recording_not_available  Boolean  @default(false)
+  created_by_id            String   @db.Uuid
+  created_by               User     @relation("MeetingCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted               Boolean  @default(false)
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
 
   // Relations
   attendees        MeetingAttendee[]
@@ -1649,34 +1652,34 @@ model AccordCommissionItem {
 }
 
 model AccordKeepItem {
-  id                           String           @id @default(uuid()) @db.Uuid
-  accord_id                    String           @db.Uuid
-  accord                       Accord           @relation(fields: [accord_id], references: [id], onDelete: Cascade)
-  site_id                      String?          @db.Uuid
-  site                         Site?            @relation(fields: [site_id], references: [id])
-  site_name_placeholder        String?          @db.VarChar(255)
-  domain_name                  String?          @db.VarChar(255)
-  hosting_plan_id              String?          @db.Uuid
-  hosting_plan                 HostingPlan?     @relation("KeepHostingPlan", fields: [hosting_plan_id], references: [id])
-  maintenance_plan_id          String?          @db.Uuid
-  maintenance_plan             MaintenancePlan? @relation("KeepMaintenancePlan", fields: [maintenance_plan_id], references: [id])
-  hosting_price                Decimal?         @db.Decimal(10, 2)
-  hosting_discount_type        String?          @db.VarChar(10)
-  hosting_discount_value       Decimal?         @db.Decimal(10, 2)
-  hosting_final_price          Decimal?         @db.Decimal(10, 2)
-  maintenance_price            Decimal?         @db.Decimal(10, 2)
-  maintenance_discount_type    String?          @db.VarChar(10)
-  maintenance_discount_value   Decimal?         @db.Decimal(10, 2)
-  maintenance_final_price      Decimal?         @db.Decimal(10, 2)
-  monthly_total                Decimal?         @db.Decimal(10, 2)
-  is_client_hosted             Boolean          @default(false)
-  contract_language_override   String?          @db.Text
-  addendum_id                  String?          @db.Uuid
-  addendum                     Addendum?        @relation(fields: [addendum_id], references: [id])
-  sort_order                   Int              @default(0)
-  is_deleted                   Boolean          @default(false)
-  created_at                   DateTime         @default(now())
-  updated_at                   DateTime         @updatedAt
+  id                         String           @id @default(uuid()) @db.Uuid
+  accord_id                  String           @db.Uuid
+  accord                     Accord           @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  site_id                    String?          @db.Uuid
+  site                       Site?            @relation(fields: [site_id], references: [id])
+  site_name_placeholder      String?          @db.VarChar(255)
+  domain_name                String?          @db.VarChar(255)
+  hosting_plan_id            String?          @db.Uuid
+  hosting_plan               HostingPlan?     @relation("KeepHostingPlan", fields: [hosting_plan_id], references: [id])
+  maintenance_plan_id        String?          @db.Uuid
+  maintenance_plan           MaintenancePlan? @relation("KeepMaintenancePlan", fields: [maintenance_plan_id], references: [id])
+  hosting_price              Decimal?         @db.Decimal(10, 2)
+  hosting_discount_type      String?          @db.VarChar(10)
+  hosting_discount_value     Decimal?         @db.Decimal(10, 2)
+  hosting_final_price        Decimal?         @db.Decimal(10, 2)
+  maintenance_price          Decimal?         @db.Decimal(10, 2)
+  maintenance_discount_type  String?          @db.VarChar(10)
+  maintenance_discount_value Decimal?         @db.Decimal(10, 2)
+  maintenance_final_price    Decimal?         @db.Decimal(10, 2)
+  monthly_total              Decimal?         @db.Decimal(10, 2)
+  is_client_hosted           Boolean          @default(false)
+  contract_language_override String?          @db.Text
+  addendum_id                String?          @db.Uuid
+  addendum                   Addendum?        @relation(fields: [addendum_id], references: [id])
+  sort_order                 Int              @default(0)
+  is_deleted                 Boolean          @default(false)
+  created_at                 DateTime         @default(now())
+  updated_at                 DateTime         @updatedAt
 
   @@index([accord_id])
   @@index([site_id])
@@ -1704,23 +1707,23 @@ model CharterRenewalLog {
 }
 
 model Proposal {
-  id                    String         @id @default(uuid()) @db.Uuid
-  accord_id             String         @db.Uuid
-  accord                Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
-  version               Int
-  content               String         @db.Text
-  status                ProposalStatus @default(draft)
-  pricing_snapshot      Json
-  sent_at               DateTime?
-  client_responded_at   DateTime?
-  client_note           String?        @db.Text
-  portal_token          String?        @db.VarChar(128)
+  id                      String         @id @default(uuid()) @db.Uuid
+  accord_id               String         @db.Uuid
+  accord                  Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  version                 Int
+  content                 String         @db.Text
+  status                  ProposalStatus @default(draft)
+  pricing_snapshot        Json
+  sent_at                 DateTime?
+  client_responded_at     DateTime?
+  client_note             String?        @db.Text
+  portal_token            String?        @db.VarChar(128)
   portal_token_expires_at DateTime?
-  created_by_id         String         @db.Uuid
-  created_by            User           @relation("ProposalCreatedBy", fields: [created_by_id], references: [id])
-  is_deleted            Boolean        @default(false)
-  created_at            DateTime       @default(now())
-  updated_at            DateTime       @updatedAt
+  created_by_id           String         @db.Uuid
+  created_by              User           @relation("ProposalCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted              Boolean        @default(false)
+  created_at              DateTime       @default(now())
+  updated_at              DateTime       @updatedAt
 
   @@unique([accord_id, version])
   @@index([accord_id])
@@ -1741,36 +1744,36 @@ model MsaVersion {
   updated_at     DateTime @updatedAt
 
   // Relations
-  contracts            Contract[]
+  contracts             Contract[]
   client_msa_signatures ClientMsaSignature[]
 
   @@map("msa_versions")
 }
 
 model Contract {
-  id                    String         @id @default(uuid()) @db.Uuid
-  accord_id             String         @db.Uuid
-  accord                Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
-  version               Int
-  content               String         @db.Text
-  msa_version_id        String         @db.Uuid
-  msa_version           MsaVersion     @relation(fields: [msa_version_id], references: [id])
-  status                ContractStatus @default(draft)
-  pricing_snapshot      Json
-  sent_at               DateTime?
-  signed_at             DateTime?
-  signer_name           String?        @db.VarChar(255)
-  signer_email          String?        @db.VarChar(255)
-  signer_ip             String?        @db.VarChar(45)
-  signer_user_agent     String?        @db.Text
-  content_snapshot      String?        @db.Text
-  portal_token          String?        @db.VarChar(128)
+  id                      String         @id @default(uuid()) @db.Uuid
+  accord_id               String         @db.Uuid
+  accord                  Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  version                 Int
+  content                 String         @db.Text
+  msa_version_id          String         @db.Uuid
+  msa_version             MsaVersion     @relation(fields: [msa_version_id], references: [id])
+  status                  ContractStatus @default(draft)
+  pricing_snapshot        Json
+  sent_at                 DateTime?
+  signed_at               DateTime?
+  signer_name             String?        @db.VarChar(255)
+  signer_email            String?        @db.VarChar(255)
+  signer_ip               String?        @db.VarChar(45)
+  signer_user_agent       String?        @db.Text
+  content_snapshot        String?        @db.Text
+  portal_token            String?        @db.VarChar(128)
   portal_token_expires_at DateTime?
-  created_by_id         String         @db.Uuid
-  created_by            User           @relation("ContractCreatedBy", fields: [created_by_id], references: [id])
-  is_deleted            Boolean        @default(false)
-  created_at            DateTime       @default(now())
-  updated_at            DateTime       @updatedAt
+  created_by_id           String         @db.Uuid
+  created_by              User           @relation("ContractCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted              Boolean        @default(false)
+  created_at              DateTime       @default(now())
+  updated_at              DateTime       @updatedAt
 
   @@unique([accord_id, version])
   @@index([accord_id])
@@ -1779,36 +1782,36 @@ model Contract {
 }
 
 model Addendum {
-  id                    String         @id @default(uuid()) @db.Uuid
-  accord_id             String         @db.Uuid
-  accord                Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
-  version               Int
-  title                 String         @db.VarChar(255)
-  description           String         @db.Text
-  contract_content      String         @db.Text
-  status                AddendumStatus @default(draft)
-  pricing_snapshot      Json
-  changes               Json
-  sent_at               DateTime?
-  client_responded_at   DateTime?
-  client_note           String?        @db.Text
-  signed_at             DateTime?
-  signer_name           String?        @db.VarChar(255)
-  signer_email          String?        @db.VarChar(255)
-  signer_ip             String?        @db.VarChar(45)
-  signer_user_agent     String?        @db.Text
-  content_snapshot      String?        @db.Text
-  portal_token          String?        @db.VarChar(128)
+  id                      String         @id @default(uuid()) @db.Uuid
+  accord_id               String         @db.Uuid
+  accord                  Accord         @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  version                 Int
+  title                   String         @db.VarChar(255)
+  description             String         @db.Text
+  contract_content        String         @db.Text
+  status                  AddendumStatus @default(draft)
+  pricing_snapshot        Json
+  changes                 Json
+  sent_at                 DateTime?
+  client_responded_at     DateTime?
+  client_note             String?        @db.Text
+  signed_at               DateTime?
+  signer_name             String?        @db.VarChar(255)
+  signer_email            String?        @db.VarChar(255)
+  signer_ip               String?        @db.VarChar(45)
+  signer_user_agent       String?        @db.Text
+  content_snapshot        String?        @db.Text
+  portal_token            String?        @db.VarChar(128)
   portal_token_expires_at DateTime?
-  is_override           Boolean        @default(false)
-  override_reason       String?        @db.Text
-  overridden_by_id      String?        @db.Uuid
-  overridden_by         User?          @relation("AddendumOverriddenBy", fields: [overridden_by_id], references: [id])
-  created_by_id         String         @db.Uuid
-  created_by            User           @relation("AddendumCreatedBy", fields: [created_by_id], references: [id])
-  is_deleted            Boolean        @default(false)
-  created_at            DateTime       @default(now())
-  updated_at            DateTime       @updatedAt
+  is_override             Boolean        @default(false)
+  override_reason         String?        @db.Text
+  overridden_by_id        String?        @db.Uuid
+  overridden_by           User?          @relation("AddendumOverriddenBy", fields: [overridden_by_id], references: [id])
+  created_by_id           String         @db.Uuid
+  created_by              User           @relation("AddendumCreatedBy", fields: [created_by_id], references: [id])
+  is_deleted              Boolean        @default(false)
+  created_at              DateTime       @default(now())
+  updated_at              DateTime       @updatedAt
 
   // Relations
   charter_items    AccordCharterItem[]
@@ -1822,18 +1825,18 @@ model Addendum {
 }
 
 model ClientMsaSignature {
-  id              String     @id @default(uuid()) @db.Uuid
-  client_id       String     @db.Uuid
-  client          Client     @relation(fields: [client_id], references: [id])
-  msa_version_id  String     @db.Uuid
-  msa_version     MsaVersion @relation(fields: [msa_version_id], references: [id])
-  signed_at       DateTime
-  signer_name     String     @db.VarChar(255)
-  signer_email    String     @db.VarChar(255)
-  signer_ip       String?    @db.VarChar(45)
-  signer_user_agent String?  @db.Text
-  portal_token    String?    @db.VarChar(128)
-  created_at      DateTime   @default(now())
+  id                String     @id @default(uuid()) @db.Uuid
+  client_id         String     @db.Uuid
+  client            Client     @relation(fields: [client_id], references: [id])
+  msa_version_id    String     @db.Uuid
+  msa_version       MsaVersion @relation(fields: [msa_version_id], references: [id])
+  signed_at         DateTime
+  signer_name       String     @db.VarChar(255)
+  signer_email      String     @db.VarChar(255)
+  signer_ip         String?    @db.VarChar(45)
+  signer_user_agent String?    @db.Text
+  portal_token      String?    @db.VarChar(128)
+  created_at        DateTime   @default(now())
 
   @@unique([client_id, msa_version_id])
   @@index([client_id])
@@ -1868,14 +1871,14 @@ model Charter {
   updated_at          DateTime             @updatedAt
 
   // Relations
-  charter_wares          CharterWare[]
-  scheduled_tasks        CharterScheduledTask[]
-  generation_logs        CharterGenerationLog[]
-  charter_commissions    CharterCommission[]
-  charter_items          AccordCharterItem[]
-  renewal_logs           CharterRenewalLog[]
-  tasks                  Task[]
-  meeting_charters       MeetingCharter[]
+  charter_wares       CharterWare[]
+  scheduled_tasks     CharterScheduledTask[]
+  generation_logs     CharterGenerationLog[]
+  charter_commissions CharterCommission[]
+  charter_items       AccordCharterItem[]
+  renewal_logs        CharterRenewalLog[]
+  tasks               Task[]
+  meeting_charters    MeetingCharter[]
 
   @@index([client_id])
   @@index([accord_id])
@@ -1885,17 +1888,17 @@ model Charter {
 }
 
 model CharterWare {
-  id                   String          @id @default(uuid()) @db.Uuid
-  charter_id           String          @db.Uuid
-  charter              Charter         @relation(fields: [charter_id], references: [id], onDelete: Cascade)
-  ware_id              String          @db.Uuid
-  ware                 Ware            @relation(fields: [ware_id], references: [id])
-  price                Decimal         @db.Decimal(10, 2)
-  is_active            Boolean         @default(true)
-  deactivated_at       DateTime?
-  addendum_id          String?         @db.Uuid
-  created_at           DateTime        @default(now())
-  updated_at           DateTime        @updatedAt
+  id             String    @id @default(uuid()) @db.Uuid
+  charter_id     String    @db.Uuid
+  charter        Charter   @relation(fields: [charter_id], references: [id], onDelete: Cascade)
+  ware_id        String    @db.Uuid
+  ware           Ware      @relation(fields: [ware_id], references: [id])
+  price          Decimal   @db.Decimal(10, 2)
+  is_active      Boolean   @default(true)
+  deactivated_at DateTime?
+  addendum_id    String?   @db.Uuid
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
 
   // Relations
   scheduled_tasks CharterScheduledTask[]
@@ -1963,14 +1966,14 @@ model CharterCommission {
 }
 
 model PortalSession {
-  id          String   @id @default(uuid()) @db.Uuid
-  token_type  String   @db.VarChar(20)
-  entity_id   String   @db.Uuid
-  ip_address  String   @db.VarChar(45)
-  user_agent  String?  @db.Text
-  action      String   @db.VarChar(20)
-  metadata    Json?
-  created_at  DateTime @default(now())
+  id         String   @id @default(uuid()) @db.Uuid
+  token_type String   @db.VarChar(20)
+  entity_id  String   @db.Uuid
+  ip_address String   @db.VarChar(45)
+  user_agent String?  @db.Text
+  action     String   @db.VarChar(20)
+  metadata   Json?
+  created_at DateTime @default(now())
 
   // Client login sessions (token_type='client_session', entity_id=client_id). These columns are
   // null for audit-log rows (proposal/contract/task_approval views). A client login is one row:
@@ -1991,38 +1994,37 @@ model PortalSession {
 }
 
 model SalesAutomationRule {
-  id                   String       @id @default(uuid()) @db.Uuid
-  name                 String       @db.VarChar(255)
-  trigger_type         String       @db.VarChar(20)
+  id                   String               @id @default(uuid()) @db.Uuid
+  name                 String               @db.VarChar(255)
+  trigger_type         String               @db.VarChar(20)
   trigger_status       AccordStatus
   trigger_from_status  AccordStatus?
   time_threshold_hours Int?
-  action_type          String       @db.VarChar(20)
+  action_type          String               @db.VarChar(20)
   task_template        Json
-  assignee_rule        String       @db.VarChar(20)
-  assignee_user_id     String?      @db.Uuid
-  assignee_user        User?        @relation("SalesAutomationAssignee", fields: [assignee_user_id], references: [id])
-  is_active            Boolean      @default(true)
-  sort_order           Int          @default(0)
-  created_at           DateTime     @default(now())
-  updated_at           DateTime     @updatedAt
+  assignee_rule        String               @db.VarChar(20)
+  assignee_user_id     String?              @db.Uuid
+  assignee_user        User?                @relation("SalesAutomationAssignee", fields: [assignee_user_id], references: [id])
+  is_active            Boolean              @default(true)
+  sort_order           Int                  @default(0)
+  created_at           DateTime             @default(now())
+  updated_at           DateTime             @updatedAt
+  // Relations
+  automation_logs      SalesAutomationLog[]
 
   @@index([trigger_status])
-  // Relations
-  automation_logs SalesAutomationLog[]
-
   @@index([is_active])
   @@map("sales_automation_rules")
 }
 
 model SalesAutomationLog {
-  id          String   @id @default(uuid()) @db.Uuid
-  rule_id     String   @db.Uuid
-  rule        SalesAutomationRule @relation(fields: [rule_id], references: [id], onDelete: Cascade)
-  accord_id   String   @db.Uuid
-  accord      Accord   @relation(fields: [accord_id], references: [id], onDelete: Cascade)
-  task_id     String?  @db.Uuid
-  fired_at    DateTime @default(now())
+  id        String              @id @default(uuid()) @db.Uuid
+  rule_id   String              @db.Uuid
+  rule      SalesAutomationRule @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+  accord_id String              @db.Uuid
+  accord    Accord              @relation(fields: [accord_id], references: [id], onDelete: Cascade)
+  task_id   String?             @db.Uuid
+  fired_at  DateTime            @default(now())
 
   @@unique([rule_id, accord_id])
   @@index([accord_id])
@@ -2039,7 +2041,7 @@ enum TroubadorRunStage {
   researching
   ready_for_interview
   in_production
-  publishing            // all live articles approved; scheduling / awaiting publish
+  publishing // all live articles approved; scheduling / awaiting publish
   done
   cancelled
 }
@@ -2048,20 +2050,20 @@ enum ArticleStatus {
   pending_research
   researched
   drafting
-  in_review        // ready for editor review/approval
+  in_review // ready for editor review/approval
   needs_revision
   approved
   scheduled
   published
-  postponed        // parked; doesn't block run->done; reactivatable / to backlog
-  dropped          // permanent removal
+  postponed // parked; doesn't block run->done; reactivatable / to backlog
+  dropped // permanent removal
 }
 
 enum ArticleCheckState {
   pending
   passed
-  check_failed     // non-compliance check failed; surfaced flagged
-  compliance_hold  // fail-closed; parked, not in normal review queue
+  check_failed // non-compliance check failed; surfaced flagged
+  compliance_hold // fail-closed; parked, not in normal review queue
 }
 
 enum InterviewStatus {
@@ -2092,36 +2094,36 @@ enum TopicArchetype {
 }
 
 model TroubadorSchedule {
-  id                   String         @id @default(uuid()) @db.Uuid
-  client_id            String         @db.Uuid
-  client               Client         @relation(fields: [client_id], references: [id])
-  site_id              String         @db.Uuid
-  site                 Site           @relation(fields: [site_id], references: [id])
+  id        String @id @default(uuid()) @db.Uuid
+  client_id String @db.Uuid
+  client    Client @relation(fields: [client_id], references: [id])
+  site_id   String @db.Uuid
+  site      Site   @relation(fields: [site_id], references: [id])
 
-  name                 String         @db.VarChar(255)
-  status               ScheduleStatus @default(active)
+  name   String         @db.VarChar(255)
+  status ScheduleStatus @default(active)
 
   // Cadence model: "keep the calendar full"
-  target_article_count Int            @default(4)
-  publish_per_week     Decimal        @default(2) @db.Decimal(5, 2)
-  lead_time_days       Int            @default(7)
+  target_article_count Int     @default(4)
+  publish_per_week     Decimal @default(2) @db.Decimal(5, 2)
+  lead_time_days       Int     @default(7)
 
-  overarching_goals    String?        @db.Text
+  overarching_goals String? @db.Text
 
-  default_assignee_id  String?        @db.Uuid
-  default_assignee     User?          @relation("ScheduleDefaultEditor", fields: [default_assignee_id], references: [id])
+  default_assignee_id String? @db.Uuid
+  default_assignee    User?   @relation("ScheduleDefaultEditor", fields: [default_assignee_id], references: [id])
 
-  allow_concurrent     Boolean        @default(false)
-  start_date           DateTime
-  skip_next            Boolean        @default(false)
-  last_run_at          DateTime?
+  allow_concurrent Boolean   @default(false)
+  start_date       DateTime
+  skip_next        Boolean   @default(false)
+  last_run_at      DateTime?
 
-  is_deleted           Boolean        @default(false)
-  created_at           DateTime       @default(now())
-  updated_at           DateTime       @updatedAt
-  created_by_id        String?        @db.Uuid
+  is_deleted    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  created_by_id String?  @db.Uuid
 
-  runs                 TroubadorRun[]
+  runs TroubadorRun[]
 
   @@index([client_id])
   @@index([site_id])
@@ -2131,43 +2133,43 @@ model TroubadorSchedule {
 }
 
 model TroubadorRun {
-  id               String             @id @default(uuid()) @db.Uuid
-  client_id        String             @db.Uuid
-  client           Client             @relation(fields: [client_id], references: [id])
-  site_id          String             @db.Uuid
-  site             Site               @relation(fields: [site_id], references: [id])
-  schedule_id      String?            @db.Uuid
-  schedule         TroubadorSchedule? @relation(fields: [schedule_id], references: [id])
+  id          String             @id @default(uuid()) @db.Uuid
+  client_id   String             @db.Uuid
+  client      Client             @relation(fields: [client_id], references: [id])
+  site_id     String             @db.Uuid
+  site        Site               @relation(fields: [site_id], references: [id])
+  schedule_id String?            @db.Uuid
+  schedule    TroubadorSchedule? @relation(fields: [schedule_id], references: [id])
 
-  title            String             @db.VarChar(255)
-  stage            TroubadorRunStage  @default(planning)
+  title String            @db.VarChar(255)
+  stage TroubadorRunStage @default(planning)
 
   // Per-run brief (inherits schedule goals; editor-refined in Planning)
-  brief            String?            @db.Text
-  goal_type        String?            @db.VarChar(50)
-  target_offering  String?            @db.VarChar(255)
-  must_cover       String?            @db.Text
-  avoid            String?            @db.Text
+  brief           String? @db.Text
+  goal_type       String? @db.VarChar(50)
+  target_offering String? @db.VarChar(255)
+  must_cover      String? @db.Text
+  avoid           String? @db.Text
 
   // Human gates (signals the worker reads; never self-advanced past)
-  ready            Boolean            @default(false)
-  selection_ready  Boolean            @default(false)
+  ready           Boolean @default(false)
+  selection_ready Boolean @default(false)
 
-  assignee_id      String?            @db.Uuid
-  assignee         User?              @relation("RunEditor", fields: [assignee_id], references: [id])
+  assignee_id String? @db.Uuid
+  assignee    User?   @relation("RunEditor", fields: [assignee_id], references: [id])
 
   // Worker lease (single-flight + claim for run-level work)
-  claimed_at       DateTime?
-  claimed_by_id    String?            @db.Uuid
+  claimed_at    DateTime?
+  claimed_by_id String?   @db.Uuid
 
-  is_deleted       Boolean            @default(false)
-  created_at       DateTime           @default(now())
-  updated_at       DateTime           @updatedAt
-  created_by_id    String?            @db.Uuid
+  is_deleted    Boolean  @default(false)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  created_by_id String?  @db.Uuid
 
-  proposals        TopicProposal[]
-  articles         Article[]
-  interview        Interview?
+  proposals TopicProposal[]
+  articles  Article[]
+  interview Interview?
 
   @@index([client_id])
   @@index([site_id])
@@ -2178,9 +2180,9 @@ model TroubadorRun {
 }
 
 model TopicProposal {
-  id                 String          @id @default(uuid()) @db.Uuid
-  run_id             String          @db.Uuid
-  run                TroubadorRun    @relation(fields: [run_id], references: [id], onDelete: Cascade)
+  id     String       @id @default(uuid()) @db.Uuid
+  run_id String       @db.Uuid
+  run    TroubadorRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
 
   title              String          @db.VarChar(500)
   archetype          TopicArchetype?
@@ -2192,50 +2194,57 @@ model TopicProposal {
   selected           Boolean         @default(false)
   saved_for_later    Boolean         @default(false)
 
-  created_at         DateTime        @default(now())
-  updated_at         DateTime        @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([run_id])
   @@map("troubador_topic_proposals")
 }
 
 model Article {
-  id               String            @id @default(uuid()) @db.Uuid
-  run_id           String            @db.Uuid
-  run              TroubadorRun      @relation(fields: [run_id], references: [id], onDelete: Cascade)
+  id        String       @id @default(uuid()) @db.Uuid
+  run_id    String       @db.Uuid
+  run       TroubadorRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
   // denormalized for cross-run queries (worker queue, site calendar, backlog)
-  client_id        String            @db.Uuid
-  client           Client            @relation(fields: [client_id], references: [id])
-  site_id          String            @db.Uuid
-  site             Site              @relation(fields: [site_id], references: [id])
+  client_id String       @db.Uuid
+  client    Client       @relation(fields: [client_id], references: [id])
+  site_id   String       @db.Uuid
+  site      Site         @relation(fields: [site_id], references: [id])
 
-  slug             String            @db.VarChar(255)
-  title            String            @db.VarChar(500)
-  status           ArticleStatus     @default(pending_research)
-  check_state      ArticleCheckState @default(pending)
-  check_report     Json?
+  slug         String            @db.VarChar(255)
+  title        String            @db.VarChar(500)
+  status       ArticleStatus     @default(pending_research)
+  check_state  ArticleCheckState @default(pending)
+  check_report Json?
 
-  research_summary String?           @db.Text
-  body             String?           @db.Text
-  social_copy      String?           @db.Text
+  research_summary String? @db.Text
+  body             String? @db.Text
+  social_copy      String? @db.Text
 
-  suggested_date   DateTime?
-  scheduled_date   DateTime?
-  published_url    String?           @db.VarChar(500)
+  suggested_date DateTime?
+  scheduled_date DateTime?
+  published_url  String?   @db.VarChar(500)
 
-  approved_at      DateTime?
-  approved_by_id   String?           @db.Uuid
-  approved_by      User?             @relation("ArticleApprovedBy", fields: [approved_by_id], references: [id])
-  locked           Boolean           @default(false)
+  approved_at    DateTime?
+  approved_by_id String?   @db.Uuid
+  approved_by    User?     @relation("ArticleApprovedBy", fields: [approved_by_id], references: [id])
+  locked         Boolean   @default(false)
 
-  claimed_at       DateTime?
-  claimed_by_id    String?           @db.Uuid
+  // Client approval (clients are not Users — approval is by ClientContact). Mirrors the
+  // Task client-approval pattern. in_review = ready for client review; needs_revision =
+  // changes requested by the client.
+  client_approved_at     DateTime?
+  approved_by_contact_id String?        @db.Uuid
+  approved_by_contact    ClientContact? @relation("ArticleApprovedByContact", fields: [approved_by_contact_id], references: [id])
 
-  is_deleted       Boolean           @default(false)
-  created_at       DateTime          @default(now())
-  updated_at       DateTime          @updatedAt
+  claimed_at    DateTime?
+  claimed_by_id String?   @db.Uuid
 
-  comments         ArticleComment[]
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  comments ArticleComment[]
 
   @@unique([run_id, slug])
   @@index([run_id])
@@ -2243,6 +2252,7 @@ model Article {
   @@index([site_id])
   @@index([status])
   @@index([scheduled_date])
+  @@index([approved_by_contact_id])
   @@map("troubador_articles")
 }
 

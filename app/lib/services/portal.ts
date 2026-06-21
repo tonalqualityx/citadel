@@ -305,6 +305,60 @@ export async function resolveTaskContact(task: {
 }
 
 /**
+ * Resolve the acting client contact for a token-gated article approval.
+ * Articles have no requestor, so the contact is the client's primary contact.
+ * Returns null when no primary contact exists (approval still records via
+ * client_approved_at; approved_by_contact_id simply stays null).
+ */
+export async function resolveArticleContact(article: { client_id: string }) {
+  return prisma.clientContact.findFirst({
+    where: { client_id: article.client_id, is_primary: true, is_deleted: false },
+    select: { id: true, name: true, email: true, client_id: true },
+  });
+}
+
+/**
+ * Record client approval on an article (idempotent). Mirrors the task client-approval flow:
+ * sets client_approved_at + approved_by_contact_id, resolving the client's primary contact
+ * when no explicit contact is supplied. Returns null if the article doesn't exist / is deleted.
+ */
+export async function recordArticleClientApproval(
+  articleId: string,
+  contactId?: string | null
+): Promise<{ approved_at: Date; contact_id: string | null; already_approved: boolean } | null> {
+  const article = await prisma.article.findFirst({
+    where: { id: articleId, is_deleted: false },
+    select: {
+      id: true,
+      client_id: true,
+      client_approved_at: true,
+      approved_by_contact_id: true,
+    },
+  });
+  if (!article) return null;
+
+  // Idempotent: a second approval is a no-op.
+  if (article.client_approved_at) {
+    return {
+      approved_at: article.client_approved_at,
+      contact_id: article.approved_by_contact_id,
+      already_approved: true,
+    };
+  }
+
+  const resolvedContactId =
+    contactId ?? (await resolveArticleContact({ client_id: article.client_id }))?.id ?? null;
+  const approvedAt = new Date();
+
+  await prisma.article.update({
+    where: { id: articleId },
+    data: { client_approved_at: approvedAt, approved_by_contact_id: resolvedContactId },
+  });
+
+  return { approved_at: approvedAt, contact_id: resolvedContactId, already_approved: false };
+}
+
+/**
  * Resolve the Bast worker user id. Client portal actions have no authenticated User, but
  * comments require a User author and portal-filed tasks route through Bast's triage queue,
  * so those records are attributed to the Bast account. Returns null if it doesn't exist.
