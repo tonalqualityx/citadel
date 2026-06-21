@@ -8,6 +8,7 @@ import { serializeRichText } from '@/lib/api/blocknote';
 import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logStatusChange, logUpdate, logDelete } from '@/lib/services/activity';
+import { unblockEligibleDependents, reblockDependents } from '@/lib/services/dependencies';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
@@ -125,60 +126,13 @@ async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
 }
 
 /**
- * Whether a single blocker satisfies its dependents, given its project's gating mode.
- * - ordering-only (project.dependencies_ordering_only === true): satisfied once `done`.
- * - approval-gated (default): satisfied only once `done` AND `approved` — so we never build on
- *   unreviewed work. A blocker with no project falls back to approval-gated.
- */
-function isBlockerSatisfied(blocker: {
-  status: string;
-  approved: boolean;
-  project: { dependencies_ordering_only: boolean } | null;
-}) {
-  if (blocker.status !== 'done') return false;
-  const orderingOnly = blocker.project?.dependencies_ordering_only ?? false;
-  return orderingOnly ? true : blocker.approved === true;
-}
-
-/**
- * Re-evaluate every task currently `blocked` by `taskId` and unblock those whose blockers are ALL
- * satisfied (per each blocker's project gating mode). Shared by the done-trigger and the
- * approval-trigger so both modes converge on the same predicate.
- */
-async function unblockEligibleDependents(taskId: string) {
-  const dependentTasks = await prisma.task.findMany({
-    where: {
-      blocked_by: { some: { id: taskId } },
-      status: 'blocked',
-      is_deleted: false,
-    },
-    include: {
-      blocked_by: {
-        where: { is_deleted: false },
-        select: {
-          id: true,
-          status: true,
-          approved: true,
-          project: { select: { dependencies_ordering_only: true } },
-        },
-      },
-    },
-  });
-
-  const toUnblock = dependentTasks.filter(t => t.blocked_by.every(isBlockerSatisfied));
-  if (toUnblock.length > 0) {
-    await prisma.task.updateMany({
-      where: { id: { in: toUnblock.map(t => t.id) } },
-      data: { status: 'not_started' },
-    });
-  }
-}
-
-/**
  * When a task's status changes, propagate that change to dependent tasks:
  * - If completed: unblock dependents whose blockers are all satisfied (ordering-only → done;
  *   approval-gated default → done AND approved, so completion alone won't unblock them).
  * - If reopened from done: re-block dependent tasks that are in active states.
+ *
+ * Satisfaction logic and the queries live in `@/lib/services/dependencies` so the reactive
+ * triggers here and the self-healing sweep (`healBlockedTasks`) share one predicate.
  */
 async function propagateBlockingStatus(taskId: string, newStatus: string, oldStatus: string) {
   // Only propagate when status actually changed
@@ -187,22 +141,7 @@ async function propagateBlockingStatus(taskId: string, newStatus: string, oldSta
   if (newStatus === 'done') {
     await unblockEligibleDependents(taskId);
   } else if (oldStatus === 'done') {
-    // Reopening a completed blocker — re-block dependent tasks in active states
-    const dependentTasks = await prisma.task.findMany({
-      where: {
-        blocked_by: { some: { id: taskId } },
-        status: { notIn: ['blocked', 'done', 'abandoned'] },
-        is_deleted: false,
-      },
-      select: { id: true },
-    });
-
-    if (dependentTasks.length > 0) {
-      await prisma.task.updateMany({
-        where: { id: { in: dependentTasks.map(t => t.id) } },
-        data: { status: 'blocked' },
-      });
-    }
+    await reblockDependents(taskId);
   }
 }
 

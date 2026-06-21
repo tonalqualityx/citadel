@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatProjectResponse } from '@/lib/api/formatters';
 import { canTransitionProjectStatus } from '@/lib/calculations/status';
+import { healBlockedTasks } from '@/lib/services/dependencies';
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -267,6 +268,13 @@ export async function PATCH(
         },
       },
     });
+
+    // Flipping a project to ordering-only changes which of its tasks count as satisfied
+    // blockers. Re-run the self-healing sweep so dependents that were waiting only on
+    // approval unblock immediately instead of staying silently stuck.
+    if (data.dependencies_ordering_only === true) {
+      await healBlockedTasks();
+    }
 
     return NextResponse.json(formatProjectResponse(project));
   } catch (error) {

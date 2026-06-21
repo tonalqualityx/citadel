@@ -330,6 +330,20 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/unblock-sweep',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Self-healing backstop: unblock every `blocked` task whose blockers are all satisfied (per each blocker project gating mode). Idempotent — safe to run on a schedule so no task stays silently stuck where the not_started-only worker loop can never see it.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { unblocked: 'number', ids: ['uuid'] },
+      },
+    ],
+  },
+  {
     path: '/api/tasks/bulk',
     group: 'tasks',
     methods: [
