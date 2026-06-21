@@ -12,7 +12,7 @@ import {
   Timer,
   ListTodo,
 } from 'lucide-react';
-import { PmDashboardData, DashboardTask, useLoadMoreDashboard, type TaskSortBy } from '@/lib/hooks/use-dashboard';
+import { PmDashboardData, DashboardTask, type DashboardListType, type TaskSortBy } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -77,15 +77,16 @@ interface PmOverlookProps {
   data: PmDashboardData;
   myTasksSort: TaskSortBy;
   onMyTasksSortChange: (sort: TaskSortBy) => void;
+  loadMore: (listType: DashboardListType, currentCount: number) => void;
+  isLoadingMore: (listType: DashboardListType) => boolean;
 }
 
-export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverlookProps) {
+export function PmOverlook({ data, myTasksSort, onMyTasksSortChange, loadMore, isLoadingMore }: PmOverlookProps) {
   const router = useRouter();
   const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
-  const { loadMore, isLoading } = useLoadMoreDashboard(myTasksSort);
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -277,7 +278,7 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
               showHeaders={false}
               emptyMessage={`No focus ${t('tasks').toLowerCase()} - check a ${t('task').toLowerCase()} to add it to your focus list`}
               hasMore={data.focusTasks.hasMore}
-              isLoading={isLoading('focusTasks')}
+              isLoading={isLoadingMore('focusTasks')}
               onLoadMore={() => loadMore('focusTasks', data.focusTasks.items.length)}
             />
           </DashboardSection>
@@ -298,7 +299,7 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
                 showHeaders={false}
                 emptyMessage="No tasks awaiting review"
                 hasMore={data.awaitingReview.hasMore}
-                isLoading={isLoading('awaitingReview')}
+                isLoading={isLoadingMore('awaitingReview')}
                 onLoadMore={() => loadMore('awaitingReview', data.awaitingReview.items.length)}
               />
             </DashboardSection>
@@ -320,7 +321,7 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
                 showHeaders={false}
                 emptyMessage={`All ${t('tasks').toLowerCase()} are assigned`}
                 hasMore={data.unassignedTasks.hasMore}
-                isLoading={isLoading('unassignedTasks')}
+                isLoading={isLoadingMore('unassignedTasks')}
                 onLoadMore={() => loadMore('unassignedTasks', data.unassignedTasks.items.length)}
               />
             </DashboardSection>
@@ -357,7 +358,7 @@ export function PmOverlook({ data, myTasksSort, onMyTasksSortChange }: PmOverloo
                 showHeaders={false}
                 emptyMessage={`No ${t('tasks').toLowerCase()} assigned to you`}
                 hasMore={data.myTasks.hasMore}
-                isLoading={isLoading('myTasks')}
+                isLoading={isLoadingMore('myTasks')}
                 onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
               />
             </DashboardSection>

@@ -15,6 +15,26 @@ const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.ab
 // Valid sort options for My Tasks
 type TaskSortBy = 'priority' | 'due_date' | 'estimate';
 
+// Upper bound on a single list's page size, to keep "load more" requests sane.
+const MAX_LIST_LIMIT = 200;
+
+// Per-list page size, with `limit_<list>` query-param override (used by "load more").
+// Falls back to the list's default and is clamped to [default, MAX_LIST_LIMIT].
+function getListLimit(searchParams: URLSearchParams, list: string, fallback: number): number {
+  const raw = searchParams.get(`limit_${list}`);
+  if (!raw) return fallback;
+  const parsed = parseInt(raw, 10);
+  if (Number.isNaN(parsed) || parsed < fallback) return fallback;
+  return Math.min(parsed, MAX_LIST_LIMIT);
+}
+
+interface DashboardLimits {
+  myTasks: number;
+  focusTasks: number;
+  awaitingReview: number;
+  unassignedTasks: number;
+}
+
 function getTaskOrderBy(sortBy: string): any[] {
   switch (sortBy) {
     case 'due_date':
@@ -40,6 +60,14 @@ export async function GET(request: NextRequest) {
     const orderBy = searchParams.get('orderBy') || 'priority';
     const tz = searchParams.get('tz') || null;
 
+    // Per-list page sizes (default 10 each), overridable via `limit_<list>` for "load more".
+    const limits: DashboardLimits = {
+      myTasks: getListLimit(searchParams, 'myTasks', LIMITS.myTasks),
+      focusTasks: getListLimit(searchParams, 'focusTasks', LIMITS.focusTasks),
+      awaitingReview: getListLimit(searchParams, 'awaitingReview', LIMITS.awaitingReview),
+      unassignedTasks: getListLimit(searchParams, 'unassignedTasks', LIMITS.unassignedTasks),
+    };
+
     // Base data all roles need
     const baseData = await getBaseData(auth.userId);
 
@@ -47,7 +75,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getTechDashboard(auth.userId, orderBy, tz)),
+        ...(await getTechDashboard(auth.userId, orderBy, tz, limits)),
       });
     }
 
@@ -55,7 +83,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getPmDashboard(auth.userId, orderBy, tz)),
+        ...(await getPmDashboard(auth.userId, orderBy, tz, limits)),
       });
     }
 
@@ -63,7 +91,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         role,
         ...baseData,
-        ...(await getAdminDashboard(auth.userId, orderBy, tz)),
+        ...(await getAdminDashboard(auth.userId, orderBy, tz, limits)),
       });
     }
 
@@ -122,7 +150,12 @@ const LIMITS = {
   blockedTasks: 5,
 };
 
-async function getTechDashboard(userId: string, orderBy: string = 'priority', tz: string | null = null) {
+async function getTechDashboard(
+  userId: string,
+  orderBy: string = 'priority',
+  tz: string | null = null,
+  limits: DashboardLimits = LIMITS
+) {
   const visibleStatuses: ProjectStatus[] = [
     ProjectStatus.ready,
     ProjectStatus.in_progress,
@@ -162,14 +195,14 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority', tz
         },
       },
       orderBy: getTaskOrderBy(orderBy),
-      take: LIMITS.myTasks + 1, // Fetch one extra to check if there are more
+      take: limits.myTasks + 1, // Fetch one extra to check if there are more
     }),
     prisma.task.count({ where: myTasksWhere }),
   ]);
 
   // Check if there are more and truncate to limit
-  const hasMoreMyTasks = myTasks.length > LIMITS.myTasks;
-  const truncatedMyTasks = myTasks.slice(0, LIMITS.myTasks);
+  const hasMoreMyTasks = myTasks.length > limits.myTasks;
+  const truncatedMyTasks = myTasks.slice(0, limits.myTasks);
 
   // Format tasks
   const formattedTasks = truncatedMyTasks.map((t) => ({
@@ -279,7 +312,12 @@ async function getTechDashboard(userId: string, orderBy: string = 'priority', tz
   };
 }
 
-async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: string | null = null) {
+async function getPmDashboard(
+  userId: string,
+  orderBy: string = 'priority',
+  tz: string | null = null,
+  limits: DashboardLimits = LIMITS
+) {
   // Define where clauses for reuse
   // Focus tasks also excludes blocked - users shouldn't work on blocked tasks
   const focusTasksWhere = {
@@ -356,7 +394,7 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
         },
       },
       orderBy: [{ priority: 'asc' }, { updated_at: 'desc' }],
-      take: LIMITS.focusTasks + 1,
+      take: limits.focusTasks + 1,
     }),
     prisma.task.count({ where: focusTasksWhere }),
 
@@ -380,7 +418,7 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
         },
       },
       orderBy: { updated_at: 'asc' },
-      take: LIMITS.awaitingReview + 1,
+      take: limits.awaitingReview + 1,
     }),
     prisma.task.count({ where: awaitingReviewWhere }),
 
@@ -403,7 +441,7 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
         },
       },
       orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
-      take: LIMITS.unassignedTasks + 1,
+      take: limits.unassignedTasks + 1,
     }),
     prisma.task.count({ where: unassignedTasksWhere }),
 
@@ -427,16 +465,16 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
         },
       },
       orderBy: getTaskOrderBy(orderBy),
-      take: LIMITS.myTasks + 1,
+      take: limits.myTasks + 1,
     }),
     prisma.task.count({ where: myTasksWhere }),
   ]);
 
   // Check hasMore and truncate
-  const hasMoreFocusTasks = focusTasks.length > LIMITS.focusTasks;
-  const hasMoreAwaitingReview = awaitingReview.length > LIMITS.awaitingReview;
-  const hasMoreUnassignedTasks = unassignedTasks.length > LIMITS.unassignedTasks;
-  const hasMoreMyTasks = myTasks.length > LIMITS.myTasks;
+  const hasMoreFocusTasks = focusTasks.length > limits.focusTasks;
+  const hasMoreAwaitingReview = awaitingReview.length > limits.awaitingReview;
+  const hasMoreUnassignedTasks = unassignedTasks.length > limits.unassignedTasks;
+  const hasMoreMyTasks = myTasks.length > limits.myTasks;
 
   // My projects (assigned via team assignments)
   const myProjects = await prisma.project.findMany({
@@ -518,22 +556,22 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
 
   return {
     focusTasks: {
-      items: focusTasks.slice(0, LIMITS.focusTasks).map(formatTaskGeneric),
+      items: focusTasks.slice(0, limits.focusTasks).map(formatTaskGeneric),
       total: focusTasksTotal,
       hasMore: hasMoreFocusTasks,
     },
     awaitingReview: {
-      items: awaitingReview.slice(0, LIMITS.awaitingReview).map(formatTaskGeneric),
+      items: awaitingReview.slice(0, limits.awaitingReview).map(formatTaskGeneric),
       total: awaitingReviewTotal,
       hasMore: hasMoreAwaitingReview,
     },
     unassignedTasks: {
-      items: unassignedTasks.slice(0, LIMITS.unassignedTasks).map(formatTaskGeneric),
+      items: unassignedTasks.slice(0, limits.unassignedTasks).map(formatTaskGeneric),
       total: unassignedTasksTotal,
       hasMore: hasMoreUnassignedTasks,
     },
     myTasks: {
-      items: myTasks.slice(0, LIMITS.myTasks).map(formatTaskGeneric),
+      items: myTasks.slice(0, limits.myTasks).map(formatTaskGeneric),
       total: myTasksTotal,
       hasMore: hasMoreMyTasks,
     },
@@ -564,9 +602,14 @@ async function getPmDashboard(userId: string, orderBy: string = 'priority', tz: 
   };
 }
 
-async function getAdminDashboard(userId: string, orderBy: string = 'priority', tz: string | null = null) {
+async function getAdminDashboard(
+  userId: string,
+  orderBy: string = 'priority',
+  tz: string | null = null,
+  limits: DashboardLimits = LIMITS
+) {
   // Get all PM dashboard data
-  const pmData = await getPmDashboard(userId, orderBy, tz);
+  const pmData = await getPmDashboard(userId, orderBy, tz, limits);
 
   // All active projects
   const allActiveProjects = await prisma.project.findMany({

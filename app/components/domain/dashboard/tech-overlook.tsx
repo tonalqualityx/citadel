@@ -10,7 +10,7 @@ import {
   Timer,
   Zap,
 } from 'lucide-react';
-import { TechDashboardData, DashboardTask, useLoadMoreDashboard, type TaskSortBy } from '@/lib/hooks/use-dashboard';
+import { TechDashboardData, DashboardTask, type DashboardListType, type TaskSortBy } from '@/lib/hooks/use-dashboard';
 import { useTimer } from '@/lib/contexts/timer-context';
 import { useToggleFocus, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -68,15 +68,16 @@ interface TechOverlookProps {
   data: TechDashboardData;
   myTasksSort: TaskSortBy;
   onMyTasksSortChange: (sort: TaskSortBy) => void;
+  loadMore: (listType: DashboardListType, currentCount: number) => void;
+  isLoadingMore: (listType: DashboardListType) => boolean;
 }
 
-export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOverlookProps) {
+export function TechOverlook({ data, myTasksSort, onMyTasksSortChange, loadMore, isLoadingMore }: TechOverlookProps) {
   const router = useRouter();
   const { t } = useTerminology();
   const timer = useTimer();
   const toggleFocus = useToggleFocus();
   const updateTask = useUpdateTask();
-  const { loadMore, isLoading } = useLoadMoreDashboard(myTasksSort);
 
   // Peek drawer state
   const [peekTaskId, setPeekTaskId] = React.useState<string | null>(null);
@@ -280,7 +281,7 @@ export function TechOverlook({ data, myTasksSort, onMyTasksSortChange }: TechOve
                 showHeaders={false}
                 emptyMessage={`No ${t('tasks').toLowerCase()} assigned to you`}
                 hasMore={data.myTasks.hasMore}
-                isLoading={isLoading('myTasks')}
+                isLoading={isLoadingMore('myTasks')}
                 onLoadMore={() => loadMore('myTasks', data.myTasks.items.length)}
               />
             </DashboardSection>

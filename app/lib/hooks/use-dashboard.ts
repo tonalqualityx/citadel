@@ -147,6 +147,9 @@ interface DashboardOptions {
   enabled?: boolean;
 }
 
+// How many extra items each "load more" click fetches
+export const DASHBOARD_PAGE_SIZE = 10;
+
 function getUserTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -155,16 +158,61 @@ function getUserTimezone(): string {
   }
 }
 
+// Build the `&limit_<list>=N` query string from per-list loaded counts.
+// Pure + exported so it can be unit tested without React.
+export function buildListLimitParams(
+  loadedCounts: Partial<Record<DashboardListType, number>>
+): string {
+  return (Object.entries(loadedCounts) as [DashboardListType, number | undefined][])
+    .filter(([, count]) => typeof count === 'number' && count > 0)
+    .map(([list, count]) => `&limit_${list}=${count}`)
+    .join('');
+}
+
 export function useDashboard(options: DashboardOptions = {}) {
   const orderBy = options.orderBy || 'priority';
   const tz = getUserTimezone();
   const tzParam = tz ? `&tz=${encodeURIComponent(tz)}` : '';
-  return useQuery({
-    queryKey: ['dashboard', { orderBy, tz }],
-    queryFn: () => apiClient.get<DashboardData>(`/dashboard?orderBy=${orderBy}${tzParam}`),
+
+  // Per-list loaded counts drive "load more". A list absent here uses the
+  // server's default page size. Keeping the counts in the query key (and query
+  // string) means any refetch — mutation invalidation OR the 30s interval —
+  // returns the full loaded set instead of collapsing back to the first page.
+  const [loadedCounts, setLoadedCounts] = React.useState<
+    Partial<Record<DashboardListType, number>>
+  >({});
+  // Lists currently fetching an expansion, for per-list "loading more" spinners.
+  const [loadingLists, setLoadingLists] = React.useState<Set<DashboardListType>>(new Set());
+
+  const limitParams = buildListLimitParams(loadedCounts);
+
+  const query = useQuery({
+    queryKey: ['dashboard', { orderBy, tz, loadedCounts }],
+    queryFn: () => apiClient.get<DashboardData>(`/dashboard?orderBy=${orderBy}${tzParam}${limitParams}`),
     refetchInterval: 30000, // Refresh every 30 seconds
     enabled: options.enabled !== false,
   });
+
+  // Clear per-list loading flags once a fetch settles (data or error arrives).
+  const { dataUpdatedAt, errorUpdatedAt } = query;
+  React.useEffect(() => {
+    setLoadingLists((prev) => (prev.size > 0 ? new Set() : prev));
+  }, [dataUpdatedAt, errorUpdatedAt]);
+
+  const loadMore = React.useCallback((listType: DashboardListType, currentCount: number) => {
+    setLoadingLists((prev) => new Set(prev).add(listType));
+    setLoadedCounts((prev) => ({
+      ...prev,
+      [listType]: Math.max(currentCount, prev[listType] ?? 0) + DASHBOARD_PAGE_SIZE,
+    }));
+  }, []);
+
+  const isLoadingMore = React.useCallback(
+    (listType: DashboardListType) => loadingLists.has(listType),
+    [loadingLists]
+  );
+
+  return { ...query, loadMore, isLoadingMore };
 }
 
 // Type guards to narrow dashboard data by role
@@ -178,59 +226,6 @@ export function isPmDashboard(data: DashboardData): data is PmDashboardData {
 
 export function isAdminDashboard(data: DashboardData): data is AdminDashboardData {
   return data.role === 'admin';
-}
-
-// Hook for loading more items in a dashboard list
-export function useLoadMoreDashboard(orderBy: TaskSortBy = 'priority') {
-  const queryClient = useQueryClient();
-  const [loadingLists, setLoadingLists] = React.useState<Set<DashboardListType>>(new Set());
-  const tz = getUserTimezone();
-
-  const loadMore = React.useCallback(async (listType: DashboardListType, currentCount: number) => {
-    setLoadingLists(prev => new Set(prev).add(listType));
-
-    try {
-      const tzParam = tz ? `&tz=${encodeURIComponent(tz)}` : '';
-      const result = await apiClient.get<PaginatedList<DashboardTask>>(
-        `/dashboard/load-more?list=${listType}&skip=${currentCount}&orderBy=${orderBy}${tzParam}`
-      );
-
-      // Update the dashboard cache with the new items
-      queryClient.setQueryData<DashboardData>(['dashboard', { orderBy, tz }], (oldData) => {
-        if (!oldData) return oldData;
-
-        const listKey = listType as keyof DashboardData;
-        const existingList = oldData[listKey] as PaginatedList<DashboardTask> | undefined;
-
-        if (!existingList || !('items' in existingList)) {
-          return oldData;
-        }
-
-        return {
-          ...oldData,
-          [listType]: {
-            items: [...existingList.items, ...result.items],
-            total: result.total,
-            hasMore: result.hasMore,
-          },
-        };
-      });
-
-      return result;
-    } finally {
-      setLoadingLists(prev => {
-        const next = new Set(prev);
-        next.delete(listType);
-        return next;
-      });
-    }
-  }, [queryClient, orderBy]);
-
-  const isLoading = React.useCallback((listType: DashboardListType) => {
-    return loadingLists.has(listType);
-  }, [loadingLists]);
-
-  return { loadMore, isLoading };
 }
 
 // Timeclock issues types

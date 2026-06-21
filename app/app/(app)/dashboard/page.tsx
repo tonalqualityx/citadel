@@ -45,7 +45,7 @@ export default function OverlookPage() {
 
   // Wait for hydration before fetching to get correct sort preference
   // This prevents a query with 'priority' being made before we read localStorage
-  const { data, isLoading, error } = useDashboard({
+  const { data, isLoading, error, loadMore, isLoadingMore } = useDashboard({
     orderBy: myTasksSort,
     enabled: isHydrated,
   });
@@ -80,15 +80,15 @@ export default function OverlookPage() {
   }
 
   if (isTechDashboard(data)) {
-    return <TechOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} />;
+    return <TechOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} loadMore={loadMore} isLoadingMore={isLoadingMore} />;
   }
 
   if (isPmDashboard(data)) {
-    return <PmOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} />;
+    return <PmOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} loadMore={loadMore} isLoadingMore={isLoadingMore} />;
   }
 
   if (isAdminDashboard(data)) {
-    return <AdminOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} />;
+    return <AdminOverlook data={data} myTasksSort={myTasksSort} onMyTasksSortChange={handleSortChange} loadMore={loadMore} isLoadingMore={isLoadingMore} />;
   }
 
   // Fallback for unknown role
