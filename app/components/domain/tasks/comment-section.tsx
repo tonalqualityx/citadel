@@ -14,6 +14,9 @@ import {
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { MentionInput, MentionCandidate } from '@/components/ui/mention-input';
+import { useUsers } from '@/lib/hooks/use-users';
+import { findMentionedUserIds, renderMentionSegments } from '@/lib/utils/mentions';
 
 interface CommentSectionProps {
   taskId: string;
@@ -32,16 +35,33 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
   const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
 
   const { data, isLoading } = useComments(taskId);
+  const { data: usersData } = useUsers();
   const createComment = useCreateComment(taskId);
   const updateComment = useUpdateComment(taskId);
   const deleteComment = useDeleteComment(taskId);
 
+  // Mentionable users (everyone except the current author).
+  const allUsers: MentionCandidate[] = React.useMemo(
+    () => (usersData?.users ?? []).map((u) => ({ id: u.id, name: u.name, avatar_url: u.avatar_url })),
+    [usersData]
+  );
+  const mentionCandidates = React.useMemo(
+    () => allUsers.filter((u) => u.id !== user?.id),
+    [allUsers, user?.id]
+  );
+
+  const submitComment = async () => {
+    const content = newComment.trim();
+    if (!content) return;
+
+    const mentioned_user_ids = findMentionedUserIds(content, mentionCandidates);
+    await createComment.mutateAsync({ content, mentioned_user_ids });
+    setNewComment('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim()) return;
-
-    await createComment.mutateAsync({ content: newComment.trim() });
-    setNewComment('');
+    await submitComment();
   };
 
   const handleStartEdit = (comment: Comment) => {
@@ -137,7 +157,15 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
           /* View Mode */
           <div className="group">
             <p className="text-sm text-text-main whitespace-pre-wrap break-words">
-              {comment.content}
+              {renderMentionSegments(comment.content, allUsers).map((seg, i) =>
+                seg.isMention ? (
+                  <span key={i} className="font-medium text-primary">
+                    {seg.text}
+                  </span>
+                ) : (
+                  <React.Fragment key={i}>{seg.text}</React.Fragment>
+                )
+              )}
             </p>
             {canEditComment(comment) && (
               <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -228,12 +256,12 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
           {/* Add Comment Form */}
           <form onSubmit={handleSubmit} className="p-3 border-t border-border bg-surface-alt">
             <div className="flex gap-2">
-              <input
-                type="text"
+              <MentionInput
                 value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Add a comment..."
-                className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                onChange={setNewComment}
+                users={mentionCandidates}
+                onSubmit={submitComment}
+                placeholder="Add a comment... (@ to mention)"
               />
               <Button
                 type="submit"

@@ -219,6 +219,7 @@ export const taskEndpoints: ApiEndpoint[] = [
             task_id: 'uuid',
             user_id: 'uuid',
             user: { id: 'uuid', name: 'string', avatar_url: 'string|null' },
+            mentioned_user_ids: ['uuid'],
             created_at: 'ISO-8601',
             updated_at: 'ISO-8601',
           }],
@@ -230,12 +231,14 @@ export const taskEndpoints: ApiEndpoint[] = [
         auth: 'required',
         bodySchema: [
           { name: 'content', type: 'string', required: true, description: 'Comment text' },
+          { name: 'mentioned_user_ids', type: 'string[]', required: false, description: 'User ids (uuid) mentioned in the comment; each is notified (task_mentioned)' },
         ],
         responseExample: {
           id: 'uuid',
           content: 'string',
           task_id: 'uuid',
           user_id: 'uuid',
+          mentioned_user_ids: ['uuid'],
           created_at: 'ISO-8601',
         },
       },

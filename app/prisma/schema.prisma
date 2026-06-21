@@ -1343,6 +1343,7 @@ model Comment {
   user_id    String   @db.Uuid
   user       User     @relation(fields: [user_id], references: [id])
   content    String   @db.Text
+  mentioned_user_ids String[] @default([]) @db.Uuid
   is_deleted Boolean  @default(false)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

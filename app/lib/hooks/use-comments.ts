@@ -13,6 +13,7 @@ export interface Comment {
     avatar_url: string | null;
   } | null;
   content: string;
+  mentioned_user_ids: string[];
   created_at: string;
   updated_at: string;
 }
@@ -24,6 +25,7 @@ export interface CommentsResponse {
 
 export interface CreateCommentInput {
   content: string;
+  mentioned_user_ids?: string[];
 }
 
 export interface UpdateCommentInput {

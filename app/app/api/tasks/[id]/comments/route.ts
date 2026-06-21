@@ -7,6 +7,7 @@ import { createNotification } from '@/lib/services/notifications';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
+  mentioned_user_ids: z.array(z.string().uuid()).max(50).optional(),
 });
 
 // Format comment for response
@@ -24,6 +25,7 @@ function formatComment(comment: any) {
         }
       : null,
     content: comment.content,
+    mentioned_user_ids: comment.mentioned_user_ids ?? [],
     created_at: comment.created_at,
     updated_at: comment.updated_at,
   };
@@ -152,12 +154,26 @@ export async function POST(
       }
     }
 
+    // Resolve mentioned users: keep only real, active users, and never the author.
+    const requestedMentionIds = [...new Set(data.mentioned_user_ids ?? [])].filter(
+      (uid) => uid !== auth.userId
+    );
+    const mentionedUsers =
+      requestedMentionIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: requestedMentionIds }, is_active: true },
+            select: { id: true },
+          })
+        : [];
+    const mentionedUserIds = mentionedUsers.map((u) => u.id);
+
     // Create the comment
     const comment = await prisma.comment.create({
       data: {
         task_id: taskId,
         user_id: auth.userId,
         content: data.content,
+        mentioned_user_ids: mentionedUserIds,
       },
       include: {
         user: {
@@ -177,13 +193,32 @@ export async function POST(
       select: { name: true },
     });
 
-    // Send notification to task assignee if different from commenter
-    if (task.assignee_id && task.assignee_id !== auth.userId) {
+    const snippet = `${data.content.substring(0, 100)}${data.content.length > 100 ? '...' : ''}`;
+
+    // Notify each mentioned user.
+    for (const mentionedId of mentionedUserIds) {
+      await createNotification({
+        userId: mentionedId,
+        type: 'task_mentioned',
+        title: `${commenter?.name || 'Someone'} mentioned you on "${task.title}"`,
+        message: `"${snippet}"`,
+        entityType: 'task',
+        entityId: taskId,
+      });
+    }
+
+    // Send notification to task assignee if different from commenter — but skip if they
+    // were already notified via a mention above (no double notification).
+    if (
+      task.assignee_id &&
+      task.assignee_id !== auth.userId &&
+      !mentionedUserIds.includes(task.assignee_id)
+    ) {
       await createNotification({
         userId: task.assignee_id,
         type: 'comment_added',
         title: `New comment on "${task.title}"`,
-        message: `${commenter?.name || 'Someone'} commented: "${data.content.substring(0, 100)}${data.content.length > 100 ? '...' : ''}"`,
+        message: `${commenter?.name || 'Someone'} commented: "${snippet}"`,
         entityType: 'task',
         entityId: taskId,
       });
