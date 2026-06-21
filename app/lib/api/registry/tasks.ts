@@ -309,6 +309,27 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/notify-requestor',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Email the task requestor (or client primary contact) that work is ready for review, with the staging preview link and the token-gated approval URL.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: {
+          sent: true,
+          to: 'string',
+          approval_url: 'string',
+          staging_url: 'string|null',
+        },
+        responseNotes:
+          'Returns 404 if the task is missing/deleted, 422 if no requestor contact email can be resolved.',
+      },
+    ],
+  },
+  {
     path: '/api/tasks/bulk',
     group: 'tasks',
     methods: [

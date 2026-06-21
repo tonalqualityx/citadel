@@ -13,7 +13,7 @@ vi.mock('@/lib/db/prisma', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { sendEmail, sendPasswordResetEmail } from '../email';
+import { sendEmail, sendPasswordResetEmail, sendTaskApprovalRequestEmail } from '../email';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
@@ -189,5 +189,67 @@ describe('sendPasswordResetEmail', () => {
     expect(textContent.value).toContain('Hi,');
     expect(textContent.value).not.toContain('Hi ,');
     expect(textContent.value).toContain('/reset-password?token=token-xyz');
+  });
+});
+
+describe('sendTaskApprovalRequestEmail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIntegrationFindUnique.mockResolvedValue(validSendGridIntegration);
+    mockFetch.mockResolvedValue({ ok: true });
+  });
+
+  const baseOpts = {
+    to: 'client@acme.com',
+    approvalUrl: 'https://citadel.becomeindelible.com/portal/task-approval/tok123',
+    taskTitle: 'Homepage hero update',
+    contactName: 'Jane',
+    stagingUrl: 'https://staging.acme.com/preview',
+  };
+
+  it('includes both the preview link and the approval link', async () => {
+    await sendTaskApprovalRequestEmail(baseOpts);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.personalizations[0].to[0].email).toBe('client@acme.com');
+    expect(body.personalizations[0].subject).toContain('Homepage hero update');
+
+    const text = body.content.find((c: { type: string }) => c.type === 'text/plain').value;
+    const html = body.content.find((c: { type: string }) => c.type === 'text/html').value;
+
+    expect(text).toContain(baseOpts.approvalUrl);
+    expect(text).toContain(baseOpts.stagingUrl);
+    expect(text).toContain('Hi Jane');
+    expect(html).toContain(baseOpts.approvalUrl);
+    expect(html).toContain(baseOpts.stagingUrl);
+  });
+
+  it('never reveals the internal worker persona', async () => {
+    await sendTaskApprovalRequestEmail(baseOpts);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const text = body.content.find((c: { type: string }) => c.type === 'text/plain').value;
+    const html = body.content.find((c: { type: string }) => c.type === 'text/html').value;
+
+    expect(text.toLowerCase()).not.toContain('bast');
+    expect(html.toLowerCase()).not.toContain('bast');
+    expect(text).toContain('The Indelible Team');
+  });
+
+  it('omits the preview block when there is no staging URL', async () => {
+    await sendTaskApprovalRequestEmail({ ...baseOpts, stagingUrl: null });
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const text = body.content.find((c: { type: string }) => c.type === 'text/plain').value;
+
+    expect(text).not.toContain('preview the work here');
+    expect(text).toContain(baseOpts.approvalUrl);
+  });
+
+  it('handles a missing contact name without a dangling space', async () => {
+    await sendTaskApprovalRequestEmail({ ...baseOpts, contactName: null });
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const text = body.content.find((c: { type: string }) => c.type === 'text/plain').value;
+
+    expect(text).toContain('Hi,');
+    expect(text).not.toContain('Hi ,');
   });
 });

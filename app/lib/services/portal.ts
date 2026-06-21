@@ -199,6 +199,53 @@ export async function validateAddendumToken(token: string) {
 }
 
 /**
+ * Ensure a task has a valid client-approval portal token, minting (or reusing an unexpired
+ * one) and returning its public approval URL. Shared by the approval-link endpoint and the
+ * requestor-notification email so token semantics live in one place.
+ * Returns null when the task does not exist or is deleted.
+ */
+export async function ensureTaskPortalToken(
+  taskId: string
+): Promise<{ token: string; expiresAt: Date | null; url: string } | null> {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      is_deleted: true,
+      portal_token: true,
+      portal_token_expires_at: true,
+    },
+  });
+
+  if (!task || task.is_deleted) return null;
+
+  // Reuse an existing, unexpired token; otherwise mint a fresh one.
+  const stillValid =
+    task.portal_token &&
+    (!task.portal_token_expires_at || task.portal_token_expires_at > new Date());
+
+  let token = task.portal_token ?? undefined;
+  let expiresAt = task.portal_token_expires_at ?? undefined;
+
+  if (!stillValid) {
+    token = generatePortalToken();
+    expiresAt = getTokenExpiry();
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { portal_token: token, portal_token_expires_at: expiresAt },
+    });
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
+  return {
+    token: token as string,
+    expiresAt: expiresAt ?? null,
+    url: `${baseUrl}/portal/task-approval/${token}`,
+  };
+}
+
+/**
  * Validate a per-task approval portal token
  * Returns the task (with client-visible comment data loaded) if valid, null if invalid/expired.
  * Mirrors the proposal/contract pattern; the token lives on the task row.

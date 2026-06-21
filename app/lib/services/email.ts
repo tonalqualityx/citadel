@@ -127,6 +127,80 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
 }
 
 /**
+ * Send the "work is ready for your review" email to a client requestor.
+ *
+ * Neutral, professional Indelible voice — never references the internal worker persona.
+ * Includes the preview link (staging URL, when the work was staged) and the token-gated
+ * approval page link so the recipient can review and approve in one place.
+ */
+export async function sendTaskApprovalRequestEmail(options: {
+  to: string;
+  approvalUrl: string;
+  taskTitle: string;
+  contactName?: string | null;
+  stagingUrl?: string | null;
+}): Promise<void> {
+  const { to, approvalUrl, taskTitle, contactName, stagingUrl } = options;
+  const greetingName = contactName ? ` ${contactName}` : '';
+
+  const subject = `Ready for your review: ${taskTitle}`;
+
+  const previewTextBlock = stagingUrl
+    ? `You can preview the work here:\n${stagingUrl}\n\n`
+    : '';
+
+  const text = `
+Hi${greetingName},
+
+Your request "${taskTitle}" is ready for your review.
+
+${previewTextBlock}When you're happy with it, you can review and approve using the link below:
+${approvalUrl}
+
+If you'd like any changes, you can request them from the same page.
+
+Thank you,
+The Indelible Team
+`.trim();
+
+  const previewHtmlBlock = stagingUrl
+    ? `<p>You can preview the work here:</p>
+    <p><a href="${stagingUrl}">${stagingUrl}</a></p>`
+    : '';
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #2D2D2D; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .button { display: inline-block; background: #5B8FB9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin: 20px 0; }
+    .footer { margin-top: 30px; color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Ready for your review</h2>
+    <p>Hi${greetingName},</p>
+    <p>Your request "${taskTitle}" is ready for your review.</p>
+    ${previewHtmlBlock}
+    <p>When you're happy with it, you can review and approve below:</p>
+    <p><a href="${approvalUrl}" class="button">Review &amp; Approve</a></p>
+    <p>Or copy and paste this link into your browser:</p>
+    <p><a href="${approvalUrl}">${approvalUrl}</a></p>
+    <p>If you'd like any changes, you can request them from the same page.</p>
+    <p class="footer">Thank you,<br>The Indelible Team</p>
+  </div>
+</body>
+</html>
+`.trim();
+
+  await sendEmail({ to, subject, text, html });
+}
+
+/**
  * Send a password reset email
  */
 export async function sendPasswordResetEmail(
