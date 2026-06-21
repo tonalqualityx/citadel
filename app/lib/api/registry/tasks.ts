@@ -251,6 +251,26 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/mention-suggestions',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "Mention candidates for a task's comment composer: all active team members plus only this task's client's contacts (never other clients' contacts).",
+        auth: 'required',
+        responseExample: {
+          users: [
+            { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin', avatar_url: 'string|null' },
+          ],
+          contacts: [
+            { id: 'uuid', name: 'string', email: 'string', role: 'string|null', is_primary: 'boolean' },
+          ],
+        },
+      },
+    ],
+  },
+  {
     path: '/api/tasks/:id/dependencies',
     group: 'tasks',
     methods: [

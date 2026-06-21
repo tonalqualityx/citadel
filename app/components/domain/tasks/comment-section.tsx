@@ -15,7 +15,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { MentionInput, MentionCandidate } from '@/components/ui/mention-input';
-import { useUsers } from '@/lib/hooks/use-users';
+import { useMentionSuggestions } from '@/lib/hooks/use-mention-suggestions';
 import { findMentionedUserIds, renderMentionSegments } from '@/lib/utils/mentions';
 
 interface CommentSectionProps {
@@ -35,26 +35,37 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
   const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
 
   const { data, isLoading } = useComments(taskId);
-  const { data: usersData } = useUsers();
+  const { data: suggestions } = useMentionSuggestions(taskId);
   const createComment = useCreateComment(taskId);
   const updateComment = useUpdateComment(taskId);
   const deleteComment = useDeleteComment(taskId);
 
-  // Mentionable users (everyone except the current author).
-  const allUsers: MentionCandidate[] = React.useMemo(
-    () => (usersData?.users ?? []).map((u) => ({ id: u.id, name: u.name, avatar_url: u.avatar_url })),
-    [usersData]
+  // Intelligent scoping: suggestions = all active team members PLUS only this task's client's
+  // contacts. Team members drive notify-on-tag (mentioning a user notifies them); contacts are
+  // taggable and rendered, but not auto-notified (no in-app channel; client email is draft-only).
+  const teamCandidates = React.useMemo<MentionCandidate[]>(
+    () =>
+      (suggestions?.users ?? [])
+        .filter((u) => u.id !== user?.id)
+        .map((u) => ({ id: u.id, name: u.name, avatar_url: u.avatar_url })),
+    [suggestions, user?.id]
   );
-  const mentionCandidates = React.useMemo(
-    () => allUsers.filter((u) => u.id !== user?.id),
-    [allUsers, user?.id]
+  const contactCandidates = React.useMemo<MentionCandidate[]>(
+    () => (suggestions?.contacts ?? []).map((c) => ({ id: c.id, name: c.name, avatar_url: null })),
+    [suggestions]
+  );
+  // Combined set for the autocomplete dropdown and for highlighting mentions on render.
+  const allCandidates = React.useMemo<MentionCandidate[]>(
+    () => [...teamCandidates, ...contactCandidates],
+    [teamCandidates, contactCandidates]
   );
 
   const submitComment = async () => {
     const content = newComment.trim();
     if (!content) return;
 
-    const mentioned_user_ids = findMentionedUserIds(content, mentionCandidates);
+    // Only team users are persisted as mentioned_user_ids / notified; contacts are not.
+    const mentioned_user_ids = findMentionedUserIds(content, teamCandidates);
     await createComment.mutateAsync({ content, mentioned_user_ids });
     setNewComment('');
   };
@@ -174,7 +185,7 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
           /* View Mode */
           <div className="group">
             <p className="text-sm text-text-main whitespace-pre-wrap break-words">
-              {renderMentionSegments(comment.content, allUsers).map((seg, i) =>
+              {renderMentionSegments(comment.content, allCandidates).map((seg, i) =>
                 seg.isMention ? (
                   <span key={i} className="font-medium text-primary">
                     {seg.text}
@@ -294,7 +305,7 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
               <MentionInput
                 value={newComment}
                 onChange={setNewComment}
-                users={mentionCandidates}
+                users={allCandidates}
                 onSubmit={submitComment}
                 placeholder="Add a comment... (@ to mention)"
               />

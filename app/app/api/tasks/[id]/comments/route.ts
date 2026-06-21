@@ -163,6 +163,9 @@ export async function POST(
     }
 
     // Resolve mentioned users: keep only real, active users, and never the author.
+    // Mentions are team-only by construction — this route is team-auth (requireAuth), so a
+    // client-portal session never reaches here. Clients can comment but cannot tag. Mention
+    // suggestions are scoped per task via GET /api/tasks/[id]/mention-suggestions.
     const requestedMentionIds = [...new Set(data.mentioned_user_ids ?? [])].filter(
       (uid) => uid !== auth.userId
     );
