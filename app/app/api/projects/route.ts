@@ -19,6 +19,7 @@ const createProjectSchema = z.object({
   target_date: z.string().datetime().optional().nullable(),
   budget_amount: z.number().min(0).optional().nullable(),
   is_retainer: z.boolean().optional(),
+  dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
 });
 
@@ -136,6 +137,7 @@ export async function POST(request: NextRequest) {
         target_date: data.target_date ? new Date(data.target_date) : null,
         budget_amount: data.budget_amount,
         is_retainer: data.is_retainer || false,
+        dependencies_ordering_only: data.dependencies_ordering_only || false,
         notes: data.notes,
         created_by_id: auth.userId,
       },

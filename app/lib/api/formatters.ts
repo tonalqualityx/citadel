@@ -197,6 +197,7 @@ export function formatProjectResponse(project: any) {
     budget_locked_at: project.budget_locked_at,
     is_retainer: project.is_retainer,
     workload_completed_mode: project.workload_completed_mode || 'high',
+    dependencies_ordering_only: project.dependencies_ordering_only ?? false,
     // Calculated estimates from tasks
     calculated: {
       estimated_hours_min: estimates.estimatedHoursMin,
@@ -913,6 +914,7 @@ export function formatTaskResponse(task: any) {
           id: task.project.id,
           name: task.project.name,
           status: task.project.status,
+          dependencies_ordering_only: task.project.dependencies_ordering_only ?? false,
           client: task.project.client
             ? { id: task.project.client.id, name: task.project.client.name }
             : null,

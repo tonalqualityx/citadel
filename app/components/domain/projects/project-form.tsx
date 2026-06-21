@@ -25,6 +25,7 @@ const projectSchema = z.object({
   target_date: z.string().optional(),
   budget_amount: z.string().optional(),
   is_retainer: z.boolean().optional(),
+  dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional(),
 });
 
@@ -86,6 +87,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
       target_date: project?.target_date?.split('T')[0] || '',
       budget_amount: project?.budget_amount?.toString() || '',
       is_retainer: project?.is_retainer || false,
+      dependencies_ordering_only: project?.dependencies_ordering_only || false,
       notes: project?.notes || '',
     },
   });
@@ -128,6 +130,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
         target_date: data.target_date ? new Date(data.target_date).toISOString() : null,
         budget_amount: data.budget_amount ? parseFloat(data.budget_amount) : null,
         is_retainer: data.is_retainer,
+        dependencies_ordering_only: data.dependencies_ordering_only,
         notes: data.notes || null,
       };
 
@@ -303,6 +306,22 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
             />
             <span className="text-sm text-text-main">This is a retainer project</span>
           </label>
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              {...register('dependencies_ordering_only')}
+              className="rounded border-border text-primary focus:ring-primary"
+            />
+            <span className="text-sm text-text-main">
+              Dependencies are ordering-only (proceed when a blocker is done, without waiting for approval)
+            </span>
+          </label>
+          <p className="mt-1 ml-6 text-xs text-text-secondary">
+            Off (default): a dependent task stays blocked until its blocker is approved, so we never build on unreviewed work.
+          </p>
         </div>
       </div>
 

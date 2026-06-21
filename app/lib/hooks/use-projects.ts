@@ -49,6 +49,7 @@ export interface Project {
   budget_locked_at: string | null;
   is_retainer: boolean;
   workload_completed_mode: 'low' | 'medium' | 'high' | 'actual';
+  dependencies_ordering_only: boolean;
   // Calculated from tasks
   calculated: ProjectCalculated;
   // Health (only for active projects)
@@ -91,6 +92,7 @@ export interface CreateProjectInput {
   target_date?: string | null;
   budget_amount?: number | null;
   is_retainer?: boolean;
+  dependencies_ordering_only?: boolean;
   notes?: string | null;
 }
 

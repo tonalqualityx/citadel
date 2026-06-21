@@ -771,6 +771,10 @@ model Project {
   // Workload display
   workload_completed_mode WorkloadCompletedMode @default(high)
 
+  // Dependency gating: false (default) = approval-gated (a dependent unblocks only once its
+  // blocker is done AND approved); true = ordering-only (unblock as soon as the blocker is done).
+  dependencies_ordering_only Boolean @default(false)
+
   // Notes
   notes           String?       @db.Text
 

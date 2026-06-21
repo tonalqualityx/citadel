@@ -78,156 +78,138 @@ function makeRequest(body: object) {
 
 const makeParams = () => Promise.resolve({ id: 'task-1' });
 
+// A fully-populated task as returned by prisma.task.update (shape consumed by formatTaskResponse)
+function updatedTask(overrides: Record<string, any> = {}) {
+  return {
+    id: 'task-1',
+    status: 'done',
+    title: 'Blocker Task',
+    project: null,
+    assignee: null,
+    assignee_id: null,
+    reviewer: null,
+    approved_by: null,
+    function: null,
+    sop: null,
+    created_by: null,
+    blocked_by: [],
+    blocking: [],
+    ...overrides,
+  };
+}
+
+// Build a blocker entry as returned inside a dependent's `blocked_by` by unblockEligibleDependents.
+function blocker(id: string, status: string, approved: boolean, orderingOnly: boolean | null) {
+  return {
+    id,
+    status,
+    approved,
+    project: orderingOnly === null ? null : { dependencies_ordering_only: orderingOnly },
+  };
+}
+
+// The exact query shape unblockEligibleDependents issues for the done-trigger.
+const UNBLOCK_QUERY = {
+  where: {
+    blocked_by: { some: { id: 'task-1' } },
+    status: 'blocked',
+    is_deleted: false,
+  },
+  include: {
+    blocked_by: {
+      where: { is_deleted: false },
+      select: {
+        id: true,
+        status: true,
+        approved: true,
+        project: { select: { dependencies_ordering_only: true } },
+      },
+    },
+  },
+};
+
 describe('Task dependency propagation on status change', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireAuth.mockResolvedValue({ userId: 'user-1', email: 'test@test.com', role: 'pm' });
   });
 
-  describe('when a blocker task is completed', () => {
-    it('should unblock dependent tasks that have no other incomplete blockers', async () => {
-      // Existing task is in_progress
+  describe('ordering-only project (dependencies_ordering_only: true)', () => {
+    it('unblocks a dependent as soon as the blocker is done (no approval needed)', async () => {
       mockTaskFindUnique.mockResolvedValue({
         id: 'task-1',
         status: 'in_progress',
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask());
 
-      // The updated task returned by prisma.task.update
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'done',
-        title: 'Blocker Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-      });
-
-      // Dependent tasks: task-2 is blocked by task-1, no other incomplete blockers
+      // task-2 is blocked only by task-1, which is now done in an ordering-only project
       mockTaskFindMany.mockResolvedValueOnce([
-        {
-          id: 'task-2',
-          status: 'blocked',
-          blocked_by: [], // no remaining incomplete blockers after filtering
-        },
+        { id: 'task-2', status: 'blocked', blocked_by: [blocker('task-1', 'done', false, true)] },
       ]);
-
       mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
       expect(response.status).toBe(200);
 
-      // Should have queried for dependent blocked tasks
-      expect(mockTaskFindMany).toHaveBeenCalledWith({
-        where: {
-          blocked_by: { some: { id: 'task-1' } },
-          status: 'blocked',
-          is_deleted: false,
-        },
-        include: {
-          blocked_by: {
-            where: { status: { not: 'done' }, is_deleted: false },
-            select: { id: true },
-          },
-        },
-      });
-
-      // Should unblock task-2
+      expect(mockTaskFindMany).toHaveBeenCalledWith(UNBLOCK_QUERY);
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
         where: { id: { in: ['task-2'] } },
         data: { status: 'not_started' },
       });
     });
 
-    it('should NOT unblock tasks that still have other incomplete blockers', async () => {
+    it('does NOT unblock while another blocker is still incomplete', async () => {
       mockTaskFindUnique.mockResolvedValue({
         id: 'task-1',
         status: 'in_progress',
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask());
 
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'done',
-        title: 'Blocker Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-      });
-
-      // task-2 is blocked by task-1 AND task-3 (task-3 still incomplete)
+      // task-2 is blocked by task-1 (done) AND task-3 (still in progress)
       mockTaskFindMany.mockResolvedValueOnce([
         {
           id: 'task-2',
           status: 'blocked',
-          blocked_by: [{ id: 'task-3' }], // task-3 still incomplete
+          blocked_by: [
+            blocker('task-1', 'done', false, true),
+            blocker('task-3', 'in_progress', false, true),
+          ],
         },
       ]);
 
       const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
       expect(response.status).toBe(200);
-
-      // Should NOT call updateMany since task-2 still has incomplete blockers
       expect(mockTaskUpdateMany).not.toHaveBeenCalled();
     });
 
-    it('should handle mix of unblockable and still-blocked tasks', async () => {
+    it('unblocks only the dependents whose blockers are all satisfied', async () => {
       mockTaskFindUnique.mockResolvedValue({
         id: 'task-1',
         status: 'in_progress',
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask());
 
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'done',
-        title: 'Blocker Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-      });
-
-      // task-2 can be unblocked, task-4 still has task-3 blocking it
       mockTaskFindMany.mockResolvedValueOnce([
-        {
-          id: 'task-2',
-          status: 'blocked',
-          blocked_by: [], // all blockers done
-        },
+        { id: 'task-2', status: 'blocked', blocked_by: [blocker('task-1', 'done', false, true)] },
         {
           id: 'task-4',
           status: 'blocked',
-          blocked_by: [{ id: 'task-3' }], // still blocked
+          blocked_by: [
+            blocker('task-1', 'done', false, true),
+            blocker('task-3', 'blocked', false, true),
+          ],
         },
       ]);
-
       mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
       expect(response.status).toBe(200);
-
-      // Should only unblock task-2
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
         where: { id: { in: ['task-2'] } },
         data: { status: 'not_started' },
@@ -235,43 +217,113 @@ describe('Task dependency propagation on status change', () => {
     });
   });
 
+  describe('approval-gated project (default, dependencies_ordering_only: false)', () => {
+    it('does NOT unblock on done alone — preserves "don\'t build on unreviewed work"', async () => {
+      mockTaskFindUnique.mockResolvedValue({
+        id: 'task-1',
+        status: 'in_progress',
+        project: null,
+        is_deleted: false,
+      });
+      mockTaskUpdate.mockResolvedValue(updatedTask());
+
+      // task-1 is done but NOT yet approved, in an approval-gated project
+      mockTaskFindMany.mockResolvedValueOnce([
+        { id: 'task-2', status: 'blocked', blocked_by: [blocker('task-1', 'done', false, false)] },
+      ]);
+
+      const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
+      expect(response.status).toBe(200);
+
+      // Queried for dependents, but none unblocked because the blocker is unapproved
+      expect(mockTaskFindMany).toHaveBeenCalledWith(UNBLOCK_QUERY);
+      expect(mockTaskUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('treats a blocker with no project as approval-gated (done is not enough)', async () => {
+      mockTaskFindUnique.mockResolvedValue({
+        id: 'task-1',
+        status: 'in_progress',
+        project: null,
+        is_deleted: false,
+      });
+      mockTaskUpdate.mockResolvedValue(updatedTask());
+
+      mockTaskFindMany.mockResolvedValueOnce([
+        { id: 'task-2', status: 'blocked', blocked_by: [blocker('task-1', 'done', false, null)] },
+      ]);
+
+      const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
+      expect(response.status).toBe(200);
+      expect(mockTaskUpdateMany).not.toHaveBeenCalled();
+    });
+
+    it('unblocks the dependent once the blocker is approved', async () => {
+      // Approval goes through the full-update path (body has `approved`, not `status`).
+      mockTaskFindUnique.mockResolvedValue({
+        id: 'task-1',
+        status: 'review',
+        project: null,
+        is_deleted: false,
+        created_by_id: 'user-1',
+        assignee_id: null,
+        started_at: null,
+      });
+      mockTaskUpdate.mockResolvedValue(updatedTask({ approved: true, status: 'review' }));
+
+      // Now task-1 is done AND approved → its approval-gated dependent can proceed
+      mockTaskFindMany.mockResolvedValueOnce([
+        { id: 'task-2', status: 'blocked', blocked_by: [blocker('task-1', 'done', true, false)] },
+      ]);
+      mockTaskUpdateMany.mockResolvedValue({ count: 1 });
+
+      const response = await PATCH(makeRequest({ approved: true }), { params: makeParams() });
+      expect(response.status).toBe(200);
+
+      expect(mockTaskFindMany).toHaveBeenCalledWith(UNBLOCK_QUERY);
+      expect(mockTaskUpdateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['task-2'] } },
+        data: { status: 'not_started' },
+      });
+    });
+
+    it('does not unblock dependents when approval is revoked (approved: false)', async () => {
+      mockTaskFindUnique.mockResolvedValue({
+        id: 'task-1',
+        status: 'review',
+        project: null,
+        is_deleted: false,
+        created_by_id: 'user-1',
+        assignee_id: null,
+        started_at: null,
+      });
+      mockTaskUpdate.mockResolvedValue(updatedTask({ approved: false, status: 'review' }));
+
+      const response = await PATCH(makeRequest({ approved: false }), { params: makeParams() });
+      expect(response.status).toBe(200);
+
+      // Revoking approval must not trigger any unblock evaluation
+      expect(mockTaskFindMany).not.toHaveBeenCalled();
+      expect(mockTaskUpdateMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('when a completed blocker is reopened', () => {
     it('should re-block dependent tasks in active states', async () => {
-      // Existing task was done
       mockTaskFindUnique.mockResolvedValue({
         id: 'task-1',
         status: 'done',
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask({ status: 'in_progress', completed_at: null }));
 
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'in_progress',
-        title: 'Reopened Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-        completed_at: null,
-      });
-
-      // task-2 was unblocked and is now in not_started
-      mockTaskFindMany.mockResolvedValueOnce([
-        { id: 'task-2' },
-      ]);
-
+      mockTaskFindMany.mockResolvedValueOnce([{ id: 'task-2' }]);
       mockTaskUpdateMany.mockResolvedValue({ count: 1 });
 
       const response = await PATCH(makeRequest({ status: 'in_progress' }), { params: makeParams() });
       expect(response.status).toBe(200);
 
-      // Should query for dependent tasks in active states
       expect(mockTaskFindMany).toHaveBeenCalledWith({
         where: {
           blocked_by: { some: { id: 'task-1' } },
@@ -280,8 +332,6 @@ describe('Task dependency propagation on status change', () => {
         },
         select: { id: true },
       });
-
-      // Should re-block task-2
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
         where: { id: { in: ['task-2'] } },
         data: { status: 'blocked' },
@@ -295,30 +345,12 @@ describe('Task dependency propagation on status change', () => {
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask({ status: 'not_started', completed_at: null }));
 
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'not_started',
-        title: 'Reopened Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-        completed_at: null,
-      });
-
-      // No tasks match because they're all done/abandoned/blocked already
       mockTaskFindMany.mockResolvedValueOnce([]);
 
       const response = await PATCH(makeRequest({ status: 'not_started' }), { params: makeParams() });
       expect(response.status).toBe(200);
-
-      // Should NOT call updateMany
       expect(mockTaskUpdateMany).not.toHaveBeenCalled();
     });
   });
@@ -331,27 +363,10 @@ describe('Task dependency propagation on status change', () => {
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask({ status: 'in_progress' }));
 
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'in_progress',
-        title: 'Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-      });
-
-      // propagateBlockingStatus should not query for dependents
       const response = await PATCH(makeRequest({ status: 'in_progress' }), { params: makeParams() });
       expect(response.status).toBe(200);
-
-      // Should not query for dependents or call updateMany
       expect(mockTaskFindMany).not.toHaveBeenCalled();
       expect(mockTaskUpdateMany).not.toHaveBeenCalled();
     });
@@ -365,29 +380,12 @@ describe('Task dependency propagation on status change', () => {
         project: null,
         is_deleted: false,
       });
+      mockTaskUpdate.mockResolvedValue(updatedTask());
 
-      mockTaskUpdate.mockResolvedValue({
-        id: 'task-1',
-        status: 'done',
-        title: 'Task',
-        project: null,
-        assignee: null,
-        reviewer: null,
-        approved_by: null,
-        function: null,
-        sop: null,
-        created_by: null,
-        blocked_by: [],
-        blocking: [],
-      });
-
-      // No dependent tasks
       mockTaskFindMany.mockResolvedValueOnce([]);
 
       const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
       expect(response.status).toBe(200);
-
-      // Should NOT call updateMany
       expect(mockTaskUpdateMany).not.toHaveBeenCalled();
     });
   });

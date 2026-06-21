@@ -125,38 +125,67 @@ async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
 }
 
 /**
+ * Whether a single blocker satisfies its dependents, given its project's gating mode.
+ * - ordering-only (project.dependencies_ordering_only === true): satisfied once `done`.
+ * - approval-gated (default): satisfied only once `done` AND `approved` — so we never build on
+ *   unreviewed work. A blocker with no project falls back to approval-gated.
+ */
+function isBlockerSatisfied(blocker: {
+  status: string;
+  approved: boolean;
+  project: { dependencies_ordering_only: boolean } | null;
+}) {
+  if (blocker.status !== 'done') return false;
+  const orderingOnly = blocker.project?.dependencies_ordering_only ?? false;
+  return orderingOnly ? true : blocker.approved === true;
+}
+
+/**
+ * Re-evaluate every task currently `blocked` by `taskId` and unblock those whose blockers are ALL
+ * satisfied (per each blocker's project gating mode). Shared by the done-trigger and the
+ * approval-trigger so both modes converge on the same predicate.
+ */
+async function unblockEligibleDependents(taskId: string) {
+  const dependentTasks = await prisma.task.findMany({
+    where: {
+      blocked_by: { some: { id: taskId } },
+      status: 'blocked',
+      is_deleted: false,
+    },
+    include: {
+      blocked_by: {
+        where: { is_deleted: false },
+        select: {
+          id: true,
+          status: true,
+          approved: true,
+          project: { select: { dependencies_ordering_only: true } },
+        },
+      },
+    },
+  });
+
+  const toUnblock = dependentTasks.filter(t => t.blocked_by.every(isBlockerSatisfied));
+  if (toUnblock.length > 0) {
+    await prisma.task.updateMany({
+      where: { id: { in: toUnblock.map(t => t.id) } },
+      data: { status: 'not_started' },
+    });
+  }
+}
+
+/**
  * When a task's status changes, propagate that change to dependent tasks:
- * - If completed: unblock tasks where all blockers are now done
- * - If reopened from done: re-block dependent tasks that are in active states
+ * - If completed: unblock dependents whose blockers are all satisfied (ordering-only → done;
+ *   approval-gated default → done AND approved, so completion alone won't unblock them).
+ * - If reopened from done: re-block dependent tasks that are in active states.
  */
 async function propagateBlockingStatus(taskId: string, newStatus: string, oldStatus: string) {
   // Only propagate when status actually changed
   if (newStatus === oldStatus) return;
 
   if (newStatus === 'done') {
-    // Find tasks blocked by this one that are currently in "blocked" status
-    const dependentTasks = await prisma.task.findMany({
-      where: {
-        blocked_by: { some: { id: taskId } },
-        status: 'blocked',
-        is_deleted: false,
-      },
-      include: {
-        blocked_by: {
-          where: { status: { not: 'done' }, is_deleted: false },
-          select: { id: true },
-        },
-      },
-    });
-
-    // Unblock tasks that have no remaining incomplete blockers
-    const toUnblock = dependentTasks.filter(t => t.blocked_by.length === 0);
-    if (toUnblock.length > 0) {
-      await prisma.task.updateMany({
-        where: { id: { in: toUnblock.map(t => t.id) } },
-        data: { status: 'not_started' },
-      });
-    }
+    await unblockEligibleDependents(taskId);
   } else if (oldStatus === 'done') {
     // Reopening a completed blocker — re-block dependent tasks in active states
     const dependentTasks = await prisma.task.findMany({
@@ -196,6 +225,7 @@ export async function GET(
             id: true,
             name: true,
             status: true,
+            dependencies_ordering_only: true,
             client: { select: { id: true, name: true } },
             site: { select: { id: true, name: true } },
           },
@@ -527,6 +557,12 @@ export async function PATCH(
         },
       },
     });
+
+    // When a blocker is newly approved, approval-gated dependents become workable — unblock them.
+    // (ordering-only dependents were already unblocked when the blocker hit `done`.)
+    if (updateData.approved === true) {
+      await unblockEligibleDependents(id);
+    }
 
     // Notify new assignee if assignment changed to someone other than the updater
     if (

@@ -21,6 +21,7 @@ const updateProjectSchema = z.object({
   hourly_rate: z.number().min(0).optional().nullable(),
   is_retainer: z.boolean().optional(),
   workload_completed_mode: z.enum(['low', 'medium', 'high', 'actual']).optional(),
+  dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
 });
 
@@ -250,6 +251,7 @@ export async function PATCH(
     if (data.hourly_rate !== undefined) updateData.hourly_rate = data.hourly_rate;
     if (data.is_retainer !== undefined) updateData.is_retainer = data.is_retainer;
     if (data.workload_completed_mode !== undefined) updateData.workload_completed_mode = data.workload_completed_mode;
+    if (data.dependencies_ordering_only !== undefined) updateData.dependencies_ordering_only = data.dependencies_ordering_only;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
     const project = await prisma.project.update({
