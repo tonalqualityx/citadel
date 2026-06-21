@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
+import { serializeRichText } from '@/lib/api/blocknote';
 import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logStatusChange, logUpdate, logDelete } from '@/lib/services/activity';
@@ -391,9 +392,10 @@ export async function PATCH(
     };
 
     if (data.title !== undefined) updateData.title = data.title;
-    // Description and notes are BlockNote JSON - stringify for storage in Text field
+    // Description and notes accept Markdown / plain string / raw BlockNote array;
+    // normalized to a BlockNote JSON document and stored in the Text field.
     if (data.description !== undefined) {
-      updateData.description = data.description ? JSON.stringify(data.description) : null;
+      updateData.description = serializeRichText(data.description);
     }
     if (data.priority !== undefined) updateData.priority = data.priority;
     if (data.is_focus !== undefined) updateData.is_focus = data.is_focus;
@@ -431,7 +433,7 @@ export async function PATCH(
     if (data.mystery_factor !== undefined) updateData.mystery_factor = data.mystery_factor;
     if (data.battery_impact !== undefined) updateData.battery_impact = data.battery_impact;
     if (data.notes !== undefined) {
-      updateData.notes = data.notes ? JSON.stringify(data.notes) : null;
+      updateData.notes = serializeRichText(data.notes);
     }
     if (data.requirements !== undefined) updateData.requirements = data.requirements;
     // review_requirements (Quality Gate) - only PM/Admin can update

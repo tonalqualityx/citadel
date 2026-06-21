@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
+import { serializeRichText } from '@/lib/api/blocknote';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
@@ -11,7 +12,9 @@ import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
-  description: z.string().optional().nullable(),
+  // Accepts Markdown / plain string OR a raw BlockNote array; normalized + stored
+  // as a BlockNote JSON document (see serializeRichText).
+  description: z.any().optional().nullable(),
   status: z
     .enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'])
     .optional(),
@@ -30,7 +33,8 @@ const createTaskSchema = z.object({
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
   due_date: z.string().datetime().optional().nullable(),
   started_at: z.string().datetime().optional().nullable(),
-  notes: z.string().optional().nullable(),
+  // Accepts Markdown / plain string OR a raw BlockNote array (see description).
+  notes: z.any().optional().nullable(),
   // Billing fields
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
@@ -380,7 +384,8 @@ export async function POST(request: NextRequest) {
     const task = await prisma.task.create({
       data: {
         title: data.title,
-        description: data.description,
+        // Markdown / plain string / raw BlockNote array → BlockNote JSON document.
+        description: serializeRichText(data.description),
         status: data.status || 'not_started',
         priority: data.priority || sopDefaults.default_priority || 3,
         project_id: data.project_id,
@@ -402,7 +407,7 @@ export async function POST(request: NextRequest) {
         estimated_minutes: estimatedMinutes,
         started_at: startedAt,
         due_date: data.due_date ? new Date(data.due_date) : null,
-        notes: data.notes,
+        notes: serializeRichText(data.notes),
         // Billing fields - charter tasks are never billable (already invoiced via charter)
         is_billable: data.charter_id ? false : (data.is_billable ?? true),
         billing_target: data.billing_target,

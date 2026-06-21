@@ -657,7 +657,6 @@ describe('POST /api/tasks', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             title: 'Full Task',
-            description: 'Task description',
             status: 'in_progress',
             priority: 2,
             project_id: projectId,
@@ -665,12 +664,21 @@ describe('POST /api/tasks', () => {
             energy_estimate: 4,
             mystery_factor: 'average',
             battery_impact: 'high_drain',
-            notes: 'Some notes',
             billing_amount: 100,
             is_support: false,
           }),
         })
       );
+
+      // description/notes are normalized to a BlockNote JSON document on create
+      // (a plain string would otherwise render blank in the editor).
+      const created = mockTaskCreate.mock.calls.at(-1)![0].data;
+      const desc = JSON.parse(created.description);
+      expect(Array.isArray(desc)).toBe(true);
+      expect(desc[0].type).toBe('paragraph');
+      expect(desc[0].content[0].text).toBe('Task description');
+      const notes = JSON.parse(created.notes);
+      expect(notes[0].content[0].text).toBe('Some notes');
     });
   });
 
