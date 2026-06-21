@@ -24,6 +24,7 @@ export const sopEndpoints: ApiEndpoint[] = [
             function_id: 'uuid|null',
             function: { id: 'uuid', name: 'string' },
             estimated_minutes: 'number|null',
+            bast_executable: 'boolean',
             is_active: 'boolean',
             created_at: 'ISO-8601',
             updated_at: 'ISO-8601',
@@ -37,6 +38,10 @@ export const sopEndpoints: ApiEndpoint[] = [
         summary: 'Create a new SOP.',
         auth: 'required',
         roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'title', type: 'string', required: true, description: 'SOP title' },
+          { name: 'bast_executable', type: 'boolean', required: false, description: 'Capability gate: this KIND of work is automatable by Bast in principle (default false). AND-ed with Site.bast_enabled.' },
+        ],
         responseExample: { id: 'uuid', title: 'string', created_at: 'ISO-8601' },
       },
     ],
@@ -57,6 +62,7 @@ export const sopEndpoints: ApiEndpoint[] = [
           function_id: 'uuid|null',
           function: { id: 'uuid', name: 'string' },
           estimated_minutes: 'number|null',
+          bast_executable: 'boolean',
           requirements: 'string|null',
           is_active: 'boolean',
           is_deleted: 'boolean',
@@ -70,6 +76,9 @@ export const sopEndpoints: ApiEndpoint[] = [
         summary: 'Update an SOP.',
         auth: 'required',
         roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'bast_executable', type: 'boolean', required: false, description: 'Capability gate: this KIND of work is automatable by Bast in principle. AND-ed with Site.bast_enabled.' },
+        ],
         responseExample: { id: 'uuid', title: 'string', updated_at: 'ISO-8601' },
       },
       {

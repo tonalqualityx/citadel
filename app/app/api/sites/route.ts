@@ -12,6 +12,8 @@ const createSiteSchema = z.object({
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional(),
   site_type: z.enum(['eleventy', 'wordpress', 'handoff', 'custom']).optional().nullable(),
+  repo_url: z.string().max(500).optional().nullable(),
+  repo_branch: z.string().max(100).optional().nullable(),
   hosting_plan_id: z.string().uuid().optional().nullable(),
   hosting_discount: z.number().min(0).optional().nullable(),
   maintenance_plan_id: z.string().uuid().optional().nullable(),
