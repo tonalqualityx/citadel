@@ -49,6 +49,33 @@ export const portalEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/portal/articles',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "The logged-in client's articles that are ready for their review (in_review only), client-scoped via the A2 projection. Requires a client_session cookie; lists only the session client's articles.",
+        auth: 'session',
+        responseExample: {
+          articles: [
+            {
+              id: 'uuid',
+              title: 'string',
+              status: 'in_review',
+              body: 'string|null',
+              comments: [{ id: 'uuid', content: 'string', author_name: 'string|null', created_at: 'ISO-8601' }],
+              created_at: 'ISO-8601',
+              updated_at: 'ISO-8601',
+            },
+          ],
+        },
+        responseNotes:
+          '401 without a valid client session. Scope is implicit (client_id from the session, never from input), so no cross-client read is possible; only in_review, non-deleted articles are returned, newest-updated first.',
+      },
+    ],
+  },
+  {
     path: '/api/portal/tasks/:token',
     group: 'portal',
     methods: [
