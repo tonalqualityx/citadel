@@ -23,6 +23,12 @@ export const CLIENT_SESSION_COOKIE = 'client_session';
 const TOKEN_TYPE = 'client_session';
 const MAGIC_LINK_TTL_MINUTES = 15;
 const SESSION_TTL_DAYS = 7;
+/**
+ * Team-generated invite links live longer than the 15-minute self-service link: Mike may copy a
+ * link and paste it into an email he writes later, so it must still be valid when the client
+ * eventually clicks. Still single-use and still client-scoped.
+ */
+const TEAM_INVITE_TTL_DAYS = 7;
 
 export interface ClientSession {
   clientId: string;
@@ -86,6 +92,76 @@ export async function requestClientMagicLink(input: {
   }
 
   return contacts.length;
+}
+
+/**
+ * Team-side: mint a portal **login** link for a specific contact, so the team can proactively
+ * invite a client in — either copying the URL (Mike pastes it into his own email) or having
+ * Citadel email it (`send: true`). Unlike `requestClientMagicLink` (client-initiated, keyed by a
+ * typed email, short 15-min TTL), this is keyed by a known contact id and uses the longer
+ * `TEAM_INVITE_TTL_DAYS` window so a copied link survives until the client clicks. Still
+ * single-use and still scoped to the contact's own client.
+ *
+ * Returns the link details, or `null` if the contact does not exist / is deleted. The email is
+ * sent in the neutral Indelible voice and never references the internal worker persona.
+ */
+export async function createContactPortalLoginLink(input: {
+  contactId: string;
+  send: boolean;
+  ipAddress: string;
+  userAgent: string | null;
+}): Promise<{
+  url: string;
+  expiresAt: Date;
+  sent: boolean;
+  contact: { id: string; name: string | null; email: string; clientId: string };
+} | null> {
+  const contact = await prisma.clientContact.findUnique({
+    where: { id: input.contactId },
+    select: { id: true, name: true, email: true, client_id: true, is_deleted: true },
+  });
+
+  if (!contact || contact.is_deleted) return null;
+
+  const magicToken = generateToken();
+  const expiresAt = daysFromNow(TEAM_INVITE_TTL_DAYS);
+
+  await prisma.portalSession.create({
+    data: {
+      token_type: TOKEN_TYPE,
+      entity_id: contact.client_id,
+      contact_id: contact.id,
+      magic_token: magicToken,
+      magic_token_expires_at: expiresAt,
+      ip_address: input.ipAddress,
+      user_agent: input.userAgent,
+      action: 'invite',
+    },
+  });
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const url = `${baseUrl}/api/portal/login/${magicToken}`;
+
+  if (input.send) {
+    await sendClientMagicLinkEmail({
+      to: contact.email,
+      loginUrl: url,
+      contactName: contact.name,
+      expiresLabel: `${TEAM_INVITE_TTL_DAYS} days`,
+    });
+  }
+
+  return {
+    url,
+    expiresAt,
+    sent: input.send,
+    contact: {
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+      clientId: contact.client_id,
+    },
+  };
 }
 
 /**
@@ -191,4 +267,5 @@ export function assertClientScope(session: ClientSession, clientId: string): voi
 export const __testing = {
   MAGIC_LINK_TTL_MINUTES,
   SESSION_TTL_DAYS,
+  TEAM_INVITE_TTL_DAYS,
 };

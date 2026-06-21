@@ -1,12 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { UserPlus, Pencil, X, ShieldCheck, Star } from 'lucide-react';
+import { UserPlus, Pencil, X, ShieldCheck, Star, Link2, Send } from 'lucide-react';
 import {
   useClientContacts,
   useCreateClientContact,
   useUpdateClientContact,
   useDeleteClientContact,
+  useContactPortalLoginLink,
 } from '@/lib/hooks/use-client-contacts';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,9 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
   const createContact = useCreateClientContact();
   const updateContact = useUpdateClientContact();
   const deleteContact = useDeleteClientContact();
+  const loginLink = useContactPortalLoginLink();
+
+  const [linkBusyId, setLinkBusyId] = React.useState<string | null>(null);
 
   const [showForm, setShowForm] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
@@ -109,6 +113,32 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
       });
     } catch (error) {
       showToast.apiError(error, 'Failed to update contact');
+    }
+  };
+
+  const handleCopyLoginLink = async (c: ClientContact) => {
+    setLinkBusyId(c.id);
+    try {
+      const res = await loginLink.mutateAsync({ id: c.id, send: false });
+      await navigator.clipboard.writeText(res.url);
+      showToast.success('Login link copied to clipboard');
+    } catch (error) {
+      showToast.apiError(error, 'Failed to generate login link');
+    } finally {
+      setLinkBusyId(null);
+    }
+  };
+
+  const handleSendLoginLink = async (c: ClientContact) => {
+    if (!confirm(`Email ${c.email} their portal login link now?`)) return;
+    setLinkBusyId(c.id);
+    try {
+      await loginLink.mutateAsync({ id: c.id, send: true });
+      showToast.success(`Login link sent to ${c.email}`);
+    } catch (error) {
+      showToast.apiError(error, 'Failed to send login link');
+    } finally {
+      setLinkBusyId(null);
     }
   };
 
@@ -247,6 +277,26 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                   />
                   Can initiate work
                 </label>
+                <button
+                  type="button"
+                  onClick={() => handleCopyLoginLink(c)}
+                  disabled={linkBusyId === c.id}
+                  className="p-1.5 text-text-sub hover:text-text-main transition-colors disabled:opacity-50"
+                  aria-label="Copy portal login link"
+                  title="Copy portal login link"
+                >
+                  <Link2 className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendLoginLink(c)}
+                  disabled={linkBusyId === c.id}
+                  className="p-1.5 text-text-sub hover:text-text-main transition-colors disabled:opacity-50"
+                  aria-label="Email portal login link to contact"
+                  title="Email portal login link to contact"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
                 <button
                   type="button"
                   onClick={() => openEdit(c)}

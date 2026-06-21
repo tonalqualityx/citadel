@@ -7,7 +7,7 @@ vi.mock('next/headers', () => ({
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
-    clientContact: { findMany: vi.fn() },
+    clientContact: { findMany: vi.fn(), findUnique: vi.fn() },
     portalSession: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
   },
 }));
@@ -21,6 +21,7 @@ import { prisma } from '@/lib/db/prisma';
 import { sendClientMagicLinkEmail } from '@/lib/services/email';
 import {
   requestClientMagicLink,
+  createContactPortalLoginLink,
   consumeClientMagicLink,
   validateClientSession,
   requireClientAuth,
@@ -31,6 +32,7 @@ import type { Mock } from 'vitest';
 
 const mockCookies = cookies as Mock;
 const mockFindManyContacts = prisma.clientContact.findMany as Mock;
+const mockFindUniqueContact = prisma.clientContact.findUnique as Mock;
 const mockCreate = prisma.portalSession.create as Mock;
 const mockFindFirst = prisma.portalSession.findFirst as Mock;
 const mockUpdateMany = prisma.portalSession.updateMany as Mock;
@@ -70,6 +72,72 @@ describe('requestClientMagicLink', () => {
     const count = await requestClientMagicLink({ email: 'nobody@nowhere.com', ...reqInput });
 
     expect(count).toBe(0);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe('createContactPortalLoginLink', () => {
+  const contact = {
+    id: 'contact-1',
+    name: 'Ann',
+    email: 'ann@acme.com',
+    client_id: 'client-acme',
+    is_deleted: false,
+  };
+
+  it('mints a client-scoped invite link and returns the URL without emailing (copy)', async () => {
+    mockFindUniqueContact.mockResolvedValue(contact);
+    mockCreate.mockResolvedValue({});
+
+    const result = await createContactPortalLoginLink({
+      contactId: 'contact-1',
+      send: false,
+      ...reqInput,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.sent).toBe(false);
+    expect(result!.contact).toMatchObject({ id: 'contact-1', email: 'ann@acme.com', clientId: 'client-acme' });
+    expect(result!.url).toContain('/api/portal/login/');
+    expect(mockSendEmail).not.toHaveBeenCalled();
+
+    const created = mockCreate.mock.calls[0][0].data;
+    expect(created).toMatchObject({
+      token_type: 'client_session',
+      entity_id: 'client-acme',
+      contact_id: 'contact-1',
+      action: 'invite',
+    });
+    expect(created.magic_token).toEqual(expect.any(String));
+    // The returned URL embeds the row's own token.
+    expect(result!.url).toContain(created.magic_token);
+    // Team-invite TTL is days, well beyond the 15-minute self-service window.
+    expect(created.magic_token_expires_at.getTime()).toBeGreaterThan(Date.now() + 24 * 60 * 60 * 1000);
+  });
+
+  it('emails the contact their link when send=true', async () => {
+    mockFindUniqueContact.mockResolvedValue(contact);
+    mockCreate.mockResolvedValue({});
+
+    const result = await createContactPortalLoginLink({
+      contactId: 'contact-1',
+      send: true,
+      ...reqInput,
+    });
+
+    expect(result!.sent).toBe(true);
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ to: 'ann@acme.com', loginUrl: result!.url });
+  });
+
+  it('returns null for an unknown or deleted contact (and never emails)', async () => {
+    mockFindUniqueContact.mockResolvedValue(null);
+    expect(await createContactPortalLoginLink({ contactId: 'nope', send: true, ...reqInput })).toBeNull();
+
+    mockFindUniqueContact.mockResolvedValue({ ...contact, is_deleted: true });
+    expect(await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput })).toBeNull();
+
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled();
   });

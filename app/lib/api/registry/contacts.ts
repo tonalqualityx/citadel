@@ -114,4 +114,26 @@ export const contactEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/contacts/{id}/portal-login-link',
+    group: 'contacts',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          "Team-side: get a client contact's portal LOGIN link. Mints a single-use, client-scoped magic link with a longer team-invite TTL (so a copied link survives until clicked). send:false (default) returns the URL to copy; send:true emails the contact their login link on the team's behalf (neutral voice).",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'send', type: 'boolean', required: false, description: 'Email the contact the link (default false = return URL to copy)' },
+        ],
+        responseExample: {
+          url: 'string',
+          expires_at: 'ISO-8601',
+          sent: 'boolean',
+          contact: { id: 'uuid', name: 'string|null', email: 'string' },
+        },
+      },
+    ],
+  },
 ];
