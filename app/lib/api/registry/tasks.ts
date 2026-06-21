@@ -294,6 +294,21 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/approval-link',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Mint (or reuse an unexpired) per-task client approval portal token and return its public approval URL.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { url: 'string', token: 'string', expires_at: 'ISO-8601|null' },
+        responseNotes: 'Returns 404 if the task does not exist or is deleted.',
+      },
+    ],
+  },
+  {
     path: '/api/tasks/bulk',
     group: 'tasks',
     methods: [

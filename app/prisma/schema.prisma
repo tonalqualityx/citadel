@@ -1009,6 +1009,10 @@ model Task {
   approved_by_contact_id   String?        @db.Uuid
   approved_by_contact      ClientContact? @relation("TaskApprovedByContact", fields: [approved_by_contact_id], references: [id])
 
+  // Per-task client approval portal token (mirrors Proposal/Contract pattern)
+  portal_token             String?        @db.VarChar(128)
+  portal_token_expires_at  DateTime?
+
   // Metadata
   is_deleted        Boolean       @default(false)
   created_at        DateTime      @default(now())
@@ -1043,6 +1047,7 @@ model Task {
   @@index([source])
   @@index([requested_by_contact_id])
   @@index([approved_by_contact_id])
+  @@index([portal_token])
   @@map("tasks")
 }
 

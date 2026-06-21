@@ -2,6 +2,34 @@ import type { ApiEndpoint } from './index';
 
 export const portalEndpoints: ApiEndpoint[] = [
   {
+    path: '/api/portal/tasks/:token',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'View a task client-approval page via portal token. Returns the client-safe task projection plus the staging preview. Public, no auth required.',
+        auth: 'none',
+        responseExample: {
+          task: {
+            id: 'uuid',
+            title: 'string',
+            description: 'object|null',
+            status: 'not_started|in_progress|review|done|blocked|abandoned',
+            estimated_minutes: 'number|null',
+            comments: [{ id: 'uuid', content: 'string', author_name: 'string|null', created_at: 'ISO-8601' }],
+            created_at: 'ISO-8601',
+            updated_at: 'ISO-8601',
+          },
+          staging_preview_url: 'string|null',
+          staging_deployed_at: 'ISO-8601|null',
+          already_approved: 'boolean',
+        },
+        responseNotes: 'Returns 404 if token is invalid or expired.',
+      },
+    ],
+  },
+  {
     path: '/api/portal/proposals/:token',
     group: 'portal',
     methods: [

@@ -199,10 +199,40 @@ export async function validateAddendumToken(token: string) {
 }
 
 /**
+ * Validate a per-task approval portal token
+ * Returns the task (with client-visible comment data loaded) if valid, null if invalid/expired.
+ * Mirrors the proposal/contract pattern; the token lives on the task row.
+ */
+export async function validateTaskToken(token: string) {
+  const task = await prisma.task.findFirst({
+    where: {
+      portal_token: token,
+      is_deleted: false,
+    },
+    include: {
+      comments: {
+        where: { is_internal: false },
+        include: { user: { select: { id: true, name: true } } },
+        orderBy: { created_at: 'asc' },
+      },
+    },
+  });
+
+  if (!task) return null;
+
+  // Check expiry
+  if (task.portal_token_expires_at && task.portal_token_expires_at < new Date()) {
+    return null;
+  }
+
+  return task;
+}
+
+/**
  * Log a portal session (access, view, action)
  */
 export async function logPortalSession(input: {
-  tokenType: 'proposal' | 'msa' | 'contract' | 'addendum';
+  tokenType: 'proposal' | 'msa' | 'contract' | 'addendum' | 'task_approval';
   entityId: string;
   ipAddress: string;
   userAgent: string | null;
