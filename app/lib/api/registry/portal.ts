@@ -24,8 +24,73 @@ export const portalEndpoints: ApiEndpoint[] = [
           staging_preview_url: 'string|null',
           staging_deployed_at: 'ISO-8601|null',
           already_approved: 'boolean',
+          contact: { id: 'uuid', name: 'string|null' },
+          available_sites: [{ id: 'uuid', name: 'string|null' }],
         },
-        responseNotes: 'Returns 404 if token is invalid or expired.',
+        responseNotes:
+          'Returns 404 if token is invalid or expired. contact is the resolved acting client contact (requestor, else client primary) or null; available_sites are that contact\'s client sites (for the new-task action).',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/tasks/:token/approve',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Client approves the staged work via portal token. Sets client_approved_at + approved_by_contact_id. Idempotent. Public, no auth required.',
+        auth: 'none',
+        responseExample: {
+          message: 'Approved',
+          approved_at: 'ISO-8601',
+          promotion_pending: 'boolean',
+        },
+        responseNotes:
+          'promotion_pending is true for staged client sites (site.auto_deploy=false): staging→prod promotion is a separate operator step (recorded as an internal note), not performed here. Returns 404 for an invalid/expired token.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/tasks/:token/request-changes',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Client asks for rework via portal token. Re-opens the task (status→not_started) and records the note as a client-visible comment. Public, no auth required.',
+        auth: 'none',
+        bodySchema: [
+          { name: 'note', type: 'string', required: true, description: "What needs changing (the 'what')" },
+        ],
+        responseExample: {
+          message: 'Thanks — sent back for changes',
+          status: 'not_started',
+        },
+        responseNotes: 'Returns 400 if already approved, 404 for an invalid/expired token.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/tasks/:token/new-task',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Client files a new request from the portal. Creates a not_started task routed to Bast triage, tagged with client provenance. site_id must belong to the contact\'s client. Public, no auth required.',
+        auth: 'none',
+        bodySchema: [
+          { name: 'title', type: 'string', required: true, description: 'Short title' },
+          { name: 'description', type: 'string', required: false, description: 'Detailed description' },
+          { name: 'site_id', type: 'string', required: true, description: 'One of the contact\'s linked sites' },
+        ],
+        responseExample: {
+          message: 'Thanks — your request has been received',
+          task: { id: 'uuid', title: 'string', status: 'not_started' },
+        },
+        responseNotes:
+          'Returns 400 if no contact is linked or the site is not the contact\'s, 404 for an invalid/expired token.',
       },
     ],
   },

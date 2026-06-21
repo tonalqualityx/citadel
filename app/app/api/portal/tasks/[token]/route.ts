@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/api/errors';
-import { validateTaskToken, logPortalSession, getClientIp } from '@/lib/services/portal';
+import {
+  validateTaskToken,
+  logPortalSession,
+  getClientIp,
+  resolveTaskContact,
+  listContactSites,
+} from '@/lib/services/portal';
 import { formatTaskForClient } from '@/lib/api/client-projections';
 
 // GET /api/portal/tasks/:token - View a task's client approval page (public, no auth)
@@ -28,6 +34,11 @@ export async function GET(
       action: 'view',
     });
 
+    // Resolve the acting contact + the sites they may file a new task against (for the
+    // "Add a new task" action). Only minimal, client-safe fields are surfaced.
+    const contact = await resolveTaskContact(task);
+    const available_sites = contact ? await listContactSites(contact.client_id) : [];
+
     // The client-safe projection is the single source of truth for task fields.
     // staging_preview_url / staging_deployed_at are returned at the endpoint level
     // (they are client-facing here) so the projection stays internal-safe by default.
@@ -36,6 +47,8 @@ export async function GET(
       staging_preview_url: task.staging_preview_url ?? null,
       staging_deployed_at: task.staging_deployed_at ?? null,
       already_approved: Boolean(task.client_approved_at),
+      contact: contact ? { id: contact.id, name: contact.name } : null,
+      available_sites,
     });
   } catch (error) {
     return handleApiError(error);

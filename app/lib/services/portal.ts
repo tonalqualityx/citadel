@@ -215,6 +215,12 @@ export async function validateTaskToken(token: string) {
         include: { user: { select: { id: true, name: true } } },
         orderBy: { created_at: 'asc' },
       },
+      // Site drives auto_deploy (staging→prod promotion on approve) and the client the
+      // task belongs to; requested_by_contact is the first-choice approver/requestor.
+      site: { select: { id: true, name: true, auto_deploy: true, client_id: true } },
+      requested_by_contact: {
+        select: { id: true, name: true, email: true, client_id: true },
+      },
     },
   });
 
@@ -226,6 +232,53 @@ export async function validateTaskToken(token: string) {
   }
 
   return task;
+}
+
+/**
+ * Resolve the acting client contact for a token-gated task action.
+ * No client login exists yet (C1), so the per-task token is the authorization and the
+ * contact is derived from the task: the requestor if set, else the client's primary contact.
+ * Returns null when the task has no resolvable client/contact (approval still records via
+ * client_approved_at; approved_by_contact_id simply stays null).
+ */
+export async function resolveTaskContact(task: {
+  requested_by_contact?: { id: string; name: string | null; email: string; client_id: string } | null;
+  client_id?: string | null;
+  site?: { client_id: string | null } | null;
+}) {
+  if (task.requested_by_contact) return task.requested_by_contact;
+
+  const clientId = task.client_id ?? task.site?.client_id ?? null;
+  if (!clientId) return null;
+
+  return prisma.clientContact.findFirst({
+    where: { client_id: clientId, is_primary: true, is_deleted: false },
+    select: { id: true, name: true, email: true, client_id: true },
+  });
+}
+
+/**
+ * Resolve the Bast worker user id. Client portal actions have no authenticated User, but
+ * comments require a User author and portal-filed tasks route through Bast's triage queue,
+ * so those records are attributed to the Bast account. Returns null if it doesn't exist.
+ */
+export async function getBastUserId(): Promise<string | null> {
+  const bast = await prisma.user.findFirst({
+    where: { email: 'bast@becomeindelible.com' },
+    select: { id: true },
+  });
+  return bast?.id ?? null;
+}
+
+/**
+ * List the sites a contact may file new portal tasks against (their client's sites).
+ */
+export async function listContactSites(clientId: string) {
+  return prisma.site.findMany({
+    where: { client_id: clientId, is_deleted: false },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
 }
 
 /**
