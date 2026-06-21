@@ -34,7 +34,7 @@ describe('API Registry', () => {
           expect(['GET', 'POST', 'PATCH', 'PUT', 'DELETE']).toContain(method.method);
           expect(typeof method.summary).toBe('string');
           expect(method.summary.length).toBeGreaterThan(0);
-          expect(['required', 'none', 'cron']).toContain(method.auth);
+          expect(['required', 'none', 'cron', 'session']).toContain(method.auth);
         }
       }
     });

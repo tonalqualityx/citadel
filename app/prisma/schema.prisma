@@ -577,6 +577,9 @@ model ClientContact {
   requested_tasks   Task[]   @relation("TaskRequestedByContact")
   approved_tasks    Task[]   @relation("TaskApprovedByContact")
 
+  // Client-portal login sessions issued to this contact (magic-link → 7-day session)
+  portal_sessions   PortalSession[]
+
   @@unique([client_id, email])
   @@index([email])
   @@index([client_id])
@@ -1969,8 +1972,21 @@ model PortalSession {
   metadata    Json?
   created_at  DateTime @default(now())
 
+  // Client login sessions (token_type='client_session', entity_id=client_id). These columns are
+  // null for audit-log rows (proposal/contract/task_approval views). A client login is one row:
+  // first the magic-link phase (magic_token set, session_token null), then the consume phase
+  // (session_token + expires_at + consumed_at set, single-use).
+  contact_id             String?        @db.Uuid
+  contact                ClientContact? @relation(fields: [contact_id], references: [id])
+  magic_token            String?        @unique @db.VarChar(128)
+  magic_token_expires_at DateTime?
+  session_token          String?        @unique @db.VarChar(128)
+  expires_at             DateTime?
+  consumed_at            DateTime?
+
   @@index([token_type, entity_id])
   @@index([created_at])
+  @@index([contact_id])
   @@map("portal_sessions")
 }
 

@@ -19,7 +19,9 @@ export interface ParamDef {
 export interface MethodDef {
   method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   summary: string;
-  auth: 'required' | 'none' | 'cron';
+  // 'session' = client-portal magic-link session (the client_session cookie), distinct from
+  // 'required' (internal staff JWT/API-key auth).
+  auth: 'required' | 'none' | 'cron' | 'session';
   roles?: string[];
   queryParams?: ParamDef[];
   bodySchema?: ParamDef[];

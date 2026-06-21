@@ -258,3 +258,64 @@ If you didn't request this, you can safely ignore this email.
 
   await sendEmail({ to: email, subject, text, html });
 }
+
+/**
+ * Send a client-portal magic-link login email.
+ *
+ * Neutral, professional Indelible voice — never references the internal worker persona.
+ * The link issues a short-lived, single-use login; clicking it starts a 7-day browse session.
+ */
+export async function sendClientMagicLinkEmail(options: {
+  to: string;
+  loginUrl: string;
+  contactName?: string | null;
+  expiresMinutes: number;
+}): Promise<void> {
+  const { to, loginUrl, contactName, expiresMinutes } = options;
+  const greeting = contactName ? ` ${contactName}` : '';
+
+  const subject = 'Your Indelible portal login link';
+  const text = `
+Hi${greeting},
+
+Here is your secure link to sign in to the Indelible client portal:
+${loginUrl}
+
+This link expires in ${expiresMinutes} minutes and can be used once. Signing in keeps you
+logged in for 7 days on this browser.
+
+If you didn't request this, you can safely ignore this email.
+
+- The Indelible Team
+`.trim();
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #2D2D2D; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .button { display: inline-block; background: #5B8FB9; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin: 20px 0; }
+    .footer { margin-top: 30px; color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Sign in to your portal</h2>
+    <p>Hi${greeting},</p>
+    <p>Here is your secure link to sign in to the Indelible client portal:</p>
+    <p><a href="${loginUrl}" class="button">Sign In</a></p>
+    <p>Or copy and paste this link into your browser:</p>
+    <p><a href="${loginUrl}">${loginUrl}</a></p>
+    <p>This link expires in ${expiresMinutes} minutes and can be used once. Signing in keeps you logged in for 7 days on this browser.</p>
+    <p class="footer">If you didn't request this, you can safely ignore this email.</p>
+    <p class="footer">- The Indelible Team</p>
+  </div>
+</body>
+</html>
+`.trim();
+
+  await sendEmail({ to, subject, text, html });
+}

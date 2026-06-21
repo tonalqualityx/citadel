@@ -2,6 +2,53 @@ import type { ApiEndpoint } from './index';
 
 export const portalEndpoints: ApiEndpoint[] = [
   {
+    path: '/api/portal/login/request',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Client contact requests a magic-link login. Issues a short-lived, single-use link per matching active contact and emails it. Public, no auth required.',
+        auth: 'none',
+        bodySchema: [
+          { name: 'email', type: 'string', required: true, description: 'The contact email to send the login link to' },
+        ],
+        responseExample: { requested: true },
+        responseNotes:
+          'Always returns { requested: true } regardless of whether the email matches a contact (no email enumeration). Rate-limited.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/login/:token',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Consume a magic-link token (single-use): issues a 7-day client-scoped session cookie and redirects into the portal. Public, no auth required.',
+        auth: 'none',
+        responseNotes:
+          'Sets the httpOnly `client_session` cookie and 303-redirects to /portal on success; redirects to /portal/login?error=invalid for an invalid/expired/used token (no cookie set).',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/clients/:clientId',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Client-scoped portal read of a client (id + name). Requires a client_session cookie; a session may only read its own client.',
+        auth: 'session',
+        responseExample: { client: { id: 'uuid', name: 'string' } },
+        responseNotes:
+          '401 without a valid client session; 403 when the session belongs to a different client; 404 if the client does not exist.',
+      },
+    ],
+  },
+  {
     path: '/api/portal/tasks/:token',
     group: 'portal',
     methods: [
