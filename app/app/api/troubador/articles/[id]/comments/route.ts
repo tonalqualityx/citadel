@@ -5,6 +5,8 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatArticleCommentResponse } from '@/lib/api/troubador-formatters';
 import { recomputeProductionStage } from '@/lib/troubador/run-stage';
+import { createNotification } from '@/lib/services/notifications';
+import { findMentionedUserIds } from '@/lib/utils/mentions';
 
 const schema = z.object({
   content: z.string().min(1),
@@ -34,6 +36,31 @@ export async function POST(
       },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
+
+    // Notify any @-mentioned team members. The article-comment payload only carries content,
+    // so resolve mentions server-side with the shared helper against active users — never the
+    // author. Reuses the same `task_mentioned` wiring as task comments (entity = the article).
+    const activeUsers = await prisma.user.findMany({
+      where: { is_active: true },
+      select: { id: true, name: true },
+    });
+    const mentionedUserIds = findMentionedUserIds(data.content, activeUsers).filter(
+      (uid) => uid !== auth.userId
+    );
+    if (mentionedUserIds.length > 0) {
+      const snippet = `${data.content.substring(0, 100)}${data.content.length > 100 ? '...' : ''}`;
+      const commenterName = comment.user?.name || 'Someone';
+      for (const mentionedId of mentionedUserIds) {
+        await createNotification({
+          userId: mentionedId,
+          type: 'task_mentioned',
+          title: `${commenterName} mentioned you on "${article.title}"`,
+          message: `"${snippet}"`,
+          entityType: 'article',
+          entityId: id,
+        });
+      }
+    }
 
     // Feedback reopens an article that's already moved past drafting.
     let newStatus = article.status;

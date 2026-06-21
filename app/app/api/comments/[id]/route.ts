@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { createNotification } from '@/lib/services/notifications';
+import { findMentionedUserIds } from '@/lib/utils/mentions';
 
 const updateCommentSchema = z
   .object({
@@ -120,6 +122,7 @@ export async function PATCH(
             id: true,
             project_id: true,
             assignee_id: true,
+            title: true,
           },
         },
       },
@@ -135,9 +138,28 @@ export async function PATCH(
       throw new ApiError('You can only edit your own comments', 403);
     }
 
-    // Update the comment (content edit and/or internal-flag toggle)
-    const updateData: { content?: string; is_internal?: boolean } = {};
-    if (data.content !== undefined) updateData.content = data.content;
+    // When the body changes, re-resolve @-mentions server-side (the edit payload carries only
+    // content). Notify users newly mentioned by this edit — never the editor, and never anyone
+    // already mentioned before — then persist the recomputed set so a later edit won't re-notify.
+    const updateData: {
+      content?: string;
+      is_internal?: boolean;
+      mentioned_user_ids?: string[];
+    } = {};
+    let newlyMentionedIds: string[] = [];
+    if (data.content !== undefined) {
+      updateData.content = data.content;
+      const activeUsers = await prisma.user.findMany({
+        where: { is_active: true },
+        select: { id: true, name: true },
+      });
+      const mentionedUserIds = findMentionedUserIds(data.content, activeUsers).filter(
+        (uid) => uid !== auth.userId
+      );
+      updateData.mentioned_user_ids = mentionedUserIds;
+      const alreadyMentioned = new Set(existingComment.mentioned_user_ids ?? []);
+      newlyMentionedIds = mentionedUserIds.filter((uid) => !alreadyMentioned.has(uid));
+    }
     if (data.is_internal !== undefined) updateData.is_internal = data.is_internal;
 
     const comment = await prisma.comment.update({
@@ -154,6 +176,24 @@ export async function PATCH(
         },
       },
     });
+
+    // Notify users who became mentioned via this edit (after a successful update).
+    if (newlyMentionedIds.length > 0) {
+      const editorName = comment.user?.name || 'Someone';
+      const taskTitle = existingComment.task.title;
+      const content = updateData.content ?? '';
+      const snippet = `${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`;
+      for (const mentionedId of newlyMentionedIds) {
+        await createNotification({
+          userId: mentionedId,
+          type: 'task_mentioned',
+          title: `${editorName} mentioned you on "${taskTitle}"`,
+          message: `"${snippet}"`,
+          entityType: 'task',
+          entityId: existingComment.task.id,
+        });
+      }
+    }
 
     return NextResponse.json(formatComment(comment));
   } catch (error) {
