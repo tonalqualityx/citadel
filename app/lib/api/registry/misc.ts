@@ -215,6 +215,32 @@ export const miscEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/cron/needs-attention-digest',
+    group: 'misc',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          "Email Mike the \"needs your attention\" digest (needs-mike, awaiting-clarification, stuck/stalled, articles awaiting review). Always sends, even when empty.",
+        auth: 'cron',
+        responseExample: {
+          success: true,
+          summary: {
+            recipient: 'string',
+            counts: {
+              needsMike: 'number',
+              awaitingClarification: 'number',
+              stuck: 'number',
+              articlesAwaitingReview: 'number',
+            },
+            total: 'number',
+          },
+          duration: 'string',
+        },
+      },
+    ],
+  },
+  {
     path: '/api/cron/slack-batches',
     group: 'misc',
     methods: [
