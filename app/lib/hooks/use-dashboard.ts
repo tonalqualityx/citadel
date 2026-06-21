@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import * as React from 'react';
 
@@ -191,13 +191,27 @@ export function useDashboard(options: DashboardOptions = {}) {
     queryFn: () => apiClient.get<DashboardData>(`/dashboard?orderBy=${orderBy}${tzParam}${limitParams}`),
     refetchInterval: 30000, // Refresh every 30 seconds
     enabled: options.enabled !== false,
+    // "Load more" bumps loadedCounts, which changes the query key. Without this,
+    // the new key has no cache so isLoading flips true and the whole Overlook is
+    // replaced by the full-page spinner — a jarring reload that scrolls to the
+    // top. keepPreviousData keeps the prior list rendered in place while the
+    // expanded set fetches; the list simply grows when it arrives (per-list
+    // "loading more" spinners still come from loadingLists below).
+    placeholderData: keepPreviousData,
   });
 
-  // Clear per-list loading flags once a fetch settles (data or error arrives).
-  const { dataUpdatedAt, errorUpdatedAt } = query;
+  // Clear per-list loading flags once the fetch settles. Keyed off isFetching
+  // (not dataUpdatedAt): with keepPreviousData a load-more swaps in placeholder
+  // data and resets dataUpdatedAt to 0 mid-flight, which would clear the per-list
+  // spinner before the expanded page actually arrives. isFetching only drops to
+  // false when the real fetch resolves, so the spinner stays up for the whole
+  // expansion. (The guard makes the 30s interval's fetches a no-op here.)
+  const { isFetching } = query;
   React.useEffect(() => {
-    setLoadingLists((prev) => (prev.size > 0 ? new Set() : prev));
-  }, [dataUpdatedAt, errorUpdatedAt]);
+    if (!isFetching) {
+      setLoadingLists((prev) => (prev.size > 0 ? new Set() : prev));
+    }
+  }, [isFetching]);
 
   const loadMore = React.useCallback((listType: DashboardListType, currentCount: number) => {
     setLoadingLists((prev) => new Set(prev).add(listType));
