@@ -54,6 +54,7 @@ describe('API Registry', () => {
       'reference', 'admin', 'misc', 'wares', 'accords',
       'proposals', 'msa', 'portal', 'contracts', 'onboarding', 'charter',
       'automation', 'addendums', 'meetings', 'troubador', 'contacts',
+      'brand-profiles',
     ];
 
     it('contains all expected groups', () => {

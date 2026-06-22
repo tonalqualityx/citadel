@@ -23,6 +23,7 @@ import { ClientActivityTab } from '@/components/domain/clients/client-activity-t
 import { ClientSitesTab } from '@/components/domain/clients/client-sites-tab';
 import { ClientRetainerTab } from '@/components/domain/clients/client-retainer-tab';
 import { ClientContactsTab } from '@/components/domain/clients/client-contacts-tab';
+import { BrandTab } from '@/components/domain/brand/brand-tab';
 import { MeetingList } from '@/components/domain/meetings/MeetingList';
 import type { UpdateClientInput, ClientType, ClientStatus, RetainerUsageMode } from '@/types/entities';
 
@@ -42,7 +43,7 @@ const CLIENT_STATUS_OPTIONS = [
   { value: 'delinquent', label: 'Delinquent' },
 ];
 
-type TabType = 'details' | 'sites' | 'contacts' | 'meetings' | 'activity' | 'retainer';
+type TabType = 'details' | 'sites' | 'contacts' | 'brand' | 'meetings' | 'activity' | 'retainer';
 
 export default function ClientDetailPage({ params }: Props) {
   const { id } = use(params);
@@ -199,6 +200,17 @@ export default function ClientDetailPage({ params }: Props) {
             }`}
           >
             Contacts
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('brand')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'brand'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-sub hover:text-text-main'
+            }`}
+          >
+            Brand
           </button>
           <button
             type="button"
@@ -370,6 +382,8 @@ export default function ClientDetailPage({ params }: Props) {
         <ClientSitesTab clientId={id} subClients={client.sub_clients} />
       ) : activeTab === 'contacts' ? (
         <ClientContactsTab clientId={id} />
+      ) : activeTab === 'brand' ? (
+        <BrandTab ownerType="client" ownerId={id} />
       ) : activeTab === 'meetings' ? (
         <MeetingList clientId={id} />
       ) : activeTab === 'activity' ? (

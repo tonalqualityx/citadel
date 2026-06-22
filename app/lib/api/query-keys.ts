@@ -44,6 +44,12 @@ export const siteKeys = {
   byClient: (clientId: string) => [...siteKeys.all, 'byClient', clientId] as const,
 };
 
+export const brandProfileKeys = {
+  all: ['brand-profiles'] as const,
+  byClient: (clientId: string) => [...brandProfileKeys.all, 'client', clientId] as const,
+  bySite: (siteId: string) => [...brandProfileKeys.all, 'site', siteId] as const,
+};
+
 export const domainKeys = {
   all: ['domains'] as const,
   lists: () => [...domainKeys.all, 'list'] as const,

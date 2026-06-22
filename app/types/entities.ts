@@ -1089,3 +1089,50 @@ export interface UpdateClientContactInput {
   is_primary?: boolean;
   notes?: string | null;
 }
+
+// ============================================
+// BRAND PROFILE (voice + branding storage)
+// ============================================
+
+export interface BrandProfile {
+  id: string;
+  client_id: string | null;
+  site_id: string | null;
+  voice_profile: unknown | null;
+  figma_url: string | null;
+  component_library_ref: string | null;
+  brand_tokens: unknown | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BrandSource = 'site' | 'client' | null;
+
+export interface ResolvedBrandField {
+  value: unknown;
+  source: BrandSource;
+}
+
+export type ResolvedBrandProfile = Record<
+  'voice_profile' | 'figma_url' | 'component_library_ref' | 'brand_tokens' | 'notes',
+  ResolvedBrandField
+>;
+
+export interface ClientBrandProfileResponse {
+  profile: BrandProfile | null;
+}
+
+export interface SiteBrandProfileResponse {
+  profile: BrandProfile | null;
+  inherited: BrandProfile | null;
+  resolved: ResolvedBrandProfile;
+}
+
+export interface UpdateBrandProfileInput {
+  voice_profile?: unknown | null;
+  figma_url?: string | null;
+  component_library_ref?: string | null;
+  brand_tokens?: unknown | null;
+  notes?: string | null;
+}

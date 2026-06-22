@@ -13,6 +13,22 @@ export function formatClientContactResponse(contact: any) {
   };
 }
 
+export function formatBrandProfileResponse(profile: any) {
+  if (!profile) return null;
+  return {
+    id: profile.id,
+    client_id: profile.client_id,
+    site_id: profile.site_id,
+    voice_profile: profile.voice_profile ?? null,
+    figma_url: profile.figma_url ?? null,
+    component_library_ref: profile.component_library_ref ?? null,
+    brand_tokens: profile.brand_tokens ?? null,
+    notes: profile.notes ?? null,
+    created_at: profile.created_at,
+    updated_at: profile.updated_at,
+  };
+}
+
 export function formatClientResponse(client: any) {
   return {
     id: client.id,

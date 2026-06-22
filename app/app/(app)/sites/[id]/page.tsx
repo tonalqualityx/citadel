@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/inline-edit';
 import { SiteDomainsCard } from '@/components/domain/sites/site-domains-card';
 import { SitePublishingCard } from '@/components/domain/sites/site-publishing-card';
+import { BrandTab } from '@/components/domain/brand/brand-tab';
 import { showToast } from '@/lib/hooks/use-toast';
 import type { UpdateSiteInput, HostedBy } from '@/types/entities';
 
@@ -46,6 +47,7 @@ export default function SiteDetailPage({ params }: Props) {
   const updateSite = useUpdateSite();
   const deleteSite = useDeleteSite();
   const [isDeleteOpen, setIsDeleteOpen] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState<'details' | 'brand'>('details');
 
   const handleUpdate = async (updates: UpdateSiteInput) => {
     if (!site) return;
@@ -143,6 +145,38 @@ export default function SiteDetailPage({ params }: Props) {
         </div>
       </div>
 
+      {/* Tab Navigation */}
+      <div className="border-b border-border">
+        <nav className="flex gap-4">
+          <button
+            type="button"
+            onClick={() => setActiveTab('details')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'details'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-sub hover:text-text-main'
+            }`}
+          >
+            Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('brand')}
+            className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'brand'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-sub hover:text-text-main'
+            }`}
+          >
+            Brand
+          </button>
+        </nav>
+      </div>
+
+      {activeTab === 'brand' ? (
+        <BrandTab ownerType="site" ownerId={id} clientName={site.client?.name} />
+      ) : (
+      <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Client */}
         <Card>
@@ -306,6 +340,8 @@ export default function SiteDetailPage({ params }: Props) {
           />
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* Saving indicator */}
       {updateSite.isPending && (

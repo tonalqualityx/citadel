@@ -547,6 +547,7 @@ model Client {
   troubador_runs        TroubadorRun[]
   articles              Article[]
   contacts              ClientContact[]
+  brand_profile         BrandProfile?
 
   @@index([type])
   @@index([status])
@@ -673,12 +674,42 @@ model Site {
   troubador_schedules         TroubadorSchedule[]
   troubador_runs              TroubadorRun[]
   articles                    Article[]
+  brand_profile               BrandProfile?
 
   @@index([client_id])
   @@index([hosting_plan_id])
   @@index([maintenance_plan_id])
   @@index([maintenance_assignee_id])
   @@map("sites")
+}
+
+// Per-owner brand/voice storage feeding the voice + design quality gates. Polymorphic owner:
+// exactly one of client_id / site_id is set (DB CHECK), at most one profile per owner (unique).
+// Resolution is per-field cascade — a site's effective profile = its own value where set, else the
+// client's, field by field (see lib/calculations/brand-profile.ts). brand_tokens is freeform JSON
+// in v1 (colors[]/fonts[]); voice_profile is JSON (prose-as-string for the voice-test).
+model BrandProfile {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Polymorphic owner — exactly one is set (enforced by DB CHECK + the API layer)
+  client_id String? @db.Uuid
+  client    Client? @relation(fields: [client_id], references: [id])
+  site_id   String? @db.Uuid
+  site      Site?   @relation(fields: [site_id], references: [id])
+
+  voice_profile         Json? // voice-test profile (prose stored as a JSON string in v1)
+  figma_url             String? @db.VarChar(500) // design-language link
+  component_library_ref String? @db.VarChar(255) // which client component library
+  brand_tokens          Json? // freeform JSON in v1: { colors: [...], fonts: [...] }
+  notes                 String? @db.Text
+
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([client_id]) // at most one profile per client
+  @@unique([site_id]) // at most one profile per site
+  @@map("brand_profiles")
 }
 
 enum HostedBy {
