@@ -350,12 +350,30 @@ export const troubadorEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Human: leave feedback on an article (flips it to needs_revision).',
+        summary:
+          'Team/agent: comment on an article. A note (default) records in-thread without changing ' +
+          'status; is_feedback:true re-opens it to needs_revision. Optionally resolve a feedback comment.',
         auth: 'required',
         bodySchema: [
-          { name: 'content', type: 'string', required: true, description: 'Feedback comment' },
+          { name: 'content', type: 'string', required: true, description: 'Comment body' },
+          {
+            name: 'is_feedback',
+            type: 'boolean',
+            required: false,
+            description: 'Default false (a note, no status change). True = feedback that bumps to needs_revision.',
+          },
+          {
+            name: 'resolve_comment_id',
+            type: 'uuid',
+            required: false,
+            description: "Mark this article's feedback comment resolved:true (e.g. an 'Addressed: ...' reply).",
+          },
         ],
-        responseExample: { id: 'uuid', article_id: 'uuid', status: 'needs_revision', created_at: 'ISO-8601' },
+        responseExample: {
+          comment: { id: 'uuid', is_feedback: 'boolean', resolved: 'boolean', created_at: 'ISO-8601' },
+          article_status: 'string',
+          resolved_comment_id: 'uuid|null',
+        },
       },
     ],
   },

@@ -10,6 +10,14 @@ import { findMentionedUserIds } from '@/lib/utils/mentions';
 
 const schema = z.object({
   content: z.string().min(1),
+  // Feedback vs. note is set by the caller, NOT hardcoded. Only a CLIENT change-request (via the
+  // portal endpoint) or an explicit `is_feedback: true` here counts as feedback that re-opens the
+  // article. An agent/team reply closing the loop is a NOTE — the sane default — and never bumps
+  // status, so "Addressed: ..." replies don't knock just-finished work back to needs_revision.
+  is_feedback: z.boolean().optional().default(false),
+  // Optional: a reply can resolve the original feedback comment it answers, leaving the thread clean
+  // (client asked → agent answered → resolved). Scoped to this article's feedback comments.
+  resolve_comment_id: z.string().uuid().optional(),
 });
 
 export async function POST(
@@ -32,7 +40,7 @@ export async function POST(
         article_id: id,
         user_id: auth.userId,
         content: data.content,
-        is_feedback: true,
+        is_feedback: data.is_feedback,
       },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
@@ -62,9 +70,22 @@ export async function POST(
       }
     }
 
-    // Feedback reopens an article that's already moved past drafting.
+    // A reply can close the original feedback comment it answers. Scope to this article's feedback
+    // comments so a note can't resolve an unrelated thread; a missing/already-non-feedback id is a 404.
+    let resolvedCommentId: string | null = null;
+    if (data.resolve_comment_id) {
+      const { count } = await prisma.articleComment.updateMany({
+        where: { id: data.resolve_comment_id, article_id: id, is_feedback: true },
+        data: { resolved: true },
+      });
+      if (count === 0) throw new ApiError('Feedback comment not found', 404);
+      resolvedCommentId = data.resolve_comment_id;
+    }
+
+    // ONLY feedback reopens an article that's already moved past drafting. A non-feedback note
+    // leaves status untouched, so closing the loop never re-triggers needs_revision.
     let newStatus = article.status;
-    if (['in_review', 'approved', 'scheduled'].includes(article.status)) {
+    if (data.is_feedback && ['in_review', 'approved', 'scheduled'].includes(article.status)) {
       newStatus = 'needs_revision';
       await prisma.article.update({
         where: { id },
@@ -77,6 +98,7 @@ export async function POST(
     return NextResponse.json({
       comment: formatArticleCommentResponse(comment),
       article_status: newStatus,
+      resolved_comment_id: resolvedCommentId,
     });
   } catch (error) {
     return handleApiError(error);
