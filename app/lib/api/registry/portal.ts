@@ -98,6 +98,61 @@ export const portalEndpoints: ApiEndpoint[] = [
         responseNotes:
           '401 without a valid client session; 403 when the article belongs to a different client; 404 if it does not exist or is still an internal draft stage (existence not leaked). Internal fields never leak (allow-list projection).',
       },
+      {
+        method: 'PATCH',
+        summary:
+          "[C5] Save the client's edits to the article body from the full-screen review screen. Requires a client_session cookie; client-scoped.",
+        auth: 'session',
+        bodySchema: [
+          { name: 'body', type: 'string', required: true, description: 'The edited article body (plain text)' },
+        ],
+        responseExample: {
+          article: {
+            id: 'uuid',
+            title: 'string',
+            status: 'in_review',
+            body: 'string|null',
+            comments: [{ id: 'uuid', content: 'string', author_name: 'string|null', created_at: 'ISO-8601' }],
+            created_at: 'ISO-8601',
+            updated_at: 'ISO-8601',
+          },
+        },
+        responseNotes:
+          '401 without a session; 403 cross-client; 404 missing/internal-draft (existence not leaked); 409 when the article is already approved (body frozen) or not in a reviewable stage (in_review/needs_revision); 400 on an invalid body. Returns the client-safe projection.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/articles/:id/approve',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          "[C5] Client approves the article from the review screen. Sets client_approved_at + approved_by_contact_id (the logged-in contact) and advances the article to 'approved'. Idempotent. Requires a client_session cookie; client-scoped.",
+        auth: 'session',
+        responseExample: { status: 'approved', approved_at: 'ISO-8601', already_approved: false },
+        responseNotes:
+          '401 without a session; 403 cross-client; 404 missing/internal-draft (existence not leaked); 409 when not in a reviewable stage and not already approved. A repeat approval is a no-op (already_approved: true) and never churns status.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/articles/:id/request-changes',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          "[C5] Client sends the article back for changes from the review screen. Records the note as a client-visible comment (author masked — the worker persona never leaks) and sets status to 'needs_revision'. Requires a client_session cookie; client-scoped.",
+        auth: 'session',
+        bodySchema: [
+          { name: 'note', type: 'string', required: true, description: 'What needs changing (the client-visible feedback)' },
+        ],
+        responseExample: { message: 'string', status: 'needs_revision' },
+        responseNotes:
+          '401 without a session; 403 cross-client; 404 missing/internal-draft (existence not leaked); 409 when already approved or not in a reviewable stage; 400 on an empty note.',
+      },
     ],
   },
   {

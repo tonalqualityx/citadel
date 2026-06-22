@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth, assertClientScope } from '@/lib/services/client-auth';
 import { formatArticleForClient } from '@/lib/api/client-projections';
-
-// Statuses an internal draft is in BEFORE it is ever shown to a client. A client must never learn
-// such an article exists — we 404 (not 403) so existence itself isn't leaked. Everything at or past
-// `in_review` (the review handoff) — plus `dropped` excluded — is loadable by its own client.
-const CLIENT_HIDDEN_ARTICLE_STATUSES = new Set(['pending_research', 'researched', 'drafting', 'dropped']);
+import {
+  CLIENT_HIDDEN_ARTICLE_STATUSES,
+  CLIENT_ACTIONABLE_ARTICLE_STATUSES,
+  loadActionableArticle,
+} from '@/lib/articles/portal-actions';
 
 // GET /api/portal/articles/:id
 // Load ONE article for the C4 full-screen review/edit screen, client-scoped and projected.
@@ -59,6 +60,70 @@ export async function GET(
     assertClientScope(session, article.client_id);
 
     return NextResponse.json({ article: formatArticleForClient(article) });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+// Body is plain text end-to-end (storage + the team editor + the C4 plain-text editor). Cap the
+// length defensively; allow empty so a client may clear it while editing.
+const saveEditsSchema = z.object({
+  body: z.string().max(100_000),
+});
+
+// PATCH /api/portal/articles/:id
+// Persist the client's edits to the article body from the C4 review/edit screen. Session-scoped.
+//   no session              → 401 (requireClientAuth)
+//   another client          → 403 (assertClientScope)
+//   missing / internal      → 404 (existence not leaked)
+//   already approved        → 409 (the review window is closed; edits are frozen)
+//   not in a review stage   → 409
+//   own, in review/revision → 200 { article: ClientArticle }
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await requireClientAuth();
+    const { id } = await params;
+
+    const article = await loadActionableArticle(id, session);
+
+    // Edits are only accepted while the client is actively reviewing. Once they've approved (or the
+    // piece has moved on), the body is frozen — no silent overwrite of finalized content.
+    if (article.client_approved_at) {
+      throw new ApiError('This article has already been approved and can no longer be edited', 409);
+    }
+    if (!CLIENT_ACTIONABLE_ARTICLE_STATUSES.has(article.status)) {
+      throw new ApiError('This article is not currently open for edits', 409);
+    }
+
+    const { body } = saveEditsSchema.parse(await request.json());
+
+    const updated = await prisma.article.update({
+      where: { id },
+      data: { body },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        body: true,
+        created_at: true,
+        updated_at: true,
+        comments: {
+          where: { is_deleted: false },
+          orderBy: { created_at: 'asc' },
+          select: {
+            id: true,
+            content: true,
+            created_at: true,
+            user: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    return NextResponse.json({ article: formatArticleForClient(updated) });
   } catch (error) {
     return handleApiError(error);
   }
