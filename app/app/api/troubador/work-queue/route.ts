@@ -23,7 +23,7 @@ export async function GET() {
     const runs = await prisma.troubadorRun.findMany({
       where: {
         is_deleted: false,
-        stage: { in: ['planning', 'topic_selection', 'researching', 'in_production'] },
+        stage: { in: ['planning', 'topic_selection', 'researching', 'in_production', 'publishing'] },
       },
       include: {
         client: { select: { id: true, name: true } },
@@ -71,7 +71,10 @@ export async function GET() {
         ) {
           items.push({ action: 'post_interview_questions', ...base, urgency_date: run.updated_at });
         }
-      } else if (run.stage === 'in_production') {
+      } else if (run.stage === 'in_production' || run.stage === 'publishing') {
+        // Once every live article is approved/scheduled the run flips to `publishing`
+        // (see recomputeProductionStage), so the publish checks must cover BOTH stages —
+        // otherwise approved copy is invisible to the worker and nothing ever publishes.
         for (const a of run.articles) {
           if (a.status === 'researched' && !isLeaseActive(a.claimed_at)) {
             items.push({
@@ -89,11 +92,22 @@ export async function GET() {
               article_slug: a.slug,
               urgency_date: run.updated_at,
             });
+          } else if (a.status === 'approved' && !isLeaseActive(a.claimed_at)) {
+            // Approved copy is ready to publish now (no future scheduling requested).
+            items.push({
+              action: 'publish_article',
+              ...base,
+              article_id: a.id,
+              article_slug: a.slug,
+              urgency_date: run.updated_at,
+            });
           } else if (
             a.status === 'scheduled' &&
             a.scheduled_date &&
-            new Date(a.scheduled_date) <= now
+            new Date(a.scheduled_date) <= now &&
+            !isLeaseActive(a.claimed_at)
           ) {
+            // Future-dated copy becomes publishable once its scheduled date arrives.
             items.push({
               action: 'publish_article',
               ...base,

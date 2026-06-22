@@ -14,7 +14,7 @@ export const troubadorEndpoints: ApiEndpoint[] = [
         summary: 'Worker entry point: actionable items across all runs, ordered by urgency.',
         auth: 'required',
         responseNotes:
-          'Returns one entry per unit of machine work the worker should do next. action ∈ generate_proposals | create_articles | research_article | post_interview_questions | draft_article | rewrite_article | publish_article. Respects human gates and leases.',
+          'Returns one entry per unit of machine work the worker should do next. action ∈ generate_proposals | create_articles | research_article | post_interview_questions | draft_article | rewrite_article | publish_article. Scans runs in planning|topic_selection|researching|in_production|publishing. publish_article is surfaced for approved articles (publish now) and for scheduled articles whose date has arrived, across both in_production and publishing runs. Respects human gates and leases.',
         responseExample: {
           items: [
             {
