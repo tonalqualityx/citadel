@@ -58,8 +58,51 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
             cd /var/www/citadel/app
             npm ci --production
             npx prisma generate
-            npx prisma migrate deploy || npx prisma db push
+            npx prisma migrate deploy
             pm2 restart citadel
+
+      # If any step above failed, surface it as a CRITICAL Citadel task for Mike
+      # so a broken deploy lands in front of a human, not just in a CI log.
+      # Requires the CITADEL_API_TOKEN secret (task-create scope). If the secret
+      # is absent the step warns and exits 0 — the failed deploy itself is already
+      # red, so we never mask the real failure.
+      - name: Report deploy failure to Citadel
+        if: failure()
+        env:
+          CITADEL_API_TOKEN: ${{ secrets.CITADEL_API_TOKEN }}
+        run: |
+          if [ -z "$CITADEL_API_TOKEN" ]; then
+            echo "::warning::CITADEL_API_TOKEN not set — cannot create the Citadel deploy-failure task. Add the secret to enable this alert."
+            exit 0
+          fi
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          DESC=$(printf '### Production deploy FAILED\n\nThe deploy workflow failed before the app was restarted cleanly. A failed/stale Prisma migration now FAILS the deploy (the silent `db push` fallback was removed), so check the migration state first.\n\n- **Commit:** `%s`\n- **Branch:** `%s`\n- **Run:** [View the failed run](%s)\n\n**Remediation:** SSH to prod and run `npx prisma migrate status` in `/var/www/citadel/app`; resolve a failed migration per the 173beeb2 runbook, then re-run the deploy.' "$SHORT_SHA" "$GITHUB_REF_NAME" "$RUN_URL")
+          PAYLOAD=$(jq -n \
+            --arg title "[Deploy FAILED] ${SHORT_SHA} on ${GITHUB_REF_NAME}" \
+            --arg desc "$DESC" \
+            '{
+              title: $title,
+              description: $desc,
+              assignee_id: "3ecfb7be-20bb-43cb-9b4d-31c44337dc81",
+              site_id: "d9d627d8-ccb4-46c7-8319-cdd87cd4e8bf",
+              priority: 1,
+              source: "internal",
+              tags: ["deploy-failure", "ci-failure", "needs-mike"]
+            }')
+          HTTP=$(curl -s -o /tmp/citadel-resp.json -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${CITADEL_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            https://citadel.becomeindelible.com/api/tasks)
+          echo "Citadel API responded: HTTP $HTTP"
+          cat /tmp/citadel-resp.json || true
+          if [ "$HTTP" -lt 200 ] || [ "$HTTP" -ge 300 ]; then
+            echo "::error::Failed to create Citadel deploy-failure task (HTTP $HTTP)"
+            exit 1
+          fi
+          echo "Created Citadel deploy-failure task for Mike."
