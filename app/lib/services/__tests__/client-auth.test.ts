@@ -35,7 +35,6 @@ const mockFindManyContacts = prisma.clientContact.findMany as Mock;
 const mockFindUniqueContact = prisma.clientContact.findUnique as Mock;
 const mockCreate = prisma.portalSession.create as Mock;
 const mockFindFirst = prisma.portalSession.findFirst as Mock;
-const mockUpdateMany = prisma.portalSession.updateMany as Mock;
 const mockSendEmail = sendClientMagicLinkEmail as Mock;
 
 beforeEach(() => {
@@ -64,6 +63,11 @@ describe('requestClientMagicLink', () => {
     expect(created[1]).toMatchObject({ entity_id: 'client-agency', contact_id: 'contact-2' });
     // Each email links to that row's own token.
     expect(created[0].magic_token).not.toEqual(created[1].magic_token);
+    // Self-service links are now valid for ~7 days (reusable, team-shareable), not 15 minutes.
+    const ttlMs = created[0].magic_token_expires_at.getTime() - Date.now();
+    expect(ttlMs).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
+    // The email advertises the 7-day window, not a minutes-based expiry.
+    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ expiresLabel: '7 days' });
   });
 
   it('does nothing (and sends no email) when no contact matches — no enumeration signal', async () => {
@@ -112,7 +116,7 @@ describe('createContactPortalLoginLink', () => {
     expect(created.magic_token).toEqual(expect.any(String));
     // The returned URL embeds the row's own token.
     expect(result!.url).toContain(created.magic_token);
-    // Team-invite TTL is days, well beyond the 15-minute self-service window.
+    // Team-invite TTL is the 7-day window (reusable, scoped to the contact's client).
     expect(created.magic_token_expires_at.getTime()).toBeGreaterThan(Date.now() + 24 * 60 * 60 * 1000);
   });
 
@@ -144,14 +148,16 @@ describe('createContactPortalLoginLink', () => {
 });
 
 describe('consumeClientMagicLink', () => {
-  it('issues a ~7-day session and stamps the row consumed (single-use)', async () => {
-    mockFindFirst.mockResolvedValue({
-      id: 'sess-1',
-      entity_id: 'client-acme',
-      contact_id: 'contact-1',
-      magic_token_expires_at: new Date(Date.now() + 5 * 60 * 1000),
-    });
-    mockUpdateMany.mockResolvedValue({ count: 1 });
+  const linkRow = {
+    id: 'link-1',
+    entity_id: 'client-acme',
+    contact_id: 'contact-1',
+    magic_token_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+  };
+
+  it('issues a ~7-day session by minting a NEW session row (link is never consumed)', async () => {
+    mockFindFirst.mockResolvedValue(linkRow);
+    mockCreate.mockResolvedValue({});
 
     const result = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
 
@@ -163,41 +169,49 @@ describe('consumeClientMagicLink', () => {
     const ms = result!.expiresAt.getTime() - Date.now();
     expect(ms).toBeGreaterThan(7 * 24 * 60 * 60 * 1000 - 60_000);
     expect(ms).toBeLessThan(7 * 24 * 60 * 60 * 1000 + 60_000);
-    // The update is guarded by consumed_at:null so it can only fire once.
-    expect(mockUpdateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'sess-1', consumed_at: null } })
-    );
+    // The link lookup is NOT gated on consumed_at — that's what makes the link reusable.
+    expect(mockFindFirst.mock.calls[0][0].where).not.toHaveProperty('consumed_at');
+    // A fresh session row is created (the durable link row is left untouched).
+    const created = mockCreate.mock.calls[0][0].data;
+    expect(created).toMatchObject({
+      token_type: 'client_session',
+      entity_id: 'client-acme',
+      contact_id: 'contact-1',
+      session_token: result!.sessionToken,
+      action: 'login',
+    });
+    // The new row is a SESSION, not a link — it carries no magic_token.
+    expect(created.magic_token).toBeUndefined();
   });
 
-  it('returns null for an unknown/already-consumed token', async () => {
+  it('is reusable: redeeming the same link twice mints two distinct sessions', async () => {
+    mockFindFirst.mockResolvedValue(linkRow);
+    mockCreate.mockResolvedValue({});
+
+    const first = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
+    const second = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(first!.sessionToken).not.toEqual(second!.sessionToken);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns null for an unknown token', async () => {
     mockFindFirst.mockResolvedValue(null);
     const result = await consumeClientMagicLink({ magicToken: 'nope', ...reqInput });
     expect(result).toBeNull();
-    expect(mockUpdateMany).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('returns null for an expired magic token', async () => {
     mockFindFirst.mockResolvedValue({
-      id: 'sess-1',
-      entity_id: 'client-acme',
-      contact_id: 'contact-1',
+      ...linkRow,
       magic_token_expires_at: new Date(Date.now() - 60 * 1000),
     });
     const result = await consumeClientMagicLink({ magicToken: 'expired', ...reqInput });
     expect(result).toBeNull();
-    expect(mockUpdateMany).not.toHaveBeenCalled();
-  });
-
-  it('returns null if the guarded update loses the race (count 0)', async () => {
-    mockFindFirst.mockResolvedValue({
-      id: 'sess-1',
-      entity_id: 'client-acme',
-      contact_id: 'contact-1',
-      magic_token_expires_at: new Date(Date.now() + 5 * 60 * 1000),
-    });
-    mockUpdateMany.mockResolvedValue({ count: 0 });
-    const result = await consumeClientMagicLink({ magicToken: 'raced', ...reqInput });
-    expect(result).toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 });
 

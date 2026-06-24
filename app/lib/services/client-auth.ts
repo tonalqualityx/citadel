@@ -8,9 +8,18 @@
  * `requireClientAuth()` + `assertClientScope()`; route handlers must call both.
  *
  * Reuses the existing `PortalSession` model (token_type='client_session', entity_id=client_id,
- * tied to the contact). One login is one row:
- *   1. request phase — magic_token set, magic_token_expires_at = now+15m, session_token null
- *   2. consume phase — single-use: session_token set, expires_at = now+7d, consumed_at = now
+ * tied to the contact). The magic-link row is a durable, reusable credential; each redemption
+ * mints its OWN session row:
+ *   1. request/invite phase — a link row: magic_token set, magic_token_expires_at = now+7d,
+ *      session_token null. This row is the shareable link and is NEVER consumed.
+ *   2. redeem phase — each click on a still-valid link CREATES a fresh session row
+ *      (session_token set, expires_at = now+7d). The link works any number of times until it
+ *      expires, so a client can share it with their team and meta-preview crawlers can't burn it.
+ *
+ * NOTE (per Mike, 2026-06-24): the link is intentionally reusable-for-7-days rather than
+ * single-use. This is a deliberate, temporary tradeoff for a small team-sharing use case — a
+ * forwarded/leaked link grants its client's scope for up to 7 days. It will be tightened when the
+ * full per-contact login lands.
  */
 
 import { randomBytes } from 'crypto';
@@ -21,13 +30,13 @@ import { sendClientMagicLinkEmail } from '@/lib/services/email';
 
 export const CLIENT_SESSION_COOKIE = 'client_session';
 const TOKEN_TYPE = 'client_session';
-const MAGIC_LINK_TTL_MINUTES = 15;
-const SESSION_TTL_DAYS = 7;
 /**
- * Team-generated invite links live longer than the 15-minute self-service link: Mike may copy a
- * link and paste it into an email he writes later, so it must still be valid when the client
- * eventually clicks. Still single-use and still client-scoped.
+ * Both the self-service request link and the team-generated invite link are valid for 7 days and
+ * reusable within that window (so the client can share one link with their team, and link
+ * prefetchers can't burn it). Still client-scoped on every redemption.
  */
+const MAGIC_LINK_TTL_DAYS = 7;
+const SESSION_TTL_DAYS = 7;
 const TEAM_INVITE_TTL_DAYS = 7;
 
 export interface ClientSession {
@@ -38,10 +47,6 @@ export interface ClientSession {
 /** Cryptographically secure 128-hex-char token (matches the portal token convention). */
 function generateToken(): string {
   return randomBytes(64).toString('hex');
-}
-
-function minutesFromNow(minutes: number): Date {
-  return new Date(Date.now() + minutes * 60 * 1000);
 }
 
 function daysFromNow(days: number): Date {
@@ -76,7 +81,7 @@ export async function requestClientMagicLink(input: {
         entity_id: contact.client_id,
         contact_id: contact.id,
         magic_token: magicToken,
-        magic_token_expires_at: minutesFromNow(MAGIC_LINK_TTL_MINUTES),
+        magic_token_expires_at: daysFromNow(MAGIC_LINK_TTL_DAYS),
         ip_address: input.ipAddress,
         user_agent: input.userAgent,
         action: 'request',
@@ -87,7 +92,7 @@ export async function requestClientMagicLink(input: {
       to: contact.email,
       loginUrl: `${baseUrl}/api/portal/login/${magicToken}`,
       contactName: contact.name,
-      expiresMinutes: MAGIC_LINK_TTL_MINUTES,
+      expiresLabel: `${MAGIC_LINK_TTL_DAYS} days`,
     });
   }
 
@@ -98,9 +103,8 @@ export async function requestClientMagicLink(input: {
  * Team-side: mint a portal **login** link for a specific contact, so the team can proactively
  * invite a client in — either copying the URL (Mike pastes it into his own email) or having
  * Citadel email it (`send: true`). Unlike `requestClientMagicLink` (client-initiated, keyed by a
- * typed email, short 15-min TTL), this is keyed by a known contact id and uses the longer
- * `TEAM_INVITE_TTL_DAYS` window so a copied link survives until the client clicks. Still
- * single-use and still scoped to the contact's own client.
+ * typed email), this is keyed by a known contact id. Both use the same 7-day window and are
+ * reusable within it; this one is always scoped to the contact's own client.
  *
  * Returns the link details, or `null` if the contact does not exist / is deleted. The email is
  * sent in the neutral Indelible voice and never references the internal worker persona.
@@ -165,10 +169,15 @@ export async function createContactPortalLoginLink(input: {
 }
 
 /**
- * Consume a magic link (single-use) → activate the 7-day session on the same row.
- * Returns the new session token + scope, or null if the token is invalid, expired, or already
- * consumed. Idempotency is enforced by `consumed_at: null` in the WHERE: a second consume of the
- * same token finds nothing and returns null.
+ * Redeem a magic link → start a fresh 7-day client-scoped session. REUSABLE: the magic-link row
+ * is a durable credential and is never consumed; each redemption mints its OWN new session row, so
+ * the same link can sign in any number of people/browsers until it expires (7-day window). This is
+ * what lets a client share one link with their team, and why a meta-preview crawler GETting the
+ * link can't lock anyone out. Returns the new session token + scope, or null if the token is
+ * unknown or its magic-link window has expired.
+ *
+ * (Named `consume*` for historical continuity with the [token] route; despite the name it no
+ * longer consumes the link — see the module header for the deliberate reusable-for-7-days model.)
  */
 export async function consumeClientMagicLink(input: {
   magicToken: string;
@@ -179,7 +188,6 @@ export async function consumeClientMagicLink(input: {
     where: {
       magic_token: input.magicToken,
       token_type: TOKEN_TYPE,
-      consumed_at: null,
     },
     select: { id: true, entity_id: true, contact_id: true, magic_token_expires_at: true },
   });
@@ -190,10 +198,13 @@ export async function consumeClientMagicLink(input: {
   const sessionToken = generateToken();
   const expiresAt = daysFromNow(SESSION_TTL_DAYS);
 
-  // Guard against a consume race: only the update that still sees consumed_at=null wins.
-  const result = await prisma.portalSession.updateMany({
-    where: { id: row.id, consumed_at: null },
+  // Mint a NEW session row per redemption (don't touch the reusable link row). Each browser gets
+  // its own independent session_token, so multiple team members can use the one shared link.
+  await prisma.portalSession.create({
     data: {
+      token_type: TOKEN_TYPE,
+      entity_id: row.entity_id,
+      contact_id: row.contact_id,
       session_token: sessionToken,
       expires_at: expiresAt,
       consumed_at: new Date(),
@@ -202,8 +213,6 @@ export async function consumeClientMagicLink(input: {
       user_agent: input.userAgent,
     },
   });
-
-  if (result.count === 0) return null;
 
   return {
     sessionToken,
@@ -265,7 +274,7 @@ export function assertClientScope(session: ClientSession, clientId: string): voi
 }
 
 export const __testing = {
-  MAGIC_LINK_TTL_MINUTES,
+  MAGIC_LINK_TTL_DAYS,
   SESSION_TTL_DAYS,
   TEAM_INVITE_TTL_DAYS,
 };

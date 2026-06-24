@@ -269,9 +269,9 @@ export async function sendClientMagicLinkEmail(options: {
   to: string;
   loginUrl: string;
   contactName?: string | null;
-  /** Self-service links pass the TTL in minutes; team-invite links pass `expiresLabel` instead. */
+  /** Optional fallback TTL in minutes, rendered as "N minutes" when no `expiresLabel` is given. */
   expiresMinutes?: number;
-  /** Human expiry phrase (e.g. "7 days"); overrides `expiresMinutes` when provided. */
+  /** Human expiry phrase (e.g. "7 days"); overrides `expiresMinutes` when provided. Preferred. */
   expiresLabel?: string;
 }): Promise<void> {
   const { to, loginUrl, contactName, expiresMinutes, expiresLabel } = options;
@@ -285,8 +285,8 @@ Hi${greeting},
 Here is your secure link to sign in to the Indelible client portal:
 ${loginUrl}
 
-This link expires in ${expiresPhrase} and can be used once. Signing in keeps you
-logged in for 7 days on this browser.
+This link stays active for ${expiresPhrase}, so you and your team can use it to sign
+in. Each sign-in keeps that browser logged in for 7 days.
 
 If you didn't request this, you can safely ignore this email.
 
@@ -313,7 +313,7 @@ If you didn't request this, you can safely ignore this email.
     <p><a href="${loginUrl}" class="button">Sign In</a></p>
     <p>Or copy and paste this link into your browser:</p>
     <p><a href="${loginUrl}">${loginUrl}</a></p>
-    <p>This link expires in ${expiresPhrase} and can be used once. Signing in keeps you logged in for 7 days on this browser.</p>
+    <p>This link stays active for ${expiresPhrase}, so you and your team can use it to sign in. Each sign-in keeps that browser logged in for 7 days.</p>
     <p class="footer">If you didn't request this, you can safely ignore this email.</p>
     <p class="footer">- The Indelible Team</p>
   </div>

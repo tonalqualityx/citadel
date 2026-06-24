@@ -8,7 +8,7 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'POST',
         summary:
-          'Client contact requests a magic-link login. Issues a short-lived, single-use link per matching active contact and emails it. Public, no auth required.',
+          'Client contact requests a magic-link login. Issues a 7-day, reusable link per matching active contact and emails it (so it can be shared with their team). Public, no auth required.',
         auth: 'none',
         bodySchema: [
           { name: 'email', type: 'string', required: true, description: 'The contact email to send the login link to' },
@@ -26,10 +26,10 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'GET',
         summary:
-          'Consume a magic-link token (single-use): issues a 7-day client-scoped session cookie and redirects into the portal. Public, no auth required.',
+          'Redeem a magic-link token: issues a 7-day client-scoped session cookie and redirects into the portal. The link is reusable until it expires (each redemption starts its own session), so previews/multiple team members can use it. Public, no auth required.',
         auth: 'none',
         responseNotes:
-          'Sets the httpOnly `client_session` cookie and 303-redirects to /portal on success; redirects to /portal/login?error=invalid for an invalid/expired/used token (no cookie set).',
+          'Sets the httpOnly `client_session` cookie and 303-redirects to /portal on success; redirects to /portal/login?error=invalid for an unknown/expired token (no cookie set).',
       },
     ],
   },
