@@ -2317,3 +2317,128 @@ model Interview {
 
   @@map("troubador_interviews")
 }
+
+// ============================================
+// ORACLE — PHASE 1 FLEET VISUALIZER
+// Read-only telemetry: Claude Code sessions, Workflow fan-outs, openclaw crons on
+// Reshi's workstation(s). Zero LLM tokens spent on ingest — shell/HTTP push only.
+// Ingest is machine-client-only (isOracleBot); fleet read is session auth (PM/Admin).
+// ============================================
+
+enum OracleSource {
+  claude_code
+  workflow
+  openclaw_cron
+}
+
+enum OracleSessionStatus {
+  running
+  waiting
+  ended
+  stale
+}
+
+model OracleMachine {
+  id                String    @id @default(uuid()) @db.Uuid
+  name              String    @unique @db.VarChar(255) // e.g. "reshi-workstation"
+  hostname          String?   @db.VarChar(255)
+  last_heartbeat_at DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  sessions OracleSession[]
+  events   OracleEvent[]
+
+  @@map("oracle_machines")
+}
+
+model OracleSession {
+  id         String        @id @default(uuid()) @db.Uuid
+  machine_id String        @db.Uuid
+  machine    OracleMachine @relation(fields: [machine_id], references: [id], onDelete: Cascade)
+
+  // Harness session uuid / Workflow run id / openclaw cron id — unique per (machine, source).
+  external_id String       @db.VarChar(255)
+  source      OracleSource
+
+  // Best-available: harness session title, else cwd basename + short id.
+  title String? @db.VarChar(500)
+  cwd   String? @db.VarChar(1000)
+  model String? @db.VarChar(100)
+
+  status           OracleSessionStatus @default(running)
+  needs_attention  Boolean             @default(false) // Notification hook fired; cleared on next UserPromptSubmit
+  attention_reason String?             @db.Text
+
+  started_at    DateTime?
+  last_event_at DateTime?
+  ended_at      DateTime?
+
+  // Raw token count — the MINUTES-for-time convention does not apply here.
+  tokens_total Int @default(0)
+
+  meta Json?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  agents OracleAgent[]
+  events OracleEvent[]
+
+  @@unique([machine_id, source, external_id])
+  @@index([machine_id])
+  @@index([status])
+  @@index([last_event_at])
+  @@map("oracle_sessions")
+}
+
+// Workflow workers / subagents under a session. status is a plain String (not an
+// enum) per spec so new phase/status labels from the heartbeat never require a migration.
+model OracleAgent {
+  id         String        @id @default(uuid()) @db.Uuid
+  session_id String        @db.Uuid
+  session    OracleSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  external_id String @db.VarChar(255) // agent id / label from the workflow run
+
+  label    String  @db.VarChar(255)
+  phase    String? @db.VarChar(100)
+  model    String? @db.VarChar(100)
+  status   String  @default("queued") @db.VarChar(50) // running | done | failed | queued (and future labels)
+  activity String? @db.Text
+
+  tokens      Int  @default(0)
+  duration_ms Int?
+
+  started_at DateTime?
+  ended_at   DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([session_id, external_id])
+  @@index([session_id])
+  @@map("oracle_agents")
+}
+
+// Append-only audit/debug tail — powers the UI drawer. kind is a plain String so
+// ingest never crashes on an unrecognized hook/heartbeat event kind. Pruned
+// opportunistically (>7 days) inside the ingest handler.
+model OracleEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  session_id String?        @db.Uuid
+  session    OracleSession? @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  machine_id String         @db.Uuid
+  machine    OracleMachine  @relation(fields: [machine_id], references: [id], onDelete: Cascade)
+
+  kind    String @db.VarChar(100)
+  payload Json
+
+  ts         DateTime
+  created_at DateTime @default(now())
+
+  @@index([machine_id, ts])
+  @@index([session_id])
+  @@map("oracle_events")
+}
