@@ -105,6 +105,16 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     ],
   };
 
+  // Literal, NOT run through useTerminology — mirrors the Troubador section's
+  // literal title (Sidebar.tsx duplicates these nav literals; keep both in lockstep).
+  const oracleSection: NavSection = {
+    title: 'Oracle',
+    emoji: '🔮',
+    items: [
+      { name: 'Fleet', href: '/oracle', emoji: '🔮' },
+    ],
+  };
+
   const adminSection: NavSection = {
     title: 'Admin',
     emoji: '🔐',
@@ -171,6 +181,9 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
 
           {/* Knowledge section */}
           <NavSectionBlock section={knowledgeSection} pathname={pathname} />
+
+          {/* Oracle section - PM/Admin only */}
+          {isPmOrAdmin && <NavSectionBlock section={oracleSection} pathname={pathname} />}
 
           {/* Settings */}
           <div className="space-y-1">

@@ -239,6 +239,16 @@
   pointer-events: auto;
 }
 
+/* Mono numerics utility (Oracle fleet visualizer + anywhere else that wants real
+   monospace digits). Kept separate from --font-mono/font-mono: that chain points at
+   --font-geist-mono, which has no next/font loader wired up yet, so it silently falls
+   back to inherited Inter. This is a plain system ui-monospace stack — always renders
+   fixed-width, no font load required. */
+.ui-monospace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Custom scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 0.25rem;

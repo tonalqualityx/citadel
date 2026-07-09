@@ -149,6 +149,15 @@ export function Sidebar() {
     ],
   };
 
+  const oracleSection: NavSection = {
+    title: 'Oracle',
+    emoji: '🔮',
+    defaultOpen: true,
+    items: [
+      { name: 'Fleet', href: '/oracle', emoji: '🔮' },
+    ],
+  };
+
   const adminSection: NavSection = {
     title: 'Admin',
     emoji: '🔐',
@@ -209,6 +218,9 @@ export function Sidebar() {
           )}
           {isPmOrAdmin && (
             <CollapsibleSection section={troubadorSection} pathname={pathname} />
+          )}
+          {isPmOrAdmin && (
+            <CollapsibleSection section={oracleSection} pathname={pathname} />
           )}
           <CollapsibleSection section={knowledgeSection} pathname={pathname} />
 
