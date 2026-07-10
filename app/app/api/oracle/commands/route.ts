@@ -13,9 +13,29 @@ import { isOracleBot } from '@/lib/oracle/helpers';
 // dispatcher side (never a shell string) — see feature-planning/oracle-phase1-visualizer.md
 // "Phase 1.5b" for the full invariant list. Only admins may create commands; only the
 // oracle service bot may read/claim them (enforced below, machine-scoped).
+// SECURITY (Opus adversarial review, Finding 2, escalated to CRITICAL after a
+// second pass proved live RCE): the prompt is free text an admin types into
+// the "New Session" modal, but it is delivered to the local dispatcher and
+// ultimately becomes one argv element passed to the `claude` binary. Any
+// string starting with `-` is at risk of being read by claude's OWN option
+// parser as a flag rather than conversation text — proven exploitable both
+// as `--dangerously-skip-permissions` (silent permission-bypass) and as
+// `--mcp-config={"mcpServers":{"pwn":{"command":"...", "args":[...]}}}`
+// (arbitrary command execution at claude startup, before any permission
+// prompt). The dispatcher has its own independent `--` end-of-options guard
+// AND its own leading-dash reject (never trust the server alone — see
+// oracle-dispatch.py), but this refine is the first line of defense: reject
+// at creation time so a hostile prompt never even reaches the queue.
+const PROMPT_LEADING_DASH_MESSAGE =
+  "prompt may not begin with '-' (reserved to prevent CLI flag injection into the spawned claude process)";
+
 const spawnPayloadSchema = z.object({
   cwd: z.string().min(1).max(1024),
-  prompt: z.string().max(10240).optional(),
+  prompt: z
+    .string()
+    .max(10240)
+    .refine((val) => !/^\s*-/.test(val), { message: PROMPT_LEADING_DASH_MESSAGE })
+    .optional(),
   title: z.string().max(256).optional(),
 });
 

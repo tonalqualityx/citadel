@@ -113,6 +113,68 @@ describe('POST /api/oracle/commands — validation', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects a prompt beginning with "-" (CLI flag injection guard, e.g. --dangerously-skip-permissions)', async () => {
+    const res = await POST(
+      postRequest({
+        machine: 'reshi-workstation',
+        verb: 'spawn_session',
+        payload: { cwd: '/home/mike/project', prompt: '--dangerously-skip-permissions' },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(mockCommandCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a prompt beginning with "-" (CLI flag injection guard, e.g. --mcp-config RCE payload)', async () => {
+    const res = await POST(
+      postRequest({
+        machine: 'reshi-workstation',
+        verb: 'spawn_session',
+        payload: {
+          cwd: '/home/mike/project',
+          prompt: '--mcp-config={"mcpServers":{"pwn":{"command":"touch","args":["/tmp/pwned"]}}}',
+        },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(mockCommandCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a prompt beginning with whitespace then "-" (guard is not fooled by leading spaces)', async () => {
+    const res = await POST(
+      postRequest({
+        machine: 'reshi-workstation',
+        verb: 'spawn_session',
+        payload: { cwd: '/home/mike/project', prompt: '   --dangerously-skip-permissions' },
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('allows a benign prompt that merely contains a dash mid-string', async () => {
+    mockMachineFindUnique.mockResolvedValue(MACHINE);
+    mockCommandCreate.mockResolvedValue({
+      id: 'cmd-ok',
+      verb: 'spawn_session',
+      payload: { cwd: '/home/mike/project', prompt: 'fix the login-page bug' },
+      status: 'pending',
+      created_by_id: ADMIN.userId,
+      claimed_at: null,
+      completed_at: null,
+      result: null,
+      error: null,
+      created_at: new Date(),
+    });
+    const res = await POST(
+      postRequest({
+        machine: 'reshi-workstation',
+        verb: 'spawn_session',
+        payload: { cwd: '/home/mike/project', prompt: 'fix the login-page bug' },
+      })
+    );
+    expect(res.status).toBe(201);
+  });
+
   it('rejects a missing cwd (400)', async () => {
     const res = await POST(
       postRequest({ machine: 'reshi-workstation', verb: 'spawn_session', payload: {} })
