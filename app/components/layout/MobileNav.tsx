@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -23,6 +23,7 @@ interface NavSection {
   title: string;
   emoji: string;
   items: NavItem[];
+  defaultOpen?: boolean;
 }
 
 export function MobileNav({ open, onClose }: MobileNavProps) {
@@ -73,6 +74,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
   const workSection: NavSection = {
     title: t('foundry'),
     emoji: '🔥',
+    defaultOpen: true,
     items: [
       ...(isPmOrAdmin ? [{ name: t('projects'), href: '/projects', emoji: '🤝' }] : []),
       { name: t('clients'), href: '/clients', emoji: '🧑‍🚀' },
@@ -86,6 +88,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
   const parleySection: NavSection = {
     title: t('parley'),
     emoji: '🤝',
+    defaultOpen: true,
     items: [
       { name: t('deals'), href: '/deals', emoji: '📋' },
       { name: t('meetings'), href: '/meetings', emoji: '📅' },
@@ -110,6 +113,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
   const oracleSection: NavSection = {
     title: 'Oracle',
     emoji: '🔮',
+    defaultOpen: true,
     items: [
       { name: 'Fleet', href: '/oracle', emoji: '🔮' },
     ],
@@ -140,9 +144,9 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 left-0 z-50 w-[min(85vw,18rem)] bg-background-light shadow-xl lg:hidden animate-in slide-in-from-left duration-200">
+      <div className="fixed inset-y-0 left-0 z-50 flex w-[min(85vw,18rem)] flex-col bg-background-light shadow-xl lg:hidden animate-in slide-in-from-left duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between h-14 px-4 border-b border-border-warm">
+        <div className="flex shrink-0 items-center justify-between h-14 px-4 border-b border-border-warm">
           <span className="text-lg font-bold text-text-main">Menu</span>
           <button
             onClick={onClose}
@@ -210,28 +214,45 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
 }
 
 function NavSectionBlock({ section, pathname }: { section: NavSection; pathname: string }) {
+  // Keep the section open by default if the active route lives in it, so
+  // navigating here never hides the current page behind a collapsed header.
+  const containsActiveRoute = section.items.some((item) => pathname.startsWith(item.href));
+  const [isOpen, setIsOpen] = useState((section.defaultOpen ?? false) || containsActiveRoute);
+
   return (
     <div>
-      <div className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider">
-        {section.emoji} {section.title}
-      </div>
-      <div className="space-y-0.5">
-        {section.items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-              pathname.startsWith(item.href)
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-text-main hover:bg-surface'
-            )}
-          >
-            <span className="w-6 text-center">{item.emoji}</span>
-            <span>{item.name}</span>
-          </Link>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+        className="flex w-full min-h-11 items-center gap-2 px-3 py-2 text-xs font-bold text-text-sub uppercase tracking-wider rounded-lg hover:bg-surface text-left"
+      >
+        <ChevronRight
+          className={cn('h-4 w-4 shrink-0 transition-transform', isOpen && 'rotate-90')}
+        />
+        <span>
+          {section.emoji} {section.title}
+        </span>
+      </button>
+      {isOpen && (
+        <div className="space-y-0.5 mt-0.5">
+          {section.items.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                pathname.startsWith(item.href)
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-text-main hover:bg-surface'
+              )}
+            >
+              <span className="w-6 text-center">{item.emoji}</span>
+              <span>{item.name}</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
