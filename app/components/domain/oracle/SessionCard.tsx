@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import { ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import type { OracleSessionWithMachine } from '@/lib/types/oracle';
 import { StatusDot } from './StatusDot';
 import { OracleStatusBadge } from './OracleStatusBadge';
@@ -41,6 +43,18 @@ export function SessionCard({ session, nowMs, collapsed, className }: SessionCar
   // Reshi), so it gets the accent working presentation instead of the warning border.
   const working = isWorkingSession(session);
   const workingCount = working ? runningChildCount(session) : 0;
+  // Phase 3: "Respond" only makes sense on a live session that actually has a
+  // Remote Control bridge — ended/stale sessions get no dead link, and a session
+  // without remote_url (older session, or remote control never enabled for it)
+  // gets no button at all. `working` already folds in waiting/needs_attention
+  // sessions that are really waiting on their own subagents (isWorkingSession),
+  // so this stays a flat OR against the three "live" reads.
+  const isLive = session.status === 'running' || session.status === 'waiting' || working;
+  const showRespond = Boolean(session.remote_url) && isLive;
+  // Prominent (primary, full-size) on a waiting/working card — that's the point of
+  // the button, Mike triaging from the couch. Secondary (smaller) on a plain
+  // running card where it's a convenience, not the primary action.
+  const respondProminent = working || session.status === 'waiting';
 
   return (
     <Card
@@ -55,42 +69,73 @@ export function SessionCard({ session, nowMs, collapsed, className }: SessionCar
       data-status={session.status}
       data-working={working || undefined}
     >
-      <button
-        type="button"
-        onClick={() => setOpenKey((k) => (k === 'session' ? null : 'session'))}
-        className="flex min-h-11 w-full min-w-0 flex-col gap-1 border-b border-border-warm px-3 py-2 text-left hover:bg-background-light/50"
-        aria-expanded={openKey === 'session'}
-      >
-        {/* Row 1: dot + title + status — the title gets the full card width so it
-            doesn't collapse to a couple of characters at 360-390px (Ringside's
-            single-line header works at desktop width; this two-row split is the
-            deliberate mobile-legibility deviation — see spec deviations in the
-            hand-off report). */}
-        <div className="flex min-w-0 items-center gap-2">
-          <StatusDot status={session.status} needsAttention={session.needs_attention} working={working} />
-          <span className="min-w-0 flex-1 truncate text-sm font-extrabold text-text-main">
-            {sessionDisplayTitle(session)}
-          </span>
-          <OracleStatusBadge
-            status={session.status}
-            needsAttention={session.needs_attention}
-            working={working}
-            workingCount={workingCount}
-            className="shrink-0"
-          />
-        </div>
-        {/* Row 2: identity (source · model) + elapsed + tokens */}
-        <div className="ui-monospace flex min-w-0 items-center gap-2 pl-[1.125rem] text-[0.7rem] text-text-sub">
-          <span className="min-w-0 flex-1 truncate">
-            {sourceLabel(session.source)}
-            {session.model ? ` · ${session.model}` : ''}
-          </span>
-          <span className="shrink-0">{formatElapsed(elapsedMs)}</span>
-          <span className="shrink-0">
-            {formatTokens(session.tokens_total, session.source === 'claude_code')}
-          </span>
-        </div>
-      </button>
+      <div className="flex min-w-0 items-stretch gap-1 border-b border-border-warm">
+        <button
+          type="button"
+          onClick={() => setOpenKey((k) => (k === 'session' ? null : 'session'))}
+          className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-3 py-2 text-left hover:bg-background-light/50"
+          aria-expanded={openKey === 'session'}
+        >
+          {/* Row 1: dot + title + status — the title gets the full card width so it
+              doesn't collapse to a couple of characters at 360-390px (Ringside's
+              single-line header works at desktop width; this two-row split is the
+              deliberate mobile-legibility deviation — see spec deviations in the
+              hand-off report). */}
+          <div className="flex min-w-0 items-center gap-2">
+            <StatusDot status={session.status} needsAttention={session.needs_attention} working={working} />
+            <span className="min-w-0 flex-1 truncate text-sm font-extrabold text-text-main">
+              {sessionDisplayTitle(session)}
+            </span>
+            <OracleStatusBadge
+              status={session.status}
+              needsAttention={session.needs_attention}
+              working={working}
+              workingCount={workingCount}
+              className="shrink-0"
+            />
+          </div>
+          {/* Row 2: identity (source · model) + elapsed + tokens */}
+          <div className="ui-monospace flex min-w-0 items-center gap-2 pl-[1.125rem] text-[0.7rem] text-text-sub">
+            <span className="min-w-0 flex-1 truncate">
+              {sourceLabel(session.source)}
+              {session.model ? ` · ${session.model}` : ''}
+            </span>
+            <span className="shrink-0">{formatElapsed(elapsedMs)}</span>
+            <span className="shrink-0">
+              {formatTokens(session.tokens_total, session.source === 'claude_code')}
+            </span>
+          </div>
+        </button>
+
+        {/* Respond deep-links out to Claude Remote Control (browser on desktop, the
+            Claude app on phone) for this exact session. A sibling of the toggle
+            button (never nested inside it — an <a> can't legally nest inside a
+            <button>), so its own click never reaches the drawer toggle; the
+            stopPropagation below is defense-in-depth against a future wrapping
+            click handler. */}
+        {showRespond && session.remote_url && (
+          <div className="flex shrink-0 items-center py-2 pr-2">
+            <Button
+              asChild
+              variant={respondProminent ? 'primary' : 'secondary'}
+              size={respondProminent ? 'default' : 'sm'}
+              className="min-h-11"
+            >
+              <a
+                href={session.remote_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                data-testid="respond-link"
+                aria-label={`Respond to ${sessionDisplayTitle(session)} in Claude Remote Control`}
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                Respond
+              </a>
+            </Button>
+          </div>
+        )}
+      </div>
 
       {!collapsed && hasAgents && (
         <div className="grid grid-cols-1 gap-1.5 p-2 sm:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">

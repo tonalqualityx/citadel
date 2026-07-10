@@ -10,7 +10,14 @@
  *     waiting+needs_attention on its own stored status but has a live running child
  *     agent — must be excluded from the Waiting-on-Reshi strip and show a
  *     "working · N agents" badge instead
- *   - 1 openclaw cron session (already ended)
+ *   - 1 openclaw cron session (already ended) — carries a remote_url too, so it
+ *     doubles as the Phase 3 "ended session with a URL still gets no Respond
+ *     button" fixture (live status wins over URL presence)
+ *
+ * Phase 3 (Respond deep-links): waiting1 carries a fake remote_url so its card
+ * renders the Respond button; running2 deliberately has none (older-session /
+ * remote-control-never-enabled case); cron1 (ended) carries one too, to prove an
+ * ended session hides Respond even when a URL is present.
  *   - a handful of OracleEvent rows powering the drawer
  *
  * Idempotent: all demo rows use an external_id prefixed "demo-" and are deleted and
@@ -97,6 +104,7 @@ async function main() {
       started_at: minutesAgo(96),
       last_event_at: minutesAgo(22),
       tokens_total: 401_880,
+      remote_url: 'https://claude.ai/code/session_demo_waiting1',
     },
   });
 
@@ -203,6 +211,9 @@ async function main() {
       last_event_at: minutesAgo(479),
       ended_at: minutesAgo(479),
       tokens_total: 0,
+      // Phase 3 fixture: a URL is present but the session is ended — Respond must
+      // stay hidden (live status gates it, not just remote_url presence).
+      remote_url: 'https://claude.ai/code/session_demo_cron1_ended',
     },
   });
 
