@@ -1,5 +1,7 @@
 import { PrismaClient, UserRole, ClientType, ClientStatus, ProjectStatus, ProjectType, TaskStatus, MysteryFactor, BatteryImpact } from '@prisma/client';
 import { TROUBADOR_SERVICE_EMAIL } from '../lib/troubador/helpers';
+import { ORACLE_SERVICE_EMAIL } from '../lib/oracle/helpers';
+import { generateApiKey } from '../lib/auth/api-keys';
 import bcrypt from 'bcryptjs';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -125,6 +127,44 @@ async function main() {
   });
   userMap.set(TROUBADOR_SERVICE_EMAIL, troubadorUser.id);
   console.log(`  ✓ Created user: ${TROUBADOR_SERVICE_EMAIL}`);
+
+  // Oracle service account — the local hook/heartbeat client authenticates as this user.
+  const oracleUser = await prisma.user.upsert({
+    where: { email: ORACLE_SERVICE_EMAIL },
+    update: {},
+    create: {
+      email: ORACLE_SERVICE_EMAIL,
+      name: 'Oracle',
+      role: UserRole.pm,
+      is_active: true,
+      password_hash: passwordHash,
+    },
+  });
+  userMap.set(ORACLE_SERVICE_EMAIL, oracleUser.id);
+  console.log(`  ✓ Created user: ${ORACLE_SERVICE_EMAIL}`);
+
+  // Mint a local-dev API key for the Oracle service user (idempotent — skip if a live
+  // key already exists). The raw key is shown ONCE here; only its sha256 hash is stored.
+  // seed.ts only ever targets local/CI databases (prod uses `prisma migrate deploy`, no
+  // seed step) — this never mints or touches a prod key.
+  const existingOracleKey = await prisma.apiKey.findFirst({
+    where: { user_id: oracleUser.id, is_revoked: false },
+  });
+  if (!existingOracleKey) {
+    const { rawKey, keyHash, keyPrefix } = generateApiKey();
+    await prisma.apiKey.create({
+      data: {
+        user_id: oracleUser.id,
+        name: 'Oracle local dev telemetry key',
+        key_hash: keyHash,
+        key_prefix: keyPrefix,
+      },
+    });
+    console.log('  ✓ Created Oracle API key (LOCAL DEV ONLY — save this, shown once):');
+    console.log(`    ${rawKey}`);
+  } else {
+    console.log('  ⏭ Oracle API key already exists, skipping (revoke it + reseed to rotate)');
+  }
 
   // Seed from CSV files
   const seedDir = path.join(__dirname, '../../implementation/seed');

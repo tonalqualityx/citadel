@@ -1,0 +1,126 @@
+'use client';
+
+import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import { Sparkles } from 'lucide-react';
+import { useAuth } from '@/lib/hooks/use-auth';
+import { useOracleFleet } from '@/lib/hooks/use-oracle';
+import { useNow } from '@/lib/hooks/use-now';
+import { Spinner } from '@/components/ui/spinner';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FleetTopbar } from '@/components/domain/oracle/FleetTopbar';
+import { OracleToolbar } from '@/components/domain/oracle/OracleToolbar';
+import { WaitingStrip } from '@/components/domain/oracle/WaitingStrip';
+import { MachineSection } from '@/components/domain/oracle/MachineSection';
+import {
+  filterMachines,
+  fleetCounts,
+  selectWaitingSessions,
+  anySessionRunning,
+  anySessionNeedsAttention,
+} from '@/components/domain/oracle/oracle-logic';
+
+export default function OraclePage() {
+  const [mounted, setMounted] = React.useState(false);
+  const router = useRouter();
+  const { user, isLoading: authLoading, isAdmin } = useAuth();
+  const { data, isLoading, isError } = useOracleFleet();
+  const now = useNow(1000);
+  const [filter, setFilter] = React.useState('');
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  React.useEffect(() => setMounted(true), []);
+
+  // 1.5a: Oracle is admin-only (fleet telemetry across every machine, plus the
+  // Remote Spawn command surface) — was PM/Admin in Phase 1, tightened per Mike's
+  // 2026-07-09 evening ruling. Same redirect pattern as billing/admin pages.
+  React.useEffect(() => {
+    if (!authLoading && user && !isAdmin) {
+      router.replace('/');
+    }
+  }, [authLoading, user, isAdmin, router]);
+
+  if (!mounted || authLoading) {
+    return (
+      <div className="flex min-h-[25rem] items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) return null;
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[25rem] items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="py-12 text-center text-sm text-text-sub">Failed to load fleet telemetry.</div>
+    );
+  }
+
+  const machines = filterMachines(data.machines, filter);
+  const waitingSessions = selectWaitingSessions(machines, now);
+  const { sessions: sessionCount, agents: agentCount } = fleetCounts(machines);
+  // A machine can have a freshly-queued spawn command with zero sessions yet (the
+  // dispatcher hasn't claimed it within its ~1 minute cadence) — that's not "empty",
+  // it's "something is about to happen"; show the command chip instead of the
+  // empty state.
+  const anyCommands = machines.some((m) => m.commands.length > 0);
+  const isEmpty = sessionCount === 0 && !anyCommands;
+  // Distinct from "healthy but empty right now" (isEmpty above, which can also be a
+  // filter with no matches) — this checks the RAW unfiltered machine list, so it
+  // only fires when no machine has ever POSTed telemetry at all (never seeded/never
+  // ran the heartbeat), not when a machine exists but currently has no sessions.
+  const noMachineHasEverReported = data.machines.length === 0;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FleetTopbar
+        sessionCount={sessionCount}
+        agentCount={agentCount}
+        machineCount={machines.length}
+        anyRunning={anySessionRunning(machines)}
+        anyNeedsAttention={anySessionNeedsAttention(machines)}
+        generatedAt={data.generated_at}
+      />
+      <OracleToolbar
+        filter={filter}
+        onFilterChange={setFilter}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((v) => !v)}
+        machines={data.machines}
+      />
+
+      {noMachineHasEverReported ? (
+        <EmptyState
+          icon={<Sparkles className="h-8 w-8" />}
+          title="no telemetry has ever reached this Citadel"
+          description="Check the oracle heartbeat on the machine. Nothing has POSTed to Oracle ingest yet."
+        />
+      ) : isEmpty ? (
+        <EmptyState
+          icon={<Sparkles className="h-8 w-8" />}
+          title="no agents running"
+          description={
+            filter
+              ? 'No sessions or agents match that filter.'
+              : 'Nothing on the fleet right now — Claude Code sessions, workflow runs, and crons will show up here as they start.'
+          }
+        />
+      ) : (
+        <div className="flex flex-col gap-4">
+          <WaitingStrip sessions={waitingSessions} nowMs={now} collapsed={collapsed} />
+          {machines.map((machine) => (
+            <MachineSection key={machine.id} machine={machine} nowMs={now} collapsedCards={collapsed} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

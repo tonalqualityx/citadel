@@ -62,6 +62,7 @@ import { meetingEndpoints } from './meetings';
 import { troubadorEndpoints } from './troubador';
 import { contactEndpoints } from './contacts';
 import { brandProfileEndpoints } from './brand-profiles';
+import { oracleEndpoints } from './oracle';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -91,6 +92,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...troubadorEndpoints,
   ...contactEndpoints,
   ...brandProfileEndpoints,
+  ...oracleEndpoints,
 ];
 
 /**
@@ -119,6 +121,8 @@ export const apiEnums = {
   scheduleStatuses: ['active', 'paused', 'ended'],
   siteTypes: ['eleventy', 'wordpress', 'handoff', 'custom'],
   topicArchetypes: ['pillar', 'thought_leadership', 'case_study', 'how_to', 'commodity'],
+  oracleSources: ['claude_code', 'workflow', 'openclaw_cron'],
+  oracleSessionStatuses: ['running', 'waiting', 'ended', 'stale'],
 };
 
 /**

@@ -28,7 +28,7 @@ interface NavSection {
 export function MobileNav({ open, onClose }: MobileNavProps) {
   const pathname = usePathname();
   const { t } = useTerminology();
-  const { isPmOrAdmin } = useAuth();
+  const { isPmOrAdmin, isAdmin } = useAuth();
   const initialPathname = useRef(pathname);
 
   // Close on route change (but not on initial mount)
@@ -105,6 +105,16 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     ],
   };
 
+  // Literal, NOT run through useTerminology — mirrors the Troubador section's
+  // literal title (Sidebar.tsx duplicates these nav literals; keep both in lockstep).
+  const oracleSection: NavSection = {
+    title: 'Oracle',
+    emoji: '🔮',
+    items: [
+      { name: 'Fleet', href: '/oracle', emoji: '🔮' },
+    ],
+  };
+
   const adminSection: NavSection = {
     title: 'Admin',
     emoji: '🔐',
@@ -171,6 +181,9 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
 
           {/* Knowledge section */}
           <NavSectionBlock section={knowledgeSection} pathname={pathname} />
+
+          {/* Oracle section - admin only (1.5a, was PM/Admin) */}
+          {isAdmin && <NavSectionBlock section={oracleSection} pathname={pathname} />}
 
           {/* Settings */}
           <div className="space-y-1">

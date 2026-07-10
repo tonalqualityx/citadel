@@ -90,7 +90,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { t, isAwesome } = useTerminology();
-  const { isPmOrAdmin, isTech } = useAuth();
+  const { isPmOrAdmin, isAdmin, isTech } = useAuth();
 
   // Dynamic navigation based on terminology preference
   const mainNav: NavItem[] = [
@@ -146,6 +146,15 @@ export function Sidebar() {
       { name: 'Content Board', href: '/troubador', emoji: '📋' },
       { name: 'Schedules', href: '/troubador/schedules', emoji: '🗓️' },
       { name: 'Calendar', href: '/troubador/calendar', emoji: '📆' },
+    ],
+  };
+
+  const oracleSection: NavSection = {
+    title: 'Oracle',
+    emoji: '🔮',
+    defaultOpen: true,
+    items: [
+      { name: 'Fleet', href: '/oracle', emoji: '🔮' },
     ],
   };
 
@@ -209,6 +218,10 @@ export function Sidebar() {
           )}
           {isPmOrAdmin && (
             <CollapsibleSection section={troubadorSection} pathname={pathname} />
+          )}
+          {/* 1.5a: Oracle is admin-only (was PM/Admin) */}
+          {isAdmin && (
+            <CollapsibleSection section={oracleSection} pathname={pathname} />
           )}
           <CollapsibleSection section={knowledgeSection} pathname={pathname} />
 
