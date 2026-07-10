@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
+import { AuthError } from '@/lib/api/errors';
 import { GET } from '../route';
 
 vi.mock('@/lib/auth/middleware', () => ({
@@ -21,6 +22,8 @@ const mockRequireRole = vi.mocked(requireRole);
 const mockMachineFindMany = prisma.oracleMachine.findMany as Mock;
 
 const PM = { userId: 'pm-1', role: 'pm', email: 'pm@indelible.agency' };
+const ADMIN = { userId: 'admin-1', role: 'admin', email: 'admin@indelible.agency' };
+const BOT = { userId: 'oracle-bot-1', role: 'pm', email: 'oracle@indelible.bot' };
 
 function machine(overrides: Record<string, unknown> = {}) {
   return {
@@ -29,6 +32,7 @@ function machine(overrides: Record<string, unknown> = {}) {
     hostname: 'reshi.local',
     last_heartbeat_at: new Date(),
     sessions: [],
+    commands: [],
     ...overrides,
   };
 }
@@ -53,20 +57,69 @@ function session(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function command(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'cmd-1',
+    verb: 'spawn_session',
+    status: 'pending',
+    payload: { cwd: '/home/mike/project', title: 'New session' },
+    created_at: new Date(),
+    completed_at: null,
+    result: null,
+    error: null,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireAuth.mockResolvedValue(PM);
 });
 
-describe('GET /api/oracle/fleet — auth', () => {
-  it('requires pm/admin role', async () => {
+describe('GET /api/oracle/fleet — auth (1.5a: admin-only)', () => {
+  it('requires admin role', async () => {
+    mockRequireAuth.mockResolvedValue(ADMIN);
     mockMachineFindMany.mockResolvedValue([]);
     await GET();
-    expect(mockRequireRole).toHaveBeenCalledWith(PM, ['pm', 'admin']);
+    expect(mockRequireRole).toHaveBeenCalledWith(ADMIN, ['admin']);
+  });
+
+  it('rejects a pm caller with 403 (pm-or-admin downgraded to admin-only)', async () => {
+    mockRequireAuth.mockResolvedValue(PM);
+    mockRequireRole.mockImplementationOnce(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+
+    const res = await GET();
+    expect(res.status).toBe(403);
+    expect(mockMachineFindMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects the oracle service bot (role pm) with 403 — bot cannot read fleet, only ingest', async () => {
+    mockRequireAuth.mockResolvedValue(BOT);
+    mockRequireRole.mockImplementationOnce(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+
+    const res = await GET();
+    expect(res.status).toBe(403);
+    expect(mockMachineFindMany).not.toHaveBeenCalled();
+  });
+
+  it('allows an admin caller through', async () => {
+    mockRequireAuth.mockResolvedValue(ADMIN);
+    mockMachineFindMany.mockResolvedValue([machine()]);
+
+    const res = await GET();
+    expect(res.status).toBe(200);
   });
 });
 
 describe('GET /api/oracle/fleet — shape', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(ADMIN);
+  });
+
   it('returns machines with sessions (incl. agents) and rolled-up counts', async () => {
     mockMachineFindMany.mockResolvedValue([
       machine({
@@ -123,5 +176,39 @@ describe('GET /api/oracle/fleet — shape', () => {
     const body = await (await GET()).json();
     expect(body.machines).toEqual([]);
     expect(body.counts).toEqual({ machines: 0, sessions: 0, agents: 0 });
+  });
+});
+
+describe('GET /api/oracle/fleet — commands (1.5b)', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(ADMIN);
+  });
+
+  it('includes recent commands per machine, shaped with title/cwd pulled from payload', async () => {
+    mockMachineFindMany.mockResolvedValue([
+      machine({
+        commands: [
+          command({ id: 'cmd-done', status: 'done', result: { tmux_session: 'oracle-abc', remote_control: 'confirmed' } }),
+          command({ id: 'cmd-pending', status: 'pending' }),
+        ],
+      }),
+    ]);
+
+    const body = await (await GET()).json();
+    expect(body.machines[0].commands).toHaveLength(2);
+    expect(body.machines[0].commands[0]).toMatchObject({
+      id: 'cmd-done',
+      verb: 'spawn_session',
+      status: 'done',
+      title: 'New session',
+      cwd: '/home/mike/project',
+      result: { tmux_session: 'oracle-abc', remote_control: 'confirmed' },
+    });
+  });
+
+  it('defaults to an empty commands array when a machine has none', async () => {
+    mockMachineFindMany.mockResolvedValue([machine({ commands: [] })]);
+    const body = await (await GET()).json();
+    expect(body.machines[0].commands).toEqual([]);
   });
 });

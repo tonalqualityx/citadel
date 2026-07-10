@@ -29,3 +29,13 @@ export function isMachineStale(lastHeartbeatAt: Date | null | undefined, now: Da
   if (!lastHeartbeatAt) return true;
   return now.getTime() - new Date(lastHeartbeatAt).getTime() > HEARTBEAT_STALE_MINUTES * 60_000;
 }
+
+// Phase 1.5b — Remote Spawn command queue constants.
+// Cap on the JSON-serialized size of a command's `result` blob (PATCH .../complete). This
+// is machine-authored (the dispatcher reporting tmux_session/remote_control), not user
+// input, but still capped defensively — same discipline as ingest's MAX_PAYLOAD_BYTES.
+export const MAX_COMMAND_RESULT_BYTES = 8_000;
+
+// Fleet response's `commands` field: only the last N hours, capped per machine, newest first.
+export const COMMAND_RECENT_HOURS = 24;
+export const COMMAND_RECENT_CAP = 20;

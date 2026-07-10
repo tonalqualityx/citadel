@@ -3,7 +3,7 @@ import { OracleSessionStatus } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { isMachineStale } from '@/lib/oracle/helpers';
+import { isMachineStale, COMMAND_RECENT_HOURS, COMMAND_RECENT_CAP } from '@/lib/oracle/helpers';
 
 // Ended sessions older than this fall out of the fleet response entirely (the UI's
 // "Recently ended" group only needs a short tail, not the full history — that lives in
@@ -13,10 +13,14 @@ const RECENT_ENDED_HOURS = 24;
 export async function GET() {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['pm', 'admin']);
+    // 1.5a: Oracle is admin-only everywhere it was previously pm-or-admin. The oracle
+    // service bot (role pm) is unaffected — it never calls this route, only ingest,
+    // which authorizes via isOracleBot, not role.
+    requireRole(auth, ['admin']);
 
     const now = new Date();
     const recentEndedCutoff = new Date(now.getTime() - RECENT_ENDED_HOURS * 60 * 60 * 1000);
+    const recentCommandCutoff = new Date(now.getTime() - COMMAND_RECENT_HOURS * 60 * 60 * 1000);
 
     const machines = await prisma.oracleMachine.findMany({
       orderBy: { name: 'asc' },
@@ -36,6 +40,11 @@ export async function GET() {
           include: {
             agents: { orderBy: { created_at: 'asc' } },
           },
+        },
+        commands: {
+          where: { created_at: { gte: recentCommandCutoff } },
+          orderBy: { created_at: 'desc' },
+          take: COMMAND_RECENT_CAP,
         },
       },
     });
@@ -82,6 +91,20 @@ export async function GET() {
             ended_at: agent.ended_at,
           })),
         })),
+        commands: machine.commands.map((cmd) => {
+          const payload = (cmd.payload ?? {}) as Record<string, unknown>;
+          return {
+            id: cmd.id,
+            verb: cmd.verb,
+            status: cmd.status,
+            title: typeof payload.title === 'string' ? payload.title : null,
+            cwd: typeof payload.cwd === 'string' ? payload.cwd : null,
+            created_at: cmd.created_at,
+            completed_at: cmd.completed_at,
+            result: cmd.result,
+            error: cmd.error,
+          };
+        }),
       };
     });
 

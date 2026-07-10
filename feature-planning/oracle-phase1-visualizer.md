@@ -218,3 +218,83 @@ Those are fixed. What's left, accepted as reasonable for phase 1:
   account has no viable login path at all beyond the API key. This is a
   manual provisioning step outside seed.ts — flag it explicitly in the prod
   deploy checklist when that day comes.
+
+## Phase 1.5 — Admin-only visibility + Remote Spawn (Mike, 2026-07-09 evening)
+
+### 1.5a Admin-only
+Oracle becomes admin-only everywhere it is currently pm-or-admin: fleet route
+`requireRole(['admin'])`, registry roles, page-level gate, nav gating in BOTH
+Sidebar.tsx and MobileNav.tsx (isAdmin, not isPmOrAdmin). Update tests. The oracle
+service bot (role pm) is unaffected: ingest authorizes via isOracleBot, not role.
+
+### 1.5b Remote Spawn — the inbound command path (previously deferred, now approved)
+Mike can create a "spawn session" command from the Oracle screen; the machine picks it
+up within ~1 cron minute and starts a NEW Claude Code session with remote control on,
+inside tmux, so it is steerable from the phone (claude.ai Remote Control) and
+attachable at the desk.
+
+SECURITY INVARIANTS (non-negotiable, both sides enforce):
+- Verb allowlist: ONLY `spawn_session`. Server: Zod literal. Machine: dispatcher
+  ignores/fails anything else. No arbitrary shell, ever.
+- No shell string interpolation anywhere: subprocess argv arrays only; prompt passed
+  as a single argv element to `claude`, never through a shell or send-keys.
+- cwd validation machine-side: os.path.realpath must exist, be a directory, and be
+  under $HOME.
+- Only admins can create commands (server); dispatcher only claims commands for its
+  own machine name; bot key required to read/claim.
+- Full audit: the command row (creator, timestamps, payload, result/error) +
+  an OracleEvent kind=command_executed.
+
+Schema: OracleCommand @@map("oracle_commands"): id, machine_id FK, verb String,
+payload Json ({cwd, prompt?, title?} — prompt <= 10KB), status
+(pending|claimed|done|failed), created_by_id FK -> User, claimed_at?, completed_at?,
+result Json?, error String?, created_at, updated_at. Index (machine_id, status).
+
+API:
+- POST /api/oracle/commands — admin only. Creates pending spawn_session command.
+- GET  /api/oracle/commands?status=pending — bot only, machine-scoped.
+- PATCH /api/oracle/commands/[id] — bot only. Claim MUST be atomic
+  (updateMany where status=pending -> claimed; 409 if already claimed), then
+  done/failed with result/error.
+- Fleet response gains recent commands (last 24h) for UI status display.
+
+Local dispatcher: ~/.claude/tools/oracle/oracle-dispatch.py, own crontab line
+(every minute, same cadence as heartbeat). Claims pending commands; for
+spawn_session: validate cwd per invariants, then
+`tmux new-session -d -s oracle-<shortid> -c <cwd> -- <spawn_argv...>` where
+spawn_argv comes from config.json `spawn_command` (default
+["claude", "--remote-control"]) + the prompt appended as one final argv element if
+present. PATCH done with {tmux_session} or failed with the real error. Always exit 0;
+same logging/locking discipline as the heartbeat. NOTE: remote control needs the
+claude.ai-authed CLI (v2.1.51+); tmux provides the tty. If Mike enables the /config
+"Enable Remote Control for all sessions" default, spawn_command can drop the flag —
+config, not code.
+
+UI (admin): "New Session" button in the Oracle toolbar -> modal: cwd (input +
+datalist of distinct cwds from current fleet), optional title, optional prompt
+textarea. Command status strip (pending/claimed/done/failed chips, last 24h);
+spawned session then appears in the fleet organically via its own hooks/heartbeat.
+Mobile: button remains reachable; modal is a full-screen sheet at small widths.
+
+Gates (executed): all existing suites stay green from clean checkout; atomic-claim
+test (two concurrent claims -> one winner); REAL spawn rehearsal: command created via
+API -> dispatcher run -> tmux session exists with claude alive in the right cwd ->
+session appears in fleet -> command row done with result; failure paths (cwd outside
+$HOME -> failed + error, unknown verb -> failed, double-claim -> 409); dispatcher
+timing/exit-0 discipline. Phone-side Remote Control attach is Mike's manual checklist
+item (needs his phone).
+
+Opus adversarial review of the entire command path REQUIRED before presenting
+(this is remote code execution by design; the allowlist and argv discipline are the
+whole defense).
+
+ADDENDUM (Mike, 2026-07-09): remote control on the spawned session is THE point —
+phone access between sessions. Therefore:
+- The dispatcher must CONFIRM remote-control registration after spawn (empirically
+  find the reliable signal: tmux capture-pane for the remote-control confirmation in
+  the TUI, process args check as fallback) and report it in the command result
+  (remote_control: confirmed | unconfirmed). UI shows this state on the command chip;
+  unconfirmed renders as a warning, not success.
+- The spawn rehearsal gate FAILS unless remote_control=confirmed.
+- Recommend to Mike enabling /config "Enable Remote Control for all sessions" as
+  belt-and-braces (his action, not ours).

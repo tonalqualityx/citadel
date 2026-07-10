@@ -62,6 +62,7 @@ model User {
   troubador_schedules_default_editor TroubadorSchedule[]      @relation("ScheduleDefaultEditor")
   troubador_articles_approved        Article[]                @relation("ArticleApprovedBy")
   troubador_article_comments         ArticleComment[]
+  oracle_commands_created            OracleCommand[]          @relation("OracleCommandCreatedBy")
 
   @@map("users")
 }
@@ -2348,6 +2349,7 @@ model OracleMachine {
 
   sessions OracleSession[]
   events   OracleEvent[]
+  commands OracleCommand[]
 
   @@map("oracle_machines")
 }
@@ -2445,4 +2447,34 @@ model OracleEvent {
   // one only helps queries that also filter machine_id (leftmost-prefix rule).
   @@index([ts])
   @@map("oracle_events")
+}
+
+// Phase 1.5b — Remote Spawn inbound command queue. Admin creates a pending command
+// from the Oracle UI; the local dispatcher (bot auth, machine-scoped) claims it
+// atomically, executes, and reports back. Verb is allowlisted server + machine side
+// to 'spawn_session' only — this is remote code execution by design, so the queue
+// itself carries zero shell/interpolation semantics, only structured payload data.
+model OracleCommand {
+  id         String        @id @default(uuid()) @db.Uuid
+  machine_id String        @db.Uuid
+  machine    OracleMachine @relation(fields: [machine_id], references: [id], onDelete: Cascade)
+
+  verb    String @db.VarChar(50) // allowlisted: 'spawn_session' only (enforced by Zod + dispatcher)
+  payload Json // { cwd, prompt?, title? } for spawn_session
+
+  status String @default("pending") @db.VarChar(20) // pending | claimed | done | failed
+
+  created_by_id String @db.Uuid
+  created_by    User   @relation("OracleCommandCreatedBy", fields: [created_by_id], references: [id])
+
+  claimed_at   DateTime?
+  completed_at DateTime?
+  result       Json? // e.g. { tmux_session, remote_control: 'confirmed' | 'unconfirmed' }
+  error        String?   @db.Text
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([machine_id, status])
+  @@map("oracle_commands")
 }

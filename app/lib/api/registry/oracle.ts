@@ -48,12 +48,15 @@ export const oracleEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'PM/Admin: full fleet snapshot for the Oracle visualizer, shaped for one call.',
+        summary: 'Admin-only: full fleet snapshot for the Oracle visualizer, shaped for one call.',
         auth: 'required',
-        roles: ['pm', 'admin'],
+        roles: ['admin'],
         responseNotes:
           'Sessions are running|waiting|stale always, plus ended sessions from the last 24h. Machine ' +
-          '`stale` is derived at read time (last_heartbeat_at gap > 3 minutes), never a stored status.',
+          '`stale` is derived at read time (last_heartbeat_at gap > 3 minutes), never a stored status. ' +
+          '1.5a: admin-only (was pm-or-admin) — the oracle service bot is unaffected since ingest ' +
+          'authorizes via isOracleBot, not role. `commands` (1.5b) is each machine\'s last 24h of ' +
+          'spawn_session commands, newest first, capped at 20.',
         responseExample: {
           machines: [
             {
@@ -94,10 +97,127 @@ export const oracleEndpoints: ApiEndpoint[] = [
                   ],
                 },
               ],
+              commands: [
+                {
+                  id: 'uuid',
+                  verb: 'spawn_session',
+                  status: 'pending|claimed|done|failed',
+                  title: 'string|null',
+                  cwd: 'string|null',
+                  created_at: 'ISO-8601',
+                  completed_at: 'ISO-8601|null',
+                  result: 'object|null',
+                  error: 'string|null',
+                },
+              ],
             },
           ],
           counts: { machines: 'number', sessions: 'number', agents: 'number' },
           generated_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/commands',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Admin-only: queue a Remote Spawn command (1.5b) — starts a new Claude Code session on the target machine.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Verb is hard-allowlisted to spawn_session via a Zod literal — no other verb can ever be ' +
+          'created here. `machine` must match an existing OracleMachine.name (404 if not found). The ' +
+          'local dispatcher (bot auth, polling this machine\'s queue via GET) claims and executes it, ' +
+          'always via argv-array subprocess calls, never shell interpolation. Full audit: created_by ' +
+          'is the calling admin; an OracleEvent (kind=command_executed) is written when the dispatcher ' +
+          'reports completion via PATCH.',
+        bodySchema: [
+          { name: 'machine', type: 'string', required: true, description: 'OracleMachine.name to target' },
+          { name: 'verb', type: 'string', required: true, description: "Must be the literal 'spawn_session' — any other value is rejected (400)" },
+          { name: 'payload', type: 'object', required: true, description: '{ cwd (1-1024 chars), prompt? (<=10KB), title? (<=256 chars) }' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          machine: 'string',
+          verb: 'spawn_session',
+          payload: { cwd: 'string', prompt: 'string|undefined', title: 'string|undefined' },
+          status: 'pending',
+          created_by_id: 'uuid',
+          claimed_at: null,
+          completed_at: null,
+          result: null,
+          error: null,
+          created_at: 'ISO-8601',
+        },
+      },
+      {
+        method: 'GET',
+        summary: 'Machine client only: poll pending commands queued for this machine.',
+        auth: 'required',
+        responseNotes:
+          'Bearer API key for the oracle@indelible.bot service user ONLY — any other caller gets 403. ' +
+          '`machine` query param is required (a machine only ever reads its own queue; there is no ' +
+          '"all machines" mode). `status` defaults to `pending`. Commands are scoped to the named ' +
+          'machine and returned oldest first so the dispatcher processes them in order.',
+        queryParams: [
+          { name: 'machine', type: 'string', required: true, description: 'OracleMachine.name — scopes the query to this machine only' },
+          { name: 'status', type: 'string', required: false, description: 'pending|claimed|done|failed — defaults to pending' },
+        ],
+        responseExample: {
+          commands: [
+            {
+              id: 'uuid',
+              verb: 'spawn_session',
+              payload: { cwd: 'string', prompt: 'string|undefined', title: 'string|undefined' },
+              status: 'pending',
+              created_at: 'ISO-8601',
+              claimed_at: null,
+              completed_at: null,
+              result: null,
+              error: null,
+            },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/commands/{id}',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Machine client only: atomically claim a pending command, or report completion of a claimed one.',
+        auth: 'required',
+        responseNotes:
+          'Bearer API key for the oracle@indelible.bot service user ONLY — any other caller gets 403. ' +
+          "action=claim is ATOMIC (updateMany where status=pending -> claimed); if another caller " +
+          "already claimed it, count is 0 and this returns 409 — exactly one claimant ever wins. " +
+          "action=complete requires status to currently be claimed (also atomic; 409 if not) and sets " +
+          "status to done|failed + completed_at + result?/error?. On complete, writes an OracleEvent " +
+          "(kind=command_executed, machine-scoped) carrying only { command_id, verb, status, result } " +
+          "for the audit trail — never the prompt or cwd.",
+        bodySchema: [
+          { name: 'action', type: 'string', required: true, description: "'claim' or 'complete'" },
+          { name: 'status', type: 'string', required: false, description: "complete only: 'done' or 'failed'" },
+          { name: 'result', type: 'object', required: false, description: 'complete only: e.g. { tmux_session, remote_control }, capped at 8KB' },
+          { name: 'error', type: 'string', required: false, description: 'complete only: error message, max 2000 chars' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          machine_id: 'uuid',
+          verb: 'spawn_session',
+          payload: { cwd: 'string' },
+          status: 'claimed|done|failed',
+          claimed_at: 'ISO-8601|null',
+          completed_at: 'ISO-8601|null',
+          result: 'object|null',
+          error: 'string|null',
+          created_at: 'ISO-8601',
+          updated_at: 'ISO-8601',
         },
       },
     ],
