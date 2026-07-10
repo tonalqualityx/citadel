@@ -19,6 +19,12 @@ import {
   commandAge,
   commandRemoteControlState,
   distinctSessionCwds,
+  hasRunningChild,
+  runningChildCount,
+  isWorkingSession,
+  isWaitingSession,
+  anySessionRunning,
+  anySessionNeedsAttention,
 } from '../oracle-logic';
 
 function makeAgent(overrides: Partial<OracleAgentDTO> = {}): OracleAgentDTO {
@@ -137,6 +143,71 @@ describe('getStatusMeta', () => {
     expect(getStatusMeta(null).kind).toBe('unknown');
     expect(getStatusMeta(undefined).kind).toBe('unknown');
   });
+
+  it('working outranks needs_attention and uses accent, not warning (Phase 2)', () => {
+    const workingWaiting = getStatusMeta('waiting', false, true);
+    expect(workingWaiting.kind).toBe('working');
+    expect(workingWaiting.colorVar).toBe('--accent');
+    expect(workingWaiting.colorVar).not.toBe('--warning');
+
+    const workingAndFlagged = getStatusMeta('waiting', true, true);
+    expect(workingAndFlagged.kind).toBe('working');
+    expect(workingAndFlagged.colorVar).toBe('--accent');
+  });
+});
+
+describe('hasRunningChild / runningChildCount / isWorkingSession', () => {
+  it('hasRunningChild is true only when at least one agent is running', () => {
+    expect(hasRunningChild(makeSession({ agents: [] }))).toBe(false);
+    expect(hasRunningChild(makeSession({ agents: [makeAgent({ status: 'done' })] }))).toBe(false);
+    expect(
+      hasRunningChild(makeSession({ agents: [makeAgent({ status: 'done' }), makeAgent({ status: 'running', external_id: 'a2' })] }))
+    ).toBe(true);
+  });
+
+  it('runningChildCount counts only running agents', () => {
+    const session = makeSession({
+      agents: [
+        makeAgent({ external_id: 'a1', status: 'running' }),
+        makeAgent({ external_id: 'a2', status: 'running' }),
+        makeAgent({ external_id: 'a3', status: 'done' }),
+      ],
+    });
+    expect(runningChildCount(session)).toBe(2);
+  });
+
+  it('isWorkingSession is true for a waiting orchestrator with a running child', () => {
+    const session = makeSession({
+      status: 'waiting',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    expect(isWorkingSession(session)).toBe(true);
+    expect(isWaitingSession(session)).toBe(false);
+  });
+
+  it('isWorkingSession is true for a needs_attention orchestrator with a running child', () => {
+    const session = makeSession({
+      status: 'waiting',
+      needs_attention: true,
+      agents: [makeAgent({ status: 'running' })],
+    });
+    expect(isWorkingSession(session)).toBe(true);
+    expect(isWaitingSession(session)).toBe(false);
+  });
+
+  it('a waiting session with only done children still counts as waiting, not working', () => {
+    const session = makeSession({
+      status: 'waiting',
+      agents: [makeAgent({ status: 'done' }), makeAgent({ external_id: 'a2', status: 'done' })],
+    });
+    expect(isWorkingSession(session)).toBe(false);
+    expect(isWaitingSession(session)).toBe(true);
+  });
+
+  it('a running session with a running child is not "working" (it is already running)', () => {
+    const session = makeSession({ status: 'running', agents: [makeAgent({ status: 'running' })] });
+    expect(isWorkingSession(session)).toBe(false);
+  });
 });
 
 describe('selectWaitingSessions', () => {
@@ -193,6 +264,41 @@ describe('selectWaitingSessions', () => {
     const result = selectWaitingSessions([machine], now);
     expect(result[0].machine.name).toBe('my-machine');
   });
+
+  it('excludes a waiting orchestrator with a running child (Phase 2: it is working, not waiting on Reshi)', () => {
+    const now = Date.parse('2026-07-09T21:00:00.000Z');
+    const orchestrator = makeSession({
+      id: 'orch-waiting',
+      status: 'waiting',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machines = [makeMachine([orchestrator])];
+    expect(selectWaitingSessions(machines, now)).toHaveLength(0);
+  });
+
+  it('excludes a needs_attention orchestrator with a running child', () => {
+    const now = Date.parse('2026-07-09T21:00:00.000Z');
+    const orchestrator = makeSession({
+      id: 'orch-attention',
+      status: 'running',
+      needs_attention: true,
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machines = [makeMachine([orchestrator])];
+    expect(selectWaitingSessions(machines, now)).toHaveLength(0);
+  });
+
+  it('still includes a waiting session whose children are all done (no running child)', () => {
+    const now = Date.parse('2026-07-09T21:00:00.000Z');
+    const session = makeSession({
+      id: 'orch-done-children',
+      status: 'waiting',
+      agents: [makeAgent({ status: 'done' })],
+    });
+    const machines = [makeMachine([session])];
+    const result = selectWaitingSessions(machines, now);
+    expect(result.map((s) => s.id)).toEqual(['orch-done-children']);
+  });
 });
 
 describe('groupNonWaitingSessions', () => {
@@ -221,6 +327,47 @@ describe('groupNonWaitingSessions', () => {
       ...groups.recentlyEnded,
     ].map((s) => s.id);
     expect(allIds).not.toContain('waiting');
+  });
+
+  it('a "working" orchestrator (waiting status + running child) lands in the running group, not recentlyEnded', () => {
+    const workingOrchestrator = makeSession({
+      id: 'orch-working',
+      source: 'claude_code',
+      status: 'waiting',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machine = makeMachine([workingOrchestrator]);
+    const groups = groupNonWaitingSessions([machine]);
+
+    expect(groups.running.map((s) => s.id)).toEqual(['orch-working']);
+    expect(groups.recentlyEnded.map((s) => s.id)).not.toContain('orch-working');
+  });
+});
+
+describe('anySessionRunning / anySessionNeedsAttention (FleetTopbar aggregates)', () => {
+  it('anySessionRunning counts a working orchestrator as running', () => {
+    const workingOrchestrator = makeSession({
+      status: 'waiting',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machines = [makeMachine([workingOrchestrator])];
+    expect(anySessionRunning(machines)).toBe(true);
+  });
+
+  it('anySessionNeedsAttention excludes a working orchestrator even though needs_attention is stored true', () => {
+    const workingOrchestrator = makeSession({
+      status: 'waiting',
+      needs_attention: true,
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machines = [makeMachine([workingOrchestrator])];
+    expect(anySessionNeedsAttention(machines)).toBe(false);
+  });
+
+  it('anySessionNeedsAttention still fires for a genuine needs_attention session with no running child', () => {
+    const flagged = makeSession({ status: 'waiting', needs_attention: true, agents: [] });
+    const machines = [makeMachine([flagged])];
+    expect(anySessionNeedsAttention(machines)).toBe(true);
   });
 });
 

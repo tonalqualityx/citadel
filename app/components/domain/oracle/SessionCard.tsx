@@ -12,6 +12,8 @@ import {
   elapsedSince,
   formatElapsed,
   formatTokens,
+  isWorkingSession,
+  runningChildCount,
   sessionDisplayTitle,
   sourceLabel,
 } from './oracle-logic';
@@ -34,16 +36,24 @@ export function SessionCard({ session, nowMs, collapsed, className }: SessionCar
   const hasAgents = session.agents.length > 0;
   const openAgent = openKey ? session.agents.find((a) => a.external_id === openKey) : undefined;
   const drawerOpen = openKey === 'session' || !!openAgent;
+  // Phase 2: this session reads as waiting/needs_attention on its stored status but
+  // has a live running child — it's "working" (waiting on its own subagents, not
+  // Reshi), so it gets the accent working presentation instead of the warning border.
+  const working = isWorkingSession(session);
+  const workingCount = working ? runningChildCount(session) : 0;
 
   return (
     <Card
       className={cn(
         'overflow-hidden py-0 shadow-none',
-        session.needs_attention && 'border-[color:var(--warning)]',
+        working
+          ? 'border-[color:var(--accent)]'
+          : session.needs_attention && 'border-[color:var(--warning)]',
         className
       )}
       data-testid="session-card"
       data-status={session.status}
+      data-working={working || undefined}
     >
       <button
         type="button"
@@ -57,13 +67,15 @@ export function SessionCard({ session, nowMs, collapsed, className }: SessionCar
             deliberate mobile-legibility deviation — see spec deviations in the
             hand-off report). */}
         <div className="flex min-w-0 items-center gap-2">
-          <StatusDot status={session.status} needsAttention={session.needs_attention} />
+          <StatusDot status={session.status} needsAttention={session.needs_attention} working={working} />
           <span className="min-w-0 flex-1 truncate text-sm font-extrabold text-text-main">
             {sessionDisplayTitle(session)}
           </span>
           <OracleStatusBadge
             status={session.status}
             needsAttention={session.needs_attention}
+            working={working}
+            workingCount={workingCount}
             className="shrink-0"
           />
         </div>
