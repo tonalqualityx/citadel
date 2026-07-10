@@ -27,6 +27,7 @@ function makeSession(overrides: Partial<OracleSessionWithMachine>): OracleSessio
       last_heartbeat_at: null,
       stale: false,
       sessions: [],
+      commands: [],
     },
     ...overrides,
   };

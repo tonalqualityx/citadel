@@ -3,6 +3,7 @@
 // Kept dependency-free (no React, no fetch) so they're trivially unit-testable and
 // reusable across FleetTopbar, SessionCard, AgentRow, WaitingStrip.
 import type {
+  OracleCommandDTO,
   OracleMachineDTO,
   OracleSessionDTO,
   OracleSessionWithMachine,
@@ -276,4 +277,97 @@ export function sessionDisplayTitle(session: OracleSessionDTO): string {
     if (parts.length > 0) return parts[parts.length - 1];
   }
   return session.external_id.slice(0, 12);
+}
+
+// ============================================
+// Phase 1.5b — Remote Spawn commands
+// ============================================
+// Command chips get their own status→variant table rather than reusing
+// getStatusMeta: the command lifecycle (pending/claimed/done/failed) is a
+// different state machine from session/agent status (running/waiting/…), and per
+// Mike's ruling pending pulses muted (distinct from `queued`'s static muted dot)
+// while claimed reads as the active/in-progress state (accent, no pulse — the
+// dispatcher owns the work now, nothing on this screen is "live" about it).
+
+export interface CommandStatusMeta {
+  label: string;
+  /** CSS custom property name (e.g. "--accent") carrying this status's color. */
+  colorVar: string;
+  pulse: boolean;
+}
+
+const COMMAND_STATUS_META: Record<OracleCommandDTO['status'], CommandStatusMeta> = {
+  pending: { label: 'Pending', colorVar: '--text-muted', pulse: true },
+  claimed: { label: 'Claimed', colorVar: '--accent', pulse: false },
+  done: { label: 'Done', colorVar: '--success', pulse: false },
+  failed: { label: 'Failed', colorVar: '--error', pulse: false },
+};
+
+/** Falls back to a muted "unknown" pill rather than throwing — status is a DB enum
+ *  server-side today, but this keeps the UI inert against a future added value. */
+export function getCommandStatusMeta(status: string): CommandStatusMeta {
+  return (
+    COMMAND_STATUS_META[status as OracleCommandDTO['status']] ?? {
+      label: status || 'Unknown',
+      colorVar: '--text-muted',
+      pulse: false,
+    }
+  );
+}
+
+/** Best-available display title for a command chip: explicit title, else cwd
+ *  basename, else a short id — same fallback ladder as sessionDisplayTitle. */
+export function commandDisplayTitle(command: OracleCommandDTO): string {
+  if (command.title) return command.title;
+  if (command.cwd) {
+    const parts = command.cwd.split('/').filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+  return command.id.slice(0, 8);
+}
+
+/** Client-computed relative age (no per-second refetch — same nowMs discipline as
+ *  elapsedSince/formatElapsed elsewhere in this file). */
+export function commandAge(createdAt: string, nowMs: number): string {
+  const t = new Date(createdAt).getTime();
+  if (Number.isNaN(t)) return '';
+  const ms = Math.max(0, nowMs - t);
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) return 'just now';
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+export type RemoteControlDisplay = 'confirmed' | 'unconfirmed' | null;
+
+/**
+ * ADDENDUM (remote-control confirmation display): only meaningful once a spawn
+ * command is `done` — a pending/claimed/failed command has no session to confirm
+ * remote control on yet. Per Mike's ruling, `unconfirmed` renders as a WARNING, not
+ * a success — the dispatcher couldn't verify remote control registered, so the
+ * phone-attach path may not work even though the session itself spawned fine.
+ * Missing/malformed `result.remote_control` on a done command is treated the same
+ * as `unconfirmed` (fail toward the more visible warning state, never silently
+ * green).
+ */
+export function commandRemoteControlState(command: OracleCommandDTO): RemoteControlDisplay {
+  if (command.status !== 'done') return null;
+  const rc = command.result?.remote_control;
+  return rc === 'confirmed' ? 'confirmed' : 'unconfirmed';
+}
+
+/** Distinct, sorted cwd values across every session on the fleet — feeds the New
+ *  Session modal's cwd <datalist> so a repeat spawn is a couple of keystrokes. */
+export function distinctSessionCwds(machines: OracleMachineDTO[]): string[] {
+  const cwds = new Set<string>();
+  for (const machine of machines) {
+    for (const session of machine.sessions) {
+      if (session.cwd) cwds.add(session.cwd);
+    }
+  }
+  return Array.from(cwds).sort();
 }

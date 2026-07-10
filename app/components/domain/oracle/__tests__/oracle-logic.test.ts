@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import type { OracleAgentDTO, OracleMachineDTO, OracleSessionDTO } from '@/lib/types/oracle';
+import type {
+  OracleAgentDTO,
+  OracleCommandDTO,
+  OracleMachineDTO,
+  OracleSessionDTO,
+} from '@/lib/types/oracle';
 import {
   getStatusMeta,
   selectWaitingSessions,
@@ -9,6 +14,11 @@ import {
   formatElapsed,
   formatTokens,
   sessionDisplayTitle,
+  getCommandStatusMeta,
+  commandDisplayTitle,
+  commandAge,
+  commandRemoteControlState,
+  distinctSessionCwds,
 } from '../oracle-logic';
 
 function makeAgent(overrides: Partial<OracleAgentDTO> = {}): OracleAgentDTO {
@@ -56,6 +66,22 @@ function makeMachine(sessions: OracleSessionDTO[], overrides: Partial<OracleMach
     last_heartbeat_at: '2026-07-09T20:11:00.000Z',
     stale: false,
     sessions,
+    commands: [],
+    ...overrides,
+  };
+}
+
+function makeCommand(overrides: Partial<OracleCommandDTO> = {}): OracleCommandDTO {
+  return {
+    id: 'cmd-1',
+    verb: 'spawn_session',
+    status: 'pending',
+    title: null,
+    cwd: '/home/mike/.openclaw/workspace/citadel',
+    created_at: '2026-07-09T20:00:00.000Z',
+    completed_at: null,
+    result: null,
+    error: null,
     ...overrides,
   };
 }
@@ -286,5 +312,129 @@ describe('sessionDisplayTitle', () => {
     expect(
       sessionDisplayTitle(makeSession({ title: null, cwd: null, external_id: 'abcdefghijklmnop' }))
     ).toBe('abcdefghijkl');
+  });
+});
+
+describe('getCommandStatusMeta', () => {
+  it('maps pending to muted with pulse', () => {
+    const meta = getCommandStatusMeta('pending');
+    expect(meta.colorVar).toBe('--text-muted');
+    expect(meta.pulse).toBe(true);
+  });
+
+  it('maps claimed to accent without pulse', () => {
+    const meta = getCommandStatusMeta('claimed');
+    expect(meta.colorVar).toBe('--accent');
+    expect(meta.pulse).toBe(false);
+  });
+
+  it('maps done to success', () => {
+    expect(getCommandStatusMeta('done').colorVar).toBe('--success');
+  });
+
+  it('maps failed to error, never warning (house rule: warning is never red)', () => {
+    const meta = getCommandStatusMeta('failed');
+    expect(meta.colorVar).toBe('--error');
+    expect(meta.colorVar).not.toBe('--warning');
+  });
+
+  it('falls back to a muted unknown pill for unrecognized statuses without throwing', () => {
+    const meta = getCommandStatusMeta('some-future-status');
+    expect(meta.colorVar).toBe('--text-muted');
+    expect(meta.label).toBe('some-future-status');
+  });
+});
+
+describe('commandDisplayTitle', () => {
+  it('prefers the explicit title', () => {
+    expect(commandDisplayTitle(makeCommand({ title: 'Quick fix' }))).toBe('Quick fix');
+  });
+
+  it('falls back to the cwd basename', () => {
+    expect(
+      commandDisplayTitle(makeCommand({ title: null, cwd: '/home/mike/clients/oddfox' }))
+    ).toBe('oddfox');
+  });
+
+  it('falls back to a short id when neither title nor cwd exist', () => {
+    expect(
+      commandDisplayTitle(makeCommand({ title: null, cwd: null, id: 'abcdefghijklmnop' }))
+    ).toBe('abcdefgh');
+  });
+});
+
+describe('commandAge', () => {
+  const now = Date.parse('2026-07-09T21:00:00.000Z');
+
+  it('reads as "just now" under a minute', () => {
+    expect(commandAge('2026-07-09T20:59:45.000Z', now)).toBe('just now');
+  });
+
+  it('formats minutes', () => {
+    expect(commandAge('2026-07-09T20:55:00.000Z', now)).toBe('5m ago');
+  });
+
+  it('formats hours', () => {
+    expect(commandAge('2026-07-09T18:00:00.000Z', now)).toBe('3h ago');
+  });
+
+  it('formats days', () => {
+    expect(commandAge('2026-07-07T21:00:00.000Z', now)).toBe('2d ago');
+  });
+
+  it('returns empty string for an unparsable timestamp rather than throwing', () => {
+    expect(commandAge('not-a-date', now)).toBe('');
+  });
+});
+
+describe('commandRemoteControlState', () => {
+  it('is null for pending/claimed/failed commands — nothing to confirm yet', () => {
+    expect(commandRemoteControlState(makeCommand({ status: 'pending' }))).toBeNull();
+    expect(commandRemoteControlState(makeCommand({ status: 'claimed' }))).toBeNull();
+    expect(commandRemoteControlState(makeCommand({ status: 'failed', error: 'boom' }))).toBeNull();
+  });
+
+  it('reads confirmed off a done command result', () => {
+    const command = makeCommand({
+      status: 'done',
+      result: { tmux_session: 'oracle-abc12', remote_control: 'confirmed' },
+    });
+    expect(commandRemoteControlState(command)).toBe('confirmed');
+  });
+
+  it('reads unconfirmed off a done command result', () => {
+    const command = makeCommand({
+      status: 'done',
+      result: { tmux_session: 'oracle-abc12', remote_control: 'unconfirmed' },
+    });
+    expect(commandRemoteControlState(command)).toBe('unconfirmed');
+  });
+
+  it('treats a done command with missing/malformed remote_control as unconfirmed (fail toward the visible warning, never silently green)', () => {
+    expect(commandRemoteControlState(makeCommand({ status: 'done', result: {} }))).toBe(
+      'unconfirmed'
+    );
+    expect(commandRemoteControlState(makeCommand({ status: 'done', result: null }))).toBe(
+      'unconfirmed'
+    );
+  });
+});
+
+describe('distinctSessionCwds', () => {
+  it('collects distinct, sorted cwd values across every machine and session', () => {
+    const s1 = makeSession({ id: 's1', cwd: '/home/mike/clients/oddfox' });
+    const s2 = makeSession({ id: 's2', cwd: '/home/mike/clients/abbott' });
+    const s3 = makeSession({ id: 's3', cwd: '/home/mike/clients/oddfox' }); // duplicate
+    const s4 = makeSession({ id: 's4', cwd: null });
+
+    const machines = [makeMachine([s1, s2]), makeMachine([s3, s4], { id: 'machine-2' })];
+    expect(distinctSessionCwds(machines)).toEqual([
+      '/home/mike/clients/abbott',
+      '/home/mike/clients/oddfox',
+    ]);
+  });
+
+  it('returns an empty array when no session has a cwd', () => {
+    expect(distinctSessionCwds([makeMachine([makeSession({ cwd: null })])])).toEqual([]);
   });
 });

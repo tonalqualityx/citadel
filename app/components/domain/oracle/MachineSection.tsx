@@ -4,6 +4,7 @@ import { AlertOctagon } from 'lucide-react';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
 import { SessionCard } from './SessionCard';
 import { CollapsibleGroup } from './CollapsibleGroup';
+import { CommandStrip } from './CommandStrip';
 import { groupNonWaitingSessions, formatElapsed, formatHeartbeatTime } from './oracle-logic';
 
 interface MachineSectionProps {
@@ -19,8 +20,13 @@ export function MachineSection({ machine, nowMs, collapsedCards }: MachineSectio
   const groups = groupNonWaitingSessions([machine]);
   const totalNonWaiting =
     groups.running.length + groups.workflows.length + groups.crons.length + groups.recentlyEnded.length;
+  const hasCommands = machine.commands.length > 0;
 
-  if (totalNonWaiting === 0) return null;
+  // A machine with a freshly-queued spawn command but no sessions yet (dispatcher
+  // hasn't run within its ~1 minute cadence) should still surface here — otherwise
+  // the pending chip is invisible until the spawned session's own hooks/heartbeat
+  // land, which defeats the point of showing command status at all.
+  if (totalNonWaiting === 0 && !hasCommands) return null;
 
   const heartbeatMs = machine.last_heartbeat_at
     ? nowMs - new Date(machine.last_heartbeat_at).getTime()
@@ -37,6 +43,8 @@ export function MachineSection({ machine, nowMs, collapsedCards }: MachineSectio
           {heartbeatMs != null ? `heartbeat ${formatElapsed(heartbeatMs)} ago` : 'no heartbeat yet'}
         </span>
       </div>
+
+      <CommandStrip commands={machine.commands} nowMs={nowMs} />
 
       {machine.stale && (
         <div

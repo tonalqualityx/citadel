@@ -28,7 +28,7 @@ interface NavSection {
 export function MobileNav({ open, onClose }: MobileNavProps) {
   const pathname = usePathname();
   const { t } = useTerminology();
-  const { isPmOrAdmin } = useAuth();
+  const { isPmOrAdmin, isAdmin } = useAuth();
   const initialPathname = useRef(pathname);
 
   // Close on route change (but not on initial mount)
@@ -182,8 +182,8 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
           {/* Knowledge section */}
           <NavSectionBlock section={knowledgeSection} pathname={pathname} />
 
-          {/* Oracle section - PM/Admin only */}
-          {isPmOrAdmin && <NavSectionBlock section={oracleSection} pathname={pathname} />}
+          {/* Oracle section - admin only (1.5a, was PM/Admin) */}
+          {isAdmin && <NavSectionBlock section={oracleSection} pathname={pathname} />}
 
           {/* Settings */}
           <div className="space-y-1">
