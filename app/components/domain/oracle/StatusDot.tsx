@@ -6,14 +6,17 @@ import { getStatusMeta } from './oracle-logic';
 interface StatusDotProps {
   status: string | null | undefined;
   needsAttention?: boolean;
+  /** Phase 2: session is waiting/needs_attention on its own subagents, not Reshi —
+   *  render the "Working" accent state instead, outranking needsAttention's warning. */
+  working?: boolean;
   className?: string;
 }
 
 // Ringside's dot, Citadel's palette: color always comes from a theme CSS variable
 // (never a hardcoded hex) so the same status reads correctly in light/dim/dark.
 // running gets a subtle pulse; needs_attention gets a ring in addition to its color.
-export function StatusDot({ status, needsAttention = false, className }: StatusDotProps) {
-  const meta = getStatusMeta(status, needsAttention);
+export function StatusDot({ status, needsAttention = false, working = false, className }: StatusDotProps) {
+  const meta = getStatusMeta(status, needsAttention, working);
   const color = `var(${meta.colorVar})`;
 
   return (

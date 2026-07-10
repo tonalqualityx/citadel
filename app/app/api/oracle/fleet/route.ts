@@ -3,7 +3,12 @@ import { OracleSessionStatus } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { isMachineStale, COMMAND_RECENT_HOURS, COMMAND_RECENT_CAP } from '@/lib/oracle/helpers';
+import {
+  isMachineStale,
+  COMMAND_RECENT_HOURS,
+  COMMAND_RECENT_CAP,
+  STALE_HIDE_MINUTES,
+} from '@/lib/oracle/helpers';
 
 // Ended sessions older than this fall out of the fleet response entirely (the UI's
 // "Recently ended" group only needs a short tail, not the full history — that lives in
@@ -21,6 +26,7 @@ export async function GET() {
     const now = new Date();
     const recentEndedCutoff = new Date(now.getTime() - RECENT_ENDED_HOURS * 60 * 60 * 1000);
     const recentCommandCutoff = new Date(now.getTime() - COMMAND_RECENT_HOURS * 60 * 60 * 1000);
+    const staleHideCutoff = new Date(now.getTime() - STALE_HIDE_MINUTES * 60 * 1000);
 
     const machines = await prisma.oracleMachine.findMany({
       orderBy: { name: 'asc' },
@@ -30,9 +36,15 @@ export async function GET() {
             OR: [
               {
                 status: {
-                  in: [OracleSessionStatus.running, OracleSessionStatus.waiting, OracleSessionStatus.stale],
+                  in: [OracleSessionStatus.running, OracleSessionStatus.waiting],
                 },
               },
+              // Read-time cleanup (Phase 2): a stale session only stays visible for
+              // STALE_HIDE_MINUTES after its last event — long-dead junk (e.g. old
+              // heartbeat-bug subagent rows) ages out of the response without ever
+              // being deleted. Recently-stale sessions (a machine that just dropped)
+              // still show up.
+              { status: OracleSessionStatus.stale, last_event_at: { gte: staleHideCutoff } },
               { status: OracleSessionStatus.ended, ended_at: { gte: recentEndedCutoff } },
             ],
           },

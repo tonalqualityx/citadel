@@ -20,6 +20,7 @@ export type OracleStatusKind =
   | 'running'
   | 'waiting'
   | 'needs_attention'
+  | 'working'
   | 'done'
   | 'failed'
   | 'stale'
@@ -39,6 +40,13 @@ const STATUS_META: Record<Exclude<OracleStatusKind, 'unknown'>, Omit<StatusMeta,
   running: { label: 'Running', colorVar: '--accent', pulse: true, ring: false },
   waiting: { label: 'Waiting', colorVar: '--warning', pulse: false, ring: false },
   needs_attention: { label: 'Needs attention', colorVar: '--warning', pulse: false, ring: true },
+  // Phase 2: an orchestrator that ended its own turn (Stop -> waiting, or a stray
+  // Notification -> needs_attention) while its own dispatched subagents are still
+  // running isn't waiting on Reshi — it's waiting on its own kids. This is a
+  // read-time DERIVED display state (never persisted, no new DB enum value) that
+  // wins over needs_attention: accent (not warning gold) so it never reads as
+  // "needs you". See isWorkingSession/hasRunningChild below.
+  working: { label: 'Working', colorVar: '--accent', pulse: true, ring: false },
   done: { label: 'Done', colorVar: '--success', pulse: false, ring: false },
   failed: { label: 'Failed', colorVar: '--error', pulse: false, ring: false },
   stale: { label: 'Stale', colorVar: '--text-muted', pulse: false, ring: false },
@@ -52,14 +60,24 @@ const STATUS_ALIASES: Record<string, Exclude<OracleStatusKind, 'unknown'>> = {
 
 /**
  * Resolve a session or agent status string (plus the needs_attention flag, which
- * always wins — it's the highest-priority signal regardless of underlying status)
+ * normally wins — it's the highest-priority signal regardless of underlying status)
  * to display metadata. Unknown statuses fall back to a muted "unknown" pill rather
  * than throwing, since agent status is a free string server-side.
+ *
+ * `working` outranks even needs_attention: it means the caller has already
+ * determined (via isWorkingSession/hasRunningChild) that this session's
+ * waiting/needs_attention read is actually "waiting on its own subagents", not on
+ * Reshi — so the accent "Working" state must win over the warning-gold
+ * needs_attention state, never the other way around.
  */
 export function getStatusMeta(
   status: string | null | undefined,
-  needsAttention = false
+  needsAttention = false,
+  working = false
 ): StatusMeta {
+  if (working) {
+    return { kind: 'working', ...STATUS_META.working };
+  }
   if (needsAttention) {
     return { kind: 'needs_attention', ...STATUS_META.needs_attention };
   }
@@ -86,8 +104,34 @@ export function flattenSessions(machines: OracleMachineDTO[]): OracleSessionWith
   );
 }
 
+/**
+ * True when a session has at least one child agent still actively running.
+ * Client-side derivation only — OracleSessionDTO already carries `agents[]` with
+ * per-agent status, so no server/DTO change is needed to know "is this orchestrator
+ * still waiting on its own subagents, or truly idle."
+ */
+export function hasRunningChild(session: OracleSessionDTO): boolean {
+  return session.agents.some((agent) => agent.status === 'running');
+}
+
+/** Count of currently-running child agents — feeds the "working · N agents" label. */
+export function runningChildCount(session: OracleSessionDTO): number {
+  return session.agents.filter((agent) => agent.status === 'running').length;
+}
+
+/**
+ * A session that LOOKS like it's waiting on Reshi (status waiting, or flagged
+ * needs_attention) but actually has a live running child is "working", not
+ * "waiting on you" — it ended its own turn to await its own dispatched subagents.
+ * Read-time only: self-corrects back to waiting once the children finish, no
+ * persistence involved.
+ */
+export function isWorkingSession(session: OracleSessionDTO): boolean {
+  return (session.status === 'waiting' || session.needs_attention) && hasRunningChild(session);
+}
+
 export function isWaitingSession(session: OracleSessionDTO): boolean {
-  return session.status === 'waiting' || session.needs_attention;
+  return (session.status === 'waiting' || session.needs_attention) && !hasRunningChild(session);
 }
 
 /** Milliseconds since the session last made progress — the basis for wait-time sort. */
@@ -138,7 +182,10 @@ export function groupNonWaitingSessions(machines: OracleMachineDTO[]): SessionGr
       groups.crons.push(session);
       continue;
     }
-    if (session.status === 'running') {
+    // A "working" orchestrator (waiting/needs_attention on its stored status, but
+    // with a live running child) reads as active, not idle — it belongs in the
+    // running/working group, not "recently ended".
+    if (session.status === 'running' || isWorkingSession(session)) {
       groups.running.push(session);
       continue;
     }
@@ -198,12 +245,15 @@ export function fleetCounts(machines: OracleMachineDTO[]): { sessions: number; a
   return { sessions, agents };
 }
 
+// A working orchestrator (waiting on its own subagents) counts as "running" for the
+// topbar pulse — it's genuinely active — and is excluded from "needs attention" so
+// its stored needs_attention flag can't make the fleet dot read as needing Reshi.
 export function anySessionRunning(machines: OracleMachineDTO[]): boolean {
-  return machines.some((m) => m.sessions.some((s) => s.status === 'running'));
+  return machines.some((m) => m.sessions.some((s) => s.status === 'running' || isWorkingSession(s)));
 }
 
 export function anySessionNeedsAttention(machines: OracleMachineDTO[]): boolean {
-  return machines.some((m) => m.sessions.some((s) => s.needs_attention));
+  return machines.some((m) => m.sessions.some((s) => s.needs_attention && !hasRunningChild(s)));
 }
 
 // ============================================

@@ -304,6 +304,47 @@ describe('POST /api/oracle/ingest — snapshot + agents', () => {
     expect(mockAgentUpsert).toHaveBeenCalledTimes(2);
   });
 
+  // Regression guard for Phase 2 (Oracle orchestrator nesting): the agent-upsert
+  // path is source-agnostic — a claude_code session's snapshot agents[] must upsert
+  // exactly like a workflow session's. This is what lets a Claude Code orchestrator
+  // show its background subagents nested (and therefore lets the client derive
+  // "working" instead of "waiting on Reshi") with NO server/ingest change required.
+  it('upserts agents for a claude_code snapshot session (source is not gated)', async () => {
+    mockSessionCreate.mockResolvedValue({
+      id: 'cc-sess-1',
+      source: 'claude_code',
+      external_id: 'cc-1',
+      status: 'waiting',
+      last_event_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            {
+              external_id: 'cc-1',
+              source: 'claude_code',
+              title: 'Orchestrator session',
+              status: 'waiting',
+              agents: [
+                { external_id: 'agent-a0', label: 'Subagent A', status: 'running', tokens: 200 },
+              ],
+            },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.sessions_upserted).toBe(1);
+    expect(body.agents_upserted).toBe(1);
+    expect(mockAgentUpsert).toHaveBeenCalledTimes(1);
+  });
+
   it('reconciles a running session absent from the snapshot and stale for 5+ minutes to `stale`', async () => {
     const staleSince = new Date(Date.now() - 10 * 60_000); // 10 min ago > 5 min threshold
     mockSessionFindMany.mockResolvedValue([

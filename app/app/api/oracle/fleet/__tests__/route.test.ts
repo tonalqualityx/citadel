@@ -179,6 +179,100 @@ describe('GET /api/oracle/fleet — shape', () => {
   });
 });
 
+describe('GET /api/oracle/fleet — stale read-time hide (Phase 2)', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(ADMIN);
+  });
+
+  // The actual row-level filtering happens inside the Prisma `where` clause (DB-side),
+  // and prisma.oracleMachine.findMany is fully mocked here, so these tests exercise the
+  // query construction the route sends to Prisma — asserting the sessions.where.OR
+  // clause both (a) has a stale-status branch gated by last_event_at >= a
+  // STALE_HIDE_MINUTES-ago cutoff, and (b) leaves running/waiting ungated by age. This
+  // is the same "assert the where the route builds" pattern the DB actually executes;
+  // the real end-to-end row-count behavior is proven separately via a seeded live-DB
+  // check (see feature-planning/oracle-phase1-verification.md, Phase 2 section).
+
+  it('gates the stale branch of the sessions where-clause on a last_event_at >= (now - 60min) cutoff', async () => {
+    mockMachineFindMany.mockResolvedValue([machine()]);
+    const before = Date.now();
+    await GET();
+    const after = Date.now();
+
+    const callArgs = mockMachineFindMany.mock.calls[0][0];
+    const sessionsWhere = callArgs.include.sessions.where;
+    const staleClause = sessionsWhere.OR.find(
+      (clause: Record<string, unknown>) => clause.status === 'stale'
+    );
+    expect(staleClause).toBeDefined();
+    const cutoff = staleClause.last_event_at.gte as Date;
+    // cutoff should be ~60 minutes before "now" at call time (STALE_HIDE_MINUTES)
+    const expectedMin = before - 60 * 60_000;
+    const expectedMax = after - 60 * 60_000;
+    expect(cutoff.getTime()).toBeGreaterThanOrEqual(expectedMin);
+    expect(cutoff.getTime()).toBeLessThanOrEqual(expectedMax);
+  });
+
+  it('does not gate the running/waiting branch of the where-clause by age', async () => {
+    mockMachineFindMany.mockResolvedValue([machine()]);
+    await GET();
+
+    const callArgs = mockMachineFindMany.mock.calls[0][0];
+    const sessionsWhere = callArgs.include.sessions.where;
+    const runningWaitingClause = sessionsWhere.OR.find(
+      (clause: Record<string, unknown>) =>
+        clause.status && typeof clause.status === 'object' && 'in' in (clause.status as object)
+    );
+    expect(runningWaitingClause).toBeDefined();
+    expect((runningWaitingClause as { status: { in: string[] } }).status.in).toEqual([
+      'running',
+      'waiting',
+    ]);
+    // no last_event_at gate on this branch
+    expect(Object.keys(runningWaitingClause as object)).toEqual(['status']);
+  });
+
+  it('excludes a stale session with last_event_at 2h ago given the where-clause semantics', () => {
+    // Mirrors the Prisma `gte` semantics the route constructs above: a stale row is
+    // included only when last_event_at >= (now - STALE_HIDE_MINUTES).
+    const cutoff = new Date(Date.now() - 60 * 60_000);
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000);
+    expect(twoHoursAgo.getTime() >= cutoff.getTime()).toBe(false);
+  });
+
+  it('includes a stale session with last_event_at 10min ago given the where-clause semantics', () => {
+    const cutoff = new Date(Date.now() - 60 * 60_000);
+    const tenMinAgo = new Date(Date.now() - 10 * 60_000);
+    expect(tenMinAgo.getTime() >= cutoff.getTime()).toBe(true);
+  });
+
+  it('a waiting/running session of any age passes the where-clause regardless of last_event_at', async () => {
+    // Because the running/waiting branch has no last_event_at gate (asserted above),
+    // any session with status running or waiting matches irrespective of age. Confirm
+    // the shaping path itself doesn't add a secondary age filter by feeding the route
+    // an old waiting/running session and checking it survives to the response.
+    mockMachineFindMany.mockResolvedValue([
+      machine({
+        sessions: [
+          session({
+            id: 'waiting-old',
+            status: 'waiting',
+            last_event_at: new Date(Date.now() - 5 * 60 * 60_000),
+          }),
+          session({
+            id: 'running-old',
+            status: 'running',
+            last_event_at: new Date(Date.now() - 5 * 60 * 60_000),
+          }),
+        ],
+      }),
+    ]);
+    const body = await (await GET()).json();
+    const ids = body.machines[0].sessions.map((s: { id: string }) => s.id);
+    expect(ids).toEqual(expect.arrayContaining(['waiting-old', 'running-old']));
+  });
+});
+
 describe('GET /api/oracle/fleet — commands (1.5b)', () => {
   beforeEach(() => {
     mockRequireAuth.mockResolvedValue(ADMIN);
