@@ -52,6 +52,7 @@ function makeSession(overrides: Partial<OracleSessionDTO> = {}): OracleSessionDT
     title: 'Some session',
     cwd: '/home/mike/project',
     model: 'claude-sonnet-5',
+    remote_url: null,
     status: 'running',
     needs_attention: false,
     attention_reason: null,

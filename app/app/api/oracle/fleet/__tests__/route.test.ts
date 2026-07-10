@@ -45,6 +45,7 @@ function session(overrides: Record<string, unknown> = {}) {
     title: 'Some session',
     cwd: '/home/mike/project',
     model: 'claude-sonnet-5',
+    remote_url: null,
     status: 'running',
     needs_attention: false,
     attention_reason: null,
@@ -176,6 +177,34 @@ describe('GET /api/oracle/fleet — shape', () => {
     const body = await (await GET()).json();
     expect(body.machines).toEqual([]);
     expect(body.counts).toEqual({ machines: 0, sessions: 0, agents: 0 });
+  });
+
+  it('includes remote_url on a session shape (Phase 3 Respond deep-link)', async () => {
+    mockMachineFindMany.mockResolvedValue([
+      machine({
+        sessions: [
+          session({
+            id: 'sess-remote',
+            remote_url: 'https://claude.ai/code/session_01NZKAFYR37yuNaaz2DPajxL',
+          }),
+        ],
+      }),
+    ]);
+
+    const body = await (await GET()).json();
+    expect(body.machines[0].sessions[0]).toMatchObject({
+      id: 'sess-remote',
+      remote_url: 'https://claude.ai/code/session_01NZKAFYR37yuNaaz2DPajxL',
+    });
+  });
+
+  it('returns remote_url: null when the session has no bridge session', async () => {
+    mockMachineFindMany.mockResolvedValue([
+      machine({ sessions: [session({ id: 'sess-no-remote', remote_url: null })] }),
+    ]);
+
+    const body = await (await GET()).json();
+    expect(body.machines[0].sessions[0].remote_url).toBeNull();
   });
 });
 

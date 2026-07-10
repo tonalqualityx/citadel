@@ -32,6 +32,10 @@ export interface OracleSessionDTO {
   title: string | null;
   cwd: string | null;
   model: string | null;
+  // Claude Remote Control deep-link (Oracle Phase 3), e.g. https://claude.ai/code/session_xxx.
+  // Set by the heartbeat only when a bridge session exists; null when absent/not (yet)
+  // remote-control-enabled. Validated server-side (host === claude.ai, path starts /code/).
+  remote_url: string | null;
   status: OracleSessionStatus;
   needs_attention: boolean;
   attention_reason: string | null;

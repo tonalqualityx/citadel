@@ -2368,6 +2368,12 @@ model OracleSession {
   cwd   String? @db.VarChar(1000)
   model String? @db.VarChar(100)
 
+  // Claude Remote Control deep-link (e.g. https://claude.ai/code/session_xxx) — set by the
+  // heartbeat when a bridge session exists for this claude_code session (Oracle Phase 3).
+  // Ingest validates this is an https://claude.ai/code/... URL before persisting; no
+  // arbitrary URL is ever stored here.
+  remote_url String? @db.VarChar(500)
+
   status           OracleSessionStatus @default(running)
   needs_attention  Boolean             @default(false) // Notification hook fired; cleared on next UserPromptSubmit
   attention_reason String?             @db.Text

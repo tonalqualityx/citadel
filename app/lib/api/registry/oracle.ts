@@ -28,7 +28,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
           { name: 'machine', type: 'object', required: true, description: '{ name (unique machine key), hostname? }' },
           { name: 'sent_at', type: 'ISO-8601', required: false, description: 'Heartbeat/call timestamp; updates machine.last_heartbeat_at' },
           { name: 'events', type: 'object', required: false, description: 'Array of hook events (max 500): { kind, external_id, source, ts, title?, cwd?, model?, tokens_total?, payload? }' },
-          { name: 'snapshot', type: 'object', required: false, description: '{ sessions: [{ external_id, source, title?, cwd?, model?, status?, needs_attention?, attention_reason?, started_at?, last_event_at?, ended_at?, tokens_total?, meta?, agents?: [...] }] }' },
+          { name: 'snapshot', type: 'object', required: false, description: '{ sessions: [{ external_id, source, title?, cwd?, model?, remote_url?, status?, needs_attention?, attention_reason?, started_at?, last_event_at?, ended_at?, tokens_total?, meta?, agents?: [...] }] }. remote_url (Phase 3, nullable) must be an https://claude.ai/code/... URL or null to clear — anything else 400s the whole request.' },
         ],
         responseExample: {
           success: true,
@@ -73,6 +73,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
                   title: 'string|null',
                   cwd: 'string|null',
                   model: 'string|null',
+                  remote_url: 'string|null',
                   status: 'running|waiting|ended|stale',
                   needs_attention: 'boolean',
                   attention_reason: 'string|null',

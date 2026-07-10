@@ -33,6 +33,28 @@ const jsonPayloadSchema = z
 const sourceSchema = z.nativeEnum(OracleSource);
 const sessionStatusSchema = z.nativeEnum(OracleSessionStatus);
 
+// Claude Remote Control deep-link (Oracle Phase 3). Security requirement: we do NOT store
+// arbitrary URLs — only an https URL whose host is exactly claude.ai and whose path starts
+// with /code/ is accepted. Anything else (other host, http, javascript:, junk string) fails
+// validation and the whole request 400s, same as any other Zod violation here. `null` is
+// allowed through (explicitly clears a previously-set remote_url); the field is otherwise
+// optional (absent leaves the stored value untouched — see the snapshot upsert below).
+const remoteUrlSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (value) => {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        return false;
+      }
+      return url.protocol === 'https:' && url.hostname === 'claude.ai' && url.pathname.startsWith('/code/');
+    },
+    { message: 'remote_url must be an https://claude.ai/code/... URL' }
+  );
+
 // Events come straight off Claude Code hooks / the heartbeat spool. `status` is
 // intentionally NOT client-settable here — session status is server-derived from `kind`
 // (see deriveSessionUpdate below). Unknown kinds are accepted and simply logged; ingest
@@ -71,6 +93,7 @@ const snapshotSessionSchema = z.object({
   title: z.string().max(500).optional(),
   cwd: z.string().max(1000).optional(),
   model: z.string().max(100).optional(),
+  remote_url: remoteUrlSchema.nullable().optional(),
   status: sessionStatusSchema.optional(),
   needs_attention: z.boolean().optional(),
   attention_reason: z.string().max(2000).optional(),
@@ -312,6 +335,7 @@ export async function POST(request: NextRequest) {
           ...(snap.title !== undefined && { title: snap.title }),
           ...(snap.cwd !== undefined && { cwd: snap.cwd }),
           ...(snap.model !== undefined && { model: snap.model }),
+          ...(snap.remote_url !== undefined && { remote_url: snap.remote_url }),
           ...(snap.status !== undefined && { status: snap.status }),
           ...(snap.needs_attention !== undefined && { needs_attention: snap.needs_attention }),
           ...(snap.attention_reason !== undefined && { attention_reason: snap.attention_reason }),
