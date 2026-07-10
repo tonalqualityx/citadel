@@ -39,3 +39,12 @@ export const MAX_COMMAND_RESULT_BYTES = 8_000;
 // Fleet response's `commands` field: only the last N hours, capped per machine, newest first.
 export const COMMAND_RECENT_HOURS = 24;
 export const COMMAND_RECENT_CAP = 20;
+
+// Phase 2 read-time cleanup: a `stale` session whose last_event_at is older than this is
+// long-dead (the client gave up reconciling it — see RECONCILE_STALE_MINUTES above, which
+// only governs the running->stale transition, not how long a stale row lingers after).
+// There is no delete/prune path for sessions, so instead of a destructive cleanup job the
+// fleet route simply excludes long-stale rows from its response at read time — nothing is
+// deleted, a stale row just ages out of view after an hour. Freshly-stale sessions (e.g. a
+// machine reconciled dead moments ago) still show up so a real crash is still visible.
+export const STALE_HIDE_MINUTES = 60;
