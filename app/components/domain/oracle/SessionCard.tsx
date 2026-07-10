@@ -74,7 +74,9 @@ export function SessionCard({ session, nowMs, collapsed, className }: SessionCar
             {session.model ? ` · ${session.model}` : ''}
           </span>
           <span className="shrink-0">{formatElapsed(elapsedMs)}</span>
-          <span className="shrink-0">{formatTokens(session.tokens_total)}</span>
+          <span className="shrink-0">
+            {formatTokens(session.tokens_total, session.source === 'claude_code')}
+          </span>
         </div>
       </button>
 

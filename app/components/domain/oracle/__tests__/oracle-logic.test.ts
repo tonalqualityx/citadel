@@ -257,6 +257,18 @@ describe('formatTokens', () => {
     expect(formatTokens(null)).toBe('0 tok');
     expect(formatTokens(undefined)).toBe('0 tok');
   });
+
+  it('defaults to exact (no prefix) when approx is omitted', () => {
+    expect(formatTokens(184_320)).not.toMatch(/^≈/);
+  });
+
+  it('prefixes with ≈ when approx is true (claude_code sampled counts)', () => {
+    expect(formatTokens(184_320, true)).toBe('≈184,320 tok');
+  });
+
+  it('does not prefix when approx is explicitly false (workflow/cron exact counts)', () => {
+    expect(formatTokens(184_320, false)).toBe('184,320 tok');
+  });
 });
 
 describe('sessionDisplayTitle', () => {

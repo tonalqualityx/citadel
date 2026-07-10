@@ -219,8 +219,15 @@ export function formatElapsed(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function formatTokens(tokens: number | null | undefined): string {
-  return `${(tokens ?? 0).toLocaleString()} tok`;
+// `approx`: claude_code token counts come from the heartbeat sampling a 200KB
+// transcript-tail (an approximation, never a precise cumulative count — see the
+// tokens_total monotonicity fix in the ingest route). Callers pass
+// `session.source === 'claude_code'` so those numbers read with a "≈" prefix;
+// workflow/cron numbers are exact (wf.totalTokens is cumulative truth) and stay
+// unprefixed.
+export function formatTokens(tokens: number | null | undefined, approx = false): string {
+  const prefix = approx ? '≈' : '';
+  return `${prefix}${(tokens ?? 0).toLocaleString()} tok`;
 }
 
 /** Client-computed elapsed (no per-second refetch) between started_at and now/ended_at. */

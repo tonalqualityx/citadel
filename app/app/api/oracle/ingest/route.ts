@@ -103,7 +103,52 @@ type SessionRow = {
   status: OracleSessionStatus;
   last_event_at: Date | null;
   updated_at: Date;
+  ended_at?: Date | null;
+  tokens_total?: number | null;
 };
+
+// Token monotonicity (review finding, 2026-07-09): claude_code tokens_total comes
+// from the heartbeat sampling a 200KB transcript-tail — an approximation, not a
+// cumulative counter, and can legitimately read LOWER on a later sample than an
+// earlier one (different tail window, mid-compaction, etc). A raw overwrite lets a
+// smaller later sample regress a higher count we already recorded. Workflow/cron
+// sessions report wf_*.json's totalTokens, which IS cumulative/authoritative, so
+// those keep a plain overwrite. Applies identically to the per-event path and the
+// snapshot path (both funnel through here).
+function resolveTokensTotal(
+  source: OracleSource,
+  incoming: number | undefined,
+  existingTokens: number | null | undefined
+): number | undefined {
+  if (incoming === undefined) return undefined;
+  if (source === OracleSource.claude_code && existingTokens != null) {
+    return Math.max(existingTokens, incoming);
+  }
+  return incoming;
+}
+
+// Resurrection guard (review finding, 2026-07-09): the local spool can replay
+// stale/out-of-order events (e.g. a queued UserPromptSubmit that finally sends
+// after a SessionEnd already landed, sometimes an hour-plus late). Two independent
+// protections, both required:
+//   1. Once a session is `ended` (or has any ended_at), no EVENT-derived status
+//      transition may revive it. A genuinely new run of the same project shows up
+//      as a new external_id (new harness session uuid) or, if it ever legitimately
+//      reuses one, arrives as a fresh SessionStart — but that still can't undo an
+//      `ended` row from here; by design a resurrection needs a new identity, not a
+//      status flip on the old one.
+//   2. Independent of #1, an event whose ts is at-or-before the session's stored
+//      last_event_at is a stale/out-of-order replay — its status judgment is
+//      dropped even if the session is still active, since a newer event may have
+//      already advanced state past what this old event thinks is true.
+// last_event_at itself is monotonic — it only ever advances forward (even on an
+// ended session, for "last heard from" bookkeeping), never backward.
+function shouldApplyEventStatusTransition(existing: SessionRow | null, evtTs: Date): boolean {
+  if (!existing) return true; // brand-new session — nothing to protect against
+  if (existing.status === OracleSessionStatus.ended || existing.ended_at) return false;
+  if (existing.last_event_at && evtTs.getTime() <= existing.last_event_at.getTime()) return false;
+  return true;
+}
 
 // Server-derived status semantics (spec): running = UserPromptSubmit after last Stop;
 // waiting = Stop fired; needs_attention set by Notification, cleared on next
@@ -190,12 +235,25 @@ export async function POST(request: NextRequest) {
 
     for (const evt of data.events) {
       const existing = await loadSession(evt.source, evt.external_id);
-      const derived = deriveSessionUpdate(evt.kind, { ts: evt.ts, payload: evt.payload ?? {} });
+
+      // Resurrection guard — see shouldApplyEventStatusTransition doc comment.
+      const applyTransition = shouldApplyEventStatusTransition(existing, evt.ts);
+      const derived = applyTransition
+        ? deriveSessionUpdate(evt.kind, { ts: evt.ts, payload: evt.payload ?? {} })
+        : {};
+
+      // last_event_at is monotonic — never move it backward. A stale/out-of-order
+      // event (ts <= stored last_event_at) simply doesn't advance it.
+      const eventIsNewer =
+        !existing || !existing.last_event_at || evt.ts.getTime() > existing.last_event_at.getTime();
+
+      const resolvedTokens = resolveTokensTotal(evt.source, evt.tokens_total, existing?.tokens_total);
+
       const baseFields: Record<string, unknown> = {
         ...(evt.title !== undefined && { title: evt.title }),
         ...(evt.cwd !== undefined && { cwd: evt.cwd }),
         ...(evt.model !== undefined && { model: evt.model }),
-        ...(evt.tokens_total !== undefined && { tokens_total: evt.tokens_total }),
+        ...(resolvedTokens !== undefined && { tokens_total: resolvedTokens }),
       };
 
       let sessionId: string;
@@ -217,7 +275,7 @@ export async function POST(request: NextRequest) {
         const updated = await prisma.oracleSession.update({
           where: { id: existing.id },
           data: {
-            last_event_at: evt.ts,
+            ...(eventIsNewer && { last_event_at: evt.ts }),
             ...baseFields,
             ...derived,
           },
@@ -249,6 +307,7 @@ export async function POST(request: NextRequest) {
         snapshotKeys.add(cacheKey(snap.source, snap.external_id));
 
         const existing = await loadSession(snap.source, snap.external_id);
+        const resolvedTokens = resolveTokensTotal(snap.source, snap.tokens_total, existing?.tokens_total);
         const fields: Record<string, unknown> = {
           ...(snap.title !== undefined && { title: snap.title }),
           ...(snap.cwd !== undefined && { cwd: snap.cwd }),
@@ -258,7 +317,7 @@ export async function POST(request: NextRequest) {
           ...(snap.attention_reason !== undefined && { attention_reason: snap.attention_reason }),
           ...(snap.started_at !== undefined && { started_at: snap.started_at }),
           ...(snap.ended_at !== undefined && { ended_at: snap.ended_at }),
-          ...(snap.tokens_total !== undefined && { tokens_total: snap.tokens_total }),
+          ...(resolvedTokens !== undefined && { tokens_total: resolvedTokens }),
           ...(snap.meta !== undefined && { meta: snap.meta as Prisma.InputJsonValue }),
           last_event_at: snap.last_event_at ?? now,
         };
@@ -344,14 +403,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Opportunistic pruning — best-effort, never fails the ingest response.
+    // Opportunistic pruning — best-effort, never fails the ingest response. Gated
+    // to snapshot-bearing calls only (review finding, 2026-07-09): a table-wide
+    // deleteMany on `ts < cutoff` was running on EVERY POST, including the
+    // high-frequency per-hook event calls (many per turn, per session) — the
+    // heartbeat is the only caller that always carries `snapshot` (once a minute),
+    // so gating here cuts prune frequency ~down to that cadence without losing
+    // opportunistic coverage (the @@index([ts]) migration keeps each run cheap).
     let prunedEvents = 0;
-    try {
-      const pruneCutoff = new Date(now.getTime() - EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-      const pruned = await prisma.oracleEvent.deleteMany({ where: { ts: { lt: pruneCutoff } } });
-      prunedEvents = pruned.count;
-    } catch (pruneError) {
-      console.error('Oracle event prune failed (non-fatal):', pruneError);
+    if (data.snapshot) {
+      try {
+        const pruneCutoff = new Date(now.getTime() - EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+        const pruned = await prisma.oracleEvent.deleteMany({ where: { ts: { lt: pruneCutoff } } });
+        prunedEvents = pruned.count;
+      } catch (pruneError) {
+        console.error('Oracle event prune failed (non-fatal):', pruneError);
+      }
     }
 
     return NextResponse.json({

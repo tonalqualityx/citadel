@@ -101,7 +101,10 @@ export function EventDrawer({ session, agent, nowMs }: EventDrawerProps) {
         label="ended"
         value={session.ended_at ? new Date(session.ended_at).toLocaleString() : null}
       />
-      <MetaLine label="tokens" value={formatTokens(session.tokens_total)} />
+      <MetaLine
+        label="tokens"
+        value={formatTokens(session.tokens_total, session.source === 'claude_code')}
+      />
       {session.agents.length === 0 && (
         <div className="mt-1 border-t border-border-warm/60 pt-1.5 text-[0.65rem] opacity-80">
           no sub-agents reported for this session

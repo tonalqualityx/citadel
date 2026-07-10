@@ -67,6 +67,11 @@ export default function OraclePage() {
   const waitingSessions = selectWaitingSessions(machines, now);
   const { sessions: sessionCount, agents: agentCount } = fleetCounts(machines);
   const isEmpty = sessionCount === 0;
+  // Distinct from "healthy but empty right now" (isEmpty above, which can also be a
+  // filter with no matches) — this checks the RAW unfiltered machine list, so it
+  // only fires when no machine has ever POSTed telemetry at all (never seeded/never
+  // ran the heartbeat), not when a machine exists but currently has no sessions.
+  const noMachineHasEverReported = data.machines.length === 0;
 
   return (
     <div className="flex flex-col gap-3">
@@ -85,7 +90,13 @@ export default function OraclePage() {
         onToggleCollapsed={() => setCollapsed((v) => !v)}
       />
 
-      {isEmpty ? (
+      {noMachineHasEverReported ? (
+        <EmptyState
+          icon={<Sparkles className="h-8 w-8" />}
+          title="no telemetry has ever reached this Citadel"
+          description="Check the oracle heartbeat on the machine. Nothing has POSTed to Oracle ingest yet."
+        />
+      ) : isEmpty ? (
         <EmptyState
           icon={<Sparkles className="h-8 w-8" />}
           title="no agents running"

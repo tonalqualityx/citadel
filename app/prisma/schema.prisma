@@ -2440,5 +2440,9 @@ model OracleEvent {
 
   @@index([machine_id, ts])
   @@index([session_id])
+  // Standalone ts index: the opportunistic prune query (`WHERE ts < cutoff`, no
+  // machine_id predicate) can't use the composite (machine_id, ts) index — that
+  // one only helps queries that also filter machine_id (leftmost-prefix rule).
+  @@index([ts])
   @@map("oracle_events")
 }
