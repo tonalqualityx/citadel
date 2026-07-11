@@ -14,12 +14,13 @@ interface MachineSectionProps {
 }
 
 // Machine header strip (name + heartbeat freshness, or a stale banner) followed by
-// this machine's non-waiting sessions: Running visible, Workflows / Crons /
-// Recently ended collapsed — the mobile stack order, reused as-is on desktop.
+// this machine's non-waiting sessions: Working then Idle visible, Crons / Recently
+// ended collapsed — the mobile stack order, reused as-is on desktop. (Waiting-on-
+// Reshi is selected fleet-wide and pinned above every machine, one level up.)
 export function MachineSection({ machine, nowMs, collapsedCards }: MachineSectionProps) {
   const groups = groupNonWaitingSessions([machine]);
   const totalNonWaiting =
-    groups.running.length + groups.workflows.length + groups.crons.length + groups.recentlyEnded.length;
+    groups.working.length + groups.idle.length + groups.crons.length + groups.recentlyEnded.length;
   const hasCommands = machine.commands.length > 0;
 
   // A machine with a freshly-queued spawn command but no sessions yet (dispatcher
@@ -61,19 +62,31 @@ export function MachineSection({ machine, nowMs, collapsedCards }: MachineSectio
         </div>
       )}
 
-      {groups.running.length > 0 && (
+      {groups.working.length > 0 && (
         <div className="flex flex-col gap-2">
-          {groups.running.map((session) => (
-            <SessionCard key={session.id} session={session} nowMs={nowMs} collapsed={collapsedCards} />
-          ))}
+          <h3 className="ui-monospace px-1 text-xs font-bold uppercase tracking-wide text-text-sub">
+            Working ({groups.working.length})
+          </h3>
+          <div className="flex flex-col gap-2">
+            {groups.working.map((session) => (
+              <SessionCard key={session.id} session={session} nowMs={nowMs} collapsed={collapsedCards} />
+            ))}
+          </div>
         </div>
       )}
 
-      <CollapsibleGroup title="Workflows" count={groups.workflows.length}>
-        {groups.workflows.map((session) => (
-          <SessionCard key={session.id} session={session} nowMs={nowMs} collapsed={collapsedCards} />
-        ))}
-      </CollapsibleGroup>
+      {groups.idle.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="ui-monospace px-1 text-xs font-bold uppercase tracking-wide text-text-sub">
+            Idle ({groups.idle.length})
+          </h3>
+          <div className="flex flex-col gap-2">
+            {groups.idle.map((session) => (
+              <SessionCard key={session.id} session={session} nowMs={nowMs} collapsed={collapsedCards} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <CollapsibleGroup title="Crons" count={groups.crons.length}>
         {groups.crons.map((session) => (

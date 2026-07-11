@@ -122,7 +122,7 @@ export const apiEnums = {
   siteTypes: ['eleventy', 'wordpress', 'handoff', 'custom'],
   topicArchetypes: ['pillar', 'thought_leadership', 'case_study', 'how_to', 'commodity'],
   oracleSources: ['claude_code', 'workflow', 'openclaw_cron'],
-  oracleSessionStatuses: ['running', 'waiting', 'ended', 'stale'],
+  oracleSessionStatuses: ['running', 'waiting', 'idle', 'ended', 'stale'],
 };
 
 /**

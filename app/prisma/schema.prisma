@@ -2335,6 +2335,7 @@ enum OracleSource {
 enum OracleSessionStatus {
   running
   waiting
+  idle
   ended
   stale
 }

@@ -400,13 +400,13 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Reconciliation: any session we had as running/waiting that is absent from this
+      // Reconciliation: any session we had as running/waiting/idle that is absent from this
       // snapshot and hasn't been heard from in RECONCILE_STALE_MINUTES is presumed dead.
       const cutoff = new Date(now.getTime() - RECONCILE_STALE_MINUTES * 60_000);
       const candidates = await prisma.oracleSession.findMany({
         where: {
           machine_id: machine.id,
-          status: { in: [OracleSessionStatus.running, OracleSessionStatus.waiting] },
+          status: { in: [OracleSessionStatus.running, OracleSessionStatus.waiting, OracleSessionStatus.idle] },
         },
         select: { id: true, source: true, external_id: true, last_event_at: true, updated_at: true },
       });

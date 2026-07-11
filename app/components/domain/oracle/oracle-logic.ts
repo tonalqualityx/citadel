@@ -19,6 +19,7 @@ import type {
 export type OracleStatusKind =
   | 'running'
   | 'waiting'
+  | 'idle'
   | 'needs_attention'
   | 'working'
   | 'done'
@@ -39,6 +40,10 @@ export interface StatusMeta {
 const STATUS_META: Record<Exclude<OracleStatusKind, 'unknown'>, Omit<StatusMeta, 'kind'>> = {
   running: { label: 'Running', colorVar: '--accent', pulse: true, ring: false },
   waiting: { label: 'Waiting', colorVar: '--warning', pulse: false, ring: false },
+  // Phase 4: alive but neither working nor flagging for Reshi — a real distinct
+  // status (not a derived read-time state like `working`), muted like stale/queued
+  // but never pulsing (it isn't dead, it just isn't doing anything right now).
+  idle: { label: 'Idle', colorVar: '--text-muted', pulse: false, ring: false },
   needs_attention: { label: 'Needs attention', colorVar: '--warning', pulse: false, ring: true },
   // Phase 2: an orchestrator that ended its own turn (Stop -> waiting, or a stray
   // Notification -> needs_attention) while its own dispatched subagents are still
@@ -134,6 +139,44 @@ export function isWaitingSession(session: OracleSessionDTO): boolean {
   return (session.status === 'waiting' || session.needs_attention) && !hasRunningChild(session);
 }
 
+// ============================================
+// Phase 4 — three live buckets (waiting / working / idle)
+// ============================================
+// Mike's ruling: every live session belongs to exactly ONE of these three ordered
+// groups. Precedence (checked in this order, first match wins) is what keeps a
+// session from double-listing: waiting-on-you beats working beats idle beats
+// ended/stale. isWaitingSession (above) is unchanged and stays the waiting-on-you
+// definition. The two functions below are the bucket-membership versions of
+// "working" and "idle" — distinct from isWorkingSession, which drives the
+// **badge/border** read on an individual card (narrower: only the "waiting-on-its-
+// own-kids" orchestrator case) and is left alone so that display language doesn't
+// shift underneath Phase 2/3 callers.
+
+/**
+ * Bucket membership for "Working": actively computing right now — either the
+ * session's own status is `running`, or it has at least one live running child
+ * (an orchestrator whose own turn ended but is still waiting on subagents it
+ * dispatched). Broader than isWorkingSession, which only fires when the session's
+ * *stored* status also reads waiting/needs_attention — here a plain `running`
+ * session with a running child is working too (it already was, isWorkingSession
+ * just never needed to say so because status=running already covered it visually).
+ */
+export function isWorkingBucketSession(session: OracleSessionDTO): boolean {
+  return session.status === 'running' || hasRunningChild(session);
+}
+
+/**
+ * Bucket membership for "Idle": alive (status `idle`) and neither flagging for
+ * Reshi nor actively computing. Precedence is explicit here (not just "not in the
+ * other two groups") so this function is correct standalone, not only when called
+ * after the other two have already filtered a list.
+ */
+export function isIdleSession(session: OracleSessionDTO): boolean {
+  if (isWaitingSession(session)) return false;
+  if (isWorkingBucketSession(session)) return false;
+  return session.status === 'idle';
+}
+
 /** Milliseconds since the session last made progress — the basis for wait-time sort. */
 export function waitSinceMs(session: OracleSessionDTO, nowMs: number): number {
   const ref = session.last_event_at ?? session.started_at;
@@ -158,35 +201,37 @@ export function selectWaitingSessions(
 }
 
 export interface SessionGroups {
-  running: OracleSessionWithMachine[];
-  workflows: OracleSessionWithMachine[];
+  working: OracleSessionWithMachine[];
+  idle: OracleSessionWithMachine[];
   crons: OracleSessionWithMachine[];
   recentlyEnded: OracleSessionWithMachine[];
 }
 
 /**
  * Everything NOT in the waiting strip, bucketed for the mobile stack order
- * (Running, then collapsed Workflows / Crons / Recently ended) and reused verbatim
- * on desktop. Source-based groups (workflow/cron) win over status so a workflow
- * that finishes still reads as a Workflow, not "recently ended".
+ * (Working, then Idle, then collapsed Crons / Recently ended) and reused verbatim
+ * on desktop. Crons keep their own source-based group regardless of live state (a
+ * running cron still reads as a Cron, not Working) — that's the one place source
+ * still wins over status. Phase 4 removed the standalone Workflows group: Workflow-
+ * tool workers now nest under the session that launched them (Lane A), so there are
+ * no more top-level `source: 'workflow'` sessions to special-case here; any that
+ * still show up (e.g. mid-run before the nesting lands) simply flow through the
+ * same working/idle/recentlyEnded buckets as any other session.
  */
 export function groupNonWaitingSessions(machines: OracleMachineDTO[]): SessionGroups {
-  const groups: SessionGroups = { running: [], workflows: [], crons: [], recentlyEnded: [] };
+  const groups: SessionGroups = { working: [], idle: [], crons: [], recentlyEnded: [] };
   for (const session of flattenSessions(machines)) {
     if (isWaitingSession(session)) continue;
-    if (session.source === 'workflow') {
-      groups.workflows.push(session);
-      continue;
-    }
     if (session.source === 'openclaw_cron') {
       groups.crons.push(session);
       continue;
     }
-    // A "working" orchestrator (waiting/needs_attention on its stored status, but
-    // with a live running child) reads as active, not idle — it belongs in the
-    // running/working group, not "recently ended".
-    if (session.status === 'running' || isWorkingSession(session)) {
-      groups.running.push(session);
+    if (isWorkingBucketSession(session)) {
+      groups.working.push(session);
+      continue;
+    }
+    if (isIdleSession(session)) {
+      groups.idle.push(session);
       continue;
     }
     groups.recentlyEnded.push(session);

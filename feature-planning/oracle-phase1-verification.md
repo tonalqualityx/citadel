@@ -1090,3 +1090,232 @@ predicate, no other code path touches the column). Prod is confirmed harmless in
 the already-live heartbeat's `remote_url` field is silently stripped by Zod against the
 currently-deployed (pre-Phase-3) route, no error and no partial state. Not pushed, not merged,
 not deployed, per instructions.
+
+---
+
+# Phase 4 — three live buckets + idle status + full workflow-worker nesting
+
+Branch `feat/oracle-three-buckets`, commits `3b8281a` (Lane B: idle enum + server) and
+`2418f52` (Lane C: three-bucket UI) on top of `main`. Heartbeat change (Lane A, run-scoped
+`::`-joined workflow-worker `external_id`s + idle emission) is a STAGED copy only
+(`~/.claude/tools/oracle/oracle-heartbeat.STAGED.py`) — the live heartbeat is untouched until
+prod has the `idle` enum, per the spec's deploy sequencing.
+
+## Check 1 — Branch integrity
+
+```
+$ git log --oneline main..feat/oracle-three-buckets
+2418f52 feat(oracle): three live buckets (waiting/working/idle) + idle Respond
+3b8281a feat(oracle): idle session status + server support
+```
+Exactly the 2 expected commits. `git status` clean except pre-existing untracked planning docs
+(including this spec, `feature-planning/oracle-phase4-three-buckets.md`, which is correctly
+*not* one of the 2 code commits).
+
+Idle migration confirmed:
+```
+app/prisma/migrations/20260711022118_oracle_session_status_idle/migration.sql:
+ALTER TYPE "OracleSessionStatus" ADD VALUE 'idle';
+```
+
+**Result: PASS**
+
+## Check 2 — Live heartbeat untouched
+
+```
+$ diff ~/.claude/tools/oracle/oracle-heartbeat.py \
+       <scratchpad>/oracle-heartbeat.pre-buckets.bak
+(empty diff, exit 0)
+```
+The live heartbeat is byte-for-byte identical to the pre-Phase-4 backup. Only
+`oracle-heartbeat.STAGED.py` (a separate file) carries the idle/nesting changes.
+
+**Result: PASS**
+
+## Check 3 — `external_id` length (Lane A flagged risk)
+
+`app/prisma/schema.prisma`:
+```
+OracleAgent.external_id  String @db.VarChar(255)
+```
+Run-scoped workflow-worker IDs the new heartbeat emits look like
+`wf_59f1b8a7-b9f::agent-a1f92d1eb6c62a50a` (~40 chars observed; real dry-run output produced IDs
+like `wf_039a0811-de6::a8690a25c57f40278`, ~35-40 chars). `VarChar(255)` is comfortably >80,
+with no realistic risk of truncation or collision from length.
+
+**Result: PASS**
+
+## Check 4 — Clean-checkout build
+
+Detached worktree at `2418f525ea7ec2dc7cbec3ba18a9e1a20e7deb55` (the branch tip; couldn't add a
+worktree *by branch name* since the main checkout already has it checked out) at
+`<scratchpad>/oracle-p4-verify`, `.env` copied in (gitignored, not part of the checkout),
+against the local `citadel-postgres` container on `:5433`.
+
+```
+$ npm ci                     → 888 packages installed, postinstall `prisma generate` OK
+$ npx prisma generate        → Generated Prisma Client (v6.19.1) OK
+$ npx prisma migrate status  → "Database schema is up to date!" (idle migration recognized/applied)
+$ npx tsc --noEmit           → exit 0, no output
+$ npx vitest run             → Test Files 115 passed (115); Tests 1323 passed (1323)
+$ npx next build             → exit 0, full route manifest printed, no errors
+```
+1323/1323 matches the expected count exactly. Worktree removed after (`git worktree remove
+--force`); `git worktree list` confirms only the main checkout remains.
+
+**Result: PASS**
+
+## Check 5 — Integration end-to-end (real proof)
+
+Restarted `next dev` on `:3000` against local `citadel-postgres` (killed a stale instance first
+and re-ran `prisma generate` to rule out a stale Prisma Client from before the idle migration).
+
+Minted two throwaway API keys directly via Prisma (sha256 `hashApiKey`, matching
+`lib/auth/api-keys.ts`) against the pre-existing `oracle@indelible.bot` (bot/pm) and
+`admin@indelible.agency` (admin) users — no new users created.
+
+Generated the STAGED heartbeat's real payload:
+```
+$ python3 ~/.claude/tools/oracle/oracle-heartbeat.STAGED.py --dry-run
+→ 29 sessions: {"idle": 19, "running": 4, "ended": 6}
+→ sources: {claude_code, openclaw_cron} — 0 top-level "workflow" source, 0 external_id
+  starting "wf_"
+→ 3 sessions carry nested agents with "::"-scoped external_ids (run-scoped workflow workers):
+  BlueHeron (20 agents), a dab6d7fc session (27 agents), FloodedZone (11 agents)
+```
+
+Renamed `machine.name`/`hostname` to `VERIFY-oracle-p4-test-machine` (distinct test machine,
+real session data otherwise untouched) and POSTed to local ingest with the throwaway bot key:
+```
+$ curl -X POST /api/oracle/ingest -H "Authorization: Bearer <bot-key>" --data @payload.json
+→ HTTP 200
+→ {"success":true,"sessions_upserted":29,"agents_upserted":61,"reconciled_stale":0}
+```
+`idle` accepted (no 400 from `z.nativeEnum`), all 61 run-scoped `::` agent external_ids
+persisted with zero unique-constraint collisions.
+
+GET `/api/oracle/fleet` with the throwaway admin key, filtered to the test machine:
+```
+→ HTTP 200, 28 sessions returned (29 upserted minus 1 ended session outside the
+  24h RECENT_ENDED_HOURS window — expected fleet-route behavior, not a bug)
+→ status counts: {"running": 4, "idle": 19, "ended": 5}
+→ top-level workflow sessions (source='workflow' or external_id starting 'wf_'): 0
+→ sessions with nested "::"-scoped agents: 3 (FloodedZone running w/ 11 agents; two
+  idle sessions w/ 20 and 27 agents)
+```
+(a) idle sessions present — confirmed, 19.
+(b) a claude_code session (FloodedZone) carries nested workflow-worker agents with `::`
+external_ids, and no top-level session has `source: 'workflow'` or `external_id` starting
+`wf_` — confirmed, 0 in both cases.
+(c) Real live snapshot data had 0 `needs_attention` sessions at capture time, so to prove the
+Waiting bucket specifically (not just idle/working), appended one synthetic
+`needs_attention: true` session to the same test-machine payload and re-POSTed (still HTTP 200,
+30 upserted). Re-fetched fleet and ran the exact `oracle-logic.ts` precedence inline
+(`isWaitingSession` → `isWorkingBucketSession` → `isIdleSession`, first-match-wins) against the
+returned DTO:
+```
+waiting: 1 (the synthetic session)
+working: 4 (Indelible-research, FloodedZone, abbott, MikeLynn)
+idle: 19
+duplicate bucket memberships: 0
+```
+All three buckets populated from real DTO data, single-membership confirmed (no session in more
+than one bucket).
+
+**Cleanup**: deleted the `VERIFY-oracle-p4-test-machine` `OracleMachine` row (cascade-deleted 30
+sessions, 61 agents), deleted both throwaway `ApiKey` rows by name, removed the three scratch
+`.mjs` scripts from `app/`. `git status` in `app/` confirmed clean afterward (only pre-existing
+untracked planning docs remain).
+
+**Result: PASS**
+
+## Check 6 — Client grouping precedence sanity
+
+`components/domain/oracle/__tests__/oracle-logic.test.ts` (part of the 1323/1323 green run in
+Check 4) explicitly asserts single-membership precedence:
+- `isWorkingBucketSession is true for an idle-status session with a running child`
+- `isIdleSession is false for an idle-status session with a running child (working wins)`
+- `isIdleSession is false for an idle-status session flagged needs_attention (waiting-on-you wins)`
+- `an idle session with a running child lands in working, not idle (precedence: working beats idle)`
+- `a needs_attention session is not in working or idle — it belongs to selectWaitingSessions only`
+- `has no top-level "workflows" group — SessionGroups is {working, idle, crons, recentlyEnded}`
+
+Precedence confirmed: needs_attention/waiting (no running child) → Waiting only;
+status `running` or any `hasRunningChild` → Working only; status `idle` with neither → Idle
+only. All passing as part of the full suite.
+
+**Result: PASS**
+
+## FleetTopbar deviation — assessed, not fixed
+
+Lane C's `groupNonWaitingSessions` bucketing uses the broader `isWorkingBucketSession`
+(`status === 'running' || hasRunningChild`), so a `status: 'idle'` session with a live running
+child correctly lands in the **Working** bucket. But `anySessionRunning` (which drives
+`FleetTopbar`'s pulse dot, `app/(app)/oracle/page.tsx` lines 88-89) still uses the narrower
+`s.status === 'running' || isWorkingSession(s)`, where `isWorkingSession` only fires when the
+session's *own* status is `waiting`/`needs_attention` AND it has a running child. For a
+`status: 'idle'` session with a running child, `isWorkingSession` returns `false` (status isn't
+waiting/needs_attention) and `s.status === 'running'` is also `false` — so `anySessionRunning`
+returns `false` even though that exact session is sitting in the Working bucket. The topbar dot
+would not pulse for a session a Reshi is looking straight at in the Working section.
+
+This is real, not hypothetical: the STAGED heartbeat sets session status from the harness's own
+busy/shell signal, independent of whether a dispatched Workflow-tool run is still going in the
+background — an orchestrator can plausibly read `idle` (no active tool call right now) while a
+backgrounded workflow it kicked off is still executing workers. It is not covered by the
+existing `anySessionRunning`/`anySessionNeedsAttention` test block (`oracle-logic.test.ts`
+lines 466-491), which only exercises the `waiting/needs_attention + running child` case, not
+`idle + running child`.
+
+The current real-data snapshot (Check 5) had zero sessions in this exact state
+(`idle-with-running-child` count was 0), so it's a real gap but a narrow, currently-unhit one.
+
+**Recommendation**: one-line fix, swap `anySessionRunning`'s body to
+`machines.some((m) => m.sessions.some((s) => isWorkingBucketSession(s)))` — reuses an
+already-tested primitive, no new logic. Trivial and safe in isolation, but **not applied here**:
+this is a verification pass, not an implementation pass, and touching `oracle-logic.ts` now
+would invalidate the tsc/vitest/build results already captured in Check 4 and require a third
+commit + re-verify cycle. Left for a deliberate follow-up (Fable's call on whether it's
+worth a Lane E or folds into the next Oracle pass) — cosmetic-only in current data, not a
+blocker for this deploy.
+
+## DEPLOY SEQUENCING (restated from the spec)
+
+1. Deploy `feat/oracle-three-buckets` (enum migration + server + UI) to prod first.
+2. Confirm the `idle` enum is live in prod (e.g. a harmless read against
+   `OracleSessionStatus` or a manual check).
+3. Only then swap `oracle-heartbeat.STAGED.py` into the live
+   `~/.claude/tools/oracle/oracle-heartbeat.py` path.
+4. Unpause citadel-worker (`rm ~/.citadel-worker-paused`) — **not done by this verification
+   pass**, per instructions; left for the orchestrator once the deploy + swap are complete.
+
+## Phase 4 gate summary
+
+| Gate | Result |
+|---|---|
+| Branch integrity (2 commits, clean status, idle migration present) | PASS |
+| Live heartbeat untouched (byte-identical diff against pre-change backup) | PASS |
+| `external_id` length (`VarChar(255)` vs. ~40-char run-scoped IDs) | PASS |
+| Clean-checkout build (`npm ci` + `prisma generate` + `migrate status` + `tsc` + `vitest` 1323/1323 + `next build` exit 0) | PASS |
+| Integration end-to-end (idle accepted, 61 run-scoped agents persisted no-collision, 0 top-level `wf_`/`workflow` sessions, all 3 buckets populated from real DTO data, cleanup verified) | PASS |
+| Client grouping precedence (`oracle-logic.test.ts` single-membership tests, passing) | PASS |
+| FleetTopbar `isWorkingSession`/`isWorkingBucketSession` gap | DEVIATION — assessed, not fixed (see above) |
+| citadel-worker pause | LEFT PAUSED — orchestrator manages deploy + heartbeat swap, then unpauses |
+
+## Bottom line (Phase 4)
+
+**DEPLOY-READY**, with one noted-not-blocking deviation. All 6 required checks pass: 2 commits
+exactly as expected, live heartbeat provably untouched, `external_id` column has ample
+headroom, a from-scratch checkout builds clean end-to-end (1323/1323 tests, clean `tsc`,
+successful `next build`), and the integration proof is real — the STAGED heartbeat's actual
+dry-run payload (not a synthetic fixture) round-tripped through a live local server: idle
+status accepted, all three buckets populated with genuine session data (19 idle, 4 working
+including a workflow-nested FloodedZone, 1 waiting after a synthetic needs_attention session
+was added to exercise that bucket too), zero top-level `wf_`/`workflow` sessions, zero
+external_id collisions across 61 nested agents. Test cleanup fully verified (0 rows left,
+throwaway keys deleted). The one open item is the FleetTopbar pulse gap for a
+`status: 'idle'` + `hasRunningChild` session — real but currently unhit in production data, a
+one-line fix using an already-tested primitive, deliberately left for a follow-up rather than
+folded into this verification pass. citadel-worker remains paused; deploy sequencing (branch to
+prod first, confirm enum live, then swap the staged heartbeat) restated above for the
+orchestrator. Not pushed, not merged, not deployed, per instructions.

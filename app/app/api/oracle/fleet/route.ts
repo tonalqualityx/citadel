@@ -36,7 +36,7 @@ export async function GET() {
             OR: [
               {
                 status: {
-                  in: [OracleSessionStatus.running, OracleSessionStatus.waiting],
+                  in: [OracleSessionStatus.running, OracleSessionStatus.waiting, OracleSessionStatus.idle],
                 },
               },
               // Read-time cleanup (Phase 2): a stale session only stays visible for

@@ -206,6 +206,22 @@ describe('GET /api/oracle/fleet — shape', () => {
     const body = await (await GET()).json();
     expect(body.machines[0].sessions[0].remote_url).toBeNull();
   });
+
+  // Phase 4 (three live buckets): `idle` is a real OracleSessionStatus — alive but
+  // neither working nor flagging for attention — and must be returned by the fleet
+  // response like running/waiting (the mock here stands in for the DB-side where.OR,
+  // which is asserted directly in the "stale read-time hide" describe block below).
+  it('returns idle sessions alongside running/waiting', async () => {
+    mockMachineFindMany.mockResolvedValue([
+      machine({
+        sessions: [session({ id: 'sess-idle', status: 'idle' })],
+      }),
+    ]);
+
+    const body = await (await GET()).json();
+    expect(body.machines[0].sessions).toHaveLength(1);
+    expect(body.machines[0].sessions[0]).toMatchObject({ id: 'sess-idle', status: 'idle' });
+  });
 });
 
 describe('GET /api/oracle/fleet — stale read-time hide (Phase 2)', () => {
@@ -242,23 +258,26 @@ describe('GET /api/oracle/fleet — stale read-time hide (Phase 2)', () => {
     expect(cutoff.getTime()).toBeLessThanOrEqual(expectedMax);
   });
 
-  it('does not gate the running/waiting branch of the where-clause by age', async () => {
+  it('does not gate the running/waiting/idle branch of the where-clause by age', async () => {
     mockMachineFindMany.mockResolvedValue([machine()]);
     await GET();
 
     const callArgs = mockMachineFindMany.mock.calls[0][0];
     const sessionsWhere = callArgs.include.sessions.where;
-    const runningWaitingClause = sessionsWhere.OR.find(
+    const liveStatusClause = sessionsWhere.OR.find(
       (clause: Record<string, unknown>) =>
         clause.status && typeof clause.status === 'object' && 'in' in (clause.status as object)
     );
-    expect(runningWaitingClause).toBeDefined();
-    expect((runningWaitingClause as { status: { in: string[] } }).status.in).toEqual([
+    expect(liveStatusClause).toBeDefined();
+    // Phase 4 (three live buckets): `idle` is a real, always-returned live status —
+    // alongside running/waiting — and is NOT gated by age like stale/ended are.
+    expect((liveStatusClause as { status: { in: string[] } }).status.in).toEqual([
       'running',
       'waiting',
+      'idle',
     ]);
     // no last_event_at gate on this branch
-    expect(Object.keys(runningWaitingClause as object)).toEqual(['status']);
+    expect(Object.keys(liveStatusClause as object)).toEqual(['status']);
   });
 
   it('excludes a stale session with last_event_at 2h ago given the where-clause semantics', () => {
