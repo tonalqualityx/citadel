@@ -20,7 +20,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
           'SessionEnd/Notification); session status is server-derived from event kind, never client-set. ' +
           'snapshot is the heartbeat\'s authoritative state (running processes, wf_*.json progress per ' +
           'agent, openclaw cron list) and upserts sessions + agents directly, then reconciles: any ' +
-          'running/waiting session absent from the snapshot and unseen for 5+ minutes flips to stale. ' +
+          'running/waiting/idle session absent from the snapshot and unseen for 5+ minutes flips to stale. ' +
           'Unknown event kinds are stored, never rejected. Capped at 500 events/call and ~32KB per ' +
           'event/agent payload blob (2MB total body); opportunistically prunes OracleEvent rows older ' +
           'than 7 days on every call.',
@@ -52,7 +52,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['admin'],
         responseNotes:
-          'Sessions are running|waiting|stale always, plus ended sessions from the last 24h. Machine ' +
+          'Sessions are running|waiting|idle|stale always, plus ended sessions from the last 24h. Machine ' +
           '`stale` is derived at read time (last_heartbeat_at gap > 3 minutes), never a stored status. ' +
           '1.5a: admin-only (was pm-or-admin) — the oracle service bot is unaffected since ingest ' +
           'authorizes via isOracleBot, not role. `commands` (1.5b) is each machine\'s last 24h of ' +
@@ -74,7 +74,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
                   cwd: 'string|null',
                   model: 'string|null',
                   remote_url: 'string|null',
-                  status: 'running|waiting|ended|stale',
+                  status: 'running|waiting|idle|ended|stale',
                   needs_attention: 'boolean',
                   attention_reason: 'string|null',
                   started_at: 'ISO-8601|null',

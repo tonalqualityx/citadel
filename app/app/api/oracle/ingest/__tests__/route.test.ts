@@ -345,6 +345,77 @@ describe('POST /api/oracle/ingest — snapshot + agents', () => {
     expect(mockAgentUpsert).toHaveBeenCalledTimes(1);
   });
 
+  // Phase 4 (three live buckets): `idle` is a real OracleSessionStatus now — the
+  // heartbeat snapshot may report it directly (alive, not busy, not needs_attention).
+  // z.nativeEnum(OracleSessionStatus) auto-accepts it post-migration; no schema-code
+  // change was needed for validation, only this regression guard.
+  it('accepts and persists a snapshot session with status: idle', async () => {
+    mockSessionCreate.mockResolvedValue({
+      id: 'cc-sess-idle',
+      source: 'claude_code',
+      external_id: 'cc-idle-1',
+      status: 'idle',
+      last_event_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            { external_id: 'cc-idle-1', source: 'claude_code', title: 'Idle session', status: 'idle' },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.sessions_upserted).toBe(1);
+    expect(mockSessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'idle' }),
+      })
+    );
+  });
+
+  it('reconciles an idle session absent from the snapshot and stale for 5+ minutes to `stale`', async () => {
+    const staleSince = new Date(Date.now() - 10 * 60_000); // 10 min ago > 5 min threshold
+    mockSessionFindMany.mockResolvedValue([
+      {
+        id: 'ghost-idle-session',
+        source: 'claude_code',
+        external_id: 'ghost-idle-1',
+        last_event_at: staleSince,
+        updated_at: staleSince,
+      },
+    ]);
+    mockSessionUpdateMany.mockResolvedValue({ count: 1 });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: { sessions: [] },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.reconciled_stale).toBe(1);
+    expect(mockSessionFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: { in: ['running', 'waiting', 'idle'] },
+        }),
+      })
+    );
+    expect(mockSessionUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['ghost-idle-session'] } },
+      data: { status: 'stale' },
+    });
+  });
+
   it('reconciles a running session absent from the snapshot and stale for 5+ minutes to `stale`', async () => {
     const staleSince = new Date(Date.now() - 10 * 60_000); // 10 min ago > 5 min threshold
     mockSessionFindMany.mockResolvedValue([
