@@ -853,3 +853,240 @@ the browser via Playwright screenshots, and the new stale-hide filter (Job 1, `a
 proven end-to-end against a real seeded Postgres row set on this branch's own code path. No
 schema/migration change on this branch. Not pushed, not merged, not deployed — per instructions,
 orchestrator (Fable) reviews the diff and handles deploy with Mike.
+
+---
+
+# Oracle Phase 3 — "Respond" deep-links to Claude Remote Control (Final Verification)
+
+Verifier: final gate agent, independent of the builder agents. Same rule as Phase 1/2: executed
+checks decide everything; agent claims (including builder commit messages) count for nothing
+until reproduced here with a command and its real output.
+
+Branch: `feat/oracle-respond-links` on `/home/mike/.openclaw/workspace/citadel`
+Spec: `feature-planning/oracle-phase3-respond-links.md`
+Run date: 2026-07-10.
+
+Commits verified (exactly 2):
+- `59fc7bd` — feat(oracle): remote_url on sessions for Respond deep-links (schema + migration +
+  ingest URL-guard validation + fleet DTO)
+- `92efd5e` — feat(oracle): Respond deep-link button on live session cards (UI)
+
+The heartbeat (`~/.claude/tools/oracle/oracle-heartbeat.py`, outside this repo) was already
+updated and live before this verification pass began — not re-verified from scratch here, only
+its interaction with prod's current (pre-deploy) ingest route is checked below (see "Prod
+harmlessness" under Check 3).
+
+---
+
+## Check 1 — Branch integrity
+
+| Command | Result |
+|---|---|
+| `git log --oneline main..feat/oracle-respond-links` | Exactly 2 commits: `92efd5e`, `59fc7bd` |
+| `git status` | Clean — only pre-existing untracked planning docs (unrelated to Oracle: email-dispatcher-design.md, oracle-phase2-orchestrator-nesting.md, oracle-phase3-respond-links.md, wright-*.md, implementation/plans/*.md, test artifact dirs); zero modified tracked files |
+| Migration file exists | `app/prisma/migrations/20260710215642_oracle_session_remote_url/migration.sql` |
+| Migration content | `ALTER TABLE "oracle_sessions" ADD COLUMN     "remote_url" VARCHAR(500);` — a single additive, nullable `ALTER TABLE ... ADD COLUMN`, no other statements, no data migration, no constraint changes |
+
+**Result: PASS**
+
+---
+
+## Check 2 — Clean-checkout build (the gate nobody ran with both commits together)
+
+Worktree: `git worktree add --detach /tmp/.../scratchpad/oracle-p3-verify 92efd5e` (detached at
+the branch tip, since the branch itself was checked out in the main tree). `.env`/`.env.local`
+copied in from the main checkout (not git-tracked), pointed at the same local dev Postgres
+(docker `citadel-postgres` on `:5433`, `citadel_dev`).
+
+| Command | Result | Exit |
+|---|---|---|
+| `npm ci` | 888 packages installed clean (`postinstall` ran `prisma generate` successfully) | 0 |
+| `npx prisma generate` | `✔ Generated Prisma Client (v6.19.1)` | 0 |
+| `npx prisma migrate status` | `25 migrations found in prisma/migrations` / `Database schema is up to date!` — confirms the new migration is recognized by Prisma **and** already applied to the local dev DB (not run fresh here; `migrate deploy` was intentionally NOT executed against any DB per instructions — status-only) | 0 |
+| DB column check | `docker exec citadel-postgres psql ... -c "\d oracle_sessions"` shows `remote_url \| character varying(500) \|  \|  \|` — nullable, no default, matches the migration | n/a |
+| `npx tsc --noEmit` | No output — zero type errors | 0 |
+| `npx vitest run` | **115 test files passed (115) / 1307 tests passed (1307)** — matches the expected count exactly (spec baseline 1293 + 14 new: ingest URL-validation, fleet DTO, SessionCard Respond-button tests) | 0 |
+| `npx next build` | `✓ Compiled successfully in 6.5s`, static/dynamic page manifest generated (135 routes incl. `ƒ /oracle`, `ƒ /api/oracle/fleet`, `ƒ /api/oracle/ingest`), no build errors | 0 |
+
+Worktree removed after (`git worktree remove ... --force`); `git worktree list` confirms only
+the main checkout remains.
+
+**Result: PASS**
+
+---
+
+## Check 3 — Integration round-trip (local dev server, this branch's code)
+
+Dev server restarted clean on `:3000` (killed the pre-existing process first, per the
+stale-Prisma-Client caution in the task brief, so this run is provably against a fresh process
+holding the freshly-generated client) against the branch checkout on `feat/oracle-respond-links`
+and the local dev Postgres (migration already applied, confirmed in Check 2).
+
+**Auth setup:** two throwaway API keys inserted directly via `docker exec psql` (same
+`citadel_` + sha256-hex scheme as `lib/auth/api-keys.ts`), one against the existing local admin
+user (`admin@indelible.agency`, for `GET /fleet`, which is `requireRole(['admin'])`), one
+against the existing local Oracle service user (`oracle@indelible.bot`, for `POST /ingest`,
+which is `isOracleBot`-gated). Both revoked/deleted at the end (see cleanup below).
+
+**Seed** — `POST /api/oracle/ingest` (Bearer oracle key), one snapshot with two `claude_code`
+sessions on a throwaway machine (`verify-throwaway-machine`):
+- `TESTxxx-with-url`: `remote_url: "https://claude.ai/code/session_TESTxxx"`, `status: waiting`
+- `TESTxxx-no-url`: no `remote_url` field, `status: running`
+
+Response: `{"success":true, ..., "sessions_upserted":2, ...}`.
+
+**Read** — `GET /api/oracle/fleet` (Bearer admin key), filtered to the throwaway machine:
+```json
+{
+  "external_id": "TESTxxx-with-url", "status": "waiting",
+  "remote_url": "https://claude.ai/code/session_TESTxxx"
+},
+{
+  "external_id": "TESTxxx-no-url", "status": "running",
+  "remote_url": null
+}
+```
+Confirms the DTO round-trip exactly: the session ingested WITH a valid remote_url returns it
+populated in the fleet response; the session ingested with no remote_url returns `null`, not an
+empty string or omitted key.
+
+**URL-guard rejection** — three separate `POST /api/oracle/ingest` calls (Bearer oracle key),
+each with an otherwise-valid snapshot session but a hostile `remote_url`:
+
+| Payload | Result |
+|---|---|
+| `https://evil.com/code/x` (wrong host) | **400**, `"remote_url must be an https://claude.ai/code/... URL"` |
+| `javascript:alert(1)` (dangerous scheme) | **400**, same message |
+| `http://claude.ai/code/session_x` (right host, wrong scheme) | **400**, same message |
+
+All three 400 at the Zod layer before ever reaching Prisma — no row was created or mutated by
+any of the three attempts (confirmed no `TESTxxx-evil`/`TESTxxx-js`/`TESTxxx-http` rows exist
+post-run).
+
+**Cleanup:** `oracle_events`/`oracle_agents`/`oracle_commands`/`oracle_sessions` for the
+throwaway machine deleted, then the machine itself (`DELETE FROM oracle_machines WHERE
+name = 'verify-throwaway-machine'`), then both throwaway `api_keys` rows. Post-cleanup
+`SELECT count(*)` on both the throwaway machine and the throwaway key names returned **0** in
+each case. Raw key material was written only to a scratchpad file that was deleted immediately
+after use, never logged elsewhere.
+
+**Prod harmlessness (task's "confirm prod harmlessly ignores remote_url until deploy"):**
+confirmed by reading the code, not by touching prod. `git show main:app/prisma/schema.prisma`
+has no `remote_url` field and `git show main:app/app/api/oracle/ingest/route.ts`'s
+`snapshotSessionSchema` has no `remote_url` key — prod is still running the pre-Phase-3 route.
+Zod's default `z.object()` mode (no `.strict()`/`.passthrough()` anywhere in this schema) silently
+**strips** unrecognized keys from the parsed output rather than rejecting the request; verified
+directly against the exact `zod` package installed in this repo:
+```
+$ node -e 'const {z}=require("zod"); const s=z.object({a:z.string()});
+           console.log(JSON.stringify(s.parse({a:"x", remote_url:"https://evil.com/whatever"})))'
+{"a":"x"}
+```
+So the already-live heartbeat sending `remote_url` in its snapshot payload to prod today is a
+no-op there: the field is silently dropped by Zod before it ever reaches Prisma, and even if it
+weren't, the prod DB has no `remote_url` column to write to. No error, no partial state, no
+data loss — this becomes live only once this branch's migration + route deploy to prod together.
+
+**Result: PASS**
+
+---
+
+## Check 4 — Href safety (URL-guard is the only writer of `remote_url`)
+
+Read `app/app/api/oracle/ingest/route.ts` and `app/components/domain/oracle/SessionCard.tsx`
+directly (not summarized from memory).
+
+**The validation predicate, verbatim** (`remoteUrlSchema`, `app/app/api/oracle/ingest/route.ts`):
+```ts
+const remoteUrlSchema = z
+  .string()
+  .max(500)
+  .refine(
+    (value) => {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        return false;
+      }
+      return url.protocol === 'https:' && url.hostname === 'claude.ai' && url.pathname.startsWith('/code/');
+    },
+    { message: 'remote_url must be an https://claude.ai/code/... URL' }
+  );
+```
+This is the only code path anywhere in the repo that assigns a value into the `remote_url`
+column: `grep -rn "remote_url"` across `app/`, `components/`, `lib/` (excluding tests) shows
+exactly one write site — `snap.remote_url !== undefined && { remote_url: snap.remote_url }` in
+the ingest route's snapshot-upsert block, where `snap` has already been parsed through
+`snapshotSessionSchema`, whose `remote_url` field is `remoteUrlSchema.nullable().optional()`.
+`null` is explicitly allowed through (clears a previously-set URL) but is never itself a
+javascript:/data:/other-host string — `null` renders no anchor at all downstream (see below).
+
+**The UI consumer** (`components/domain/oracle/SessionCard.tsx`, lines ~116–134):
+```tsx
+{showRespond && session.remote_url && (
+  ...
+  <a
+    href={session.remote_url}
+    target="_blank"
+    rel="noopener noreferrer"
+    onClick={(e) => e.stopPropagation()}
+    data-testid="respond-link"
+    ...
+  >
+```
+`session.remote_url` is `string | null` (`lib/types/oracle.ts`), sourced straight from the
+`GET /api/oracle/fleet` DTO (`app/app/api/oracle/fleet/route.ts` line 85:
+`remote_url: session.remote_url` — a direct passthrough of the Prisma column, no
+transformation). Since the column is only ever written by the predicate above, `href` can never
+be `javascript:`, `data:`, or a non-`claude.ai` host — the render guard (`session.remote_url &&
+...`) additionally means a falsy/null value renders no anchor tag at all, not an anchor with an
+empty/undefined href. `rel="noopener noreferrer"` on the `target="_blank"` anchor is
+defense-in-depth against reverse-tabnabbing, independent of the host restriction.
+
+**Result: PASS**
+
+---
+
+## Check 5 — Verification record
+
+This section. Committed to the branch as part of this verification pass (see commit below).
+
+---
+
+## Check 6 — citadel-worker unpause
+
+```
+$ rm -f ~/.citadel-worker-paused
+$ ls ~/.citadel-worker-paused
+ls: cannot access '/home/mike/.citadel-worker-paused': No such file or directory
+```
+Confirmed removed — the 10-minute cron resumes its normal cadence.
+
+---
+
+## Phase 3 gate summary
+
+| Gate | Result |
+|---|---|
+| Branch integrity (2 commits, clean status, additive nullable migration) | PASS |
+| Clean-checkout build (`npm ci` + `prisma generate` + `migrate status` + `tsc` + `vitest` 1307/1307 + `next build` exit 0) | PASS |
+| Integration round-trip (seed via API, fleet DTO shows populated/null correctly, 3 hostile URL-guard payloads all 400, cleanup verified 0 rows left) | PASS |
+| Prod harmlessness (Zod strips unknown `remote_url` key; prod schema/route confirmed unchanged; no error, no partial write) | PASS |
+| Href safety (single write site gated by the `claude.ai`/`https`/`/code/` predicate; UI never constructs `href` from anything else; `noopener noreferrer` present) | PASS |
+| Verification record written + committed | PASS (this section) |
+| citadel-worker unpaused | PASS — `~/.citadel-worker-paused` confirmed gone |
+
+## Bottom line (Phase 3)
+
+**DEPLOY-READY.** Both commits (`59fc7bd` schema/server, `92efd5e` UI) verified independently
+from a clean checkout: 1307/1307 tests pass, `tsc` clean, production `next build` succeeds.
+The live round-trip proves the exact contract end-to-end against a real Postgres and a real
+HTTP server — a session with a valid bridge URL surfaces it in the fleet DTO, a session without
+one returns `null`, and three distinct hostile payloads (wrong host, `javascript:` scheme,
+non-https) are all rejected with 400 before touching the database. The href the UI renders can
+only ever be an `https://claude.ai/code/...` URL by construction (single write site, one
+predicate, no other code path touches the column). Prod is confirmed harmless in the interim —
+the already-live heartbeat's `remote_url` field is silently stripped by Zod against the
+currently-deployed (pre-Phase-3) route, no error and no partial state. Not pushed, not merged,
+not deployed, per instructions.

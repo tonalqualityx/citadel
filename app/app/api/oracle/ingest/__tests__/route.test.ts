@@ -429,6 +429,154 @@ describe('POST /api/oracle/ingest — snapshot + agents', () => {
   });
 });
 
+describe('POST /api/oracle/ingest — remote_url validation (Phase 3)', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(BOT);
+  });
+
+  it('accepts and persists a valid https://claude.ai/code/... remote_url on a claude_code snapshot session', async () => {
+    mockSessionCreate.mockResolvedValue({
+      id: 'cc-sess-remote',
+      source: 'claude_code',
+      external_id: 'cc-remote-1',
+      status: 'running',
+      last_event_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            {
+              external_id: 'cc-remote-1',
+              source: 'claude_code',
+              title: 'Orchestrator session',
+              status: 'running',
+              remote_url: 'https://claude.ai/code/session_01NZKAFYR37yuNaaz2DPajxL',
+            },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.sessions_upserted).toBe(1);
+    expect(mockSessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          remote_url: 'https://claude.ai/code/session_01NZKAFYR37yuNaaz2DPajxL',
+        }),
+      })
+    );
+  });
+
+  it('rejects the whole request (400) when a snapshot session carries a non-claude.ai remote_url', async () => {
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            {
+              external_id: 'cc-evil-1',
+              source: 'claude_code',
+              status: 'running',
+              remote_url: 'https://evil.com/code/x',
+            },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockSessionCreate).not.toHaveBeenCalled();
+    expect(mockSessionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects the whole request (400) when remote_url is a non-https/junk value', async () => {
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            {
+              external_id: 'cc-junk-1',
+              source: 'claude_code',
+              status: 'running',
+              remote_url: 'not-a-url',
+            },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockSessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('allows remote_url: null to explicitly clear a previously-set value', async () => {
+    const existing = {
+      id: 'cc-sess-clear',
+      source: 'claude_code',
+      external_id: 'cc-clear-1',
+      status: 'running',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...existing,
+      ...data,
+    }));
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            { external_id: 'cc-clear-1', source: 'claude_code', status: 'running', remote_url: null },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockSessionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ remote_url: null }) })
+    );
+  });
+
+  it('leaves remote_url untouched when absent from the snapshot session (not included in the update)', async () => {
+    const existing = {
+      id: 'cc-sess-leave',
+      source: 'claude_code',
+      external_id: 'cc-leave-1',
+      status: 'running',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...existing,
+      ...data,
+    }));
+
+    await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [{ external_id: 'cc-leave-1', source: 'claude_code', status: 'running' }],
+        },
+      })
+    );
+
+    const callArgs = mockSessionUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect('remote_url' in callArgs.data).toBe(false);
+  });
+});
+
 describe('POST /api/oracle/ingest — pruning', () => {
   it('prunes events older than 7 days and still succeeds if pruning throws (snapshot-bearing call)', async () => {
     mockRequireAuth.mockResolvedValue(BOT);

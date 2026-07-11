@@ -82,6 +82,7 @@ export async function GET() {
           title: session.title,
           cwd: session.cwd,
           model: session.model,
+          remote_url: session.remote_url,
           status: session.status,
           needs_attention: session.needs_attention,
           attention_reason: session.attention_reason,

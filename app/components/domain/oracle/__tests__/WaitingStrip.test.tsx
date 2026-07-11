@@ -12,6 +12,7 @@ function makeSession(overrides: Partial<OracleSessionWithMachine>): OracleSessio
     title: 'Some session',
     cwd: null,
     model: 'claude-sonnet-5',
+    remote_url: null,
     status: 'waiting',
     needs_attention: false,
     attention_reason: null,
