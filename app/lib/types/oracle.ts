@@ -5,7 +5,7 @@
 
 export type OracleSource = 'claude_code' | 'workflow' | 'openclaw_cron';
 
-export type OracleSessionStatus = 'running' | 'waiting' | 'ended' | 'stale';
+export type OracleSessionStatus = 'running' | 'waiting' | 'idle' | 'ended' | 'stale';
 
 // Agent status is a free string server-side (new phase labels never require a
 // migration) but the fixture/heartbeat set is: running | done | failed | queued.

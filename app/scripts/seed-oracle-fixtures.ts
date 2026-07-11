@@ -3,13 +3,20 @@
  *
  * Inserts a realistic demo fleet so the UI can be built against real rows without
  * waiting on live telemetry from the hook script / heartbeat cron:
- *   - 2 running Claude Code sessions
- *   - 1 waiting Claude Code session with needs_attention set
- *   - 1 Workflow fan-out session with 6 agents in mixed states (done/running/failed/queued)
+ *   - 2 running Claude Code sessions (Working bucket)
+ *   - 1 waiting Claude Code session with needs_attention set (Waiting-on-Reshi strip)
+ *   - 1 "working" session with 6 nested agents in mixed states
+ *     (done/running/failed/queued) — Phase 4 folded the old standalone Workflow
+ *     group into the ordinary Working bucket (workflow-tool workers now nest under
+ *     their launcher session per Lane A; this fixture stands in for that shape:
+ *     a session with a running child agent, still `source: claude_code`)
  *   - 1 "working" orchestrator (Phase 2): Claude Code session that reads
  *     waiting+needs_attention on its own stored status but has a live running child
- *     agent — must be excluded from the Waiting-on-Reshi strip and show a
- *     "working · N agents" badge instead
+ *     agent — must be excluded from the Waiting-on-Reshi strip and land in the
+ *     Working bucket with a "working · N agents" badge instead
+ *   - 1 idle Claude Code session (Phase 4): alive, no running children, no
+ *     needs_attention — lands in the Idle bucket and still gets a Respond button
+ *     (idle is live, just not busy)
  *   - 1 openclaw cron session (already ended) — carries a remote_url too, so it
  *     doubles as the Phase 3 "ended session with a URL still gets no Respond
  *     button" fixture (live status wins over URL presence)
@@ -17,7 +24,8 @@
  * Phase 3 (Respond deep-links): waiting1 carries a fake remote_url so its card
  * renders the Respond button; running2 deliberately has none (older-session /
  * remote-control-never-enabled case); cron1 (ended) carries one too, to prove an
- * ended session hides Respond even when a URL is present.
+ * ended session hides Respond even when a URL is present. Phase 4 adds idle1's
+ * remote_url so the Idle-bucket Respond case has fixture coverage too.
  *   - a handful of OracleEvent rows powering the drawer
  *
  * Idempotent: all demo rows use an external_id prefixed "demo-" and are deleted and
@@ -108,7 +116,9 @@ async function main() {
     },
   });
 
-  // --- 1 workflow session with 6 agents in mixed states ---
+  // --- 1 "working" session with 6 nested agents in mixed states (Phase 4: stands
+  // in for a Working-bucket session with children — the old standalone Workflows
+  // group is gone, this is now just an ordinary session in the Working bucket) ---
   const workflow1 = await prisma.oracleSession.create({
     data: {
       machine_id: machine.id,
@@ -121,6 +131,7 @@ async function main() {
       started_at: minutesAgo(28),
       last_event_at: minutesAgo(0),
       tokens_total: 512_003,
+      remote_url: 'https://claude.ai/code/session_demo_workflow1',
     },
   });
 
@@ -199,6 +210,25 @@ async function main() {
     },
   });
 
+  // --- 1 idle session (Phase 4): alive, own turn ended, no running children, no
+  // needs_attention flag — lands in the Idle bucket, not Waiting or Working. Carries
+  // a remote_url so it also covers the "idle sessions still get Respond" fixture. ---
+  const idle1 = await prisma.oracleSession.create({
+    data: {
+      machine_id: machine.id,
+      source: OracleSource.claude_code,
+      external_id: `${DEMO_PREFIX}session-idle-1`,
+      title: 'msr-carwash-acquisition — parked',
+      cwd: '/home/mike/.openclaw/workspace/clients/msr-carwash',
+      model: 'claude-sonnet-5',
+      status: OracleSessionStatus.idle,
+      started_at: minutesAgo(180),
+      last_event_at: minutesAgo(35),
+      tokens_total: 88_410,
+      remote_url: 'https://claude.ai/code/session_demo_idle1',
+    },
+  });
+
   // --- 1 openclaw cron (already ended) ---
   const cron1 = await prisma.oracleSession.create({
     data: {
@@ -247,6 +277,7 @@ async function main() {
       payload: { agents_done: 2, agents_total: 6 },
       ts: minutesAgo(3),
     },
+    { session_id: idle1.id, kind: 'Stop', payload: {}, ts: minutesAgo(35) },
     { session_id: cron1.id, kind: 'SessionEnd', payload: { exit_code: 0 }, ts: minutesAgo(479) },
   ];
 
@@ -260,7 +291,7 @@ async function main() {
   console.log(`  machine: ${machine.name} (${machine.id})`);
   console.log(
     '  sessions: running x2, waiting x1 (needs_attention), workflow x1 (6 agents), ' +
-      'orchestrator-working x1 (1 running child), cron x1'
+      'orchestrator-working x1 (1 running child), idle x1, cron x1'
   );
   console.log(`  events: ${eventSeed.length}`);
 }

@@ -23,6 +23,8 @@ import {
   runningChildCount,
   isWorkingSession,
   isWaitingSession,
+  isWorkingBucketSession,
+  isIdleSession,
   anySessionRunning,
   anySessionNeedsAttention,
 } from '../oracle-logic';
@@ -133,6 +135,14 @@ describe('getStatusMeta', () => {
     expect(getStatusMeta('queued').colorVar).toBe('--text-muted');
   });
 
+  it('maps idle to the muted text variable, no pulse, no ring (Phase 4)', () => {
+    const meta = getStatusMeta('idle');
+    expect(meta.kind).toBe('idle');
+    expect(meta.colorVar).toBe('--text-muted');
+    expect(meta.pulse).toBe(false);
+    expect(meta.ring).toBe(false);
+  });
+
   it('falls back to a muted unknown pill for unrecognized statuses', () => {
     const meta = getStatusMeta('some-new-status-from-heartbeat');
     expect(meta.kind).toBe('unknown');
@@ -208,6 +218,55 @@ describe('hasRunningChild / runningChildCount / isWorkingSession', () => {
   it('a running session with a running child is not "working" (it is already running)', () => {
     const session = makeSession({ status: 'running', agents: [makeAgent({ status: 'running' })] });
     expect(isWorkingSession(session)).toBe(false);
+  });
+});
+
+describe('isWorkingBucketSession / isIdleSession (Phase 4 — three live buckets)', () => {
+  it('isWorkingBucketSession is true for a plain running session', () => {
+    expect(isWorkingBucketSession(makeSession({ status: 'running' }))).toBe(true);
+  });
+
+  it('isWorkingBucketSession is true for an idle-status session with a running child', () => {
+    const session = makeSession({
+      status: 'idle',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    expect(isWorkingBucketSession(session)).toBe(true);
+  });
+
+  it('isWorkingBucketSession is true for a waiting/needs_attention orchestrator with a running child (broader than isWorkingSession)', () => {
+    const session = makeSession({
+      status: 'waiting',
+      needs_attention: true,
+      agents: [makeAgent({ status: 'running' })],
+    });
+    expect(isWorkingBucketSession(session)).toBe(true);
+  });
+
+  it('isWorkingBucketSession is false for an idle session with no running children', () => {
+    expect(isWorkingBucketSession(makeSession({ status: 'idle', agents: [] }))).toBe(false);
+  });
+
+  it('isIdleSession is true for a status-idle session with no running child and no needs_attention', () => {
+    expect(isIdleSession(makeSession({ status: 'idle', agents: [] }))).toBe(true);
+  });
+
+  it('isIdleSession is false when status is not idle', () => {
+    expect(isIdleSession(makeSession({ status: 'running', agents: [] }))).toBe(false);
+    expect(isIdleSession(makeSession({ status: 'ended', agents: [] }))).toBe(false);
+  });
+
+  it('isIdleSession is false for an idle-status session with a running child (working wins)', () => {
+    const session = makeSession({
+      status: 'idle',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    expect(isIdleSession(session)).toBe(false);
+  });
+
+  it('isIdleSession is false for an idle-status session flagged needs_attention (waiting-on-you wins)', () => {
+    const session = makeSession({ status: 'idle', needs_attention: true, agents: [] });
+    expect(isIdleSession(session)).toBe(false);
   });
 });
 
@@ -302,35 +361,57 @@ describe('selectWaitingSessions', () => {
   });
 });
 
-describe('groupNonWaitingSessions', () => {
-  it('buckets by source first, then status, and always excludes waiting/needs_attention', () => {
+describe('groupNonWaitingSessions (Phase 4 — three live buckets: working / idle / crons / recentlyEnded)', () => {
+  it('buckets crons by source first, then working/idle/recentlyEnded by status, and always excludes waiting/needs_attention', () => {
     const running = makeSession({ id: 'running', source: 'claude_code', status: 'running' });
+    const idle = makeSession({ id: 'idle', source: 'claude_code', status: 'idle' });
     const waiting = makeSession({ id: 'waiting', source: 'claude_code', status: 'waiting' });
-    const workflow = makeSession({ id: 'workflow', source: 'workflow', status: 'running' });
-    const endedWorkflow = makeSession({ id: 'workflow-ended', source: 'workflow', status: 'ended' });
+    const runningWorkflowSource = makeSession({ id: 'workflow', source: 'workflow', status: 'running' });
+    const endedWorkflowSource = makeSession({ id: 'workflow-ended', source: 'workflow', status: 'ended' });
     const cron = makeSession({ id: 'cron', source: 'openclaw_cron', status: 'ended' });
+    const runningCron = makeSession({ id: 'cron-running', source: 'openclaw_cron', status: 'running' });
     const endedDirect = makeSession({ id: 'ended-direct', source: 'claude_code', status: 'ended' });
     const stale = makeSession({ id: 'stale-direct', source: 'claude_code', status: 'stale' });
 
-    const machine = makeMachine([running, waiting, workflow, endedWorkflow, cron, endedDirect, stale]);
+    const machine = makeMachine([
+      running,
+      idle,
+      waiting,
+      runningWorkflowSource,
+      endedWorkflowSource,
+      cron,
+      runningCron,
+      endedDirect,
+      stale,
+    ]);
     const groups = groupNonWaitingSessions([machine]);
 
-    expect(groups.running.map((s) => s.id)).toEqual(['running']);
-    expect(groups.workflows.map((s) => s.id).sort()).toEqual(['workflow', 'workflow-ended']);
-    expect(groups.crons.map((s) => s.id)).toEqual(['cron']);
-    expect(groups.recentlyEnded.map((s) => s.id).sort()).toEqual(['ended-direct', 'stale-direct']);
+    // a running session lands in working, regardless of source — the old
+    // source-based "Workflows" group is gone (Phase 4: workflow-tool workers now
+    // nest under their launcher session instead of appearing as a top-level session)
+    expect(groups.working.map((s) => s.id).sort()).toEqual(['running', 'workflow']);
+    // a status-idle session lands in idle
+    expect(groups.idle.map((s) => s.id)).toEqual(['idle']);
+    // crons keep their own source-based group regardless of status (running or ended)
+    expect(groups.crons.map((s) => s.id).sort()).toEqual(['cron', 'cron-running']);
+    expect(groups.recentlyEnded.map((s) => s.id).sort()).toEqual([
+      'ended-direct',
+      'stale-direct',
+      'workflow-ended',
+    ]);
 
-    // waiting session must never appear in any bucket
+    // a session is in exactly ONE bucket, and waiting never appears in any
     const allIds = [
-      ...groups.running,
-      ...groups.workflows,
+      ...groups.working,
+      ...groups.idle,
       ...groups.crons,
       ...groups.recentlyEnded,
     ].map((s) => s.id);
     expect(allIds).not.toContain('waiting');
+    expect(new Set(allIds).size).toBe(allIds.length);
   });
 
-  it('a "working" orchestrator (waiting status + running child) lands in the running group, not recentlyEnded', () => {
+  it('a "working" orchestrator (waiting status + running child) lands in the working group, not recentlyEnded or idle', () => {
     const workingOrchestrator = makeSession({
       id: 'orch-working',
       source: 'claude_code',
@@ -340,8 +421,45 @@ describe('groupNonWaitingSessions', () => {
     const machine = makeMachine([workingOrchestrator]);
     const groups = groupNonWaitingSessions([machine]);
 
-    expect(groups.running.map((s) => s.id)).toEqual(['orch-working']);
+    expect(groups.working.map((s) => s.id)).toEqual(['orch-working']);
+    expect(groups.idle.map((s) => s.id)).not.toContain('orch-working');
     expect(groups.recentlyEnded.map((s) => s.id)).not.toContain('orch-working');
+  });
+
+  it('an idle session with a running child lands in working, not idle (precedence: working beats idle)', () => {
+    const idleWithChild = makeSession({
+      id: 'idle-with-child',
+      source: 'claude_code',
+      status: 'idle',
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machine = makeMachine([idleWithChild]);
+    const groups = groupNonWaitingSessions([machine]);
+
+    expect(groups.working.map((s) => s.id)).toEqual(['idle-with-child']);
+    expect(groups.idle.map((s) => s.id)).toHaveLength(0);
+  });
+
+  it('a needs_attention session is not in working or idle — it belongs to selectWaitingSessions only', () => {
+    const flagged = makeSession({
+      id: 'flagged',
+      source: 'claude_code',
+      status: 'idle',
+      needs_attention: true,
+      agents: [],
+    });
+    const machine = makeMachine([flagged]);
+    const groups = groupNonWaitingSessions([machine]);
+
+    const allIds = [...groups.working, ...groups.idle, ...groups.crons, ...groups.recentlyEnded].map(
+      (s) => s.id
+    );
+    expect(allIds).not.toContain('flagged');
+  });
+
+  it('has no top-level "workflows" group — SessionGroups is {working, idle, crons, recentlyEnded}', () => {
+    const groups = groupNonWaitingSessions([makeMachine([])]);
+    expect(Object.keys(groups).sort()).toEqual(['crons', 'idle', 'recentlyEnded', 'working']);
   });
 });
 

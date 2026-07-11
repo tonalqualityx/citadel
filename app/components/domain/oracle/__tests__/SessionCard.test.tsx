@@ -86,6 +86,12 @@ describe('SessionCard — Respond deep-link', () => {
     expect(screen.getByTestId('respond-link')).toBeInTheDocument();
   });
 
+  it('renders Respond for an idle session with remote_url (Phase 4: idle is live, just not busy)', () => {
+    const session = makeSession({ status: 'idle', remote_url: REMOTE_URL });
+    render(<SessionCard session={session} nowMs={Date.now()} collapsed={false} />);
+    expect(screen.getByTestId('respond-link')).toBeInTheDocument();
+  });
+
   it('does NOT render Respond for an ended session, even with remote_url set', () => {
     const session = makeSession({ status: 'ended', remote_url: REMOTE_URL });
     render(<SessionCard session={session} nowMs={Date.now()} collapsed={false} />);

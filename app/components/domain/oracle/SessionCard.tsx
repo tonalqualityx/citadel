@@ -47,9 +47,14 @@ export function SessionCard({ session, nowMs, collapsed, className }: SessionCar
   // Remote Control bridge — ended/stale sessions get no dead link, and a session
   // without remote_url (older session, or remote control never enabled for it)
   // gets no button at all. `working` already folds in waiting/needs_attention
-  // sessions that are really waiting on their own subagents (isWorkingSession),
-  // so this stays a flat OR against the three "live" reads.
-  const isLive = session.status === 'running' || session.status === 'waiting' || working;
+  // sessions that are really waiting on their own subagents (isWorkingSession).
+  // Phase 4: `idle` (alive but doing nothing right now) is live too — it's still a
+  // clickable session, just not busy — so it gets Respond same as running/waiting.
+  const isLive =
+    session.status === 'running' ||
+    session.status === 'waiting' ||
+    session.status === 'idle' ||
+    working;
   const showRespond = Boolean(session.remote_url) && isLive;
   // Prominent (primary, full-size) on a waiting/working card — that's the point of
   // the button, Mike triaging from the couch. Secondary (smaller) on a plain
