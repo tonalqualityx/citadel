@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth, assertClientScope } from '@/lib/services/client-auth';
 import { formatArticleForClient } from '@/lib/api/client-projections';
+import { getClientIp } from '@/lib/services/portal';
 import {
   CLIENT_HIDDEN_ARTICLE_STATUSES,
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
@@ -20,7 +21,7 @@ import { validateHtmlFragment } from '@/lib/articles/html-validation';
 //   missing / internal  → 404
 //   own, in_review+     → 200 { article: ClientArticle }  (allow-list projection, client-safe comments)
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -59,6 +60,26 @@ export async function GET(
 
     // Hard scope gate: a session may only ever read its own client's article.
     assertClientScope(session, article.client_id);
+
+    // Log the view for the admin-side "client last viewed" surfacing. `article_view` isn't
+    // in logPortalSession's token-type union (that helper is typed to the sales-doc token
+    // types) — inserting directly here is cleaner than widening a shared helper for one
+    // caller. Fire-and-forget, wrapped so even a synchronous failure (e.g. the insert
+    // throwing before returning a promise) never fails the client's page load.
+    Promise.resolve()
+      .then(() =>
+        prisma.portalSession.create({
+          data: {
+            token_type: 'article_view',
+            entity_id: id,
+            contact_id: session.contactId,
+            ip_address: getClientIp(request),
+            user_agent: request.headers.get('user-agent'),
+            action: 'view',
+          },
+        })
+      )
+      .catch(() => {});
 
     return NextResponse.json({ article: formatArticleForClient(article) });
   } catch (error) {

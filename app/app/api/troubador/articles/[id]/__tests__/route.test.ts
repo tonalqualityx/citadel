@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
-import { PATCH } from '../route';
+import { GET, PATCH } from '../route';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
@@ -23,6 +23,9 @@ vi.mock('@/lib/db/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    portalSession: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -32,6 +35,7 @@ vi.mock('@/lib/services/activity', () => ({
 
 vi.mock('@/lib/services/troubador-notifications', () => ({
   notifyArticleNeedsReview: vi.fn().mockResolvedValue(undefined),
+  notifyRunReviewReady: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
@@ -45,6 +49,7 @@ const mockFindUnique = prisma.article.findUnique as Mock;
 const mockUpdate = prisma.article.update as Mock;
 const mockCommentUpdateMany = prisma.articleComment.updateMany as Mock;
 const mockRunFindUnique = prisma.troubadorRun.findUnique as Mock;
+const mockPortalSessionFindFirst = prisma.portalSession.findFirst as Mock;
 
 const BOT = { userId: 'bot-1', role: 'pm', email: 'troubador@indelible.bot' };
 const HUMAN = { userId: 'editor-1', role: 'pm', email: 'mike@becomeindelible.com' };
@@ -79,6 +84,7 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     mockFindMany.mockResolvedValue([]);
     mockFindUnique.mockResolvedValue(articleRow());
     mockRunFindUnique.mockResolvedValue({ stage: 'in_production' });
+    mockPortalSessionFindFirst.mockResolvedValue(null);
   });
 
   it('forbids the Troubador worker from approving (403)', async () => {
@@ -193,5 +199,95 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     expect(res.status).toBe(200);
     expect(mockUpdate.mock.calls[0][0].data.status).toBe('in_review');
     expect(notifyArticleNeedsReview).toHaveBeenCalledWith('a1');
+  });
+
+  describe('run-review-ready guard (notifyRunReviewReady)', () => {
+    it('fires when a single-article run completes its review set', async () => {
+      const { notifyRunReviewReady } = await import('@/lib/services/troubador-notifications');
+      mockRequireAuth.mockResolvedValue(BOT);
+      mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+      mockFindMany.mockResolvedValue([]); // no siblings
+
+      const res = await PATCH(patchReq({ status: 'in_review' }), { params });
+
+      expect(res.status).toBe(200);
+      expect(notifyRunReviewReady).toHaveBeenCalledWith('run-1');
+    });
+
+    it('does NOT fire while a sibling article is still drafting', async () => {
+      const { notifyRunReviewReady } = await import('@/lib/services/troubador-notifications');
+      mockRequireAuth.mockResolvedValue(BOT);
+      mockFindFirst.mockResolvedValue(articleRow({ status: 'drafting' }));
+      mockFindMany.mockResolvedValue([{ status: 'drafting' }]);
+
+      const res = await PATCH(patchReq({ status: 'in_review' }), { params });
+
+      expect(res.status).toBe(200);
+      expect(notifyRunReviewReady).not.toHaveBeenCalled();
+    });
+
+    it('fires on a resubmission (needs_revision -> in_review) that completes the set', async () => {
+      const { notifyRunReviewReady } = await import('@/lib/services/troubador-notifications');
+      mockRequireAuth.mockResolvedValue(BOT);
+      // This article was sent back for revision; no sibling is currently `in_review`, so the
+      // set wasn't complete before this PATCH even though the sibling is already `approved`.
+      mockFindFirst.mockResolvedValue(articleRow({ status: 'needs_revision' }));
+      mockFindMany.mockResolvedValue([{ status: 'approved' }]);
+
+      const res = await PATCH(patchReq({ body: 'revised', status: 'in_review' }), { params });
+
+      expect(res.status).toBe(200);
+      expect(notifyRunReviewReady).toHaveBeenCalledWith('run-1');
+    });
+
+    it('does NOT refire when the set was already complete before this PATCH', async () => {
+      const { notifyRunReviewReady } = await import('@/lib/services/troubador-notifications');
+      mockRequireAuth.mockResolvedValue(BOT);
+      // A sibling is already `in_review` and everything else is review-or-beyond, so the set
+      // was already complete before this transition — this one must not refire it.
+      mockFindFirst.mockResolvedValue(articleRow({ status: 'needs_revision' }));
+      mockFindMany.mockResolvedValue([{ status: 'in_review' }, { status: 'approved' }]);
+
+      const res = await PATCH(patchReq({ body: 'revised', status: 'in_review' }), { params });
+
+      expect(res.status).toBe(200);
+      expect(notifyRunReviewReady).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /api/troubador/articles/[id] (client_last_viewed_at)', () => {
+    it('returns null when the client has never viewed the article', async () => {
+      mockRequireAuth.mockResolvedValue(HUMAN);
+      mockFindFirst.mockResolvedValue(articleRow());
+      mockPortalSessionFindFirst.mockResolvedValue(null);
+
+      const res = await GET(new NextRequest('http://localhost:3000/api/troubador/articles/a1'), {
+        params,
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.client_last_viewed_at).toBeNull();
+    });
+
+    it('surfaces the most recent article_view PortalSession timestamp', async () => {
+      mockRequireAuth.mockResolvedValue(HUMAN);
+      mockFindFirst.mockResolvedValue(articleRow());
+      const viewedAt = new Date('2026-07-11T10:00:00Z');
+      mockPortalSessionFindFirst.mockResolvedValue({ created_at: viewedAt });
+
+      const res = await GET(new NextRequest('http://localhost:3000/api/troubador/articles/a1'), {
+        params,
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.client_last_viewed_at).toBe(viewedAt.toISOString());
+      expect(mockPortalSessionFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { token_type: 'article_view', entity_id: 'a1' },
+        })
+      );
+    });
   });
 });

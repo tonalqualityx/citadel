@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import { notifyArticleClientChangesRequested } from '@/lib/services/troubador-notifications';
 import {
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
   loadActionableArticle,
@@ -65,6 +66,9 @@ export async function POST(
         data: { status: 'needs_revision', locked: false },
       }),
     ]);
+
+    // Notify the run's assignee. Fire-and-forget: never fail the client's request.
+    notifyArticleClientChangesRequested(id, note).catch(() => {});
 
     return NextResponse.json({ message: 'Thanks — sent back for changes', status: 'needs_revision' });
   } catch (error) {

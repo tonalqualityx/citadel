@@ -10,20 +10,28 @@ vi.mock('@/lib/db/prisma', () => ({
 vi.mock('@/lib/services/email', () => ({
   sendEmail: vi.fn(),
 }));
+// The digest fires client review reminders as a side effect — stubbed here; the actual sending
+// behavior (throttle, OFF-by-default, recipient resolution) is covered in its own test file.
+vi.mock('@/lib/services/client-review-reminders', () => ({
+  sendClientReviewReminders: vi.fn().mockResolvedValue({ sent: 0, skipped: 0 }),
+}));
 
 import { prisma } from '@/lib/db/prisma';
 import { sendEmail } from '@/lib/services/email';
+import { sendClientReviewReminders } from '@/lib/services/client-review-reminders';
 import {
   gatherNeedsAttention,
   buildDigestEmail,
   sendNeedsAttentionDigest,
   STALE_IN_PROGRESS_DAYS,
+  STALE_CLIENT_REVIEW_DAYS,
 } from '../needs-attention-digest';
 import type { Mock } from 'vitest';
 
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockArticleFindMany = prisma.article.findMany as Mock;
 const mockSendEmail = sendEmail as Mock;
+const mockSendReminders = sendClientReviewReminders as Mock;
 
 let now: Date;
 
@@ -67,12 +75,28 @@ function wireTaskQueries(opts: {
   });
 }
 
+/**
+ * Route prisma.article.findMany calls to the right bucket result by inspecting the where
+ * clause (mirrors the two article queries in gatherNeedsAttention: the in_review query and
+ * the approved/scheduled query that feeds approvedUnscheduled + pastDueUnpublished).
+ */
+function wireArticleQueries(opts: { review?: unknown[]; approvedScheduled?: unknown[] }) {
+  mockArticleFindMany.mockImplementation((args: { where: Record<string, unknown> }) => {
+    const status = args.where.status as unknown;
+    if (status === 'in_review') return Promise.resolve(opts.review ?? []);
+    if (status && typeof status === 'object' && 'in' in (status as object)) {
+      return Promise.resolve(opts.approvedScheduled ?? []);
+    }
+    return Promise.resolve([]);
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   now = new Date('2026-06-21T12:00:00Z');
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(now);
-  mockArticleFindMany.mockResolvedValue([]);
+  wireArticleQueries({});
 });
 
 afterEach(() => {
@@ -155,9 +179,9 @@ describe('gatherNeedsAttention — buckets', () => {
   });
 
   it('maps articles in_review to digest items with run links', async () => {
-    mockArticleFindMany.mockResolvedValue([
-      { id: 'art1', title: 'Draft post', run_id: 'run9', created_at: new Date() },
-    ]);
+    wireArticleQueries({
+      review: [{ id: 'art1', title: 'Draft post', run_id: 'run9', created_at: new Date(), updated_at: now }],
+    });
     wireTaskQueries({});
 
     const data = await gatherNeedsAttention();
@@ -165,10 +189,64 @@ describe('gatherNeedsAttention — buckets', () => {
       { id: 'art1', title: 'Draft post', url: expect.stringContaining('/troubador/runs/run9') },
     ]);
   });
+
+  it('populates approvedUnscheduled for approved articles with no publish date', async () => {
+    wireArticleQueries({
+      approvedScheduled: [
+        { id: 'ap1', title: 'Ready to go', run_id: 'run1', status: 'approved', scheduled_date: null, published_url: null },
+        { id: 'ap2', title: 'Already dated', run_id: 'run2', status: 'approved', scheduled_date: new Date('2026-07-01T00:00:00Z'), published_url: null },
+      ],
+    });
+    wireTaskQueries({});
+
+    const data = await gatherNeedsAttention();
+    expect(data.approvedUnscheduled.map((a) => a.id)).toEqual(['ap1']);
+    expect(data.approvedUnscheduled[0].reason).toBe('Approved — no publish date');
+  });
+
+  it('populates pastDueUnpublished for approved/scheduled articles whose date has passed and remain unpublished', async () => {
+    wireArticleQueries({
+      approvedScheduled: [
+        { id: 'pd1', title: 'Overdue', run_id: 'run1', status: 'scheduled', scheduled_date: new Date('2026-06-01T00:00:00Z'), published_url: null },
+        { id: 'pd2', title: 'Not due yet', run_id: 'run2', status: 'scheduled', scheduled_date: new Date('2026-07-01T00:00:00Z'), published_url: null },
+        { id: 'pd3', title: 'Already published', run_id: 'run3', status: 'scheduled', scheduled_date: new Date('2026-06-01T00:00:00Z'), published_url: 'https://x.com/post' },
+      ],
+    });
+    wireTaskQueries({});
+
+    const data = await gatherNeedsAttention();
+    expect(data.pastDueUnpublished.map((a) => a.id)).toEqual(['pd1']);
+    expect(data.pastDueUnpublished[0].reason).toBe('Publish date passed');
+  });
+
+  it('populates staleClientReview only past STALE_CLIENT_REVIEW_DAYS, with a day count in the reason', async () => {
+    wireArticleQueries({
+      review: [
+        { id: 'fresh', title: 'Just submitted', run_id: 'run1', created_at: new Date(), updated_at: new Date('2026-06-20T12:00:00Z') },
+        { id: 'stale', title: 'Sitting a while', run_id: 'run2', created_at: new Date(), updated_at: new Date('2026-06-10T12:00:00Z') },
+      ],
+    });
+    wireTaskQueries({});
+
+    const data = await gatherNeedsAttention();
+    expect(data.staleClientReview.map((a) => a.id)).toEqual(['stale']);
+    expect(data.staleClientReview[0].reason).toBe(`Waiting on client 11 days`);
+    expect(STALE_CLIENT_REVIEW_DAYS).toBe(5);
+    // staleClientReview is a subset of articlesAwaitingReview — both articles still show there.
+    expect(data.articlesAwaitingReview.map((a) => a.id).sort()).toEqual(['fresh', 'stale']);
+  });
 });
 
 describe('buildDigestEmail', () => {
-  const empty = { needsMike: [], awaitingClarification: [], stuck: [], articlesAwaitingReview: [] };
+  const empty = {
+    needsMike: [],
+    awaitingClarification: [],
+    stuck: [],
+    articlesAwaitingReview: [],
+    approvedUnscheduled: [],
+    pastDueUnpublished: [],
+    staleClientReview: [],
+  };
 
   it('empty state: still produces a clear "nothing needs you" email', () => {
     const { subject, text, html } = buildDigestEmail(empty);
@@ -179,8 +257,8 @@ describe('buildDigestEmail', () => {
 
   it('non-empty: counts in subject, sections rendered, titles escaped', () => {
     const { subject, html, text } = buildDigestEmail({
+      ...empty,
       needsMike: [{ id: 'a', title: 'Fix <b>thing</b>', priority: 1, status: 'not_started', reason: 'Tagged needs-mike', url: 'http://x/tasks/a' }],
-      awaitingClarification: [],
       stuck: [{ id: 's', title: 'Stuck one', priority: 2, status: 'blocked', reason: 'Blocked, but all blockers are done', url: 'http://x/tasks/s' }],
       articlesAwaitingReview: [{ id: 'art', title: 'A post', url: 'http://x/troubador/runs/r' }],
     });
@@ -200,6 +278,39 @@ describe('buildDigestEmail', () => {
     });
     expect(subject).toContain('1 item');
     expect(subject).not.toContain('1 items');
+  });
+
+  it('renders approvedUnscheduled, pastDueUnpublished, and staleClientReview sections with reasons', () => {
+    const { subject, html, text } = buildDigestEmail({
+      ...empty,
+      approvedUnscheduled: [
+        { id: 'a1', title: 'No date yet', url: 'http://x/troubador/runs/r1', reason: 'Approved — no publish date' },
+      ],
+      pastDueUnpublished: [
+        { id: 'a2', title: 'Overdue post', url: 'http://x/troubador/runs/r2', reason: 'Publish date passed' },
+      ],
+      staleClientReview: [
+        { id: 'a3', title: 'Client sitting on it', url: 'http://x/troubador/runs/r3', reason: 'Waiting on client 7 days' },
+      ],
+    });
+
+    expect(subject).toContain('3 items');
+    expect(html).toContain('Approved — no publish date (1)');
+    expect(html).toContain('Publish date passed (1)');
+    expect(html).toContain('Waiting on client review (1)');
+    expect(html).toContain('Waiting on client 7 days');
+    expect(text).toContain('No date yet — Approved — no publish date');
+    expect(text).toContain('Overdue post — Publish date passed');
+    expect(text).toContain('Client sitting on it — Waiting on client 7 days');
+  });
+
+  it('omits a reason line for articlesAwaitingReview items (none set)', () => {
+    const { html, text } = buildDigestEmail({
+      ...empty,
+      articlesAwaitingReview: [{ id: 'art', title: 'Plain review item', url: 'http://x/troubador/runs/r' }],
+    });
+    expect(html).not.toContain('undefined');
+    expect(text).toContain('Plain review item\n');
   });
 });
 
@@ -240,5 +351,39 @@ describe('sendNeedsAttentionDigest', () => {
 
     if (prev === undefined) delete process.env.DIGEST_RECIPIENT;
     else process.env.DIGEST_RECIPIENT = prev;
+  });
+
+  it('triggers client review reminders for staleClientReview article ids', async () => {
+    wireTaskQueries({});
+    wireArticleQueries({
+      review: [
+        { id: 'stale1', title: 'Old one', run_id: 'run1', created_at: new Date(), updated_at: new Date('2026-06-01T00:00:00Z') },
+      ],
+    });
+
+    await sendNeedsAttentionDigest();
+    expect(mockSendReminders).toHaveBeenCalledWith(['stale1']);
+  });
+
+  it('does not call reminders when nothing is stale', async () => {
+    wireTaskQueries({});
+    wireArticleQueries({});
+
+    await sendNeedsAttentionDigest();
+    expect(mockSendReminders).not.toHaveBeenCalled();
+  });
+
+  it('never breaks the digest send when reminders throw', async () => {
+    wireTaskQueries({});
+    wireArticleQueries({
+      review: [
+        { id: 'stale1', title: 'Old one', run_id: 'run1', created_at: new Date(), updated_at: new Date('2026-06-01T00:00:00Z') },
+      ],
+    });
+    mockSendReminders.mockRejectedValueOnce(new Error('smtp down'));
+
+    const summary = await sendNeedsAttentionDigest();
+    expect(mockSendEmail).toHaveBeenCalledOnce();
+    expect(summary.counts.staleClientReview).toBe(1);
   });
 });

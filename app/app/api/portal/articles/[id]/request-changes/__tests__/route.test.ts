@@ -19,8 +19,15 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+// notifyArticleClientChangesRequested is fire-and-forget; stub it so this test asserts the
+// route's own call without exercising the (separately-tested) notification body.
+vi.mock('@/lib/services/troubador-notifications', () => ({
+  notifyArticleClientChangesRequested: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { POST } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import { notifyArticleClientChangesRequested } from '@/lib/services/troubador-notifications';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
@@ -29,6 +36,7 @@ const mockFindFirst = prisma.article.findFirst as Mock;
 const mockUpdate = prisma.article.update as Mock;
 const mockCommentCreate = prisma.articleComment.create as Mock;
 const mockContact = prisma.clientContact.findUnique as Mock;
+const mockNotify = notifyArticleClientChangesRequested as Mock;
 
 function makeRequest(body: unknown = { note: 'Fix the intro' }): NextRequest {
   return new NextRequest(new URL('http://localhost/api/portal/articles/art-1/request-changes'), {
@@ -123,6 +131,7 @@ describe('POST /api/portal/articles/:id/request-changes', () => {
       where: { id: 'art-1' },
       data: { status: 'needs_revision', locked: false },
     });
+    expect(mockNotify).toHaveBeenCalledWith('art-1', 'Tighten the opening paragraph.');
   });
 
   it('falls back to a neutral attribution when the contact has no name', async () => {
@@ -133,5 +142,13 @@ describe('POST /api/portal/articles/:id/request-changes', () => {
     const res = await POST(makeRequest({ note: 'Please revise.' }), makeParams());
     expect(res.status).toBe(200);
     expect(mockCommentCreate.mock.calls[0][0].data.content).toContain('Client requested changes');
+  });
+
+  it('does not notify when the request fails validation (empty note)', async () => {
+    mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockFindFirst.mockResolvedValue(articleRow);
+    const res = await POST(makeRequest({ note: '' }), makeParams());
+    expect(res.status).toBe(400);
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });
