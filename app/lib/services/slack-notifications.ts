@@ -37,6 +37,10 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   system_alert: '⚠️',
   article_needs_review: '✍️',
   troubador_run_created: '📝',
+  troubador_run_review_ready: '📬',
+  article_client_approved: '✅',
+  article_client_changes_requested: '📮',
+  interview_answers_submitted: '🎤',
 };
 
 interface TaskContext {

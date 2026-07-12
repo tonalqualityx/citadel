@@ -308,6 +308,10 @@ enum NotificationType {
   system_alert
   article_needs_review
   troubador_run_created
+  troubador_run_review_ready
+  article_client_approved
+  article_client_changes_requested
+  interview_answers_submitted
 }
 
 enum NotificationPriority {
@@ -2311,6 +2315,7 @@ model Interview {
   run          TroubadorRun    @relation(fields: [run_id], references: [id], onDelete: Cascade)
   status       InterviewStatus @default(pending)
   questions    Json?
+  answers      Json?           // client's async written answers from the portal (per-question)
   transcript   String?         @db.Text
   completed_at DateTime?
   created_at   DateTime        @default(now())
