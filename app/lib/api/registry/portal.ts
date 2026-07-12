@@ -156,6 +156,69 @@ export const portalEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/portal/interview',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "The logged-in client's pending interview prep — runs in ready_for_interview with an " +
+          'open (not-yet-complete) interview that has questions. Requires a client_session cookie; ' +
+          'client-scoped.',
+        auth: 'session',
+        responseExample: {
+          interviews: [
+            {
+              run_id: 'uuid',
+              run_title: 'string',
+              questions: 'object',
+              answers: [{ question_index: 'number|null', question: 'string|null', answer: 'string', answered_at: 'ISO-8601', contact_id: 'uuid' }],
+              interview_status: 'pending|in_progress',
+            },
+          ],
+        },
+        responseNotes:
+          '401 without a valid client session. Empty array when nothing is pending. `answers` only ' +
+          "includes the CALLER'S OWN previously-saved answers (a shared portal link may be used by " +
+          "more than one contact; each contact only ever sees their own written answers).",
+      },
+    ],
+  },
+  {
+    path: '/api/portal/interview/:runId/answers',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          "Client saves written prep answers ahead of the live interview call. Supplementary prep " +
+          "material only — never advances Interview.status or the run's stage. Requires a " +
+          'client_session cookie; client-scoped.',
+        auth: 'session',
+        bodySchema: [
+          {
+            name: 'answers',
+            type: 'object',
+            required: true,
+            description:
+              'Array of { question_index (number, preferred) or question (string), answer (string, max 10000 chars) }, max 100 entries',
+          },
+        ],
+        responseExample: {
+          run_id: 'uuid',
+          answers: [{ question_index: 'number|null', question: 'string|null', answer: 'string', answered_at: 'ISO-8601', contact_id: 'uuid' }],
+        },
+        responseNotes:
+          '401 without a session; 403 cross-client; 404 run missing/deleted (existence not leaked); ' +
+          '409 when the run is not in ready_for_interview, or the interview is missing/already ' +
+          'complete; 400 on a malformed answers array. Merge-saves by question_index (else exact ' +
+          "question text) — a resubmit overwrites in place, other contacts'/questions' entries are " +
+          "preserved. Fires an interview_answers_submitted notification to the run's assignee (skipped " +
+          'if unassigned).',
+      },
+    ],
+  },
+  {
     path: '/api/portal/tasks/:token',
     group: 'portal',
     methods: [

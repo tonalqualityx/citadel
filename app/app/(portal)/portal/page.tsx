@@ -93,6 +93,9 @@ export default function ClientArticleListPage() {
   const [data, setData] = useState<ArticlesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Interview prep pointer — a small non-blocking count fetched separately so a failure here
+  // never breaks the main article list. 0/null renders nothing (see InterviewPrepBanner).
+  const [interviewCount, setInterviewCount] = useState<number | null>(null);
 
   useEffect(() => {
     async function fetchArticles() {
@@ -119,6 +122,20 @@ export default function ClientArticleListPage() {
     fetchArticles();
   }, [router]);
 
+  useEffect(() => {
+    async function fetchInterviewCount() {
+      try {
+        const res = await fetch('/api/portal/interview');
+        if (!res.ok) return; // non-fatal — the pointer just doesn't show
+        const payload: { interviews: Array<{ questions: unknown }> } = await res.json();
+        setInterviewCount(payload.interviews.length);
+      } catch {
+        // non-fatal
+      }
+    }
+    fetchInterviewCount();
+  }, []);
+
   if (loading) {
     return <p className="text-sm text-text-tertiary">Loading your articles…</p>;
   }
@@ -135,6 +152,18 @@ export default function ClientArticleListPage() {
 
   return (
     <div>
+      {interviewCount !== null && interviewCount > 0 && (
+        <Link
+          href="/portal/interview"
+          className="mb-8 flex items-center justify-between gap-4 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-text-tertiary"
+        >
+          <span className="text-sm font-medium text-text-main">
+            Interview prep — {interviewCount} question{interviewCount === 1 ? '' : 's'} waiting
+          </span>
+          <span className="shrink-0 text-xs text-brand-primary">Open →</span>
+        </Link>
+      )}
+
       <h2 className="text-xl font-semibold text-text-main">Ready for your review</h2>
       <p className="mt-1 text-sm text-text-tertiary">
         Articles we&apos;ve prepared and are waiting on your review.

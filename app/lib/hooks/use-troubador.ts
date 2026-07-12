@@ -96,8 +96,35 @@ export function useUpdateProposals(runId: string) {
   });
 }
 
-// NOTE: interview-complete has no UI hook by design. The Troubador CLI skill calls
-// POST /api/troubador/runs/:id/interview-complete itself when the live interview wraps.
+// The Troubador CLI skill normally calls POST /api/troubador/runs/:id/interview-complete
+// itself when a live interview wraps. This hook wires the SAME route to an additional,
+// human-driven path on the run detail page: paste a transcript and complete the interview
+// without the CLI. Advances the run to in_production — irreversible from the UI, so the
+// caller should confirm before invoking.
+interface CompleteInterviewResponse {
+  run_id: string;
+  stage: string;
+  interview_status: string;
+}
+
+export function useCompleteInterview() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, transcript }: { id: string; transcript: string }) =>
+      apiClient.post<CompleteInterviewResponse>(`/troubador/runs/${id}/interview-complete`, {
+        transcript,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: troubadorRunKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: troubadorRunKeys.detail(data.run_id) });
+      showToast.success('Interview marked complete — run moved to In Production');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to complete interview');
+    },
+  });
+}
 
 // ============================================
 // ARTICLES

@@ -16,10 +16,11 @@ import {
   useTroubadorRun,
   useUpdateRun,
   useUpdateProposals,
+  useCompleteInterview,
 } from '@/lib/hooks/use-troubador';
 import { StageBadge } from '@/components/domain/troubador/StageBadge';
 import { ArticleTable } from '@/components/domain/troubador/ArticleTable';
-import type { Proposal, RunDetail } from '@/lib/types/troubador';
+import type { InterviewAnswer, Proposal, RunDetail } from '@/lib/types/troubador';
 
 /**
  * Persistent action bar that always shows the current step and the button needed
@@ -263,6 +264,127 @@ function TopicsTab({ run }: { run: RunDetail }) {
   );
 }
 
+function questionLabel(q: unknown, i: number): string {
+  if (typeof q === 'string') return q;
+  if (q && typeof q === 'object' && 'question' in (q as Record<string, unknown>)) {
+    const obj = q as { question?: string };
+    return obj.question || `Question ${i + 1}`;
+  }
+  return `Question ${i + 1}`;
+}
+
+/** Read-only display of client-written prep answers from the portal (Interview.answers). */
+function ClientAnswers({ answers }: { answers: InterviewAnswer[] }) {
+  return (
+    <div className="rounded-lg border border-border-warm bg-surface p-3 space-y-2">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub">
+        Client written answers (from the portal)
+      </h4>
+      <ul className="space-y-2">
+        {answers.map((a, i) => (
+          <li key={i} className="text-sm">
+            {a.question && <span className="block text-text-sub">{a.question}</span>}
+            <span className="block text-text-main whitespace-pre-line">{a.answer}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Additional, human-driven path to complete the interview: paste (or load a .txt/.md file
+ * into) a transcript and submit it to the SAME interview-complete route the Troubador CLI
+ * skill calls. Only shown while ready_for_interview and the interview isn't already
+ * complete. Advancing the run to in_production this way cannot be undone from the UI, so
+ * it's confirmed first. Any client-written answers are auto-appended to the transcript
+ * payload (clearly delimited) so the worker's transcript-mining picks them up too.
+ */
+function TranscriptCompletion({ run }: { run: RunDetail }) {
+  const completeInterview = useCompleteInterview();
+  const [transcript, setTranscript] = React.useState('');
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const answers = (run.interview?.answers ?? []) as InterviewAnswer[];
+
+  function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setTranscript(typeof reader.result === 'string' ? reader.result : '');
+    };
+    reader.readAsText(file);
+    // Allow re-selecting the same file later.
+    e.target.value = '';
+  }
+
+  function buildPayload(): string {
+    if (answers.length === 0) return transcript;
+    const answersBlock = answers
+      .map((a) => `${a.question ? `Q: ${a.question}\n` : ''}A: ${a.answer}`)
+      .join('\n\n');
+    return `${transcript}\n\n--- CLIENT WRITTEN ANSWERS (portal) ---\n${answersBlock}`;
+  }
+
+  function handleSubmit() {
+    if (!transcript.trim()) return;
+    if (
+      !confirm(
+        'Complete this interview with the pasted transcript? This advances the run to In Production and cannot be undone from the UI.'
+      )
+    ) {
+      return;
+    }
+    completeInterview.mutate({ id: run.id, transcript: buildPayload() });
+  }
+
+  return (
+    <div className="rounded-lg border border-border-warm p-3 space-y-2">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub">
+        Complete interview with transcript
+      </h4>
+      <p className="text-xs text-text-sub">
+        Paste the interview transcript, or load a .txt/.md file. This is an additional path to
+        the CLI-driven interview — submitting advances the run to In Production.
+        {answers.length > 0 &&
+          ' Client-written answers above will be appended automatically.'}
+      </p>
+      <Textarea
+        value={transcript}
+        onChange={(e) => setTranscript(e.target.value)}
+        rows={8}
+        placeholder="Paste the transcript here…"
+      />
+      <div className="flex items-center gap-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.md,text/plain,text/markdown"
+          className="hidden"
+          onChange={handleFileChosen}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          Load .txt/.md file
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={!transcript.trim() || completeInterview.isPending}
+          onClick={handleSubmit}
+        >
+          {completeInterview.isPending ? 'Completing…' : 'Complete interview'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function InterviewTab({ run }: { run: RunDetail }) {
   const interview = run.interview;
   if (!interview) {
@@ -274,6 +396,7 @@ function InterviewTab({ run }: { run: RunDetail }) {
   }
 
   const questions = interview.questions;
+  const answers = (interview.answers ?? []) as InterviewAnswer[];
   const renderQuestion = (q: unknown, i: number) => {
     if (typeof q === 'string') {
       return (
@@ -286,7 +409,7 @@ function InterviewTab({ run }: { run: RunDetail }) {
       const obj = q as { question?: string; answer?: string };
       return (
         <li key={i} className="text-sm">
-          <span className="text-text-main">{obj.question}</span>
+          <span className="text-text-main">{obj.question ?? questionLabel(q, i)}</span>
           {obj.answer && <span className="block text-text-sub mt-0.5">{obj.answer}</span>}
         </li>
       );
@@ -313,6 +436,12 @@ function InterviewTab({ run }: { run: RunDetail }) {
         </div>
       ) : (
         <p className="text-sm text-text-sub">No interview questions yet.</p>
+      )}
+
+      {answers.length > 0 && <ClientAnswers answers={answers} />}
+
+      {run.stage === 'ready_for_interview' && interview.status !== 'complete' && (
+        <TranscriptCompletion run={run} />
       )}
     </div>
   );

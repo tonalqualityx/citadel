@@ -84,6 +84,9 @@ export function formatArticleResponse(a: any) {
     claimed_by_id: a.claimed_by_id ?? null,
     comments: a.comments?.map(formatArticleCommentResponse),
     comments_count: a._count?.comments ?? a.comments?.length ?? 0,
+    // Last time a client opened this article in the portal (article_view PortalSession
+    // rows); only populated by callers that look it up, null otherwise.
+    client_last_viewed_at: a.client_last_viewed_at ?? null,
     created_at: a.created_at,
     updated_at: a.updated_at,
   };
@@ -109,6 +112,9 @@ export function formatInterviewResponse(i: any) {
     run_id: i.run_id,
     status: i.status,
     questions: i.questions ?? null,
+    // Client-written prep answers from the portal (Interview.answers). Shown read-only on the
+    // admin run detail page so Mike can see them before/during the live call.
+    answers: i.answers ?? null,
     transcript: i.transcript ?? null,
     completed_at: i.completed_at ?? null,
     created_at: i.created_at,

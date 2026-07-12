@@ -278,9 +278,18 @@ export const troubadorEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Worker: attach consolidated prep questions; advance researching → ready_for_interview.',
+        summary:
+          'Worker/human: attach or regenerate prep questions. From researching, advances → ' +
+          'ready_for_interview. From ready_for_interview (interview not yet complete), replaces the ' +
+          'questions in place without changing stage.',
         auth: 'required',
-        responseNotes: 'Guarded: all selected articles must be researched.',
+        bodySchema: [
+          { name: 'questions', type: 'object', required: false, description: 'Questions payload (array or object; shape is worker-defined)' },
+        ],
+        responseNotes:
+          'Two accepted stages: researching (guarded: all selected articles must be researched) or ' +
+          'ready_for_interview with interview.status !== complete (regenerate; no article check, stage ' +
+          'unchanged). 409 in any other stage, and 409 if the interview is already complete.',
         responseExample: { run_id: 'uuid', stage: 'ready_for_interview', interview_status: 'pending' },
       },
     ],
