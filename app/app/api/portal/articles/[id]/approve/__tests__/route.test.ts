@@ -20,9 +20,16 @@ vi.mock('@/lib/services/portal', () => ({
   recordArticleClientApproval: vi.fn(),
 }));
 
+// notifyArticleClientApproved is fire-and-forget; stub it so this test asserts the route's own
+// call (right entity, right guard) without exercising the (separately-tested) notification body.
+vi.mock('@/lib/services/troubador-notifications', () => ({
+  notifyArticleClientApproved: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { POST } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { recordArticleClientApproval } from '@/lib/services/portal';
+import { notifyArticleClientApproved } from '@/lib/services/troubador-notifications';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
@@ -30,6 +37,7 @@ const mockAuth = requireClientAuth as Mock;
 const mockFindFirst = prisma.article.findFirst as Mock;
 const mockUpdate = prisma.article.update as Mock;
 const mockRecord = recordArticleClientApproval as Mock;
+const mockNotify = notifyArticleClientApproved as Mock;
 
 function makeRequest(): NextRequest {
   return new NextRequest(new URL('http://localhost/api/portal/articles/art-1/approve'), {
@@ -108,6 +116,7 @@ describe('POST /api/portal/articles/:id/approve', () => {
       where: { id: 'art-1' },
       data: { status: 'approved' },
     });
+    expect(mockNotify).toHaveBeenCalledWith('art-1');
   });
 
   it('is idempotent — an already-approved article re-confirms without churning status', async () => {
@@ -128,5 +137,7 @@ describe('POST /api/portal/articles/:id/approve', () => {
     const payload = await res.json();
     expect(payload.already_approved).toBe(true);
     expect(mockUpdate).not.toHaveBeenCalled();
+    // No notification on the idempotent re-confirm — only a genuine first approval notifies.
+    expect(mockNotify).not.toHaveBeenCalled();
   });
 });

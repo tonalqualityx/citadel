@@ -12,6 +12,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     article: { findFirst: vi.fn() },
+    portalSession: { create: vi.fn() },
   },
 }));
 
@@ -22,6 +23,13 @@ import type { Mock } from 'vitest';
 
 const mockRequireClientAuth = requireClientAuth as Mock;
 const mockArticleFindFirst = prisma.article.findFirst as Mock;
+const mockPortalSessionCreate = prisma.portalSession.create as Mock;
+
+/** Flush the microtask queue so a fire-and-forget `.then().catch()` chain has run. */
+async function flushMicrotasks() {
+  await Promise.resolve();
+  await Promise.resolve();
+}
 
 function makeRequest(): NextRequest {
   return new NextRequest(new URL('http://localhost/api/portal/articles/art-1'));
@@ -108,5 +116,34 @@ describe('GET /api/portal/articles/:id', () => {
     // The query is scoped to the id and non-deleted.
     const where = mockArticleFindFirst.mock.calls[0][0].where;
     expect(where).toEqual({ id: 'art-1', is_deleted: false });
+  });
+
+  it('logs an article_view PortalSession row for the viewing contact', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockArticleFindFirst.mockResolvedValue(articleRow);
+    mockPortalSessionCreate.mockResolvedValue({});
+
+    const res = await GET(makeRequest(), makeParams());
+    expect(res.status).toBe(200);
+    await flushMicrotasks();
+
+    expect(mockPortalSessionCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        token_type: 'article_view',
+        entity_id: 'art-1',
+        contact_id: 'contact-1',
+        action: 'view',
+      }),
+    });
+  });
+
+  it('never fails the request when view logging errors', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockArticleFindFirst.mockResolvedValue(articleRow);
+    mockPortalSessionCreate.mockRejectedValue(new Error('db down'));
+
+    const res = await GET(makeRequest(), makeParams());
+    expect(res.status).toBe(200);
+    await flushMicrotasks();
   });
 });

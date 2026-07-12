@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { recordArticleClientApproval } from '@/lib/services/portal';
+import { notifyArticleClientApproved } from '@/lib/services/troubador-notifications';
 import {
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
   loadActionableArticle,
@@ -45,6 +46,12 @@ export async function POST(
     // re-confirm never churns the status of a piece that's already moved on.
     if (!result.already_approved && CLIENT_ACTIONABLE_ARTICLE_STATUSES.has(article.status)) {
       await prisma.article.update({ where: { id }, data: { status: 'approved' } });
+    }
+
+    // Notify the run's assignee on a genuine first approval only — never on the
+    // idempotent re-confirm. Fire-and-forget: never fail the client's request.
+    if (!result.already_approved) {
+      notifyArticleClientApproved(id).catch(() => {});
     }
 
     return NextResponse.json({

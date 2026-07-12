@@ -101,6 +101,14 @@ export default function LoginPage() {
               Forgot password?
             </Link>
           </div>
+          <div className="text-right">
+            <Link
+              href="/portal/login"
+              className="text-sm text-text-sub hover:text-primary"
+            >
+              Client? Request a magic sign-in link
+            </Link>
+          </div>
         </CardContent>
 
         <CardFooter>

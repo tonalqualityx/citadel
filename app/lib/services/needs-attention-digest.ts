@@ -13,9 +13,13 @@
 import { prisma } from '@/lib/db/prisma';
 import { sendEmail } from '@/lib/services/email';
 import { isBlockerSatisfied } from '@/lib/services/dependencies';
+import { sendClientReviewReminders } from '@/lib/services/client-review-reminders';
 
 /** An `in_progress` task untouched for longer than this is treated as stalled. */
 export const STALE_IN_PROGRESS_DAYS = 2;
+
+/** An article `in_review` (client-actionable) untouched for longer than this is stale. */
+export const STALE_CLIENT_REVIEW_DAYS = 5;
 
 /** Where the digest goes. Overridable for testing / re-routing. */
 const DEFAULT_RECIPIENT = 'mike@becomeindelible.com';
@@ -42,6 +46,8 @@ export interface DigestArticleItem {
   id: string;
   title: string;
   url: string;
+  /** Short, human reason this article is in this bucket (omitted where self-evident). */
+  reason?: string;
 }
 
 export interface NeedsAttentionData {
@@ -53,6 +59,16 @@ export interface NeedsAttentionData {
   stuck: DigestTaskItem[];
   /** Articles in `in_review`, not yet approved. */
   articlesAwaitingReview: DigestArticleItem[];
+  /** Approved but never given a publish date. */
+  approvedUnscheduled: DigestArticleItem[];
+  /** Approved/scheduled with a publish date already in the past, still unpublished. */
+  pastDueUnpublished: DigestArticleItem[];
+  /**
+   * `in_review`, not yet approved, untouched for STALE_CLIENT_REVIEW_DAYS+ — a subset of
+   * `articlesAwaitingReview`, surfaced separately (and with more urgency) once the client
+   * has been sitting on it a while.
+   */
+  staleClientReview: DigestArticleItem[];
 }
 
 export interface DigestSummary {
@@ -62,6 +78,9 @@ export interface DigestSummary {
     awaitingClarification: number;
     stuck: number;
     articlesAwaitingReview: number;
+    approvedUnscheduled: number;
+    pastDueUnpublished: number;
+    staleClientReview: number;
   };
   total: number;
 }
@@ -126,34 +145,59 @@ function toItem(row: TaskRow, reason: string): DigestTaskItem {
  */
 export async function gatherNeedsAttention(): Promise<NeedsAttentionData> {
   const staleCutoff = new Date(Date.now() - STALE_IN_PROGRESS_DAYS * 24 * 60 * 60 * 1000);
+  const staleClientReviewCutoff = new Date(
+    Date.now() - STALE_CLIENT_REVIEW_DAYS * 24 * 60 * 60 * 1000
+  );
+  const now = new Date();
 
-  const [needsMikeRows, awaitingRows, blockedRows, staleInProgressRows, articleRows] =
-    await Promise.all([
-      prisma.task.findMany({
-        where: { is_deleted: false, status: { not: 'abandoned' }, tags: { has: 'needs-mike' } },
-        select: TASK_SELECT,
-      }),
-      prisma.task.findMany({
-        where: {
-          is_deleted: false,
-          status: { not: 'abandoned' },
-          tags: { has: 'awaiting-clarification' },
-        },
-        select: TASK_SELECT,
-      }),
-      prisma.task.findMany({
-        where: { is_deleted: false, status: 'blocked' },
-        select: { ...TASK_SELECT, blocked_by: BLOCKER_SELECT },
-      }),
-      prisma.task.findMany({
-        where: { is_deleted: false, status: 'in_progress', updated_at: { lt: staleCutoff } },
-        select: TASK_SELECT,
-      }),
-      prisma.article.findMany({
-        where: { is_deleted: false, status: 'in_review', approved_at: null },
-        select: { id: true, title: true, run_id: true, created_at: true },
-      }),
-    ]);
+  const [
+    needsMikeRows,
+    awaitingRows,
+    blockedRows,
+    staleInProgressRows,
+    reviewArticleRows,
+    approvedScheduledArticleRows,
+  ] = await Promise.all([
+    prisma.task.findMany({
+      where: { is_deleted: false, status: { not: 'abandoned' }, tags: { has: 'needs-mike' } },
+      select: TASK_SELECT,
+    }),
+    prisma.task.findMany({
+      where: {
+        is_deleted: false,
+        status: { not: 'abandoned' },
+        tags: { has: 'awaiting-clarification' },
+      },
+      select: TASK_SELECT,
+    }),
+    prisma.task.findMany({
+      where: { is_deleted: false, status: 'blocked' },
+      select: { ...TASK_SELECT, blocked_by: BLOCKER_SELECT },
+    }),
+    prisma.task.findMany({
+      where: { is_deleted: false, status: 'in_progress', updated_at: { lt: staleCutoff } },
+      select: TASK_SELECT,
+    }),
+    // Articles ready for review — the base set articlesAwaitingReview AND
+    // staleClientReview (a staleness-filtered subset of this same query) both draw from.
+    prisma.article.findMany({
+      where: { is_deleted: false, status: 'in_review', approved_at: null },
+      select: { id: true, title: true, run_id: true, created_at: true, updated_at: true },
+    }),
+    // Past the review stage but not yet published — covers approvedUnscheduled and
+    // pastDueUnpublished.
+    prisma.article.findMany({
+      where: { is_deleted: false, status: { in: ['approved', 'scheduled'] } },
+      select: {
+        id: true,
+        title: true,
+        run_id: true,
+        status: true,
+        scheduled_date: true,
+        published_url: true,
+      },
+    }),
+  ]);
 
   const seen = new Set<string>();
   const take = (rows: TaskRow[]) => rows.filter((r) => !seen.has(r.id) && seen.add(r.id));
@@ -185,13 +229,53 @@ export async function gatherNeedsAttention(): Promise<NeedsAttentionData> {
     .filter((item) => !seen.has(item.id) && seen.add(item.id))
     .sort((a, b) => (a.priority ?? Number.POSITIVE_INFINITY) - (b.priority ?? Number.POSITIVE_INFINITY));
 
-  const articlesAwaitingReview: DigestArticleItem[] = articleRows.map((a) => ({
+  const runUrl = (runId: string) => `${getAppUrl()}/troubador/runs/${runId}`;
+
+  const articlesAwaitingReview: DigestArticleItem[] = reviewArticleRows.map((a) => ({
     id: a.id,
     title: a.title,
-    url: `${getAppUrl()}/troubador/runs/${a.run_id}`,
+    url: runUrl(a.run_id),
   }));
 
-  return { needsMike, awaitingClarification, stuck, articlesAwaitingReview };
+  const staleClientReview: DigestArticleItem[] = reviewArticleRows
+    .filter((a) => a.updated_at < staleClientReviewCutoff)
+    .map((a) => {
+      const days = Math.floor((now.getTime() - a.updated_at.getTime()) / (24 * 60 * 60 * 1000));
+      return {
+        id: a.id,
+        title: a.title,
+        url: runUrl(a.run_id),
+        reason: `Waiting on client ${days} days`,
+      };
+    });
+
+  const approvedUnscheduled: DigestArticleItem[] = approvedScheduledArticleRows
+    .filter((a) => a.status === 'approved' && a.scheduled_date == null)
+    .map((a) => ({
+      id: a.id,
+      title: a.title,
+      url: runUrl(a.run_id),
+      reason: 'Approved — no publish date',
+    }));
+
+  const pastDueUnpublished: DigestArticleItem[] = approvedScheduledArticleRows
+    .filter((a) => a.scheduled_date != null && a.scheduled_date < now && !a.published_url)
+    .map((a) => ({
+      id: a.id,
+      title: a.title,
+      url: runUrl(a.run_id),
+      reason: 'Publish date passed',
+    }));
+
+  return {
+    needsMike,
+    awaitingClarification,
+    stuck,
+    articlesAwaitingReview,
+    approvedUnscheduled,
+    pastDueUnpublished,
+    staleClientReview,
+  };
 }
 
 function priorityLabel(priority: number | null): string {
@@ -229,11 +313,18 @@ export function buildDigestEmail(data: NeedsAttentionData): {
   text: string;
   html: string;
 } {
+  // Sums every bucket, including the overlap: staleClientReview is deliberately a
+  // subset of articlesAwaitingReview, double-surfaced with more urgency once an
+  // in-review article has sat long enough that the client (not the team) is the
+  // bottleneck. Not deduped out of the count — it's meant to read as more pressing.
   const total =
     data.needsMike.length +
     data.awaitingClarification.length +
     data.stuck.length +
-    data.articlesAwaitingReview.length;
+    data.articlesAwaitingReview.length +
+    data.approvedUnscheduled.length +
+    data.pastDueUnpublished.length +
+    data.staleClientReview.length;
 
   if (total === 0) {
     const subject = 'Citadel — nothing needs you right now ✓';
@@ -256,21 +347,32 @@ export function buildDigestEmail(data: NeedsAttentionData): {
     htmlSections.push(`    <h3>${escapeHtml(heading)} (${items.length})</h3>\n${renderTaskListHtml(items)}`);
   };
 
+  const addArticleSection = (heading: string, items: DigestArticleItem[]) => {
+    if (items.length === 0) return;
+    textSections.push(
+      `${heading} (${items.length})\n` +
+        items.map((a) => `  - ${a.title}${a.reason ? ` — ${a.reason}` : ''}\n    ${a.url}`).join('\n')
+    );
+    const rows = items
+      .map(
+        (a) => `      <li>
+        <a href="${a.url}">${escapeHtml(a.title)}</a>${
+          a.reason ? `\n        <span class="meta">${escapeHtml(a.reason)}</span>` : ''
+        }
+      </li>`
+      )
+      .join('\n');
+    htmlSections.push(`    <h3>${escapeHtml(heading)} (${items.length})</h3>\n    <ul>\n${rows}\n    </ul>`);
+  };
+
   addTaskSection('Needs you', data.needsMike);
   addTaskSection('Awaiting your answer', data.awaitingClarification);
   addTaskSection('Stuck / stalled', data.stuck);
 
-  if (data.articlesAwaitingReview.length > 0) {
-    const items = data.articlesAwaitingReview;
-    textSections.push(
-      `Articles awaiting review (${items.length})\n` +
-        items.map((a) => `  - ${a.title}\n    ${a.url}`).join('\n')
-    );
-    const rows = items
-      .map((a) => `      <li><a href="${a.url}">${escapeHtml(a.title)}</a></li>`)
-      .join('\n');
-    htmlSections.push(`    <h3>Articles awaiting review (${items.length})</h3>\n    <ul>\n${rows}\n    </ul>`);
-  }
+  addArticleSection('Articles awaiting review', data.articlesAwaitingReview);
+  addArticleSection('Approved — no publish date', data.approvedUnscheduled);
+  addArticleSection('Publish date passed', data.pastDueUnpublished);
+  addArticleSection('Waiting on client review', data.staleClientReview);
 
   const text = `${total} item${total === 1 ? '' : 's'} need your attention in Citadel.\n\n${textSections.join('\n\n')}\n`;
   const html = wrapHtml(
@@ -316,6 +418,17 @@ export async function sendNeedsAttentionDigest(): Promise<DigestSummary> {
 
   await sendEmail({ to: recipient, subject, text, html });
 
+  // Optional, throttled client-facing reminder for articles stuck in review — OFF by
+  // default (CLIENT_REVIEW_REMINDERS_ENABLED). Never let a reminder failure break the
+  // digest send itself.
+  if (data.staleClientReview.length > 0) {
+    try {
+      await sendClientReviewReminders(data.staleClientReview.map((a) => a.id));
+    } catch (error) {
+      console.error('sendClientReviewReminders failed:', error);
+    }
+  }
+
   return {
     recipient,
     counts: {
@@ -323,11 +436,17 @@ export async function sendNeedsAttentionDigest(): Promise<DigestSummary> {
       awaitingClarification: data.awaitingClarification.length,
       stuck: data.stuck.length,
       articlesAwaitingReview: data.articlesAwaitingReview.length,
+      approvedUnscheduled: data.approvedUnscheduled.length,
+      pastDueUnpublished: data.pastDueUnpublished.length,
+      staleClientReview: data.staleClientReview.length,
     },
     total:
       data.needsMike.length +
       data.awaitingClarification.length +
       data.stuck.length +
-      data.articlesAwaitingReview.length,
+      data.articlesAwaitingReview.length +
+      data.approvedUnscheduled.length +
+      data.pastDueUnpublished.length +
+      data.staleClientReview.length,
   };
 }

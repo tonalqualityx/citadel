@@ -22,6 +22,11 @@ const DEFAULT_PREFERENCES: Record<
   system_alert: { in_app: true, email: true, slack: true },
   article_needs_review: { in_app: true, email: false, slack: true },
   troubador_run_created: { in_app: true, email: false, slack: true },
+  // Client-action + run-ready events: Mike explicitly wants these emailed (2026-07-12).
+  troubador_run_review_ready: { in_app: true, email: true, slack: true },
+  article_client_approved: { in_app: true, email: true, slack: true },
+  article_client_changes_requested: { in_app: true, email: true, slack: true },
+  interview_answers_submitted: { in_app: true, email: true, slack: true },
 };
 
 export interface NotificationPreferenceRow {

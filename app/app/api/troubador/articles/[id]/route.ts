@@ -6,8 +6,19 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatArticleResponse } from '@/lib/api/troubador-formatters';
 import { isTroubadorBot, utcDayKey } from '@/lib/troubador/helpers';
 import { logStatusChange } from '@/lib/services/activity';
-import { notifyArticleNeedsReview } from '@/lib/services/troubador-notifications';
+import { notifyArticleNeedsReview, notifyRunReviewReady } from '@/lib/services/troubador-notifications';
 import { recomputeProductionStage } from '@/lib/troubador/run-stage';
+
+// Statuses that count as "past the drafting stage" for the run-review-ready guard —
+// everything from in_review onward (needs_revision included: a rewrite sent back to
+// in_review still counts once it lands there again).
+const REVIEW_OR_BEYOND = new Set([
+  'in_review',
+  'needs_revision',
+  'approved',
+  'scheduled',
+  'published',
+]);
 
 const articleDetailInclude = {
   client: { select: { id: true, name: true } },
@@ -34,7 +45,16 @@ export async function GET(
     });
     if (!article) throw new ApiError('Article not found', 404);
 
-    return NextResponse.json(formatArticleResponse(article));
+    // Surface when a client last opened this article in the portal (null if never).
+    const lastView = await prisma.portalSession.findFirst({
+      where: { token_type: 'article_view', entity_id: id },
+      orderBy: { created_at: 'desc' },
+      select: { created_at: true },
+    });
+
+    return NextResponse.json(
+      formatArticleResponse({ ...article, client_last_viewed_at: lastView?.created_at ?? null })
+    );
   } catch (error) {
     return handleApiError(error);
   }
@@ -110,6 +130,7 @@ export async function PATCH(
     let statusChange: { from: string; to: string } | null = null;
     let advanceRun = false;
     let notifyReview = false;
+    let notifyRunReview = false;
 
     const setStatus = (to: string) => {
       update.status = to;
@@ -180,6 +201,35 @@ export async function PATCH(
       setStatus(data.status);
       if (data.status === 'in_review' && article.run?.assignee_id) {
         notifyReview = true;
+
+        // Run-review-ready guard: fire notifyRunReviewReady exactly once, only when
+        // THIS transition is what completes the set (every live sibling already
+        // in_review-or-beyond, AND this article's own in_review lands the "at least
+        // one is in_review" requirement that wasn't already satisfied).
+        const siblings = await prisma.article.findMany({
+          where: {
+            run_id: article.run_id,
+            is_deleted: false,
+            id: { not: article.id },
+            status: { notIn: ['dropped', 'postponed'] },
+          },
+          select: { status: true },
+        });
+        const siblingStatuses = siblings.map((s) => s.status);
+
+        const preStatuses = [...siblingStatuses, article.status]; // before this PATCH
+        const postStatuses = [...siblingStatuses, 'in_review']; // after this PATCH
+
+        const wasComplete =
+          preStatuses.every((s) => REVIEW_OR_BEYOND.has(s)) &&
+          preStatuses.some((s) => s === 'in_review');
+        const isComplete =
+          postStatuses.every((s) => REVIEW_OR_BEYOND.has(s)) &&
+          postStatuses.some((s) => s === 'in_review');
+
+        if (isComplete && !wasComplete) {
+          notifyRunReview = true;
+        }
       }
     }
 
@@ -211,6 +261,9 @@ export async function PATCH(
     }
     if (notifyReview) {
       notifyArticleNeedsReview(article.id).catch(() => {});
+    }
+    if (notifyRunReview) {
+      notifyRunReviewReady(article.run_id).catch(() => {});
     }
 
     const updated = await prisma.article.findUnique({

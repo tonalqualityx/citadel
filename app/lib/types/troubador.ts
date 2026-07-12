@@ -89,9 +89,20 @@ export interface Article {
   comments: ArticleComment[];
 }
 
+export interface InterviewAnswer {
+  question_index: number | null;
+  question: string | null;
+  answer: string;
+  answered_at: string;
+  contact_id: string;
+}
+
 export interface RunInterview {
   status: string | null;
   questions?: string[] | { question: string; answer?: string }[] | null;
+  // Client-written prep answers submitted from the portal ahead of the live call.
+  answers?: InterviewAnswer[] | null;
+  transcript?: string | null;
   [key: string]: unknown;
 }
 
