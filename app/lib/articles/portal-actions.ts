@@ -37,6 +37,13 @@ export interface ActionableArticle {
   client_id: string;
   client_approved_at: Date | null;
   body: string | null;
+  /**
+   * The article's site's publishing platform ('wordpress' | 'eleventy' | 'handoff' | 'custom' |
+   * null), cheaply carried along for the save-edits HTML-validation gate. Null both when the site
+   * has no site_type configured and defensively when a caller's row doesn't include the relation
+   * at all (e.g. a test double) — callers must not assume non-null.
+   */
+  site_type: string | null;
 }
 
 /**
@@ -57,6 +64,7 @@ export async function loadActionableArticle(
       client_id: true,
       client_approved_at: true,
       body: true,
+      site: { select: { site_type: true } },
     },
   });
 
@@ -66,5 +74,13 @@ export async function loadActionableArticle(
 
   assertClientScope(session, article.client_id);
 
-  return article;
+  // Flattened defensively: a test double's mocked row may not include `site` at all.
+  return {
+    id: article.id,
+    status: article.status,
+    client_id: article.client_id,
+    client_approved_at: article.client_approved_at,
+    body: article.body,
+    site_type: (article as { site?: { site_type: string | null } | null }).site?.site_type ?? null,
+  };
 }

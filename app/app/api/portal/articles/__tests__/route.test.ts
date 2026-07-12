@@ -100,4 +100,118 @@ describe('GET /api/portal/articles', () => {
     const body = await res.json();
     expect(body.articles).toEqual([]);
   });
+
+  // The three read-only status groups (in_revision / approved / published) are separate,
+  // independently-scoped findMany calls so the in-review query above is untouched. Route each
+  // call by its `where.status` to exercise all four groups from one mock.
+  function mockFourGroups() {
+    mockArticleFindMany.mockImplementation((args: any) => {
+      const status = args.where.status;
+      if (status === 'in_review') return Promise.resolve([]);
+      if (status === 'needs_revision') {
+        return Promise.resolve([
+          {
+            id: 'art-2',
+            title: 'Revising Now',
+            status: 'needs_revision',
+            updated_at: '2026-06-22T00:00:00Z',
+            published_url: null,
+          },
+        ]);
+      }
+      if (status && typeof status === 'object' && 'in' in status) {
+        return Promise.resolve([
+          {
+            id: 'art-3',
+            title: 'Approved Piece',
+            status: 'approved',
+            updated_at: '2026-06-23T00:00:00Z',
+            published_url: null,
+          },
+        ]);
+      }
+      if (status === 'published') {
+        return Promise.resolve([
+          {
+            id: 'art-4',
+            title: 'Published Piece',
+            status: 'published',
+            updated_at: '2026-06-24T00:00:00Z',
+            published_url: 'https://client.example.com/blog/published-piece',
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+  }
+
+  it('returns in_revision for needs_revision articles, client-safe projected', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockFourGroups();
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.in_revision).toEqual([
+      { id: 'art-2', title: 'Revising Now', status: 'needs_revision', updated_at: '2026-06-22T00:00:00Z' },
+    ]);
+  });
+
+  it('returns approved for both approved and scheduled statuses (status: { in })', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockFourGroups();
+
+    const res = await GET(makeRequest());
+
+    // The approved-group query asks for both statuses in one clause.
+    const approvedCall = mockArticleFindMany.mock.calls.find(
+      (call: any) => call[0].where.status && typeof call[0].where.status === 'object'
+    );
+    expect(approvedCall).toBeDefined();
+    expect(approvedCall![0].where.status).toEqual({ in: ['approved', 'scheduled'] });
+
+    const body = await res.json();
+    expect(body.approved).toEqual([
+      { id: 'art-3', title: 'Approved Piece', status: 'approved', updated_at: '2026-06-23T00:00:00Z' },
+    ]);
+  });
+
+  it('returns published articles including published_url', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockFourGroups();
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.published).toEqual([
+      {
+        id: 'art-4',
+        title: 'Published Piece',
+        status: 'published',
+        updated_at: '2026-06-24T00:00:00Z',
+        published_url: 'https://client.example.com/blog/published-piece',
+      },
+    ]);
+  });
+
+  it('never includes published_url on non-published summaries', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockFourGroups();
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+    expect(body.in_revision[0]).not.toHaveProperty('published_url');
+    expect(body.approved[0]).not.toHaveProperty('published_url');
+  });
+
+  it('all four groups are scoped to the session client and non-deleted', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockFourGroups();
+
+    await GET(makeRequest());
+
+    expect(mockArticleFindMany).toHaveBeenCalledTimes(4);
+    for (const call of mockArticleFindMany.mock.calls) {
+      expect((call[0] as any).where.client_id).toBe('client-acme');
+      expect((call[0] as any).where.is_deleted).toBe(false);
+    }
+  });
 });

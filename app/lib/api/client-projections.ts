@@ -77,3 +77,30 @@ export function formatArticleForClient(article: any) {
     updated_at: article.updated_at,
   };
 }
+
+/**
+ * Project an Article down to the lightweight client-safe list view used by the portal home
+ * page's read-only status sections (in-revision / approved / published). Exposes ONLY: id,
+ * title, status, updated_at — and `published_url`, and ONLY when the article is actually
+ * `published`. No scheduling dates, no body/comments (lists don't need them), no internals.
+ */
+export function formatArticleForClientSummary(article: any) {
+  const summary: {
+    id: string;
+    title: string;
+    status: string;
+    updated_at: unknown;
+    published_url?: string | null;
+  } = {
+    id: article.id,
+    title: article.title,
+    status: article.status,
+    updated_at: article.updated_at,
+  };
+
+  if (article.status === 'published') {
+    summary.published_url = article.published_url ?? null;
+  }
+
+  return summary;
+}

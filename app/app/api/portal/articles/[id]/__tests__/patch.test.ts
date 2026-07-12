@@ -32,6 +32,9 @@ function makeRequest(body: unknown = { body: 'Edited body.' }): NextRequest {
 }
 const makeParams = (id = 'art-1') => ({ params: Promise.resolve({ id }) });
 
+// No `site` key by default — loadActionableArticle flattens `article.site?.site_type ?? null`,
+// so an absent relation (as a real WordPress-unaware row, or a lean test double) falls back to the
+// heuristic (body starts with '<') for HTML detection.
 const articleRow = {
   id: 'art-1',
   status: 'in_review',
@@ -123,5 +126,105 @@ describe('PATCH /api/portal/articles/:id (save edits)', () => {
     const res = await PATCH(makeRequest({}), makeParams());
     expect(res.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  describe('HTML validation (WordPress bodies)', () => {
+    it('400 with a friendly message when site_type is wordpress and the body is broken HTML', async () => {
+      mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      mockFindFirst.mockResolvedValue({ ...articleRow, site: { site_type: 'wordpress' } });
+
+      const res = await PATCH(makeRequest({ body: '<div><p>Unclosed' }), makeParams());
+      expect(res.status).toBe(400);
+      const payload = await res.json();
+      expect(payload.error).toContain('<div>');
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('200 when site_type is wordpress and the body is well-formed HTML', async () => {
+      mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      mockFindFirst.mockResolvedValue({ ...articleRow, site: { site_type: 'wordpress' } });
+      mockUpdate.mockResolvedValue({
+        id: 'art-1',
+        title: 'Acme Q3 Recap',
+        status: 'in_review',
+        body: '<p>Fine.</p>',
+        created_at: '2026-06-20T10:00:00Z',
+        updated_at: '2026-06-22T00:00:00Z',
+        comments: [],
+      });
+
+      const res = await PATCH(makeRequest({ body: '<p>Fine.</p>' }), makeParams());
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalled();
+    });
+
+    it('400 via the heuristic (no site relation) when the body looks like broken HTML', async () => {
+      mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      // No `site` key at all — site_type flattens to null, so the heuristic kicks in.
+      mockFindFirst.mockResolvedValue({ ...articleRow });
+
+      const res = await PATCH(makeRequest({ body: '<div><p>Unclosed' }), makeParams());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('plain prose with no tags still passes on a wordpress site (nothing structural to flag)', async () => {
+      mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      mockFindFirst.mockResolvedValue({ ...articleRow, site: { site_type: 'wordpress' } });
+      mockUpdate.mockResolvedValue({
+        id: 'art-1',
+        title: 'Acme Q3 Recap',
+        status: 'in_review',
+        body: 'Just plain prose, no markup at all.',
+        created_at: '2026-06-20T10:00:00Z',
+        updated_at: '2026-06-22T00:00:00Z',
+        comments: [],
+      });
+
+      const res = await PATCH(
+        makeRequest({ body: 'Just plain prose, no markup at all.' }),
+        makeParams()
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('does not run HTML validation via the heuristic when site_type is unknown and body is not HTML-looking', async () => {
+      mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      // No `site` key → site_type null → heuristic path. Body doesn't start with '<', so the
+      // heuristic never treats it as HTML even though it contains an unbalanced angle bracket.
+      mockFindFirst.mockResolvedValue({ ...articleRow });
+      mockUpdate.mockResolvedValue({
+        id: 'art-1',
+        title: 'Acme Q3 Recap',
+        status: 'in_review',
+        body: 'Revenue grew 3 < 5 years running, unlike <div this fragment.',
+        created_at: '2026-06-20T10:00:00Z',
+        updated_at: '2026-06-22T00:00:00Z',
+        comments: [],
+      });
+
+      const res = await PATCH(
+        makeRequest({ body: 'Revenue grew 3 < 5 years running, unlike <div this fragment.' }),
+        makeParams()
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it('allows clearing the body to empty even when site_type is wordpress', async () => {
+      mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      mockFindFirst.mockResolvedValue({ ...articleRow, site: { site_type: 'wordpress' } });
+      mockUpdate.mockResolvedValue({
+        id: 'art-1',
+        title: 'Acme Q3 Recap',
+        status: 'in_review',
+        body: '',
+        created_at: '2026-06-20T10:00:00Z',
+        updated_at: '2026-06-22T00:00:00Z',
+        comments: [],
+      });
+
+      const res = await PATCH(makeRequest({ body: '' }), makeParams());
+      expect(res.status).toBe(200);
+    });
   });
 });

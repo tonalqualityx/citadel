@@ -9,6 +9,7 @@ import {
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
   loadActionableArticle,
 } from '@/lib/articles/portal-actions';
+import { validateHtmlFragment } from '@/lib/articles/html-validation';
 
 // GET /api/portal/articles/:id
 // Load ONE article for the C4 full-screen review/edit screen, client-scoped and projected.
@@ -73,11 +74,17 @@ const saveEditsSchema = z.object({
 
 // PATCH /api/portal/articles/:id
 // Persist the client's edits to the article body from the C4 review/edit screen. Session-scoped.
+// For WordPress-hosted sites the body IS the rendered HTML, so a broken edit (unclosed tag,
+// mismatched nesting) would break the published page — validateHtmlFragment structurally checks
+// it before saving. Detection: the article's site.site_type when known; otherwise (site_type not
+// configured) the heuristic that a trimmed body starting with '<' is HTML. Plain-text/Markdown
+// bodies are never validated as HTML, and an empty body (the client clearing the field) is exempt.
 //   no session              → 401 (requireClientAuth)
 //   another client          → 403 (assertClientScope)
 //   missing / internal      → 404 (existence not leaked)
 //   already approved        → 409 (the review window is closed; edits are frozen)
 //   not in a review stage   → 409
+//   broken HTML (WordPress) → 400 { error: <human-friendly message> }
 //   own, in review/revision → 200 { article: ClientArticle }
 export async function PATCH(
   request: NextRequest,
@@ -99,6 +106,18 @@ export async function PATCH(
     }
 
     const { body } = saveEditsSchema.parse(await request.json());
+
+    // Only validate structure when this body is (or looks like) HTML — a WordPress site's
+    // configured site_type is authoritative when known; otherwise fall back to a cheap heuristic.
+    // An empty body (clearing the field) never trips the heuristic and is trivially well-formed.
+    const isHtml =
+      article.site_type !== null ? article.site_type === 'wordpress' : body.trim().startsWith('<');
+    if (isHtml) {
+      const validation = validateHtmlFragment(body);
+      if (!validation.valid) {
+        throw new ApiError(validation.message, 400);
+      }
+    }
 
     const updated = await prisma.article.update({
       where: { id },
