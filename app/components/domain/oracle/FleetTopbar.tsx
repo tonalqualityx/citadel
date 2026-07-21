@@ -33,7 +33,7 @@ export function FleetTopbar({
       <StatusDot status={topStatus} needsAttention={anyNeedsAttention} />
       <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <h1 className="text-base font-bold uppercase tracking-tight text-text-main">
-          Oracle — Fleet
+          Seeing Stone
         </h1>
         <span className="ui-monospace truncate text-xs text-text-sub">
           {machineCount === 0

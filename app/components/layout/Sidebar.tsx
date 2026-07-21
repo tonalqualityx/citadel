@@ -154,7 +154,7 @@ export function Sidebar() {
     emoji: '🔮',
     defaultOpen: true,
     items: [
-      { name: 'Fleet', href: '/oracle', emoji: '🔮' },
+      { name: 'Seeing Stone', href: '/oracle', emoji: '🔮' },
     ],
   };
 
