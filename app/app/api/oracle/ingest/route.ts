@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { Prisma, OracleSource, OracleSessionStatus } from '@prisma/client';
+import {
+  Prisma,
+  OracleSource,
+  OracleSessionStatus,
+  OracleSessionType,
+  AskQueue,
+  AskSeverity,
+} from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
@@ -32,6 +39,15 @@ const jsonPayloadSchema = z
 
 const sourceSchema = z.nativeEnum(OracleSource);
 const sessionStatusSchema = z.nativeEnum(OracleSessionStatus);
+
+// Clarity Phase 1 — session meaning fields. All optional/nullable: absent = leave the
+// stored value untouched (this heartbeat cycle didn't touch it); explicit null = clear it
+// (the heartbeat sends null once a session's ask is resolved). Length-capped like other
+// free-text heartbeat fields (attention_reason, activity).
+const sessionTypeSchema = z.nativeEnum(OracleSessionType);
+const askQueueSchema = z.nativeEnum(AskQueue);
+const askSeveritySchema = z.nativeEnum(AskSeverity);
+const SESSION_MEANING_TEXT_MAX = 2000;
 
 // Claude Remote Control deep-link (Oracle Phase 3). Security requirement: we do NOT store
 // arbitrary URLs — only an https URL whose host is exactly claude.ai and whose path starts
@@ -103,6 +119,17 @@ const snapshotSessionSchema = z.object({
   tokens_total: z.number().int().min(0).max(1_000_000_000).optional(),
   meta: jsonPayloadSchema.optional(),
   agents: z.array(agentInSchema).max(200).optional().default([]),
+  // Clarity Phase 1 — session declares meaning (type/goal/ask). All nullable-optional:
+  // absent leaves the stored value untouched; explicit null clears it.
+  session_type: sessionTypeSchema.nullable().optional(),
+  goal: z.string().max(SESSION_MEANING_TEXT_MAX).nullable().optional(),
+  waiting_on: z.string().max(SESSION_MEANING_TEXT_MAX).nullable().optional(),
+  ask_queue: askQueueSchema.nullable().optional(),
+  ask_severity: askSeveritySchema.nullable().optional(),
+  arc_id: z.string().uuid().nullable().optional(),
+  // Explicit archive: a session no longer worth surfacing in the fleet view / waiting-on-me
+  // feed by default (still queryable via ?include_archived=true on /api/oracle/fleet).
+  archived_at: z.coerce.date().nullable().optional(),
 });
 
 const snapshotSchema = z.object({
@@ -343,6 +370,15 @@ export async function POST(request: NextRequest) {
           ...(snap.ended_at !== undefined && { ended_at: snap.ended_at }),
           ...(resolvedTokens !== undefined && { tokens_total: resolvedTokens }),
           ...(snap.meta !== undefined && { meta: snap.meta as Prisma.InputJsonValue }),
+          // Clarity Phase 1 — session meaning. Each is independently absent-untouched /
+          // explicit-null-clears, per field (not an all-or-nothing block).
+          ...(snap.session_type !== undefined && { session_type: snap.session_type }),
+          ...(snap.goal !== undefined && { goal: snap.goal }),
+          ...(snap.waiting_on !== undefined && { waiting_on: snap.waiting_on }),
+          ...(snap.ask_queue !== undefined && { ask_queue: snap.ask_queue }),
+          ...(snap.ask_severity !== undefined && { ask_severity: snap.ask_severity }),
+          ...(snap.arc_id !== undefined && { arc_id: snap.arc_id }),
+          ...(snap.archived_at !== undefined && { archived_at: snap.archived_at }),
           last_event_at: snap.last_event_at ?? now,
         };
 

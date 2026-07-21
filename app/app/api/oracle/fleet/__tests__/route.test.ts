@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { AuthError } from '@/lib/api/errors';
 import { GET } from '../route';
@@ -53,9 +54,21 @@ function session(overrides: Record<string, unknown> = {}) {
     last_event_at: new Date(),
     ended_at: null,
     tokens_total: 100,
+    session_type: null,
+    goal: null,
+    waiting_on: null,
+    ask_queue: null,
+    ask_severity: null,
+    arc_id: null,
+    archived_at: null,
     agents: [],
     ...overrides,
   };
+}
+
+function fleetRequest(params: Record<string, string> = {}): NextRequest {
+  const searchParams = new URLSearchParams(params);
+  return new NextRequest(`http://localhost:3000/api/oracle/fleet?${searchParams.toString()}`);
 }
 
 function command(overrides: Record<string, unknown> = {}) {
@@ -231,12 +244,16 @@ describe('GET /api/oracle/fleet — stale read-time hide (Phase 2)', () => {
 
   // The actual row-level filtering happens inside the Prisma `where` clause (DB-side),
   // and prisma.oracleMachine.findMany is fully mocked here, so these tests exercise the
-  // query construction the route sends to Prisma — asserting the sessions.where.OR
+  // query construction the route sends to Prisma — asserting the sessions.where's OR
   // clause both (a) has a stale-status branch gated by last_event_at >= a
   // STALE_HIDE_MINUTES-ago cutoff, and (b) leaves running/waiting ungated by age. This
   // is the same "assert the where the route builds" pattern the DB actually executes;
   // the real end-to-end row-count behavior is proven separately via a seeded live-DB
   // check (see feature-planning/oracle-phase1-verification.md, Phase 2 section).
+  //
+  // Clarity Phase 1 wrapped the original top-level OR in an AND alongside the new
+  // archived_at exclusion (see the "archived sessions" describe block below) — the OR
+  // itself is unchanged, just nested one level under where.AND[0].OR now.
 
   it('gates the stale branch of the sessions where-clause on a last_event_at >= (now - 60min) cutoff', async () => {
     mockMachineFindMany.mockResolvedValue([machine()]);
@@ -246,7 +263,8 @@ describe('GET /api/oracle/fleet — stale read-time hide (Phase 2)', () => {
 
     const callArgs = mockMachineFindMany.mock.calls[0][0];
     const sessionsWhere = callArgs.include.sessions.where;
-    const staleClause = sessionsWhere.OR.find(
+    const or = sessionsWhere.AND[0].OR;
+    const staleClause = or.find(
       (clause: Record<string, unknown>) => clause.status === 'stale'
     );
     expect(staleClause).toBeDefined();
@@ -264,7 +282,8 @@ describe('GET /api/oracle/fleet — stale read-time hide (Phase 2)', () => {
 
     const callArgs = mockMachineFindMany.mock.calls[0][0];
     const sessionsWhere = callArgs.include.sessions.where;
-    const liveStatusClause = sessionsWhere.OR.find(
+    const or = sessionsWhere.AND[0].OR;
+    const liveStatusClause = or.find(
       (clause: Record<string, unknown>) =>
         clause.status && typeof clause.status === 'object' && 'in' in (clause.status as object)
     );
@@ -352,5 +371,66 @@ describe('GET /api/oracle/fleet — commands (1.5b)', () => {
     mockMachineFindMany.mockResolvedValue([machine({ commands: [] })]);
     const body = await (await GET()).json();
     expect(body.machines[0].commands).toEqual([]);
+  });
+});
+
+describe('GET /api/oracle/fleet — archived sessions (Clarity Phase 1)', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(ADMIN);
+  });
+
+  it('excludes archived sessions from the default (no-arg) response', async () => {
+    mockMachineFindMany.mockResolvedValue([machine()]);
+    await GET();
+
+    const callArgs = mockMachineFindMany.mock.calls[0][0];
+    const sessionsWhere = callArgs.include.sessions.where;
+    expect(sessionsWhere.AND).toContainEqual({ archived_at: null });
+  });
+
+  it('excludes archived sessions when include_archived is absent from the query string', async () => {
+    mockMachineFindMany.mockResolvedValue([machine()]);
+    await GET(fleetRequest());
+
+    const callArgs = mockMachineFindMany.mock.calls[0][0];
+    const sessionsWhere = callArgs.include.sessions.where;
+    expect(sessionsWhere.AND).toContainEqual({ archived_at: null });
+  });
+
+  it('restores archived sessions when ?include_archived=true', async () => {
+    mockMachineFindMany.mockResolvedValue([machine()]);
+    await GET(fleetRequest({ include_archived: 'true' }));
+
+    const callArgs = mockMachineFindMany.mock.calls[0][0];
+    const sessionsWhere = callArgs.include.sessions.where;
+    expect(sessionsWhere.AND).not.toContainEqual({ archived_at: null });
+  });
+
+  it('includes session-meaning fields on the shaped session (session_type/goal/waiting_on/ask_queue/ask_severity/arc_id/archived_at)', async () => {
+    mockMachineFindMany.mockResolvedValue([
+      machine({
+        sessions: [
+          session({
+            id: 'sess-meaning',
+            session_type: 'client_work',
+            goal: 'Ship it',
+            waiting_on: 'Approval',
+            ask_queue: 'decide',
+            ask_severity: 'launch_blocking',
+            arc_id: 'arc-1',
+          }),
+        ],
+      }),
+    ]);
+
+    const body = await (await GET()).json();
+    expect(body.machines[0].sessions[0]).toMatchObject({
+      session_type: 'client_work',
+      goal: 'Ship it',
+      waiting_on: 'Approval',
+      ask_queue: 'decide',
+      ask_severity: 'launch_blocking',
+      arc_id: 'arc-1',
+    });
   });
 });

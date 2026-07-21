@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { OracleSessionStatus } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
@@ -15,13 +15,19 @@ import {
 // the event log / a future detail view).
 const RECENT_ENDED_HOURS = 24;
 
-export async function GET() {
+// `request` is optional so existing no-arg callers (pre-Clarity-Phase-1) keep working —
+// only `?include_archived=true` needs the URL, and its absence just means "not requested".
+export async function GET(request?: NextRequest) {
   try {
     const auth = await requireAuth();
     // 1.5a: Oracle is admin-only everywhere it was previously pm-or-admin. The oracle
     // service bot (role pm) is unaffected — it never calls this route, only ingest,
     // which authorizes via isOracleBot, not role.
     requireRole(auth, ['admin']);
+
+    const includeArchived = request
+      ? new URL(request.url).searchParams.get('include_archived') === 'true'
+      : false;
 
     const now = new Date();
     const recentEndedCutoff = new Date(now.getTime() - RECENT_ENDED_HOURS * 60 * 60 * 1000);
@@ -33,19 +39,26 @@ export async function GET() {
       include: {
         sessions: {
           where: {
-            OR: [
+            AND: [
               {
-                status: {
-                  in: [OracleSessionStatus.running, OracleSessionStatus.waiting, OracleSessionStatus.idle],
-                },
+                OR: [
+                  {
+                    status: {
+                      in: [OracleSessionStatus.running, OracleSessionStatus.waiting, OracleSessionStatus.idle],
+                    },
+                  },
+                  // Read-time cleanup (Phase 2): a stale session only stays visible for
+                  // STALE_HIDE_MINUTES after its last event — long-dead junk (e.g. old
+                  // heartbeat-bug subagent rows) ages out of the response without ever
+                  // being deleted. Recently-stale sessions (a machine that just dropped)
+                  // still show up.
+                  { status: OracleSessionStatus.stale, last_event_at: { gte: staleHideCutoff } },
+                  { status: OracleSessionStatus.ended, ended_at: { gte: recentEndedCutoff } },
+                ],
               },
-              // Read-time cleanup (Phase 2): a stale session only stays visible for
-              // STALE_HIDE_MINUTES after its last event — long-dead junk (e.g. old
-              // heartbeat-bug subagent rows) ages out of the response without ever
-              // being deleted. Recently-stale sessions (a machine that just dropped)
-              // still show up.
-              { status: OracleSessionStatus.stale, last_event_at: { gte: staleHideCutoff } },
-              { status: OracleSessionStatus.ended, ended_at: { gte: recentEndedCutoff } },
+              // Clarity Phase 1: archived sessions (archived_at set) are excluded from the
+              // default fleet response entirely; ?include_archived=true restores them.
+              ...(includeArchived ? [] : [{ archived_at: null }]),
             ],
           },
           orderBy: [{ last_event_at: 'desc' }],
@@ -90,6 +103,14 @@ export async function GET() {
           last_event_at: session.last_event_at,
           ended_at: session.ended_at,
           tokens_total: session.tokens_total,
+          // Clarity Phase 1: session meaning + arc + archive state.
+          session_type: session.session_type,
+          goal: session.goal,
+          waiting_on: session.waiting_on,
+          ask_queue: session.ask_queue,
+          ask_severity: session.ask_severity,
+          arc_id: session.arc_id,
+          archived_at: session.archived_at,
           agents: session.agents.map((agent) => ({
             id: agent.id,
             external_id: agent.external_id,
