@@ -28,6 +28,7 @@ import {
   anySessionRunning,
   anySessionNeedsAttention,
   erroringCrons,
+  legacyNeedsAttentionSessions,
 } from '../oracle-logic';
 
 function makeAgent(overrides: Partial<OracleAgentDTO> = {}): OracleAgentDTO {
@@ -359,6 +360,46 @@ describe('selectWaitingSessions', () => {
     const machines = [makeMachine([session])];
     const result = selectWaitingSessions(machines, now);
     expect(result.map((s) => s.id)).toEqual(['orch-done-children']);
+  });
+});
+
+describe('legacyNeedsAttentionSessions (Phase 3 correction — Answer-column legacy cards)', () => {
+  const now = Date.parse('2026-07-09T21:00:00.000Z');
+
+  it('includes a waiting/needs_attention session with no manifest ask (waiting_on unset)', () => {
+    const session = makeSession({ id: 'legacy-1', status: 'waiting', waiting_on: null });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionSessions(machines, now).map((s) => s.id)).toEqual(['legacy-1']);
+  });
+
+  it('excludes a session that already has a Phase-1 manifest ask parked (waiting_on set) — already surfaced via /api/waiting-on-me', () => {
+    const session = makeSession({ id: 'manifest-1', status: 'waiting', waiting_on: 'Approve the deploy?' });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionSessions(machines, now)).toHaveLength(0);
+  });
+
+  it('excludes a non-waiting session even with no manifest ask', () => {
+    const session = makeSession({ id: 'running-1', status: 'running', waiting_on: null });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionSessions(machines, now)).toHaveLength(0);
+  });
+
+  it('excludes a working orchestrator (waiting/needs_attention but with a running child)', () => {
+    const session = makeSession({
+      id: 'orch-1',
+      status: 'waiting',
+      waiting_on: null,
+      agents: [makeAgent({ status: 'running' })],
+    });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionSessions(machines, now)).toHaveLength(0);
+  });
+
+  it('mixes legacy and manifest sessions correctly, keeping only the legacy ones', () => {
+    const legacy = makeSession({ id: 'legacy-2', status: 'waiting', waiting_on: null });
+    const manifest = makeSession({ id: 'manifest-2', needs_attention: true, waiting_on: 'Decide X' });
+    const machines = [makeMachine([legacy, manifest])];
+    expect(legacyNeedsAttentionSessions(machines, now).map((s) => s.id)).toEqual(['legacy-2']);
   });
 });
 

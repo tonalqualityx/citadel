@@ -44,6 +44,30 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
   // itself must mount).
   await expect(page.getByTestId('time-shape')).toBeVisible();
 
+  // --- corrected section-to-bucket mapping (fixtures from scripts/seed-oracle-fixtures.ts,
+  // already resident in this dev DB alongside our Phase 3 fixtures) ---
+  // In Motion = WORKING bucket ONLY: a running session belongs here.
+  const inMotion = page.getByTestId('in-motion-section');
+  await expect(inMotion).toBeVisible();
+  await expect(inMotion.getByText('oracle-phase1-visualizer (Task A)')).toBeVisible();
+
+  // Docked = IDLE bucket: an idle (parked) session belongs here, NOT in In Motion.
+  const docked = page.getByTestId('docked-section');
+  await expect(docked).toBeVisible();
+  await expect(docked.getByText('msr-carwash-acquisition')).toBeVisible();
+  await expect(inMotion.getByText('msr-carwash-acquisition')).toHaveCount(0);
+
+  // Legacy hook-flagged needs_attention session (no manifest ask) belongs in Needs
+  // Reshi's Answer column as a compact "session · legacy" card with Respond — NOT in
+  // Docked, and NOT under its own warning-bordered SessionCard.
+  const needsReshi = page.getByTestId('needs-reshi-section');
+  await expect(needsReshi).toBeVisible();
+  const answerColumn = page.getByTestId('needs-reshi-column-answer');
+  const legacyCard = answerColumn.locator('[data-testid="ask-card"][data-source-label="session · legacy"]');
+  await expect(legacyCard.filter({ hasText: 'grantibly-wright-b1' })).toBeVisible();
+  await expect(legacyCard.getByRole('link', { name: /respond/i })).toBeVisible();
+  await expect(docked.getByText('grantibly-wright-b1')).toHaveCount(0);
+
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/desktop-1280-oracle.png`, fullPage: true });
 

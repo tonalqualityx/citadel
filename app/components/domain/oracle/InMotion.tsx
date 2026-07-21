@@ -10,12 +10,13 @@ interface InMotionProps {
   collapsed: boolean;
 }
 
-// "In motion": every session actively computing right now or alive-but-idle (the existing
-// working ∪ idle buckets from oracle-logic.ts, flattened fleet-wide — no more per-machine
-// grouping). Deliberately reuses SessionCard verbatim rather than a bespoke slim row: it's
-// the one component that already carries Respond deep-links, agent nesting, and the event
-// drawer intact, and preserving that behavior is a harder requirement than matching the
-// mockup's slimmer visual exactly (documented deviation).
+// "In motion": the WORKING bucket ONLY (isWorkingBucketSession — actively computing right
+// now, or an orchestrator with a live running child), flattened fleet-wide — no more
+// per-machine grouping. Idle sessions do NOT belong here (Docked owns those — see
+// oracle/page.tsx's corrected mapping). Deliberately reuses SessionCard verbatim rather
+// than a bespoke slim row: it's the one component that already carries Respond deep-links,
+// agent nesting, and the event drawer intact, and preserving that behavior is a harder
+// requirement than matching the mockup's slimmer visual exactly (documented deviation).
 export function InMotion({ sessions, agentCount, nowMs, collapsed }: InMotionProps) {
   if (sessions.length === 0) return null;
 

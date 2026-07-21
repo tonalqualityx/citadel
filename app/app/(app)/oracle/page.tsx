@@ -17,17 +17,18 @@ import { InMotion } from '@/components/domain/oracle/InMotion';
 import { Docked } from '@/components/domain/oracle/Docked';
 import {
   filterMachines,
-  selectWaitingSessions,
   groupNonWaitingSessions,
+  legacyNeedsAttentionSessions,
   flattenSessions,
 } from '@/components/domain/oracle/oracle-logic';
 
 // Clarity Phase 3 — The Oracle Face. Reworked per the approved mockup grammar: Header (title
 // + machine-health line + idea quick-add + week strip) -> Today (time-shape + picks) ->
-// Needs Reshi (Decide/Answer/Review) -> In motion (working+idle sessions) -> Docked
-// (waiting-on-Reshi sessions). Crons and ended/archived sessions render nothing per the
-// exception-based display rule — they no longer get their own section here; a healthy fleet
-// with no live sessions still shows the empty state below.
+// Needs Reshi (Decide/Answer/Review) -> In motion (working sessions ONLY) -> Docked (idle
+// sessions — parked threads "waiting on the world"). Crons and ended/archived sessions
+// render nothing per the exception-based display rule. A session flagged needs_attention by
+// the OLD hook mechanism with no Phase-1 manifest ask (legacyNeedsAttentionSessions) is
+// waiting on MIKE, not the world — it renders in Needs Reshi's Answer column, never here.
 export default function OraclePage() {
   const [mounted, setMounted] = React.useState(false);
   const router = useRouter();
@@ -73,16 +74,25 @@ export default function OraclePage() {
   }
 
   const machines = filterMachines(data.machines, filter);
-  const dockedSessions = selectWaitingSessions(machines, now);
   const groups = groupNonWaitingSessions(machines);
-  const inMotionSessions = [...groups.working, ...groups.idle];
+  // In Motion = the WORKING bucket only (isWorkingBucketSession) — zero idle here.
+  const inMotionSessions = groups.working;
   const inMotionAgentCount = inMotionSessions.reduce((sum, s) => sum + s.agents.length, 0);
+  // Docked = the IDLE bucket — alive, not working, not waiting: parked threads waiting on
+  // the world, not on Mike.
+  const dockedSessions = groups.idle;
+  // Legacy hook-flagged needs_attention sessions with no manifest ask — waiting on Mike,
+  // rendered in Needs Reshi's Answer column (see NeedsReshi below), not in Docked.
+  const legacyWaitingSessions = legacyNeedsAttentionSessions(machines, now);
   const liveSessions = flattenSessions(data.machines);
 
   const noMachineHasEverReported = data.machines.length === 0;
   const anyCommands = machines.some((m) => m.commands.length > 0);
   const isEmpty =
-    dockedSessions.length === 0 && inMotionSessions.length === 0 && !anyCommands;
+    dockedSessions.length === 0 &&
+    inMotionSessions.length === 0 &&
+    legacyWaitingSessions.length === 0 &&
+    !anyCommands;
 
   return (
     <div className="flex flex-col gap-4">
@@ -97,7 +107,13 @@ export default function OraclePage() {
 
       <TodaySection />
 
-      {waitingOnMeData && <NeedsReshi data={waitingOnMeData} liveSessions={liveSessions} />}
+      {waitingOnMeData && (
+        <NeedsReshi
+          data={waitingOnMeData}
+          liveSessions={liveSessions}
+          legacyWaitingSessions={legacyWaitingSessions}
+        />
+      )}
 
       {noMachineHasEverReported ? (
         <EmptyState
