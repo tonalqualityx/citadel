@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils/cn';
 import type { TodayCalendarMeeting } from '@/lib/hooks/use-today';
 import {
   layoutMeetingBlocks,
+  layoutBufferBlocks,
   layoutFocusBlocks,
   computeNowLinePercent,
   dayCapacityFillPercent,
@@ -33,10 +34,17 @@ function hourLabel(hour: number): string {
   return `${hour}a`;
 }
 
-// The day's real contours: calendar events (gray, labeled) and chosen focus blocks (blue,
-// labeled) on one track. Empty track = open runway. Over-cap days tint the strip with the
-// same warning encoding as the week strip — never red (evidence-bound: no red anywhere in
-// the Oracle for capacity/aging/overdue).
+// The day's real contours: calendar events (red-family, labeled — see the exception note
+// below) and chosen focus blocks (blue, labeled) on one track. Empty track = open runway.
+// Over-cap days tint the strip with the same warning encoding as the week strip — never red
+// for THAT signal (evidence-bound: no red anywhere in the Oracle for capacity/aging/overdue).
+//
+// Clarity Phase 3b exception (Mike-directed, binding): meeting blocks themselves use the
+// error/red token family, not neutral gray. The evidence-bound "no red" rule from the
+// 2026-07-21 ADHD motivation research targets overdue/aging DISPLAYS (a red "3 days late"
+// chip is punitive and demotivating) — it was never meant to cover a fixed, already-on-the-
+// calendar commitment. Mike explicitly chose red/orange for meetings; this is a deliberate,
+// separate design decision, not a regression of the aging/capacity rule above.
 export function TimeShape({ date, meetings, focusLabels, nowMs, meetingMinutes, dueTasksCount }: TimeShapeProps) {
   const window: TimeWindow = {
     start: new Date(`${date}T${String(DAY_TRACK_START_HOUR).padStart(2, '0')}:00:00.000Z`),
@@ -44,7 +52,12 @@ export function TimeShape({ date, meetings, focusLabels, nowMs, meetingMinutes, 
   };
 
   const meetingBlocks = layoutMeetingBlocks(meetings, window);
-  const focusBlocks = layoutFocusBlocks(focusLabels, meetingBlocks, window);
+  // Clarity Phase 3b — every meeting costs a 15-minute recovery buffer after it ends
+  // (Mike-directed: attention takes that break whether planned or not). Rendered as the
+  // meeting's low-intensity "shadow"; also carved out of the runway so focus picks never
+  // get laid into it (see layoutFocusBlocks' occupiedBlocks param).
+  const bufferBlocks = layoutBufferBlocks(meetings, window);
+  const focusBlocks = layoutFocusBlocks(focusLabels, [...meetingBlocks, ...bufferBlocks], window);
   const nowPercent = computeNowLinePercent(nowMs, window);
   const fill = dayCapacityFillPercent(meetingMinutes, dueTasksCount);
   const overCap = isDayOverCapacity(fill);
@@ -75,13 +88,35 @@ export function TimeShape({ date, meetings, focusLabels, nowMs, meetingMinutes, 
       {meetingBlocks.map((b) => (
         <div
           key={b.id}
-          className="absolute top-5 h-9 overflow-hidden rounded-md border border-border-warm bg-background-light px-1.5 py-0.5 text-[0.65rem] font-semibold text-text-sub"
-          style={{ left: `${b.leftPercent}%`, width: `${b.widthPercent}%` }}
+          className="absolute top-5 h-9 overflow-hidden rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold"
+          style={{
+            left: `${b.leftPercent}%`,
+            width: `${b.widthPercent}%`,
+            backgroundColor: 'var(--error-subtle)',
+            borderColor: 'var(--error)',
+            color: 'var(--error)',
+          }}
           data-testid="time-shape-block"
           data-kind="meeting"
         >
           <span className="block truncate">{b.label}</span>
         </div>
+      ))}
+
+      {bufferBlocks.map((b) => (
+        <div
+          key={b.id}
+          className="absolute top-5 h-9 overflow-hidden rounded-md"
+          style={{
+            left: `${b.leftPercent}%`,
+            width: `${b.widthPercent}%`,
+            backgroundColor: 'var(--error-subtle)',
+            opacity: 0.45,
+          }}
+          data-testid="time-shape-block"
+          data-kind="buffer"
+          title="recovery buffer"
+        />
       ))}
 
       {focusBlocks.map((b) => (
