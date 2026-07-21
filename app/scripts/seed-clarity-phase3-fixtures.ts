@@ -2,7 +2,10 @@
  * Dev fixture seed for Clarity Phase 3 (The Oracle Face) Playwright coverage: one arc with
  * tasks across every board column (+ a blocked task, rendered as a chip not a column) for
  * the arc-board drag e2e, plus a couple of Today picks for the day the e2e actually runs
- * against so the Today section has something to render.
+ * against so the Today section has something to render. Phase 3b adds one fixture
+ * calendar_event (real, non-30-minute duration) for that same day so the e2e screenshot
+ * always shows a red-family meeting block regardless of whatever real Google Calendar data
+ * has (or hasn't) been synced into this dev DB.
  *
  * Idempotent: the arc is found-or-created by a fixed demo name; its tasks and today_picks
  * are deleted and recreated on every run. Local dev only — this seeds whatever
@@ -73,6 +76,22 @@ async function main() {
     data: { date, item_type: TodayPickType.note, label: 'E2E: quick note pick', sort: 1 },
   });
   console.log(`  created 2 today_picks for ${dateStr}`);
+
+  // Clarity Phase 3b — one fixture calendar_event for the e2e day, a real 90-minute
+  // duration (deliberately NOT 30 minutes, proving the old assumed-duration path is gone),
+  // so the red-family meeting block always renders in the screenshot.
+  const EVENT_ID = 'e2e-clarity-phase3b-fixture-meeting';
+  await prisma.calendarEvent.deleteMany({ where: { event_id: EVENT_ID } });
+  await prisma.calendarEvent.create({
+    data: {
+      event_id: EVENT_ID,
+      title: 'E2E: fixture meeting (red block)',
+      starts_at: new Date(`${dateStr}T14:00:00.000Z`),
+      ends_at: new Date(`${dateStr}T15:30:00.000Z`), // 90 real minutes
+      all_day: false,
+    },
+  });
+  console.log(`  created 1 calendar_event fixture for ${dateStr}`);
 
   console.log(`Done. Arc id: ${arc.id}`);
 }

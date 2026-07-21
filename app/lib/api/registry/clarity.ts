@@ -314,20 +314,26 @@ export const clarityEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Day meetings (title/start/end) for the time-shape track, plus a 5-day week aggregation (meeting minutes/count + due-task counts per day) for the week capacity strip.',
+        summary: 'Day timed calendar events (title/REAL start/end) for the time-shape track, plus a 5-day week aggregation (committed-load minutes/count + due-task counts per day) for the week capacity strip.',
         auth: 'required',
         roles: ['admin'],
         queryParams: [
           { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD, UTC calendar day. Defaults to today; the week strip runs this date + 4 forward days.' },
         ],
         responseNotes:
-          'Meeting has no stored duration, so each block\'s end is start + an ASSUMED 30-minute duration ' +
-          '(documented deviation). Response is deliberately "dumb" — raw counts only; fill-percent/packed-tint ' +
-          'encoding is computed client-side so the day track, week strip, and future planning views share one ' +
-          'capacity encoding implementation.',
+          'Clarity Phase 3b: reads the calendar_events table (synced via POST /api/oracle/calendar-sync ' +
+          'from Mike\'s real Google Calendar) — real start/end durations, no more assumed duration. ' +
+          'All-day events are excluded from `meetings` entirely and returned separately in `allDay`. ' +
+          '`week[].meeting_minutes` is each day\'s real per-event duration PLUS a 15-minute recovery buffer ' +
+          'trailing every timed meeting (truncated by a back-to-back next meeting — never double-counted; ' +
+          'see MEETING_RECOVERY_MINUTES / sumCommittedMinutesWithBuffer in ' +
+          'components/domain/oracle/today/time-shape-logic.ts, the single shared implementation). Response ' +
+          'is deliberately "dumb" otherwise — fill-percent/packed-tint encoding is computed client-side so ' +
+          'the day track, week strip, and future planning views share one capacity encoding implementation.',
         responseExample: {
           date: 'YYYY-MM-DD',
-          meetings: [{ id: 'uuid', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
+          meetings: [{ id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
+          allDay: [{ id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
           week: [
             { date: 'YYYY-MM-DD', meeting_minutes: 'number', meetings_count: 'number', due_tasks_count: 'number' },
           ],

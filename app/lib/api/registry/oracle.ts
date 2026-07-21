@@ -43,6 +43,42 @@ export const oracleEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/oracle/calendar-sync',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Clarity Phase 3b: sync a rolling window of real Google Calendar events into calendar_events, the Today time-shape\'s calendar source. Same Bearer-auth util as /api/session-tasks (cookie session OR API key) — no bot-only restriction.',
+        auth: 'required',
+        responseNotes:
+          'Upserts every event in the payload by event_id (create-or-update, never duplicates), THEN ' +
+          'deletes any calendar_events row whose starts_at falls inside [window_start, window_end] but ' +
+          'whose event_id was NOT in this payload — that\'s how a cancelled/deleted meeting disappears. ' +
+          'Rows with starts_at outside the window are never touched by this call. The machine-side caller ' +
+          '(~/.claude/tools/oracle/clarity/calendar-sync.py, STAGED — not cron-wired) is expected to ' +
+          're-sync a rolling window (e.g. now-2h to now+7d) on every run.',
+        bodySchema: [
+          { name: 'window_start', type: 'ISO-8601', required: true, description: '' },
+          { name: 'window_end', type: 'ISO-8601', required: true, description: 'Must be at or after window_start' },
+          {
+            name: 'events',
+            type: 'object',
+            required: true,
+            description: 'Array (max 500): { event_id (Google event id, unique), title, starts_at, ends_at, all_day? (default false) }',
+          },
+        ],
+        responseExample: {
+          success: true,
+          window_start: 'ISO-8601',
+          window_end: 'ISO-8601',
+          upserted: 'number',
+          pruned: 'number',
+        },
+      },
+    ],
+  },
+  {
     path: '/api/oracle/fleet',
     group: 'oracle',
     methods: [

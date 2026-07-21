@@ -58,6 +58,10 @@ export interface TodayCalendarWeekDay {
 export interface TodayCalendarResponse {
   date: string;
   meetings: TodayCalendarMeeting[];
+  // Clarity Phase 3b — all-day calendar events (e.g. "Home"/"Office" working-location
+  // markers) for the day, excluded from the time-shape track entirely (no time cost, no
+  // block placement) but still surfaced for context.
+  allDay: TodayCalendarMeeting[];
   week: TodayCalendarWeekDay[];
 }
 
