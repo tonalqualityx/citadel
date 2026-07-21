@@ -28,6 +28,10 @@ const ARC_DETAIL_INCLUDE = {
       due_date: true,
       assignee_id: true,
       assignee: { select: { id: true, name: true } },
+      // Phase 3 — the arc board card: awaiting-review badge, same signal CharterKanban
+      // already uses (status=done && needs_review && !approved).
+      needs_review: true,
+      approved: true,
     },
     orderBy: [{ priority: 'asc' as const }, { created_at: 'desc' as const }],
   },

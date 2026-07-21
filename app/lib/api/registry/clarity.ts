@@ -224,4 +224,115 @@ export const clarityEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/today',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List Today picks (the day\'s chosen commitments) with joined arc/task/session/charter summaries and a derived per-type primary action.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD, UTC calendar day. Defaults to today.' },
+        ],
+        responseExample: {
+          date: 'YYYY-MM-DD',
+          picks: [
+            {
+              id: 'uuid',
+              date: 'ISO-8601',
+              item_type: 'arc|task|session|lead|note',
+              arc_id: 'uuid|null',
+              arc: { id: 'uuid', name: 'string', status: 'empty|open|complete', task_count: 'number' },
+              task_id: 'uuid|null',
+              task: { id: 'uuid', title: 'string', status: 'string' },
+              session_external_id: 'string|null',
+              session: { external_id: 'string', title: 'string|null', status: 'string', remote_url: 'string|null', goal: 'string|null' },
+              charter_id: 'uuid|null',
+              charter: { id: 'uuid', name: 'string' },
+              label: 'string|null',
+              sort: 'number',
+              completed_at: 'ISO-8601|null',
+              primary_action: { kind: 'respond|resume|arc|quest|charter|toggle' },
+              created_at: 'ISO-8601',
+              updated_at: 'ISO-8601',
+            },
+          ],
+          meta: { total: 'number', uncompleted: 'number', cap: 5 },
+        },
+      },
+      {
+        method: 'POST',
+        summary: 'Add a Today pick. Exactly one of arc_id/task_id/session_external_id/charter_id (or `label` for a note) identifies the pick — validated here, not the DB.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'WIP ceiling: a 6th uncompleted pick for the date is rejected with 409 (finish or drop one first). ' +
+          'Exactly-one-ref validation returns 400. arc_id/task_id/charter_id are 404-checked against their tables; ' +
+          'session_external_id is not (Oracle sessions are not a DB relation here).',
+        bodySchema: [
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD; defaults to today' },
+          { name: 'item_type', type: 'string', required: true, description: 'arc|task|session|lead|note' },
+          { name: 'arc_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=arc' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=task' },
+          { name: 'session_external_id', type: 'string', required: false, description: 'Required (and only) for item_type=session' },
+          { name: 'charter_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=lead' },
+          { name: 'label', type: 'string', required: false, description: 'Required (and only) for item_type=note; an override display string on other types' },
+          { name: 'sort', type: 'number', required: false, description: '' },
+        ],
+      },
+    ],
+  },
+  {
+    path: '/api/today/{id}',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Update a Today pick: sort, completed_at (quiet completion toggle), or label. The pick\'s type/ref is never re-pointed here.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'sort', type: 'number', required: false, description: '' },
+          { name: 'completed_at', type: 'ISO-8601', required: false, description: 'Set to complete; null to un-complete; absent to leave untouched' },
+          { name: 'label', type: 'string', required: false, description: '' },
+        ],
+      },
+      {
+        method: 'DELETE',
+        summary: 'Remove a Today pick. This removes only the pick row — never the underlying arc/task/session/charter.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/today/calendar',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Day meetings (title/start/end) for the time-shape track, plus a 5-day week aggregation (meeting minutes/count + due-task counts per day) for the week capacity strip.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD, UTC calendar day. Defaults to today; the week strip runs this date + 4 forward days.' },
+        ],
+        responseNotes:
+          'Meeting has no stored duration, so each block\'s end is start + an ASSUMED 30-minute duration ' +
+          '(documented deviation). Response is deliberately "dumb" — raw counts only; fill-percent/packed-tint ' +
+          'encoding is computed client-side so the day track, week strip, and future planning views share one ' +
+          'capacity encoding implementation.',
+        responseExample: {
+          date: 'YYYY-MM-DD',
+          meetings: [{ id: 'uuid', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
+          week: [
+            { date: 'YYYY-MM-DD', meeting_minutes: 'number', meetings_count: 'number', due_tasks_count: 'number' },
+          ],
+        },
+      },
+    ],
+  },
 ];
