@@ -200,6 +200,25 @@ export function selectWaitingSessions(
     .sort((a, b) => waitSinceMs(b, nowMs) - waitSinceMs(a, nowMs));
 }
 
+// ============================================
+// Phase 3 correction — Needs Reshi's legacy-waiting Answer cards
+// ============================================
+// A session can be "waiting" (isWaitingSession: status=waiting or needs_attention, no
+// running child) two different ways: (1) it has a Phase-1 manifest ask parked
+// (waiting_on set) — that's already surfaced via /api/waiting-on-me's session_ask cards,
+// grouped by its own declared ask_queue; or (2) it's flagged purely by the OLD hook
+// mechanism (needs_attention/status=waiting) with NO manifest ask at all — that's a
+// "legacy" needs-attention session, waiting on MIKE (not the world), and belongs in
+// Needs Reshi's Answer column as a compact card, never in Docked. Filtering out
+// waiting_on-set sessions here is what prevents a session from double-appearing in both
+// the manifest feed AND this legacy list.
+export function legacyNeedsAttentionSessions(
+  machines: OracleMachineDTO[],
+  nowMs: number
+): OracleSessionWithMachine[] {
+  return selectWaitingSessions(machines, nowMs).filter((s) => !s.waiting_on);
+}
+
 export interface SessionGroups {
   working: OracleSessionWithMachine[];
   idle: OracleSessionWithMachine[];
@@ -453,6 +472,36 @@ export function commandRemoteControlState(command: OracleCommandDTO): RemoteCont
   if (command.status !== 'done') return null;
   const rc = command.result?.remote_control;
   return rc === 'confirmed' ? 'confirmed' : 'unconfirmed';
+}
+
+// ============================================
+// Phase 3 — The Oracle Face: header machine-health line
+// ============================================
+// "Exception-based display" grammar: healthy crons render NOTHING — they only earn pixels
+// by misbehaving. A cron reads as erroring when it's flagged needs_attention (the same
+// signal that would otherwise put it in the waiting-on-Reshi strip); a plain running/idle/
+// ended cron is invisible here regardless of status.
+
+export interface ErroringCron {
+  machineName: string;
+  title: string;
+  attentionReason: string | null;
+}
+
+export function erroringCrons(machines: OracleMachineDTO[]): ErroringCron[] {
+  const out: ErroringCron[] = [];
+  for (const machine of machines) {
+    for (const session of machine.sessions) {
+      if (session.source === 'openclaw_cron' && session.needs_attention) {
+        out.push({
+          machineName: machine.name,
+          title: sessionDisplayTitle(session),
+          attentionReason: session.attention_reason ?? null,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /** Distinct, sorted cwd values across every session on the fleet — feeds the New

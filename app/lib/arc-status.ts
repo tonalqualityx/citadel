@@ -25,3 +25,15 @@ export function getArcStatus(arc: ArcStatusInput): ArcStatus {
 
   return 'open';
 }
+
+// Clarity Phase 3 — The Oracle Face: the arc board's progress bar. "Never a 0%-guilt
+// display" per the evidence-bound design rules — an empty/fresh arc reads as 0, not as a
+// failure state; the presentation layer (not this pure function) is what keeps it visually
+// quiet below ~50%. done + abandoned both count as "resolved" here (same terminal
+// definition getArcStatus uses above) since an abandoned task is closed, not pending.
+export function getArcProgressPercent(tasks: Array<{ status: TaskStatus | string }>): number {
+  if (tasks.length === 0) return 0;
+  const terminal = TERMINAL_TASK_STATUSES as string[];
+  const resolved = tasks.filter((t) => terminal.includes(t.status)).length;
+  return Math.round((resolved / tasks.length) * 100);
+}

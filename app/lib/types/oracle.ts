@@ -44,6 +44,20 @@ export interface OracleSessionDTO {
   ended_at: string | null;
   tokens_total: number;
   agents: OracleAgentDTO[];
+
+  // Clarity Phase 1 session-meaning fields — the fleet route has returned these since
+  // Phase 1 (see app/api/oracle/fleet/route.ts) but this DTO never declared them. All
+  // optional/nullable: old heartbeats and pre-Phase-1 sessions never set them, and a
+  // session's own manifest ask (waiting_on set) is what distinguishes a Phase-3
+  // Needs-Reshi manifest ask from a "legacy" hook-flagged needs_attention session with
+  // no declared ask (see oracle-logic.ts's legacyNeedsAttentionSessions).
+  session_type?: 'client_work' | 'internal' | 'systems' | 'exploratory' | null;
+  goal?: string | null;
+  waiting_on?: string | null;
+  ask_queue?: 'decide' | 'answer' | 'review' | 'do' | null;
+  ask_severity?: 'client_blocking' | 'launch_blocking' | 'internal' | null;
+  arc_id?: string | null;
+  archived_at?: string | null;
 }
 
 // Phase 1.5b — Remote Spawn. Mirrors app/api/oracle/fleet/route.ts's `commands` shape

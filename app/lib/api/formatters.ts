@@ -1066,3 +1066,43 @@ export function formatIdeaResponse(idea: any) {
     updated_at: idea.updated_at,
   };
 }
+
+// Clarity Phase 3 — The Oracle Face: a "Today" commitment. `arc_summary`/`session_summary`
+// are attached by the /api/today route (arc's derived status, live session's remote_url/
+// status/goal) since neither is a plain Prisma include (arc status is derived; sessions are
+// referenced by external_id, not a relation). `primary_action` is the derived-kind object
+// from lib/today-picks.ts, shaped for direct frontend consumption.
+export function formatTodayPickResponse(
+  pick: any,
+  extras: {
+    arcSummary?: { id: string; name: string; status: string; task_count: number } | null;
+    sessionSummary?: {
+      external_id: string;
+      title: string | null;
+      status: string;
+      remote_url: string | null;
+      goal: string | null;
+    } | null;
+    primaryAction?: { kind: string } | null;
+  } = {}
+) {
+  return {
+    id: pick.id,
+    date: pick.date,
+    item_type: pick.item_type,
+    arc_id: pick.arc_id ?? null,
+    arc: extras.arcSummary ?? (pick.arc ? { id: pick.arc.id, name: pick.arc.name } : null),
+    task_id: pick.task_id ?? null,
+    task: pick.task ? { id: pick.task.id, title: pick.task.title, status: pick.task.status } : null,
+    session_external_id: pick.session_external_id ?? null,
+    session: extras.sessionSummary ?? null,
+    charter_id: pick.charter_id ?? null,
+    charter: pick.charter ? { id: pick.charter.id, name: pick.charter.name } : null,
+    label: pick.label ?? null,
+    sort: pick.sort,
+    completed_at: pick.completed_at ?? null,
+    primary_action: extras.primaryAction ?? null,
+    created_at: pick.created_at,
+    updated_at: pick.updated_at,
+  };
+}
