@@ -63,6 +63,7 @@ import { troubadorEndpoints } from './troubador';
 import { contactEndpoints } from './contacts';
 import { brandProfileEndpoints } from './brand-profiles';
 import { oracleEndpoints } from './oracle';
+import { clarityEndpoints } from './clarity';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -93,6 +94,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...contactEndpoints,
   ...brandProfileEndpoints,
   ...oracleEndpoints,
+  ...clarityEndpoints,
 ];
 
 /**
@@ -123,6 +125,13 @@ export const apiEnums = {
   topicArchetypes: ['pillar', 'thought_leadership', 'case_study', 'how_to', 'commodity'],
   oracleSources: ['claude_code', 'workflow', 'openclaw_cron'],
   oracleSessionStatuses: ['running', 'waiting', 'idle', 'ended', 'stale'],
+  taskSources: ['portal', 'email', 'internal', 'session'],
+  arcStatuses: ['empty', 'open', 'complete'],
+  oracleSessionTypes: ['client_work', 'internal', 'systems', 'exploratory'],
+  askQueues: ['decide', 'answer', 'review', 'do'],
+  askSeverities: ['client_blocking', 'launch_blocking', 'internal'],
+  ideaSources: ['session', 'oracle', 'email'],
+  ideaStatuses: ['open', 'kept', 'promoted', 'discarded'],
 };
 
 /**
