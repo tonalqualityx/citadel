@@ -6,10 +6,10 @@
 -- (forbidden by the Clarity Phase 1 hard rules). No new DDL beyond what already exists.
 
 -- AlterEnum
-ALTER TYPE "NotificationType" ADD VALUE 'troubador_run_review_ready';
-ALTER TYPE "NotificationType" ADD VALUE 'article_client_approved';
-ALTER TYPE "NotificationType" ADD VALUE 'article_client_changes_requested';
-ALTER TYPE "NotificationType" ADD VALUE 'interview_answers_submitted';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'troubador_run_review_ready';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'article_client_approved';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'article_client_changes_requested';
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'interview_answers_submitted';
 
 -- AlterTable
-ALTER TABLE "troubador_interviews" ADD COLUMN     "answers" JSONB;
+ALTER TABLE "troubador_interviews" ADD COLUMN IF NOT EXISTS "answers" JSONB;
