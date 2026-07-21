@@ -897,3 +897,182 @@ describe('POST /api/oracle/ingest — token monotonicity (review finding, 2026-0
     expect(callArgs.data.tokens_total).toBe(12);
   });
 });
+
+describe('POST /api/oracle/ingest — session meaning (Clarity Phase 1)', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(BOT);
+  });
+
+  it('persists session_type, goal, waiting_on, ask_queue, ask_severity, and arc_id on a new session', async () => {
+    mockSessionCreate.mockResolvedValue({
+      id: 'sess-meaning-new',
+      source: 'claude_code',
+      external_id: 'cc-meaning-1',
+      status: 'waiting',
+      last_event_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    const arcId = '550e8400-e29b-41d4-a716-446655440000';
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            {
+              external_id: 'cc-meaning-1',
+              source: 'claude_code',
+              status: 'waiting',
+              session_type: 'client_work',
+              goal: 'Ship the Clarity Phase 1 data plane',
+              waiting_on: 'Approve the migration plan',
+              ask_queue: 'decide',
+              ask_severity: 'internal',
+              arc_id: arcId,
+            },
+          ],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockSessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          session_type: 'client_work',
+          goal: 'Ship the Clarity Phase 1 data plane',
+          waiting_on: 'Approve the migration plan',
+          ask_queue: 'decide',
+          ask_severity: 'internal',
+          arc_id: arcId,
+        }),
+      })
+    );
+  });
+
+  it('rejects an invalid session_type enum value (400, Zod)', async () => {
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [{ external_id: 'cc-bad-1', source: 'claude_code', session_type: 'not-a-real-type' }],
+        },
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a goal/waiting_on over the 2000-char cap (400, Zod)', async () => {
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [{ external_id: 'cc-long-1', source: 'claude_code', goal: 'x'.repeat(2001) }],
+        },
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('explicit null clears waiting_on and ask_queue on an existing session', async () => {
+    const existing = {
+      id: 'sess-clear-meaning',
+      source: 'claude_code',
+      external_id: 'cc-clear-meaning-1',
+      status: 'running',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+      waiting_on: 'Old ask',
+      ask_queue: 'decide',
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...existing,
+      ...data,
+    }));
+
+    await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            {
+              external_id: 'cc-clear-meaning-1',
+              source: 'claude_code',
+              status: 'running',
+              waiting_on: null,
+              ask_queue: null,
+            },
+          ],
+        },
+      })
+    );
+
+    expect(mockSessionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ waiting_on: null, ask_queue: null }) })
+    );
+  });
+
+  it('leaves session-meaning fields untouched when absent from the snapshot session', async () => {
+    const existing = {
+      id: 'sess-leave-meaning',
+      source: 'claude_code',
+      external_id: 'cc-leave-meaning-1',
+      status: 'running',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+      waiting_on: 'Existing ask',
+      ask_queue: 'answer',
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...existing,
+      ...data,
+    }));
+
+    await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [{ external_id: 'cc-leave-meaning-1', source: 'claude_code', status: 'running' }],
+        },
+      })
+    );
+
+    const callArgs = mockSessionUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect('waiting_on' in callArgs.data).toBe(false);
+    expect('ask_queue' in callArgs.data).toBe(false);
+    expect('session_type' in callArgs.data).toBe(false);
+    expect('ask_severity' in callArgs.data).toBe(false);
+    expect('arc_id' in callArgs.data).toBe(false);
+  });
+
+  it('a legacy payload with none of the new fields behaves byte-for-byte as before (no session-meaning keys in the update)', async () => {
+    const existing = {
+      id: 'sess-legacy',
+      source: 'claude_code',
+      external_id: 'cc-legacy-1',
+      status: 'running',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...existing,
+      ...data,
+    }));
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [{ external_id: 'cc-legacy-1', source: 'claude_code', status: 'waiting' }],
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const callArgs = mockSessionUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(callArgs.data).toEqual({ status: 'waiting', last_event_at: expect.any(Date) });
+  });
+});

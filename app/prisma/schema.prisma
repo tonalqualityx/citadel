@@ -308,6 +308,10 @@ enum NotificationType {
   system_alert
   article_needs_review
   troubador_run_created
+  troubador_run_review_ready
+  article_client_approved
+  article_client_changes_requested
+  interview_answers_submitted
 }
 
 enum NotificationPriority {
@@ -549,6 +553,7 @@ model Client {
   articles              Article[]
   contacts              ClientContact[]
   brand_profile         BrandProfile?
+  arcs                  Arc[]
 
   @@index([type])
   @@index([status])
@@ -835,6 +840,7 @@ model Project {
   accord_commission_items AccordCommissionItem[]
   charter_commissions     CharterCommission[]
   meeting_projects        MeetingProject[]
+  arcs                    Arc[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -1044,6 +1050,14 @@ model Task {
   requested_by_contact_id String?        @db.Uuid
   requested_by_contact    ClientContact? @relation("TaskRequestedByContact", fields: [requested_by_contact_id], references: [id])
 
+  // Clarity Phase 1: quests spawned from a Claude Code session (source=session), and
+  // lightweight "arc" (micro-project) grouping. Arc status is never stored — see
+  // lib/arc-status.ts. origin_url is a future email deep-link, unused for now.
+  arc_id                      String?  @db.Uuid
+  arc                         Arc?     @relation(fields: [arc_id], references: [id])
+  source_session_external_id  String?  @db.VarChar(255)
+  origin_url                  String?  @db.VarChar(1000)
+
   // Client staging approval (clients are not Users — approval is by ClientContact)
   staging_preview_url    String?        @db.VarChar(500)
   staging_deployed_at    DateTime?
@@ -1070,6 +1084,7 @@ model Task {
   time_entries         TimeEntry[]
   comments             Comment[]
   charter_renewal_logs CharterRenewalLog[]
+  promoted_from_ideas  Idea[]
 
   @@index([project_id])
   @@index([client_id])
@@ -1090,6 +1105,8 @@ model Task {
   @@index([requested_by_contact_id])
   @@index([approved_by_contact_id])
   @@index([portal_token])
+  @@index([arc_id])
+  @@index([source_session_external_id])
   @@map("tasks")
 }
 
@@ -1106,6 +1123,7 @@ enum TaskSource {
   portal
   email
   internal
+  session
 }
 
 enum MysteryFactor {
@@ -2311,6 +2329,7 @@ model Interview {
   run          TroubadorRun    @relation(fields: [run_id], references: [id], onDelete: Cascade)
   status       InterviewStatus @default(pending)
   questions    Json?
+  answers      Json?
   transcript   String?         @db.Text
   completed_at DateTime?
   created_at   DateTime        @default(now())
@@ -2388,6 +2407,18 @@ model OracleSession {
 
   meta Json?
 
+  // Clarity Phase 1 — session meaning + arc grouping. All nullable so old heartbeats
+  // (Phase 1-4) keep working untouched. waiting_on is the literal ask parked on Mike;
+  // ask_queue routes it into the /api/waiting-on-me grouping (decide/answer/review/do).
+  session_type OracleSessionType?
+  goal         String?            @db.Text
+  waiting_on   String?            @db.Text
+  ask_queue    AskQueue?
+  ask_severity AskSeverity?
+  arc_id       String?            @db.Uuid
+  arc          Arc?               @relation(fields: [arc_id], references: [id])
+  archived_at  DateTime?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -2398,6 +2429,8 @@ model OracleSession {
   @@index([machine_id])
   @@index([status])
   @@index([last_event_at])
+  @@index([archived_at])
+  @@index([arc_id])
   @@map("oracle_sessions")
 }
 
@@ -2484,4 +2517,96 @@ model OracleCommand {
 
   @@index([machine_id, status])
   @@map("oracle_commands")
+}
+
+// ============================================
+// CLARITY PHASE 1 — ARCS, IDEAS, SESSION MEANING
+// Data plane for: sessions declaring meaning (type/goal/ask), DO-work parked on Mike
+// becoming real quests tied back to their session, related tasks grouping into
+// lightweight "arcs" (micro-projects), and ideas having a first-class home. Schema +
+// API only in this phase — producers (hooks/heartbeat) and the Oracle UI are Phase 2/3.
+// ============================================
+
+enum OracleSessionType {
+  client_work
+  internal
+  systems
+  exploratory
+}
+
+enum AskQueue {
+  decide
+  answer
+  review
+  do
+}
+
+enum AskSeverity {
+  client_blocking
+  launch_blocking
+  internal
+}
+
+enum IdeaSource {
+  session
+  oracle
+  email
+}
+
+enum IdeaStatus {
+  open
+  kept
+  promoted
+  discarded
+}
+
+// A lightweight micro-project grouping for related tasks. Attaching an arc to a
+// client/project is "attach arc to a commission" — tasks never re-parent through it.
+// Status (empty/open/complete) is NEVER stored; derive it via lib/arc-status.ts.
+model Arc {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @db.VarChar(300)
+  description String? @db.Text
+
+  client_id  String?  @db.Uuid
+  client     Client?  @relation(fields: [client_id], references: [id])
+  project_id String?  @db.Uuid
+  project    Project? @relation(fields: [project_id], references: [id])
+
+  // The session that first spawned this arc (provenance only).
+  origin_session_external_id String? @db.VarChar(255)
+
+  // Explicit ritual close ("close thread"). null = not explicitly closed.
+  closed_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tasks    Task[]
+  sessions OracleSession[]
+
+  @@index([project_id])
+  @@index([client_id])
+  @@map("arcs")
+}
+
+// A first-class home for ideas surfaced during a session, by Oracle, or via email —
+// distinct from tasks (no assignee/priority/estimate) until explicitly promoted.
+model Idea {
+  id         String     @id @default(uuid()) @db.Uuid
+  text       String     @db.Text
+  source     IdeaSource
+  source_ref String?    @db.VarChar(500) // session external_id / email id / etc.
+  status     IdeaStatus @default(open)
+
+  promoted_task_id String? @db.Uuid
+  promoted_task    Task?   @relation(fields: [promoted_task_id], references: [id])
+
+  created_by_id String? @db.Uuid
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([status])
+  @@map("ideas")
 }

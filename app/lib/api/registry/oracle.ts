@@ -28,7 +28,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
           { name: 'machine', type: 'object', required: true, description: '{ name (unique machine key), hostname? }' },
           { name: 'sent_at', type: 'ISO-8601', required: false, description: 'Heartbeat/call timestamp; updates machine.last_heartbeat_at' },
           { name: 'events', type: 'object', required: false, description: 'Array of hook events (max 500): { kind, external_id, source, ts, title?, cwd?, model?, tokens_total?, payload? }' },
-          { name: 'snapshot', type: 'object', required: false, description: '{ sessions: [{ external_id, source, title?, cwd?, model?, remote_url?, status?, needs_attention?, attention_reason?, started_at?, last_event_at?, ended_at?, tokens_total?, meta?, agents?: [...] }] }. remote_url (Phase 3, nullable) must be an https://claude.ai/code/... URL or null to clear — anything else 400s the whole request.' },
+          { name: 'snapshot', type: 'object', required: false, description: '{ sessions: [{ external_id, source, title?, cwd?, model?, remote_url?, status?, needs_attention?, attention_reason?, started_at?, last_event_at?, ended_at?, tokens_total?, meta?, agents?: [...], session_type?, goal?, waiting_on?, ask_queue?, ask_severity?, arc_id?, archived_at? }] }. remote_url (Phase 3, nullable) must be an https://claude.ai/code/... URL or null to clear — anything else 400s the whole request. Clarity Phase 1 session-meaning fields (session_type/goal/waiting_on/ask_queue/ask_severity/arc_id/archived_at) are each independently nullable-optional: absent leaves the stored value untouched, explicit null clears it. goal/waiting_on are capped at 2000 chars.' },
         ],
         responseExample: {
           success: true,
@@ -56,7 +56,13 @@ export const oracleEndpoints: ApiEndpoint[] = [
           '`stale` is derived at read time (last_heartbeat_at gap > 3 minutes), never a stored status. ' +
           '1.5a: admin-only (was pm-or-admin) — the oracle service bot is unaffected since ingest ' +
           'authorizes via isOracleBot, not role. `commands` (1.5b) is each machine\'s last 24h of ' +
-          'spawn_session commands, newest first, capped at 20.',
+          'spawn_session commands, newest first, capped at 20. Clarity Phase 1: sessions with ' +
+          'archived_at set are excluded from the default response entirely; ?include_archived=true ' +
+          'restores them. Each session also now carries session_type/goal/waiting_on/ask_queue/' +
+          'ask_severity/arc_id/archived_at.',
+        queryParams: [
+          { name: 'include_archived', type: 'boolean', required: false, description: 'When true, restores sessions with archived_at set (excluded by default)' },
+        ],
         responseExample: {
           machines: [
             {
@@ -81,6 +87,13 @@ export const oracleEndpoints: ApiEndpoint[] = [
                   last_event_at: 'ISO-8601|null',
                   ended_at: 'ISO-8601|null',
                   tokens_total: 'number',
+                  session_type: 'client_work|internal|systems|exploratory|null',
+                  goal: 'string|null',
+                  waiting_on: 'string|null',
+                  ask_queue: 'decide|answer|review|do|null',
+                  ask_severity: 'client_blocking|launch_blocking|internal|null',
+                  arc_id: 'uuid|null',
+                  archived_at: 'ISO-8601|null',
                   agents: [
                     {
                       id: 'uuid',

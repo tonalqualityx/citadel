@@ -114,6 +114,10 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   system_alert: 'System Alert',
   article_needs_review: 'Article Needs Review',
   troubador_run_created: 'New Content Run',
+  troubador_run_review_ready: 'Content Run Ready for Review',
+  article_client_approved: 'Client Approved Article',
+  article_client_changes_requested: 'Client Requested Article Changes',
+  interview_answers_submitted: 'Interview Answers Submitted',
 };
 
 // Notification type descriptions
@@ -130,4 +134,8 @@ export const NOTIFICATION_TYPE_DESCRIPTIONS: Record<NotificationType, string> = 
   system_alert: 'Important system notifications',
   article_needs_review: 'When a Troubador article is ready for your review',
   troubador_run_created: 'When a scheduled content run is created for you',
+  troubador_run_review_ready: 'When a content run has an article ready for your review',
+  article_client_approved: 'When a client approves an article via the client portal',
+  article_client_changes_requested: 'When a client requests changes to an article',
+  interview_answers_submitted: 'When a client submits interview answers',
 };

@@ -1017,8 +1017,52 @@ export function formatTaskResponse(task: any) {
     invoiced: task.invoiced ?? false,
     invoiced_at: task.invoiced_at,
     invoiced_by_id: task.invoiced_by_id,
+    // Clarity Phase 1: session-originated quests + arc grouping
+    arc_id: task.arc_id ?? null,
+    arc: task.arc ? { id: task.arc.id, name: task.arc.name } : null,
+    source_session_external_id: task.source_session_external_id ?? null,
+    origin_url: task.origin_url ?? null,
     is_deleted: task.is_deleted,
     created_at: task.created_at,
     updated_at: task.updated_at,
+  };
+}
+
+// Clarity Phase 1 — Arc (lightweight micro-project grouping). Status is derived, never
+// stored: callers pass the result of lib/arc-status.ts's getArcStatus() as `status`, and
+// task_count comes from either an included tasks[] array or a Prisma _count.
+export function formatArcResponse(arc: any, status: 'empty' | 'open' | 'complete') {
+  return {
+    id: arc.id,
+    name: arc.name,
+    description: arc.description ?? null,
+    status,
+    client_id: arc.client_id ?? null,
+    client: arc.client ? { id: arc.client.id, name: arc.client.name } : null,
+    project_id: arc.project_id ?? null,
+    project: arc.project ? { id: arc.project.id, name: arc.project.name, status: arc.project.status } : null,
+    origin_session_external_id: arc.origin_session_external_id ?? null,
+    closed_at: arc.closed_at ?? null,
+    task_count: arc.tasks?.length ?? arc._count?.tasks ?? 0,
+    created_at: arc.created_at,
+    updated_at: arc.updated_at,
+  };
+}
+
+// Clarity Phase 1 — Idea (first-class home for ideas from a session/oracle/email).
+export function formatIdeaResponse(idea: any) {
+  return {
+    id: idea.id,
+    text: idea.text,
+    source: idea.source,
+    source_ref: idea.source_ref ?? null,
+    status: idea.status,
+    promoted_task_id: idea.promoted_task_id ?? null,
+    promoted_task: idea.promoted_task
+      ? { id: idea.promoted_task.id, title: idea.promoted_task.title }
+      : null,
+    created_by_id: idea.created_by_id ?? null,
+    created_at: idea.created_at,
+    updated_at: idea.updated_at,
   };
 }
