@@ -4,6 +4,8 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { TaskStatus } from '@prisma/client';
 import { sumCommittedMinutesWithBuffer } from '@/components/domain/oracle/today/time-shape-logic';
+import { getZonedDateString, getDayBoundsForTimezone } from '@/lib/utils/time';
+import { resolveUserTimezone } from '@/lib/services/user-timezone';
 
 // Clarity Phase 3b — the time-shape's calendar source. Reads the real-duration
 // `CalendarEvent` table (synced via POST /api/oracle/calendar-sync from Mike's Google
@@ -12,8 +14,12 @@ import { sumCommittedMinutesWithBuffer } from '@/components/domain/oracle/today/
 // Timed events become time-shape blocks with their REAL start/end; all-day events are
 // excluded from the track entirely and returned separately in `allDay`.
 //
-// Dates are UTC calendar days throughout (see app/api/today/route.ts's identical note) —
-// keeps this endpoint's "today" consistent with /api/today's, regardless of server TZ.
+// Clarity Phase 3d (bug fix): day windows are now the REQUESTING USER's own timezone
+// day (see lib/services/user-timezone.ts), not a plain UTC calendar day — that was the
+// bug Mike reported (an 8pm-ET event is already "tomorrow" in UTC, so it either landed
+// in the wrong day's bucket or rendered at the wrong hour on the time-shape). The
+// resolved zone is returned as `timezone` so the client formats every rendered time
+// (and the time-shape's own display window) in that exact zone, never a guess.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WEEK_STRIP_DAYS = 5; // matches the approved mockup: today + 4 forward days
 
@@ -25,10 +31,8 @@ function toUTCDateString(date: Date): string {
 // client-side (see components/domain/oracle/today/time-shape-logic.ts) so the single
 // capacity encoding used across the day track, the week strip, and (later) planning views
 // lives in exactly one place.
-function dayBounds(dateStr: string): { start: Date; end: Date } {
-  const start = new Date(`${dateStr}T00:00:00.000Z`);
-  const end = new Date(`${dateStr}T23:59:59.999Z`);
-  return { start, end };
+function dayBounds(dateStr: string, timezone: string): { start: Date; end: Date } {
+  return getDayBoundsForTimezone(dateStr, timezone);
 }
 
 function addDays(dateStr: string, days: number): string {
@@ -44,11 +48,12 @@ export async function GET(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['admin']);
 
+    const timezone = await resolveUserTimezone(auth.userId);
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date');
-    const dateStr = dateParam && DATE_RE.test(dateParam) ? dateParam : toUTCDateString(new Date());
+    const dateStr = dateParam && DATE_RE.test(dateParam) ? dateParam : getZonedDateString(new Date(), timezone);
 
-    const { start, end } = dayBounds(dateStr);
+    const { start, end } = dayBounds(dateStr, timezone);
 
     const dayEvents = await prisma.calendarEvent.findMany({
       where: { starts_at: { gte: start, lte: end } },
@@ -76,8 +81,8 @@ export async function GET(request: NextRequest) {
 
     // Week strip: today (or the requested date) through WEEK_STRIP_DAYS-1 days forward.
     const weekDateStrs = Array.from({ length: WEEK_STRIP_DAYS }, (_, i) => addDays(dateStr, i));
-    const weekStart = dayBounds(weekDateStrs[0]).start;
-    const weekEnd = dayBounds(weekDateStrs[weekDateStrs.length - 1]).end;
+    const weekStart = dayBounds(weekDateStrs[0], timezone).start;
+    const weekEnd = dayBounds(weekDateStrs[weekDateStrs.length - 1], timezone).end;
 
     const [weekEvents, weekDueTasks] = await Promise.all([
       prisma.calendarEvent.findMany({
@@ -95,7 +100,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     const week = weekDateStrs.map((d) => {
-      const { start: dStart, end: dEnd } = dayBounds(d);
+      const { start: dStart, end: dEnd } = dayBounds(d, timezone);
       // Committed load: real duration + the 15-minute recovery buffer trailing each
       // meeting (truncated by a back-to-back next meeting) — see
       // sumCommittedMinutesWithBuffer's own doc comment. All-day events never enter this
@@ -118,7 +123,7 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ date: dateStr, meetings, allDay, week });
+    return NextResponse.json({ date: dateStr, timezone, meetings, allDay, week });
   } catch (error) {
     return handleApiError(error);
   }

@@ -10,6 +10,7 @@ import {
   computeMeetingBufferEnd,
   layoutBufferBlocks,
   sumCommittedMinutesWithBuffer,
+  getTimeShapeWindow,
 } from '../time-shape-logic';
 
 const WINDOW = {
@@ -333,5 +334,49 @@ describe('sumCommittedMinutesWithBuffer', () => {
       { id: 'm1', title: 'One hour', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T14:00:00.000Z' },
     ];
     expect(sumCommittedMinutesWithBuffer(meetings, 30)).toBe(60 + 30);
+  });
+});
+
+// Clarity Phase 3d bug fix: the actual reported bug was "a 9:00am ET meeting shows at
+// 13:00 on the time-shape" — the window used to be built with a literal UTC `Z` suffix
+// even though the hour-axis labels ("8a"..."6p") are wall-clock hours. These tests
+// reproduce the exact scenario and prove a real ET meeting now lands at the hour its
+// label says, using the window this function produces end-to-end with computeBlockLayout.
+describe('getTimeShapeWindow', () => {
+  it('anchors the window to LOCAL wall-clock hours in America/New_York (EDT, UTC-4), not UTC', () => {
+    const window = getTimeShapeWindow('2026-07-21', 'America/New_York', 8, 18);
+    // 8am EDT on 2026-07-21 = 2026-07-21T12:00:00.000Z; 6pm EDT = 2026-07-21T22:00:00.000Z.
+    expect(window.start.toISOString()).toBe('2026-07-21T12:00:00.000Z');
+    expect(window.end.toISOString()).toBe('2026-07-21T22:00:00.000Z');
+  });
+
+  it('the reported bug, reproduced and fixed: a 9:00am ET meeting lands at the 9a mark, not 13:00', () => {
+    const window = getTimeShapeWindow('2026-07-21', 'America/New_York', 8, 18);
+    // 9:00am EDT on 2026-07-21 = 2026-07-21T13:00:00.000Z (this is exactly the raw UTC
+    // instant the bug report describes seeing on the axis — the fixed window must
+    // place it at the 9a mark, one hour into an 8a-6p, 10-hour-wide track: 10%).
+    const nineAmEDT = '2026-07-21T13:00:00.000Z';
+    const layout = computeBlockLayout({ start: nineAmEDT, end: '2026-07-21T14:00:00.000Z' }, window);
+    expect(layout).not.toBeNull();
+    expect(layout!.leftPercent).toBeCloseTo(10, 5); // 1 hour into a 10-hour window = 10%
+
+    // Prove the OLD (buggy) literal-UTC window would have misplaced it: under
+    // `{start:'...T08:00:00Z', end:'...T18:00:00Z'}` (the bug), the same 13:00Z instant
+    // lands at 50% (5 of 10 hours in) — i.e. rendering as if it were 1pm, not 9am.
+    const buggyWindow = { start: new Date('2026-07-21T08:00:00.000Z'), end: new Date('2026-07-21T18:00:00.000Z') };
+    const buggyLayout = computeBlockLayout({ start: nineAmEDT, end: '2026-07-21T14:00:00.000Z' }, buggyWindow);
+    expect(buggyLayout!.leftPercent).toBeCloseTo(50, 5);
+  });
+
+  it('mirror case: a different zone (Asia/Karachi, UTC+5, no DST) anchors correctly too', () => {
+    const window = getTimeShapeWindow('2026-07-21', 'Asia/Karachi', 8, 18);
+    // 8am PKT on 2026-07-21 = 2026-07-21T03:00:00.000Z; 6pm PKT = 2026-07-21T13:00:00.000Z.
+    expect(window.start.toISOString()).toBe('2026-07-21T03:00:00.000Z');
+    expect(window.end.toISOString()).toBe('2026-07-21T13:00:00.000Z');
+  });
+
+  it('spans exactly (endHour - startHour) hours', () => {
+    const window = getTimeShapeWindow('2026-07-21', 'America/New_York', 8, 18);
+    expect(window.end.getTime() - window.start.getTime()).toBe(10 * 60 * 60 * 1000);
   });
 });

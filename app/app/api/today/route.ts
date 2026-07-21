@@ -5,6 +5,8 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTodayPickResponse } from '@/lib/api/formatters';
 import { getArcStatus } from '@/lib/arc-status';
+import { getZonedDateString } from '@/lib/utils/time';
+import { resolveUserTimezone } from '@/lib/services/user-timezone';
 import {
   validateTodayPickRef,
   isAtWipCap,
@@ -15,11 +17,17 @@ import {
 // Clarity Phase 3 — The Oracle Face: Today picks (the day's chosen commitments). Admin-only,
 // same as the rest of the Oracle surface (fleet, waiting-on-me).
 //
-// Dates are treated as plain UTC calendar days throughout this route (never local-time
-// getters) — the DB column is `@db.Date` (no timezone of its own), and anchoring to UTC
-// keeps "today" stable regardless of the server process's local TZ. A per-user timezone
-// (lib/utils/time.ts already has getStartOfDayForTimezone for that) is a Phase 4 refinement,
-// not wired here — documented deviation/simplification.
+// Clarity Phase 3d (bug fix): "today" now resolves to the REQUESTING USER's own
+// timezone (lib/services/user-timezone.ts's resolution chain: UserPreference.timezone
+// -> CITADEL_DISPLAY_TZ env -> America/New_York), not a plain UTC calendar day — that
+// was the Phase 3 deviation that made the Seeing Stone drift from wall-clock reality
+// (an evening ET pick could land on "tomorrow" once past 8pm ET / midnight UTC). The DB
+// column itself is still `@db.Date` (no timezone of its own — confirmed empirically
+// that Prisma truncates whatever Date object it's given to ITS UTC calendar day), so
+// the fix is entirely in what date STRING this route resolves as the default/write
+// value — always the zoned string, never toUTCDateString(new Date()). The resolved
+// zone is also returned in the response so the client formats every rendered time in
+// the SAME zone this route used to decide "today", never a guess.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function toUTCDateString(date: Date): string {
@@ -43,8 +51,8 @@ const PICK_INCLUDE = {
   charter: { select: { id: true, name: true } },
 } as const;
 
-function parseDateParam(dateStr: string | null): Date {
-  const raw = dateStr && DATE_RE.test(dateStr) ? dateStr : toUTCDateString(new Date());
+function parseDateParam(dateStr: string | null, timezone: string): Date {
+  const raw = dateStr && DATE_RE.test(dateStr) ? dateStr : getZonedDateString(new Date(), timezone);
   return new Date(`${raw}T00:00:00.000Z`);
 }
 
@@ -111,8 +119,9 @@ export async function GET(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['admin']);
 
+    const timezone = await resolveUserTimezone(auth.userId);
     const { searchParams } = new URL(request.url);
-    const targetDate = parseDateParam(searchParams.get('date'));
+    const targetDate = parseDateParam(searchParams.get('date'), timezone);
 
     const picks = await fetchPicksForDate(targetDate);
     const shaped = await shapePicks(picks);
@@ -121,6 +130,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       date: toUTCDateString(targetDate),
+      timezone,
       picks: shaped,
       meta: {
         total: shaped.length,
@@ -153,7 +163,8 @@ export async function POST(request: NextRequest) {
       throw new ApiError(validation.error ?? 'Invalid pick', 400);
     }
 
-    const targetDate = parseDateParam(data.date ?? null);
+    const timezone = await resolveUserTimezone(auth.userId);
+    const targetDate = parseDateParam(data.date ?? null, timezone);
 
     const uncompletedCount = await prisma.todayPick.count({
       where: { date: targetDate, completed_at: null },

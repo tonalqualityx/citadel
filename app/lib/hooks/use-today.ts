@@ -37,6 +37,11 @@ export interface TodayPick {
 
 export interface TodayResponse {
   date: string;
+  // Clarity Phase 3d — the resolved requester's IANA timezone (UserPreference.timezone
+  // -> CITADEL_DISPLAY_TZ env -> America/New_York). `date` above is already computed
+  // in this zone; render every rendered time client-side in THIS zone too, never the
+  // browser's implicit locale zone.
+  timezone: string;
   picks: TodayPick[];
   meta: { total: number; uncompleted: number; cap: number };
 }
@@ -57,6 +62,9 @@ export interface TodayCalendarWeekDay {
 
 export interface TodayCalendarResponse {
   date: string;
+  // Clarity Phase 3d — see TodayResponse.timezone above; same resolution, same
+  // requirement (format every rendered time/hour-axis in this zone).
+  timezone: string;
   meetings: TodayCalendarMeeting[];
   // Clarity Phase 3b — all-day calendar events (e.g. "Home"/"Office" working-location
   // markers) for the day, excluded from the time-shape track entirely (no time cost, no

@@ -9,7 +9,7 @@ import {
   computeNowLinePercent,
   dayCapacityFillPercent,
   isDayOverCapacity,
-  type TimeWindow,
+  getTimeShapeWindow,
 } from './time-shape-logic';
 
 const DAY_TRACK_START_HOUR = 8;
@@ -20,7 +20,11 @@ const HOUR_MARKS = Array.from(
 );
 
 interface TimeShapeProps {
-  date: string; // YYYY-MM-DD, UTC calendar day
+  date: string; // YYYY-MM-DD, in `timezone` below (Clarity Phase 3d — was UTC)
+  // Clarity Phase 3d — the resolved requester's IANA timezone (from the /api/today/
+  // calendar response). The display window is anchored to LOCAL wall-clock hours in
+  // this zone, never UTC — the fix for "a 9am ET meeting shows at 13:00".
+  timezone: string;
   meetings: TodayCalendarMeeting[];
   focusLabels: string[]; // uncompleted picks, in sort order
   nowMs: number;
@@ -45,11 +49,16 @@ function hourLabel(hour: number): string {
 // chip is punitive and demotivating) — it was never meant to cover a fixed, already-on-the-
 // calendar commitment. Mike explicitly chose red/orange for meetings; this is a deliberate,
 // separate design decision, not a regression of the aging/capacity rule above.
-export function TimeShape({ date, meetings, focusLabels, nowMs, meetingMinutes, dueTasksCount }: TimeShapeProps) {
-  const window: TimeWindow = {
-    start: new Date(`${date}T${String(DAY_TRACK_START_HOUR).padStart(2, '0')}:00:00.000Z`),
-    end: new Date(`${date}T${String(DAY_TRACK_END_HOUR).padStart(2, '0')}:00:00.000Z`),
-  };
+export function TimeShape({
+  date,
+  timezone,
+  meetings,
+  focusLabels,
+  nowMs,
+  meetingMinutes,
+  dueTasksCount,
+}: TimeShapeProps) {
+  const window = getTimeShapeWindow(date, timezone, DAY_TRACK_START_HOUR, DAY_TRACK_END_HOUR);
 
   const meetingBlocks = layoutMeetingBlocks(meetings, window);
   // Clarity Phase 3b — every meeting costs a 15-minute recovery buffer after it ends

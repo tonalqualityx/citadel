@@ -71,6 +71,23 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
   // itself must mount).
   await expect(page.getByTestId('time-shape')).toBeVisible();
 
+  // --- Clarity Phase 3d bug fix, verified in the real browser: Mike reported the
+  // Seeing Stone rendering his calendar in UTC instead of America/New_York — a 9am ET
+  // meeting showed at 13:00 on the time-shape. The seeded fixture meeting
+  // (scripts/seed-clarity-phase3-fixtures.ts: 14:00-15:30 UTC = 10:00-11:30am EDT) is
+  // this exact scenario. The track spans 8a-6p (a 10-hour window); at the correct ET
+  // hour this block starts (10am - 8am) / 10h = 20% in. Under the old bug (a literal
+  // UTC 8:00-18:00 window), the same 14:00Z instant would land at (14-8)/10 = 60% —
+  // i.e. rendering as if it were 2pm, three hours later than its real 10am ET start. ---
+  const meetingBlock = page
+    .locator('[data-testid="time-shape-block"][data-kind="meeting"]')
+    .filter({ hasText: 'E2E: fixture meeting (red block)' });
+  await expect(meetingBlock).toBeVisible();
+  const meetingLeftPercent = await meetingBlock.evaluate((el) => parseFloat((el as HTMLElement).style.left));
+  expect(meetingLeftPercent).toBeGreaterThanOrEqual(15);
+  expect(meetingLeftPercent).toBeLessThanOrEqual(25); // ~20% — the correct ET position
+  expect(meetingLeftPercent).toBeLessThan(50); // decisively NOT ~60% (the UTC-bug position)
+
   // --- Clarity Phase 3c: In Motion/Docked moved off Seeing Stone entirely, onto their
   // own /oracle/fleet screen (see the dedicated Fleet test below). This page now shows
   // only a quiet count-link to Fleet, never the sections themselves (fixtures from
