@@ -165,36 +165,31 @@ describe('POST /api/session-tasks — validation', () => {
 });
 
 describe('POST /api/session-tasks — assignee defaults', () => {
-  it('400s when no assignee_id is given and no default is configured', async () => {
-    const originalEnv = process.env.CLARITY_DEFAULT_ASSIGNEE_ID;
-    delete process.env.CLARITY_DEFAULT_ASSIGNEE_ID;
-
-    const res = await POST(postRequest({ session_external_id: 'sess-1', title: 'Quest' }));
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toMatch(/assignee_id/);
-
-    if (originalEnv !== undefined) process.env.CLARITY_DEFAULT_ASSIGNEE_ID = originalEnv;
-  });
-
-  it('falls back to CLARITY_DEFAULT_ASSIGNEE_ID when assignee_id is absent', async () => {
-    const originalEnv = process.env.CLARITY_DEFAULT_ASSIGNEE_ID;
-    process.env.CLARITY_DEFAULT_ASSIGNEE_ID = ASSIGNEE_ID;
+  it('falls back to the primary operator (looked up by email) when assignee_id is absent', async () => {
+    mockUserFindUnique.mockResolvedValue({ id: ASSIGNEE_ID, is_active: true });
     mockTaskCreate.mockResolvedValue(mockTask());
 
     const res = await POST(postRequest({ session_external_id: 'sess-1', title: 'Quest' }));
 
     expect(res.status).toBe(201);
+    expect(mockUserFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ email: 'mike@becomeindelible.com', is_active: true }),
+      })
+    );
     expect(mockTaskCreate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ assignee_id: ASSIGNEE_ID }) })
     );
+  });
 
-    if (originalEnv !== undefined) {
-      process.env.CLARITY_DEFAULT_ASSIGNEE_ID = originalEnv;
-    } else {
-      delete process.env.CLARITY_DEFAULT_ASSIGNEE_ID;
-    }
+  it('500s when no assignee_id is given and the default operator user is missing/inactive', async () => {
+    mockUserFindUnique.mockResolvedValue(null);
+
+    const res = await POST(postRequest({ session_external_id: 'sess-1', title: 'Quest' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.error).toMatch(/Default assignee/);
   });
 
   it('404s when the resolved assignee does not exist / is inactive', async () => {

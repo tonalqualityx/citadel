@@ -153,9 +153,9 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'UPDATEs that task\'s description/updated_at and returns it with deduped: true — never ' +
           'creates a duplicate. Arc resolution: arc_id used as-is (404 if missing); arc_name ' +
           'reuses an exact-name arc whose derived status is not complete, else creates a new one ' +
-          'attributed to the calling session. Assignee: explicit assignee_id wins, else falls back ' +
-          'to CLARITY_DEFAULT_ASSIGNEE_ID (read at request time — no "primary admin" lookup exists ' +
-          'elsewhere in this repo to reuse); 400 if neither resolves. Priority derives from severity: ' +
+          'attributed to the calling session. Assignee: explicit assignee_id wins, else defaults to ' +
+          'the primary operator resolved by email at request time (500 if that user is missing or ' +
+          'inactive). Priority derives from severity: ' +
           'client_blocking→1, launch_blocking→2, internal→3, absent→3. needs_review is always false.',
         bodySchema: [
           { name: 'session_external_id', type: 'string', required: true, description: 'Max 255 chars' },
@@ -165,7 +165,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'arc_name', type: 'string', required: false, description: 'XOR with arc_id' },
           { name: 'client_id', type: 'uuid', required: false, description: '' },
           { name: 'severity', type: 'string', required: false, description: 'client_blocking|launch_blocking|internal' },
-          { name: 'assignee_id', type: 'uuid', required: false, description: 'Defaults from CLARITY_DEFAULT_ASSIGNEE_ID if absent' },
+          { name: 'assignee_id', type: 'uuid', required: false, description: 'Defaults to the primary operator (email lookup) if absent' },
           { name: 'due_date', type: 'ISO-8601', required: false, description: '' },
         ],
         responseExample: {

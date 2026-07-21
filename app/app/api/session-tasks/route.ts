@@ -11,6 +11,9 @@ import { AskSeverity } from '@prisma/client';
 // The quest-from-session endpoint: a Claude Code session (or the future heartbeat) parks
 // a real Task on Mike, tied back to the session that spawned it. Bearer auth via
 // requireAuth() (same util the rest of the API uses — cookie session OR API key).
+// Session-born quests default to the primary operator when no assignee is given.
+const DEFAULT_ASSIGNEE_EMAIL = 'mike@becomeindelible.com';
+
 const sessionTaskSchema = z
   .object({
     session_external_id: z.string().min(1).max(255),
@@ -94,22 +97,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Assignee resolution: explicit assignee_id wins; otherwise fall back to the
-    // env-configured default (no "primary admin" lookup pattern exists elsewhere in this
-    // repo to reuse, per spec — read at request time so a config change takes effect
-    // without a redeploy).
-    const assigneeId = data.assignee_id ?? process.env.CLARITY_DEFAULT_ASSIGNEE_ID ?? null;
-    if (!assigneeId) {
-      throw new ApiError(
-        'assignee_id is required (no CLARITY_DEFAULT_ASSIGNEE_ID configured)',
-        400
-      );
-    }
-    const assignee = await prisma.user.findUnique({
-      where: { id: assigneeId, is_active: true },
-    });
-    if (!assignee) {
-      throw new ApiError('Assignee not found', 404);
+    // Assignee resolution: explicit assignee_id wins; otherwise default to the primary
+    // operator, resolved by email at request time.
+    let assignee;
+    if (data.assignee_id) {
+      assignee = await prisma.user.findUnique({
+        where: { id: data.assignee_id, is_active: true },
+      });
+      if (!assignee) {
+        throw new ApiError('Assignee not found', 404);
+      }
+    } else {
+      assignee = await prisma.user.findUnique({
+        where: { email: DEFAULT_ASSIGNEE_EMAIL, is_active: true },
+      });
+      if (!assignee) {
+        throw new ApiError(
+          `Default assignee ${DEFAULT_ASSIGNEE_EMAIL} not found or inactive`,
+          500
+        );
+      }
     }
 
     // Arc resolution: arc_id used as-is (404 if missing); arc_name reuses an exact-name,
@@ -151,7 +158,7 @@ export async function POST(request: NextRequest) {
         status: 'not_started',
         priority,
         client_id: data.client_id ?? null,
-        assignee_id: assigneeId,
+        assignee_id: assignee.id,
         due_date: data.due_date ? new Date(data.due_date) : null,
         source: 'session',
         source_session_external_id: data.session_external_id,
