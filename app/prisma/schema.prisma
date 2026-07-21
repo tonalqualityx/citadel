@@ -1085,6 +1085,7 @@ model Task {
   comments             Comment[]
   charter_renewal_logs CharterRenewalLog[]
   promoted_from_ideas  Idea[]
+  today_picks          TodayPick[]
 
   @@index([project_id])
   @@index([client_id])
@@ -1929,6 +1930,7 @@ model Charter {
   renewal_logs        CharterRenewalLog[]
   tasks               Task[]
   meeting_charters    MeetingCharter[]
+  today_picks         TodayPick[]
 
   @@index([client_id])
   @@index([accord_id])
@@ -2582,12 +2584,61 @@ model Arc {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  tasks    Task[]
-  sessions OracleSession[]
+  tasks       Task[]
+  sessions    OracleSession[]
+  today_picks TodayPick[]
 
   @@index([project_id])
   @@index([client_id])
   @@map("arcs")
+}
+
+// Clarity Phase 3 — The Oracle Face. A "Today" commitment: exactly one of arc_id/task_id/
+// session_external_id/charter_id (or a free-form label for a `note` pick) identifies what
+// this pick actually is — validated in the API, never in the DB, since a XOR-of-4 constraint
+// isn't expressible declaratively here. Cap (max 5 uncompleted picks/day, WIP ceiling) is also
+// an API-level rule, not a DB constraint.
+enum TodayPickType {
+  arc
+  task
+  session
+  lead
+  note
+}
+
+model TodayPick {
+  id        String        @id @default(uuid()) @db.Uuid
+  date      DateTime      @db.Date // the day this pick belongs to
+  item_type TodayPickType
+
+  arc_id String? @db.Uuid
+  arc    Arc?    @relation(fields: [arc_id], references: [id])
+
+  task_id String? @db.Uuid
+  task    Task?   @relation(fields: [task_id], references: [id])
+
+  // Fleet session ref (not a DB relation — OracleSession is keyed by external_id, and a
+  // pick may reference a session even after it goes stale/ends).
+  session_external_id String? @db.VarChar(255)
+
+  // Sales lead (Task already uses the Charter relation for "sales pipeline" linkage — see
+  // Task.charter_id above — so this mirrors that established convention).
+  charter_id String?  @db.Uuid
+  charter    Charter? @relation(fields: [charter_id], references: [id])
+
+  label String? @db.VarChar(300) // free-form commitment text (type=note, or an override)
+
+  sort         Int       @default(0)
+  completed_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([date])
+  @@index([arc_id])
+  @@index([task_id])
+  @@index([charter_id])
+  @@map("today_picks")
 }
 
 // A first-class home for ideas surfaced during a session, by Oracle, or via email —
