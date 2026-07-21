@@ -22,6 +22,10 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   system_alert: 'System Alert',
   article_needs_review: 'Article Needs Review',
   troubador_run_created: 'New Content Run',
+  troubador_run_review_ready: 'Content Run Ready for Review',
+  article_client_approved: 'Client Approved Article',
+  article_client_changes_requested: 'Client Requested Article Changes',
+  interview_answers_submitted: 'Interview Answers Submitted',
 };
 
 // Notification type icons/emojis for email
@@ -38,6 +42,10 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   system_alert: '⚠️',
   article_needs_review: '✍️',
   troubador_run_created: '📝',
+  troubador_run_review_ready: '✍️',
+  article_client_approved: '✅',
+  article_client_changes_requested: '🔁',
+  interview_answers_submitted: '📨',
 };
 
 /**
