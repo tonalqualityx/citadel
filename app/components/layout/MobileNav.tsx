@@ -115,7 +115,7 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     emoji: '🔮',
     defaultOpen: true,
     items: [
-      { name: 'Fleet', href: '/oracle', emoji: '🔮' },
+      { name: 'Seeing Stone', href: '/oracle', emoji: '🔮' },
     ],
   };
 

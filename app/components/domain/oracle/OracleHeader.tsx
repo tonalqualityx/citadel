@@ -37,7 +37,7 @@ export function OracleHeader({ machines }: OracleHeaderProps) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-3" data-testid="oracle-header">
       <div>
-        <h1 className="text-lg font-bold text-text-main">The Oracle</h1>
+        <h1 className="text-lg font-bold text-text-main">Seeing Stone</h1>
         <div className="flex items-center gap-1.5 text-xs text-text-sub">
           <span>{formatToday()}</span>
           {crons.length === 0 ? (
