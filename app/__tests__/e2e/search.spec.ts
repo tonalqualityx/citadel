@@ -2,10 +2,13 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Global Search (Command Palette)', () => {
   test.beforeEach(async ({ page }) => {
-    // Login first
+    // Login first. Label-based selectors — components/ui/input.tsx only sets a
+    // predictable `id` when one is passed explicitly; the login page doesn't, so it
+    // falls back to React.useId() and a hardcoded input[id="email"] never matches
+    // (same fix as auth.spec.ts).
     await page.goto('/login');
-    await page.fill('input[id="email"]', 'admin@indelible.agency');
-    await page.fill('input[id="password"]', 'password123');
+    await page.getByLabel('Email').fill('admin@indelible.agency');
+    await page.getByLabel('Password').fill('password123');
     await page.click('button[type="submit"]');
     await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
   });
