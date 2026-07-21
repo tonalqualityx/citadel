@@ -2661,3 +2661,26 @@ model Idea {
   @@index([status])
   @@map("ideas")
 }
+
+// Clarity Phase 3b — real Google Calendar events for the Today time-shape track,
+// replacing Meeting (which stores only a single timestamp, no duration — see the
+// deviation note this model's introduction removes from app/api/today/calendar/route.ts).
+// Synced via POST /api/oracle/calendar-sync (upsert by event_id + prune-within-window on
+// cancellation); read by GET /api/today/calendar. Additive-only — Meeting is untouched.
+model CalendarEvent {
+  id       String   @id @default(uuid()) @db.Uuid
+  event_id String   @unique @db.VarChar(255) // Google Calendar event id
+  title    String   @db.VarChar(500)
+
+  starts_at DateTime
+  ends_at   DateTime
+  all_day   Boolean  @default(false)
+
+  source String @default("google") @db.VarChar(50)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([starts_at])
+  @@map("calendar_events")
+}
