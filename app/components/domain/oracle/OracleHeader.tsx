@@ -1,16 +1,20 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useCreateIdea } from '@/lib/hooks/use-ideas';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
-import { erroringCrons } from './oracle-logic';
+import { CronHealthLine } from './CronHealthLine';
 import { WeekStrip } from './today/WeekStrip';
 
 interface OracleHeaderProps {
   machines: OracleMachineDTO[];
+  /** Clarity Phase 3c — quiet, count-only link to the Fleet screen ("N in motion · M
+   *  docked"), where the In Motion/Docked machinery now lives. Optional so the header
+   *  still renders sanely if a caller ever omits it. */
+  fleetCounts?: { inMotion: number; docked: number };
 }
 
 function formatToday(): string {
@@ -20,12 +24,10 @@ function formatToday(): string {
 // Header: title, the machine-health one-liner (crons visible ONLY when erroring —
 // exception-based display, healthy crons render nothing), the idea quick-add ("idea: …"
 // straight to /api/ideas, source=oracle), and the week capacity strip.
-export function OracleHeader({ machines }: OracleHeaderProps) {
+export function OracleHeader({ machines, fleetCounts }: OracleHeaderProps) {
   const [ideaText, setIdeaText] = React.useState('');
   const createIdea = useCreateIdea();
   const { data: calendarData } = useTodayCalendar();
-
-  const crons = erroringCrons(machines);
 
   function submitIdea(e: React.FormEvent) {
     e.preventDefault();
@@ -40,19 +42,17 @@ export function OracleHeader({ machines }: OracleHeaderProps) {
         <h1 className="text-lg font-bold text-text-main">Seeing Stone</h1>
         <div className="flex items-center gap-1.5 text-xs text-text-sub">
           <span>{formatToday()}</span>
-          {crons.length === 0 ? (
-            <span>· all crons healthy</span>
-          ) : (
-            <span
-              className="flex items-center gap-1 font-semibold text-[var(--warning)]"
-              data-testid="cron-health-warning"
-            >
-              <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-              {crons.length} cron{crons.length === 1 ? '' : 's'} need attention:{' '}
-              {crons.map((c) => c.title).join(', ')}
-            </span>
-          )}
+          <CronHealthLine machines={machines} />
         </div>
+        {fleetCounts && (
+          <Link
+            href="/oracle/fleet"
+            data-testid="fleet-link"
+            className="mt-0.5 inline-block text-xs text-text-sub underline-offset-2 hover:text-text-main hover:underline"
+          >
+            {fleetCounts.inMotion} in motion · {fleetCounts.docked} docked
+          </Link>
+        )}
       </div>
 
       <form onSubmit={submitIdea} className="flex min-w-[230px] max-w-[380px] flex-1 gap-1.5">

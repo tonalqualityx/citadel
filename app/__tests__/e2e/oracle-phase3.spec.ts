@@ -44,29 +44,28 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
   // itself must mount).
   await expect(page.getByTestId('time-shape')).toBeVisible();
 
-  // --- corrected section-to-bucket mapping (fixtures from scripts/seed-oracle-fixtures.ts,
-  // already resident in this dev DB alongside our Phase 3 fixtures) ---
-  // In Motion = WORKING bucket ONLY: a running session belongs here.
-  const inMotion = page.getByTestId('in-motion-section');
-  await expect(inMotion).toBeVisible();
-  await expect(inMotion.getByText('oracle-phase1-visualizer (Task A)')).toBeVisible();
+  // --- Clarity Phase 3c: In Motion/Docked moved off Seeing Stone entirely, onto their
+  // own /oracle/fleet screen (see the dedicated Fleet test below). This page now shows
+  // only a quiet count-link to Fleet, never the sections themselves (fixtures from
+  // scripts/seed-oracle-fixtures.ts, already resident in this dev DB alongside our
+  // Phase 3 fixtures). ---
+  await expect(page.getByTestId('in-motion-section')).toHaveCount(0);
+  await expect(page.getByTestId('docked-section')).toHaveCount(0);
 
-  // Docked = IDLE bucket: an idle (parked) session belongs here, NOT in In Motion.
-  const docked = page.getByTestId('docked-section');
-  await expect(docked).toBeVisible();
-  await expect(docked.getByText('msr-carwash-acquisition')).toBeVisible();
-  await expect(inMotion.getByText('msr-carwash-acquisition')).toHaveCount(0);
+  const fleetLink = page.getByTestId('fleet-link');
+  await expect(fleetLink).toBeVisible();
+  await expect(fleetLink).toHaveAttribute('href', '/oracle/fleet');
+  await expect(fleetLink).toHaveText(/\d+ in motion · \d+ docked/);
 
-  // Legacy hook-flagged needs_attention session (no manifest ask) belongs in Needs
-  // Reshi's Answer column as a compact "session · legacy" card with Respond — NOT in
-  // Docked, and NOT under its own warning-bordered SessionCard.
+  // Legacy hook-flagged needs_attention session (no manifest ask) STAYS in Needs
+  // Reshi's Answer column as a compact "session · legacy" card with Respond — the
+  // split doesn't move it: it's waiting on Mike, not machinery.
   const needsReshi = page.getByTestId('needs-reshi-section');
   await expect(needsReshi).toBeVisible();
   const answerColumn = page.getByTestId('needs-reshi-column-answer');
   const legacyCard = answerColumn.locator('[data-testid="ask-card"][data-source-label="session · legacy"]');
   await expect(legacyCard.filter({ hasText: 'grantibly-wright-b1' })).toBeVisible();
   await expect(legacyCard.getByRole('link', { name: /respond/i })).toBeVisible();
-  await expect(docked.getByText('grantibly-wright-b1')).toHaveCount(0);
 
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/desktop-1280-oracle.png`, fullPage: true });
@@ -148,4 +147,32 @@ test('Oracle Phase 3 — mobile layout, no horizontal overflow', async ({ page }
 
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/mobile-390-oracle.png`, fullPage: true });
+});
+
+test('Oracle Phase 3c — Fleet screen: In Motion/Docked render at /oracle/fleet, screenshot', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await login(page);
+
+  await page.goto('/oracle/fleet');
+  await expect(page.getByTestId('fleet-header')).toBeVisible();
+  await page.waitForLoadState('networkidle');
+
+  // Same corrected section-to-bucket mapping as before the split, just relocated:
+  // In Motion = WORKING bucket ONLY: a running session belongs here.
+  const inMotion = page.getByTestId('in-motion-section');
+  await expect(inMotion).toBeVisible();
+  await expect(inMotion.getByText('oracle-phase1-visualizer (Task A)')).toBeVisible();
+
+  // Docked = IDLE bucket: an idle (parked) session belongs here, NOT in In Motion.
+  const docked = page.getByTestId('docked-section');
+  await expect(docked).toBeVisible();
+  await expect(docked.getByText('msr-carwash-acquisition')).toBeVisible();
+  await expect(inMotion.getByText('msr-carwash-acquisition')).toHaveCount(0);
+
+  // Fleet is machinery-only — Today and Needs Reshi don't render here.
+  await expect(page.getByTestId('today-section')).toHaveCount(0);
+  await expect(page.getByTestId('needs-reshi-section')).toHaveCount(0);
+
+  await assertNoHorizontalOverflow(page);
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/desktop-1280-fleet.png`, fullPage: true });
 });
