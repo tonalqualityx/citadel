@@ -116,6 +116,8 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     defaultOpen: true,
     items: [
       { name: 'Seeing Stone', href: '/oracle', emoji: '🔮' },
+      // Clarity Phase 3c: fleet machinery (In Motion/Docked) split to its own screen.
+      { name: 'Fleet', href: '/oracle/fleet', emoji: '🛰️' },
     ],
   };
 
@@ -213,6 +215,17 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
   );
 }
 
+// Clarity Phase 3c: Oracle's items now nest (/oracle, /oracle/fleet) — plain
+// startsWith matching would mark BOTH active while on the more specific route.
+// Longest-matching-href-wins keeps every other (non-nested) section's behavior
+// identical while resolving the collision here.
+function isActiveNavItem(item: NavItem, section: NavSection, pathname: string): boolean {
+  if (!pathname.startsWith(item.href)) return false;
+  return !section.items.some(
+    (other) => other.href !== item.href && other.href.length > item.href.length && pathname.startsWith(other.href)
+  );
+}
+
 function NavSectionBlock({ section, pathname }: { section: NavSection; pathname: string }) {
   // Keep the section open by default if the active route lives in it, so
   // navigating here never hides the current page behind a collapsed header.
@@ -242,7 +255,7 @@ function NavSectionBlock({ section, pathname }: { section: NavSection; pathname:
               href={item.href}
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-                pathname.startsWith(item.href)
+                isActiveNavItem(item, section, pathname)
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'text-text-main hover:bg-surface'
               )}

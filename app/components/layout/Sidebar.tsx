@@ -23,6 +23,17 @@ interface NavSection {
   defaultOpen?: boolean;
 }
 
+// Clarity Phase 3c: Oracle's items now nest (/oracle, /oracle/fleet) — plain
+// startsWith matching would mark BOTH active while on the more specific route.
+// Longest-matching-href-wins keeps every other (non-nested) section's behavior
+// identical while resolving the collision here.
+function isActiveNavItem(item: NavItem, section: NavSection, pathname: string): boolean {
+  if (!pathname.startsWith(item.href)) return false;
+  return !section.items.some(
+    (other) => other.href !== item.href && other.href.length > item.href.length && pathname.startsWith(other.href)
+  );
+}
+
 function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
   return (
     <Link
@@ -71,7 +82,7 @@ function CollapsibleSection({
               href={item.href}
               className={cn(
                 'flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-colors',
-                pathname.startsWith(item.href)
+                isActiveNavItem(item, section, pathname)
                   ? 'text-primary font-medium'
                   : 'text-text-sub hover:text-text-main hover:bg-black/5'
               )}
@@ -155,6 +166,8 @@ export function Sidebar() {
     defaultOpen: true,
     items: [
       { name: 'Seeing Stone', href: '/oracle', emoji: '🔮' },
+      // Clarity Phase 3c: fleet machinery (In Motion/Docked) split to its own screen.
+      { name: 'Fleet', href: '/oracle/fleet', emoji: '🛰️' },
     ],
   };
 
