@@ -27,6 +27,7 @@ import {
   isIdleSession,
   anySessionRunning,
   anySessionNeedsAttention,
+  erroringCrons,
 } from '../oracle-logic';
 
 function makeAgent(overrides: Partial<OracleAgentDTO> = {}): OracleAgentDTO {
@@ -702,5 +703,58 @@ describe('distinctSessionCwds', () => {
 
   it('returns an empty array when no session has a cwd', () => {
     expect(distinctSessionCwds([makeMachine([makeSession({ cwd: null })])])).toEqual([]);
+  });
+});
+
+describe('erroringCrons (Phase 3 — header health line: healthy crons render nothing)', () => {
+  it('returns nothing when there are no cron sessions at all', () => {
+    const machines = [makeMachine([makeSession({ source: 'claude_code' })])];
+    expect(erroringCrons(machines)).toEqual([]);
+  });
+
+  it('returns nothing for a healthy (non-needs_attention) cron', () => {
+    const machines = [
+      makeMachine([makeSession({ source: 'openclaw_cron', needs_attention: false })]),
+    ];
+    expect(erroringCrons(machines)).toEqual([]);
+  });
+
+  it('surfaces a cron flagged needs_attention, with its machine and title', () => {
+    const machines = [
+      makeMachine(
+        [
+          makeSession({
+            source: 'openclaw_cron',
+            title: 'daily-check-in',
+            needs_attention: true,
+            attention_reason: 'API timeout',
+          }),
+        ],
+        { name: 'reshi-workstation' }
+      ),
+    ];
+    expect(erroringCrons(machines)).toEqual([
+      { machineName: 'reshi-workstation', title: 'daily-check-in', attentionReason: 'API timeout' },
+    ]);
+  });
+
+  it('ignores a non-cron session flagged needs_attention (that belongs in the waiting strip, not the health line)', () => {
+    const machines = [
+      makeMachine([makeSession({ source: 'claude_code', needs_attention: true })]),
+    ];
+    expect(erroringCrons(machines)).toEqual([]);
+  });
+
+  it('collects erroring crons across multiple machines', () => {
+    const machines = [
+      makeMachine([makeSession({ source: 'openclaw_cron', needs_attention: true, title: 'cron-a' })], {
+        name: 'machine-a',
+      }),
+      makeMachine(
+        [makeSession({ source: 'openclaw_cron', needs_attention: true, title: 'cron-b' })],
+        { id: 'machine-2', name: 'machine-b' }
+      ),
+    ];
+    expect(erroringCrons(machines).map((c) => c.title)).toEqual(['cron-a', 'cron-b']);
   });
 });

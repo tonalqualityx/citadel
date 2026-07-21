@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getArcStatus } from '../arc-status';
+import { getArcStatus, getArcProgressPercent } from '../arc-status';
 
 describe('getArcStatus', () => {
   it('is empty when the arc has no tasks, regardless of closed_at', () => {
@@ -68,5 +68,35 @@ describe('getArcStatus', () => {
         tasks: [{ status: 'done' }, { status: 'review' }],
       })
     ).toBe('open');
+  });
+});
+
+describe('getArcProgressPercent', () => {
+  it('is 0 for an empty arc (never a 0%-guilt display, just a plain 0)', () => {
+    expect(getArcProgressPercent([])).toBe(0);
+  });
+
+  it('is 0 when no tasks are resolved', () => {
+    expect(getArcProgressPercent([{ status: 'not_started' }, { status: 'in_progress' }])).toBe(0);
+  });
+
+  it('is 100 when every task is done', () => {
+    expect(getArcProgressPercent([{ status: 'done' }, { status: 'done' }])).toBe(100);
+  });
+
+  it('counts abandoned as resolved alongside done', () => {
+    expect(
+      getArcProgressPercent([{ status: 'done' }, { status: 'abandoned' }, { status: 'in_progress' }, { status: 'not_started' }])
+    ).toBe(50);
+  });
+
+  it('rounds to the nearest whole percent', () => {
+    expect(
+      getArcProgressPercent([{ status: 'done' }, { status: 'not_started' }, { status: 'not_started' }])
+    ).toBe(33);
+  });
+
+  it('does not count review as resolved', () => {
+    expect(getArcProgressPercent([{ status: 'done' }, { status: 'review' }])).toBe(50);
   });
 });

@@ -455,6 +455,36 @@ export function commandRemoteControlState(command: OracleCommandDTO): RemoteCont
   return rc === 'confirmed' ? 'confirmed' : 'unconfirmed';
 }
 
+// ============================================
+// Phase 3 — The Oracle Face: header machine-health line
+// ============================================
+// "Exception-based display" grammar: healthy crons render NOTHING — they only earn pixels
+// by misbehaving. A cron reads as erroring when it's flagged needs_attention (the same
+// signal that would otherwise put it in the waiting-on-Reshi strip); a plain running/idle/
+// ended cron is invisible here regardless of status.
+
+export interface ErroringCron {
+  machineName: string;
+  title: string;
+  attentionReason: string | null;
+}
+
+export function erroringCrons(machines: OracleMachineDTO[]): ErroringCron[] {
+  const out: ErroringCron[] = [];
+  for (const machine of machines) {
+    for (const session of machine.sessions) {
+      if (session.source === 'openclaw_cron' && session.needs_attention) {
+        out.push({
+          machineName: machine.name,
+          title: sessionDisplayTitle(session),
+          attentionReason: session.attention_reason ?? null,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /** Distinct, sorted cwd values across every session on the fleet — feeds the New
  *  Session modal's cwd <datalist> so a repeat spawn is a couple of keystrokes. */
 export function distinctSessionCwds(machines: OracleMachineDTO[]): string[] {
