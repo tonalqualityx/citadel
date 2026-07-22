@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { SHARED_AUTH_STATE_PATH } from './global-setup';
 
 // Mobile nav drawer. Original bug-fix coverage (fix/mobile-nav):
 //  1. drawer container wasn't a flex column, so <nav>'s overflow-y-auto never
@@ -19,10 +20,16 @@ import { test, expect } from '@playwright/test';
 // still exercised for real — but only after deliberately expanding every collapsible
 // section first, so overflow is guaranteed to exist rather than assumed.
 //
-// One test, one login — the auth endpoint is rate-limited (10 req/min,
-// lib/api/rate-limit.ts), same rationale as the Oracle e2e specs.
+// Clarity Phase 4c — this file used to perform its own real UI login inline (rationale:
+// the auth endpoint is rate-limited, 10 req/min, lib/api/rate-limit.ts). That per-file-
+// login pattern is what kept tipping the suite's shared login budget over as more Oracle
+// e2e files accumulated (see global-setup.ts's own header for the full story) — fixed at
+// the root with ONE shared admin login for the whole suite; this file now just points
+// storageState at that shared file instead of logging in itself.
 const SCREENSHOT_DIR =
   '/tmp/claude-1001/-home-mike/78a55c04-8341-4721-8759-84060daa0916/scratchpad/mobile-nav-fix';
+
+test.use({ storageState: SHARED_AUTH_STATE_PATH });
 
 // Hrefs are stable literals in Sidebar.tsx/MobileNav.tsx regardless of the
 // terminology-preference labels — asserting on these (not visible text) is robust to
@@ -59,12 +66,8 @@ test('mobile nav drawer — collapse/expand, all items reachable, scrolls, no ho
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 
-  // --- login (admin@indelible.agency / password123, per prisma/seed.ts) ---
-  await page.goto('/login');
-  await page.getByLabel('Email').fill('admin@indelible.agency');
-  await page.getByLabel('Password').fill('password123');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
+  // Already authenticated via the shared storageState (see test.use() above).
+  await page.goto('/dashboard');
 
   // --- open the mobile drawer ---
   await page.locator('header button.lg\\:hidden').click();

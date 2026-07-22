@@ -33,6 +33,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               origin_session_external_id: 'string|null',
               closed_at: 'ISO-8601|null',
               snoozed_until: 'ISO-8601|null',
+              estimate_override_minutes: 'number|null',
               task_count: 'number',
               created_at: 'ISO-8601',
               updated_at: 'ISO-8601',
@@ -60,8 +61,32 @@ export const clarityEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Arc detail with its tasks and derived status.',
+        summary:
+          'Arc detail with its tasks and derived status. Clarity Phase 4c adds the arc board ' +
+          'header enrichment: `sessions[]` (the arc\'s linked session(s), from ' +
+          'origin_session_external_id + any arc_id-linked OracleSession rows, merged/deduped) ' +
+          'and `estimated_minutes_total` (sum of the arc\'s OPEN tasks\' estimated_minutes; ' +
+          'each task in `tasks[]` also carries its own `estimated_minutes`).',
         auth: 'required',
+        responseExample: {
+          id: 'uuid',
+          name: 'string',
+          status: 'empty|open|complete',
+          estimate_override_minutes: 'number|null',
+          estimated_minutes_total: 'number',
+          sessions: [
+            {
+              id: 'uuid',
+              external_id: 'string',
+              title: 'string|null',
+              status: 'running|waiting|idle|ended|stale',
+              remote_url: 'string|null',
+              needs_attention: 'boolean',
+              last_event_at: 'ISO-8601|null',
+            },
+          ],
+          tasks: [{ id: 'uuid', title: 'string', status: 'string', estimated_minutes: 'number|null' }],
+        },
       },
       {
         method: 'PATCH',
@@ -74,6 +99,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'project_id', type: 'uuid', required: false, description: '' },
           { name: 'closed_at', type: 'ISO-8601', required: false, description: 'Set to close the thread; null to reopen; absent to leave untouched' },
           { name: 'snoozed_until', type: 'ISO-8601', required: false, description: 'Clarity Phase 5 — the Soothsayer\'s snooze action. Set to hide the arc from default surfaces (Today\'s no-day-assigned guarantee, Soothsayer\'s unplanned section) until the date passes; null un-snoozes; absent leaves untouched' },
+          { name: 'estimate_override_minutes', type: 'number', required: false, description: 'Clarity Phase 4c — arc board header time estimate override. Set to hand-pick a total that overrides the computed sum of open tasks\' estimated_minutes ("~2h (set by hand)"); null clears the override; absent leaves untouched' },
         ],
       },
     ],

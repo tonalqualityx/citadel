@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getArcStatus, getArcProgressPercent } from '../arc-status';
+import { getArcStatus, getArcProgressPercent, sumOpenEstimatedMinutes } from '../arc-status';
 
 describe('getArcStatus', () => {
   it('is empty when the arc has no tasks, regardless of closed_at', () => {
@@ -98,5 +98,49 @@ describe('getArcProgressPercent', () => {
 
   it('does not count review as resolved', () => {
     expect(getArcProgressPercent([{ status: 'done' }, { status: 'review' }])).toBe(50);
+  });
+});
+
+// Clarity Phase 4c — the arc board header's time estimate.
+describe('sumOpenEstimatedMinutes', () => {
+  it('is 0 for no tasks', () => {
+    expect(sumOpenEstimatedMinutes([])).toBe(0);
+  });
+
+  it('sums estimated_minutes across open (non-terminal) tasks', () => {
+    expect(
+      sumOpenEstimatedMinutes([
+        { status: 'not_started', estimated_minutes: 30 },
+        { status: 'in_progress', estimated_minutes: 45 },
+      ])
+    ).toBe(75);
+  });
+
+  it('excludes done and abandoned tasks from the sum', () => {
+    expect(
+      sumOpenEstimatedMinutes([
+        { status: 'not_started', estimated_minutes: 30 },
+        { status: 'done', estimated_minutes: 500 },
+        { status: 'abandoned', estimated_minutes: 500 },
+      ])
+    ).toBe(30);
+  });
+
+  it('treats a null estimate as 0, not NaN (estimation is optional per-task)', () => {
+    expect(
+      sumOpenEstimatedMinutes([
+        { status: 'not_started', estimated_minutes: null },
+        { status: 'in_progress', estimated_minutes: 15 },
+      ])
+    ).toBe(15);
+  });
+
+  it('includes review and blocked tasks (non-terminal) in the sum', () => {
+    expect(
+      sumOpenEstimatedMinutes([
+        { status: 'review', estimated_minutes: 20 },
+        { status: 'blocked', estimated_minutes: 10 },
+      ])
+    ).toBe(30);
   });
 });

@@ -10,7 +10,9 @@ import type { TaskStatus } from '@prisma/client';
 
 export type ArcStatus = 'empty' | 'open' | 'complete';
 
-const TERMINAL_TASK_STATUSES: TaskStatus[] = ['done', 'abandoned'];
+// Exported (Clarity Phase 4c) so sumOpenEstimatedMinutes below — and any other caller
+// needing the exact same "open" definition — never drifts from getArcStatus's own.
+export const TERMINAL_TASK_STATUSES: TaskStatus[] = ['done', 'abandoned'];
 
 export interface ArcStatusInput {
   closed_at: Date | null;
@@ -36,4 +38,18 @@ export function getArcProgressPercent(tasks: Array<{ status: TaskStatus | string
   const terminal = TERMINAL_TASK_STATUSES as string[];
   const resolved = tasks.filter((t) => terminal.includes(t.status)).length;
   return Math.round((resolved / tasks.length) * 100);
+}
+
+// Clarity Phase 4c — the arc board header's time estimate: the sum of the arc's OPEN
+// (not done/abandoned — same terminal definition as getArcStatus/getArcProgressPercent
+// above) tasks' estimated_minutes. A task with no estimate contributes 0, not NaN —
+// estimation is optional per-task (task-estimation.md), so an un-estimated open task
+// should never poison the whole arc's total.
+export function sumOpenEstimatedMinutes(
+  tasks: Array<{ status: TaskStatus | string; estimated_minutes: number | null }>
+): number {
+  const terminal = TERMINAL_TASK_STATUSES as string[];
+  return tasks
+    .filter((t) => !terminal.includes(t.status))
+    .reduce((sum, t) => sum + (t.estimated_minutes ?? 0), 0);
 }
