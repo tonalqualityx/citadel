@@ -317,6 +317,8 @@ enum NotificationType {
   article_client_approved
   article_client_changes_requested
   interview_answers_submitted
+  // Clarity Phase 4a — an is_urgent EmailAsk was inserted (crisis strip trigger).
+  oracle_urgent_email
 }
 
 enum NotificationPriority {
@@ -1091,6 +1093,7 @@ model Task {
   charter_renewal_logs CharterRenewalLog[]
   promoted_from_ideas  Idea[]
   today_picks          TodayPick[]
+  email_asks           EmailAsk[]
 
   @@index([project_id])
   @@index([client_id])
@@ -2688,4 +2691,50 @@ model CalendarEvent {
 
   @@index([starts_at])
   @@map("calendar_events")
+}
+
+enum EmailAskState {
+  open
+  handled
+  dismissed
+}
+
+// Clarity Phase 4a — email on the Seeing Stone. Synced via POST /api/oracle/email-sync
+// (upsert by message_id) from the staged, not-cron-wired classifier
+// (~/.claude/tools/oracle/clarity/email-classifier.py). is_urgent=true drives the crisis
+// strip (above Today, exception-only); open+non-urgent drives the collapsed intake
+// drawer (under Needs Reshi). gist is a one-liner summary and is NEVER populated for
+// personal correspondence — enforced at the classifier (personal mail is labeled
+// Bast/Personal only and never POSTed here at all, so this table never even sees a
+// personal message to begin with; the "never for personal" rule has no code path to
+// violate by construction).
+model EmailAsk {
+  id         String  @id @default(uuid()) @db.Uuid
+  message_id String  @unique @db.VarChar(255)
+  thread_id  String? @db.VarChar(255)
+  account    String  @db.VarChar(255) // which mailbox, e.g. mike@becomeindelible.com
+
+  from_name  String? @db.VarChar(255)
+  from_email String  @db.VarChar(255)
+  subject    String  @db.VarChar(500)
+  gist       String? @db.Text
+
+  queue     AskQueue?
+  severity  AskSeverity?
+  is_urgent Boolean       @default(false)
+  state     EmailAskState @default(open)
+
+  task_id String? @db.Uuid
+  task    Task?   @relation(fields: [task_id], references: [id])
+
+  deep_link   String   @db.VarChar(1000)
+  received_at DateTime
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([state])
+  @@index([is_urgent])
+  @@index([received_at])
+  @@map("email_asks")
 }
