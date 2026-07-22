@@ -11,8 +11,13 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { OracleToolbar } from '@/components/domain/oracle/OracleToolbar';
 import { InMotion } from '@/components/domain/oracle/InMotion';
 import { Docked } from '@/components/domain/oracle/Docked';
+import { WaitingStrip } from '@/components/domain/oracle/WaitingStrip';
 import { CronHealthLine } from '@/components/domain/oracle/CronHealthLine';
-import { filterMachines, groupNonWaitingSessions } from '@/components/domain/oracle/oracle-logic';
+import {
+  filterMachines,
+  groupNonWaitingSessions,
+  unlinkedLegacyWaitingSessions,
+} from '@/components/domain/oracle/oracle-logic';
 
 // Clarity Phase 3c — Fleet screen. Split off the Seeing Stone (/oracle), which is now
 // the attention surface only. This screen carries exactly the machinery half of the
@@ -72,10 +77,16 @@ export default function OracleFleetPage() {
   // Docked = the IDLE bucket — alive, not working, not waiting: parked threads waiting on
   // the world, not on Mike.
   const dockedSessions = groups.idle;
+  // Clarity Phase 5 — legacy hook-flagged needs_attention sessions with NO arc link move
+  // here entirely (removed from Needs Reshi on the Seeing Stone) via the existing,
+  // previously-unused WaitingStrip component. Linked ones render as a dot on their arc's
+  // Today/Soothsayer card instead — they never show up here.
+  const waitingSessions = unlinkedLegacyWaitingSessions(machines, now);
 
   const noMachineHasEverReported = data.machines.length === 0;
   const anyCommands = machines.some((m) => m.commands.length > 0);
-  const isEmpty = dockedSessions.length === 0 && inMotionSessions.length === 0 && !anyCommands;
+  const isEmpty =
+    dockedSessions.length === 0 && inMotionSessions.length === 0 && waitingSessions.length === 0 && !anyCommands;
 
   return (
     <div className="flex flex-col gap-4">
@@ -112,6 +123,7 @@ export default function OracleFleetPage() {
         />
       ) : (
         <>
+          <WaitingStrip sessions={waitingSessions} nowMs={now} collapsed={collapsed} />
           <InMotion
             sessions={inMotionSessions}
             agentCount={inMotionAgentCount}

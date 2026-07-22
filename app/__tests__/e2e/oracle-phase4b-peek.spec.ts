@@ -83,9 +83,15 @@ test('Clarity Phase 4b — Review card opens the quest peek on-page, Escape clos
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
 
+  // Clarity Phase 5 — Review is now grouped by client (fallback arc, then "Other"); this
+  // fixture task has neither, so it lands in the "Other" group, collapsed by default.
+  // Expand it before the item's own AskCard is reachable.
   const reviewColumn = page.getByTestId('needs-reshi-column-review');
   await expect(reviewColumn).toBeVisible({ timeout: 15000 });
-  const reviewCard = reviewColumn.locator('[data-testid="ask-card"]').filter({ hasText: REVIEW_TASK_TITLE });
+  const otherGroup = reviewColumn.locator('[data-testid="review-group-card"][data-group-key="other"]');
+  await expect(otherGroup).toBeVisible();
+  await otherGroup.getByRole('button').first().click();
+  const reviewCard = otherGroup.locator('[data-testid="ask-card"]').filter({ hasText: REVIEW_TASK_TITLE });
   await expect(reviewCard).toBeVisible();
 
   await reviewCard.getByRole('button', { name: /open review/i }).click();
@@ -123,7 +129,12 @@ test('Clarity Phase 4b — mobile: peek renders as a slide-over, no horizontal o
   await expect(reviewColumn).toBeVisible({ timeout: 15000 });
   // Mobile hard rule: queues collapse to counts, tap to expand.
   await reviewColumn.getByRole('button').first().click();
-  const reviewCard = reviewColumn.locator('[data-testid="ask-card"]').filter({ hasText: REVIEW_TASK_TITLE });
+  // Clarity Phase 5 — then the group itself (this fixture task has no client/arc, so it's
+  // in the "Other" group), collapsed by default at every breakpoint.
+  const otherGroup = reviewColumn.locator('[data-testid="review-group-card"][data-group-key="other"]');
+  await expect(otherGroup).toBeVisible();
+  await otherGroup.getByRole('button').first().click();
+  const reviewCard = otherGroup.locator('[data-testid="ask-card"]').filter({ hasText: REVIEW_TASK_TITLE });
   await expect(reviewCard).toBeVisible();
 
   await reviewCard.getByRole('button', { name: /open review/i }).click();

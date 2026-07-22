@@ -13,6 +13,9 @@ const updateArcSchema = z.object({
   project_id: z.string().uuid().optional().nullable(),
   // Setting closed_at is the "close thread" action; null reopens; absent leaves untouched.
   closed_at: z.string().datetime().optional().nullable(),
+  // Clarity Phase 5 — the Soothsayer's snooze action. Setting it hides the arc from
+  // default surfaces until the date passes; null un-snoozes; absent leaves untouched.
+  snoozed_until: z.string().datetime().optional().nullable(),
 });
 
 const ARC_DETAIL_INCLUDE = {
@@ -106,6 +109,9 @@ export async function PATCH(
         ...(data.project_id !== undefined && { project_id: data.project_id }),
         ...(data.closed_at !== undefined && {
           closed_at: data.closed_at ? new Date(data.closed_at) : null,
+        }),
+        ...(data.snoozed_until !== undefined && {
+          snoozed_until: data.snoozed_until ? new Date(data.snoozed_until) : null,
         }),
       },
       include: ARC_DETAIL_INCLUDE,

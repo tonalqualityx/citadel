@@ -32,6 +32,8 @@ export interface ArcDetail {
   project: { id: string; name: string; status: string } | null;
   origin_session_external_id: string | null;
   closed_at: string | null;
+  // Clarity Phase 5 — the Soothsayer's snooze action.
+  snoozed_until: string | null;
   task_count: number;
   created_at: string;
   updated_at: string;
@@ -49,6 +51,8 @@ export interface ArcSummary {
   project: { id: string; name: string; status: string } | null;
   origin_session_external_id: string | null;
   closed_at: string | null;
+  // Clarity Phase 5 — the Soothsayer's snooze action.
+  snoozed_until: string | null;
   task_count: number;
   created_at: string;
   updated_at: string;
@@ -92,6 +96,24 @@ export function useCloseArc() {
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to update arc');
+    },
+  });
+}
+
+// Clarity Phase 5 — the Soothsayer's snooze action. `snoozedUntil: null` un-snoozes.
+export function useSnoozeArc() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, snoozedUntil }: { id: string; snoozedUntil: string | null }) =>
+      apiClient.patch<ArcDetail>(`/arcs/${id}`, { snoozed_until: snoozedUntil }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: arcKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: arcKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['soothsayer'] });
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to update snooze');
     },
   });
 }

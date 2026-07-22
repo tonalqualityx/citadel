@@ -20,6 +20,9 @@ vi.mock('@/lib/db/prisma', () => ({
     project: {
       findUnique: vi.fn(),
     },
+    arc: {
+      findUnique: vi.fn(),
+    },
     user: {
       findUnique: vi.fn(),
     },
@@ -72,6 +75,7 @@ const mockTaskCreate = prisma.task.create as Mock;
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockTaskCount = prisma.task.count as Mock;
 const mockProjectFindUnique = prisma.project.findUnique as Mock;
+const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockUserFindUnique = prisma.user.findUnique as Mock;
 const mockFunctionFindUnique = prisma.function.findUnique as Mock;
 const mockSopFindUnique = prisma.sop.findUnique as Mock;
@@ -344,6 +348,84 @@ describe('POST /api/tasks', () => {
 
       expect(response.status).toBe(404);
       expect(body.error).toBe('Assignee not found');
+    });
+  });
+
+  // Clarity Phase 5 — the arc board's "+ Quest" quick-add: POST /api/tasks gains additive
+  // arc_id support (404-checked, mirroring PATCH /api/tasks/[id]'s Phase 4b precedent), plus
+  // a default-assignee-to-primary-operator fallback SCOPED to arc-linked creation only.
+  describe('Task creation with arc_id (Clarity Phase 5 — arc board quick-add)', () => {
+    const arcId = '550e8400-e29b-41d4-a716-446655440003';
+
+    beforeEach(() => {
+      mockArcFindUnique.mockResolvedValue({ id: arcId, name: 'Demo Arc' });
+    });
+
+    it('creates a task with arc_id', async () => {
+      const request = createPostRequest({ title: 'Quest on an arc', arc_id: arcId });
+      const response = await POST(request);
+
+      expect(response.status).toBe(201);
+      expect(mockArcFindUnique).toHaveBeenCalledWith({ where: { id: arcId } });
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ arc_id: arcId }) })
+      );
+    });
+
+    it('returns 404 when the arc does not exist', async () => {
+      mockArcFindUnique.mockResolvedValue(null);
+      const request = createPostRequest({ title: 'Quest on an arc', arc_id: arcId });
+      const response = await POST(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(body.error).toBe('Arc not found');
+    });
+
+    it('defaults assignee to the primary operator when arc_id is given and no assignee_id', async () => {
+      mockUserFindUnique.mockResolvedValue({ id: 'operator-1', name: 'Mike', is_active: true });
+
+      const request = createPostRequest({ title: 'Quest on an arc', arc_id: arcId });
+      await POST(request);
+
+      expect(mockUserFindUnique).toHaveBeenCalledWith({
+        where: { email: 'mike@becomeindelible.com', is_active: true },
+      });
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ assignee_id: 'operator-1' }) })
+      );
+    });
+
+    it('an explicit assignee_id wins over the arc default', async () => {
+      const explicitAssigneeId = '550e8400-e29b-41d4-a716-446655440004';
+      mockUserFindUnique.mockResolvedValue({ id: explicitAssigneeId, name: 'Explicit', is_active: true });
+
+      const request = createPostRequest({ title: 'Quest on an arc', arc_id: arcId, assignee_id: explicitAssigneeId });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ assignee_id: explicitAssigneeId }) })
+      );
+    });
+
+    it('creates unassigned (not a 500) when the default operator is missing/inactive', async () => {
+      mockUserFindUnique.mockResolvedValue(null);
+
+      const request = createPostRequest({ title: 'Quest on an arc', arc_id: arcId });
+      const response = await POST(request);
+
+      expect(response.status).toBe(201);
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ assignee_id: null }) })
+      );
+    });
+
+    it('a plain task with no arc_id never triggers the arc-default assignee lookup (no behavior change to the general path)', async () => {
+      const request = createPostRequest({ title: 'Plain task' });
+      await POST(request);
+
+      expect(mockArcFindUnique).not.toHaveBeenCalled();
+      expect(mockUserFindUnique).not.toHaveBeenCalled();
     });
   });
 

@@ -219,6 +219,35 @@ export function legacyNeedsAttentionSessions(
   return selectWaitingSessions(machines, nowMs).filter((s) => !s.waiting_on);
 }
 
+// ============================================
+// Clarity Phase 5 — Needs Reshi rework: legacy flag-only cards removed from the glass.
+// ============================================
+// A legacy needs-attention session (no manifest ask) now forks on whether it's linked to an
+// arc: linked ones become a quiet attention dot on the arc's own card (Today strip +
+// Soothsayer) instead of a card in Needs Reshi; unlinked ones move to the Fleet screen
+// (rendered via the existing, previously-unused WaitingStrip component — see
+// unlinkedLegacyWaitingSessions below).
+
+/** The set of arc ids carrying at least one legacy needs-attention session — the Today
+ *  pick card / Soothsayer arc card attention-dot lookup. Pure Set so callers do a plain
+ *  `.has(arcId)` with no re-derivation per card rendered. */
+export function legacyNeedsAttentionArcIds(machines: OracleMachineDTO[], nowMs: number): Set<string> {
+  const ids = new Set<string>();
+  for (const session of legacyNeedsAttentionSessions(machines, nowMs)) {
+    if (session.arc_id) ids.add(session.arc_id);
+  }
+  return ids;
+}
+
+/** Legacy needs-attention sessions with NO arc link — these move to the Fleet screen
+ *  entirely (WaitingStrip), the only place they render now. */
+export function unlinkedLegacyWaitingSessions(
+  machines: OracleMachineDTO[],
+  nowMs: number
+): OracleSessionWithMachine[] {
+  return legacyNeedsAttentionSessions(machines, nowMs).filter((s) => !s.arc_id);
+}
+
 export interface SessionGroups {
   working: OracleSessionWithMachine[];
   idle: OracleSessionWithMachine[];

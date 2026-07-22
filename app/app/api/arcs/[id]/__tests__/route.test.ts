@@ -188,4 +188,49 @@ describe('PATCH /api/arcs/[id]', () => {
     expect(res.status).toBe(404);
     expect(body.error).toBe('Project not found');
   });
+
+  // Clarity Phase 5 — the Soothsayer's snooze action.
+  describe('snoozed_until', () => {
+    it('sets snoozed_until', async () => {
+      const until = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      mockArcUpdate.mockResolvedValue(arc({ snoozed_until: new Date(until) }));
+
+      const res = await PATCH(patchRequest({ snoozed_until: until }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.snoozed_until).toBe(new Date(until).toISOString());
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ snoozed_until: expect.any(Date) }) })
+      );
+    });
+
+    it('setting snoozed_until to null un-snoozes', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ snoozed_until: new Date() }));
+      mockArcUpdate.mockResolvedValue(arc({ snoozed_until: null }));
+
+      const res = await PATCH(patchRequest({ snoozed_until: null }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.snoozed_until).toBeNull();
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ snoozed_until: null }) })
+      );
+    });
+
+    it('leaves snoozed_until untouched when absent from the body', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ name: 'Renamed' }));
+
+      await PATCH(patchRequest({ name: 'Renamed' }), { params });
+
+      const callArgs = mockArcUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect('snoozed_until' in callArgs.data).toBe(false);
+    });
+
+    it('rejects an invalid snoozed_until (not ISO-8601)', async () => {
+      const res = await PATCH(patchRequest({ snoozed_until: 'not-a-date' }), { params });
+      expect(res.status).toBe(400);
+    });
+  });
 });

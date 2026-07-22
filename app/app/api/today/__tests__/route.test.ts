@@ -103,7 +103,15 @@ describe('GET /api/today', () => {
     expect(body.date).toBe('2026-07-21');
     expect(body.timezone).toBe('America/New_York'); // resolveUserTimezone's fallback
     expect(body.picks).toHaveLength(1);
-    expect(body.picks[0].arc).toEqual({ id: 'arc-1', name: 'BRIC change round', status: 'open', task_count: 2 });
+    // Clarity Phase 5 — arc summaries now also carry snoozed_until (null here; the
+    // fixture arc has no snoozed_until override).
+    expect(body.picks[0].arc).toEqual({
+      id: 'arc-1',
+      name: 'BRIC change round',
+      status: 'open',
+      task_count: 2,
+      snoozed_until: null,
+    });
     expect(body.picks[0].primary_action).toEqual({ kind: 'arc' });
     expect(body.meta.total).toBe(1);
     expect(body.meta.uncompleted).toBe(1);
@@ -322,5 +330,44 @@ describe('POST /api/today', () => {
 
     const res = await POST(createPostRequest({ item_type: 'note', label: 'Fifth' }));
     expect(res.status).toBe(201);
+  });
+
+  // Clarity Phase 5 — verified (per the spec's own instruction) that a future date was
+  // ALREADY accepted here with no special-casing needed; this is a regression test proving
+  // it, not a fix. This is the Soothsayer's data source: the ritual writes picks onto future
+  // days, no new planning model exists or is wanted.
+  it('accepts a future date with no special-casing — this is the Soothsayer\'s data source', async () => {
+    mockCount.mockResolvedValue(0);
+    mockCreate.mockResolvedValue(
+      pick({ id: 'pick-future', date: new Date('2026-08-15T00:00:00.000Z'), item_type: 'note', arc_id: null, arc: null, label: 'Future plan' })
+    );
+
+    const res = await POST(createPostRequest({ item_type: 'note', label: 'Future plan', date: '2026-08-15' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    // POST's response uses formatTodayPickResponse (the raw pick.date, not the GET route's
+    // truncated string) — this is the mocked create's own `date` value.
+    expect(body.date).toBe('2026-08-15T00:00:00.000Z');
+    // The WIP cap is scoped to THAT future date, not "today" — per-day, not today-relative.
+    expect(mockCount).toHaveBeenCalledWith({
+      where: { date: new Date('2026-08-15T00:00:00.000Z'), completed_at: null },
+    });
+  });
+
+  it('the WIP cap still applies (409) on a future date, exactly as it does today', async () => {
+    mockCount.mockResolvedValue(5);
+
+    const res = await POST(createPostRequest({ item_type: 'note', label: 'One too many', date: '2026-08-15' }));
+    expect(res.status).toBe(409);
+  });
+
+  it('GET also accepts a future date with no special-casing', async () => {
+    mockFindMany.mockResolvedValue([]);
+    const res = await GET(createGetRequest({ date: '2026-08-15' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.date).toBe('2026-08-15');
   });
 });

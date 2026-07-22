@@ -23,11 +23,18 @@ function formatPickedAt(iso: string, timezone: string): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone });
 }
 
+interface TodaySectionProps {
+  // Clarity Phase 5 — legacy needs-attention sessions (no manifest ask) linked to an arc
+  // render a quiet dot on that arc's Today pick card instead of a card in Needs Reshi.
+  // Optional so this section still renders sanely before fleet data has arrived.
+  legacyAttentionArcIds?: Set<string>;
+}
+
 // Today: the time-shape track (meetings + chosen focus picks + now-line) followed by the
 // day's picks — list or board lens, same underlying data ("cheap lens" per spec). Header
 // line carries the WIP count (warning tint past 3, per the evidence-bound cap) and a quiet,
 // competence-framed "done today" counter — never a streak, never a broken-chain display.
-export function TodaySection() {
+export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) {
   const { t } = useTerminology();
   const nowMs = useNow(30_000);
   const { data: todayData, isLoading: picksLoading } = useTodayPicks();
@@ -121,11 +128,15 @@ export function TodaySection() {
           ) : lens === 'list' ? (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="today-list">
               {picks.map((pick) => (
-                <TodayPickCard key={pick.id} pick={pick} />
+                <TodayPickCard
+                  key={pick.id}
+                  pick={pick}
+                  hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
+                />
               ))}
             </div>
           ) : (
-            <TodayBoard picks={picks} />
+            <TodayBoard picks={picks} legacyAttentionArcIds={legacyAttentionArcIds} />
           )}
 
           <DueSoonRow />

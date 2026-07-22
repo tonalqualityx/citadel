@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { ArrowLeft, Plus } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -17,11 +18,12 @@ import {
 } from '@dnd-kit/core';
 import { cn } from '@/lib/utils/cn';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useQueryClient } from '@tanstack/react-query';
 import { useArc, arcKeys, type ArcTask } from '@/lib/hooks/use-arcs';
-import { useUpdateTaskStatus } from '@/lib/hooks/use-tasks';
+import { useUpdateTaskStatus, useCreateTask } from '@/lib/hooks/use-tasks';
 import { getArcStatus, getArcProgressPercent } from '@/lib/arc-status';
 import { capColumnCards, isWithinColumnLimit } from '@/lib/kanban-caps';
 
@@ -132,6 +134,15 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      <Link
+        href="/oracle"
+        className="flex w-fit items-center gap-1.5 text-sm text-text-sub hover:text-text-main"
+        data-testid="arc-board-back-link"
+      >
+        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        Seeing Stone
+      </Link>
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-bold text-text-main">{arc.name}</h1>
@@ -140,7 +151,10 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
             {arc.client && ` · ${arc.client.name}`}
           </p>
         </div>
-        <ProgressBar percent={percent} />
+        <div className="flex items-center gap-2">
+          <ProgressBar percent={percent} />
+          <QuickAddQuest arcId={arcId} />
+        </div>
       </div>
 
       <DndContext
@@ -207,6 +221,77 @@ function ArcTaskCard({ task, isOverlay }: { task: ArcTask; isOverlay?: boolean }
         {task.assignee && <span className="text-xs text-text-sub">{task.assignee.name.split(' ')[0]}</span>}
       </div>
     </DraggableCard>
+  );
+}
+
+// Clarity Phase 5 (coordinator addition) — the arc board's "+ Quest" quick-add: a compact
+// toggle button opening a minimal inline form (title required, optional due date);
+// assignee defaults to the primary operator server-side (see POST /api/tasks's arc_id
+// handling). The new quest appears in the To do (not_started) column with no page reload —
+// useCreateTask's onSuccess invalidates this same arc's detail query.
+function QuickAddQuest({ arcId }: { arcId: string }) {
+  const { t } = useTerminology();
+  const [open, setOpen] = React.useState(false);
+  const [title, setTitle] = React.useState('');
+  const [dueDate, setDueDate] = React.useState('');
+  const createTask = useCreateTask();
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    createTask.mutate(
+      {
+        title: trimmed,
+        arc_id: arcId,
+        due_date: dueDate ? new Date(`${dueDate}T00:00:00.000Z`).toISOString() : null,
+      },
+      {
+        onSuccess: () => {
+          setTitle('');
+          setDueDate('');
+          setOpen(false);
+        },
+      }
+    );
+  }
+
+  if (!open) {
+    return (
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)} data-testid="arc-board-add-quest-toggle">
+        <Plus className="h-3.5 w-3.5" aria-hidden="true" />+ {t('task')}
+      </Button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border-warm bg-surface p-1.5"
+      data-testid="arc-board-add-quest-form"
+    >
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder={`New ${t('task').toLowerCase()} title…`}
+        className="min-w-[10rem] flex-1 rounded border border-border-warm bg-surface px-2 py-1 text-sm text-text-main placeholder:text-text-sub"
+        data-testid="arc-board-add-quest-title"
+      />
+      <input
+        type="date"
+        value={dueDate}
+        onChange={(e) => setDueDate(e.target.value)}
+        className="rounded border border-border-warm bg-surface px-2 py-1 text-xs text-text-main"
+        data-testid="arc-board-add-quest-due-date"
+      />
+      <Button type="submit" variant="primary" size="sm" disabled={createTask.isPending || !title.trim()}>
+        Save
+      </Button>
+      <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+    </form>
   );
 }
 

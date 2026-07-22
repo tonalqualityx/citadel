@@ -52,4 +52,20 @@ describe('AskCard', () => {
     expect(link).toHaveAttribute('href', 'https://claude.ai/code/session_x');
     expect(mockOpenTaskPeek).not.toHaveBeenCalled();
   });
+
+  // Clarity Phase 5 — the merged "Waiting on you" queue's type chip.
+  it('renders a "decision" chip when queueType is decision', () => {
+    render(<AskCard data={reviewCard({ queueType: 'decision' })} />);
+    expect(screen.getByTestId('ask-card-queue-type')).toHaveTextContent('decision');
+  });
+
+  it('renders a "reply" chip when queueType is reply', () => {
+    render(<AskCard data={reviewCard({ queueType: 'reply' })} />);
+    expect(screen.getByTestId('ask-card-queue-type')).toHaveTextContent('reply');
+  });
+
+  it('renders no chip when queueType is absent (e.g. a grouped Review item)', () => {
+    render(<AskCard data={reviewCard()} />);
+    expect(screen.queryByTestId('ask-card-queue-type')).not.toBeInTheDocument();
+  });
 });

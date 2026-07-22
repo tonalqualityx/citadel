@@ -168,6 +168,8 @@ export function Sidebar() {
       { name: 'Seeing Stone', href: '/oracle', emoji: '🔮' },
       // Clarity Phase 3c: fleet machinery (In Motion/Docked) split to its own screen.
       { name: 'Fleet', href: '/oracle/fleet', emoji: '🛰️' },
+      // Clarity Phase 5: the week-plan visualization.
+      { name: 'Soothsayer', href: '/oracle/soothsayer', emoji: '🌙' },
     ],
   };
 

@@ -29,6 +29,8 @@ import {
   anySessionNeedsAttention,
   erroringCrons,
   legacyNeedsAttentionSessions,
+  legacyNeedsAttentionArcIds,
+  unlinkedLegacyWaitingSessions,
 } from '../oracle-logic';
 
 function makeAgent(overrides: Partial<OracleAgentDTO> = {}): OracleAgentDTO {
@@ -400,6 +402,64 @@ describe('legacyNeedsAttentionSessions (Phase 3 correction — Answer-column leg
     const manifest = makeSession({ id: 'manifest-2', needs_attention: true, waiting_on: 'Decide X' });
     const machines = [makeMachine([legacy, manifest])];
     expect(legacyNeedsAttentionSessions(machines, now).map((s) => s.id)).toEqual(['legacy-2']);
+  });
+});
+
+// Clarity Phase 5 — legacy flag-only cards removed from Needs Reshi: linked ones become an
+// arc attention dot, unlinked ones move to the Fleet screen.
+describe('legacyNeedsAttentionArcIds', () => {
+  const now = Date.parse('2026-07-09T21:00:00.000Z');
+
+  it('includes the arc_id of a legacy needs-attention session linked to an arc', () => {
+    const session = makeSession({ id: 'legacy-linked', status: 'waiting', waiting_on: null, arc_id: 'arc-1' });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionArcIds(machines, now)).toEqual(new Set(['arc-1']));
+  });
+
+  it('excludes an unlinked legacy session (no arc_id)', () => {
+    const session = makeSession({ id: 'legacy-unlinked', status: 'waiting', waiting_on: null, arc_id: null });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionArcIds(machines, now)).toEqual(new Set());
+  });
+
+  it('excludes a session with a manifest ask even if arc-linked (not "legacy")', () => {
+    const session = makeSession({
+      id: 'manifest-linked',
+      status: 'waiting',
+      waiting_on: 'Decide X',
+      arc_id: 'arc-2',
+    });
+    const machines = [makeMachine([session])];
+    expect(legacyNeedsAttentionArcIds(machines, now)).toEqual(new Set());
+  });
+
+  it('dedupes when two legacy sessions share the same arc', () => {
+    const s1 = makeSession({ id: 'legacy-a', status: 'waiting', waiting_on: null, arc_id: 'arc-shared' });
+    const s2 = makeSession({ id: 'legacy-b', status: 'waiting', waiting_on: null, arc_id: 'arc-shared' });
+    const machines = [makeMachine([s1, s2])];
+    expect(legacyNeedsAttentionArcIds(machines, now)).toEqual(new Set(['arc-shared']));
+  });
+});
+
+describe('unlinkedLegacyWaitingSessions', () => {
+  const now = Date.parse('2026-07-09T21:00:00.000Z');
+
+  it('includes a legacy needs-attention session with no arc_id', () => {
+    const session = makeSession({ id: 'legacy-unlinked', status: 'waiting', waiting_on: null, arc_id: null });
+    const machines = [makeMachine([session])];
+    expect(unlinkedLegacyWaitingSessions(machines, now).map((s) => s.id)).toEqual(['legacy-unlinked']);
+  });
+
+  it('excludes a legacy needs-attention session that IS linked to an arc', () => {
+    const session = makeSession({ id: 'legacy-linked', status: 'waiting', waiting_on: null, arc_id: 'arc-1' });
+    const machines = [makeMachine([session])];
+    expect(unlinkedLegacyWaitingSessions(machines, now)).toHaveLength(0);
+  });
+
+  it('excludes a session with a manifest ask regardless of arc link', () => {
+    const session = makeSession({ id: 'manifest-1', status: 'waiting', waiting_on: 'Decide X', arc_id: null });
+    const machines = [makeMachine([session])];
+    expect(unlinkedLegacyWaitingSessions(machines, now)).toHaveLength(0);
   });
 });
 

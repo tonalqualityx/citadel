@@ -1043,6 +1043,8 @@ export function formatArcResponse(arc: any, status: 'empty' | 'open' | 'complete
     project: arc.project ? { id: arc.project.id, name: arc.project.name, status: arc.project.status } : null,
     origin_session_external_id: arc.origin_session_external_id ?? null,
     closed_at: arc.closed_at ?? null,
+    // Clarity Phase 5 — the Soothsayer's snooze action.
+    snoozed_until: arc.snoozed_until ?? null,
     task_count: arc.tasks?.length ?? arc._count?.tasks ?? 0,
     created_at: arc.created_at,
     updated_at: arc.updated_at,
@@ -1100,7 +1102,17 @@ export function formatEmailAskResponse(ask: any) {
 export function formatTodayPickResponse(
   pick: any,
   extras: {
-    arcSummary?: { id: string; name: string; status: string; task_count: number } | null;
+    // Clarity Phase 5 — progress_percent is optional: /api/today's own shaping doesn't pass
+    // it (unchanged behavior), the new /api/oracle/soothsayer route does (Soothsayer's day
+    // columns render "arc name + progress" per the spec).
+    arcSummary?: {
+      id: string;
+      name: string;
+      status: string;
+      task_count: number;
+      progress_percent?: number;
+      snoozed_until?: Date | string | null;
+    } | null;
     sessionSummary?: {
       external_id: string;
       title: string | null;
