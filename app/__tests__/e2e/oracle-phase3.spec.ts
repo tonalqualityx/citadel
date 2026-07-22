@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect } from '@playwright/test';
+import { test, expect, chromium } from '@playwright/test';
 
 // Clarity Phase 3 — The Oracle Face. Fixtures come from
 // scripts/seed-clarity-phase3-fixtures.ts (one demo arc with a task in every board column
@@ -11,6 +12,7 @@ import { test, expect } from '@playwright/test';
 // screen (Clarity Phase 3c).
 const SCREENSHOT_DIR = '/home/mike/.openclaw/workspace/citadel-clarity-wt/app/test-results/clarity-phase3';
 const APP_ROOT = path.resolve(__dirname, '..', '..');
+const AUTH_STATE_PATH = `${SCREENSHOT_DIR}/.auth-state.json`;
 
 // Serial, not fullyParallel: with the default project config each test() below could
 // otherwise land on a different worker and run concurrently, which would fire
@@ -18,8 +20,20 @@ const APP_ROOT = path.resolve(__dirname, '..', '..');
 // reseed racing mid-flight against the arc-board drag test (which reads/mutates those
 // same rows) is exactly the kind of intermittent flake this file shouldn't reintroduce.
 test.describe.configure({ mode: 'serial' });
+// Clarity Phase 4b deviation: this file used to call login(page) fresh at the top of each
+// of its 3 tests (3 real POST /login calls). Growing the full suite's total spec-file
+// count (adding oracle-phase4b-peek.spec.ts's own beforeAll login) pushed the shared,
+// IP-bucketed authRateLimit (10 req/min, across ALL e2e spec files running concurrently —
+// this file's own comment already flagged that risk) from "occasionally flaky" to
+// "reliably 401s this file's 3rd test" in two consecutive full-suite runs. Fixed the same
+// way oracle-phase4a-email.spec.ts already fixed it for itself: log in via the UI exactly
+// ONCE here, reuse the resulting storageState for every test in this file — zero
+// additional login calls after the first, regardless of how many tests this file has.
+test.use({ storageState: AUTH_STATE_PATH });
 
-test.beforeAll(() => {
+test.beforeAll(async ({ baseURL }) => {
+  fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
   // Re-seed idempotently before this file's tests run. The arc-board drag test below
   // PERSISTS a real status change (not_started -> in_progress) server-side as part of
   // proving the drag survived a reload — so a prior run of this same file leaves the
@@ -32,15 +46,22 @@ test.beforeAll(() => {
     'npx ts-node --compiler-options \'{"module":"CommonJS"}\' scripts/seed-clarity-phase3-fixtures.ts',
     { cwd: APP_ROOT, stdio: 'inherit' }
   );
-});
 
-async function login(page: import('@playwright/test').Page) {
+  const browser = await chromium.launch();
+  // storageState explicitly undefined: this context is the one that logs in and CREATES
+  // AUTH_STATE_PATH — it must start with no storage state rather than trying to read a
+  // file that doesn't exist yet (this file's own test.use() above auto-applies to every
+  // OTHER newContext() call, just not this bootstrapping one).
+  const context = await browser.newContext({ baseURL, storageState: undefined });
+  const page = await context.newPage();
   await page.goto('/login');
   await page.getByLabel('Email').fill('admin@indelible.agency');
   await page.getByLabel('Password').fill('password123');
   await page.click('button[type="submit"]');
   await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
-}
+  await context.storageState({ path: AUTH_STATE_PATH });
+  await browser.close();
+});
 
 async function assertNoHorizontalOverflow(page: import('@playwright/test').Page) {
   const overflow = await page.evaluate(() => ({
@@ -52,7 +73,6 @@ async function assertNoHorizontalOverflow(page: import('@playwright/test').Page)
 
 test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await login(page);
 
   await page.goto('/oracle');
   await expect(page.getByTestId('oracle-header')).toBeVisible();
@@ -191,7 +211,6 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
 
 test('Oracle Phase 3 — mobile layout, no horizontal overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await login(page);
 
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
@@ -214,7 +233,6 @@ test('Oracle Phase 3c — Fleet screen: sections, Respond gating, subagent nesti
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await login(page);
 
   await page.goto('/oracle/fleet');
   await expect(page.getByTestId('fleet-header')).toBeVisible();
