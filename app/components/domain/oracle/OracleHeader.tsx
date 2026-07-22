@@ -7,8 +7,10 @@ import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useCreateIdea } from '@/lib/hooks/use-ideas';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
+import type { WaitingOnMeResponse } from '@/lib/hooks/use-waiting-on-me';
 import { CronHealthLine } from './CronHealthLine';
 import { WeekStrip } from './today/WeekStrip';
+import { IntakeDrawer } from './intake/IntakeDrawer';
 
 interface OracleHeaderProps {
   machines: OracleMachineDTO[];
@@ -16,6 +18,11 @@ interface OracleHeaderProps {
    *  docked"), where the In Motion/Docked machinery now lives. Optional so the header
    *  still renders sanely if a caller ever omits it. */
   fleetCounts?: { inMotion: number; docked: number };
+  /** Clarity Phase 4b — the Intake trigger chip + its slide-over drawer, relocated here
+   *  (top right, under the week capacity strip) from a large in-page expandable section
+   *  under Needs Reshi. Optional so the header still renders sanely before
+   *  waiting-on-me's data arrives. */
+  intake?: WaitingOnMeResponse['intake'];
 }
 
 // Clarity Phase 3d bug fix: was `new Date().toLocaleDateString('en-US', {...})` with no
@@ -29,7 +36,7 @@ function formatToday(timezone: string): string {
 // Header: title, the machine-health one-liner (crons visible ONLY when erroring —
 // exception-based display, healthy crons render nothing), the idea quick-add ("idea: …"
 // straight to /api/ideas, source=oracle), and the week capacity strip.
-export function OracleHeader({ machines, fleetCounts }: OracleHeaderProps) {
+export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProps) {
   const [ideaText, setIdeaText] = React.useState('');
   const createIdea = useCreateIdea();
   const { data: calendarData } = useTodayCalendar();
@@ -74,7 +81,10 @@ export function OracleHeader({ machines, fleetCounts }: OracleHeaderProps) {
         </Button>
       </form>
 
-      {calendarData && <WeekStrip week={calendarData.week} todayDate={calendarData.date} />}
+      <div className="flex flex-col items-end gap-1.5">
+        {calendarData && <WeekStrip week={calendarData.week} todayDate={calendarData.date} />}
+        {intake && <IntakeDrawer intake={intake} timezone={timezone} />}
+      </div>
     </header>
   );
 }

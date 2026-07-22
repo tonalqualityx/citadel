@@ -23,6 +23,7 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
     severity: 'client_blocking',
     is_urgent: true,
     state: 'open',
+    training_note: null,
     task_id: null,
     deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
     received_at: '2026-07-21T20:00:00.000Z',

@@ -45,6 +45,7 @@ function pick(overrides: Record<string, unknown> = {}) {
     charter: null,
     label: 'Call the bank',
     sort: 0,
+    started_at: null,
     completed_at: null,
     created_at: new Date(),
     updated_at: new Date(),
@@ -115,6 +116,44 @@ describe('PATCH /api/today/[id]', () => {
     mockFindUnique.mockResolvedValue(null);
     const res = await PATCH(req({ sort: 1 }), ctx());
     expect(res.status).toBe(404);
+  });
+
+  describe('Clarity Phase 4b — started_at (Today board lens Doing column)', () => {
+    it('sets started_at when dropped into Doing', async () => {
+      mockFindUnique.mockResolvedValue(pick());
+      mockUpdate.mockResolvedValue(pick({ started_at: new Date('2026-07-22T12:00:00.000Z') }));
+
+      const res = await PATCH(req({ started_at: '2026-07-22T12:00:00.000Z' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.started_at).toBeTruthy();
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ started_at: expect.any(Date) }) })
+      );
+    });
+
+    it('clears started_at when explicitly null (drag back to To do)', async () => {
+      mockFindUnique.mockResolvedValue(pick({ started_at: new Date() }));
+      mockUpdate.mockResolvedValue(pick({ started_at: null }));
+
+      const res = await PATCH(req({ started_at: null }), ctx());
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ started_at: null }) })
+      );
+    });
+
+    it('leaves started_at untouched when absent from the request body', async () => {
+      mockFindUnique.mockResolvedValue(pick({ started_at: new Date('2026-07-22T09:00:00.000Z') }));
+      mockUpdate.mockResolvedValue(pick({ started_at: new Date('2026-07-22T09:00:00.000Z'), completed_at: new Date() }));
+
+      const res = await PATCH(req({ completed_at: '2026-07-22T13:00:00.000Z' }), ctx());
+      expect(res.status).toBe(200);
+
+      const updateCall = mockUpdate.mock.calls[0][0];
+      expect(updateCall.data).not.toHaveProperty('started_at');
+    });
   });
 });
 

@@ -1087,6 +1087,8 @@ export function formatEmailAskResponse(ask: any) {
     severity: ask.severity ?? null,
     is_urgent: ask.is_urgent,
     state: ask.state,
+    // Clarity Phase 4b — Mike's calibration note, shown on the card once set.
+    training_note: ask.training_note ?? null,
     task_id: ask.task_id ?? null,
     deep_link: ask.deep_link,
     received_at: ask.received_at,
@@ -1123,6 +1125,8 @@ export function formatTodayPickResponse(
     charter: pick.charter ? { id: pick.charter.id, name: pick.charter.name } : null,
     label: pick.label ?? null,
     sort: pick.sort,
+    // Clarity Phase 4b — Today board lens's Doing column, persisted.
+    started_at: pick.started_at ?? null,
     completed_at: pick.completed_at ?? null,
     primary_action: extras.primaryAction ?? null,
     created_at: pick.created_at,

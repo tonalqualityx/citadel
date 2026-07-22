@@ -44,6 +44,9 @@ const updateTaskSchema = z.object({
   project_id: z.string().uuid().optional().nullable(),
   client_id: z.string().uuid().optional().nullable(),
   site_id: z.string().uuid().optional().nullable(),
+  // Clarity Phase 4b — the update schema predates arcs; present+non-null validates the arc
+  // exists (404 if not) and attaches it, explicit null detaches, absent leaves untouched.
+  arc_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(),
   sort_order: z.number().optional(),
   assignee_id: z.string().uuid().optional().nullable(),
@@ -171,6 +174,7 @@ export async function GET(
         },
         client: { select: { id: true, name: true } },
         charter: { select: { id: true, name: true } },
+        arc: { select: { id: true, name: true } },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
         reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
         approved_by: { select: { id: true, name: true } },
@@ -265,6 +269,7 @@ export async function PATCH(
           },
           client: { select: { id: true, name: true } },
           charter: { select: { id: true, name: true } },
+        arc: { select: { id: true, name: true } },
           assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
           reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
           approved_by: { select: { id: true, name: true } },
@@ -355,6 +360,21 @@ export async function PATCH(
       }
     }
 
+    // Clarity Phase 4b — arc_id: present+non-null validates the arc exists (404 if not),
+    // explicit null detaches, absent (undefined) leaves the existing arc_id untouched.
+    let arcIdUpdate: string | null | undefined = undefined;
+    if (data.arc_id !== undefined) {
+      if (data.arc_id === null) {
+        arcIdUpdate = null;
+      } else {
+        const arc = await prisma.arc.findUnique({ where: { id: data.arc_id }, select: { id: true } });
+        if (!arc) {
+          throw new ApiError('Arc not found', 404);
+        }
+        arcIdUpdate = data.arc_id;
+      }
+    }
+
     // Build update data explicitly to avoid Prisma type conflicts
     const updateData: Record<string, any> = {
       estimated_minutes: estimatedMinutes,
@@ -371,6 +391,7 @@ export async function PATCH(
     if (data.project_id !== undefined) updateData.project_id = data.project_id;
     if (clientIdUpdate !== undefined) updateData.client_id = clientIdUpdate;
     if (data.site_id !== undefined) updateData.site_id = data.site_id;
+    if (arcIdUpdate !== undefined) updateData.arc_id = arcIdUpdate;
     if (data.phase !== undefined) updateData.phase = data.phase;
     if (data.sort_order !== undefined) updateData.sort_order = data.sort_order;
     if (data.assignee_id !== undefined) updateData.assignee_id = data.assignee_id;
@@ -481,6 +502,7 @@ export async function PATCH(
         },
         client: { select: { id: true, name: true } },
         charter: { select: { id: true, name: true } },
+        arc: { select: { id: true, name: true } },
         assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
         reviewer: { select: { id: true, name: true, email: true, avatar_url: true } },
         approved_by: { select: { id: true, name: true } },

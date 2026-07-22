@@ -13,6 +13,13 @@ vi.mock('@/lib/api/client', () => ({
   },
 }));
 
+// Clarity Phase 4b — the due-soon row's title now opens the quest peek instead of being
+// inert text.
+const mockOpenTaskPeek = vi.fn();
+vi.mock('@/lib/contexts/task-peek-context', () => ({
+  useTaskPeek: () => ({ openTaskPeek: mockOpenTaskPeek }),
+}));
+
 function renderWithClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
@@ -21,6 +28,7 @@ function renderWithClient(ui: React.ReactElement) {
 beforeEach(() => {
   mockGet.mockReset();
   mockPost.mockReset();
+  mockOpenTaskPeek.mockClear();
 });
 
 describe('DueSoonRow', () => {
@@ -64,6 +72,22 @@ describe('DueSoonRow', () => {
 
     const capMessage = await screen.findByTestId('due-soon-cap-message');
     expect(capMessage).toHaveTextContent(/already holds 5 uncompleted picks/);
+  });
+
+  it('clicking a due-soon task title opens the quest peek (Clarity Phase 4b)', async () => {
+    mockGet.mockResolvedValue({
+      date: '2026-07-21',
+      timezone: 'America/New_York',
+      tasks: [{ id: 'task-1', title: 'Renew SSL cert', status: 'not_started', priority: 2, due_date: '2026-07-22T10:00:00.000Z' }],
+      meta: { total: 1 },
+    });
+
+    renderWithClient(<DueSoonRow />);
+    await screen.findByTestId('due-soon-row');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Renew SSL cert' }));
+
+    expect(mockOpenTaskPeek).toHaveBeenCalledWith('task-1');
   });
 
   it('calls POST /today with the task on add-to-Today', async () => {

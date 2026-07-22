@@ -94,18 +94,25 @@ test('Clarity Phase 4a — crisis strip renders with the seeded urgent ask, scre
   await expect(page.getByTestId('crisis-strip')).toHaveCount(0, { timeout: 10000 });
 });
 
-test('Clarity Phase 4a — intake drawer collapsed by default, expands to show the seeded ask', async ({ page }) => {
+test('Clarity Phase 4a — intake trigger chip in the header opens a drawer showing the seeded ask', async ({ page }) => {
+  // Clarity Phase 4b relocated Intake out of the main column into a compact header trigger
+  // (top right, under the week capacity strip) that opens a slide-over drawer — this test
+  // updated to match (was an in-page expandable section under Needs Reshi).
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
 
+  const trigger = page.getByTestId('intake-drawer-trigger');
+  await expect(trigger).toBeVisible({ timeout: 15000 });
+  await expect(trigger).toHaveText(/📬 Intake · \d+/);
+  // The drawer lazy-mounts on first open (see IntakeDrawer.tsx) — not in the DOM at all
+  // beforehand, rather than present-but-closed.
+  await expect(page.getByTestId('intake-drawer')).toHaveCount(0);
+
+  await trigger.click();
+
   const drawer = page.getByTestId('intake-drawer');
-  await expect(drawer).toBeVisible({ timeout: 15000 });
-  await expect(drawer.getByText(/📬 Intake · \d+/)).toBeVisible();
-  await expect(page.getByTestId('intake-cards')).toHaveCount(0);
-
-  await drawer.getByRole('button').click();
-
+  await expect(drawer).toHaveAttribute('data-state', 'open');
   const cards = page.getByTestId('intake-cards');
   await expect(cards).toBeVisible();
   const fixtureCard = cards.getByTestId('intake-card').filter({ hasText: 'E2E: Question about the proposal (fixture)' });
@@ -116,6 +123,7 @@ test('Clarity Phase 4a — intake drawer collapsed by default, expands to show t
   );
   await expect(fixtureCard.getByRole('button', { name: /^create$/i })).toBeVisible();
   await expect(fixtureCard.getByRole('button', { name: /create \+ open/i })).toBeVisible();
+  await expect(fixtureCard.getByRole('button', { name: /^archive$/i })).toBeVisible();
   await expect(fixtureCard.getByRole('button', { name: /dismiss/i })).toBeVisible();
 
   await assertNoHorizontalOverflow(page);

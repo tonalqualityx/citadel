@@ -115,4 +115,54 @@ describe('GET /api/today/due-soon', () => {
     const res = await GET(getRequest());
     expect(res.status).toBe(403);
   });
+
+  describe('Clarity Phase 4b — arc-picked exclusion', () => {
+    it('excludes a due-soon task whose ARC (not the task itself) was picked for today', async () => {
+      const now = Date.now();
+      mockTaskFindMany.mockResolvedValue([
+        task({ id: 't-arc-picked', arc_id: 'arc-1', due_date: new Date(now + 2 * 60 * 60 * 1000) }),
+      ]);
+      mockPickFindMany.mockImplementation((args: any) => {
+        if (args.where.item_type === 'arc') return Promise.resolve([{ arc_id: 'arc-1' }]);
+        return Promise.resolve([]);
+      });
+
+      const res = await GET(getRequest());
+      const body = await res.json();
+
+      expect(body.tasks).toEqual([]);
+    });
+
+    it('includes a due-soon task whose arc was NOT picked for today', async () => {
+      const now = Date.now();
+      mockTaskFindMany.mockResolvedValue([
+        task({ id: 't-arc-not-picked', arc_id: 'arc-2', due_date: new Date(now + 2 * 60 * 60 * 1000) }),
+      ]);
+      mockPickFindMany.mockImplementation((args: any) => {
+        if (args.where.item_type === 'arc') return Promise.resolve([{ arc_id: 'arc-1' }]);
+        return Promise.resolve([]);
+      });
+
+      const res = await GET(getRequest());
+      const body = await res.json();
+
+      expect(body.tasks.map((t: { id: string }) => t.id)).toEqual(['t-arc-not-picked']);
+    });
+
+    it('includes a due-soon task with no arc at all', async () => {
+      const now = Date.now();
+      mockTaskFindMany.mockResolvedValue([
+        task({ id: 't-no-arc', arc_id: null, due_date: new Date(now + 2 * 60 * 60 * 1000) }),
+      ]);
+      mockPickFindMany.mockImplementation((args: any) => {
+        if (args.where.item_type === 'arc') return Promise.resolve([{ arc_id: 'arc-1' }]);
+        return Promise.resolve([]);
+      });
+
+      const res = await GET(getRequest());
+      const body = await res.json();
+
+      expect(body.tasks.map((t: { id: string }) => t.id)).toEqual(['t-no-arc']);
+    });
+  });
 });

@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { ExternalLink, Clock, Ban, Info } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import type { AskCardData } from './needs-reshi-logic';
 
 interface AskCardProps {
@@ -29,6 +29,7 @@ const SEVERITY_META: Record<
 // source line ("session" vs "session · legacy") — nothing louder, per the binding
 // correction.
 export function AskCard({ data }: AskCardProps) {
+  const { openTaskPeek } = useTaskPeek();
   const severityMeta = data.severity ? SEVERITY_META[data.severity] : null;
 
   return (
@@ -52,8 +53,12 @@ export function AskCard({ data }: AskCardProps) {
 
       <div className="mt-1 flex items-center gap-1.5">
         {data.primaryAction.kind === 'open_review' && (
-          <Button asChild variant="primary" size="sm">
-            <Link href={`/tasks/${data.primaryAction.taskId}`}>Open review</Link>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => openTaskPeek(data.primaryAction.kind === 'open_review' ? data.primaryAction.taskId : '')}
+          >
+            Open review
           </Button>
         )}
         {data.primaryAction.kind === 'respond' && (

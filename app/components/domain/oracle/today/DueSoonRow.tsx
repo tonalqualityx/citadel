@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Clock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useDueSoonTasks, useCreateTodayPick } from '@/lib/hooks/use-today';
+import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 
 // Clarity Phase 4a — the due-soon row at the foot of Today: tasks due within 24h that
 // haven't been consciously picked for today yet. Closes the "born at night, invisible
@@ -13,6 +14,7 @@ import { useDueSoonTasks, useCreateTodayPick } from '@/lib/hooks/use-today';
 export function DueSoonRow() {
   const { data, isLoading } = useDueSoonTasks();
   const createPick = useCreateTodayPick();
+  const { openTaskPeek } = useTaskPeek();
   const [capMessage, setCapMessage] = React.useState<string | null>(null);
 
   const tasks = data?.tasks ?? [];
@@ -42,7 +44,13 @@ export function DueSoonRow() {
             className="flex items-center justify-between gap-2 rounded-md px-1 py-1 text-sm"
             data-testid="due-soon-item"
           >
-            <span className="min-w-0 truncate text-text-main">{task.title}</span>
+            <button
+              type="button"
+              onClick={() => openTaskPeek(task.id)}
+              className="min-w-0 truncate text-left text-text-main hover:text-primary hover:underline"
+            >
+              {task.title}
+            </button>
             <Button
               variant="ghost"
               size="sm"

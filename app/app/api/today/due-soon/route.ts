@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     const now = new Date();
 
-    const [candidates, todaysPicks] = await Promise.all([
+    const [candidates, taskPicks, arcPicks] = await Promise.all([
       prisma.task.findMany({
         where: {
           is_deleted: false,
@@ -38,19 +38,30 @@ export async function GET(request: NextRequest) {
           status: { notIn: NOT_DONE_ABANDONED },
           due_date: { not: null },
         },
-        select: { id: true, title: true, status: true, priority: true, due_date: true },
+        select: { id: true, title: true, status: true, priority: true, due_date: true, arc_id: true },
         orderBy: { due_date: 'asc' },
       }),
       prisma.todayPick.findMany({
         where: { date: pickDate, item_type: 'task', task_id: { not: null } },
         select: { task_id: true },
       }),
+      // Clarity Phase 4b — a task whose ARC (not the task itself) was picked for today
+      // rides the arc's own Today slot; showing it here too would double-display it.
+      prisma.todayPick.findMany({
+        where: { date: pickDate, item_type: 'arc', arc_id: { not: null } },
+        select: { arc_id: true },
+      }),
     ]);
 
-    const pickedTaskIds = new Set(todaysPicks.map((p) => p.task_id));
+    const pickedTaskIds = new Set(taskPicks.map((p) => p.task_id));
+    const pickedArcIds = new Set(arcPicks.map((p) => p.arc_id));
 
     const dueSoon = candidates.filter(
-      (t) => t.due_date && isDueSoon(t.due_date, now) && !pickedTaskIds.has(t.id)
+      (t) =>
+        t.due_date &&
+        isDueSoon(t.due_date, now) &&
+        !pickedTaskIds.has(t.id) &&
+        !(t.arc_id && pickedArcIds.has(t.arc_id))
     );
 
     return NextResponse.json({

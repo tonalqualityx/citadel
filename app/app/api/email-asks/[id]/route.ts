@@ -12,6 +12,9 @@ import { EmailAskState } from '@prisma/client';
 const patchSchema = z.object({
   state: z.nativeEnum(EmailAskState).optional(),
   task_id: z.string().uuid().optional().nullable(),
+  // Clarity Phase 4b — Mike's own correction/calibration note on a classification, entered
+  // from the intake drawer's "note for Bast" input.
+  training_note: z.string().max(2000).optional().nullable(),
 });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -40,6 +43,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       data: {
         ...(data.state !== undefined && { state: data.state }),
         ...(data.task_id !== undefined && { task_id: data.task_id }),
+        ...(data.training_note !== undefined && { training_note: data.training_note }),
       },
     });
 

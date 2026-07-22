@@ -13,6 +13,9 @@ import { primaryActionKindForPick, type TodayPickItemType } from '@/lib/today-pi
 const updatePickSchema = z.object({
   sort: z.number().int().optional(),
   completed_at: z.string().datetime().optional().nullable(),
+  // Clarity Phase 4b — the Today board lens's Doing column, persisted so drag state
+  // survives reload (was session-local before).
+  started_at: z.string().datetime().optional().nullable(),
   label: z.string().max(300).optional().nullable(),
 });
 
@@ -71,6 +74,9 @@ export async function PATCH(
         ...(data.sort !== undefined && { sort: data.sort }),
         ...(data.completed_at !== undefined && {
           completed_at: data.completed_at === null ? null : new Date(data.completed_at),
+        }),
+        ...(data.started_at !== undefined && {
+          started_at: data.started_at === null ? null : new Date(data.started_at),
         }),
         ...(data.label !== undefined && { label: data.label }),
       },

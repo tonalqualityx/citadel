@@ -2637,6 +2637,11 @@ model TodayPick {
   label String? @db.VarChar(300) // free-form commitment text (type=note, or an override)
 
   sort         Int       @default(0)
+  // Clarity Phase 4b — the Today board lens's Doing column, persisted (was a session-local
+  // "cheap lens" marker in TodayBoard.tsx before this; now survives reload/drag). Column
+  // mapping: To do = neither set; Doing = started_at set, completed_at null; Done =
+  // completed_at set (regardless of started_at).
+  started_at   DateTime?
   completed_at DateTime?
 
   created_at DateTime @default(now())
@@ -2697,6 +2702,12 @@ enum EmailAskState {
   open
   handled
   dismissed
+  // Clarity Phase 4b — Mike requested archival via the intake drawer's Archive action; the
+  // classifier (machine-side, reads GET /api/email-asks?state=archive_requested) executes
+  // the actual Gmail archive on its next pass. From Mike's perspective the ask is already
+  // resolved the instant he clicks Archive — it disappears from the intake drawer's list
+  // immediately (the drawer's query filters state=open, so this is automatic).
+  archive_requested
 }
 
 // Clarity Phase 4a — email on the Seeing Stone. Synced via POST /api/oracle/email-sync
@@ -2723,6 +2734,11 @@ model EmailAsk {
   severity  AskSeverity?
   is_urgent Boolean       @default(false)
   state     EmailAskState @default(open)
+
+  // Clarity Phase 4b — Mike's own correction/calibration note on a classification ("this
+  // is actually noise", "should've been urgent"), entered from the intake drawer. The
+  // classifier consumes recent notes as calibration examples (machine-side, not built here).
+  training_note String? @db.Text
 
   task_id String? @db.Uuid
   task    Task?   @relation(fields: [task_id], references: [id])
