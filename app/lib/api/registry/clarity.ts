@@ -32,6 +32,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               project: { id: 'uuid', name: 'string', status: 'string' },
               origin_session_external_id: 'string|null',
               closed_at: 'ISO-8601|null',
+              snoozed_until: 'ISO-8601|null',
               task_count: 'number',
               created_at: 'ISO-8601',
               updated_at: 'ISO-8601',
@@ -72,6 +73,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'client_id', type: 'uuid', required: false, description: '' },
           { name: 'project_id', type: 'uuid', required: false, description: '' },
           { name: 'closed_at', type: 'ISO-8601', required: false, description: 'Set to close the thread; null to reopen; absent to leave untouched' },
+          { name: 'snoozed_until', type: 'ISO-8601', required: false, description: 'Clarity Phase 5 — the Soothsayer\'s snooze action. Set to hide the arc from default surfaces (Today\'s no-day-assigned guarantee, Soothsayer\'s unplanned section) until the date passes; null un-snoozes; absent leaves untouched' },
         ],
       },
     ],
@@ -203,9 +205,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'this phase; the endpoint is the single merged view of everything waiting on Mike. ' +
           'Clarity Phase 4a: `crisis` (open+urgent email_asks, newest first) and `intake` ' +
           '(open+non-urgent email_asks, count + newest_at + items, newest first) are their OWN ' +
-          'surface — email asks never merge into decide/answer/review/do.',
+          'surface — email asks never merge into decide/answer/review/do. ' +
+          'Clarity Phase 5: `waiting` merges decide+answer into ONE queue the UI reads (each ' +
+          'item tagged `queue_type`: decision for former-decide, reply for former-answer), ' +
+          'decide first then answer — `decide`/`answer` stay in the response, unchanged, for ' +
+          'API back-compat for one release. Every card also carries `client` (task cards only; ' +
+          'session_ask cards are always null, fall back to arc/"Other" client-side for the ' +
+          'Review column\'s grouping) and `waiting_since` (best-available "when this started ' +
+          'waiting" proxy: a task\'s updated_at, a session\'s last_event_at).',
         responseExample: {
-          decide: [
+          waiting: [
             {
               type: 'task|session_ask',
               id: 'uuid',
@@ -216,9 +225,13 @@ export const clarityEndpoints: ApiEndpoint[] = [
               task_id: 'uuid|null',
               session_external_id: 'string|null',
               arc: { id: 'uuid', name: 'string' },
+              client: { id: 'uuid', name: 'string' },
+              waiting_since: 'ISO-8601|null',
               due_date: 'ISO-8601|null',
+              queue_type: 'decision|reply',
             },
           ],
+          decide: [],
           answer: [],
           review: [],
           do: [],
@@ -243,7 +256,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
             },
           ],
           intake: { count: 'number', newest_at: 'ISO-8601|null', items: [] },
-          meta: { counts: { decide: 'number', answer: 'number', review: 'number', do: 'number', total: 'number' } },
+          meta: {
+            counts: {
+              waiting: 'number',
+              decide: 'number',
+              answer: 'number',
+              review: 'number',
+              do: 'number',
+              total: 'number',
+            },
+          },
         },
       },
     ],
@@ -440,14 +462,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
         roles: ['admin'],
         queryParams: [
           { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD in the requester\'s resolved timezone. Defaults to today in that zone; the week strip runs this date + 4 forward days.' },
+          { name: 'days', type: 'number', required: false, description: 'Clarity Phase 5 — how many forward days the `week` aggregation covers (1-31). Defaults to 5 (the Today header\'s own week strip, unchanged); the Soothsayer requests 7.' },
         ],
         responseNotes:
           'Clarity Phase 3b: reads the calendar_events table (synced via POST /api/oracle/calendar-sync ' +
           'from Mike\'s real Google Calendar) — real start/end durations, no more assumed duration. ' +
           'All-day events are excluded from `meetings` entirely and returned separately in `allDay`. ' +
-          '`week[].meeting_minutes` is each day\'s real per-event duration PLUS a 15-minute recovery buffer ' +
-          'trailing every timed meeting (truncated by a back-to-back next meeting — never double-counted; ' +
-          'see MEETING_RECOVERY_MINUTES / sumCommittedMinutesWithBuffer in ' +
+          '`week[].meeting_minutes` is each day\'s real per-event duration PLUS a 20-minute leading prep ' +
+          'window and a 15-minute trailing recovery buffer around every timed meeting (Clarity Phase 5 — ' +
+          'mutually truncated against neighboring meetings, clamped to the day start, never double-counted; ' +
+          'see MEETING_PREP_MINUTES/MEETING_RECOVERY_MINUTES / sumCommittedMinutesWithBuffer in ' +
           'components/domain/oracle/today/time-shape-logic.ts, the single shared implementation). Response ' +
           'is deliberately "dumb" otherwise — fill-percent/packed-tint encoding is computed client-side so ' +
           'the day track, week strip, and future planning views share one capacity encoding implementation. ' +
@@ -496,6 +520,78 @@ export const clarityEndpoints: ApiEndpoint[] = [
             { id: 'uuid', title: 'string', status: 'string', priority: 'number', due_date: 'ISO-8601' },
           ],
           meta: { total: 'number' },
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/soothsayer',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Clarity Phase 5 — The Soothsayer: the week-plan visualization. One consolidated, ' +
+          'read-only aggregation (today + next 6 days\' picks, the can-never-lose-an-arc ' +
+          '"no day assigned" list, and the collapsed "snoozed" row) over the SAME today_picks ' +
+          'rows /api/today already reads/writes — no new planning model. Admin-only, same gate ' +
+          'as /api/today.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD in the requester\'s resolved timezone — the window\'s anchor ("today") day. Defaults to today in that zone; the window always runs this date + 6 forward days (7 total).' },
+        ],
+        responseNotes:
+          '`days[].picks` uses the exact same per-type-joined shape as GET /api/today\'s own ' +
+          '`picks` (shared via lib/services/today-picks-shape.ts so the two never drift), with ' +
+          'arc summaries additionally carrying `progress_percent` (the day columns render ' +
+          '"arc name + progress"). `days[].meeting_count`/`meeting_minutes` fold in the 20-minute ' +
+          'prep + 15-minute recovery buffer around every timed meeting, same shared ' +
+          'sumCommittedMinutesWithBuffer implementation as /api/today/calendar. ' +
+          '`unplanned.arcs` = every OPEN, un-snoozed arc with no arc-type pick dated today-or-' +
+          'later; `unplanned.sessions` = every LIVE (not ended/stale) Oracle session with no ' +
+          'session-type pick dated today-or-later — this is evaluated across ALL arcs/sessions, ' +
+          'not just the 7-day window, since the guarantee is "never silently lose one", not ' +
+          '"never lose one within the visible window". `snoozed.arcs` = arcs with snoozed_until ' +
+          'in the future, oldest-wake-date first. Assigning an unplanned item to a day uses the ' +
+          'existing POST /api/today (respecting its per-day WIP cap, 409 on the 6th); snoozing ' +
+          'uses the existing PATCH /api/arcs/{id} (snoozed_until).',
+        responseExample: {
+          timezone: 'America/New_York',
+          days: [
+            {
+              date: 'YYYY-MM-DD',
+              picks: [],
+              meeting_count: 'number',
+              meeting_minutes: 'number',
+            },
+          ],
+          unplanned: {
+            arcs: [
+              {
+                id: 'uuid',
+                name: 'string',
+                status: 'empty|open|complete',
+                client_id: 'uuid|null',
+                client: { id: 'uuid', name: 'string' },
+                task_count: 'number',
+                progress_percent: 'number',
+                snoozed_until: 'ISO-8601|null',
+              },
+            ],
+            sessions: [
+              {
+                external_id: 'string',
+                title: 'string|null',
+                status: 'string',
+                remote_url: 'string|null',
+                goal: 'string|null',
+                cwd: 'string|null',
+              },
+            ],
+          },
+          snoozed: { arcs: [] },
+          meta: { windowStart: 'YYYY-MM-DD', windowEnd: 'YYYY-MM-DD', windowEndInstant: 'ISO-8601' },
         },
       },
     ],

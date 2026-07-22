@@ -3,16 +3,10 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { formatTodayPickResponse } from '@/lib/api/formatters';
-import { getArcStatus } from '@/lib/arc-status';
 import { getZonedDateString } from '@/lib/utils/time';
 import { resolveUserTimezone } from '@/lib/services/user-timezone';
-import {
-  validateTodayPickRef,
-  isAtWipCap,
-  primaryActionKindForPick,
-  type TodayPickItemType,
-} from '@/lib/today-picks';
+import { validateTodayPickRef, isAtWipCap } from '@/lib/today-picks';
+import { PICK_INCLUDE, fetchTodayPicksForDate, shapeTodayPicks } from '@/lib/services/today-picks-shape';
 
 // Clarity Phase 3 — The Oracle Face: Today picks (the day's chosen commitments). Admin-only,
 // same as the rest of the Oracle surface (fleet, waiting-on-me).
@@ -45,73 +39,9 @@ const createPickSchema = z.object({
   sort: z.number().int().optional(),
 });
 
-const PICK_INCLUDE = {
-  arc: { include: { tasks: { select: { status: true } } } },
-  task: { select: { id: true, title: true, status: true } },
-  charter: { select: { id: true, name: true } },
-} as const;
-
 function parseDateParam(dateStr: string | null, timezone: string): Date {
   const raw = dateStr && DATE_RE.test(dateStr) ? dateStr : getZonedDateString(new Date(), timezone);
   return new Date(`${raw}T00:00:00.000Z`);
-}
-
-/** Attach the per-type joined summary + derived primary action a Today card needs to render. */
-async function shapePicks(picks: Awaited<ReturnType<typeof fetchPicksForDate>>) {
-  const sessionIds = Array.from(
-    new Set(picks.filter((p) => p.item_type === 'session' && p.session_external_id).map((p) => p.session_external_id as string))
-  );
-
-  const sessions = sessionIds.length
-    ? await prisma.oracleSession.findMany({
-        where: { external_id: { in: sessionIds } },
-        select: { external_id: true, title: true, status: true, remote_url: true, goal: true },
-      })
-    : [];
-  const sessionByExternalId = new Map(sessions.map((s) => [s.external_id, s]));
-
-  return picks.map((pick) => {
-    const arcSummary = pick.arc
-      ? {
-          id: pick.arc.id,
-          name: pick.arc.name,
-          status: getArcStatus(pick.arc),
-          task_count: pick.arc.tasks.length,
-        }
-      : null;
-
-    const sessionSummary = pick.session_external_id
-      ? sessionByExternalId.get(pick.session_external_id) ?? null
-      : null;
-
-    const primaryAction = {
-      kind: primaryActionKindForPick(pick.item_type as TodayPickItemType, {
-        hasRemoteUrl: !!sessionSummary?.remote_url,
-      }),
-    };
-
-    return formatTodayPickResponse(pick, {
-      arcSummary,
-      sessionSummary: sessionSummary
-        ? {
-            external_id: sessionSummary.external_id,
-            title: sessionSummary.title,
-            status: sessionSummary.status,
-            remote_url: sessionSummary.remote_url,
-            goal: sessionSummary.goal,
-          }
-        : null,
-      primaryAction,
-    });
-  });
-}
-
-function fetchPicksForDate(date: Date) {
-  return prisma.todayPick.findMany({
-    where: { date },
-    include: PICK_INCLUDE,
-    orderBy: [{ sort: 'asc' }, { created_at: 'asc' }],
-  });
 }
 
 export async function GET(request: NextRequest) {
@@ -121,10 +51,15 @@ export async function GET(request: NextRequest) {
 
     const timezone = await resolveUserTimezone(auth.userId);
     const { searchParams } = new URL(request.url);
+    // Clarity Phase 5 — verified (and now regression-tested) that a future `date` param
+    // was already accepted here with no special-casing: parseDateParam just parses
+    // whatever valid YYYY-MM-DD string is given, and the WIP cap below is already scoped
+    // `where: { date: targetDate }` — per-day, not "today-relative". This is the
+    // Soothsayer's data source; no new planning model was needed or added.
     const targetDate = parseDateParam(searchParams.get('date'), timezone);
 
-    const picks = await fetchPicksForDate(targetDate);
-    const shaped = await shapePicks(picks);
+    const picks = await fetchTodayPicksForDate(targetDate);
+    const shaped = await shapeTodayPicks(picks);
 
     const uncompletedCount = picks.filter((p) => !p.completed_at).length;
 
@@ -203,7 +138,7 @@ export async function POST(request: NextRequest) {
       include: PICK_INCLUDE,
     });
 
-    const [shaped] = await shapePicks([created]);
+    const [shaped] = await shapeTodayPicks([created]);
 
     return NextResponse.json(shaped, { status: 201 });
   } catch (error) {

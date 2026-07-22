@@ -22,6 +22,11 @@ import { resolveUserTimezone } from '@/lib/services/user-timezone';
 // (and the time-shape's own display window) in that exact zone, never a guess.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WEEK_STRIP_DAYS = 5; // matches the approved mockup: today + 4 forward days
+// Clarity Phase 5 — the Soothsayer's day columns need today + 6 forward (7 total); the
+// existing Today header's week strip stays at its own default (5) unchanged. An optional
+// `days` param keeps this one endpoint the single source for both, rather than adding a
+// second near-duplicate route.
+const MAX_DAYS = 31; // guard rail — never let a caller ask for an unbounded aggregation
 
 function toUTCDateString(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -53,6 +58,10 @@ export async function GET(request: NextRequest) {
     const dateParam = searchParams.get('date');
     const dateStr = dateParam && DATE_RE.test(dateParam) ? dateParam : getZonedDateString(new Date(), timezone);
 
+    const daysParam = Number.parseInt(searchParams.get('days') ?? '', 10);
+    const weekStripDays =
+      Number.isInteger(daysParam) && daysParam >= 1 && daysParam <= MAX_DAYS ? daysParam : WEEK_STRIP_DAYS;
+
     const { start, end } = dayBounds(dateStr, timezone);
 
     const dayEvents = await prisma.calendarEvent.findMany({
@@ -79,8 +88,8 @@ export async function GET(request: NextRequest) {
         end: e.ends_at.toISOString(),
       }));
 
-    // Week strip: today (or the requested date) through WEEK_STRIP_DAYS-1 days forward.
-    const weekDateStrs = Array.from({ length: WEEK_STRIP_DAYS }, (_, i) => addDays(dateStr, i));
+    // Week strip: today (or the requested date) through weekStripDays-1 days forward.
+    const weekDateStrs = Array.from({ length: weekStripDays }, (_, i) => addDays(dateStr, i));
     const weekStart = dayBounds(weekDateStrs[0], timezone).start;
     const weekEnd = dayBounds(weekDateStrs[weekDateStrs.length - 1], timezone).end;
 
@@ -115,7 +124,10 @@ export async function GET(request: NextRequest) {
         date: d,
         meeting_minutes: Math.round(
           sumCommittedMinutesWithBuffer(
-            dayTimedEvents.map((e) => ({ id: '', title: '', start: e.starts_at, end: e.ends_at }))
+            dayTimedEvents.map((e) => ({ id: '', title: '', start: e.starts_at, end: e.ends_at })),
+            undefined,
+            undefined,
+            dStart.getTime()
           )
         ),
         meetings_count: dayTimedEvents.length,

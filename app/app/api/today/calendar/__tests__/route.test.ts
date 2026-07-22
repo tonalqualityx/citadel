@@ -147,9 +147,10 @@ describe('GET /api/today/calendar', () => {
     expect(day22.due_tasks_count).toBe(2);
   });
 
-  it('week meeting_minutes sums real per-event duration + the 15-minute recovery buffer', async () => {
+  it('week meeting_minutes sums real per-event duration + the 20-minute prep + the 15-minute recovery buffer', async () => {
     mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
-      // A single 60-minute meeting on 2026-07-22: 60 real minutes + 15min buffer = 75.
+      // Clarity Phase 5 — a single 60-minute meeting, isolated (well clear of its own
+      // day's start), on 2026-07-22: 20min prep + 60 real minutes + 15min buffer = 95.
       { starts_at: new Date('2026-07-22T13:00:00.000Z'), ends_at: new Date('2026-07-22T14:00:00.000Z'), all_day: false },
     ]);
     mockTaskFindMany.mockResolvedValueOnce([]);
@@ -158,7 +159,7 @@ describe('GET /api/today/calendar', () => {
     const body = await res.json();
 
     const day22 = body.week.find((d: { date: string }) => d.date === '2026-07-22');
-    expect(day22.meeting_minutes).toBe(75);
+    expect(day22.meeting_minutes).toBe(95);
     expect(day22.meetings_count).toBe(1);
   });
 
@@ -174,6 +175,45 @@ describe('GET /api/today/calendar', () => {
     const day22 = body.week.find((d: { date: string }) => d.date === '2026-07-22');
     expect(day22.meetings_count).toBe(0);
     expect(day22.meeting_minutes).toBe(0);
+  });
+});
+
+// Clarity Phase 5 — the Soothsayer requests 7 forward days from this same endpoint via an
+// optional `days` param; the Today header's own week strip (5 days) stays the untouched
+// default.
+describe('GET /api/today/calendar — days param', () => {
+  it('defaults to a 5-day week when days is absent (unchanged)', async () => {
+    mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockTaskFindMany.mockResolvedValueOnce([]);
+
+    const res = await GET(createGetRequest({ date: '2026-07-21' }));
+    const body = await res.json();
+
+    expect(body.week).toHaveLength(5);
+  });
+
+  it('honors days=7 (the Soothsayer\'s window)', async () => {
+    mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockTaskFindMany.mockResolvedValueOnce([]);
+
+    const res = await GET(createGetRequest({ date: '2026-07-21', days: '7' }));
+    const body = await res.json();
+
+    expect(body.week).toHaveLength(7);
+    expect(body.week[0].date).toBe('2026-07-21');
+    expect(body.week[6].date).toBe('2026-07-27');
+  });
+
+  it('falls back to the default for an out-of-range or non-numeric days value', async () => {
+    mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockTaskFindMany.mockResolvedValueOnce([]);
+    const resInvalid = await GET(createGetRequest({ date: '2026-07-21', days: 'not-a-number' }));
+    expect((await resInvalid.json()).week).toHaveLength(5);
+
+    mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockTaskFindMany.mockResolvedValueOnce([]);
+    const resTooBig = await GET(createGetRequest({ date: '2026-07-21', days: '999' }));
+    expect((await resTooBig.json()).week).toHaveLength(5);
   });
 });
 

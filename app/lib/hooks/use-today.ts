@@ -14,7 +14,16 @@ export interface TodayPick {
   date: string;
   item_type: TodayPickItemType;
   arc_id: string | null;
-  arc: { id: string; name: string; status: 'empty' | 'open' | 'complete'; task_count: number } | null;
+  arc: {
+    id: string;
+    name: string;
+    status: 'empty' | 'open' | 'complete';
+    task_count: number;
+    // Clarity Phase 5 — the Soothsayer's day columns render "arc name + progress"; /api/today
+    // itself never sets this (undefined there, unchanged behavior).
+    progress_percent?: number;
+    snoozed_until?: string | null;
+  } | null;
   task_id: string | null;
   task: { id: string; title: string; status: string } | null;
   session_external_id: string | null;
@@ -146,6 +155,10 @@ export function useCreateTodayPick() {
     mutationFn: (input: CreateTodayPickInput) => apiClient.post<TodayPick>('/today', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: todayKeys.all });
+      // Clarity Phase 5 — the Soothsayer's "assign to day" action creates a pick through
+      // this same mutation; its own read (GET /api/oracle/soothsayer) is a separate query
+      // key, so it needs its own invalidation to reflect the new pick without a reload.
+      queryClient.invalidateQueries({ queryKey: ['soothsayer'] });
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to add to Today');
@@ -163,6 +176,7 @@ export function useUpdateTodayPick() {
       // Quiet completion: no toast on a plain toggle — the check-morph + count tick in the
       // UI is the feedback, per the evidence-bound "sub-second, quiet" completion rule.
       queryClient.invalidateQueries({ queryKey: todayKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['soothsayer'] });
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to update Today pick');
@@ -177,6 +191,7 @@ export function useDeleteTodayPick() {
     mutationFn: (id: string) => apiClient.delete<{ success: boolean }>(`/today/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: todayKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['soothsayer'] });
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to remove Today pick');
