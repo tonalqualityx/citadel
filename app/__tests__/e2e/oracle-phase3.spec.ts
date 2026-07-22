@@ -121,24 +121,19 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
   await expect(fleetLink).toHaveAttribute('href', '/oracle/fleet');
   await expect(fleetLink).toHaveText(/\d+ in motion · \d+ docked/);
 
-  // Legacy hook-flagged needs_attention session (no manifest ask) STAYS in Needs
-  // Reshi's Answer column as a compact "session · legacy" card with Respond — the
-  // split doesn't move it: it's waiting on Mike, not machinery. Ported from the
-  // retired oracle-fleet-p3.spec.ts's Respond-gating coverage: this fixture
-  // (demo-session-waiting-1) is the "waiting + remote_url -> Respond renders with the
-  // correct deep-link" case — it no longer surfaces as a full SessionCard anywhere
-  // (waiting sessions are excluded from Fleet's In Motion/Docked buckets entirely), so
-  // the assertion now targets its AskCard here instead.
+  // Clarity Phase 5 rework: legacy hook-flagged needs_attention sessions with no
+  // manifest ask are REMOVED from Needs Reshi entirely. demo-session-waiting-1 has no
+  // arc_id, so it's the "unlinked" case — it moved to the Fleet screen's WaitingStrip
+  // (see the dedicated Fleet test below for its Respond-gating assertion, ported from
+  // this exact spot). Needs Reshi itself renders the merged "Waiting on you" + grouped
+  // "Review" columns now, neither of which this legacy session ever appears in.
   const needsReshi = page.getByTestId('needs-reshi-section');
-  await expect(needsReshi).toBeVisible();
-  const answerColumn = page.getByTestId('needs-reshi-column-answer');
-  const legacyCard = answerColumn.locator('[data-testid="ask-card"][data-source-label="session · legacy"]');
-  const grantiblyCard = legacyCard.filter({ hasText: 'grantibly-wright-b1' });
-  await expect(grantiblyCard).toBeVisible();
-  const legacyRespond = grantiblyCard.getByRole('link', { name: /respond/i });
-  await expect(legacyRespond).toBeVisible();
-  await expect(legacyRespond).toHaveAttribute('href', 'https://claude.ai/code/session_demo_waiting1');
-  await expect(legacyRespond).toHaveAttribute('target', '_blank');
+  if (await needsReshi.count()) {
+    await expect(page.getByTestId('needs-reshi-column-answer')).toHaveCount(0);
+    await expect(
+      needsReshi.locator('[data-testid="ask-card"][data-source-label="session · legacy"]')
+    ).toHaveCount(0);
+  }
 
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/desktop-1280-oracle.png`, fullPage: true });
@@ -237,6 +232,19 @@ test('Oracle Phase 3c — Fleet screen: sections, Respond gating, subagent nesti
   await page.goto('/oracle/fleet');
   await expect(page.getByTestId('fleet-header')).toBeVisible();
   await page.waitForLoadState('networkidle');
+
+  // Clarity Phase 5 (moved here from the Seeing Stone test above): demo-session-
+  // waiting-1 (needs_attention, no manifest ask, no arc_id — "unlinked legacy") now
+  // renders on Fleet via WaitingStrip, the only place it appears. Ported from the
+  // retired oracle-fleet-p3.spec.ts's Respond-gating coverage.
+  const waitingStrip = page.getByTestId('waiting-strip');
+  await expect(waitingStrip).toBeVisible();
+  const legacyWaitingCard = waitingStrip.getByTestId('session-card').filter({ hasText: 'grantibly-wright-b1' });
+  await expect(legacyWaitingCard).toBeVisible();
+  const legacyRespond = legacyWaitingCard.getByTestId('respond-link');
+  await expect(legacyRespond).toBeVisible();
+  await expect(legacyRespond).toHaveAttribute('href', 'https://claude.ai/code/session_demo_waiting1');
+  await expect(legacyRespond).toHaveAttribute('target', '_blank');
 
   // Same corrected section-to-bucket mapping as before the split, just relocated:
   // In Motion = WORKING bucket ONLY: a running session belongs here.
