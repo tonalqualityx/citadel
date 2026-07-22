@@ -38,7 +38,17 @@ async function shapeOne(pick: any) {
   const sessionSummary = pick.session_external_id
     ? await prisma.oracleSession.findFirst({
         where: { external_id: pick.session_external_id },
-        select: { external_id: true, title: true, status: true, remote_url: true, goal: true },
+        // Clarity Phase 4c — needs_attention/last_event_at feed the session-type pick
+        // card's own quiet "waiting since <time>" line, same parity fix as /api/today.
+        select: {
+          external_id: true,
+          title: true,
+          status: true,
+          remote_url: true,
+          goal: true,
+          needs_attention: true,
+          last_event_at: true,
+        },
       })
     : null;
 

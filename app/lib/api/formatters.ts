@@ -1031,7 +1031,30 @@ export function formatTaskResponse(task: any) {
 // Clarity Phase 1 — Arc (lightweight micro-project grouping). Status is derived, never
 // stored: callers pass the result of lib/arc-status.ts's getArcStatus() as `status`, and
 // task_count comes from either an included tasks[] array or a Prisma _count.
-export function formatArcResponse(arc: any, status: 'empty' | 'open' | 'complete') {
+//
+// Clarity Phase 4c — `extras` is optional and additive, mirroring formatTodayPickResponse's
+// own withProgress-gated extras pattern below: only the arc DETAIL route (GET/PATCH
+// /api/arcs/[id]) computes/passes `sessions`/`estimatedMinutesTotal` (both require extra
+// queries or a tasks-select the list/create routes don't do), so those two keys are simply
+// omitted from the list/create shape rather than faked as an empty array / 0. Every arc
+// row always carries its own raw `estimate_override_minutes` scalar column regardless
+// (cheap — no extra query needed for that one).
+export function formatArcResponse(
+  arc: any,
+  status: 'empty' | 'open' | 'complete',
+  extras: {
+    sessions?: Array<{
+      id: string;
+      external_id: string;
+      title: string | null;
+      status: string;
+      remote_url: string | null;
+      needs_attention: boolean;
+      last_event_at: Date | string | null;
+    }>;
+    estimatedMinutesTotal?: number;
+  } = {}
+) {
   return {
     id: arc.id,
     name: arc.name,
@@ -1045,6 +1068,17 @@ export function formatArcResponse(arc: any, status: 'empty' | 'open' | 'complete
     closed_at: arc.closed_at ?? null,
     // Clarity Phase 5 — the Soothsayer's snooze action.
     snoozed_until: arc.snoozed_until ?? null,
+    // Clarity Phase 4c — the arc board header's time-estimate override; null = no
+    // override, display the computed estimated_minutes_total instead.
+    estimate_override_minutes: arc.estimate_override_minutes ?? null,
+    ...(extras.estimatedMinutesTotal !== undefined
+      ? { estimated_minutes_total: extras.estimatedMinutesTotal }
+      : {}),
+    // Clarity Phase 4c — the arc board header's session panel: the arc's linked
+    // session(s) from origin_session_external_id + any arc_id-linked OracleSession rows
+    // (merged/deduped in lib/arc-sessions.ts). Omitted (not `[]`) when the caller didn't
+    // compute it, same "absent means not requested" discipline as estimated_minutes_total.
+    ...(extras.sessions !== undefined ? { sessions: extras.sessions } : {}),
     task_count: arc.tasks?.length ?? arc._count?.tasks ?? 0,
     created_at: arc.created_at,
     updated_at: arc.updated_at,
@@ -1119,6 +1153,13 @@ export function formatTodayPickResponse(
       status: string;
       remote_url: string | null;
       goal: string | null;
+      // Clarity Phase 4c — parity fix: a session-type Today pick's card renders the same
+      // quiet "waiting since <time>" line the arc board's session panel does, when this
+      // session is flagged needs_attention. last_event_at is the "when did this start
+      // waiting" proxy (best-available, same convention /api/waiting-on-me's waiting_since
+      // already uses).
+      needs_attention?: boolean;
+      last_event_at?: Date | string | null;
     } | null;
     primaryAction?: { kind: string } | null;
   } = {}

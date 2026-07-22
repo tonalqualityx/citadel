@@ -19,6 +19,9 @@ vi.mock('@/lib/db/prisma', () => ({
     project: {
       findUnique: vi.fn(),
     },
+    oracleSession: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -30,6 +33,7 @@ const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockArcUpdate = prisma.arc.update as Mock;
 const mockClientFindUnique = prisma.client.findUnique as Mock;
 const mockProjectFindUnique = prisma.project.findUnique as Mock;
+const mockOracleSessionFindFirst = prisma.oracleSession.findFirst as Mock;
 
 function arc(overrides: Record<string, unknown> = {}) {
   return {
@@ -42,9 +46,11 @@ function arc(overrides: Record<string, unknown> = {}) {
     project: null,
     origin_session_external_id: null,
     closed_at: null,
+    estimate_override_minutes: null,
     created_at: new Date(),
     updated_at: new Date(),
     tasks: [],
+    sessions: [],
     ...overrides,
   };
 }
@@ -90,6 +96,115 @@ describe('GET /api/arcs/[id]', () => {
 
     expect(res.status).toBe(404);
     expect(body.error).toBe('Arc not found');
+  });
+
+  // Clarity Phase 4c — the arc board header's time estimate.
+  it('computes estimated_minutes_total from OPEN tasks only, treating a null estimate as 0', async () => {
+    mockArcFindUnique.mockResolvedValue(
+      arc({
+        tasks: [
+          { id: 't1', title: 'Open A', status: 'not_started', priority: 2, due_date: null, assignee_id: null, assignee: null, estimated_minutes: 30 },
+          { id: 't2', title: 'Open B (no estimate)', status: 'in_progress', priority: 1, due_date: null, assignee_id: null, assignee: null, estimated_minutes: null },
+          { id: 't3', title: 'Done (excluded)', status: 'done', priority: 3, due_date: null, assignee_id: null, assignee: null, estimated_minutes: 500 },
+        ],
+      })
+    );
+
+    const res = await GET(getRequest(), { params });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.estimated_minutes_total).toBe(30);
+  });
+
+  it('null estimate_override_minutes passes through as-is', async () => {
+    mockArcFindUnique.mockResolvedValue(arc({ estimate_override_minutes: null }));
+    const res = await GET(getRequest(), { params });
+    const body = await res.json();
+    expect(body.estimate_override_minutes).toBeNull();
+  });
+
+  it('a set estimate_override_minutes passes through', async () => {
+    mockArcFindUnique.mockResolvedValue(arc({ estimate_override_minutes: 120 }));
+    const res = await GET(getRequest(), { params });
+    const body = await res.json();
+    expect(body.estimate_override_minutes).toBe(120);
+  });
+
+  // Clarity Phase 4c — the arc board header's session panel.
+  describe('sessions', () => {
+    it('returns the arc_id-linked sessions when there is no origin_session_external_id', async () => {
+      const linkedSession = {
+        id: 'sess-1',
+        external_id: 'ext-1',
+        title: 'Linked session',
+        status: 'running',
+        remote_url: null,
+        needs_attention: false,
+        last_event_at: null,
+      };
+      mockArcFindUnique.mockResolvedValue(arc({ sessions: [linkedSession] }));
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.sessions).toEqual([linkedSession]);
+      expect(mockOracleSessionFindFirst).not.toHaveBeenCalled();
+    });
+
+    it('renders nothing (empty array) when the arc has no linked sessions at all', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ sessions: [] }));
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.sessions).toEqual([]);
+    });
+
+    it('looks up and merges the origin session when it is not already arc_id-linked', async () => {
+      mockArcFindUnique.mockResolvedValue(
+        arc({ origin_session_external_id: 'ext-origin', sessions: [] })
+      );
+      const originSession = {
+        id: 'sess-origin',
+        external_id: 'ext-origin',
+        title: 'Origin session',
+        status: 'idle',
+        remote_url: null,
+        needs_attention: false,
+        last_event_at: null,
+      };
+      mockOracleSessionFindFirst.mockResolvedValue(originSession);
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(mockOracleSessionFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { external_id: 'ext-origin' } })
+      );
+      expect(body.sessions).toEqual([originSession]);
+    });
+
+    it('does not re-query when the origin session is already among the arc_id-linked set', async () => {
+      const linkedSession = {
+        id: 'sess-shared',
+        external_id: 'ext-shared',
+        title: 'Shared session',
+        status: 'waiting',
+        remote_url: null,
+        needs_attention: true,
+        last_event_at: new Date().toISOString(),
+      };
+      mockArcFindUnique.mockResolvedValue(
+        arc({ origin_session_external_id: 'ext-shared', sessions: [linkedSession] })
+      );
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(mockOracleSessionFindFirst).not.toHaveBeenCalled();
+      expect(body.sessions).toEqual([linkedSession]);
+    });
   });
 });
 
@@ -230,6 +345,55 @@ describe('PATCH /api/arcs/[id]', () => {
 
     it('rejects an invalid snoozed_until (not ISO-8601)', async () => {
       const res = await PATCH(patchRequest({ snoozed_until: 'not-a-date' }), { params });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // Clarity Phase 4c — the arc board header's time-estimate override.
+  describe('estimate_override_minutes', () => {
+    it('sets estimate_override_minutes', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ estimate_override_minutes: 90 }));
+
+      const res = await PATCH(patchRequest({ estimate_override_minutes: 90 }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.estimate_override_minutes).toBe(90);
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ estimate_override_minutes: 90 }) })
+      );
+    });
+
+    it('setting estimate_override_minutes to null clears the override', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ estimate_override_minutes: 90 }));
+      mockArcUpdate.mockResolvedValue(arc({ estimate_override_minutes: null }));
+
+      const res = await PATCH(patchRequest({ estimate_override_minutes: null }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.estimate_override_minutes).toBeNull();
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ estimate_override_minutes: null }) })
+      );
+    });
+
+    it('leaves estimate_override_minutes untouched when absent from the body', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ name: 'Renamed' }));
+
+      await PATCH(patchRequest({ name: 'Renamed' }), { params });
+
+      const callArgs = mockArcUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect('estimate_override_minutes' in callArgs.data).toBe(false);
+    });
+
+    it('rejects a negative estimate_override_minutes', async () => {
+      const res = await PATCH(patchRequest({ estimate_override_minutes: -5 }), { params });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects a non-integer estimate_override_minutes', async () => {
+      const res = await PATCH(patchRequest({ estimate_override_minutes: 12.5 }), { params });
       expect(res.status).toBe(400);
     });
   });

@@ -19,6 +19,22 @@ export interface ArcTask {
   assignee: { id: string; name: string } | null;
   needs_review: boolean;
   approved: boolean;
+  // Clarity Phase 4c — the arc board header's time estimate sums these across the arc's
+  // open tasks.
+  estimated_minutes: number | null;
+}
+
+// Clarity Phase 4c — the arc board header's session panel: one of the arc's linked
+// sessions (origin_session_external_id + any arc_id-linked OracleSession rows, merged
+// server-side — see lib/arc-sessions.ts).
+export interface ArcSessionSummary {
+  id: string;
+  external_id: string;
+  title: string | null;
+  status: string;
+  remote_url: string | null;
+  needs_attention: boolean;
+  last_event_at: string | null;
 }
 
 export interface ArcDetail {
@@ -34,6 +50,10 @@ export interface ArcDetail {
   closed_at: string | null;
   // Clarity Phase 5 — the Soothsayer's snooze action.
   snoozed_until: string | null;
+  // Clarity Phase 4c — the arc board header enrichment.
+  estimate_override_minutes: number | null;
+  estimated_minutes_total: number;
+  sessions: ArcSessionSummary[];
   task_count: number;
   created_at: string;
   updated_at: string;
@@ -53,6 +73,9 @@ export interface ArcSummary {
   closed_at: string | null;
   // Clarity Phase 5 — the Soothsayer's snooze action.
   snoozed_until: string | null;
+  // Clarity Phase 4c — always present (a raw column); the list endpoint doesn't compute
+  // estimated_minutes_total/sessions (those need extra queries only the detail route does).
+  estimate_override_minutes: number | null;
   task_count: number;
   created_at: string;
   updated_at: string;
@@ -96,6 +119,24 @@ export function useCloseArc() {
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to update arc');
+    },
+  });
+}
+
+// Clarity Phase 4c — the arc board header's time-estimate override. `minutes: null`
+// clears the override (reverts the display to the computed estimated_minutes_total).
+export function useUpdateArcEstimate() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, minutes }: { id: string; minutes: number | null }) =>
+      apiClient.patch<ArcDetail>(`/arcs/${id}`, { estimate_override_minutes: minutes }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: arcKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: arcKeys.all });
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to update estimate');
     },
   });
 }

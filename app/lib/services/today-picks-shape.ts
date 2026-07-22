@@ -39,7 +39,18 @@ export async function shapeTodayPicks(
   const sessions = sessionIds.length
     ? await prisma.oracleSession.findMany({
         where: { external_id: { in: sessionIds } },
-        select: { external_id: true, title: true, status: true, remote_url: true, goal: true },
+        // Clarity Phase 4c — needs_attention/last_event_at feed the session-type pick
+        // card's own quiet "waiting since <time>" line (parity fix with the arc board's
+        // attention dot/session panel).
+        select: {
+          external_id: true,
+          title: true,
+          status: true,
+          remote_url: true,
+          goal: true,
+          needs_attention: true,
+          last_event_at: true,
+        },
       })
     : [];
   const sessionByExternalId = new Map(sessions.map((s) => [s.external_id, s]));
@@ -79,6 +90,8 @@ export async function shapeTodayPicks(
             status: sessionSummary.status,
             remote_url: sessionSummary.remote_url,
             goal: sessionSummary.goal,
+            needs_attention: sessionSummary.needs_attention,
+            last_event_at: sessionSummary.last_event_at,
           }
         : null,
       primaryAction,

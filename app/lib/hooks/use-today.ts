@@ -33,6 +33,10 @@ export interface TodayPick {
     status: string;
     remote_url: string | null;
     goal: string | null;
+    // Clarity Phase 4c — parity fix: feeds the card's own quiet "waiting since <time>"
+    // line, same signal the arc board's attention dot/session panel already use.
+    needs_attention?: boolean;
+    last_event_at?: string | null;
   } | null;
   charter_id: string | null;
   charter: { id: string; name: string } | null;
