@@ -188,7 +188,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Merged "everything waiting on Mike" feed: a 5-query task sweep (focus, overdue, awaiting-review, blocked, open-within-14d) plus live Oracle sessions with a waiting_on ask parked.',
+        summary: 'Merged "everything waiting on Mike" feed: a 5-query task sweep (focus, overdue, awaiting-review, blocked, open-within-14d) plus live Oracle sessions with a waiting_on ask parked, plus (Clarity Phase 4a) the crisis strip / intake drawer email surfaces.',
         auth: 'required',
         queryParams: [
           { name: 'user_id', type: 'uuid', required: false, description: 'Tech users self-only (403 on mismatch); PM/Admin any user, defaults to self' },
@@ -200,7 +200,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           '(reviewer_id-scoped, not assignee-scoped). Session asks route by their own ask_queue ' +
           '(decide|answer|review|do); a session with no ask_queue set falls back to `do`. Session ' +
           'asks are not scoped by user_id — Oracle sessions have no per-Citadel-user ownership in ' +
-          'this phase; the endpoint is the single merged view of everything waiting on Mike.',
+          'this phase; the endpoint is the single merged view of everything waiting on Mike. ' +
+          'Clarity Phase 4a: `crisis` (open+urgent email_asks, newest first) and `intake` ' +
+          '(open+non-urgent email_asks, count + newest_at + items, newest first) are their OWN ' +
+          'surface — email asks never merge into decide/answer/review/do.',
         responseExample: {
           decide: [
             {
@@ -219,7 +222,83 @@ export const clarityEndpoints: ApiEndpoint[] = [
           answer: [],
           review: [],
           do: [],
+          crisis: [
+            {
+              id: 'uuid',
+              message_id: 'string',
+              thread_id: 'string|null',
+              account: 'string',
+              from_name: 'string|null',
+              from_email: 'string',
+              subject: 'string',
+              gist: 'string|null',
+              queue: 'decide|answer|review|do|null',
+              severity: 'client_blocking|launch_blocking|internal|null',
+              is_urgent: true,
+              state: 'open|handled|dismissed',
+              task_id: 'uuid|null',
+              deep_link: 'string',
+              received_at: 'ISO-8601',
+            },
+          ],
+          intake: { count: 'number', newest_at: 'ISO-8601|null', items: [] },
           meta: { counts: { decide: 'number', answer: 'number', review: 'number', do: 'number', total: 'number' } },
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/email-asks/{id}',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Clarity Phase 4a: the crisis strip\'s "Handled" action and the intake drawer\'s Dismiss/Open actions. Admin-only.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed' },
+          { name: 'task_id', type: 'uuid', required: false, description: '404-checked against tasks if given' },
+        ],
+      },
+    ],
+  },
+  {
+    path: '/api/email-asks/{id}/create-task',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Clarity Phase 4a: the "Create" / "Create + open" backend — turns an email ask into a real Task. Admin-only.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Idempotent: if the ask already has task_id set (and that task still exists), returns ' +
+          'it as-is with 200 — never creates a second Task. Otherwise creates one: title is the ' +
+          'subject with a leading Re:/Fwd: prefix stripped (repeated/case-insensitive); ' +
+          'description is the gist + the deep link; source=email, source_ref=message_id, ' +
+          'origin_url=deep_link; client_id matched by from_email\'s domain against every ' +
+          'non-deleted Client.email domain (null if no match — never guessed); assignee ' +
+          'defaults to the primary operator (same email-lookup helper as /api/session-tasks); ' +
+          'priority derives from the ask\'s severity via the same client_blocking->1/' +
+          'launch_blocking->2/internal->3 mapping session-tasks uses (lib/ask-severity.ts). ' +
+          'arc_id/arc_name reuse the exact same shared resolution as session-tasks ' +
+          '(lib/arc-resolution.ts). sop_id is a pure passthrough — no SOP-guessing logic exists ' +
+          'yet (out of v1 scope). Sets email_ask.task_id + state=handled on success.',
+        bodySchema: [
+          { name: 'arc_id', type: 'uuid', required: false, description: 'XOR with arc_name — 400 if both given' },
+          { name: 'arc_name', type: 'string', required: false, description: 'XOR with arc_id' },
+          { name: 'sop_id', type: 'uuid', required: false, description: 'Passthrough only, no resolution logic' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          title: 'string',
+          status: 'not_started',
+          priority: 'number',
+          source: 'email',
+          origin_url: 'string',
+          client_id: 'uuid|null',
+          arc_id: 'uuid|null',
         },
       },
     ],
@@ -350,6 +429,37 @@ export const clarityEndpoints: ApiEndpoint[] = [
           week: [
             { date: 'YYYY-MM-DD', meeting_minutes: 'number', meetings_count: 'number', due_tasks_count: 'number' },
           ],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/today/due-soon',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Clarity Phase 4a: the due-soon row at the foot of Today — the requester\'s own tasks due within a rolling 24h window that are NOT already picked for today.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD in the requester\'s resolved timezone; only used to determine which today_picks to exclude against. Defaults to today in that zone.' },
+        ],
+        responseNotes:
+          'The 24h window is REAL rolling time from the request instant (now to now+24h), ' +
+          'never a calendar-day cutoff — immune to the UTC-vs-zoned-date bug class that hit ' +
+          'the Phase 3 seed fixtures while baselining this phase (see lib/email-asks.ts\'s ' +
+          'isDueSoon). Scoped to status not in (done, abandoned), assignee_id = requester, and ' +
+          'excludes any task_id already present in that date\'s today_picks (item_type=task). ' +
+          'Adding one to Today uses the existing POST /api/today (item_type=task, task_id) — no ' +
+          'separate endpoint for that action.',
+        responseExample: {
+          date: 'YYYY-MM-DD',
+          timezone: 'America/New_York',
+          tasks: [
+            { id: 'uuid', title: 'string', status: 'string', priority: 'number', due_date: 'ISO-8601' },
+          ],
+          meta: { total: 'number' },
         },
       },
     ],

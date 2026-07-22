@@ -79,6 +79,42 @@ export const oracleEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/oracle/email-sync',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Clarity Phase 4a: batch upsert email asks into email_asks — the source for the Seeing Stone\'s crisis strip and intake drawer. Same Bearer-auth util as /api/session-tasks and /api/oracle/calendar-sync.',
+        auth: 'required',
+        responseNotes:
+          'Called by the staged, not-cron-wired classifier ' +
+          '(~/.claude/tools/oracle/clarity/email-classifier.py) for BOTH mailboxes on every ' +
+          '15-min pass. Upserts each ask by message_id (create-or-update, never duplicates). ' +
+          'On an ask that IS urgent AND either did not exist before this call, or existed but ' +
+          'was not previously urgent, creates a Notification (type oracle_urgent_email) for ' +
+          'the primary operator (same email-lookup default as /api/session-tasks\' assignee) — ' +
+          'a re-sync of an already-urgent ask never re-notifies.',
+        bodySchema: [
+          {
+            name: 'asks',
+            type: 'object',
+            required: true,
+            description:
+              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at }',
+          },
+        ],
+        responseExample: {
+          success: true,
+          upserted: 'number',
+          created: 'number',
+          updated: 'number',
+          notified_urgent: 'number',
+        },
+      },
+    ],
+  },
+  {
     path: '/api/oracle/fleet',
     group: 'oracle',
     methods: [
