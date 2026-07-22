@@ -1,16 +1,29 @@
 'use client';
 
 import * as React from 'react';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 import { cn } from '@/lib/utils/cn';
 import type { TodayPick } from '@/lib/hooks/use-today';
+import { useUpdateTodayPick } from '@/lib/hooks/use-today';
 import { TodayPickCard } from './TodayPickCard';
 import { capColumnCards, isDoingColumnOverCap } from '@/lib/kanban-caps';
+import { columnForPick, fieldsForTransition, type BoardColumnId } from './today-board-logic';
 
 interface TodayBoardProps {
   picks: TodayPick[];
 }
-
-type BoardColumnId = 'todo' | 'doing' | 'done';
 
 const COLUMN_TITLES: Record<BoardColumnId, string> = {
   todo: 'To do',
@@ -18,100 +31,174 @@ const COLUMN_TITLES: Record<BoardColumnId, string> = {
   done: 'Done',
 };
 
-// The Today board lens: same picks as the list, viewed as columns To do / Doing / Done by
-// completed_at + an "in_progress" marker. The binding schema has no stored duration/status
-// for a pick, so "Doing" is a cheap, session-local (not persisted) marker the operator
-// toggles here — the spec calls this out explicitly as "cheap lens, same data", and this is
-// the documented, deliberate simplification behind that. Kanban density caps + the Doing
-// column's own soft WIP nudge (>=3 items, warning tint, never a hard block) both apply.
-export function TodayBoard({ picks }: TodayBoardProps) {
-  const [doingIds, setDoingIds] = React.useState<Set<string>>(new Set());
+const COLUMN_ORDER: BoardColumnId[] = ['todo', 'doing', 'done'];
 
-  // Keep the marker set clean: a completed pick can't still be "doing".
-  React.useEffect(() => {
-    setDoingIds((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const pick of picks) {
-        if (pick.completed_at && next.has(pick.id)) {
-          next.delete(pick.id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [picks]);
+// The Today board lens: same picks as the list, viewed as columns To do / Doing / Done —
+// Clarity Phase 4b made this a REAL, server-persisted state (today_picks.started_at) with
+// drag-and-drop between all three columns, using the same dnd-kit wiring pattern as
+// ArcBoard (components/domain/oracle/ArcBoard.tsx): PointerSensor + KeyboardSensor,
+// closestCorners collision, a DragOverlay ghost. Column membership is purely a function of
+// started_at/completed_at (see today-board-logic.ts) — dragging a Done pick anywhere other
+// than back into Done clears completed_at but preserves started_at, so it can land back in
+// Doing rather than resetting all the way to To do (you can't un-start a task by dragging it
+// out of Done). The existing checkmark toggle (in TodayPickCard) remains a same-effect
+// shortcut for Doing/To do -> Done. The Doing column's soft WIP cap (>=3, warning tint,
+// never a hard block) applies here exactly as before, now driven by real column membership.
+export function TodayBoard({ picks }: TodayBoardProps) {
+  const updatePick = useUpdateTodayPick();
+  const [activePick, setActivePick] = React.useState<TodayPick | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor)
+  );
 
   const columns = React.useMemo(() => {
-    const done: TodayPick[] = [];
-    const doing: TodayPick[] = [];
-    const todo: TodayPick[] = [];
+    const cols: Record<BoardColumnId, TodayPick[]> = { todo: [], doing: [], done: [] };
     for (const pick of picks) {
-      if (pick.completed_at) {
-        done.push(pick);
-      } else if (doingIds.has(pick.id)) {
-        doing.push(pick);
-      } else {
-        todo.push(pick);
-      }
+      cols[columnForPick(pick)].push(pick);
     }
-    return { todo, doing, done };
-  }, [picks, doingIds]);
+    return cols;
+  }, [picks]);
 
-  function startPick(id: string) {
-    setDoingIds((prev) => new Set(prev).add(id));
+  function movePick(pickId: string, target: BoardColumnId) {
+    const pick = picks.find((p) => p.id === pickId);
+    if (!pick) return;
+    const source = columnForPick(pick);
+    const fields = fieldsForTransition(source, target);
+    if (!fields) return;
+    updatePick.mutate({ id: pickId, data: fields });
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const pick = picks.find((p) => p.id === event.active.id);
+    setActivePick(pick ?? null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActivePick(null);
+    const { active, over } = event;
+    if (!over) return;
+    movePick(active.id as string, over.id as BoardColumnId);
   }
 
   const doingOverCap = isDoingColumnOverCap(columns.doing.length);
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="today-board">
-      {(Object.keys(columns) as BoardColumnId[]).map((columnId) => {
-        const cards = columns[columnId];
-        const { visible, overflowCount } = capColumnCards(cards);
-        const isDoing = columnId === 'doing';
-        return (
-          <div
-            key={columnId}
-            className={cn(
-              'flex flex-col gap-2 rounded-lg border p-2',
-              isDoing && doingOverCap ? 'border-[color:var(--warning)] bg-[var(--warning-subtle)]' : 'border-border-warm bg-background-light/40'
-            )}
-            data-testid={`today-board-column-${columnId}`}
-            data-over-cap={isDoing && doingOverCap ? 'true' : undefined}
-          >
-            <div className="flex items-center justify-between px-1">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub">
-                {COLUMN_TITLES[columnId]}
-              </h4>
-              <span className="rounded-full border border-border-warm bg-surface px-2 text-xs text-text-sub">
-                {cards.length}
-              </span>
-            </div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="today-board">
+        {COLUMN_ORDER.map((columnId) => {
+          const cards = columns[columnId];
+          const { visible, overflowCount } = capColumnCards(cards);
+          const isDoing = columnId === 'doing';
+          return (
+            <TodayBoardColumn
+              key={columnId}
+              id={columnId}
+              title={COLUMN_TITLES[columnId]}
+              cards={visible}
+              overflowCount={overflowCount}
+              total={cards.length}
+              overCap={isDoing && doingOverCap}
+              onStart={columnId === 'todo' ? (pickId) => movePick(pickId, 'doing') : undefined}
+            />
+          );
+        })}
+      </div>
+      <DragOverlay>
+        {activePick && (
+          <div className="opacity-90">
+            <TodayPickCard pick={activePick} />
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}
 
-            <div className="flex flex-col gap-2">
-              {visible.map((pick) => (
-                <div key={pick.id} className="flex flex-col gap-1">
-                  <TodayPickCard pick={pick} />
-                  {columnId === 'todo' && (
-                    <button
-                      type="button"
-                      onClick={() => startPick(pick.id)}
-                      className="self-start px-1 text-xs text-text-sub underline decoration-dotted hover:text-text-main"
-                    >
-                      Start
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
+function TodayBoardColumn({
+  id,
+  title,
+  cards,
+  overflowCount,
+  total,
+  overCap,
+  onStart,
+}: {
+  id: BoardColumnId;
+  title: string;
+  cards: TodayPick[];
+  overflowCount: number;
+  total: number;
+  overCap: boolean;
+  onStart?: (pickId: string) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
 
-            {overflowCount > 0 && (
-              <div className="px-1 text-center text-xs text-text-sub">+ {overflowCount} more</div>
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex min-h-[10rem] flex-col gap-2 rounded-lg border p-2',
+        overCap ? 'border-[color:var(--warning)] bg-[var(--warning-subtle)]' : 'border-border-warm bg-background-light/40',
+        isOver && 'border-[color:var(--accent)]'
+      )}
+      data-testid={`today-board-column-${id}`}
+      data-over-cap={overCap ? 'true' : undefined}
+    >
+      <div className="flex items-center justify-between px-1">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub">{title}</h4>
+        <span className="rounded-full border border-border-warm bg-surface px-2 text-xs text-text-sub">
+          {total}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {cards.map((pick) => (
+          <div key={pick.id} className="flex flex-col gap-1">
+            <DraggableTodayPick pick={pick} />
+            {onStart && (
+              <button
+                type="button"
+                onClick={() => onStart(pick.id)}
+                className="self-start px-1 text-xs text-text-sub underline decoration-dotted hover:text-text-main"
+                data-testid="today-board-start-button"
+              >
+                Start
+              </button>
             )}
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      {overflowCount > 0 && (
+        <div className="px-1 text-center text-xs text-text-sub">+ {overflowCount} more</div>
+      )}
+    </div>
+  );
+}
+
+function DraggableTodayPick({ pick }: { pick: TodayPick }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: pick.id });
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
+      data-testid="today-board-draggable-pick"
+    >
+      <TodayPickCard pick={pick} />
     </div>
   );
 }

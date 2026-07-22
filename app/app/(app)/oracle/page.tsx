@@ -5,15 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useOracleFleet } from '@/lib/hooks/use-oracle';
 import { useWaitingOnMe } from '@/lib/hooks/use-waiting-on-me';
-import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useNow } from '@/lib/hooks/use-now';
 import { Spinner } from '@/components/ui/spinner';
-import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { OracleHeader } from '@/components/domain/oracle/OracleHeader';
 import { TodaySection } from '@/components/domain/oracle/today/TodaySection';
 import { NeedsReshi } from '@/components/domain/oracle/needs-reshi/NeedsReshi';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
-import { IntakeDrawer } from '@/components/domain/oracle/intake/IntakeDrawer';
+import { TaskPeekProvider } from '@/lib/contexts/task-peek-context';
 import {
   groupNonWaitingSessions,
   legacyNeedsAttentionSessions,
@@ -34,10 +32,6 @@ export default function OraclePage() {
   const { user, isLoading: authLoading, isAdmin } = useAuth();
   const { data, isLoading, isError } = useOracleFleet();
   const { data: waitingOnMeData } = useWaitingOnMe();
-  // Clarity Phase 4a — the intake drawer's "newest HH:MM" needs the same resolved-zone
-  // timezone TodaySection already fetches; sharing useTodayCalendar's query key here
-  // means React Query dedupes this into the same request rather than firing a second one.
-  const { data: calendarData } = useTodayCalendar();
   const now = useNow(1000);
 
   React.useEffect(() => setMounted(true), []);
@@ -84,29 +78,29 @@ export default function OraclePage() {
   const liveSessions = flattenSessions(data.machines);
 
   return (
-    <div className="flex flex-col gap-4">
-      <OracleHeader
-        machines={data.machines}
-        fleetCounts={{ inMotion: groups.working.length, docked: groups.idle.length }}
-      />
+    // Clarity Phase 4b — every quest/task-opening action inside this tree (Review queue
+    // cards, Today pick cards, the due-soon row, intake drawer's Create + open) opens the
+    // shared peek drawer this provider owns, instead of navigating away from /oracle.
+    <TaskPeekProvider>
+      <div className="flex flex-col gap-4">
+        <OracleHeader
+          machines={data.machines}
+          fleetCounts={{ inMotion: groups.working.length, docked: groups.idle.length }}
+          intake={waitingOnMeData?.intake}
+        />
 
-      {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
+        {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
 
-      <TodaySection />
+        <TodaySection />
 
-      {waitingOnMeData && (
-        <>
+        {waitingOnMeData && (
           <NeedsReshi
             data={waitingOnMeData}
             liveSessions={liveSessions}
             legacyWaitingSessions={legacyWaitingSessions}
           />
-          <IntakeDrawer
-            intake={waitingOnMeData.intake}
-            timezone={calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE}
-          />
-        </>
-      )}
-    </div>
+        )}
+      </div>
+    </TaskPeekProvider>
   );
 }

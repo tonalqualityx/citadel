@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useUpdateTodayPick } from '@/lib/hooks/use-today';
+import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import type { TodayPick } from '@/lib/hooks/use-today';
 
 interface TodayPickCardProps {
@@ -40,6 +41,7 @@ function pickSubline(pick: TodayPick, t: (k: 'task' | 'tasks') => string): strin
 export function TodayPickCard({ pick, className }: TodayPickCardProps) {
   const { t } = useTerminology();
   const updatePick = useUpdateTodayPick();
+  const { openTaskPeek } = useTaskPeek();
   const isDone = !!pick.completed_at;
 
   function toggleDone() {
@@ -106,8 +108,8 @@ export function TodayPickCard({ pick, className }: TodayPickCardProps) {
             </Button>
           )}
           {kind === 'quest' && pick.task_id && (
-            <Button asChild variant="primary" size="sm">
-              <Link href={`/tasks/${pick.task_id}`}>{t('task')}</Link>
+            <Button variant="primary" size="sm" onClick={() => openTaskPeek(pick.task_id as string)}>
+              {t('task')}
             </Button>
           )}
           {kind === 'charter' && pick.charter_id && (

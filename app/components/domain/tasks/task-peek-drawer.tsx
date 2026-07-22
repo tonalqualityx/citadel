@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronRight,
   Scroll,
+  Milestone,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useTask, useUpdateTask } from '@/lib/hooks/use-tasks';
@@ -210,7 +211,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent side="right" size="xl">
+      <DrawerContent side="right" size="xl" data-testid="task-peek-drawer">
         <DrawerHeader>
           <DrawerTitle className="flex-1 pr-8">
             {isLoading ? (
@@ -326,6 +327,21 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                       className="text-text-sub hover:text-primary"
                     >
                       {task.charter.name}
+                    </Link>
+                  </div>
+                )}
+
+                {/* Arc (Clarity Phase 4b — Oracle campaign grouping) */}
+                {task.arc && (
+                  <div className="flex items-center gap-1">
+                    <Link href={`/oracle/arcs/${task.arc.id}`} className="text-text-sub hover:text-primary">
+                      <Milestone className="h-4 w-4" />
+                    </Link>
+                    <Link
+                      href={`/oracle/arcs/${task.arc.id}`}
+                      className="text-text-sub hover:text-primary"
+                    >
+                      {task.arc.name}
                     </Link>
                   </div>
                 )}
