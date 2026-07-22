@@ -90,10 +90,27 @@ export interface UpdateTodayPickInput {
   label?: string | null;
 }
 
+// Clarity Phase 4a — the due-soon row at the foot of Today.
+export interface DueSoonTask {
+  id: string;
+  title: string;
+  status: string;
+  priority: number;
+  due_date: string;
+}
+
+export interface DueSoonResponse {
+  date: string;
+  timezone: string;
+  tasks: DueSoonTask[];
+  meta: { total: number };
+}
+
 export const todayKeys = {
   all: ['today'] as const,
   picks: (date?: string) => [...todayKeys.all, 'picks', date ?? 'default'] as const,
   calendar: (date?: string) => [...todayKeys.all, 'calendar', date ?? 'default'] as const,
+  dueSoon: (date?: string) => [...todayKeys.all, 'due-soon', date ?? 'default'] as const,
 };
 
 export function useTodayPicks(date?: string) {
@@ -107,6 +124,13 @@ export function useTodayCalendar(date?: string) {
   return useQuery({
     queryKey: todayKeys.calendar(date),
     queryFn: () => apiClient.get<TodayCalendarResponse>('/today/calendar', { params: date ? { date } : undefined }),
+  });
+}
+
+export function useDueSoonTasks(date?: string) {
+  return useQuery({
+    queryKey: todayKeys.dueSoon(date),
+    queryFn: () => apiClient.get<DueSoonResponse>('/today/due-soon', { params: date ? { date } : undefined }),
   });
 }
 
