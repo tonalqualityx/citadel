@@ -126,4 +126,52 @@ describe('TodayPickCard', () => {
     renderWithClient(<TodayPickCard pick={questPick()} hasAttentionDot />);
     expect(screen.queryByTestId('arc-attention-dot')).not.toBeInTheDocument();
   });
+
+  // Clarity Phase 4c — parity fix: a session-type pick's card renders the same quiet
+  // "waiting since <time>" line the arc board's session panel does.
+  describe('session pick waiting-since parity fix', () => {
+    function sessionPick(overrides: Partial<TodayPick> = {}): TodayPick {
+      return questPick({
+        item_type: 'session',
+        task_id: null,
+        task: null,
+        session_external_id: 'ext-1',
+        session: {
+          external_id: 'ext-1',
+          title: 'A live session',
+          status: 'waiting',
+          remote_url: 'https://claude.ai/code/session_x',
+          goal: null,
+          needs_attention: true,
+          last_event_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+        },
+        primary_action: { kind: 'respond' },
+        ...overrides,
+      });
+    }
+
+    it('renders the waiting-since line when the session is needs_attention', () => {
+      renderWithClient(<TodayPickCard pick={sessionPick()} />);
+      expect(screen.getByTestId('today-pick-waiting-since')).toHaveTextContent('waiting since 5m ago');
+    });
+
+    it('does not render the waiting-since line when needs_attention is false', () => {
+      renderWithClient(
+        <TodayPickCard pick={sessionPick({ session: { ...sessionPick().session!, needs_attention: false } })} />
+      );
+      expect(screen.queryByTestId('today-pick-waiting-since')).not.toBeInTheDocument();
+    });
+
+    it('does not render the waiting-since line without a last_event_at', () => {
+      renderWithClient(
+        <TodayPickCard pick={sessionPick({ session: { ...sessionPick().session!, last_event_at: null } })} />
+      );
+      expect(screen.queryByTestId('today-pick-waiting-since')).not.toBeInTheDocument();
+    });
+
+    it('does not render the waiting-since line on a non-session pick', () => {
+      renderWithClient(<TodayPickCard pick={questPick()} />);
+      expect(screen.queryByTestId('today-pick-waiting-since')).not.toBeInTheDocument();
+    });
+  });
 });

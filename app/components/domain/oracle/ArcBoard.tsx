@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -20,12 +20,16 @@ import { cn } from '@/lib/utils/cn';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { Avatar } from '@/components/ui/avatar';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { useQueryClient } from '@tanstack/react-query';
-import { useArc, arcKeys, type ArcTask } from '@/lib/hooks/use-arcs';
+import { useArc, arcKeys, useUpdateArcEstimate, type ArcTask } from '@/lib/hooks/use-arcs';
 import { useUpdateTaskStatus, useCreateTask } from '@/lib/hooks/use-tasks';
 import { getArcStatus, getArcProgressPercent } from '@/lib/arc-status';
 import { capColumnCards, isWithinColumnLimit } from '@/lib/kanban-caps';
+import { arcEstimateDisplay } from './arc-board-logic';
+import { ArcSessionPanel } from './ArcSessionPanel';
 
 interface ArcBoardProps {
   arcId: string;
@@ -66,6 +70,89 @@ function ProgressBar({ percent }: { percent: number }) {
       </div>
       <span className="text-xs text-text-sub">{percent}%</span>
     </div>
+  );
+}
+
+// Clarity Phase 4c — the arc board header's time estimate: the sum of the arc's open
+// tasks' estimated_minutes, unless Mike has hand-set an override (then the override wins
+// and reads "(set by hand)"). A quiet pencil affordance opens a minimal inline form (one
+// number input, same "toggle + inline form" pattern as QuickAddQuest below) to set/clear
+// that override — the spec's PATCH support with no in-app way to invoke it would leave
+// the feature API-only, which isn't the point of "set by hand".
+function EstimateBadge({
+  arcId,
+  estimatedMinutesTotal,
+  overrideMinutes,
+}: {
+  arcId: string;
+  estimatedMinutesTotal: number;
+  overrideMinutes: number | null;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [value, setValue] = React.useState(overrideMinutes != null ? String(overrideMinutes) : '');
+  const updateEstimate = useUpdateArcEstimate();
+  const display = arcEstimateDisplay(estimatedMinutesTotal, overrideMinutes);
+
+  function openEditor() {
+    setValue(overrideMinutes != null ? String(overrideMinutes) : '');
+    setEditing(true);
+  }
+
+  function save(e: React.FormEvent) {
+    e.preventDefault();
+    const minutes = value.trim() === '' ? null : Number(value);
+    if (minutes !== null && (!Number.isFinite(minutes) || minutes < 0)) return;
+    updateEstimate.mutate({ id: arcId, minutes }, { onSuccess: () => setEditing(false) });
+  }
+
+  function clear() {
+    updateEstimate.mutate({ id: arcId, minutes: null }, { onSuccess: () => setEditing(false) });
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={openEditor}
+        className="flex items-center gap-1 text-xs text-text-sub hover:text-text-main"
+        data-testid="arc-estimate-badge"
+        data-is-override={display.isOverride || undefined}
+      >
+        {display.text}
+        <Pencil className="h-3 w-3" aria-hidden="true" />
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={save}
+      className="flex items-center gap-1.5 rounded-lg border border-border-warm bg-surface p-1.5"
+      data-testid="arc-estimate-form"
+    >
+      <input
+        autoFocus
+        type="number"
+        min={0}
+        inputMode="numeric"
+        placeholder="minutes"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-20 rounded border border-border-warm bg-surface px-2 py-1 text-xs text-text-main"
+        data-testid="arc-estimate-input"
+      />
+      <Button type="submit" variant="primary" size="sm" disabled={updateEstimate.isPending}>
+        Save
+      </Button>
+      {overrideMinutes != null && (
+        <Button type="button" variant="ghost" size="sm" onClick={clear} disabled={updateEstimate.isPending}>
+          Clear
+        </Button>
+      )}
+      <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+        Cancel
+      </Button>
+    </form>
   );
 }
 
@@ -152,10 +239,17 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <EstimateBadge
+            arcId={arcId}
+            estimatedMinutesTotal={arc.estimated_minutes_total}
+            overrideMinutes={arc.estimate_override_minutes}
+          />
           <ProgressBar percent={percent} />
           <QuickAddQuest arcId={arcId} />
         </div>
       </div>
+
+      <ArcSessionPanel sessions={arc.sessions} />
 
       <DndContext
         sensors={sensors}
@@ -207,20 +301,54 @@ function ArcColumn({ id, title, tasks }: { id: ColumnId; title: string; tasks: A
 }
 
 function ArcTaskCard({ task, isOverlay }: { task: ArcTask; isOverlay?: boolean }) {
+  const { openTaskPeek } = useTaskPeek();
   const pendingReview = task.status === 'done' && task.needs_review && !task.approved;
 
   return (
     <DraggableCard id={task.id} disabled={isOverlay}>
-      <Link href={`/tasks/${task.id}`} className="line-clamp-2 text-sm font-medium text-text-main hover:text-primary">
-        {task.title}
-      </Link>
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => openTaskPeek(task.id)}
+          className="line-clamp-2 text-left text-sm font-medium text-text-main hover:text-primary"
+          data-testid="arc-task-card-title"
+        >
+          {task.title}
+        </button>
+        <AssigneeChip assignee={task.assignee} />
+      </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
         {task.status === 'blocked' && <Badge variant="warning" size="sm">Blocked</Badge>}
         {task.status === 'abandoned' && <Badge variant="default" size="sm">Abandoned</Badge>}
         {pendingReview && <Badge variant="warning" size="sm">Awaiting review</Badge>}
-        {task.assignee && <span className="text-xs text-text-sub">{task.assignee.name.split(' ')[0]}</span>}
       </div>
     </DraggableCard>
+  );
+}
+
+// Clarity Phase 4c — every task card on the arc board shows its assignee (Mike's and
+// Bast's alike — both are plain User rows, no special-casing needed): an avatar/initials
+// chip with the full name on hover (native title tooltip). Unassigned renders a quiet,
+// dashed-outline placeholder rather than nothing, so "every card shows its assignee" holds
+// even for the empty state — it never implies a person exists that doesn't.
+function AssigneeChip({ assignee }: { assignee: ArcTask['assignee'] }) {
+  if (!assignee) {
+    return (
+      <span
+        title="Unassigned"
+        data-testid="arc-task-assignee-chip"
+        data-unassigned="true"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-border-warm text-[0.625rem] text-text-sub"
+      >
+        ?
+      </span>
+    );
+  }
+
+  return (
+    <span title={assignee.name} data-testid="arc-task-assignee-chip" className="shrink-0">
+      <Avatar name={assignee.name} size="xs" />
+    </span>
   );
 }
 

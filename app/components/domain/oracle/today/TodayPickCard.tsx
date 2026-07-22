@@ -6,9 +6,11 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useNow } from '@/lib/hooks/use-now';
 import { useUpdateTodayPick } from '@/lib/hooks/use-today';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { SnoozeMenu } from '@/components/domain/oracle/soothsayer/SnoozeMenu';
+import { commandAge } from '@/components/domain/oracle/oracle-logic';
 import type { TodayPick } from '@/lib/hooks/use-today';
 
 interface TodayPickCardProps {
@@ -50,6 +52,12 @@ export function TodayPickCard({ pick, className, hasAttentionDot }: TodayPickCar
   const { t } = useTerminology();
   const updatePick = useUpdateTodayPick();
   const { openTaskPeek } = useTaskPeek();
+  // Clarity Phase 4c — parity fix: a session-type pick's card renders the same quiet
+  // "waiting since <time>" line the arc board's session panel does, when its session is
+  // flagged needs_attention. Self-contained (like ArcSessionPanel) rather than threaded
+  // down from every ancestor (TodaySection -> TodayBoard -> TodayBoardColumn -> ...) —
+  // useNow is a cheap, dependency-free ticking clock, same pattern used elsewhere.
+  const nowMs = useNow(30_000);
   const isDone = !!pick.completed_at;
 
   function toggleDone() {
@@ -86,6 +94,11 @@ export function TodayPickCard({ pick, className, hasAttentionDot }: TodayPickCar
           </div>
           {pickSubline(pick, t) && (
             <div className="truncate text-xs text-text-sub">{pickSubline(pick, t)}</div>
+          )}
+          {pick.item_type === 'session' && pick.session?.needs_attention && pick.session.last_event_at && (
+            <div className="truncate text-xs text-text-sub" data-testid="today-pick-waiting-since">
+              waiting since {commandAge(pick.session.last_event_at, nowMs)}
+            </div>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
