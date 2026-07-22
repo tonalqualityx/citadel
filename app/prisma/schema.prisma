@@ -2595,6 +2595,13 @@ model Arc {
   // store" discipline as ArcStatus, this is just a wake-up timestamp, not a state machine.
   snoozed_until DateTime?
 
+  // Clarity Phase 4c — the arc board header's time estimate. null = no manual override;
+  // the board displays the SUM of the arc's open tasks' estimated_minutes instead. Set =
+  // Mike hand-picked a total that overrides that computed sum ("~2h (set by hand)").
+  // Never derived/recomputed server-side — a plain hand-entered number, same one-shot-
+  // override discipline as everything else on this model that isn't derived.
+  estimate_override_minutes Int?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
