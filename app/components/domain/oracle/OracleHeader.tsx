@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useCreateIdea } from '@/lib/hooks/use-ideas';
+import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
 import { CronHealthLine } from './CronHealthLine';
 import { WeekStrip } from './today/WeekStrip';
@@ -17,8 +18,12 @@ interface OracleHeaderProps {
   fleetCounts?: { inMotion: number; docked: number };
 }
 
-function formatToday(): string {
-  return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+// Clarity Phase 3d bug fix: was `new Date().toLocaleDateString('en-US', {...})` with no
+// timeZone — rendered in the BROWSER's implicit locale zone, not the resolved
+// requester's zone. Always pass the resolved zone from the /api/today/calendar
+// response (falls back to the client-safe default while it's still loading).
+function formatToday(timezone: string): string {
+  return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: timezone });
 }
 
 // Header: title, the machine-health one-liner (crons visible ONLY when erroring —
@@ -28,6 +33,7 @@ export function OracleHeader({ machines, fleetCounts }: OracleHeaderProps) {
   const [ideaText, setIdeaText] = React.useState('');
   const createIdea = useCreateIdea();
   const { data: calendarData } = useTodayCalendar();
+  const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
 
   function submitIdea(e: React.FormEvent) {
     e.preventDefault();
@@ -41,7 +47,7 @@ export function OracleHeader({ machines, fleetCounts }: OracleHeaderProps) {
       <div>
         <h1 className="text-lg font-bold text-text-main">Seeing Stone</h1>
         <div className="flex items-center gap-1.5 text-xs text-text-sub">
-          <span>{formatToday()}</span>
+          <span>{formatToday(timezone)}</span>
           <CronHealthLine machines={machines} />
         </div>
         {fleetCounts && (

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { GET } from '../route';
@@ -16,6 +16,9 @@ vi.mock('@/lib/db/prisma', () => ({
     task: {
       findMany: vi.fn(),
     },
+    userPreference: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -26,6 +29,7 @@ const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
 const mockCalendarEventFindMany = prisma.calendarEvent.findMany as Mock;
 const mockTaskFindMany = prisma.task.findMany as Mock;
+const mockUserPreferenceFindUnique = prisma.userPreference.findUnique as Mock;
 
 function createGetRequest(params: Record<string, string> = {}): NextRequest {
   const searchParams = new URLSearchParams(params);
@@ -38,6 +42,9 @@ beforeEach(() => {
   mockRequireRole.mockImplementation(() => {});
   mockCalendarEventFindMany.mockResolvedValue([]);
   mockTaskFindMany.mockResolvedValue([]);
+  // Clarity Phase 3d — resolveUserTimezone falls back to DEFAULT_DISPLAY_TIMEZONE
+  // (America/New_York) when there's no stored preference, same as an un-mocked real DB row.
+  mockUserPreferenceFindUnique.mockResolvedValue(null);
 });
 
 describe('GET /api/today/calendar', () => {
@@ -123,6 +130,7 @@ describe('GET /api/today/calendar', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.timezone).toBe('America/New_York'); // resolveUserTimezone's fallback
   });
 
   it('counts due tasks per day within the week window', async () => {
@@ -166,5 +174,70 @@ describe('GET /api/today/calendar', () => {
     const day22 = body.week.find((d: { date: string }) => d.date === '2026-07-22');
     expect(day22.meetings_count).toBe(0);
     expect(day22.meeting_minutes).toBe(0);
+  });
+});
+
+// Clarity Phase 3d — the actual bug report: an 8pm-ET event is already "tomorrow" in
+// UTC, so a literal-UTC day window either excluded it from "today" entirely or placed
+// it at the wrong hour on the time-shape once it WAS included. These tests capture the
+// REAL `where` clause values the route passes to calendarEvent.findMany (the earlier
+// tests in this file mock the DB layer and never actually inspect those bounds) to
+// prove the day window is genuinely ET-correct, not just re-checking the pure utility
+// in isolation.
+describe('GET /api/today/calendar — per-user timezone day bounds', () => {
+  it('the 8pm-ET boundary: America/New_York day bounds for 2026-07-21 span local midnight to local midnight, not UTC midnight to UTC midnight', async () => {
+    mockUserPreferenceFindUnique.mockResolvedValue({ timezone: 'America/New_York' });
+    mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockTaskFindMany.mockResolvedValueOnce([]);
+
+    await GET(createGetRequest({ date: '2026-07-21' }));
+
+    const dayWhere = mockCalendarEventFindMany.mock.calls[0][0].where.starts_at as { gte: Date; lte: Date };
+    // Midnight EDT on 2026-07-21 = 2026-07-21T04:00:00.000Z; midnight EDT on 2026-07-22
+    // minus 1ms = 2026-07-22T03:59:59.999Z. NOT '2026-07-21T00:00:00Z'/'...T23:59:59Z'
+    // (the literal-UTC bug), which would exclude an 8pm ET event entirely.
+    expect(dayWhere.gte.toISOString()).toBe('2026-07-21T04:00:00.000Z');
+    expect(dayWhere.lte.toISOString()).toBe('2026-07-22T03:59:59.999Z');
+
+    // The exact reported scenario: an 8pm ET meeting on 2026-07-21 (= 2026-07-22T00:00:00Z,
+    // already "tomorrow" in UTC) must fall INSIDE these bounds.
+    const eightPmET = new Date('2026-07-22T00:00:00.000Z');
+    expect(eightPmET.getTime()).toBeGreaterThanOrEqual(dayWhere.gte.getTime());
+    expect(eightPmET.getTime()).toBeLessThanOrEqual(dayWhere.lte.getTime());
+  });
+
+  it('mirror case: Asia/Karachi (UTC+5, no DST) day bounds roll over in the OPPOSITE direction from ET', async () => {
+    mockUserPreferenceFindUnique.mockResolvedValue({ timezone: 'Asia/Karachi' });
+    mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockTaskFindMany.mockResolvedValueOnce([]);
+
+    await GET(createGetRequest({ date: '2026-07-21' }));
+
+    const dayWhere = mockCalendarEventFindMany.mock.calls[0][0].where.starts_at as { gte: Date; lte: Date };
+    // Midnight PKT on 2026-07-21 = 2026-07-20T19:00:00.000Z; midnight PKT on 2026-07-22
+    // minus 1ms = 2026-07-21T18:59:59.999Z.
+    expect(dayWhere.gte.toISOString()).toBe('2026-07-20T19:00:00.000Z');
+    expect(dayWhere.lte.toISOString()).toBe('2026-07-21T18:59:59.999Z');
+
+    // The ET 8pm-boundary event from the test above (2026-07-22T00:00:00Z) must NOT
+    // fall inside Karachi's 2026-07-21 window — proving this isn't just always "add a
+    // buffer both ways", it's genuinely per-zone.
+    const eightPmET = new Date('2026-07-22T00:00:00.000Z');
+    expect(eightPmET.getTime()).toBeGreaterThan(dayWhere.lte.getTime());
+  });
+
+  it('resolves a distinct timezone per request based on the requesting user, not a cached/global value', async () => {
+    mockCalendarEventFindMany.mockResolvedValue([]);
+    mockTaskFindMany.mockResolvedValue([]);
+
+    mockUserPreferenceFindUnique.mockResolvedValueOnce({ timezone: 'America/New_York' });
+    const resNY = await GET(createGetRequest({ date: '2026-07-21' }));
+    const bodyNY = await resNY.json();
+    expect(bodyNY.timezone).toBe('America/New_York');
+
+    mockUserPreferenceFindUnique.mockResolvedValueOnce({ timezone: 'Asia/Karachi' });
+    const resKarachi = await GET(createGetRequest({ date: '2026-07-21' }));
+    const bodyKarachi = await resKarachi.json();
+    expect(bodyKarachi.timezone).toBe('Asia/Karachi');
   });
 });

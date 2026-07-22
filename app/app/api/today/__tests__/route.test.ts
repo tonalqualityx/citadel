@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { GET, POST } from '../route';
@@ -27,6 +27,9 @@ vi.mock('@/lib/db/prisma', () => ({
     charter: {
       findUnique: vi.fn(),
     },
+    userPreference: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -43,6 +46,7 @@ const mockSessionFindMany = prisma.oracleSession.findMany as Mock;
 const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockTaskFindUnique = prisma.task.findUnique as Mock;
 const mockCharterFindUnique = prisma.charter.findUnique as Mock;
+const mockUserPreferenceFindUnique = prisma.userPreference.findUnique as Mock;
 
 function createGetRequest(params: Record<string, string> = {}): NextRequest {
   const searchParams = new URLSearchParams(params);
@@ -83,6 +87,9 @@ beforeEach(() => {
   mockRequireAuth.mockResolvedValue({ userId: 'user-123', role: 'admin', email: 'admin@example.com' });
   mockRequireRole.mockImplementation(() => {});
   mockSessionFindMany.mockResolvedValue([]);
+  // Clarity Phase 3d — resolveUserTimezone falls back to DEFAULT_DISPLAY_TIMEZONE
+  // (America/New_York) when there's no stored preference, same as an un-mocked real DB row.
+  mockUserPreferenceFindUnique.mockResolvedValue(null);
 });
 
 describe('GET /api/today', () => {
@@ -94,6 +101,7 @@ describe('GET /api/today', () => {
 
     expect(res.status).toBe(200);
     expect(body.date).toBe('2026-07-21');
+    expect(body.timezone).toBe('America/New_York'); // resolveUserTimezone's fallback
     expect(body.picks).toHaveLength(1);
     expect(body.picks[0].arc).toEqual({ id: 'arc-1', name: 'BRIC change round', status: 'open', task_count: 2 });
     expect(body.picks[0].primary_action).toEqual({ kind: 'arc' });
@@ -149,6 +157,78 @@ describe('GET /api/today', () => {
     });
     const res = await GET(createGetRequest());
     expect(res.status).toBe(403);
+  });
+});
+
+// Clarity Phase 3d — the actual bug report: "today" used to be a plain UTC calendar
+// day, so a session picked in the evening ET (already tomorrow in UTC) landed on the
+// wrong date. Per-user resolution: the requesting user's own zone decides "today", not
+// a global constant — proven with two different users/zones rolling over at different
+// real-world instants.
+describe('GET/POST /api/today — per-user timezone default-date resolution', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('the 8pm-ET boundary: at 8:00pm EDT (already midnight UTC, next day), a New York user\'s default date is still the ET day', async () => {
+    // 8:00pm EDT on 2026-07-21 = 2026-07-22T00:00:00.000Z.
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z'));
+    mockUserPreferenceFindUnique.mockResolvedValue({ timezone: 'America/New_York' });
+    mockFindMany.mockResolvedValue([]);
+
+    const res = await GET(createGetRequest()); // no date param — must default
+    const body = await res.json();
+
+    expect(body.date).toBe('2026-07-21'); // NOT '2026-07-22' (the UTC-day bug)
+    expect(body.timezone).toBe('America/New_York');
+  });
+
+  it('mirror case: a Asia/Karachi user rolls over EARLIER than UTC, proving resolution is genuinely per-user', async () => {
+    // 12:30am PKT on 2026-07-22 = 2026-07-21T19:30:00.000Z (Karachi is UTC+5, no DST) —
+    // still afternoon/evening on 2026-07-21 in both UTC and America/New_York, but
+    // already 2026-07-22 for a Karachi user.
+    vi.setSystemTime(new Date('2026-07-21T19:30:00.000Z'));
+    mockUserPreferenceFindUnique.mockResolvedValue({ timezone: 'Asia/Karachi' });
+    mockFindMany.mockResolvedValue([]);
+
+    const res = await GET(createGetRequest());
+    const body = await res.json();
+
+    expect(body.date).toBe('2026-07-22'); // Karachi's actual current day
+    expect(body.timezone).toBe('Asia/Karachi');
+  });
+
+  it('POST without an explicit date writes the requester\'s own ET day at the 8pm-ET boundary', async () => {
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z')); // 8pm EDT, 2026-07-21
+    mockUserPreferenceFindUnique.mockResolvedValue({ timezone: 'America/New_York' });
+    mockCount.mockResolvedValue(0);
+    mockCreate.mockResolvedValue(pick({ id: 'pick-tz', item_type: 'note', arc_id: null, arc: null, label: 'Evening note' }));
+
+    await POST(createPostRequest({ item_type: 'note', label: 'Evening note' }));
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ date: new Date('2026-07-21T00:00:00.000Z') }) })
+    );
+  });
+
+  it('GET and POST agree on the same default date for the same instant/user (write/read consistency)', async () => {
+    vi.setSystemTime(new Date('2026-07-22T00:00:00.000Z'));
+    mockUserPreferenceFindUnique.mockResolvedValue({ timezone: 'America/New_York' });
+    mockFindMany.mockResolvedValue([]);
+    mockCount.mockResolvedValue(0);
+    mockCreate.mockResolvedValue(pick({ id: 'pick-consistency' }));
+
+    const getRes = await GET(createGetRequest());
+    const getBody = await getRes.json();
+
+    await POST(createPostRequest({ item_type: 'note', label: 'Consistency check' }));
+    const writtenDate = (mockCreate.mock.calls[0][0] as { data: { date: Date } }).data.date;
+
+    expect(getBody.date).toBe(writtenDate.toISOString().slice(0, 10));
   });
 });
 

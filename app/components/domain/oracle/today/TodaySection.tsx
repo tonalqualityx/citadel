@@ -8,12 +8,18 @@ import { useNow } from '@/lib/hooks/use-now';
 import { useTodayPicks, useTodayCalendar } from '@/lib/hooks/use-today';
 import { TODAY_PICK_WIP_CAP, isPastWarningThreshold } from '@/lib/today-picks';
 import { Spinner } from '@/components/ui/spinner';
+import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { TimeShape } from './TimeShape';
 import { TodayPickCard } from './TodayPickCard';
 import { TodayBoard } from './TodayBoard';
 
-function formatPickedAt(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Clarity Phase 3d bug fix: was `.toLocaleTimeString([], {...})` — no explicit locale
+// or timeZone, so this rendered in the BROWSER's implicit locale zone (silently wrong
+// for anyone whose browser isn't set to their own resolved zone, and impossible to
+// verify/test deterministically). Always pass the resolved requester's timezone from
+// the /api/today/calendar response (see TodayCalendarResponse.timezone).
+function formatPickedAt(iso: string, timezone: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: timezone });
 }
 
 // Today: the time-shape track (meetings + chosen focus picks + now-line) followed by the
@@ -39,6 +45,9 @@ export function TodaySection() {
     : null;
 
   const today = calendarData?.week?.[0];
+  // Falls back to the client-safe default while calendarData is still loading —
+  // reconciles with the resolved zone the instant the response arrives.
+  const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
 
   return (
     <section className="flex flex-col gap-2" data-testid="today-section">
@@ -51,7 +60,7 @@ export function TodaySection() {
           )}
         >
           <b className="text-text-main">{uncompleted.length}</b> of {TODAY_PICK_WIP_CAP} threads
-          {earliestPickedAt ? ` · picked ${formatPickedAt(earliestPickedAt)}` : ''}
+          {earliestPickedAt ? ` · picked ${formatPickedAt(earliestPickedAt, timezone)}` : ''}
         </span>
         {doneToday > 0 && (
           <span className="text-xs text-text-sub" data-testid="done-today-counter">
@@ -95,6 +104,7 @@ export function TodaySection() {
           {calendarData && (
             <TimeShape
               date={calendarData.date}
+              timezone={calendarData.timezone}
               meetings={calendarData.meetings}
               focusLabels={uncompleted.map((p) => p.label ?? p.arc?.name ?? p.task?.title ?? p.session?.title ?? t('task'))}
               nowMs={nowMs}

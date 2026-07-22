@@ -250,6 +250,99 @@ export function getStartOfDayForTimezone(timezone?: string | null): Date {
 }
 
 /**
+ * Format a Date as a YYYY-MM-DD calendar-day string AS SEEN in a specific IANA
+ * timezone — the per-user complement to getStartOfDayForTimezone's "now" anchor.
+ * Falls back to the UTC calendar day if the timezone is missing/invalid (never
+ * throws).
+ *
+ * Clarity Phase 3d: this is what "today" means, per-user — e.g. at 2026-07-22T00:30:00Z,
+ * getZonedDateString(now, 'America/New_York') is still '2026-07-21' (8:30pm ET), while
+ * getZonedDateString(now, 'Asia/Karachi') is already '2026-07-22' (5:30am PKT) — same
+ * instant, two different "today"s, which is the whole point of resolving per request.
+ */
+export function getZonedDateString(date: Date, timezone?: string | null): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((p) => p.type === 'year')!.value;
+    const month = parts.find((p) => p.type === 'month')!.value;
+    const day = parts.find((p) => p.type === 'day')!.value;
+    return `${year}-${month}-${day}`;
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * The UTC instant corresponding to LOCAL MIDNIGHT of an ARBITRARY YYYY-MM-DD calendar
+ * date in a specific IANA timezone. Companion to getStartOfDayForTimezone above, which
+ * only ever computes "today": that function anchors off a real "now" instant (so it
+ * can just measure elapsed-time-since-midnight and subtract), but an arbitrary date
+ * string has no instant to anchor from, so this uses the standard round-trip
+ * correction instead — build a UTC guess (that date at 00:00 UTC), read back what that
+ * guess reads as in the target timezone, then correct the guess by the difference.
+ * One correction pass is exact except within an hour of that specific timezone's own
+ * DST transition instant (a known, narrow, ~2-day-a-year edge case — not a concern for
+ * the 8am-6pm display window this backs).
+ *
+ * Falls back to a literal UTC-midnight interpretation if the timezone is missing/invalid.
+ */
+export function getStartOfDateStringForTimezone(dateStr: string, timezone?: string | null): Date {
+  const guess = new Date(`${dateStr}T00:00:00.000Z`);
+  if (!timezone) return guess;
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hour12: false,
+    }).formatToParts(guess);
+
+    const get = (type: string) => parseInt(parts.find((p) => p.type === type)!.value, 10);
+    const rawHour = get('hour');
+    const readAsUTC = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      rawHour === 24 ? 0 : rawHour,
+      get('minute'),
+      get('second')
+    );
+
+    // How far our UTC guess is from what it actually reads as, locally — subtracting
+    // this from the guess gives the UTC instant whose LOCAL reading is midnight.
+    const diffMs = readAsUTC - guess.getTime();
+    return new Date(guess.getTime() - diffMs);
+  } catch {
+    return guess;
+  }
+}
+
+/**
+ * UTC [start, end] instants spanning one full calendar day — local midnight through
+ * (local midnight the next day minus 1ms) — for a given YYYY-MM-DD date string in a
+ * specific IANA timezone. This is what makes an 8pm-local event correctly belong to
+ * ITS calendar date even though the same instant is already tomorrow in UTC.
+ */
+export function getDayBoundsForTimezone(dateStr: string, timezone?: string | null): { start: Date; end: Date } {
+  const start = getStartOfDateStringForTimezone(dateStr, timezone);
+  const nextDayGuess = new Date(`${dateStr}T00:00:00.000Z`);
+  nextDayGuess.setUTCDate(nextDayGuess.getUTCDate() + 1);
+  const nextDateStr = nextDayGuess.toISOString().slice(0, 10);
+  const nextStart = getStartOfDateStringForTimezone(nextDateStr, timezone);
+  return { start, end: new Date(nextStart.getTime() - 1) };
+}
+
+/**
  * Get the start of the current week (Monday midnight) in a specific IANA timezone,
  * returned as a UTC Date object.
  *

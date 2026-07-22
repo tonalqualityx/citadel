@@ -234,10 +234,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['admin'],
         queryParams: [
-          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD, UTC calendar day. Defaults to today.' },
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD in the requester\'s resolved timezone. Defaults to today in that zone.' },
         ],
+        responseNotes:
+          'Clarity Phase 3d: "today"/date resolves to the REQUESTING USER\'s own timezone ' +
+          '(UserPreference.timezone -> CITADEL_DISPLAY_TZ env -> America/New_York — see ' +
+          'lib/services/user-timezone.ts), not a plain UTC calendar day. `timezone` in the ' +
+          'response is that resolved zone; the client formats every rendered time in it.',
         responseExample: {
           date: 'YYYY-MM-DD',
+          timezone: 'America/New_York',
           picks: [
             {
               id: 'uuid',
@@ -272,7 +278,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'Exactly-one-ref validation returns 400. arc_id/task_id/charter_id are 404-checked against their tables; ' +
           'session_external_id is not (Oracle sessions are not a DB relation here).',
         bodySchema: [
-          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD; defaults to today' },
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD; defaults to today in the requester\'s resolved timezone (see GET\'s responseNotes)' },
           { name: 'item_type', type: 'string', required: true, description: 'arc|task|session|lead|note' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=arc' },
           { name: 'task_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=task' },
@@ -318,7 +324,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['admin'],
         queryParams: [
-          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD, UTC calendar day. Defaults to today; the week strip runs this date + 4 forward days.' },
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD in the requester\'s resolved timezone. Defaults to today in that zone; the week strip runs this date + 4 forward days.' },
         ],
         responseNotes:
           'Clarity Phase 3b: reads the calendar_events table (synced via POST /api/oracle/calendar-sync ' +
@@ -329,9 +335,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'see MEETING_RECOVERY_MINUTES / sumCommittedMinutesWithBuffer in ' +
           'components/domain/oracle/today/time-shape-logic.ts, the single shared implementation). Response ' +
           'is deliberately "dumb" otherwise — fill-percent/packed-tint encoding is computed client-side so ' +
-          'the day track, week strip, and future planning views share one capacity encoding implementation.',
+          'the day track, week strip, and future planning views share one capacity encoding implementation. ' +
+          'Clarity Phase 3d: day windows (both the single day and the week) are computed in the REQUESTING ' +
+          'USER\'s own resolved timezone (UserPreference.timezone -> CITADEL_DISPLAY_TZ env -> ' +
+          'America/New_York — lib/services/user-timezone.ts), not UTC — an 8pm-ET event now correctly ' +
+          'belongs to its ET calendar date even though the same instant is already tomorrow in UTC. ' +
+          '`timezone` in the response is that resolved zone; the client renders the time-shape\'s display ' +
+          'window and every clock/hour label in it, never a guess.',
         responseExample: {
           date: 'YYYY-MM-DD',
+          timezone: 'America/New_York',
           meetings: [{ id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
           allDay: [{ id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
           week: [

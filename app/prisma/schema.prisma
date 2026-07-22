@@ -73,6 +73,11 @@ model UserPreference {
   naming_convention   NamingConvention @default(awesome)
   theme               Theme            @default(system)
   notification_bundle Boolean          @default(true)
+  // Clarity Phase 3d — IANA timezone (e.g. "America/New_York", "Asia/Karachi"). Nullable:
+  // no value means "use the resolution chain's fallback" (see lib/services/user-timezone.ts),
+  // not a forced default — a user who's never set one shouldn't silently inherit Mike's zone
+  // if the fallback chain changes later. No settings UI to edit this yet (Phase 4).
+  timezone            String?          @db.VarChar(64)
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 

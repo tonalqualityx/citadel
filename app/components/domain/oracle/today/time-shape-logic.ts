@@ -8,9 +8,41 @@
 // AND the week strip (see dayCapacityFillPercent/isDayOverCapacity below), never two
 // competing implementations.
 
+import { getStartOfDateStringForTimezone } from '@/lib/utils/time';
+
 export interface TimeWindow {
   start: Date;
   end: Date;
+}
+
+/**
+ * Clarity Phase 3d bug fix: the time-shape day track's display [start,end) window,
+ * anchored to `startHour`/`endHour` LOCAL WALL-CLOCK hours in `timezone` — not UTC.
+ * This is the actual fix for "a 9am ET meeting renders at 13:00": the window used to
+ * be built with a literal `T08:00:00.000Z`/`T18:00:00.000Z` (UTC) suffix even though
+ * the hour-axis labels ("8a"..."6p") are wall-clock hours, so every block's position
+ * was off by whatever the timezone's UTC offset happened to be.
+ *
+ * Adding whole hours in milliseconds from a correctly-computed local-midnight anchor
+ * is exact for a normal 8am-6pm window — the one known edge case (a DST transition,
+ * which in the US always lands at 2am local, i.e. INSIDE a midnight-anchored 0-8h
+ * span) would shift this window's boundary by an hour on the ~2 days/year that
+ * happens, which is an accepted, documented simplification, not a silent bug: it's
+ * outside this task's scope (getDayBoundsForTimezone below is not subject to it, since
+ * a full [midnight, next-midnight) span is correct BY DEFINITION regardless of how
+ * many real hours it spans on a transition day).
+ */
+export function getTimeShapeWindow(
+  dateStr: string,
+  timezone: string,
+  startHour: number,
+  endHour: number
+): TimeWindow {
+  const midnight = getStartOfDateStringForTimezone(dateStr, timezone);
+  return {
+    start: new Date(midnight.getTime() + startHour * 60 * 60_000),
+    end: new Date(midnight.getTime() + endHour * 60 * 60_000),
+  };
 }
 
 export interface MeetingInput {
