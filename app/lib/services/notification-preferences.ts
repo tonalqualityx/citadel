@@ -26,6 +26,9 @@ const DEFAULT_PREFERENCES: Record<
   article_client_approved: { in_app: true, email: false, slack: true },
   article_client_changes_requested: { in_app: true, email: false, slack: true },
   interview_answers_submitted: { in_app: true, email: false, slack: true },
+  // Crisis-strip trigger — same "critical, every channel" default as retainer_alert /
+  // system_alert.
+  oracle_urgent_email: { in_app: true, email: true, slack: true },
 };
 
 export interface NotificationPreferenceRow {

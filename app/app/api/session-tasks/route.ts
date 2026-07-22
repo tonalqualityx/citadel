@@ -5,8 +5,8 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { serializeRichText } from '@/lib/api/blocknote';
-import { getArcStatus } from '@/lib/arc-status';
-import { AskSeverity } from '@prisma/client';
+import { resolveArc } from '@/lib/arc-resolution';
+import { SEVERITY_TO_PRIORITY } from '@/lib/ask-severity';
 
 // The quest-from-session endpoint: a Claude Code session (or the future heartbeat) parks
 // a real Task on Mike, tied back to the session that spawned it. Bearer auth via
@@ -30,12 +30,6 @@ const sessionTaskSchema = z
     message: 'Provide at most one of arc_id or arc_name, not both',
     path: ['arc_id'],
   });
-
-const SEVERITY_TO_PRIORITY: Record<AskSeverity, number> = {
-  client_blocking: 1,
-  launch_blocking: 2,
-  internal: 3,
-};
 
 const TASK_INCLUDE = {
   project: {
@@ -120,34 +114,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Arc resolution: arc_id used as-is (404 if missing); arc_name reuses an exact-name,
-    // non-complete arc, or creates a new one attributed to the calling session.
-    let arcId: string | null = null;
-    if (data.arc_id) {
-      const arc = await prisma.arc.findUnique({ where: { id: data.arc_id } });
-      if (!arc) {
-        throw new ApiError('Arc not found', 404);
-      }
-      arcId = arc.id;
-    } else if (data.arc_name) {
-      const sameName = await prisma.arc.findMany({
-        where: { name: data.arc_name },
-        include: { tasks: { select: { status: true } } },
-        orderBy: { created_at: 'desc' },
-      });
-      const reusable = sameName.find((arc) => getArcStatus(arc) !== 'complete');
-
-      if (reusable) {
-        arcId = reusable.id;
-      } else {
-        const created = await prisma.arc.create({
-          data: {
-            name: data.arc_name,
-            origin_session_external_id: data.session_external_id,
-          },
-        });
-        arcId = created.id;
-      }
-    }
+    // non-complete arc, or creates a new one attributed to the calling session. Shared
+    // with /api/email-asks/[id]/create-task — see lib/arc-resolution.ts.
+    const arcId = await resolveArc({
+      arc_id: data.arc_id,
+      arc_name: data.arc_name,
+      originSessionExternalId: data.session_external_id,
+    });
 
     const priority = data.severity ? SEVERITY_TO_PRIORITY[data.severity] : 3;
 

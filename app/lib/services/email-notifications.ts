@@ -26,6 +26,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   article_client_approved: 'Client Approved Article',
   article_client_changes_requested: 'Client Requested Article Changes',
   interview_answers_submitted: 'Interview Answers Submitted',
+  oracle_urgent_email: 'Urgent Email',
 };
 
 // Notification type icons/emojis for email
@@ -46,6 +47,7 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   article_client_approved: '✅',
   article_client_changes_requested: '🔁',
   interview_answers_submitted: '📨',
+  oracle_urgent_email: '🚨',
 };
 
 /**

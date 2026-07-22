@@ -11,6 +11,19 @@
  * are deleted and recreated on every run. Local dev only — this seeds whatever
  * DATABASE_URL points at; never point it at prod.
  *
+ * Clarity Phase 4a baseline fix: this used to stamp today_picks/calendar_events with the
+ * raw UTC calendar date, but Phase 3d moved GET /api/today's "today" resolution to the
+ * REQUESTING USER's own zone (UserPreference.timezone -> CITADEL_DISPLAY_TZ ->
+ * America/New_York — see lib/services/user-timezone.ts). The seed script was never
+ * updated to match, so any run landing in the UTC-vs-ET gap (roughly 8pm-midnight ET,
+ * when the UTC calendar date has already rolled over but the admin's ET date hasn't)
+ * seeded picks for "tomorrow" while the API asked for "today" — an empty Today section
+ * and a failing e2e, discovered baselining Phase 4a at ~10pm ET. Fixed by resolving the
+ * same way the API does: the seed admin's own UserPreference.timezone (inline
+ * Intl.DateTimeFormat zoned-date logic, mirroring lib/utils/time.ts's
+ * getZonedDateString — kept inline rather than imported so this script stays
+ * dependency-free of path-aliased app code, same as its Prisma-only sibling scripts).
+ *
  * Run with:
  *   npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/seed-clarity-phase3-fixtures.ts
  */
@@ -20,9 +33,23 @@ const prisma = new PrismaClient();
 
 const ARC_NAME = 'E2E Clarity Phase 3 Arc (demo)';
 const ADMIN_EMAIL = 'admin@indelible.agency';
+const DEFAULT_DISPLAY_TIMEZONE = 'America/New_York';
 
-function todayUTCDateString(): string {
-  return new Date().toISOString().slice(0, 10);
+function getZonedDateString(date: Date, timezone?: string | null): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((p) => p.type === 'year')!.value;
+    const month = parts.find((p) => p.type === 'month')!.value;
+    const day = parts.find((p) => p.type === 'day')!.value;
+    return `${year}-${month}-${day}`;
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
 }
 
 async function main() {
@@ -30,6 +57,8 @@ async function main() {
   if (!admin) {
     throw new Error(`Seed admin user ${ADMIN_EMAIL} not found — run prisma/seed.ts first.`);
   }
+  const adminPref = await prisma.userPreference.findUnique({ where: { user_id: admin.id } });
+  const adminTimezone = adminPref?.timezone || DEFAULT_DISPLAY_TIMEZONE;
 
   console.log('Clarity Phase 3 fixtures: upserting demo arc...');
   let arc = await prisma.arc.findFirst({ where: { name: ARC_NAME } });
@@ -62,8 +91,9 @@ async function main() {
   }
   console.log(`  created ${taskSpecs.length} demo tasks on arc ${arc.id}`);
 
-  // Today picks for whatever UTC day the e2e run actually executes on.
-  const dateStr = todayUTCDateString();
+  // Today picks for whatever day it is in the admin's resolved zone — matching
+  // GET /api/today's own resolution exactly, not raw UTC (see the file-header note).
+  const dateStr = getZonedDateString(new Date(), adminTimezone);
   const date = new Date(`${dateStr}T00:00:00.000Z`);
 
   await prisma.todayPick.deleteMany({ where: { label: { startsWith: 'E2E:' } } });

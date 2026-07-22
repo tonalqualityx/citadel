@@ -15,6 +15,9 @@ vi.mock('@/lib/db/prisma', () => ({
     oracleSession: {
       findMany: vi.fn(),
     },
+    emailAsk: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -24,6 +27,30 @@ import { prisma } from '@/lib/db/prisma';
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockSessionFindMany = prisma.oracleSession.findMany as Mock;
+const mockEmailAskFindMany = prisma.emailAsk.findMany as Mock;
+
+function emailAsk(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'ask-1',
+    message_id: 'msg-1',
+    thread_id: null,
+    account: 'mike@becomeindelible.com',
+    from_name: null,
+    from_email: 'client@herba.com',
+    subject: 'Site is down',
+    gist: 'Client reports site is down',
+    queue: 'do',
+    severity: 'client_blocking',
+    is_urgent: true,
+    state: 'open',
+    task_id: null,
+    deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
+    received_at: new Date('2026-07-21T20:00:00.000Z'),
+    created_at: new Date(),
+    updated_at: new Date(),
+    ...overrides,
+  };
+}
 
 function getRequest(params: Record<string, string> = {}): NextRequest {
   const searchParams = new URLSearchParams(params);
@@ -85,6 +112,75 @@ beforeEach(() => {
   // mockTaskSweep(...) — tests that call mockTaskSweep() themselves queue their own
   // Once-values on top of this, consumed first for that request's 5 calls.
   mockTaskFindMany.mockResolvedValue([]);
+  mockEmailAskFindMany.mockResolvedValue([]);
+});
+
+describe('GET /api/waiting-on-me — Clarity Phase 4a crisis/intake', () => {
+  it('returns an empty crisis array and a zero-count intake when there are no email asks', async () => {
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.crisis).toEqual([]);
+    expect(body.intake).toEqual({ count: 0, newest_at: null, items: [] });
+  });
+
+  it('shapes open+urgent asks into crisis, newest first', async () => {
+    mockEmailAskFindMany
+      .mockResolvedValueOnce([emailAsk({ id: 'urgent-1' })]) // crisis query
+      .mockResolvedValueOnce([]); // intake query
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.crisis).toHaveLength(1);
+    expect(body.crisis[0]).toMatchObject({ id: 'urgent-1', is_urgent: true, state: 'open' });
+    expect(mockEmailAskFindMany).toHaveBeenNthCalledWith(1, {
+      where: { state: 'open', is_urgent: true },
+      orderBy: { received_at: 'desc' },
+    });
+  });
+
+  it('shapes open+non-urgent asks into intake with count and newest_at', async () => {
+    const newer = emailAsk({
+      id: 'intake-newer',
+      is_urgent: false,
+      received_at: new Date('2026-07-21T22:00:00.000Z'),
+    });
+    const older = emailAsk({
+      id: 'intake-older',
+      is_urgent: false,
+      received_at: new Date('2026-07-21T10:00:00.000Z'),
+    });
+    mockEmailAskFindMany
+      .mockResolvedValueOnce([]) // crisis query
+      .mockResolvedValueOnce([newer, older]); // intake query, orderBy desc already applied by the DB
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.intake.count).toBe(2);
+    expect(body.intake.newest_at).toBe(newer.received_at.toISOString());
+    expect(body.intake.items.map((i: { id: string }) => i.id)).toEqual(['intake-newer', 'intake-older']);
+    expect(mockEmailAskFindMany).toHaveBeenNthCalledWith(2, {
+      where: { state: 'open', is_urgent: false },
+      orderBy: { received_at: 'desc' },
+    });
+  });
+
+  it('never merges email asks into decide/answer/review/do', async () => {
+    mockEmailAskFindMany
+      .mockResolvedValueOnce([emailAsk({ id: 'urgent-1' })])
+      .mockResolvedValueOnce([emailAsk({ id: 'intake-1', is_urgent: false })]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.decide).toEqual([]);
+    expect(body.answer).toEqual([]);
+    expect(body.review).toEqual([]);
+    expect(body.do).toEqual([]);
+    expect(body.meta.counts.total).toBe(0);
+  });
 });
 
 describe('GET /api/waiting-on-me — auth scoping', () => {

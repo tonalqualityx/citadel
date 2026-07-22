@@ -12,6 +12,7 @@ import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { TimeShape } from './TimeShape';
 import { TodayPickCard } from './TodayPickCard';
 import { TodayBoard } from './TodayBoard';
+import { DueSoonRow } from './DueSoonRow';
 
 // Clarity Phase 3d bug fix: was `.toLocaleTimeString([], {...})` — no explicit locale
 // or timeZone, so this rendered in the BROWSER's implicit locale zone (silently wrong
@@ -126,6 +127,8 @@ export function TodaySection() {
           ) : (
             <TodayBoard picks={picks} />
           )}
+
+          <DueSoonRow />
         </>
       )}
     </section>

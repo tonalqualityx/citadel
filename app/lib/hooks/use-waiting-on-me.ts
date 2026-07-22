@@ -20,11 +20,36 @@ export interface WaitingOnMeCard {
   due_date: string | null;
 }
 
+// Clarity Phase 4a — email on the Seeing Stone. Its own surface: never merged into
+// decide/answer/review/do.
+export interface EmailAsk {
+  id: string;
+  message_id: string;
+  thread_id: string | null;
+  account: string;
+  from_name: string | null;
+  from_email: string;
+  subject: string;
+  gist: string | null;
+  queue: 'decide' | 'answer' | 'review' | 'do' | null;
+  severity: 'client_blocking' | 'launch_blocking' | 'internal' | null;
+  is_urgent: boolean;
+  state: 'open' | 'handled' | 'dismissed';
+  task_id: string | null;
+  deep_link: string;
+  received_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WaitingOnMeResponse {
   decide: WaitingOnMeCard[];
   answer: WaitingOnMeCard[];
   review: WaitingOnMeCard[];
   do: WaitingOnMeCard[];
+  // Clarity Phase 4a
+  crisis: EmailAsk[];
+  intake: { count: number; newest_at: string | null; items: EmailAsk[] };
   meta: { counts: { decide: number; answer: number; review: number; do: number; total: number } };
 }
 

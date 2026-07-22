@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
+import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { TaskStatus, AskQueue } from '@prisma/client';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
@@ -223,11 +224,33 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Clarity Phase 4a — email asks are their own surface, never merged into
+    // decide/answer/review/do: crisis = open+urgent (drives the crisis strip above
+    // Today); intake = open+non-urgent (drives the collapsed intake drawer under Needs
+    // Reshi). Not scoped by targetUserId, same reasoning as the session side above —
+    // Oracle email asks have no per-Citadel-user ownership in this phase either.
+    const [crisisAsks, intakeAsks] = await Promise.all([
+      prisma.emailAsk.findMany({
+        where: { state: 'open', is_urgent: true },
+        orderBy: { received_at: 'desc' },
+      }),
+      prisma.emailAsk.findMany({
+        where: { state: 'open', is_urgent: false },
+        orderBy: { received_at: 'desc' },
+      }),
+    ]);
+
     return NextResponse.json({
       decide,
       answer,
       review,
       do: doGroup,
+      crisis: crisisAsks.map(formatEmailAskResponse),
+      intake: {
+        count: intakeAsks.length,
+        newest_at: intakeAsks.length > 0 ? intakeAsks[0].received_at : null,
+        items: intakeAsks.map(formatEmailAskResponse),
+      },
       meta: {
         counts: {
           decide: decide.length,
