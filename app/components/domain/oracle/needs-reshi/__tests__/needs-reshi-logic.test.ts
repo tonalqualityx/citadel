@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { WaitingOnMeCard } from '@/lib/hooks/use-waiting-on-me';
-import type { OracleSessionWithMachine } from '@/lib/types/oracle';
-import {
-  waitingOnMeCardToAskCardData,
-  legacySessionToAskCardData,
-  buildAnswerColumn,
-} from '../needs-reshi-logic';
+import type { WaitingOnMeCard, WaitingQueueCard } from '@/lib/hooks/use-waiting-on-me';
+import { waitingOnMeCardToAskCardData, buildWaitingColumn, groupReviewByClient } from '../needs-reshi-logic';
 
 function taskCard(overrides: Partial<WaitingOnMeCard> = {}): WaitingOnMeCard {
   return {
@@ -18,7 +13,9 @@ function taskCard(overrides: Partial<WaitingOnMeCard> = {}): WaitingOnMeCard {
     task_id: 'task-1',
     session_external_id: null,
     arc: null,
+    client: null,
     due_date: null,
+    waiting_since: null,
     ...overrides,
   };
 }
@@ -34,29 +31,9 @@ function sessionAskCard(overrides: Partial<WaitingOnMeCard> = {}): WaitingOnMeCa
     task_id: null,
     session_external_id: 'sess-1',
     arc: { id: 'arc-1', name: 'Password window' },
+    client: null,
     due_date: null,
-    ...overrides,
-  };
-}
-
-function legacySession(overrides: Partial<OracleSessionWithMachine> = {}): OracleSessionWithMachine {
-  return {
-    id: 'session-row-1',
-    external_id: 'legacy-ext-1',
-    source: 'claude_code',
-    title: 'grantibly-wright-b1 — gate review',
-    cwd: '/home/mike/clients/grantibly',
-    model: 'claude-opus-4-5',
-    remote_url: 'https://claude.ai/code/session_legacy1',
-    status: 'waiting',
-    needs_attention: true,
-    attention_reason: 'Approval needed: publish B1 gate deliverable.',
-    started_at: '2026-07-09T18:00:00.000Z',
-    last_event_at: '2026-07-09T19:00:00.000Z',
-    ended_at: null,
-    tokens_total: 1000,
-    agents: [],
-    machine: { id: 'm1', name: 'reshi-workstation', hostname: null, last_heartbeat_at: null, stale: false, sessions: [], commands: [] },
+    waiting_since: null,
     ...overrides,
   };
 }
@@ -86,72 +63,131 @@ describe('waitingOnMeCardToAskCardData', () => {
     const data = waitingOnMeCardToAskCardData(taskCard({ task_id: null }));
     expect(data.primaryAction).toEqual({ kind: 'none' });
   });
-});
 
-describe('legacySessionToAskCardData', () => {
-  it('sources as "session · legacy" — the only visual distinction from a manifest ask', () => {
-    const data = legacySessionToAskCardData(legacySession());
-    expect(data.sourceLabel).toBe('session · legacy');
+  it('carries the queueType through when given', () => {
+    const data = waitingOnMeCardToAskCardData(sessionAskCard(), null, 'decision');
+    expect(data.queueType).toBe('decision');
   });
 
-  it('carries the session title as the context label and attention_reason as the body text', () => {
-    const data = legacySessionToAskCardData(legacySession());
-    expect(data.contextLabel).toBe('grantibly-wright-b1 — gate review');
-    expect(data.bodyText).toBe('Approval needed: publish B1 gate deliverable.');
-  });
-
-  it('falls back to external_id for the context label when the session has no title', () => {
-    const data = legacySessionToAskCardData(legacySession({ title: null }));
-    expect(data.contextLabel).toBe('legacy-ext-1');
-  });
-
-  it('falls back to a default text when attention_reason is null/blank', () => {
-    expect(legacySessionToAskCardData(legacySession({ attention_reason: null })).bodyText).toBe(
-      'Claude is waiting for your input'
-    );
-    expect(legacySessionToAskCardData(legacySession({ attention_reason: '   ' })).bodyText).toBe(
-      'Claude is waiting for your input'
-    );
-  });
-
-  it('respond action when remote_url is present', () => {
-    const data = legacySessionToAskCardData(legacySession());
-    expect(data.primaryAction).toEqual({ kind: 'respond', remoteUrl: 'https://claude.ai/code/session_legacy1' });
-  });
-
-  it('none action when remote_url is absent', () => {
-    const data = legacySessionToAskCardData(legacySession({ remote_url: null }));
-    expect(data.primaryAction).toEqual({ kind: 'none' });
-  });
-
-  it('carries no severity chip (legacy sessions have no declared ask_severity)', () => {
-    const data = legacySessionToAskCardData(legacySession());
-    expect(data.severity).toBeNull();
+  it('leaves queueType undefined when not given (e.g. a grouped Review item)', () => {
+    const data = waitingOnMeCardToAskCardData(taskCard());
+    expect(data.queueType).toBeUndefined();
   });
 });
 
-describe('buildAnswerColumn', () => {
-  it('merges manifest answer cards and legacy sessions into one list', () => {
-    const remoteUrlMap = new Map([['sess-1', 'https://claude.ai/code/session_x']]);
-    const result = buildAnswerColumn([sessionAskCard()], [legacySession()], remoteUrlMap);
-    expect(result.visible.map((c) => c.sourceLabel)).toEqual(['session', 'session · legacy']);
+// Clarity Phase 5 — Decide + Answer merged into one "Waiting on you" queue.
+describe('buildWaitingColumn', () => {
+  function waitingCard(overrides: Partial<WaitingQueueCard> = {}): WaitingQueueCard {
+    return { ...sessionAskCard(), queue_type: 'decision', ...overrides };
+  }
+
+  it('maps each card, tagging queueType from queue_type', () => {
+    const result = buildWaitingColumn(
+      [waitingCard({ id: 'd1', queue_type: 'decision' }), waitingCard({ id: 'a1', queue_type: 'reply' })],
+      new Map()
+    );
+    expect(result.visible.map((c) => c.queueType)).toEqual(['decision', 'reply']);
   });
 
-  it('applies the density cap to the MERGED list, not each source separately', () => {
-    const manyLegacy = Array.from({ length: 10 }, (_, i) =>
-      legacySession({ external_id: `legacy-${i}`, attention_reason: `Reason ${i}` })
+  it('resolves a session card\'s live Respond deep-link via the remote-url map', () => {
+    const result = buildWaitingColumn(
+      [waitingCard({ session_external_id: 'ext-1' })],
+      new Map([['ext-1', 'https://claude.ai/code/session_x']])
     );
-    const manifestCards = [sessionAskCard(), sessionAskCard({ id: 'card-3', session_external_id: 'sess-2' })];
-    const result = buildAnswerColumn(manifestCards, manyLegacy, new Map());
+    expect(result.visible[0].primaryAction).toEqual({
+      kind: 'respond',
+      remoteUrl: 'https://claude.ai/code/session_x',
+    });
+  });
 
-    // 2 manifest + 10 legacy = 12 total; capped at the binding max (6), overflow = 6.
+  it('applies the density cap to the merged list', () => {
+    const many = Array.from({ length: 10 }, (_, i) => waitingCard({ id: `w-${i}` }));
+    const result = buildWaitingColumn(many, new Map());
     expect(result.visible).toHaveLength(6);
-    expect(result.overflowCount).toBe(6);
+    expect(result.overflowCount).toBe(4);
   });
 
-  it('returns an empty result when there is nothing on either side', () => {
-    const result = buildAnswerColumn([], [], new Map());
+  it('returns an empty result for an empty queue', () => {
+    const result = buildWaitingColumn([], new Map());
     expect(result.visible).toHaveLength(0);
     expect(result.overflowCount).toBe(0);
+  });
+});
+
+// Clarity Phase 5 — Review grouped by client (fallback arc, then "Other"), oldest-wait-first.
+describe('groupReviewByClient', () => {
+  it('groups cards under their client, using the client name as the label', () => {
+    const groups = groupReviewByClient([
+      taskCard({ id: 't1', client: { id: 'c1', name: 'Herba' } }),
+      taskCard({ id: 't2', client: { id: 'c1', name: 'Herba' } }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe('Herba');
+    expect(groups[0].count).toBe(2);
+  });
+
+  it('falls back to the arc name when there is no client', () => {
+    const groups = groupReviewByClient([
+      sessionAskCard({ id: 's1', client: null, arc: { id: 'arc-9', name: 'Growth Roadmap' } }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe('Growth Roadmap');
+    expect(groups[0].key).toBe('arc-arc-9');
+  });
+
+  it('falls back to "Other" when there is neither client nor arc', () => {
+    const groups = groupReviewByClient([taskCard({ id: 't1', client: null, arc: null })]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe('Other');
+    expect(groups[0].key).toBe('other');
+  });
+
+  it('sorts groups oldest-wait-first (across groups)', () => {
+    const groups = groupReviewByClient([
+      taskCard({
+        id: 'newer',
+        client: { id: 'c-newer', name: 'Newer Client' },
+        waiting_since: '2026-07-20T00:00:00.000Z',
+      }),
+      taskCard({
+        id: 'older',
+        client: { id: 'c-older', name: 'Older Client' },
+        waiting_since: '2026-07-01T00:00:00.000Z',
+      }),
+    ]);
+    expect(groups.map((g) => g.label)).toEqual(['Older Client', 'Newer Client']);
+  });
+
+  it('within a group, sorts items oldest-first and reports the oldest as the top item', () => {
+    const groups = groupReviewByClient([
+      taskCard({
+        id: 'newer',
+        title: 'Newer thing',
+        client: { id: 'c1', name: 'Herba' },
+        waiting_since: '2026-07-20T00:00:00.000Z',
+      }),
+      taskCard({
+        id: 'older',
+        title: 'Older thing',
+        client: { id: 'c1', name: 'Herba' },
+        waiting_since: '2026-07-01T00:00:00.000Z',
+      }),
+    ]);
+    expect(groups[0].topItemTitle).toBe('Older thing');
+    expect(groups[0].oldestWaitAt).toBe('2026-07-01T00:00:00.000Z');
+    expect(groups[0].items.map((i) => i.bodyText)).toEqual(['Older thing', 'Newer thing']);
+  });
+
+  it('a group with no timestamped items at all sorts last, and its oldestWaitAt is null', () => {
+    const groups = groupReviewByClient([
+      taskCard({ id: 't1', client: { id: 'c-timed', name: 'Timed' }, waiting_since: '2026-07-01T00:00:00.000Z' }),
+      taskCard({ id: 't2', client: { id: 'c-untimed', name: 'Untimed' }, waiting_since: null }),
+    ]);
+    expect(groups.map((g) => g.label)).toEqual(['Timed', 'Untimed']);
+    expect(groups[1].oldestWaitAt).toBeNull();
+  });
+
+  it('returns an empty array for no review cards', () => {
+    expect(groupReviewByClient([])).toEqual([]);
   });
 });

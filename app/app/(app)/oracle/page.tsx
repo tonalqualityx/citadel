@@ -14,18 +14,22 @@ import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { TaskPeekProvider } from '@/lib/contexts/task-peek-context';
 import {
   groupNonWaitingSessions,
-  legacyNeedsAttentionSessions,
+  legacyNeedsAttentionArcIds,
   flattenSessions,
 } from '@/components/domain/oracle/oracle-logic';
 
 // Clarity Phase 3c — Fleet screen split. Mike's ruling: the Seeing Stone (/oracle) is
 // the ATTENTION surface only — header (idea quick-add, week strip, cron health) ->
-// Today -> Needs Reshi (Decide/Answer/Review). In Motion and Docked (the fleet
-// machinery) moved to their own screen, /oracle/fleet (see app/(app)/oracle/fleet/
-// page.tsx) — reached via the header's quiet "N in motion · M docked" link. Legacy
-// hook-flagged needs_attention sessions with no manifest ask STAY here, in Needs
-// Reshi's Answer column: they're waiting on Mike, not machinery, so the split doesn't
-// move them (see oracle-logic.ts's legacyNeedsAttentionSessions).
+// Today -> Needs Reshi (merged "Waiting on you" + grouped Review). In Motion and Docked
+// (the fleet machinery) moved to their own screen, /oracle/fleet (see
+// app/(app)/oracle/fleet/page.tsx) — reached via the header's quiet "N in motion · M
+// docked" link.
+//
+// Clarity Phase 5 — legacy hook-flagged needs_attention sessions with no manifest ask no
+// longer render as cards here at all (Mike's ruling: "legacy flag-only cards REMOVED from
+// the glass"). Linked-to-an-arc ones become a quiet attention dot on the arc's own Today
+// pick card (legacyNeedsAttentionArcIds below); unlinked ones moved entirely to the Fleet
+// screen (see app/(app)/oracle/fleet/page.tsx's WaitingStrip).
 export default function OraclePage() {
   const [mounted, setMounted] = React.useState(false);
   const router = useRouter();
@@ -72,9 +76,9 @@ export default function OraclePage() {
   // link — Fleet owns its own (filterable) view of these same buckets, this page only
   // ever needs the totals.
   const groups = groupNonWaitingSessions(data.machines);
-  // Legacy hook-flagged needs_attention sessions with no manifest ask — waiting on Mike,
-  // rendered in Needs Reshi's Answer column (see NeedsReshi below).
-  const legacyWaitingSessions = legacyNeedsAttentionSessions(data.machines, now);
+  // Clarity Phase 5 — the arc ids carrying a linked legacy needs-attention session, for
+  // Today's attention-dot lookup (see TodaySection's legacyAttentionArcIds prop).
+  const legacyAttentionArcIds = legacyNeedsAttentionArcIds(data.machines, now);
   const liveSessions = flattenSessions(data.machines);
 
   return (
@@ -91,14 +95,10 @@ export default function OraclePage() {
 
         {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
 
-        <TodaySection />
+        <TodaySection legacyAttentionArcIds={legacyAttentionArcIds} />
 
         {waitingOnMeData && (
-          <NeedsReshi
-            data={waitingOnMeData}
-            liveSessions={liveSessions}
-            legacyWaitingSessions={legacyWaitingSessions}
-          />
+          <NeedsReshi data={waitingOnMeData} liveSessions={liveSessions} nowMs={now} />
         )}
       </div>
     </TaskPeekProvider>

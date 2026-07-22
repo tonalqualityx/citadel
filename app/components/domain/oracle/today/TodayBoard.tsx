@@ -23,6 +23,8 @@ import { columnForPick, fieldsForTransition, type BoardColumnId } from './today-
 
 interface TodayBoardProps {
   picks: TodayPick[];
+  // Clarity Phase 5 — threaded through to each card's attention dot, same as the list lens.
+  legacyAttentionArcIds?: Set<string>;
 }
 
 const COLUMN_TITLES: Record<BoardColumnId, string> = {
@@ -44,7 +46,7 @@ const COLUMN_ORDER: BoardColumnId[] = ['todo', 'doing', 'done'];
 // out of Done). The existing checkmark toggle (in TodayPickCard) remains a same-effect
 // shortcut for Doing/To do -> Done. The Doing column's soft WIP cap (>=3, warning tint,
 // never a hard block) applies here exactly as before, now driven by real column membership.
-export function TodayBoard({ picks }: TodayBoardProps) {
+export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
   const updatePick = useUpdateTodayPick();
   const [activePick, setActivePick] = React.useState<TodayPick | null>(null);
 
@@ -106,6 +108,7 @@ export function TodayBoard({ picks }: TodayBoardProps) {
               total={cards.length}
               overCap={isDoing && doingOverCap}
               onStart={columnId === 'todo' ? (pickId) => movePick(pickId, 'doing') : undefined}
+              legacyAttentionArcIds={legacyAttentionArcIds}
             />
           );
         })}
@@ -113,7 +116,10 @@ export function TodayBoard({ picks }: TodayBoardProps) {
       <DragOverlay>
         {activePick && (
           <div className="opacity-90">
-            <TodayPickCard pick={activePick} />
+            <TodayPickCard
+              pick={activePick}
+              hasAttentionDot={!!activePick.arc_id && !!legacyAttentionArcIds?.has(activePick.arc_id)}
+            />
           </div>
         )}
       </DragOverlay>
@@ -129,6 +135,7 @@ function TodayBoardColumn({
   total,
   overCap,
   onStart,
+  legacyAttentionArcIds,
 }: {
   id: BoardColumnId;
   title: string;
@@ -137,6 +144,7 @@ function TodayBoardColumn({
   total: number;
   overCap: boolean;
   onStart?: (pickId: string) => void;
+  legacyAttentionArcIds?: Set<string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -161,7 +169,10 @@ function TodayBoardColumn({
       <div className="flex flex-col gap-2">
         {cards.map((pick) => (
           <div key={pick.id} className="flex flex-col gap-1">
-            <DraggableTodayPick pick={pick} />
+            <DraggableTodayPick
+              pick={pick}
+              hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
+            />
             {onStart && (
               <button
                 type="button"
@@ -183,7 +194,7 @@ function TodayBoardColumn({
   );
 }
 
-function DraggableTodayPick({ pick }: { pick: TodayPick }) {
+function DraggableTodayPick({ pick, hasAttentionDot }: { pick: TodayPick; hasAttentionDot?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: pick.id });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -198,7 +209,7 @@ function DraggableTodayPick({ pick }: { pick: TodayPick }) {
       className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
       data-testid="today-board-draggable-pick"
     >
-      <TodayPickCard pick={pick} />
+      <TodayPickCard pick={pick} hasAttentionDot={hasAttentionDot} />
     </div>
   );
 }

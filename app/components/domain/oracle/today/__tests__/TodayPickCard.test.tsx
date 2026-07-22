@@ -87,4 +87,43 @@ describe('TodayPickCard', () => {
     expect(link).toHaveAttribute('href', '/oracle/arcs/arc-1');
     expect(mockOpenTaskPeek).not.toHaveBeenCalled();
   });
+
+  // Clarity Phase 5 — the arc attention dot (legacy needs-attention session linked to this arc).
+  it('renders the attention dot on an arc pick when hasAttentionDot is true', () => {
+    renderWithClient(
+      <TodayPickCard
+        pick={questPick({
+          item_type: 'arc',
+          task_id: null,
+          task: null,
+          arc_id: 'arc-1',
+          arc: { id: 'arc-1', name: 'Demo Arc', status: 'open', task_count: 3 },
+          primary_action: { kind: 'arc' },
+        })}
+        hasAttentionDot
+      />
+    );
+    expect(screen.getByTestId('arc-attention-dot')).toBeInTheDocument();
+  });
+
+  it('renders no attention dot when hasAttentionDot is false/absent', () => {
+    renderWithClient(
+      <TodayPickCard
+        pick={questPick({
+          item_type: 'arc',
+          task_id: null,
+          task: null,
+          arc_id: 'arc-1',
+          arc: { id: 'arc-1', name: 'Demo Arc', status: 'open', task_count: 3 },
+          primary_action: { kind: 'arc' },
+        })}
+      />
+    );
+    expect(screen.queryByTestId('arc-attention-dot')).not.toBeInTheDocument();
+  });
+
+  it('never renders the attention dot on a non-arc pick even if hasAttentionDot is true', () => {
+    renderWithClient(<TodayPickCard pick={questPick()} hasAttentionDot />);
+    expect(screen.queryByTestId('arc-attention-dot')).not.toBeInTheDocument();
+  });
 });

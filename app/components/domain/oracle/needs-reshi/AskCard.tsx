@@ -1,14 +1,22 @@
 'use client';
 
-import { ExternalLink, Clock, Ban, Info } from 'lucide-react';
+import { ExternalLink, Clock, Ban, Info, Sparkles, Mail } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
-import type { AskCardData } from './needs-reshi-logic';
+import type { AskCardData, WaitingQueueType } from './needs-reshi-logic';
 
 interface AskCardProps {
   data: AskCardData;
 }
+
+// Clarity Phase 5 — the merged "Waiting on you" queue's type chip: preserves which of the
+// (now-merged) decide/answer queues an item declared, per Mike's ruling. Nothing louder
+// than a small icon+label chip, same subtle-field treatment as the severity chip below.
+const QUEUE_TYPE_META: Record<WaitingQueueType, { label: string; icon: typeof Sparkles }> = {
+  decision: { label: 'decision', icon: Sparkles },
+  reply: { label: 'reply', icon: Mail },
+};
 
 // Severity is always icon + words on a subtle field — color never carries meaning alone (a
 // muted palette fails color-only tests by design, per the mockup's own note). Note: none of
@@ -40,6 +48,19 @@ export function AskCard({ data }: AskCardProps) {
       </div>
 
       <p className="text-sm text-text-main">{data.bodyText}</p>
+
+      {data.queueType && (
+        <span
+          className="inline-flex w-fit items-center gap-1 rounded-full bg-background-light px-2 py-0.5 text-xs font-medium text-text-sub"
+          data-testid="ask-card-queue-type"
+        >
+          {(() => {
+            const Icon = QUEUE_TYPE_META[data.queueType].icon;
+            return <Icon className="h-3 w-3" aria-hidden="true" />;
+          })()}
+          {QUEUE_TYPE_META[data.queueType].label}
+        </span>
+      )}
 
       {severityMeta && (
         <span

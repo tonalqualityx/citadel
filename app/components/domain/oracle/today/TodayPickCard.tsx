@@ -8,11 +8,17 @@ import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useUpdateTodayPick } from '@/lib/hooks/use-today';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
+import { SnoozeMenu } from '@/components/domain/oracle/soothsayer/SnoozeMenu';
 import type { TodayPick } from '@/lib/hooks/use-today';
 
 interface TodayPickCardProps {
   pick: TodayPick;
   className?: string;
+  // Clarity Phase 5 — a quiet attention dot on an arc-type pick's card when a legacy
+  // hook-flagged needs_attention session (no declared ask) is linked to that arc. Optional
+  // so every existing caller (Today board lens, drag overlay, etc.) that doesn't pass it
+  // just renders with no dot, same as before this phase.
+  hasAttentionDot?: boolean;
 }
 
 function pickDisplayName(pick: TodayPick): string {
@@ -26,7 +32,9 @@ function pickDisplayName(pick: TodayPick): string {
 
 function pickSubline(pick: TodayPick, t: (k: 'task' | 'tasks') => string): string | null {
   if (pick.arc) {
-    return `arc · ${pick.arc.task_count} ${pick.arc.task_count === 1 ? t('task') : t('tasks')} · ${pick.arc.status}`;
+    const progress =
+      pick.arc.progress_percent !== undefined ? ` · ${pick.arc.progress_percent}%` : '';
+    return `arc · ${pick.arc.task_count} ${pick.arc.task_count === 1 ? t('task') : t('tasks')} · ${pick.arc.status}${progress}`;
   }
   if (pick.task) return `${t('task')} · ${pick.task.status.replace('_', ' ')}`;
   if (pick.session) return `session · ${pick.session.status}`;
@@ -38,7 +46,7 @@ function pickSubline(pick: TodayPick, t: (k: 'task' | 'tasks') => string): strin
 // Respond/resume, arc -> arc board, task -> quest, lead -> charter, note -> done-toggle. A
 // quiet complete-toggle (check morph, no modal/confetti/sound) is available on every card
 // regardless of type — sub-second, quiet completion per the evidence-bound design rules.
-export function TodayPickCard({ pick, className }: TodayPickCardProps) {
+export function TodayPickCard({ pick, className, hasAttentionDot }: TodayPickCardProps) {
   const { t } = useTerminology();
   const updatePick = useUpdateTodayPick();
   const { openTaskPeek } = useTaskPeek();
@@ -64,29 +72,42 @@ export function TodayPickCard({ pick, className }: TodayPickCardProps) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div
-            className={cn('truncate text-sm font-semibold text-text-main', isDone && 'line-through opacity-60')}
+            className={cn('flex items-center gap-1.5 truncate text-sm font-semibold text-text-main', isDone && 'line-through opacity-60')}
           >
-            {pickDisplayName(pick)}
+            <span className="truncate">{pickDisplayName(pick)}</span>
+            {pick.item_type === 'arc' && hasAttentionDot && (
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: 'var(--warning)' }}
+                data-testid="arc-attention-dot"
+                title="session waiting"
+              />
+            )}
           </div>
           {pickSubline(pick, t) && (
             <div className="truncate text-xs text-text-sub">{pickSubline(pick, t)}</div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={toggleDone}
-          aria-label={isDone ? 'Mark not done' : 'Mark done'}
-          aria-pressed={isDone}
-          data-testid="today-pick-toggle"
-          className={cn(
-            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors',
-            isDone
-              ? 'border-transparent bg-[var(--success-subtle)] text-[var(--success)]'
-              : 'border-border-warm text-text-sub hover:bg-background-light'
+        <div className="flex shrink-0 items-center gap-1">
+          {pick.item_type === 'arc' && pick.arc_id && (
+            <SnoozeMenu arcId={pick.arc_id} snoozedUntil={pick.arc?.snoozed_until ?? null} />
           )}
-        >
-          <Check className="h-3.5 w-3.5" />
-        </button>
+          <button
+            type="button"
+            onClick={toggleDone}
+            aria-label={isDone ? 'Mark not done' : 'Mark done'}
+            aria-pressed={isDone}
+            data-testid="today-pick-toggle"
+            className={cn(
+              'flex h-7 w-7 items-center justify-center rounded-full border transition-colors',
+              isDone
+                ? 'border-transparent bg-[var(--success-subtle)] text-[var(--success)]'
+                : 'border-border-warm text-text-sub hover:bg-background-light'
+            )}
+          >
+            <Check className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {!isDone && (
