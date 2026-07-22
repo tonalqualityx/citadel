@@ -1072,6 +1072,29 @@ export function formatIdeaResponse(idea: any) {
 // status/goal) since neither is a plain Prisma include (arc status is derived; sessions are
 // referenced by external_id, not a relation). `primary_action` is the derived-kind object
 // from lib/today-picks.ts, shaped for direct frontend consumption.
+// Clarity Phase 4a — email on the Seeing Stone.
+export function formatEmailAskResponse(ask: any) {
+  return {
+    id: ask.id,
+    message_id: ask.message_id,
+    thread_id: ask.thread_id ?? null,
+    account: ask.account,
+    from_name: ask.from_name ?? null,
+    from_email: ask.from_email,
+    subject: ask.subject,
+    gist: ask.gist ?? null,
+    queue: ask.queue ?? null,
+    severity: ask.severity ?? null,
+    is_urgent: ask.is_urgent,
+    state: ask.state,
+    task_id: ask.task_id ?? null,
+    deep_link: ask.deep_link,
+    received_at: ask.received_at,
+    created_at: ask.created_at,
+    updated_at: ask.updated_at,
+  };
+}
+
 export function formatTodayPickResponse(
   pick: any,
   extras: {

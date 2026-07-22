@@ -336,6 +336,27 @@ export async function notifyAddendumSent(
   });
 }
 
+// Clarity Phase 4a — an urgent EmailAsk was inserted via POST /api/oracle/email-sync.
+// Fires the crisis-strip trigger notification for the primary operator; the caller
+// resolves that user (same email-lookup helper as /api/session-tasks' default assignee)
+// and passes the id in directly — this function doesn't re-resolve it.
+export async function notifyUrgentEmail(
+  userId: string,
+  emailAskId: string,
+  fromLabel: string,
+  subject: string
+) {
+  await createNotification({
+    userId,
+    type: 'oracle_urgent_email',
+    title: `Urgent: ${subject}`,
+    message: `From: ${fromLabel}`,
+    entityType: 'email_ask',
+    entityId: emailAskId,
+    priority: 'critical',
+  });
+}
+
 export async function notifyAddendumResponse(
   accordId: string,
   accordName: string,

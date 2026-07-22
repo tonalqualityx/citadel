@@ -118,6 +118,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   article_client_approved: 'Client Approved Article',
   article_client_changes_requested: 'Client Requested Article Changes',
   interview_answers_submitted: 'Interview Answers Submitted',
+  oracle_urgent_email: 'Urgent Email',
 };
 
 // Notification type descriptions
@@ -138,4 +139,5 @@ export const NOTIFICATION_TYPE_DESCRIPTIONS: Record<NotificationType, string> = 
   article_client_approved: 'When a client approves an article via the client portal',
   article_client_changes_requested: 'When a client requests changes to an article',
   interview_answers_submitted: 'When a client submits interview answers',
+  oracle_urgent_email: 'When an urgent email lands in the crisis strip',
 };
