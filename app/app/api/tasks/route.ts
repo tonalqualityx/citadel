@@ -10,6 +10,14 @@ import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
+// Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
+// operator, same email-lookup pattern /api/session-tasks already uses for session-born
+// quests. Scoped ONLY to arc-linked creation (see the autoAssigneeId block below) — every
+// other POST /api/tasks caller (dashboard "add task", etc.) is completely unaffected: no
+// arc_id means this fallback never fires, and assignee_id stays exactly as it already
+// resolves today (explicit id, or the existing project/function auto-assign, or null).
+const DEFAULT_ARC_QUEST_ASSIGNEE_EMAIL = 'mike@becomeindelible.com';
+
 const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   // Accepts Markdown / plain string OR a raw BlockNote array; normalized + stored
@@ -21,6 +29,9 @@ const createTaskSchema = z.object({
   priority: z.number().min(1).max(5).optional(),
   project_id: z.string().uuid().optional().nullable(),
   client_id: z.string().uuid().optional().nullable(),
+  // Clarity Phase 5 — the arc board's "+ Quest" quick-add. Mirrors PATCH /api/tasks/[id]'s
+  // additive arc_id support from Clarity Phase 4b (404-checked if given).
+  arc_id: z.string().uuid().optional().nullable(),
   site_id: z.string().uuid().optional().nullable(),
   phase_id: z.string().uuid().optional().nullable(),
   phase: z.string().max(100).optional().nullable(), // Legacy field
@@ -271,6 +282,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Clarity Phase 5 — validate arc exists if provided (the arc board's "+ Quest").
+    if (data.arc_id) {
+      const arc = await prisma.arc.findUnique({ where: { id: data.arc_id } });
+      if (!arc) {
+        throw new ApiError('Arc not found', 404);
+      }
+    }
+
     // Validate assignee exists if provided
     if (data.assignee_id) {
       const assignee = await prisma.user.findUnique({
@@ -381,6 +400,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Clarity Phase 5 — arc-linked quests with no other assignee resolution (no explicit
+    // assignee_id, no project/function auto-assign match) default to the primary operator,
+    // same as session-born quests. See DEFAULT_ARC_QUEST_ASSIGNEE_EMAIL's own comment for
+    // why this is scoped to arc_id only.
+    if (!data.assignee_id && !autoAssigneeId && data.arc_id) {
+      const defaultAssignee = await prisma.user.findUnique({
+        where: { email: DEFAULT_ARC_QUEST_ASSIGNEE_EMAIL, is_active: true },
+      });
+      if (defaultAssignee) {
+        autoAssigneeId = defaultAssignee.id;
+      }
+      // No hard 500 if missing (unlike session-tasks) — an arc quest with no resolvable
+      // default assignee still creates unassigned rather than blocking the quick-add.
+    }
+
     const task = await prisma.task.create({
       data: {
         title: data.title,
@@ -390,6 +424,7 @@ export async function POST(request: NextRequest) {
         priority: data.priority || sopDefaults.default_priority || 3,
         project_id: data.project_id,
         client_id: clientId,
+        arc_id: data.arc_id,
         site_id: data.site_id,
         phase_id: data.phase_id,
         phase: data.phase, // Legacy field
@@ -441,6 +476,7 @@ export async function POST(request: NextRequest) {
         },
         client: { select: { id: true, name: true } },
         charter: { select: { id: true, name: true } },
+        arc: { select: { id: true, name: true } },
         site: { select: { id: true, name: true, url: true } },
         project_phase: {
           select: { id: true, name: true, icon: true, sort_order: true },

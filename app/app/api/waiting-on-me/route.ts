@@ -17,6 +17,10 @@ const NOT_DONE_ABANDONED_BLOCKED: TaskStatus[] = [TaskStatus.done, TaskStatus.ab
 
 const TASK_INCLUDE = {
   arc: { select: { id: true, name: true } },
+  // Clarity Phase 5 — the Review column's client grouping needs this; a review-sweep task
+  // that's ad-hoc (no client) falls back to its arc, then "Other" (see needs-reshi-logic.ts,
+  // client-side, so the fallback ladder stays unit-testable without a DB).
+  client: { select: { id: true, name: true } },
 } as const;
 
 type TaskCard = {
@@ -29,7 +33,11 @@ type TaskCard = {
   task_id: string;
   session_external_id: string | null;
   arc: { id: string; name: string } | null;
+  client: { id: string; name: string } | null;
   due_date: Date | null;
+  // Clarity Phase 5 — the Review grouping's "oldest-wait age": when this item actually
+  // started waiting. Best-available proxy per card kind (see taskToCard/sessionToCard).
+  waiting_since: Date | null;
 };
 
 type SessionCard = {
@@ -42,7 +50,10 @@ type SessionCard = {
   task_id: null;
   session_external_id: string;
   arc: { id: string; name: string } | null;
+  // Session asks never carry a client directly — grouping falls back to arc, then "Other".
+  client: null;
   due_date: null;
+  waiting_since: Date | null;
 };
 
 function taskToCard(t: {
@@ -52,7 +63,9 @@ function taskToCard(t: {
   priority: number;
   source_session_external_id: string | null;
   arc: { id: string; name: string } | null;
+  client?: { id: string; name: string } | null;
   due_date: Date | null;
+  updated_at?: Date | null;
 }): TaskCard {
   return {
     type: 'task',
@@ -64,7 +77,13 @@ function taskToCard(t: {
     task_id: t.id,
     session_external_id: t.source_session_external_id,
     arc: t.arc,
+    client: t.client ?? null,
     due_date: t.due_date,
+    // updated_at is the best-available proxy for "when this entered its current
+    // waiting state" (e.g. when it flipped to done+needs_review) — every task-sweep
+    // query already returns it via Prisma's `include` (full scalar row), just not
+    // previously threaded through this card shape.
+    waiting_since: t.updated_at ?? null,
   };
 }
 
@@ -75,6 +94,8 @@ function sessionToCard(s: {
   status: string;
   ask_severity: string | null;
   arc: { id: string; name: string } | null;
+  last_event_at?: Date | null;
+  created_at?: Date | null;
 }): SessionCard {
   return {
     type: 'session_ask',
@@ -86,7 +107,9 @@ function sessionToCard(s: {
     task_id: null,
     session_external_id: s.external_id,
     arc: s.arc,
+    client: null,
     due_date: null,
+    waiting_since: s.last_event_at ?? s.created_at ?? null,
   };
 }
 
@@ -240,7 +263,18 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    // Clarity Phase 5 — Mike's ruling: Decide + Answer merge into ONE "Waiting on you"
+    // queue in the UI. `queue_type` preserves which original queue an item came from
+    // ('decision' for decide, 'reply' for answer) as a small chip, per the spec. `decide`
+    // and `answer` stay in the response, unchanged, for API back-compat for one release —
+    // the UI reads `waiting` only.
+    const waiting = [
+      ...decide.map((c) => ({ ...c, queue_type: 'decision' as const })),
+      ...answer.map((c) => ({ ...c, queue_type: 'reply' as const })),
+    ];
+
     return NextResponse.json({
+      waiting,
       decide,
       answer,
       review,
@@ -253,6 +287,7 @@ export async function GET(request: NextRequest) {
       },
       meta: {
         counts: {
+          waiting: waiting.length,
           decide: decide.length,
           answer: answer.length,
           review: review.length,

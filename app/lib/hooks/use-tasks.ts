@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { taskKeys, TaskFilters, projectKeys } from '@/lib/api/query-keys';
+import { arcKeys } from '@/lib/hooks/use-arcs';
 import { showToast } from '@/lib/hooks/use-toast';
 import { useTimer } from '@/lib/contexts/timer-context';
 
@@ -114,6 +115,8 @@ export interface CreateTaskInput {
   priority?: number;
   project_id?: string | null;
   client_id?: string | null; // For ad-hoc tasks without a project
+  // Clarity Phase 5 — the arc board's "+ Quest" quick-add (404-checked server-side).
+  arc_id?: string | null;
   site_id?: string | null; // For ad-hoc tasks without a project
   phase_id?: string | null;
   phase?: string | null; // Legacy field
@@ -185,6 +188,11 @@ export function useCreateTask() {
         queryClient.invalidateQueries({
           queryKey: projectKeys.detail(data.project_id),
         });
+      }
+      // Clarity Phase 5 — the arc board's "+ Quest" quick-add: the new task appears in the
+      // To do column without a page reload by invalidating the arc detail query it reads.
+      if (data.arc_id) {
+        queryClient.invalidateQueries({ queryKey: arcKeys.detail(data.arc_id) });
       }
       showToast.created('Task');
     },

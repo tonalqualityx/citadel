@@ -273,7 +273,8 @@ describe('GET /api/waiting-on-me — grouping', () => {
     const res = await GET(getRequest());
     const body = await res.json();
 
-    expect(body.meta.counts).toEqual({ decide: 1, answer: 0, review: 1, do: 1, total: 3 });
+    // Clarity Phase 5 — meta.counts gains `waiting` (decide+answer merged count).
+    expect(body.meta.counts).toEqual({ waiting: 1, decide: 1, answer: 0, review: 1, do: 1, total: 3 });
   });
 
   it('session asks carry type, title, severity, and session_external_id', async () => {
@@ -328,6 +329,56 @@ describe('GET /api/waiting-on-me — grouping', () => {
         },
       })
     );
+  });
+});
+
+describe('GET /api/waiting-on-me — Clarity Phase 5 merged `waiting` queue', () => {
+  it('merges decide+answer into `waiting`, tagging queue_type decision/reply, decide first', async () => {
+    mockSessionFindMany.mockResolvedValue([
+      session({ id: 's-answer', external_id: 'ext-answer', ask_queue: 'answer' }),
+      session({ id: 's-decide', external_id: 'ext-decide', ask_queue: 'decide' }),
+    ]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.waiting).toHaveLength(2);
+    expect(body.waiting.map((c: { id: string; queue_type: string }) => c.queue_type)).toEqual([
+      'decision',
+      'reply',
+    ]);
+    expect(body.waiting[0].id).toBe('s-decide');
+    expect(body.waiting[1].id).toBe('s-answer');
+  });
+
+  it('keeps decide/answer arrays in the response for API back-compat', async () => {
+    mockSessionFindMany.mockResolvedValue([session({ id: 's1', ask_queue: 'decide' })]);
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.decide).toHaveLength(1);
+    expect(body.answer).toEqual([]);
+  });
+
+  it('review-sweep task cards carry client info for the grouped Review column', async () => {
+    mockTaskSweep({
+      awaitingReview: [
+        task({ id: 'review-1', status: 'done', client: { id: 'client-1', name: 'Herba' } }),
+      ],
+    });
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.review[0].client).toEqual({ id: 'client-1', name: 'Herba' });
+  });
+
+  it('session-ask cards never carry a client (null, falls back to arc/Other client-side)', async () => {
+    mockSessionFindMany.mockResolvedValue([session({ id: 's-review', ask_queue: 'review' })]);
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.review[0].client).toBeNull();
   });
 });
 

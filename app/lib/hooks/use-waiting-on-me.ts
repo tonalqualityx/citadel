@@ -17,7 +17,19 @@ export interface WaitingOnMeCard {
   task_id: string | null;
   session_external_id: string | null;
   arc: { id: string; name: string } | null;
+  // Clarity Phase 5 — the Review column's client grouping. Task cards carry it when set;
+  // session_ask cards never do (they fall back to arc, then "Other").
+  client: { id: string; name: string } | null;
   due_date: string | null;
+  // Clarity Phase 5 — the Review grouping's "oldest-wait age" (best-available proxy per
+  // card kind — see app/api/waiting-on-me/route.ts's taskToCard/sessionToCard).
+  waiting_since: string | null;
+}
+
+// Clarity Phase 5 — a `waiting` queue item additionally carries which of the (now-merged)
+// decide/answer queues it came from, for the small type chip.
+export interface WaitingQueueCard extends WaitingOnMeCard {
+  queue_type: 'decision' | 'reply';
 }
 
 // Clarity Phase 4a — email on the Seeing Stone. Its own surface: never merged into
@@ -48,6 +60,9 @@ export interface EmailAsk {
 }
 
 export interface WaitingOnMeResponse {
+  // Clarity Phase 5 — the merged "Waiting on you" queue the UI reads. decide/answer stay
+  // below, unchanged, for API back-compat for one release.
+  waiting: WaitingQueueCard[];
   decide: WaitingOnMeCard[];
   answer: WaitingOnMeCard[];
   review: WaitingOnMeCard[];
@@ -55,7 +70,9 @@ export interface WaitingOnMeResponse {
   // Clarity Phase 4a
   crisis: EmailAsk[];
   intake: { count: number; newest_at: string | null; items: EmailAsk[] };
-  meta: { counts: { decide: number; answer: number; review: number; do: number; total: number } };
+  meta: {
+    counts: { waiting: number; decide: number; answer: number; review: number; do: number; total: number };
+  };
 }
 
 export function useWaitingOnMe(userId?: string) {
