@@ -2637,6 +2637,11 @@ model TodayPick {
   label String? @db.VarChar(300) // free-form commitment text (type=note, or an override)
 
   sort         Int       @default(0)
+  // Clarity Phase 4b — the Today board lens's Doing column, persisted (was a session-local
+  // "cheap lens" marker in TodayBoard.tsx before this; now survives reload/drag). Column
+  // mapping: To do = neither set; Doing = started_at set, completed_at null; Done =
+  // completed_at set (regardless of started_at).
+  started_at   DateTime?
   completed_at DateTime?
 
   created_at DateTime @default(now())
