@@ -2589,6 +2589,12 @@ model Arc {
   // Explicit ritual close ("close thread"). null = not explicitly closed.
   closed_at DateTime?
 
+  // Clarity Phase 5 — the Soothsayer's snooze action. A snoozed arc is hidden from default
+  // surfaces (Today's "no day assigned" guarantee, Soothsayer's unplanned section) until
+  // this date passes; null = not snoozed. Never a stored status — same "derive, don't
+  // store" discipline as ArcStatus, this is just a wake-up timestamp, not a state machine.
+  snoozed_until DateTime?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
