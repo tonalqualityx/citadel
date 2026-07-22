@@ -54,7 +54,10 @@ export interface MeetingInput {
 
 export interface TimeShapeBlock {
   id: string;
-  kind: 'meeting' | 'focus' | 'buffer';
+  // Clarity Phase 5 — 'prep' added beside 'buffer': the 20-minute pre-meeting attention
+  // cost (MEETING_PREP_MINUTES below), rendered the same low-intensity "shadow" style as
+  // the trailing recovery buffer but BEFORE the meeting instead of after.
+  kind: 'meeting' | 'focus' | 'buffer' | 'prep';
   label: string;
   leftPercent: number;
   widthPercent: number;
@@ -174,28 +177,110 @@ export function layoutBufferBlocks(
   return blocks;
 }
 
+// ============================================
+// Meeting prep (Mike-directed, 2026-07-22) — every timed meeting ALSO costs 20 minutes of
+// attention BEFORE it starts, on top of the existing 15-minute trailing recovery buffer.
+// Direction of truncation is deliberately asymmetric, matching Mike's own framing exactly:
+// "a meeting ending within another's prep window truncates that prep" — i.e. a PREVIOUS
+// meeting's occupied span (its real end, extended by its own trailing buffer if any) can
+// eat into the FOLLOWING meeting's prep window, never the other way around. The trailing
+// buffer's own truncation (by the next meeting's actual calendar start — see
+// computeMeetingBufferEnd above) is unchanged: buffer never overlaps a real fixed meeting,
+// prep is the soft one that yields. This keeps every ms attributed to at most one block
+// (previous buffer, prep, or open runway) — never double-counted, and clamping to
+// `meetingStartMs` (never past it) and to `dayStartMs` means it's never negative either.
+// ============================================
+
+export const MEETING_PREP_MINUTES = 20;
+
 /**
- * Per-day committed-load minutes: real meeting duration + its truncated recovery buffer,
- * summed across the day's timed meetings. Backs both the day track's fill/over-cap tint
- * and the week strip's packed-day tint (via dayCapacityFillPercent below) — server-side
- * callers (the /api/today/calendar route, for `meeting_minutes`) and this file share this
- * one implementation so the two never drift.
+ * The leading prep window's start instant for a single meeting: meetingStart - prepMinutes,
+ * truncated at whichever is LATEST of (a) the previous meeting's occupied end (its own
+ * trailing buffer end, or its plain end if no buffer applies) and (b) the visible day's
+ * start. Never returns anything after `meetingStartMs` (a zero-width window, e.g. fully
+ * overlapped by the previous meeting, is valid and means "no prep rendered/counted").
+ */
+export function computeMeetingPrepStart(
+  meetingStartMs: number,
+  prevOccupiedEndMs: number | null,
+  dayStartMs: number,
+  prepMinutes: number = MEETING_PREP_MINUTES
+): number {
+  const uncappedStart = meetingStartMs - prepMinutes * 60_000;
+  const lowerBound = Math.max(uncappedStart, dayStartMs, prevOccupiedEndMs ?? -Infinity);
+  return Math.min(lowerBound, meetingStartMs);
+}
+
+/**
+ * The visual prep segments leading each meeting, clipped to the window — the mirror image
+ * of layoutBufferBlocks. Meetings are sorted by start internally; each meeting's prep is
+ * truncated by the PREVIOUS meeting's own occupied end (buffer end if it has one, else its
+ * plain end), and clamped to the window's own start (the "meeting at day start" case).
+ */
+export function layoutPrepBlocks(
+  meetings: MeetingInput[],
+  window: TimeWindow,
+  prepMinutes: number = MEETING_PREP_MINUTES,
+  recoveryMinutes: number = MEETING_RECOVERY_MINUTES
+): TimeShapeBlock[] {
+  const sorted = [...meetings].sort((a, b) => toMs(a.start) - toMs(b.start));
+  const blocks: TimeShapeBlock[] = [];
+  const windowStartMs = window.start.getTime();
+  let prevOccupiedEndMs: number | null = null;
+
+  sorted.forEach((m, i) => {
+    const startMs = toMs(m.start);
+    const endMs = toMs(m.end);
+    const prepStartMs = computeMeetingPrepStart(startMs, prevOccupiedEndMs, windowStartMs, prepMinutes);
+
+    if (prepStartMs < startMs) {
+      const layout = computeBlockLayout({ start: new Date(prepStartMs), end: new Date(startMs) }, window);
+      if (layout) blocks.push({ id: `prep-${m.id}`, kind: 'prep', label: '', ...layout });
+    }
+
+    const nextStartMs = i + 1 < sorted.length ? toMs(sorted[i + 1].start) : null;
+    const bufferEndMs = computeMeetingBufferEnd(endMs, nextStartMs, recoveryMinutes);
+    prevOccupiedEndMs = bufferEndMs ?? endMs;
+  });
+
+  return blocks;
+}
+
+/**
+ * Per-day committed-load minutes: real meeting duration + its truncated leading prep window
+ * + its truncated trailing recovery buffer, summed across the day's timed meetings. Backs
+ * both the day track's fill/over-cap tint and the week strip's packed-day tint (via
+ * dayCapacityFillPercent below) — server-side callers (the /api/today/calendar and
+ * /api/oracle/soothsayer routes, for `meeting_minutes`) and this file share this one
+ * implementation so they never drift. `dayStartMs` is optional (defaults to no clamp) —
+ * pass the caller's own day-boundary instant to get the "meeting at day start" clamp;
+ * omitting it (as plain unit tests may) just means prep is only bounded by the previous
+ * meeting, never by an arbitrary day edge.
  */
 export function sumCommittedMinutesWithBuffer(
   meetings: MeetingInput[],
-  recoveryMinutes: number = MEETING_RECOVERY_MINUTES
+  recoveryMinutes: number = MEETING_RECOVERY_MINUTES,
+  prepMinutes: number = MEETING_PREP_MINUTES,
+  dayStartMs: number | null = null
 ): number {
   const sorted = [...meetings]
     .map((m) => ({ startMs: toMs(m.start), endMs: toMs(m.end) }))
     .sort((a, b) => a.startMs - b.startMs);
 
   let totalMs = 0;
+  let prevOccupiedEndMs: number | null = null;
   sorted.forEach((m, i) => {
     const duration = Math.max(0, m.endMs - m.startMs);
+
+    const prepStartMs = computeMeetingPrepStart(m.startMs, prevOccupiedEndMs, dayStartMs ?? -Infinity, prepMinutes);
+    const prepMs = Math.max(0, m.startMs - prepStartMs);
+
     const nextStartMs = i + 1 < sorted.length ? sorted[i + 1].startMs : null;
     const bufferEndMs = computeMeetingBufferEnd(m.endMs, nextStartMs, recoveryMinutes);
     const bufferMs = bufferEndMs !== null ? bufferEndMs - m.endMs : 0;
-    totalMs += duration + bufferMs;
+
+    totalMs += prepMs + duration + bufferMs;
+    prevOccupiedEndMs = bufferEndMs ?? m.endMs;
   });
 
   return totalMs / 60_000;

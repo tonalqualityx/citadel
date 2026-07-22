@@ -5,6 +5,7 @@ import type { TodayCalendarMeeting } from '@/lib/hooks/use-today';
 import {
   layoutMeetingBlocks,
   layoutBufferBlocks,
+  layoutPrepBlocks,
   layoutFocusBlocks,
   computeNowLinePercent,
   dayCapacityFillPercent,
@@ -66,7 +67,11 @@ export function TimeShape({
   // meeting's low-intensity "shadow"; also carved out of the runway so focus picks never
   // get laid into it (see layoutFocusBlocks' occupiedBlocks param).
   const bufferBlocks = layoutBufferBlocks(meetings, window);
-  const focusBlocks = layoutFocusBlocks(focusLabels, [...meetingBlocks, ...bufferBlocks], window);
+  // Clarity Phase 5 — every meeting also costs a 20-minute prep window before it starts
+  // (Mike-directed: same "attention takes it whether planned or not" reasoning as the
+  // trailing buffer). Also carved out of the runway so focus picks never land there.
+  const prepBlocks = layoutPrepBlocks(meetings, window);
+  const focusBlocks = layoutFocusBlocks(focusLabels, [...meetingBlocks, ...bufferBlocks, ...prepBlocks], window);
   const nowPercent = computeNowLinePercent(nowMs, window);
   const fill = dayCapacityFillPercent(meetingMinutes, dueTasksCount);
   const overCap = isDayOverCapacity(fill);
@@ -125,6 +130,22 @@ export function TimeShape({
           data-testid="time-shape-block"
           data-kind="buffer"
           title="recovery buffer"
+        />
+      ))}
+
+      {prepBlocks.map((b) => (
+        <div
+          key={b.id}
+          className="absolute top-5 h-9 overflow-hidden rounded-md"
+          style={{
+            left: `${b.leftPercent}%`,
+            width: `${b.widthPercent}%`,
+            backgroundColor: 'var(--error-subtle)',
+            opacity: 0.3,
+          }}
+          data-testid="time-shape-block"
+          data-kind="prep"
+          title="prep time"
         />
       ))}
 

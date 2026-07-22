@@ -9,6 +9,9 @@ import {
   MEETING_RECOVERY_MINUTES,
   computeMeetingBufferEnd,
   layoutBufferBlocks,
+  MEETING_PREP_MINUTES,
+  computeMeetingPrepStart,
+  layoutPrepBlocks,
   sumCommittedMinutesWithBuffer,
   getTimeShapeWindow,
 } from '../time-shape-logic';
@@ -297,43 +300,153 @@ describe('layoutFocusBlocks with buffer-occupied blocks', () => {
   });
 });
 
+// Clarity Phase 5 — every number below was updated to fold in the 20-minute leading prep
+// window (MEETING_PREP_MINUTES) alongside the pre-existing 15-minute trailing buffer, per
+// Mike's 2026-07-22 ruling ("the 20-minute meeting-prep rule enters the time-shape"). This
+// is a deliberate, spec-directed behavior change to this function's numeric output — see
+// the dedicated computeMeetingPrepStart/layoutPrepBlocks describe blocks below for the
+// prep-specific unit coverage (normal, back-to-back, day-start clamp, overlapping).
 describe('sumCommittedMinutesWithBuffer', () => {
-  it('sums real duration + a full 15-minute buffer for a single meeting with nothing after it', () => {
+  it('sums a full 20-minute leading prep + real duration + a full 15-minute trailing buffer for an isolated meeting', () => {
     const meetings = [
       { id: 'm1', title: 'One hour', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T14:00:00.000Z' },
     ];
-    expect(sumCommittedMinutesWithBuffer(meetings)).toBe(60 + 15);
+    expect(sumCommittedMinutesWithBuffer(meetings)).toBe(20 + 60 + 15);
   });
 
-  it('truncates the buffer between two back-to-back meetings (never double-counted)', () => {
+  it('truncates the buffer between two back-to-back meetings, and the second\'s prep is fully eaten by the first\'s buffer (never double-counted)', () => {
     const meetings = [
       { id: 'm1', title: 'First', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T13:30:00.000Z' },
       // Only a 10-minute gap before the second meeting starts.
       { id: 'm2', title: 'Second', start: '2026-07-21T13:40:00.000Z', end: '2026-07-21T14:10:00.000Z' },
     ];
-    // m1: 30min duration + 10min truncated buffer = 40. m2: 30min duration + 15min full
-    // buffer (nothing follows) = 45. Total = 85.
-    expect(sumCommittedMinutesWithBuffer(meetings)).toBe(85);
+    // m1: 20min full prep (nothing before) + 30min duration + 10min truncated buffer = 60.
+    // m2: 0min prep (m1's buffer runs right up to m2's start) + 30min duration + 15min full
+    // buffer (nothing follows) = 45. Total = 105.
+    expect(sumCommittedMinutesWithBuffer(meetings)).toBe(105);
   });
 
-  it('is order-independent (sorts internally by start)', () => {
+  it('is order-independent (sorts internally by start); a 30-minute gap fits m1\'s full buffer but only a partial prep for m2', () => {
     const meetings = [
       { id: 'm2', title: 'Second', start: '2026-07-21T14:00:00.000Z', end: '2026-07-21T14:30:00.000Z' },
       { id: 'm1', title: 'First', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T13:30:00.000Z' },
     ];
-    // Same fixture as a 30min gap (>15min) between them: both get their full 15min buffer.
-    expect(sumCommittedMinutesWithBuffer(meetings)).toBe(30 + 15 + 30 + 15);
+    // m1: 20 prep + 30 dur + 15 buffer (30min gap is enough for the full 15) = 65.
+    // m2: the 30min gap minus m1's 15min buffer leaves only 15min of room for m2's prep
+    // (not the full 20) + 30 dur + 15 buffer (nothing follows) = 60. Total = 125.
+    expect(sumCommittedMinutesWithBuffer(meetings)).toBe(125);
   });
 
   it('returns 0 for no meetings', () => {
     expect(sumCommittedMinutesWithBuffer([])).toBe(0);
   });
 
-  it('respects a custom recoveryMinutes override', () => {
+  it('respects a custom recoveryMinutes override (prepMinutes still defaults)', () => {
     const meetings = [
       { id: 'm1', title: 'One hour', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T14:00:00.000Z' },
     ];
-    expect(sumCommittedMinutesWithBuffer(meetings, 30)).toBe(60 + 30);
+    expect(sumCommittedMinutesWithBuffer(meetings, 30)).toBe(20 + 60 + 30);
+  });
+
+  it('respects a custom prepMinutes override', () => {
+    const meetings = [
+      { id: 'm1', title: 'One hour', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T14:00:00.000Z' },
+    ];
+    expect(sumCommittedMinutesWithBuffer(meetings, 15, 5)).toBe(5 + 60 + 15);
+  });
+
+  it('clamps prep to a given dayStartMs (meeting at day start gets zero prep)', () => {
+    const dayStartMs = new Date('2026-07-21T08:00:00.000Z').getTime();
+    const meetings = [
+      { id: 'm1', title: 'At day start', start: '2026-07-21T08:00:00.000Z', end: '2026-07-21T08:30:00.000Z' },
+    ];
+    // No room before the day starts — prep is fully clamped to 0, duration 30 + full 15 buffer.
+    expect(sumCommittedMinutesWithBuffer(meetings, undefined, undefined, dayStartMs)).toBe(0 + 30 + 15);
+  });
+});
+
+// Clarity Phase 5 — the 20-minute meeting-prep rule (Mike's ruling, 2026-07-22): every
+// timed meeting also costs prep BEFORE it starts, mutually truncated against the previous
+// meeting's occupied span (its own trailing buffer, or its plain end if no buffer applies),
+// clamped to the visible window/day start. These four cases are the ones Mike explicitly
+// called out: normal, back-to-back, a meeting right at day start, and overlapping meetings.
+describe('MEETING_PREP_MINUTES', () => {
+  it('is 20 minutes', () => {
+    expect(MEETING_PREP_MINUTES).toBe(20);
+  });
+});
+
+describe('computeMeetingPrepStart', () => {
+  const meetingStartMs = new Date('2026-07-21T13:00:00.000Z').getTime();
+  const dayStartMs = new Date('2026-07-21T08:00:00.000Z').getTime();
+
+  it('normal case: gives the full 20-minute prep window when there is nothing before it', () => {
+    const prepStart = computeMeetingPrepStart(meetingStartMs, null, dayStartMs);
+    expect(prepStart).toBe(meetingStartMs - 20 * 60_000);
+  });
+
+  it('back-to-back: truncates prep when the previous meeting\'s occupied end falls inside the prep window', () => {
+    const prevOccupiedEndMs = meetingStartMs - 10 * 60_000; // only 10min before this meeting
+    const prepStart = computeMeetingPrepStart(meetingStartMs, prevOccupiedEndMs, dayStartMs);
+    expect(prepStart).toBe(prevOccupiedEndMs); // truncated to exactly 10min, not the full 20
+    expect(meetingStartMs - prepStart).toBe(10 * 60_000);
+  });
+
+  it('meeting at day start: prep is clamped to the day\'s own start, never before it', () => {
+    // The meeting starts exactly at the visible day's opening instant.
+    const prepStart = computeMeetingPrepStart(dayStartMs, null, dayStartMs);
+    expect(prepStart).toBe(dayStartMs);
+    expect(dayStartMs - prepStart).toBe(0); // zero-width prep, not negative
+  });
+
+  it('meeting shortly after day start: prep is clamped to whatever room the day start leaves', () => {
+    const nearDayStart = dayStartMs + 10 * 60_000; // 10 minutes into the day
+    const prepStart = computeMeetingPrepStart(nearDayStart, null, dayStartMs);
+    expect(prepStart).toBe(dayStartMs); // only 10 of the 20 requested minutes exist
+    expect(nearDayStart - prepStart).toBe(10 * 60_000);
+  });
+
+  it('overlapping meetings: the previous meeting\'s end is AFTER this one\'s start — prep clamps to zero, never negative', () => {
+    const prevOccupiedEndMs = meetingStartMs + 30 * 60_000; // previous meeting still "occupied" 30min into this one
+    const prepStart = computeMeetingPrepStart(meetingStartMs, prevOccupiedEndMs, dayStartMs);
+    expect(prepStart).toBe(meetingStartMs); // clamped to the meeting's own start, not past it
+    expect(meetingStartMs - prepStart).toBe(0);
+  });
+
+  it('respects a custom prepMinutes override', () => {
+    const prepStart = computeMeetingPrepStart(meetingStartMs, null, dayStartMs, 5);
+    expect(prepStart).toBe(meetingStartMs - 5 * 60_000);
+  });
+});
+
+describe('layoutPrepBlocks', () => {
+  it('renders a full 20-minute prep segment leading an isolated meeting', () => {
+    const meetings = [
+      { id: 'm1', title: 'Chris — call', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T14:00:00.000Z' },
+    ];
+    const blocks = layoutPrepBlocks(meetings, WINDOW);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].kind).toBe('prep');
+    expect(blocks[0].id).toBe('prep-m1');
+    // Prep runs 12:40-13:00 inside an 08:00-18:00 window: left = 4h40m/10h = 46.67%, width = 20min/10h ≈ 3.33%.
+    expect(blocks[0].leftPercent).toBeCloseTo(46.67, 1);
+    expect(blocks[0].widthPercent).toBeCloseTo(3.33, 1);
+  });
+
+  it('truncates the second meeting\'s prep when the first\'s buffer runs right up against it', () => {
+    const meetings = [
+      { id: 'm1', title: 'First', start: '2026-07-21T13:00:00.000Z', end: '2026-07-21T13:30:00.000Z' },
+      { id: 'm2', title: 'Second', start: '2026-07-21T13:40:00.000Z', end: '2026-07-21T14:10:00.000Z' },
+    ];
+    const blocks = layoutPrepBlocks(meetings, WINDOW);
+    // m1 gets its full prep (nothing before it); m2's prep is fully consumed by m1's
+    // 10-minute truncated buffer (13:30-13:40), so no prep-m2 block renders at all.
+    expect(blocks.find((b) => b.id === 'prep-m1')).toBeDefined();
+    expect(blocks.find((b) => b.id === 'prep-m2')).toBeUndefined();
+  });
+
+  it('produces no prep blocks for an empty meeting list', () => {
+    expect(layoutPrepBlocks([], WINDOW)).toHaveLength(0);
   });
 });
 
