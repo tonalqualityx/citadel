@@ -29,6 +29,8 @@ export interface TodayPick {
   charter: { id: string; name: string } | null;
   label: string | null;
   sort: number;
+  // Clarity Phase 4b — Today board lens's Doing column, persisted server-side.
+  started_at: string | null;
   completed_at: string | null;
   primary_action: { kind: TodayPrimaryActionKind } | null;
   created_at: string;
@@ -87,6 +89,9 @@ export interface CreateTodayPickInput {
 export interface UpdateTodayPickInput {
   sort?: number;
   completed_at?: string | null;
+  // Clarity Phase 4b — Today board lens drag: set on drop into Doing, cleared on drop back
+  // into To do; preserved (untouched) when dropping into/out of Done.
+  started_at?: string | null;
   label?: string | null;
 }
 

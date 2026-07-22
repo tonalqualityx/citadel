@@ -1123,6 +1123,8 @@ export function formatTodayPickResponse(
     charter: pick.charter ? { id: pick.charter.id, name: pick.charter.name } : null,
     label: pick.label ?? null,
     sort: pick.sort,
+    // Clarity Phase 4b — Today board lens's Doing column, persisted.
+    started_at: pick.started_at ?? null,
     completed_at: pick.completed_at ?? null,
     primary_action: extras.primaryAction ?? null,
     created_at: pick.created_at,

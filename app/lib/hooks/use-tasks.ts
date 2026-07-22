@@ -30,6 +30,9 @@ export interface Task {
   // Charter relationship (for retainer tasks)
   charter_id: string | null;
   charter: { id: string; name: string } | null;
+  // Arc relationship (Clarity Phase 4b — Oracle campaign grouping)
+  arc_id: string | null;
+  arc: { id: string; name: string } | null;
   phase: string | null;
   sort_order: number;
   assignee_id: string | null;
@@ -129,6 +132,8 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   is_focus?: boolean;
   requirements?: Requirement[] | null;
+  // Clarity Phase 4b — attach/detach an arc (PATCH-only; non-null validates existence).
+  arc_id?: string | null;
   // Review workflow fields
   needs_review?: boolean;
   reviewer_id?: string | null;
