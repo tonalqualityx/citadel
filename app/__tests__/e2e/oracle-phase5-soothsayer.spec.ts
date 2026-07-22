@@ -1,18 +1,18 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { SHARED_AUTH_STATE_PATH } from './global-setup';
 
 // Clarity Phase 5 — The Soothsayer + Needs Reshi rework, PLUS two coordinator-added
 // arc-board features folded into this same phase before it froze ("+ Quest" quick-add,
 // the back-to-Seeing-Stone link). Fixtures come from
-// scripts/seed-clarity-phase5-fixtures.ts. One beforeAll UI login, storageState reused
-// across every test in this file, matching the established pattern for the shared,
-// IP-bucketed authRateLimit (10 req/min) documented in oracle-phase3.spec.ts /
-// oracle-phase4a-email.spec.ts.
+// scripts/seed-clarity-phase5-fixtures.ts. Clarity Phase 4c replaced this file's own
+// per-file beforeAll login with ONE shared admin login for the entire suite (Playwright
+// globalSetup — see global-setup.ts), fixing the shared, IP-bucketed authRateLimit (10
+// req/min) contention that kept recurring as more Oracle e2e files accumulated.
 const SCREENSHOT_DIR = '/home/mike/.openclaw/workspace/citadel-clarity-wt/app/test-results/clarity-phase5';
 const APP_ROOT = path.resolve(__dirname, '..', '..');
-const AUTH_STATE_PATH = `${SCREENSHOT_DIR}/.auth-state.json`;
 
 const UNPLANNED_ARC_NAME = 'E2E: Clarity Phase 5 unplanned arc (assign-to-day)';
 const SNOOZE_ARC_NAME = 'E2E: Clarity Phase 5 unplanned arc (snooze target)';
@@ -22,26 +22,15 @@ const REVIEW_TASK_TITLE = 'E2E: Clarity Phase 5 review task (client group)';
 const WAITING_ASK_TEXT = 'E2E: approve the Phase 5 rollout plan?';
 
 test.describe.configure({ mode: 'serial' });
-test.use({ storageState: AUTH_STATE_PATH });
+test.use({ storageState: SHARED_AUTH_STATE_PATH });
 
-test.beforeAll(async ({ baseURL }) => {
+test.beforeAll(async () => {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   execSync(
     'npx ts-node --compiler-options \'{"module":"CommonJS"}\' scripts/seed-clarity-phase5-fixtures.ts',
     { cwd: APP_ROOT, stdio: 'inherit' }
   );
-
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL, storageState: undefined });
-  const page = await context.newPage();
-  await page.goto('/login');
-  await page.getByLabel('Email').fill('admin@indelible.agency');
-  await page.getByLabel('Password').fill('password123');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
-  await context.storageState({ path: AUTH_STATE_PATH });
-  await browser.close();
 });
 
 async function assertNoHorizontalOverflow(page: import('@playwright/test').Page) {

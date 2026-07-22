@@ -1,19 +1,22 @@
 import { test, expect } from '@playwright/test';
+import { SHARED_AUTH_STATE_PATH } from './global-setup';
 
+// Clarity Phase 4c deviation (real, reproducible regression, not this phase's own file):
+// this used to log in via `beforeEach` — a fresh real POST /api/auth/login per test (3
+// logins for this file's 3 tests), the exact bug class Clarity Phase 4b already fixed
+// once in oracle-phase3.spec.ts. That, plus this phase's own new 5th Oracle e2e file
+// each doing one more per-file login, tipped the whole suite's total real login count
+// over the shared, IP-bucketed authRateLimit (10 req/min, lib/api/rate-limit.ts) —
+// confirmed deterministic (not flaky) across multiple clean full-suite runs. Root-fixed
+// (not just patched here) by replacing EVERY spec file's own per-file login with ONE
+// shared admin login for the entire suite (Playwright globalSetup — see
+// global-setup.ts's own header); this file just points storageState at that one shared
+// file, same as every other Oracle e2e file.
 test.describe('Global Search (Command Palette)', () => {
-  test.beforeEach(async ({ page }) => {
-    // Login first. Label-based selectors — components/ui/input.tsx only sets a
-    // predictable `id` when one is passed explicitly; the login page doesn't, so it
-    // falls back to React.useId() and a hardcoded input[id="email"] never matches
-    // (same fix as auth.spec.ts).
-    await page.goto('/login');
-    await page.getByLabel('Email').fill('admin@indelible.agency');
-    await page.getByLabel('Password').fill('password123');
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
-  });
+  test.use({ storageState: SHARED_AUTH_STATE_PATH });
 
   test('should open command palette with Cmd+K', async ({ page }) => {
+    await page.goto('/dashboard');
     await page.keyboard.press('Meta+k');
 
     // Command palette should be visible
@@ -21,6 +24,7 @@ test.describe('Global Search (Command Palette)', () => {
   });
 
   test('should close command palette with Escape', async ({ page }) => {
+    await page.goto('/dashboard');
     await page.keyboard.press('Meta+k');
     await expect(page.locator('input[placeholder*="Search"]')).toBeVisible();
 
@@ -29,6 +33,7 @@ test.describe('Global Search (Command Palette)', () => {
   });
 
   test('should show search results when typing', async ({ page }) => {
+    await page.goto('/dashboard');
     await page.keyboard.press('Meta+k');
 
     const searchInput = page.locator('input[placeholder*="Search"]');

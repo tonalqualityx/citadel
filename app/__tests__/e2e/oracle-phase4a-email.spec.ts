@@ -1,7 +1,8 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { SHARED_AUTH_STATE_PATH } from './global-setup';
 
 // Clarity Phase 4a — email on the Seeing Stone. Fixtures come from
 // scripts/seed-clarity-phase4a-email-fixtures.ts (one open+urgent email_ask for the crisis
@@ -9,45 +10,25 @@ import { test, expect, chromium } from '@playwright/test';
 // hours out for the due-soon row).
 //
 // Auth is rate-limited to 10 req/min (see lib/api/rate-limit.ts's authRateLimit, shared
-// across every e2e spec file since it's IP-bucketed and Playwright's default config runs
-// DIFFERENT spec files in parallel workers even when one file serializes its OWN tests —
-// oracle-phase3.spec.ts's `mode: 'serial'` only serializes within that file). Running the
-// full suite together pushed total concurrent logins over that limit and intermittently
-// 401'd real logins. Fix: log in via the UI exactly ONCE in beforeAll, persist the
-// resulting cookies as storageState, and reuse it across all four tests below — zero
-// additional /api/auth/login calls from this file after the first.
+// across every e2e spec file since it's IP-bucketed). Clarity Phase 4c replaced this
+// file's own per-file beforeAll login with ONE shared admin login for the entire suite
+// (Playwright globalSetup — see global-setup.ts's own header for the full contention
+// story) — every spec file now just points storageState at that one shared file.
 const SCREENSHOT_DIR = '/home/mike/.openclaw/workspace/citadel-clarity-wt/app/test-results/clarity-phase4a';
 const APP_ROOT = path.resolve(__dirname, '..', '..');
-const AUTH_STATE_PATH = `${SCREENSHOT_DIR}/.auth-state.json`;
 
 test.describe.configure({ mode: 'serial' });
-test.use({ storageState: AUTH_STATE_PATH });
+test.use({ storageState: SHARED_AUTH_STATE_PATH });
 
-test.beforeAll(async ({ baseURL }) => {
+test.beforeAll(async () => {
   // Playwright's default outputDir cleanup can wipe this directory between runs — recreate
-  // it defensively before writing storageState or any screenshot into it.
+  // it defensively before writing any screenshot into it.
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   execSync(
     'npx ts-node --compiler-options \'{"module":"CommonJS"}\' scripts/seed-clarity-phase4a-email-fixtures.ts',
     { cwd: APP_ROOT, stdio: 'inherit' }
   );
-
-  const browser = await chromium.launch();
-  // storageState explicitly undefined: @playwright/test's exported `chromium` auto-applies
-  // this file's test.use({ storageState: AUTH_STATE_PATH }) to any newContext() call,
-  // including this one — but THIS context is the one that logs in and CREATES that file,
-  // so it must start with no storage state rather than trying to read a file that doesn't
-  // exist yet.
-  const context = await browser.newContext({ baseURL, storageState: undefined });
-  const page = await context.newPage();
-  await page.goto('/login');
-  await page.getByLabel('Email').fill('admin@indelible.agency');
-  await page.getByLabel('Password').fill('password123');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
-  await context.storageState({ path: AUTH_STATE_PATH });
-  await browser.close();
 });
 
 async function assertNoHorizontalOverflow(page: import('@playwright/test').Page) {

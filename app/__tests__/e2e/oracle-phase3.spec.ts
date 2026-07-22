@@ -1,7 +1,8 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { SHARED_AUTH_STATE_PATH } from './global-setup';
 
 // Clarity Phase 3 — The Oracle Face. Fixtures come from
 // scripts/seed-clarity-phase3-fixtures.ts (one demo arc with a task in every board column
@@ -12,7 +13,6 @@ import { test, expect, chromium } from '@playwright/test';
 // screen (Clarity Phase 3c).
 const SCREENSHOT_DIR = '/home/mike/.openclaw/workspace/citadel-clarity-wt/app/test-results/clarity-phase3';
 const APP_ROOT = path.resolve(__dirname, '..', '..');
-const AUTH_STATE_PATH = `${SCREENSHOT_DIR}/.auth-state.json`;
 
 // Serial, not fullyParallel: with the default project config each test() below could
 // otherwise land on a different worker and run concurrently, which would fire
@@ -20,18 +20,16 @@ const AUTH_STATE_PATH = `${SCREENSHOT_DIR}/.auth-state.json`;
 // reseed racing mid-flight against the arc-board drag test (which reads/mutates those
 // same rows) is exactly the kind of intermittent flake this file shouldn't reintroduce.
 test.describe.configure({ mode: 'serial' });
-// Clarity Phase 4b deviation: this file used to call login(page) fresh at the top of each
-// of its 3 tests (3 real POST /login calls). Growing the full suite's total spec-file
-// count (adding oracle-phase4b-peek.spec.ts's own beforeAll login) pushed the shared,
-// IP-bucketed authRateLimit (10 req/min, across ALL e2e spec files running concurrently —
-// this file's own comment already flagged that risk) from "occasionally flaky" to
-// "reliably 401s this file's 3rd test" in two consecutive full-suite runs. Fixed the same
-// way oracle-phase4a-email.spec.ts already fixed it for itself: log in via the UI exactly
-// ONCE here, reuse the resulting storageState for every test in this file — zero
-// additional login calls after the first, regardless of how many tests this file has.
-test.use({ storageState: AUTH_STATE_PATH });
+// Clarity Phase 4c — this file used to do its OWN real UI login in beforeAll (the Phase
+// 4b fix for its earlier per-test-login bug). That per-file-login pattern itself became
+// the next bottleneck as more Oracle e2e files accumulated (each one +1 real login against
+// the SAME shared, IP-bucketed authRateLimit, 10 req/min) — seeing-it-recur-a-third-time
+// territory (see global-setup.ts's own header). Fixed at the root: ONE shared admin login
+// for the entire suite (Playwright globalSetup), every file just points storageState at
+// that one shared file instead of performing its own login.
+test.use({ storageState: SHARED_AUTH_STATE_PATH });
 
-test.beforeAll(async ({ baseURL }) => {
+test.beforeAll(async () => {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   // Re-seed idempotently before this file's tests run. The arc-board drag test below
@@ -46,21 +44,6 @@ test.beforeAll(async ({ baseURL }) => {
     'npx ts-node --compiler-options \'{"module":"CommonJS"}\' scripts/seed-clarity-phase3-fixtures.ts',
     { cwd: APP_ROOT, stdio: 'inherit' }
   );
-
-  const browser = await chromium.launch();
-  // storageState explicitly undefined: this context is the one that logs in and CREATES
-  // AUTH_STATE_PATH — it must start with no storage state rather than trying to read a
-  // file that doesn't exist yet (this file's own test.use() above auto-applies to every
-  // OTHER newContext() call, just not this bootstrapping one).
-  const context = await browser.newContext({ baseURL, storageState: undefined });
-  const page = await context.newPage();
-  await page.goto('/login');
-  await page.getByLabel('Email').fill('admin@indelible.agency');
-  await page.getByLabel('Password').fill('password123');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
-  await context.storageState({ path: AUTH_STATE_PATH });
-  await browser.close();
 });
 
 async function assertNoHorizontalOverflow(page: import('@playwright/test').Page) {

@@ -1,7 +1,8 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, chromium } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { SHARED_AUTH_STATE_PATH } from './global-setup';
 
 // Clarity Phase 4b — Quest Peek View + Today board drag + relocated Intake. Mike's ruling:
 // every quest/task-opening action on the Seeing Stone opens a slide-over peek drawer
@@ -11,37 +12,25 @@ import { test, expect, chromium } from '@playwright/test';
 // scripts/seed-clarity-phase4b-peek-fixtures.ts (a Review-queue task, a fresh "To do"
 // Today board task, and two intake email_ask fixtures for the Archive/note-persistence
 // coverage). Auth is rate-limited to 10 req/min shared IP-wide across every e2e spec file
-// (see oracle-phase4a-email.spec.ts's own note) — this file logs in via the UI exactly
-// once in beforeAll and reuses the resulting storageState across every test.
+// — Clarity Phase 4c replaced every file's own per-file login with ONE shared admin login
+// for the whole suite (Playwright globalSetup, see global-setup.ts).
 const SCREENSHOT_DIR = '/home/mike/.openclaw/workspace/citadel-clarity-wt/app/test-results/clarity-phase4b';
 const APP_ROOT = path.resolve(__dirname, '..', '..');
-const AUTH_STATE_PATH = `${SCREENSHOT_DIR}/.auth-state.json`;
 const REVIEW_TASK_TITLE = 'E2E: review queue task (Clarity Phase 4b fixture)';
 const BOARD_TASK_TITLE = 'E2E: board drag task (Clarity Phase 4b fixture)';
 const INTAKE_ARCHIVE_SUBJECT = 'E2E: intake archive fixture (Clarity Phase 4b)';
 const INTAKE_NOTE_SUBJECT = 'E2E: intake note fixture (Clarity Phase 4b)';
 
 test.describe.configure({ mode: 'serial' });
-test.use({ storageState: AUTH_STATE_PATH });
+test.use({ storageState: SHARED_AUTH_STATE_PATH });
 
-test.beforeAll(async ({ baseURL }) => {
+test.beforeAll(async () => {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
   execSync(
     'npx ts-node --compiler-options \'{"module":"CommonJS"}\' scripts/seed-clarity-phase4b-peek-fixtures.ts',
     { cwd: APP_ROOT, stdio: 'inherit' }
   );
-
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ baseURL, storageState: undefined });
-  const page = await context.newPage();
-  await page.goto('/login');
-  await page.getByLabel('Email').fill('admin@indelible.agency');
-  await page.getByLabel('Password').fill('password123');
-  await page.click('button[type="submit"]');
-  await expect(page).toHaveURL(/.*dashboard/, { timeout: 10000 });
-  await context.storageState({ path: AUTH_STATE_PATH });
-  await browser.close();
 });
 
 async function assertNoHorizontalOverflow(page: import('@playwright/test').Page) {
