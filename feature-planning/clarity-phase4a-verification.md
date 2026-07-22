@@ -74,7 +74,23 @@ via `\d email_asks` and `enum_range(NULL::"NotificationType")` — both present 
 | `npx tsc --noEmit` | exit 0 |
 | `npx eslint` (touched paths) | exit 0, no warnings |
 | `npm run build` | exit 0, all 4 new routes present in the route table |
-| `npx playwright test` (full suite, 10 workers) | **15 passed / 0 failed, exit 0** — re-run twice consecutively for stability |
+| `npx playwright test` (full suite, 10 workers) | **15 passed / 0 failed, exit 0** — final recorded run; see the flakiness note below |
+
+**Full-suite flakiness under 10-way parallelism, observed and NOT swept under the rug:**
+across ~15 full-suite runs during this build, roughly 80% came back clean; the rest hit a
+single-test failure that moved between runs — sometimes `oracle-phase4a-email.spec.ts`,
+sometimes the PRE-EXISTING (untouched-by-this-phase) `oracle-phase3.spec.ts`, always a
+different specific assertion, never the same failure twice. This is genuine resource
+contention (one shared dev-server process + the existing IP-bucketed `authRateLimit`, 10
+Playwright workers firing concurrent logins/navigations against both) — a pre-existing
+characteristic of this suite (confirmed by it landing on `oracle-phase3.spec.ts`, which
+this phase never touched except its seed script's date bug), not a logic defect: every
+`--workers=1` / single-file run was 100% reliable throughout. Mitigated within scope —
+`oracle-phase4a-email.spec.ts` collapsed to ONE login for its whole file (storageState
+reuse, see Deviation #6) and its first assertion per test got a 15s timeout instead of the
+5s default — but not eliminated, since the underlying shared-server contention is
+pre-existing infrastructure outside this phase's mandate to rearchitect. The gate result
+above is the actual final run, not a cherry-picked green one.
 
 New vitest coverage: `lib/__tests__/email-asks.test.ts` (24 — subject-strip, due-soon
 window incl. the 8pm-boundary case, domain matching), `lib/__tests__/arc-resolution.test.ts`

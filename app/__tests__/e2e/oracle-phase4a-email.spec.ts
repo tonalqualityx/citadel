@@ -66,7 +66,11 @@ test('Clarity Phase 4a — crisis strip renders with the seeded urgent ask, scre
   await page.waitForLoadState('networkidle');
 
   const crisisStrip = page.getByTestId('crisis-strip');
-  await expect(crisisStrip).toBeVisible();
+  // Generous timeout on this FIRST assertion specifically: under the full suite's 10
+  // concurrent workers sharing one dev server process, the initial /oracle
+  // compile+data-fetch can occasionally run past the 5s default — every assertion after
+  // this one is on already-rendered content, so only this one needs the margin.
+  await expect(crisisStrip).toBeVisible({ timeout: 15000 });
   await expect(crisisStrip.getByText('E2E: Site is down (fixture)')).toBeVisible();
   await expect(crisisStrip.getByText(/From: Jane Client/)).toBeVisible();
   await expect(crisisStrip.getByText('Client reports the production site is returning 500s.')).toBeVisible();
@@ -96,7 +100,7 @@ test('Clarity Phase 4a — intake drawer collapsed by default, expands to show t
   await page.waitForLoadState('networkidle');
 
   const drawer = page.getByTestId('intake-drawer');
-  await expect(drawer).toBeVisible();
+  await expect(drawer).toBeVisible({ timeout: 15000 });
   await expect(drawer.getByText(/📬 Intake · \d+/)).toBeVisible();
   await expect(page.getByTestId('intake-cards')).toHaveCount(0);
 
@@ -125,7 +129,7 @@ test('Clarity Phase 4a — due-soon row renders the fixture task, add-to-Today m
   await page.waitForLoadState('networkidle');
 
   const dueSoonRow = page.getByTestId('due-soon-row');
-  await expect(dueSoonRow).toBeVisible();
+  await expect(dueSoonRow).toBeVisible({ timeout: 15000 });
   const fixtureItem = dueSoonRow.getByTestId('due-soon-item').filter({
     hasText: 'E2E: due-soon task (Clarity Phase 4a fixture)',
   });
@@ -174,7 +178,7 @@ test('Clarity Phase 4a — mobile: crisis strip full-width, never collapsed, no 
   await page.waitForLoadState('networkidle');
 
   const crisisStrip = page.getByTestId('crisis-strip');
-  await expect(crisisStrip).toBeVisible();
+  await expect(crisisStrip).toBeVisible({ timeout: 15000 });
   const box = await crisisStrip.boundingBox();
   const viewport = page.viewportSize();
   expect(box).not.toBeNull();
