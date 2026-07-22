@@ -1087,6 +1087,8 @@ export function formatEmailAskResponse(ask: any) {
     severity: ask.severity ?? null,
     is_urgent: ask.is_urgent,
     state: ask.state,
+    // Clarity Phase 4b — Mike's calibration note, shown on the card once set.
+    training_note: ask.training_note ?? null,
     task_id: ask.task_id ?? null,
     deep_link: ask.deep_link,
     received_at: ask.received_at,

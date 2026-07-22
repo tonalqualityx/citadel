@@ -10,8 +10,9 @@ import type { EmailAsk } from '@/lib/hooks/use-waiting-on-me';
 // crisis strip's Handled action, the intake drawer's Open/Dismiss, and Create/Create+open.
 
 export interface UpdateEmailAskInput {
-  state?: 'open' | 'handled' | 'dismissed';
+  state?: 'open' | 'handled' | 'dismissed' | 'archive_requested';
   task_id?: string | null;
+  training_note?: string | null;
 }
 
 export interface CreateTaskFromEmailAskInput {

@@ -235,7 +235,8 @@ export const clarityEndpoints: ApiEndpoint[] = [
               queue: 'decide|answer|review|do|null',
               severity: 'client_blocking|launch_blocking|internal|null',
               is_urgent: true,
-              state: 'open|handled|dismissed',
+              state: 'open|handled|dismissed|archive_requested',
+              training_note: 'string|null',
               task_id: 'uuid|null',
               deep_link: 'string',
               received_at: 'ISO-8601',
@@ -248,17 +249,52 @@ export const clarityEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/email-asks',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Clarity Phase 4b: machine-side read for the (staged, not-cron-wired) classifier — ' +
+          'fetch pending archive intents (state=archive_requested) to execute in Gmail on its ' +
+          'next pass. Same Bearer-auth util as /api/oracle/email-sync (no role gate).',
+        auth: 'required',
+        queryParams: [
+          { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested' },
+          { name: 'account', type: 'string', required: false, description: 'Filter to one mailbox, e.g. mike@becomeindelible.com' },
+        ],
+        responseExample: {
+          asks: [
+            {
+              id: 'uuid',
+              message_id: 'string',
+              account: 'string',
+              subject: 'string',
+              state: 'open|handled|dismissed|archive_requested',
+              training_note: 'string|null',
+              received_at: 'ISO-8601',
+            },
+          ],
+          meta: { total: 'number' },
+        },
+      },
+    ],
+  },
+  {
     path: '/api/email-asks/{id}',
     group: 'clarity',
     methods: [
       {
         method: 'PATCH',
-        summary: 'Clarity Phase 4a: the crisis strip\'s "Handled" action and the intake drawer\'s Dismiss/Open actions. Admin-only.',
+        summary:
+          'Clarity Phase 4a/4b: the crisis strip\'s "Handled" action, the intake drawer\'s ' +
+          'Dismiss/Open/Archive actions, and Mike\'s calibration note on a classification. Admin-only.',
         auth: 'required',
         roles: ['admin'],
         bodySchema: [
-          { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed' },
+          { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested — archive_requested drops the ask out of the intake drawer immediately; the classifier executes the real Gmail archive machine-side' },
           { name: 'task_id', type: 'uuid', required: false, description: '404-checked against tasks if given' },
+          { name: 'training_note', type: 'string', required: false, description: 'Clarity Phase 4b — Mike\'s own correction/calibration note (max 2000 chars); the classifier consumes recent notes as calibration examples machine-side' },
         ],
       },
     ],

@@ -34,7 +34,12 @@ export interface EmailAsk {
   queue: 'decide' | 'answer' | 'review' | 'do' | null;
   severity: 'client_blocking' | 'launch_blocking' | 'internal' | null;
   is_urgent: boolean;
-  state: 'open' | 'handled' | 'dismissed';
+  // Clarity Phase 4b: archive_requested — Mike's Archive action; drops out of the intake
+  // drawer immediately (its query filters state=open), the classifier executes the real
+  // Gmail archive machine-side on its next pass.
+  state: 'open' | 'handled' | 'dismissed' | 'archive_requested';
+  // Clarity Phase 4b — Mike's own correction/calibration note on this classification.
+  training_note: string | null;
   task_id: string | null;
   deep_link: string;
   received_at: string;

@@ -43,6 +43,7 @@ function ask(overrides: Record<string, unknown> = {}) {
     severity: 'client_blocking',
     is_urgent: true,
     state: 'open',
+    training_note: null,
     task_id: null,
     deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
     received_at: new Date('2026-07-21T20:00:00.000Z'),
@@ -137,5 +138,56 @@ describe('PATCH /api/email-asks/[id]', () => {
 
     const res = await PATCH(req({ state: 'handled' }), ctx());
     expect(res.status).toBe(403);
+  });
+
+  describe('Clarity Phase 4b — archive_requested + training_note', () => {
+    it('accepts archive_requested as a valid state (the intake drawer\'s Archive action)', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ state: 'archive_requested' }));
+
+      const res = await PATCH(req({ state: 'archive_requested' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.state).toBe('archive_requested');
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { state: 'archive_requested' },
+      });
+    });
+
+    it('sets a training_note', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ training_note: 'this was actually noise, not client' }));
+
+      const res = await PATCH(req({ training_note: 'this was actually noise, not client' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.training_note).toBe('this was actually noise, not client');
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { training_note: 'this was actually noise, not client' },
+      });
+    });
+
+    it('clears a training_note when explicitly null', async () => {
+      mockFindUnique.mockResolvedValue(ask({ training_note: 'old note' }));
+      mockUpdate.mockResolvedValue(ask({ training_note: null }));
+
+      const res = await PATCH(req({ training_note: null }), ctx());
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { training_note: null },
+      });
+    });
+
+    it('rejects a training_note over 2000 characters', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      const res = await PATCH(req({ training_note: 'x'.repeat(2001) }), ctx());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
   });
 });
