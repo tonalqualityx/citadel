@@ -359,15 +359,17 @@ export const clarityEndpoints: ApiEndpoint[] = [
         method: 'PATCH',
         summary:
           'Clarity Phase 4a/4b/6: the crisis strip\'s "Handled" action, the intake drawer\'s ' +
-          'Dismiss/Open/Archive/Add-to-calendar actions, and Mike\'s calibration note on a ' +
-          'classification. Admin-only.',
+          'Dismiss/Open/Archive/Add-to-calendar actions, Mike\'s calibration note on a ' +
+          'classification, and (Phase 6 addendum) the machine-side calendar executor\'s ' +
+          'completion write. Admin-only.',
         auth: 'required',
         roles: ['admin'],
         bodySchema: [
           { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested — archive_requested drops the ask out of the intake drawer immediately; the classifier executes the real Gmail archive machine-side' },
           { name: 'task_id', type: 'uuid', required: false, description: '404-checked against tasks if given' },
           { name: 'training_note', type: 'string', required: false, description: 'Clarity Phase 4b — Mike\'s own correction/calibration note (max 2000 chars); the classifier consumes recent notes as calibration examples machine-side' },
-          { name: 'calendar_requested', type: 'boolean', required: false, description: 'Clarity Phase 6 — the meeting-lane card\'s "Add to calendar" button; flips the button to "queued for calendar ⏳" immediately, the machine-side cron executes the real Google Calendar event creation and sets calendar_event_id ("added ✓")' },
+          { name: 'calendar_requested', type: 'boolean', required: false, description: 'Clarity Phase 6 — the meeting-lane card\'s "Add to calendar" button; flips the button to "queued for calendar ⏳" immediately' },
+          { name: 'calendar_event_id', type: 'string', required: false, description: 'Clarity Phase 6 addendum — the machine-side calendar executor\'s completion write (max 255 chars, nullable). Setting it (including explicitly to null) ATOMICALLY flips calendar_requested back to false in the same update, regardless of what else the request body sent — the only transition out of "requested". Renders as "added ✓" once set.' },
         ],
       },
     ],
