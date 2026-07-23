@@ -190,4 +190,40 @@ describe('PATCH /api/email-asks/[id]', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
   });
+
+  describe('Clarity Phase 6 — calendar_requested', () => {
+    it('sets calendar_requested=true (the meeting-lane card\'s Add to calendar button)', async () => {
+      mockFindUnique.mockResolvedValue(ask({ intent: 'meeting', proposed_event_at: new Date() }));
+      mockUpdate.mockResolvedValue(ask({ calendar_requested: true }));
+
+      const res = await PATCH(req({ calendar_requested: true }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.calendar_requested).toBe(true);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { calendar_requested: true },
+      });
+    });
+
+    it('rejects a non-boolean calendar_requested value', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      const res = await PATCH(req({ calendar_requested: 'yes' }), ctx());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('omitting calendar_requested leaves it untouched (not sent to the update call)', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+
+      await PATCH(req({ state: 'handled' }), ctx());
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { state: 'handled' },
+      });
+    });
+  });
 });

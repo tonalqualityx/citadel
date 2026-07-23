@@ -24,6 +24,13 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
     is_urgent: true,
     state: 'open',
     training_note: null,
+    // Clarity Phase 6 defaults: null intent -> general lane, no parsed meeting time.
+    intent: null,
+    proposed_event_at: null,
+    proposed_event_title: null,
+    proposed_event_minutes: null,
+    calendar_requested: false,
+    calendar_event_id: null,
     task_id: null,
     deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
     received_at: '2026-07-21T20:00:00.000Z',

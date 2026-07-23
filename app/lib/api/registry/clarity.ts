@@ -238,7 +238,12 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'API back-compat for one release. Every card also carries `client` (task cards only; ' +
           'session_ask cards are always null, fall back to arc/"Other" client-side for the ' +
           'Review column\'s grouping) and `waiting_since` (best-available "when this started ' +
-          'waiting" proxy: a task\'s updated_at, a session\'s last_event_at).',
+          'waiting" proxy: a task\'s updated_at, a session\'s last_event_at). ' +
+          'Clarity Phase 6: intake email asks carry `intent` (general|meeting|sales, null=' +
+          'general) and the proposed_event_* trio (null=no parsed meeting time, no ' +
+          'Add-to-calendar affordance); `intake` additionally carries `lanes` — per-lane ' +
+          'counts (general/meeting/sales, null intent counted as general) backing the header ' +
+          'trigger chip\'s three quiet counts.',
         responseExample: {
           waiting: [
             {
@@ -276,12 +281,23 @@ export const clarityEndpoints: ApiEndpoint[] = [
               is_urgent: true,
               state: 'open|handled|dismissed|archive_requested',
               training_note: 'string|null',
+              intent: 'general|meeting|sales|null',
+              proposed_event_at: 'ISO-8601|null',
+              proposed_event_title: 'string|null',
+              proposed_event_minutes: 'number|null',
+              calendar_requested: 'boolean',
+              calendar_event_id: 'string|null',
               task_id: 'uuid|null',
               deep_link: 'string',
               received_at: 'ISO-8601',
             },
           ],
-          intake: { count: 'number', newest_at: 'ISO-8601|null', items: [] },
+          intake: {
+            count: 'number',
+            newest_at: 'ISO-8601|null',
+            lanes: { general: 'number', meeting: 'number', sales: 'number' },
+            items: [],
+          },
           meta: {
             counts: {
               waiting: 'number',
@@ -310,6 +326,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
         queryParams: [
           { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested' },
           { name: 'account', type: 'string', required: false, description: 'Filter to one mailbox, e.g. mike@becomeindelible.com' },
+          { name: 'calendar_requested', type: 'string', required: false, description: 'Clarity Phase 6 — only "true" is accepted; the machine-side calendar executor\'s read for pending Add-to-calendar requests' },
         ],
         responseExample: {
           asks: [
@@ -320,6 +337,12 @@ export const clarityEndpoints: ApiEndpoint[] = [
               subject: 'string',
               state: 'open|handled|dismissed|archive_requested',
               training_note: 'string|null',
+              intent: 'general|meeting|sales|null',
+              proposed_event_at: 'ISO-8601|null',
+              proposed_event_title: 'string|null',
+              proposed_event_minutes: 'number|null',
+              calendar_requested: 'boolean',
+              calendar_event_id: 'string|null',
               received_at: 'ISO-8601',
             },
           ],
@@ -335,14 +358,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
       {
         method: 'PATCH',
         summary:
-          'Clarity Phase 4a/4b: the crisis strip\'s "Handled" action, the intake drawer\'s ' +
-          'Dismiss/Open/Archive actions, and Mike\'s calibration note on a classification. Admin-only.',
+          'Clarity Phase 4a/4b/6: the crisis strip\'s "Handled" action, the intake drawer\'s ' +
+          'Dismiss/Open/Archive/Add-to-calendar actions, and Mike\'s calibration note on a ' +
+          'classification. Admin-only.',
         auth: 'required',
         roles: ['admin'],
         bodySchema: [
           { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested — archive_requested drops the ask out of the intake drawer immediately; the classifier executes the real Gmail archive machine-side' },
           { name: 'task_id', type: 'uuid', required: false, description: '404-checked against tasks if given' },
           { name: 'training_note', type: 'string', required: false, description: 'Clarity Phase 4b — Mike\'s own correction/calibration note (max 2000 chars); the classifier consumes recent notes as calibration examples machine-side' },
+          { name: 'calendar_requested', type: 'boolean', required: false, description: 'Clarity Phase 6 — the meeting-lane card\'s "Add to calendar" button; flips the button to "queued for calendar ⏳" immediately, the machine-side cron executes the real Google Calendar event creation and sets calendar_event_id ("added ✓")' },
         ],
       },
     ],

@@ -15,6 +15,11 @@ const patchSchema = z.object({
   // Clarity Phase 4b — Mike's own correction/calibration note on a classification, entered
   // from the intake drawer's "note for Bast" input.
   training_note: z.string().max(2000).optional().nullable(),
+  // Clarity Phase 6 — the meeting-lane card's "Add to calendar" button intent flag. Only
+  // ever set to true from the UI (there's no "un-request" action); the machine-side cron
+  // reads it via GET /api/email-asks?calendar_requested=true and, on execution, sets
+  // calendar_event_id (a field this endpoint never writes).
+  calendar_requested: z.boolean().optional(),
 });
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -44,6 +49,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         ...(data.state !== undefined && { state: data.state }),
         ...(data.task_id !== undefined && { task_id: data.task_id }),
         ...(data.training_note !== undefined && { training_note: data.training_note }),
+        ...(data.calendar_requested !== undefined && { calendar_requested: data.calendar_requested }),
       },
     });
 

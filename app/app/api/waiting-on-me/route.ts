@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
-import { TaskStatus, AskQueue } from '@prisma/client';
+import { TaskStatus, AskQueue, EmailAskIntent } from '@prisma/client';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
 // overdue, awaiting-review, blocked, open-within-14d — each excluding IDs already emitted
@@ -283,6 +283,14 @@ export async function GET(request: NextRequest) {
       intake: {
         count: intakeAsks.length,
         newest_at: intakeAsks.length > 0 ? intakeAsks[0].received_at : null,
+        // Clarity Phase 6 — per-lane counts backing the header trigger chip's three quiet
+        // counts (📬/🤝/💰). Null intent counts as "general", same rule as the drawer's own
+        // client-side grouping (components/domain/oracle/intake/intake-drawer-logic.ts).
+        lanes: {
+          general: intakeAsks.filter((a) => a.intent === null || a.intent === EmailAskIntent.general).length,
+          meeting: intakeAsks.filter((a) => a.intent === EmailAskIntent.meeting).length,
+          sales: intakeAsks.filter((a) => a.intent === EmailAskIntent.sales).length,
+        },
         items: intakeAsks.map(formatEmailAskResponse),
       },
       meta: {

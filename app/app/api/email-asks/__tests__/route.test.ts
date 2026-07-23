@@ -125,4 +125,56 @@ describe('GET /api/email-asks', () => {
     const body = await res.json();
     expect(body.asks[0].training_note).toBe('this was actually noise');
   });
+
+  describe('Clarity Phase 6 — calendar_requested filter', () => {
+    it('filters by calendar_requested=true — the machine-side calendar executor\'s read', async () => {
+      mockFindMany.mockResolvedValue([ask({ id: 'a1', calendar_requested: true })]);
+
+      const res = await GET(getRequest({ calendar_requested: 'true' }));
+      expect(res.status).toBe(200);
+      expect(mockFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { calendar_requested: true } })
+      );
+    });
+
+    it('combines calendar_requested with state/account filters', async () => {
+      mockFindMany.mockResolvedValue([]);
+
+      await GET(getRequest({ calendar_requested: 'true', account: 'mike@whoismikedion.com' }));
+      expect(mockFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { account: 'mike@whoismikedion.com', calendar_requested: true },
+        })
+      );
+    });
+
+    it('rejects an invalid calendar_requested value (only "true" is accepted)', async () => {
+      const res = await GET(getRequest({ calendar_requested: 'false' }));
+      expect(res.status).toBe(400);
+    });
+
+    it('includes the new Phase 6 fields in the response shape', async () => {
+      mockFindMany.mockResolvedValue([
+        ask({
+          id: 'a1',
+          intent: 'meeting',
+          proposed_event_at: new Date('2026-07-24T19:30:00.000Z'),
+          proposed_event_title: 'Kickoff call',
+          proposed_event_minutes: 30,
+          calendar_requested: true,
+          calendar_event_id: 'gcal-1',
+        }),
+      ]);
+
+      const res = await GET(getRequest());
+      const body = await res.json();
+      expect(body.asks[0]).toMatchObject({
+        intent: 'meeting',
+        proposed_event_title: 'Kickoff call',
+        proposed_event_minutes: 30,
+        calendar_requested: true,
+        calendar_event_id: 'gcal-1',
+      });
+    });
+  });
 });

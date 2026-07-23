@@ -52,6 +52,17 @@ export interface EmailAsk {
   state: 'open' | 'handled' | 'dismissed' | 'archive_requested';
   // Clarity Phase 4b — Mike's own correction/calibration note on this classification.
   training_note: string | null;
+  // Clarity Phase 6 — email lanes & calendar intents. null intent renders as "general"
+  // (see components/domain/oracle/intake/intake-drawer-logic.ts's laneForAsk). The
+  // proposed_event_* trio is the classifier's HIGH-CONFIDENCE parsed meeting date only —
+  // null means no parsed time and no Add-to-calendar affordance (never guessed).
+  // calendar_event_id is set only by the machine-side cron, never by this UI.
+  intent: 'general' | 'meeting' | 'sales' | null;
+  proposed_event_at: string | null;
+  proposed_event_title: string | null;
+  proposed_event_minutes: number | null;
+  calendar_requested: boolean;
+  calendar_event_id: string | null;
   task_id: string | null;
   deep_link: string;
   received_at: string;
@@ -69,7 +80,14 @@ export interface WaitingOnMeResponse {
   do: WaitingOnMeCard[];
   // Clarity Phase 4a
   crisis: EmailAsk[];
-  intake: { count: number; newest_at: string | null; items: EmailAsk[] };
+  intake: {
+    count: number;
+    newest_at: string | null;
+    // Clarity Phase 6 — per-lane counts backing the header trigger chip's three quiet
+    // counts. Null intent counts as general, same rule the drawer's own grouping uses.
+    lanes: { general: number; meeting: number; sales: number };
+    items: EmailAsk[];
+  };
   meta: {
     counts: { waiting: number; decide: number; answer: number; review: number; do: number; total: number };
   };

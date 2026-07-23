@@ -162,4 +162,59 @@ describe('POST /api/oracle/email-sync', () => {
     const res = await POST(postRequest({ asks: [baseAsk()] }));
     expect(res.status).toBe(401);
   });
+
+  describe('Clarity Phase 6 — intent + proposed_event_* fields', () => {
+    it('accepts intent and the proposed_event_* trio on create', async () => {
+      const res = await POST(
+        postRequest({
+          asks: [
+            baseAsk({
+              message_id: 'msg-meeting',
+              intent: 'meeting',
+              proposed_event_at: '2026-07-24T19:30:00.000Z',
+              proposed_event_title: 'Kickoff call',
+              proposed_event_minutes: 45,
+            }),
+          ],
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            intent: 'meeting',
+            proposed_event_title: 'Kickoff call',
+            proposed_event_minutes: 45,
+          }),
+        })
+      );
+    });
+
+    it('rejects an invalid intent value', async () => {
+      const res = await POST(postRequest({ asks: [baseAsk({ intent: 'urgent' })] }));
+      expect(res.status).toBe(400);
+    });
+
+    it('legacy payloads (no Phase 6 fields at all) stay byte-compatible: those keys are absent from the upsert calls entirely', async () => {
+      const res = await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-legacy' })] }));
+      expect(res.status).toBe(200);
+
+      const call = mockUpsert.mock.calls[0][0];
+      for (const key of ['intent', 'proposed_event_at', 'proposed_event_title', 'proposed_event_minutes']) {
+        expect(call.create).not.toHaveProperty(key);
+        expect(call.update).not.toHaveProperty(key);
+      }
+    });
+
+    it('a re-sync that omits the Phase 6 fields leaves them untouched on update (not nulled out)', async () => {
+      mockFindUnique.mockResolvedValue({ id: 'ask-1', is_urgent: false });
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-1' })] }));
+
+      const call = mockUpsert.mock.calls[0][0];
+      expect(call.update).not.toHaveProperty('intent');
+      expect(call.update).not.toHaveProperty('proposed_event_at');
+    });
+  });
 });
