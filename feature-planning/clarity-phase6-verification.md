@@ -83,10 +83,10 @@ exited cleanly with "Script executed successfully", confirming both the enum gua
 
 | Gate | Result |
 |---|---|
-| `npm run test:run` | **1861 tests / 153 files, exit 0** (baseline 1827/153 + 34 new/updated across 7 files — see plan doc's "Tests to Write"/"Tests to Update") |
+| `npm run test:run` | **1866 tests / 153 files, exit 0** (baseline 1827/153 + 34 new/updated for the main phase + 5 new for the `calendar_event_id` addendum) |
 | `npx tsc --noEmit` | exit 0 |
 | `npm run build` | exit 0 |
-| `npx playwright test` (full suite) | **36 passed / 0 failed, exit 0** (baseline 33 + 3 new) |
+| `npx playwright test` (full suite) | **36 passed / 0 failed, exit 0** (baseline 33 + 3 new — addendum is API-only, no e2e impact) |
 
 New e2e: `__tests__/e2e/oracle-phase6-email-lanes.spec.ts` (3 tests, fixtures from
 `scripts/seed-clarity-phase6-lane-fixtures.ts`): trigger chip + drawer lane grouping with a
@@ -148,14 +148,18 @@ every ask object may now additionally include, all optional and independently om
 auth as email-sync) to find asks Mike has clicked "Add to calendar" on. For each: create the
 real Google Calendar event using `proposed_event_at`/`proposed_event_title`/
 `proposed_event_minutes` (fall back to a sane default duration if minutes is null), then
-**`PATCH /api/email-asks/{id}` with `{ calendar_event_id: <the new event's id> }`** — wait,
-this endpoint does not currently accept `calendar_event_id` as a settable field (it was
-deliberately left machine-only per the spec's "calendar_event_id is entirely machine-set —
-nothing in this phase's UI or API ever writes it directly" framing, and the spec did not
-ask for a PATCH path for it). **This is the one open item for Bast's follow-up build**: the
-executor will need either (a) a small additive PATCH allowance for `calendar_event_id` on
-this same endpoint, or (b) a dedicated machine-only endpoint/service-layer write path. Flag
-this explicitly rather than silently assuming a path that doesn't exist yet.
+**`PATCH /api/email-asks/{id}` with `{ calendar_event_id: <the new event's id> }`.**
+
+**Addendum (closed the gap flagged above):** `PATCH /api/email-asks/[id]` now accepts
+`calendar_event_id` (string, ≤255 chars, nullable). Setting it — including explicitly
+clearing it to `null` — atomically flips `calendar_requested` back to `false` in the SAME
+update, regardless of what else the request body sent (verified: a request sending both
+`calendar_event_id` and `calendar_requested: true` still ends up with `calendar_requested:
+false`). This closes the requested → executed transition: the executor's single PATCH call
+is now sufficient to make the UI's button render "added ✓" with no separate call needed to
+also clear the request flag. Registry updated. 5 new unit tests (set-and-clear-flag,
+precedence-over-explicit-calendar_requested, omit-leaves-untouched, explicit-null-clear,
+over-length-rejection).
 
 ## Commits
 
