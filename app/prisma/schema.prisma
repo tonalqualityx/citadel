@@ -2723,6 +2723,16 @@ enum EmailAskState {
   archive_requested
 }
 
+// Clarity Phase 6 — the intake drawer's lane grouping (Meeting/Sales/General). Null on an
+// EmailAsk renders as "general" (the drawer/trigger chip never show an "unclassified"
+// state) — this is a pure UI/grouping lane, not a queue/severity re-encoding, so it's a
+// separate enum from AskQueue/AskSeverity rather than folded into either.
+enum EmailAskIntent {
+  general
+  meeting
+  sales
+}
+
 // Clarity Phase 4a — email on the Seeing Stone. Synced via POST /api/oracle/email-sync
 // (upsert by message_id) from the staged, not-cron-wired classifier
 // (~/.claude/tools/oracle/clarity/email-classifier.py). is_urgent=true drives the crisis
@@ -2752,6 +2762,25 @@ model EmailAsk {
   // is actually noise", "should've been urgent"), entered from the intake drawer. The
   // classifier consumes recent notes as calibration examples (machine-side, not built here).
   training_note String? @db.Text
+
+  // Clarity Phase 6 — email lanes & calendar intents. `intent` drives the intake drawer's
+  // lane grouping (null = general, per EmailAskIntent's own doc comment). The
+  // proposed_event_* fields are the classifier's HIGH-CONFIDENCE parsed meeting date only —
+  // never guessed at, never backfilled client-side: a null proposed_event_at means the
+  // Meeting-lane card shows no parsed time and no Add-to-calendar button at all (Mike's
+  // explicit "never guess" ruling). calendar_requested flips true the instant Mike clicks
+  // Add to calendar (the button becomes "queued for calendar ⏳" immediately, same
+  // resolved-from-Mike's-perspective pattern as archive_requested above); the machine-side
+  // cron (Bast's separate follow-up, not built in this phase) executes the actual Google
+  // Calendar event creation within ~15 min and sets calendar_event_id, which renders
+  // "added ✓". calendar_event_id is entirely machine-set — nothing in this phase's UI or
+  // API ever writes it directly.
+  intent                 EmailAskIntent?
+  proposed_event_at      DateTime?
+  proposed_event_title   String?         @db.VarChar(500)
+  proposed_event_minutes Int?
+  calendar_requested     Boolean         @default(false)
+  calendar_event_id      String?         @db.VarChar(255)
 
   task_id String? @db.Uuid
   task    Task?   @relation(fields: [task_id], references: [id])
