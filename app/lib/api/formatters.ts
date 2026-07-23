@@ -1125,6 +1125,15 @@ export function formatEmailAskResponse(ask: any) {
     state: ask.state,
     // Clarity Phase 4b — Mike's calibration note, shown on the card once set.
     training_note: ask.training_note ?? null,
+    // Clarity Phase 6 — email lanes & calendar intents. intent null renders as "general"
+    // client-side (see components/domain/oracle/intake/intake-drawer-logic.ts's
+    // laneForAsk) — this formatter passes it through as-is, never defaulted server-side.
+    intent: ask.intent ?? null,
+    proposed_event_at: ask.proposed_event_at ?? null,
+    proposed_event_title: ask.proposed_event_title ?? null,
+    proposed_event_minutes: ask.proposed_event_minutes ?? null,
+    calendar_requested: ask.calendar_requested ?? false,
+    calendar_event_id: ask.calendar_event_id ?? null,
     task_id: ask.task_id ?? null,
     deep_link: ask.deep_link,
     received_at: ask.received_at,

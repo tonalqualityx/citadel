@@ -85,7 +85,11 @@ test('Clarity Phase 4a — intake trigger chip in the header opens a drawer show
 
   const trigger = page.getByTestId('intake-drawer-trigger');
   await expect(trigger).toBeVisible({ timeout: 15000 });
-  await expect(trigger).toHaveText(/📬 Intake · \d+/);
+  // Clarity Phase 6 replaced the single "📬 Intake · N" summary with a three-lane count
+  // chip ("📬 N · 🤝 N · 💰 N", zero-count lanes hidden) — this fixture's own ask is
+  // general-lane (no intent set), so at minimum the 📬 count is present. Loosely matched
+  // (not an exact count) since other fixtures/seed scripts share this same intake surface.
+  await expect(trigger).toHaveText(/📬\s*\d+/);
   // The drawer lazy-mounts on first open (see IntakeDrawer.tsx) — not in the DOM at all
   // beforehand, rather than present-but-closed.
   await expect(page.getByTestId('intake-drawer')).toHaveCount(0);

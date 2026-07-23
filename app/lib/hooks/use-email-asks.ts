@@ -13,6 +13,8 @@ export interface UpdateEmailAskInput {
   state?: 'open' | 'handled' | 'dismissed' | 'archive_requested';
   task_id?: string | null;
   training_note?: string | null;
+  // Clarity Phase 6 — the meeting-lane card's "Add to calendar" button intent flag.
+  calendar_requested?: boolean;
 }
 
 export interface CreateTaskFromEmailAskInput {

@@ -196,7 +196,10 @@ test('Clarity Phase 4b — Intake relocated to the header: trigger chip, drawer 
   // intake-related renders in the main column anymore.
   const trigger = page.getByTestId('intake-drawer-trigger');
   await expect(trigger).toBeVisible({ timeout: 15000 });
-  await expect(trigger).toHaveText(/📬 Intake · \d+/);
+  // Clarity Phase 6 replaced the single "📬 Intake · N" summary with a three-lane count
+  // chip — this file's own fixtures are general-lane (no intent set), loosely matched
+  // (not an exact count) since other fixtures/seed scripts share this same intake surface.
+  await expect(trigger).toHaveText(/📬\s*\d+/);
   // The drawer lazy-mounts on first open (see IntakeDrawer.tsx) — not in the DOM at all
   // beforehand, rather than present-but-closed.
   await expect(page.getByTestId('intake-drawer')).toHaveCount(0);

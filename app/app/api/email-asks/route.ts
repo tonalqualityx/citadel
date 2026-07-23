@@ -15,6 +15,10 @@ import { EmailAskState } from '@prisma/client';
 const queryParamsSchema = z.object({
   state: z.nativeEnum(EmailAskState).optional(),
   account: z.string().min(1).max(255).optional(),
+  // Clarity Phase 6 — the machine-side calendar executor's read: pending Add-to-calendar
+  // requests it needs to act on. Only `true` is meaningful here (there's no un-request
+  // action to filter for), so this deliberately doesn't accept `false`.
+  calendar_requested: z.enum(['true']).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -25,12 +29,14 @@ export async function GET(request: NextRequest) {
     const parsed = queryParamsSchema.parse({
       state: searchParams.get('state') ?? undefined,
       account: searchParams.get('account') ?? undefined,
+      calendar_requested: searchParams.get('calendar_requested') ?? undefined,
     });
 
     const asks = await prisma.emailAsk.findMany({
       where: {
         ...(parsed.state !== undefined && { state: parsed.state }),
         ...(parsed.account !== undefined && { account: parsed.account }),
+        ...(parsed.calendar_requested === 'true' && { calendar_requested: true }),
       },
       orderBy: { received_at: 'desc' },
     });

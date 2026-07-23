@@ -190,4 +190,100 @@ describe('PATCH /api/email-asks/[id]', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
   });
+
+  describe('Clarity Phase 6 — calendar_requested', () => {
+    it('sets calendar_requested=true (the meeting-lane card\'s Add to calendar button)', async () => {
+      mockFindUnique.mockResolvedValue(ask({ intent: 'meeting', proposed_event_at: new Date() }));
+      mockUpdate.mockResolvedValue(ask({ calendar_requested: true }));
+
+      const res = await PATCH(req({ calendar_requested: true }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.calendar_requested).toBe(true);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { calendar_requested: true },
+      });
+    });
+
+    it('rejects a non-boolean calendar_requested value', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      const res = await PATCH(req({ calendar_requested: 'yes' }), ctx());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('omitting calendar_requested leaves it untouched (not sent to the update call)', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+
+      await PATCH(req({ state: 'handled' }), ctx());
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { state: 'handled' },
+      });
+    });
+  });
+
+  describe('Clarity Phase 6 addendum — calendar_event_id (the calendar executor\'s completion write)', () => {
+    it('sets calendar_event_id and atomically flips calendar_requested to false in the same update', async () => {
+      mockFindUnique.mockResolvedValue(ask({ calendar_requested: true }));
+      mockUpdate.mockResolvedValue(ask({ calendar_event_id: 'gcal-event-1', calendar_requested: false }));
+
+      const res = await PATCH(req({ calendar_event_id: 'gcal-event-1' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.calendar_event_id).toBe('gcal-event-1');
+      expect(body.calendar_requested).toBe(false);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { calendar_event_id: 'gcal-event-1', calendar_requested: false },
+      });
+    });
+
+    it('calendar_event_id wins over an explicit calendar_requested in the SAME request body', async () => {
+      mockFindUnique.mockResolvedValue(ask({ calendar_requested: true }));
+      mockUpdate.mockResolvedValue(ask({ calendar_event_id: 'gcal-event-2', calendar_requested: false }));
+
+      await PATCH(req({ calendar_event_id: 'gcal-event-2', calendar_requested: true }), ctx());
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { calendar_requested: false, calendar_event_id: 'gcal-event-2' },
+      });
+    });
+
+    it('omitting calendar_event_id leaves it (and calendar_requested) untouched', async () => {
+      mockFindUnique.mockResolvedValue(ask({ calendar_requested: true }));
+      mockUpdate.mockResolvedValue(ask({ state: 'handled', calendar_requested: true }));
+
+      await PATCH(req({ state: 'handled' }), ctx());
+
+      const call = mockUpdate.mock.calls[0][0];
+      expect(call.data).not.toHaveProperty('calendar_event_id');
+      expect(call.data).not.toHaveProperty('calendar_requested');
+    });
+
+    it('explicitly clearing calendar_event_id to null also flips calendar_requested to false', async () => {
+      mockFindUnique.mockResolvedValue(ask({ calendar_event_id: 'gcal-old', calendar_requested: false }));
+      mockUpdate.mockResolvedValue(ask({ calendar_event_id: null, calendar_requested: false }));
+
+      await PATCH(req({ calendar_event_id: null }), ctx());
+
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { calendar_event_id: null, calendar_requested: false },
+      });
+    });
+
+    it('rejects a calendar_event_id over 255 characters', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      const res = await PATCH(req({ calendar_event_id: 'x'.repeat(256) }), ctx());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+  });
 });

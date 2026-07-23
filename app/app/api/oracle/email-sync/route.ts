@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { notifyUrgentEmail } from '@/lib/services/notifications';
-import { AskQueue, AskSeverity } from '@prisma/client';
+import { AskQueue, AskSeverity, EmailAskIntent } from '@prisma/client';
 
 // Clarity Phase 4a — email on the Seeing Stone. The staged, not-cron-wired classifier
 // (~/.claude/tools/oracle/clarity/email-classifier.py) POSTs here for both mailboxes
@@ -29,6 +29,15 @@ const emailAskSchema = z.object({
   is_urgent: z.boolean().optional().default(false),
   deep_link: z.string().min(1).max(1000),
   received_at: z.coerce.date(),
+  // Clarity Phase 6 — email lanes & calendar intents. All optional: absent = untouched on
+  // an update (legacy classifier payloads that never send these stay byte-compatible —
+  // see the conditional spread below, unlike the legacy fields above which always
+  // overwrite). proposed_event_at uses z.coerce.date() for the same numeric-UTC-offset
+  // reason as received_at/calendar-sync's eventSchema.
+  intent: z.nativeEnum(EmailAskIntent).optional().nullable(),
+  proposed_event_at: z.coerce.date().optional().nullable(),
+  proposed_event_title: z.string().max(500).optional().nullable(),
+  proposed_event_minutes: z.number().int().positive().optional().nullable(),
 });
 
 const emailSyncSchema = z.object({
@@ -54,6 +63,17 @@ export async function POST(request: NextRequest) {
         select: { id: true, is_urgent: true },
       });
 
+      // Clarity Phase 6 fields: absent (undefined) means "untouched" — a legacy classifier
+      // payload that never sends intent/proposed_event_* leaves those columns exactly as
+      // they were (create: defaults to the column's own null/false; update: no-op via the
+      // conditional spread), unlike the pre-existing fields above which always overwrite.
+      const phase6Fields = {
+        ...(ask.intent !== undefined && { intent: ask.intent }),
+        ...(ask.proposed_event_at !== undefined && { proposed_event_at: ask.proposed_event_at }),
+        ...(ask.proposed_event_title !== undefined && { proposed_event_title: ask.proposed_event_title }),
+        ...(ask.proposed_event_minutes !== undefined && { proposed_event_minutes: ask.proposed_event_minutes }),
+      };
+
       const row = await prisma.emailAsk.upsert({
         where: { message_id: ask.message_id },
         create: {
@@ -69,6 +89,7 @@ export async function POST(request: NextRequest) {
           is_urgent: ask.is_urgent,
           deep_link: ask.deep_link,
           received_at: ask.received_at,
+          ...phase6Fields,
         },
         update: {
           thread_id: ask.thread_id ?? null,
@@ -82,6 +103,7 @@ export async function POST(request: NextRequest) {
           is_urgent: ask.is_urgent,
           deep_link: ask.deep_link,
           received_at: ask.received_at,
+          ...phase6Fields,
         },
       });
       upserted++;
