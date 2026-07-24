@@ -286,4 +286,37 @@ describe('PATCH /api/email-asks/[id]', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
   });
+
+  describe('Clarity Phase 6b — admin intent regression', () => {
+    // This route has never validated `intent` at all (it's classifier/email-sync-set
+    // only — see app/api/oracle/email-sync/route.ts); these tests confirm the existing
+    // PATCH-able fields (state, calendar_requested) still work correctly on a row whose
+    // intent is the new 'admin' value, i.e. adding the enum value didn't regress this
+    // endpoint's own unrelated behavior.
+    it('marks an admin-intent ask handled same as any other lane', async () => {
+      mockFindUnique.mockResolvedValue(ask({ intent: 'admin' }));
+      mockUpdate.mockResolvedValue(ask({ intent: 'admin', state: 'handled' }));
+
+      const res = await PATCH(req({ state: 'handled' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.state).toBe('handled');
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { state: 'handled' },
+      });
+    });
+
+    it('sets calendar_requested on an admin-intent ask (no meeting-only restriction at the API layer)', async () => {
+      mockFindUnique.mockResolvedValue(ask({ intent: 'admin' }));
+      mockUpdate.mockResolvedValue(ask({ intent: 'admin', calendar_requested: true }));
+
+      const res = await PATCH(req({ calendar_requested: true }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.calendar_requested).toBe(true);
+    });
+  });
 });

@@ -217,4 +217,26 @@ describe('POST /api/oracle/email-sync', () => {
       expect(call.update).not.toHaveProperty('proposed_event_at');
     });
   });
+
+  describe('Clarity Phase 6b — admin intent', () => {
+    it('accepts intent: "admin" (business-critical non-client mail)', async () => {
+      const res = await POST(
+        postRequest({
+          asks: [baseAsk({ message_id: 'msg-admin', intent: 'admin' })],
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ intent: 'admin' }),
+        })
+      );
+    });
+
+    it('still rejects an invalid intent value alongside the new admin value', async () => {
+      const res = await POST(postRequest({ asks: [baseAsk({ intent: 'invoice' })] }));
+      expect(res.status).toBe(400);
+    });
+  });
 });

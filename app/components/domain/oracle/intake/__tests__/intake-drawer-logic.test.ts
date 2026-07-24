@@ -48,35 +48,45 @@ describe('laneForAsk', () => {
     expect(laneForAsk({ intent: 'sales' })).toBe('sales');
     expect(laneForAsk({ intent: 'general' })).toBe('general');
   });
+
+  it('Clarity Phase 6b — passes through the admin intent (never a null-fallback)', () => {
+    expect(laneForAsk({ intent: 'admin' })).toBe('admin');
+  });
 });
 
 describe('intakeChipLine', () => {
-  it('renders one quiet count per non-empty lane, in general/meeting/sales order', () => {
-    expect(intakeChipLine({ general: 4, meeting: 1, sales: 2 })).toBe('📬 4 · 🤝 1 · 💰 2');
+  it('renders one quiet count per non-empty lane, in admin/general/meeting/sales order', () => {
+    expect(intakeChipLine({ admin: 3, general: 4, meeting: 1, sales: 2 })).toBe('🧾 3 · 📬 4 · 🤝 1 · 💰 2');
   });
 
   it('skips zero-count lanes entirely (exception display, not a "0" badge)', () => {
-    expect(intakeChipLine({ general: 4, meeting: 0, sales: 2 })).toBe('📬 4 · 💰 2');
-    expect(intakeChipLine({ general: 0, meeting: 1, sales: 0 })).toBe('🤝 1');
+    expect(intakeChipLine({ admin: 0, general: 4, meeting: 0, sales: 2 })).toBe('📬 4 · 💰 2');
+    expect(intakeChipLine({ admin: 0, general: 0, meeting: 1, sales: 0 })).toBe('🤝 1');
+  });
+
+  it('Clarity Phase 6b — admin renders FIRST when present, ahead of the other three lanes', () => {
+    expect(intakeChipLine({ admin: 1, general: 4, meeting: 1, sales: 2 })).toBe('🧾 1 · 📬 4 · 🤝 1 · 💰 2');
   });
 
   it('falls back to the existing quiet all-zero line when every lane is zero', () => {
-    expect(intakeChipLine({ general: 0, meeting: 0, sales: 0 })).toBe('📬 Intake · 0');
+    expect(intakeChipLine({ admin: 0, general: 0, meeting: 0, sales: 0 })).toBe('📬 Intake · 0');
   });
 });
 
 describe('groupAsksByLane', () => {
-  it('groups in Meeting, Sales, General order, skipping empty lanes', () => {
+  it('groups in Admin, Meeting, Sales, General order, skipping empty lanes', () => {
     const asks: { id: string; intent: EmailAskLane | null }[] = [
       { id: 'g1', intent: null },
+      { id: 'a1', intent: 'admin' },
       { id: 'm1', intent: 'meeting' },
       { id: 's1', intent: 'sales' },
       { id: 'g2', intent: 'general' },
     ];
     const groups = groupAsksByLane(asks);
-    expect(groups.map((g) => g.lane)).toEqual(['meeting', 'sales', 'general']);
-    expect(groups.map((g) => g.label)).toEqual(['Meeting', 'Sales', 'General']);
+    expect(groups.map((g) => g.lane)).toEqual(['admin', 'meeting', 'sales', 'general']);
+    expect(groups.map((g) => g.label)).toEqual(['Admin', 'Meeting', 'Sales', 'General']);
     expect(groups.find((g) => g.lane === 'general')!.asks.map((a) => a.id)).toEqual(['g1', 'g2']);
+    expect(groups.find((g) => g.lane === 'admin')!.asks.map((a) => a.id)).toEqual(['a1']);
   });
 
   it('omits a lane with zero items rather than rendering an empty group', () => {

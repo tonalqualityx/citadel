@@ -1,15 +1,16 @@
 /**
  * Dev fixture seed for Clarity Phase 6 (email lanes & calendar intents) Playwright coverage:
- * three open+non-urgent email_asks, one per lane (general/meeting/sales) — the meeting one
- * carries a HIGH-CONFIDENCE proposed_event_at (2 real hours from whenever this script runs,
- * a rolling window not a calendar-day fixture, same discipline as Phase 4a's due-soon
- * fixture — see lib/email-asks.ts's isDueSoon header note) so it's the ONLY ask in the DB
- * whose Add-to-calendar button should ever appear.
+ * four open+non-urgent email_asks, one per lane (admin/general/meeting/sales — Phase 6b
+ * added `admin`) — the meeting one carries a HIGH-CONFIDENCE proposed_event_at (2 real
+ * hours from whenever this script runs, a rolling window not a calendar-day fixture, same
+ * discipline as Phase 4a's due-soon fixture — see lib/email-asks.ts's isDueSoon header
+ * note) so it's the ONLY ask in the DB whose Add-to-calendar button should ever appear.
  *
- * Meeting/sales lanes are exclusively populated by THIS fixture (no other seed script sets
- * `intent`), so the e2e spec can assert exact meeting/sales lane counts; the general lane
- * may also contain other phases' fixtures (their asks all default to null intent = general),
- * so general-lane assertions stay loose (message-filtered, not count-exact) by design.
+ * Admin/meeting/sales lanes are exclusively populated by THIS fixture (no other seed
+ * script sets `intent`), so the e2e spec can assert exact admin/meeting/sales lane
+ * counts; the general lane may also contain other phases' fixtures (their asks all
+ * default to null intent = general), so general-lane assertions stay loose
+ * (message-filtered, not count-exact) by design.
  *
  * Idempotent: each fixture is found-or-recreated by a fixed message_id on every run. Local
  * dev only — this seeds whatever DATABASE_URL points at; never point it at prod.
@@ -24,6 +25,7 @@ const prisma = new PrismaClient();
 const GENERAL_MESSAGE_ID = 'e2e-clarity-phase6-fixture-general';
 const MEETING_MESSAGE_ID = 'e2e-clarity-phase6-fixture-meeting';
 const SALES_MESSAGE_ID = 'e2e-clarity-phase6-fixture-sales';
+const ADMIN_MESSAGE_ID = 'e2e-clarity-phase6-fixture-admin';
 
 async function main() {
   const now = new Date();
@@ -131,7 +133,38 @@ async function main() {
     },
   });
 
-  console.log('  upserted 1 general + 1 meeting (with proposed_event_at) + 1 sales email_ask');
+  console.log('Clarity Phase 6b fixtures: upserting admin-lane email_ask...');
+  await prisma.emailAsk.upsert({
+    where: { message_id: ADMIN_MESSAGE_ID },
+    create: {
+      message_id: ADMIN_MESSAGE_ID,
+      thread_id: ADMIN_MESSAGE_ID,
+      account: 'mike@becomeindelible.com',
+      from_name: 'Pat Bookkeeper',
+      from_email: 'pat@e2e-fixture-phase6.example',
+      subject: 'E2E: Q3 estimated taxes due (Clarity Phase 6b fixture)',
+      gist: 'Bookkeeper flagging the quarterly estimated tax payment.',
+      queue: 'answer',
+      severity: 'internal',
+      is_urgent: false,
+      state: 'open',
+      intent: 'admin',
+      deep_link: 'https://mail.google.com/mail/u/0/#inbox/e2e-fixture-phase6-admin',
+      received_at: now,
+    },
+    update: {
+      is_urgent: false,
+      state: 'open',
+      intent: 'admin',
+      subject: 'E2E: Q3 estimated taxes due (Clarity Phase 6b fixture)',
+      received_at: now,
+      task_id: null,
+      calendar_requested: false,
+      calendar_event_id: null,
+    },
+  });
+
+  console.log('  upserted 1 admin + 1 general + 1 meeting (with proposed_event_at) + 1 sales email_ask');
   console.log('Done.');
 }
 

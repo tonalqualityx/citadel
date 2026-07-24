@@ -55,7 +55,8 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
 
 // Clarity Phase 6 — every `intake` prop below needs a `lanes` summary now; this default
 // (single default-fixture ask, which is general-lane) is what most existing tests want.
-const GENERAL_ONLY_LANES = { general: 1, meeting: 0, sales: 0 };
+// Clarity Phase 6b — `lanes` gained a required `admin` count.
+const GENERAL_ONLY_LANES = { admin: 0, general: 1, meeting: 0, sales: 0 };
 
 function renderWithClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -97,7 +98,7 @@ describe('IntakeDrawer', () => {
   it('renders a quiet zero-count chip when intake is empty, still visible (not exception-only)', () => {
     renderWithClient(
       <IntakeDrawer
-        intake={{ count: 0, newest_at: null, lanes: { general: 0, meeting: 0, sales: 0 }, items: [] }}
+        intake={{ count: 0, newest_at: null, lanes: { admin: 0, general: 0, meeting: 0, sales: 0 }, items: [] }}
         timezone="America/New_York"
       />
     );
@@ -235,7 +236,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 3,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 1, meeting: 1, sales: 1 },
+            lanes: { admin: 0, general: 1, meeting: 1, sales: 1 },
             items: threeLaneAsks(),
           }}
           timezone="America/New_York"
@@ -251,7 +252,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 3,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 1, meeting: 1, sales: 1 },
+            lanes: { admin: 0, general: 1, meeting: 1, sales: 1 },
             items: threeLaneAsks(),
           }}
           timezone="America/New_York"
@@ -275,7 +276,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 1,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 0, meeting: 1, sales: 0 },
+            lanes: { admin: 0, general: 0, meeting: 1, sales: 0 },
             items: [threeLaneAsks()[1]],
           }}
           timezone="America/New_York"
@@ -294,7 +295,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 1,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 0, meeting: 1, sales: 0 },
+            lanes: { admin: 0, general: 0, meeting: 1, sales: 0 },
             items: [ask({ id: 'ask-meeting-unparsed', intent: 'meeting', proposed_event_at: null })],
           }}
           timezone="America/New_York"
@@ -315,7 +316,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 1,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 0, meeting: 1, sales: 0 },
+            lanes: { admin: 0, general: 0, meeting: 1, sales: 0 },
             items: [threeLaneAsks()[1]],
           }}
           timezone="America/New_York"
@@ -336,7 +337,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 1,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 0, meeting: 1, sales: 0 },
+            lanes: { admin: 0, general: 0, meeting: 1, sales: 0 },
             items: [
               ask({
                 id: 'ask-meeting-queued',
@@ -362,7 +363,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 1,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 0, meeting: 1, sales: 0 },
+            lanes: { admin: 0, general: 0, meeting: 1, sales: 0 },
             items: [
               ask({
                 id: 'ask-meeting-added',
@@ -388,7 +389,7 @@ describe('IntakeDrawer', () => {
           intake={{
             count: 1,
             newest_at: '2026-07-21T20:00:00.000Z',
-            lanes: { general: 0, meeting: 0, sales: 1 },
+            lanes: { admin: 0, general: 0, meeting: 0, sales: 1 },
             items: [threeLaneAsks()[2]],
           }}
           timezone="America/New_York"
@@ -399,6 +400,72 @@ describe('IntakeDrawer', () => {
 
       expect(screen.getByRole('button', { name: /^create lead quest$/i })).toBeVisible();
       expect(screen.getByRole('button', { name: /create lead quest \+ open/i })).toBeVisible();
+    });
+
+    describe('Clarity Phase 6b — admin lane', () => {
+      function fourLaneAsks(): EmailAsk[] {
+        return [...threeLaneAsks(), ask({ id: 'ask-admin', subject: 'Q3 estimated taxes due', intent: 'admin' })];
+      }
+
+      it('trigger chip includes the admin count, rendered FIRST', () => {
+        renderWithClient(
+          <IntakeDrawer
+            intake={{
+              count: 4,
+              newest_at: '2026-07-21T20:00:00.000Z',
+              lanes: { admin: 1, general: 1, meeting: 1, sales: 1 },
+              items: fourLaneAsks(),
+            }}
+            timezone="America/New_York"
+          />
+        );
+
+        expect(screen.getByTestId('intake-drawer-trigger')).toHaveTextContent('🧾 1 · 📬 1 · 🤝 1 · 💰 1');
+      });
+
+      it('drawer groups Admin FIRST, ahead of Meeting/Sales/General', () => {
+        renderWithClient(
+          <IntakeDrawer
+            intake={{
+              count: 4,
+              newest_at: '2026-07-21T20:00:00.000Z',
+              lanes: { admin: 1, general: 1, meeting: 1, sales: 1 },
+              items: fourLaneAsks(),
+            }}
+            timezone="America/New_York"
+          />
+        );
+
+        fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+        const cardsContainer = screen.getByTestId('intake-cards');
+        const laneHeadings = cardsContainer.querySelectorAll('h3');
+        expect(Array.from(laneHeadings).map((h) => h.textContent)).toEqual(['Admin', 'Meeting', 'Sales', 'General']);
+        expect(screen.getByTestId('intake-lane-admin')).toBeVisible();
+      });
+
+      it('admin cards use the standard actions — plain Create/Create + open, no lead-flavored copy, no meeting block', () => {
+        renderWithClient(
+          <IntakeDrawer
+            intake={{
+              count: 1,
+              newest_at: '2026-07-21T20:00:00.000Z',
+              lanes: { admin: 1, general: 0, meeting: 0, sales: 0 },
+              items: [ask({ id: 'ask-admin', subject: 'Q3 estimated taxes due', intent: 'admin' })],
+            }}
+            timezone="America/New_York"
+          />
+        );
+
+        fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+        const adminCard = screen.getByTestId('intake-lane-admin').querySelector('[data-testid="intake-card"]')!;
+        expect(adminCard).toBeTruthy();
+        expect(screen.getByRole('button', { name: /^create$/i })).toBeVisible();
+        expect(screen.getByRole('button', { name: /^create \+ open$/i })).toBeVisible();
+        expect(screen.queryByRole('button', { name: /lead quest/i })).not.toBeInTheDocument();
+        expect(screen.queryByTestId('meeting-event-block')).not.toBeInTheDocument();
+      });
     });
   });
 });
