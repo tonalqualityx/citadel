@@ -2727,10 +2727,15 @@ enum EmailAskState {
 // EmailAsk renders as "general" (the drawer/trigger chip never show an "unclassified"
 // state) — this is a pure UI/grouping lane, not a queue/severity re-encoding, so it's a
 // separate enum from AskQueue/AskSeverity rather than folded into either.
+// Clarity Phase 6b (2026-07-24, Mike's ruling) — `admin` added for business-critical
+// non-client mail (accountant, bookkeeper, banking, tax): "if I don't take care of those
+// emails I don't get paid." Unlike a null/absent intent, `admin` is never counted as
+// "general" — it's its own lane with its own count and drawer heading, FIRST in both.
 enum EmailAskIntent {
   general
   meeting
   sales
+  admin
 }
 
 // Clarity Phase 4a — email on the Seeing Stone. Synced via POST /api/oracle/email-sync
@@ -2775,6 +2780,10 @@ model EmailAsk {
   // Calendar event creation within ~15 min and sets calendar_event_id, which renders
   // "added ✓". calendar_event_id is entirely machine-set — nothing in this phase's UI or
   // API ever writes it directly.
+  // Clarity Phase 6b — `admin` lane added for business-critical non-client mail
+  // (accountant/bookkeeper/banking/tax). It's the FIRST lane in both the trigger chip and
+  // the drawer grouping order (Mike's "don't get paid" priority ruling), and is its own
+  // count in intake.lanes — never folded into the null/general bucket.
   intent                 EmailAskIntent?
   proposed_event_at      DateTime?
   proposed_event_title   String?         @db.VarChar(500)

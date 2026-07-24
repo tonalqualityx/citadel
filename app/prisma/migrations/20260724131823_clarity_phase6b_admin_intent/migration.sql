@@ -1,0 +1,14 @@
+-- Clarity Phase 6b — admin email lane (business-critical non-client mail: accountant,
+-- bookkeeper, banking, tax). Additive-only: a single new enum value on the existing
+-- EmailAskIntent type.
+--
+-- Guarded via ADD VALUE IF NOT EXISTS — unlike CREATE TYPE (no native IF NOT EXISTS,
+-- hence Phase 6's DO $$ ... EXCEPTION WHEN duplicate_object workaround), Postgres has
+-- supported `ALTER TYPE ... ADD VALUE IF NOT EXISTS` natively since PG12, so no DO-block
+-- wrapper is needed here.
+--
+-- IMPORTANT: this migration deliberately contains ONLY the enum addition. Postgres
+-- cannot use a newly-added enum value inside the same transaction that added it (a
+-- later statement referencing 'admin' would fail with "unsafe use of new value of enum
+-- type"), so no other statement — DML or DDL — belongs in this file.
+ALTER TYPE "EmailAskIntent" ADD VALUE IF NOT EXISTS 'admin';

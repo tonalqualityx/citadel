@@ -124,7 +124,7 @@ describe('GET /api/waiting-on-me — Clarity Phase 4a crisis/intake', () => {
     expect(body.intake).toEqual({
       count: 0,
       newest_at: null,
-      lanes: { general: 0, meeting: 0, sales: 0 },
+      lanes: { admin: 0, general: 0, meeting: 0, sales: 0 },
       items: [],
     });
   });
@@ -187,7 +187,25 @@ describe('GET /api/waiting-on-me — Clarity Phase 4a crisis/intake', () => {
     const body = await res.json();
 
     expect(body.intake.count).toBe(5);
-    expect(body.intake.lanes).toEqual({ general: 2, meeting: 1, sales: 2 });
+    expect(body.intake.lanes).toEqual({ admin: 0, general: 2, meeting: 1, sales: 2 });
+  });
+
+  it('Clarity Phase 6b — computes the admin lane count, NEVER folding it into general', async () => {
+    mockEmailAskFindMany
+      .mockResolvedValueOnce([]) // crisis query
+      .mockResolvedValueOnce([
+        emailAsk({ id: 'i-general-1', is_urgent: false, intent: null }),
+        emailAsk({ id: 'i-admin-1', is_urgent: false, intent: 'admin' }),
+        emailAsk({ id: 'i-admin-2', is_urgent: false, intent: 'admin' }),
+        emailAsk({ id: 'i-meeting-1', is_urgent: false, intent: 'meeting' }),
+        emailAsk({ id: 'i-sales-1', is_urgent: false, intent: 'sales' }),
+      ]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.intake.count).toBe(5);
+    expect(body.intake.lanes).toEqual({ admin: 2, general: 1, meeting: 1, sales: 1 });
   });
 
   it('never merges email asks into decide/answer/review/do', async () => {

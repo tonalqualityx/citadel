@@ -57,7 +57,9 @@ export interface EmailAsk {
   // proposed_event_* trio is the classifier's HIGH-CONFIDENCE parsed meeting date only —
   // null means no parsed time and no Add-to-calendar affordance (never guessed).
   // calendar_event_id is set only by the machine-side cron, never by this UI.
-  intent: 'general' | 'meeting' | 'sales' | null;
+  // Clarity Phase 6b — `admin` (business-critical non-client mail) added; it is its own
+  // lane, never counted as "general" the way null is.
+  intent: 'general' | 'meeting' | 'sales' | 'admin' | null;
   proposed_event_at: string | null;
   proposed_event_title: string | null;
   proposed_event_minutes: number | null;
@@ -83,9 +85,10 @@ export interface WaitingOnMeResponse {
   intake: {
     count: number;
     newest_at: string | null;
-    // Clarity Phase 6 — per-lane counts backing the header trigger chip's three quiet
-    // counts. Null intent counts as general, same rule the drawer's own grouping uses.
-    lanes: { general: number; meeting: number; sales: number };
+    // Clarity Phase 6 — per-lane counts backing the header trigger chip's quiet counts.
+    // Null intent counts as general, same rule the drawer's own grouping uses.
+    // Clarity Phase 6b — `admin` is its own count, never folded into `general`.
+    lanes: { admin: number; general: number; meeting: number; sales: number };
     items: EmailAsk[];
   };
   meta: {
