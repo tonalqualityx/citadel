@@ -19,32 +19,40 @@ export function intakeSummaryLine(count: number, newestAt: string | null, timezo
 }
 
 // Clarity Phase 6 — email lanes & calendar intents.
+// Clarity Phase 6b (2026-07-24, Mike's ruling) — `admin` lane added for
+// business-critical non-client mail (accountant, bookkeeper, banking, tax): "if I don't
+// take care of those emails I don't get paid." Placed FIRST in both the chip and the
+// drawer order — it's the don't-get-paid lane, the one Mike least wants buried.
 
-export type EmailAskLane = 'general' | 'meeting' | 'sales';
+export type EmailAskLane = 'general' | 'meeting' | 'sales' | 'admin';
 
 export interface LaneCounts {
   general: number;
   meeting: number;
   sales: number;
+  admin: number;
 }
 
 /** null intent renders as "general" everywhere — the drawer/trigger chip never show an
- *  "unclassified" state (per EmailAskIntent's own schema doc comment). */
+ *  "unclassified" state (per EmailAskIntent's own schema doc comment). `admin` is a real,
+ *  explicit intent value (never a null-fallback), so it passes through like meeting/sales. */
 export function laneForAsk(ask: { intent: EmailAskLane | null }): EmailAskLane {
   return ask.intent ?? 'general';
 }
 
-// Trigger-chip order: general, meeting, sales (per the spec's own example
-// "📬 4 · 🤝 1 · 💰 2"). Deliberately a DIFFERENT order from the drawer's own
-// Meeting/Sales/General grouping order below — both orders are literal spec text, not a
-// shared constant, so don't collapse them into one "the" order.
-const CHIP_ORDER: EmailAskLane[] = ['general', 'meeting', 'sales'];
-const CHIP_EMOJI: Record<EmailAskLane, string> = { general: '📬', meeting: '🤝', sales: '💰' };
+// Trigger-chip order: admin, general, meeting, sales — admin FIRST (Phase 6b's priority
+// ruling), the remaining three per the original spec's own example "📬 4 · 🤝 1 · 💰 2".
+// Deliberately a DIFFERENT order from the drawer's own grouping order below — both orders
+// are independently specified, not a shared constant, so don't collapse them into one
+// "the" order.
+const CHIP_ORDER: EmailAskLane[] = ['admin', 'general', 'meeting', 'sales'];
+const CHIP_EMOJI: Record<EmailAskLane, string> = { admin: '🧾', general: '📬', meeting: '🤝', sales: '💰' };
 
-/** The header trigger chip's text: one quiet count per non-empty lane ("📬 4 · 🤝 1 · 💰 2"),
- *  each zero-count lane rendering NOTHING (exception display, not a "0" badge). When every
- *  lane is zero, falls back to the existing quiet all-zero line ("📬 Intake · 0") rather
- *  than rendering nothing at all — the trigger chip is a stable, always-there landmark. */
+/** The header trigger chip's text: one quiet count per non-empty lane ("🧾 1 · 📬 4 · 🤝 1 ·
+ *  💰 2"), each zero-count lane rendering NOTHING (exception display, not a "0" badge).
+ *  When every lane is zero, falls back to the existing quiet all-zero line ("📬 Intake ·
+ *  0") rather than rendering nothing at all — the trigger chip is a stable, always-there
+ *  landmark. */
 export function intakeChipLine(lanes: LaneCounts): string {
   const parts = CHIP_ORDER.filter((lane) => lanes[lane] > 0).map((lane) => `${CHIP_EMOJI[lane]} ${lanes[lane]}`);
   // All-zero fallback is timezone-independent (count 0 -> intakeSummaryLine never touches
@@ -53,10 +61,12 @@ export function intakeChipLine(lanes: LaneCounts): string {
   return parts.join(' · ');
 }
 
-// Drawer grouping order: Meeting, Sales, General — literal spec text ("Drawer groups by
-// lane (Meeting, Sales, General — in that order, skipping empty lanes)").
-const DRAWER_LANE_ORDER: EmailAskLane[] = ['meeting', 'sales', 'general'];
+// Drawer grouping order: Admin, Meeting, Sales, General — admin FIRST per Phase 6b's
+// ruling (it's the don't-get-paid lane); Meeting/Sales/General retain their original
+// relative order from Phase 6's own literal spec text.
+const DRAWER_LANE_ORDER: EmailAskLane[] = ['admin', 'meeting', 'sales', 'general'];
 const DRAWER_LANE_LABEL: Record<EmailAskLane, string> = {
+  admin: 'Admin',
   meeting: 'Meeting',
   sales: 'Sales',
   general: 'General',
