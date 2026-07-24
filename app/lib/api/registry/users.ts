@@ -239,4 +239,16 @@ export const userEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/notifications/clear-all',
+    group: 'users',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Delete all notifications for the current user.',
+        auth: 'required',
+        responseExample: { success: true, deleted: 'number' },
+      },
+    ],
+  },
 ];

@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Check, Loader2 } from 'lucide-react';
+import { Bell, Check, Loader2, Trash2 } from 'lucide-react';
 import {
   useNotifications,
   useUnreadCount,
   useMarkAsRead,
   useMarkAllAsRead,
   useDeleteNotification,
+  useClearAllNotifications,
 } from '@/lib/hooks/use-notifications';
 import { NotificationItem } from './NotificationItem';
 
@@ -21,6 +22,7 @@ export function NotificationBell() {
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteNotification = useDeleteNotification();
+  const clearAll = useClearAllNotifications();
 
   const unreadCount = unreadData?.count ?? 0;
 
@@ -58,6 +60,12 @@ export function NotificationBell() {
     deleteNotification.mutate(id);
   }
 
+  function handleClearAll() {
+    clearAll.mutate();
+  }
+
+  const hasNotifications = !!notifications?.notifications?.length;
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -81,20 +89,36 @@ export function NotificationBell() {
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-warm">
             <h3 className="font-semibold text-text-main">Notifications</h3>
-            {unreadCount > 0 && (
-              <button
-                onClick={handleMarkAllAsRead}
-                disabled={markAllAsRead.isPending}
-                className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 disabled:opacity-50 transition-colors"
-              >
-                {markAllAsRead.isPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Check className="h-3 w-3" />
-                )}
-                Mark all read
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllAsRead}
+                  disabled={markAllAsRead.isPending}
+                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 disabled:opacity-50 transition-colors"
+                >
+                  {markAllAsRead.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Check className="h-3 w-3" />
+                  )}
+                  Mark all read
+                </button>
+              )}
+              {hasNotifications && (
+                <button
+                  onClick={handleClearAll}
+                  disabled={clearAll.isPending}
+                  className="flex items-center gap-1 text-xs text-text-sub hover:text-red-500 disabled:opacity-50 transition-colors"
+                >
+                  {clearAll.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3 w-3" />
+                  )}
+                  Clear all
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Notification list */}
