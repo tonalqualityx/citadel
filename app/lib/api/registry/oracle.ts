@@ -97,14 +97,16 @@ export const oracleEndpoints: ApiEndpoint[] = [
           'a re-sync of an already-urgent ask never re-notifies. Clarity Phase 6: intent and ' +
           'proposed_event_* are optional and independently absent-safe — a legacy payload ' +
           'that never sends them leaves those columns untouched on an update (byte-compatible ' +
-          'with pre-Phase-6 classifier payloads), never nulled out.',
+          'with pre-Phase-6 classifier payloads), never nulled out. Clarity Phase 6b: intent ' +
+          'additionally accepts "admin" for business-critical non-client mail ' +
+          '(accountant/bookkeeper/banking/tax) — same absent-safe rule applies.',
         bodySchema: [
           {
             name: 'asks',
             type: 'object',
             required: true,
             description:
-              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at, intent? (general|meeting|sales — Clarity Phase 6, absent=untouched), proposed_event_at? (ISO-8601, absent=untouched — HIGH-CONFIDENCE parsed meeting time only, never guessed), proposed_event_title? (absent=untouched), proposed_event_minutes? (positive int, absent=untouched) }',
+              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at, intent? (general|meeting|sales|admin — Clarity Phase 6/6b, absent=untouched; admin = business-critical non-client mail: accountant/bookkeeper/banking/tax), proposed_event_at? (ISO-8601, absent=untouched — HIGH-CONFIDENCE parsed meeting time only, never guessed), proposed_event_title? (absent=untouched), proposed_event_minutes? (positive int, absent=untouched) }',
           },
         ],
         responseExample: {

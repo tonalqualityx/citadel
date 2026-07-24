@@ -283,10 +283,13 @@ export async function GET(request: NextRequest) {
       intake: {
         count: intakeAsks.length,
         newest_at: intakeAsks.length > 0 ? intakeAsks[0].received_at : null,
-        // Clarity Phase 6 — per-lane counts backing the header trigger chip's three quiet
-        // counts (📬/🤝/💰). Null intent counts as "general", same rule as the drawer's own
-        // client-side grouping (components/domain/oracle/intake/intake-drawer-logic.ts).
+        // Clarity Phase 6 — per-lane counts backing the header trigger chip's quiet
+        // counts (🧾/📬/🤝/💰). Null intent counts as "general", same rule as the drawer's
+        // own client-side grouping (components/domain/oracle/intake/intake-drawer-logic.ts).
+        // Clarity Phase 6b — `admin` is its OWN count, never folded into `general`
+        // (unlike null/absent intent, which is the only thing that counts as general).
         lanes: {
+          admin: intakeAsks.filter((a) => a.intent === EmailAskIntent.admin).length,
           general: intakeAsks.filter((a) => a.intent === null || a.intent === EmailAskIntent.general).length,
           meeting: intakeAsks.filter((a) => a.intent === EmailAskIntent.meeting).length,
           sales: intakeAsks.filter((a) => a.intent === EmailAskIntent.sales).length,

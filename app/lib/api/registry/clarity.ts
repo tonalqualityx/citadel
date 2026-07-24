@@ -243,7 +243,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'general) and the proposed_event_* trio (null=no parsed meeting time, no ' +
           'Add-to-calendar affordance); `intake` additionally carries `lanes` — per-lane ' +
           'counts (general/meeting/sales, null intent counted as general) backing the header ' +
-          'trigger chip\'s three quiet counts.',
+          'trigger chip\'s quiet counts. Clarity Phase 6b: intent additionally accepts ' +
+          '"admin" (business-critical non-client mail: accountant/bookkeeper/banking/tax) — ' +
+          'its own `lanes.admin` count, NEVER folded into `lanes.general` the way null is; ' +
+          'the admin lane renders FIRST in both the trigger chip and the drawer grouping.',
         responseExample: {
           waiting: [
             {
@@ -281,7 +284,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               is_urgent: true,
               state: 'open|handled|dismissed|archive_requested',
               training_note: 'string|null',
-              intent: 'general|meeting|sales|null',
+              intent: 'general|meeting|sales|admin|null',
               proposed_event_at: 'ISO-8601|null',
               proposed_event_title: 'string|null',
               proposed_event_minutes: 'number|null',
@@ -295,7 +298,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           intake: {
             count: 'number',
             newest_at: 'ISO-8601|null',
-            lanes: { general: 'number', meeting: 'number', sales: 'number' },
+            lanes: { admin: 'number', general: 'number', meeting: 'number', sales: 'number' },
             items: [],
           },
           meta: {
@@ -337,7 +340,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               subject: 'string',
               state: 'open|handled|dismissed|archive_requested',
               training_note: 'string|null',
-              intent: 'general|meeting|sales|null',
+              intent: 'general|meeting|sales|admin|null',
               proposed_event_at: 'ISO-8601|null',
               proposed_event_title: 'string|null',
               proposed_event_minutes: 'number|null',
