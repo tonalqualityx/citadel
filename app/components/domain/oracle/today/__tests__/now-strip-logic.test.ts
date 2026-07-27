@@ -16,7 +16,7 @@ function pick(overrides: Partial<TodayPick> = {}): TodayPick {
     arc_id: null,
     arc: null,
     task_id: 'task-1',
-    task: { id: 'task-1', title: 'Do the thing', status: 'not_started', priority: 3, due_date: null },
+    task: { id: 'task-1', title: 'Do the thing', status: 'not_started', priority: 3, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  },
     session_external_id: null,
     session: null,
     charter_id: null,
@@ -69,27 +69,27 @@ describe('selectNowStripPicks', () => {
 
 describe('reasonForPick', () => {
   it('is in_progress once started_at is set, regardless of priority/due_date', () => {
-    const p = pick({ started_at: '2026-07-27T09:00:00.000Z', task: { id: 't', title: 'x', status: 'in_progress', priority: 1, due_date: '2026-07-27T00:00:00.000Z' } });
+    const p = pick({ started_at: '2026-07-27T09:00:00.000Z', task: { id: 't', title: 'x', status: 'in_progress', priority: 1, due_date: '2026-07-27T00:00:00.000Z', energy_estimate: null, battery_impact: null, mystery_factor: null  } });
     expect(reasonForPick(p, '2026-07-27')).toBe('in_progress');
   });
 
   it('is p1 for a priority-1 task with no started_at', () => {
-    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 1, due_date: null } });
+    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 1, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  } });
     expect(reasonForPick(p, '2026-07-27')).toBe('p1');
   });
 
   it('is p2 for a priority-2 task', () => {
-    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 2, due_date: null } });
+    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 2, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  } });
     expect(reasonForPick(p, '2026-07-27')).toBe('p2');
   });
 
   it('is due_today when the task is due today and priority is not 1/2', () => {
-    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 3, due_date: '2026-07-27T00:00:00.000Z' } });
+    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 3, due_date: '2026-07-27T00:00:00.000Z', energy_estimate: null, battery_impact: null, mystery_factor: null  } });
     expect(reasonForPick(p, '2026-07-27')).toBe('due_today');
   });
 
   it('is NOT due_today when the due_date is a different day', () => {
-    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 3, due_date: '2026-07-28T00:00:00.000Z' } });
+    const p = pick({ task: { id: 't', title: 'x', status: 'not_started', priority: 3, due_date: '2026-07-28T00:00:00.000Z', energy_estimate: null, battery_impact: null, mystery_factor: null  } });
     expect(reasonForPick(p, '2026-07-27')).toBe('picked');
   });
 

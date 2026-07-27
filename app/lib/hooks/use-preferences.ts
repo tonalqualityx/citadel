@@ -7,6 +7,9 @@ export interface UserPreferences {
   notification_bundle: boolean;
   // Clarity Phase 7 (P2) — the Today section's list/board lens, persisted cross-device.
   today_view: 'list' | 'board';
+  // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chip, persisted
+  // cross-device same as today_view above.
+  energy_filter: 'all' | 'low_energy' | 'deep_work';
 }
 
 interface PreferencesResponse {

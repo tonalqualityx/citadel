@@ -148,7 +148,7 @@ describe('FocusMode', () => {
     const pick = notePick({
       item_type: 'task',
       task_id: 'task-1',
-      task: { id: 'task-1', title: 'Fix the thing', status: 'in_progress', priority: 3, due_date: null },
+      task: { id: 'task-1', title: 'Fix the thing', status: 'in_progress', priority: 3, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  },
       label: null,
     });
 

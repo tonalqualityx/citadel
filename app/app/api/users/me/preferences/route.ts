@@ -10,6 +10,9 @@ const updatePreferencesSchema = z.object({
   notification_bundle: z.boolean().optional(),
   // Clarity Phase 7 (P2) — the Today section's list/board lens, persisted cross-device.
   today_view: z.enum(['list', 'board']).optional(),
+  // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chip, persisted
+  // cross-device same as today_view above.
+  energy_filter: z.enum(['all', 'low_energy', 'deep_work']).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -23,6 +26,7 @@ export async function GET(request: NextRequest) {
         theme: true,
         notification_bundle: true,
         today_view: true,
+        energy_filter: true,
       },
     });
 
@@ -33,6 +37,7 @@ export async function GET(request: NextRequest) {
         theme: 'system',
         notification_bundle: true,
         today_view: 'list',
+        energy_filter: 'all',
       },
     });
   } catch (error) {
@@ -57,12 +62,14 @@ export async function PATCH(request: NextRequest) {
         theme: validated.theme ?? 'system',
         notification_bundle: validated.notification_bundle ?? true,
         today_view: validated.today_view ?? 'list',
+        energy_filter: validated.energy_filter ?? 'all',
       },
       select: {
         naming_convention: true,
         theme: true,
         notification_bundle: true,
         today_view: true,
+        energy_filter: true,
       },
     });
 

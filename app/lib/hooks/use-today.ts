@@ -33,6 +33,12 @@ export interface TodayPick {
     // today"). Never fabricated: null unless the underlying task actually carries it.
     priority: number | null;
     due_date: string | null;
+    // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chips ("Low-
+    // energy wins" / "Deep work" / "All"). Never fabricated: null unless the underlying
+    // task actually carries it.
+    energy_estimate: number | null;
+    battery_impact: string | null;
+    mystery_factor: string | null;
   } | null;
   session_external_id: string | null;
   session: {

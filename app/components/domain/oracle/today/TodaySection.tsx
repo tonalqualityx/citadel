@@ -11,6 +11,7 @@ import { TODAY_PICK_WIP_CAP, isPastWarningThreshold } from '@/lib/today-picks';
 import { Spinner } from '@/components/ui/spinner';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { excludeLinkedPicks, linkedMeetingIds } from './time-shape-logic';
+import { ENERGY_FILTER_OPTIONS, filterPicksByEnergy, type EnergyFilterValue } from './energy-filter-logic';
 import { TimeShape } from './TimeShape';
 import { NowStrip } from './NowStrip';
 import { TodayPickCard } from './TodayPickCard';
@@ -56,6 +57,17 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
     updatePreferences.mutate({ today_view: next });
   }
 
+  // Clarity Phase 3 (Reckoning, spec Q9/G10) — the energy filter chips: a VIEW filter
+  // only, persisted the same optimistic-then-server way as the list/board lens above —
+  // never a reorder of the stored picks themselves.
+  const [localEnergyFilter, setLocalEnergyFilter] = React.useState<EnergyFilterValue | null>(null);
+  const energyFilter = localEnergyFilter ?? preferencesData?.preferences.energy_filter ?? 'all';
+
+  function setEnergyFilter(next: EnergyFilterValue) {
+    setLocalEnergyFilter(next);
+    updatePreferences.mutate({ energy_filter: next });
+  }
+
   const isLoading = picksLoading || calendarLoading;
 
   const picks = todayData?.picks ?? [];
@@ -66,6 +78,12 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
   const earliestPickedAt = picks.length
     ? picks.reduce((min, p) => (p.created_at < min ? p.created_at : min), picks[0].created_at)
     : null;
+
+  // Clarity Phase 3 (Reckoning, spec Q9/G10) — the energy filter applies to the
+  // rendered list/board grid only. Now Strip (the already-committed 1-3 leading picks)
+  // and the header's WIP/done counters stay UNFILTERED — those are honest counts of
+  // what's actually picked, never something a view filter should make look smaller.
+  const visiblePicks = filterPicksByEnergy(picks, energyFilter);
 
   const today = calendarData?.week?.[0];
   // Falls back to the client-safe default while calendarData is still loading —
@@ -94,7 +112,7 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
             overWarning ? 'font-semibold text-[var(--warning)]' : 'text-text-sub'
           )}
         >
-          <b className="text-text-main">{uncompleted.length}</b> of {TODAY_PICK_WIP_CAP} threads
+          <b className="text-text-main" data-testid="today-wip-count">{uncompleted.length}</b> of {TODAY_PICK_WIP_CAP} threads
           {earliestPickedAt ? ` · picked ${formatPickedAt(earliestPickedAt, timezone)}` : ''}
         </span>
         {doneToday > 0 && (
@@ -128,6 +146,28 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
             <LayoutGrid className="h-3.5 w-3.5" />
           </button>
         </div>
+      </div>
+
+      {/* Clarity Phase 3 (Reckoning, spec Q9/G10) — energy filter chips: a view filter
+          only, never a reorder of the stored picks. */}
+      <div className="flex flex-wrap items-center gap-1 px-1" data-testid="energy-filter-chips">
+        {ENERGY_FILTER_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setEnergyFilter(option.value)}
+            aria-pressed={energyFilter === option.value}
+            data-testid={`energy-filter-${option.value}`}
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-xs',
+              energyFilter === option.value
+                ? 'border-[color:var(--accent)] bg-[color:var(--accent)]/10 text-text-main'
+                : 'border-border-warm text-text-sub hover:text-text-main'
+            )}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
 
       {isLoading ? (
@@ -166,9 +206,13 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
             <p className="px-1 py-2 text-sm text-text-sub">
               Nothing picked for today yet — add a focus, {t('task')}, or a quick note above.
             </p>
+          ) : visiblePicks.length === 0 ? (
+            <p className="px-1 py-2 text-sm text-text-sub" data-testid="energy-filter-empty">
+              Nothing matches this filter — try All.
+            </p>
           ) : lens === 'list' ? (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="today-list">
-              {picks.map((pick) => (
+              {visiblePicks.map((pick) => (
                 <TodayPickCard
                   key={pick.id}
                   pick={pick}
@@ -177,7 +221,7 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
               ))}
             </div>
           ) : (
-            <TodayBoard picks={picks} legacyAttentionArcIds={legacyAttentionArcIds} />
+            <TodayBoard picks={visiblePicks} legacyAttentionArcIds={legacyAttentionArcIds} />
           )}
 
           <DueSoonRow />

@@ -23,7 +23,7 @@ function pick(overrides: Partial<TodayPick> = {}): TodayPick {
     arc_id: null,
     arc: null,
     task_id: 'task-1',
-    task: { id: 'task-1', title: 'Do the thing', status: 'not_started', priority: 1, due_date: null },
+    task: { id: 'task-1', title: 'Do the thing', status: 'not_started', priority: 1, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  },
     session_external_id: null,
     session: null,
     charter_id: null,
@@ -55,7 +55,7 @@ describe('NowStrip', () => {
 
   it('renders up to 3 picks with a reason chip each', () => {
     const picks = [
-      pick({ id: 'p1', task: { id: 't1', title: 'Task one', status: 'not_started', priority: 1, due_date: null } }),
+      pick({ id: 'p1', task: { id: 't1', title: 'Task one', status: 'not_started', priority: 1, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  } }),
       pick({ id: 'p2', started_at: '2026-07-27T08:00:00.000Z' }),
     ];
     renderWithClient(<NowStrip picks={picks} todayDateStr="2026-07-27" />);

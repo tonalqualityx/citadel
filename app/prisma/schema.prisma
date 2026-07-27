@@ -80,6 +80,9 @@ model UserPreference {
   timezone            String?          @db.VarChar(64)
   // Clarity Phase 7 (P2) — the Today section's list/board lens, persisted cross-device.
   today_view          TodayViewLens    @default(list)
+  // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chip, persisted
+  // cross-device same as today_view above.
+  energy_filter       EnergyFilter     @default(all)
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 
@@ -309,6 +312,16 @@ enum Theme {
 enum TodayViewLens {
   list
   board
+}
+
+// Clarity Phase 3 (Seeing Stone Reckoning, spec Q9/G10) — Today's energy filter chips.
+// A view filter only (never a reorder of stored data): `all` (default) shows everything;
+// `low_energy` favors task energy_estimate<=3 or battery_impact=energizing; `deep_work`
+// favors energy_estimate>=6 or mystery_factor=significant.
+enum EnergyFilter {
+  all
+  low_energy
+  deep_work
 }
 
 enum NotificationType {

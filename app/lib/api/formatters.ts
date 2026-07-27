@@ -1213,6 +1213,12 @@ export function formatTodayPickResponse(
           // (never fabricated: only rendered when the underlying task actually carries it).
           priority: pick.task.priority ?? null,
           due_date: pick.task.due_date ?? null,
+          // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chips read
+          // these three fields; additive, never a behavior change for any existing
+          // consumer that doesn't read them.
+          energy_estimate: pick.task.energy_estimate ?? null,
+          battery_impact: pick.task.battery_impact ?? null,
+          mystery_factor: pick.task.mystery_factor ?? null,
         }
       : null,
     session_external_id: pick.session_external_id ?? null,
