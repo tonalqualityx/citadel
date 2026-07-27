@@ -3,7 +3,8 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
-import { TaskStatus, AskQueue, EmailAskIntent } from '@prisma/client';
+import { TaskStatus, AskQueue, EmailAskIntent, ProjectStatus } from '@prisma/client';
+import { floatHighPriority } from '@/lib/waiting-on-me-priority';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
 // overdue, awaiting-review, blocked, open-within-14d — each excluding IDs already emitted
@@ -149,12 +150,29 @@ export async function GET(request: NextRequest) {
       return out;
     }
 
+    // Clarity Phase 7 — the plate rule (Q16, resolved structurally): a task under a
+    // project that isn't in motion yet (quote = still being estimated, queue = approved
+    // but not started — both hide their tasks from assignees per ProjectStatus's own
+    // schema doc comment) contributes ZERO to the do queue or its counts. It surfaces the
+    // instant the project flips in_progress (or via the project's own next_touch — a
+    // planning-view concern, not this ledger). Ad-hoc tasks (no project at all) are never
+    // touched by this rule — only explicitly project-scoped work can be "on a quote".
+    // Scoped to the do-queue sweeps only, per spec — awaiting-review is untouched (a
+    // review ask is inherently already-done work waiting on approval, not plate load).
+    const notOnAQuoteOrQueueProject = {
+      OR: [
+        { project_id: null },
+        { project: { status: { notIn: [ProjectStatus.quote, ProjectStatus.queue] } } },
+      ],
+    };
+
     const focusWhere = {
       is_deleted: false,
       is_focus: true,
       assignee_id: targetUserId,
       status: { notIn: NOT_DONE_ABANDONED_BLOCKED },
       blocked_by: { none: { status: { not: TaskStatus.done }, is_deleted: false } },
+      ...notOnAQuoteOrQueueProject,
     };
 
     const overdueWhere = {
@@ -162,10 +180,12 @@ export async function GET(request: NextRequest) {
       assignee_id: targetUserId,
       status: { notIn: NOT_DONE_ABANDONED },
       due_date: { lt: now },
+      ...notOnAQuoteOrQueueProject,
     };
 
     // Awaiting-review: scoped by REVIEWER, not assignee — this is work waiting on the
-    // target user to review, mirroring the PM dashboard's awaitingReviewWhere.
+    // target user to review, mirroring the PM dashboard's awaitingReviewWhere. NOT
+    // plate-rule-filtered — see the rule's own doc comment above.
     const awaitingReviewWhere = {
       is_deleted: false,
       status: TaskStatus.done,
@@ -178,6 +198,7 @@ export async function GET(request: NextRequest) {
       is_deleted: false,
       assignee_id: targetUserId,
       status: TaskStatus.blocked,
+      ...notOnAQuoteOrQueueProject,
     };
 
     const openWithin14dWhere = {
@@ -185,6 +206,7 @@ export async function GET(request: NextRequest) {
       assignee_id: targetUserId,
       status: { notIn: NOT_DONE_ABANDONED },
       due_date: { gte: now, lte: openWindowEnd },
+      ...notOnAQuoteOrQueueProject,
     };
 
     const [focusTasks, overdueTasks, awaitingReviewTasks, blockedTasks, openWithin14dTasks] =
@@ -273,12 +295,18 @@ export async function GET(request: NextRequest) {
       ...answer.map((c) => ({ ...c, queue_type: 'reply' as const })),
     ];
 
+    // Clarity Phase 7 — the do-queue's cross-bucket priority float: applied LAST, once
+    // every source (all 4 task sweeps AND any session asks routed to `do` above) has
+    // landed in doGroup. Priority 1 floats to the top, then 2, everything else keeps its
+    // existing relative order — a stable partition, not a full re-sort.
+    const floatedDo = floatHighPriority(doGroup);
+
     return NextResponse.json({
       waiting,
       decide,
       answer,
       review,
-      do: doGroup,
+      do: floatedDo,
       crisis: crisisAsks.map(formatEmailAskResponse),
       intake: {
         count: intakeAsks.length,
@@ -302,8 +330,14 @@ export async function GET(request: NextRequest) {
           decide: decide.length,
           answer: answer.length,
           review: review.length,
-          do: doGroup.length,
-          total: decide.length + answer.length + review.length + doGroup.length,
+          do: floatedDo.length,
+          // Clarity Phase 7 — the truthful-counts fix (G6/Q15): total previously summed
+          // ONLY decide+answer+review+do, silently excluding intake and crisis from the
+          // number Mike actually sees — a lying count. Every surfaced queue now counts.
+          intake: intakeAsks.length,
+          crisis: crisisAsks.length,
+          total:
+            decide.length + answer.length + review.length + floatedDo.length + intakeAsks.length + crisisAsks.length,
         },
       },
     });

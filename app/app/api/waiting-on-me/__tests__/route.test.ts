@@ -220,7 +220,12 @@ describe('GET /api/waiting-on-me — Clarity Phase 4a crisis/intake', () => {
     expect(body.answer).toEqual([]);
     expect(body.review).toEqual([]);
     expect(body.do).toEqual([]);
-    expect(body.meta.counts.total).toBe(0);
+    // Clarity Phase 7 — truthful counts: crisis+intake DO count toward the total (they
+    // never merge into the decide/answer/review/do ARRAYS, but the total must still be
+    // honest about everything on Mike's plate) — 1 crisis + 1 intake here.
+    expect(body.meta.counts.total).toBe(2);
+    expect(body.meta.counts.crisis).toBe(1);
+    expect(body.meta.counts.intake).toBe(1);
   });
 });
 
@@ -315,7 +320,18 @@ describe('GET /api/waiting-on-me — grouping', () => {
     const body = await res.json();
 
     // Clarity Phase 5 — meta.counts gains `waiting` (decide+answer merged count).
-    expect(body.meta.counts).toEqual({ waiting: 1, decide: 1, answer: 0, review: 1, do: 1, total: 3 });
+    // Clarity Phase 7 — meta.counts also gains `intake`/`crisis` (0 each here, no email
+    // asks mocked) and total now sums ALL SIX (still 3 in this case).
+    expect(body.meta.counts).toEqual({
+      waiting: 1,
+      decide: 1,
+      answer: 0,
+      review: 1,
+      do: 1,
+      intake: 0,
+      crisis: 0,
+      total: 3,
+    });
   });
 
   it('session asks carry type, title, severity, and session_external_id', async () => {
@@ -370,6 +386,77 @@ describe('GET /api/waiting-on-me — grouping', () => {
         },
       })
     );
+  });
+});
+
+// Clarity Phase 7 — the plate rule (Q16): tasks under a quote/queue-status project
+// contribute ZERO to the do queue or its counts.
+describe('GET /api/waiting-on-me — Clarity Phase 7 plate rule (quote/queue projects excluded)', () => {
+  it('excludes quote/queue-status projects from the focus, overdue, blocked, and open-within-14d sweeps', async () => {
+    await GET(getRequest());
+
+    const expectedNotPlated = {
+      OR: [{ project_id: null }, { project: { status: { notIn: ['quote', 'queue'] } } }],
+    };
+
+    // Calls are, in order: focus, overdue, awaitingReview, blocked, openWithin14d.
+    expect(mockTaskFindMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: expect.objectContaining(expectedNotPlated) })
+    );
+    expect(mockTaskFindMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: expect.objectContaining(expectedNotPlated) })
+    );
+    expect(mockTaskFindMany).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ where: expect.objectContaining(expectedNotPlated) })
+    );
+    expect(mockTaskFindMany).toHaveBeenNthCalledWith(
+      5,
+      expect.objectContaining({ where: expect.objectContaining(expectedNotPlated) })
+    );
+  });
+
+  it('does NOT plate-rule-filter the awaiting-review sweep (review is untouched by the rule)', async () => {
+    await GET(getRequest());
+
+    const awaitingReviewCall = mockTaskFindMany.mock.calls[2][0];
+    expect(awaitingReviewCall.where).not.toHaveProperty('OR', expect.arrayContaining([{ project_id: null }]));
+    // awaitingReviewWhere's own OR (reviewer_id null-or-target) is untouched/unchanged.
+    expect(awaitingReviewCall.where.OR).toEqual([{ reviewer_id: null }, { reviewer_id: 'user-123' }]);
+  });
+});
+
+// Clarity Phase 7 — the do-queue's cross-bucket priority float.
+describe('GET /api/waiting-on-me — Clarity Phase 7 do-queue priority float', () => {
+  it('floats priority-1 and priority-2 items to the top of `do`, across buckets, preserving relative order otherwise', async () => {
+    mockTaskSweep({
+      focus: [task({ id: 'focus-p3', priority: 3 })],
+      overdue: [task({ id: 'overdue-p1', priority: 1 })],
+      blocked: [task({ id: 'blocked-p2', priority: 2 })],
+      openWithin14d: [task({ id: 'open14d-p4', priority: 4 })],
+    });
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do.map((c: { id: string }) => c.id)).toEqual([
+      'overdue-p1',
+      'blocked-p2',
+      'focus-p3',
+      'open14d-p4',
+    ]);
+  });
+
+  it('a session ask routed to `do` with no priority (null) floats to the bottom, after any P1/P2 tasks', async () => {
+    mockTaskSweep({ focus: [task({ id: 'focus-p1', priority: 1 })] });
+    mockSessionFindMany.mockResolvedValue([session({ id: 's-do', ask_queue: 'do' })]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do.map((c: { id: string }) => c.id)).toEqual(['focus-p1', 's-do']);
   });
 });
 
