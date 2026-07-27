@@ -338,6 +338,45 @@ function freeGaps(occupiedBlocks: TimeShapeBlock[], window: TimeWindow): Gap[] {
  * boundary. If there's no free runway at all, focus blocks are simply omitted (never
  * overlaid on a meeting or its buffer) — a fully-booked day just shows its meetings.
  */
+// ============================================
+// Timeline dedup (Clarity Phase 7 P2, spec G3) — "one commitment = one object, rendered
+// once." A Today pick linked to a rendered meeting (TodayPick.calendar_event_id matches a
+// CalendarEvent.event_id) is the SAME commitment the meeting block already renders — it
+// must contribute NO separate focus block (that was the timeline triple-render Mike saw:
+// one thing showing up twice). The meeting chip wins and renders "styled as linked"
+// instead (see TimeShape.tsx) — never two chips for one thing.
+// ============================================
+
+export interface DedupablePick {
+  label: string;
+  calendar_event_id: string | null;
+}
+
+export interface DedupableMeeting {
+  id: string;
+}
+
+/** Picks whose calendar_event_id matches a meeting actually being rendered right now —
+ *  those contribute no separate focus block. A pick linked to an event that ISN'T in
+ *  today's rendered meeting set (e.g. a stale/cleared link) still renders normally, same
+ *  as an unlinked pick — dedup only ever removes a REAL duplicate, never a real pick. */
+export function excludeLinkedPicks<T extends DedupablePick>(
+  picks: T[],
+  meetings: DedupableMeeting[]
+): T[] {
+  const meetingIds = new Set(meetings.map((m) => m.id));
+  return picks.filter((p) => !p.calendar_event_id || !meetingIds.has(p.calendar_event_id));
+}
+
+/** The set of rendered meetings' ids that have at least one Today pick linked to them —
+ *  TimeShape uses this to style that meeting's own chip as "linked" (the merged
+ *  representation), rather than rendering the pick a second time. */
+export function linkedMeetingIds<T extends DedupablePick>(picks: T[]): Set<string> {
+  return new Set(
+    picks.filter((p): p is T & { calendar_event_id: string } => !!p.calendar_event_id).map((p) => p.calendar_event_id)
+  );
+}
+
 export function layoutFocusBlocks(
   labels: string[],
   occupiedBlocks: TimeShapeBlock[],

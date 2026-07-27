@@ -13,6 +13,8 @@ import {
   computeMeetingPrepStart,
   layoutPrepBlocks,
   sumCommittedMinutesWithBuffer,
+  excludeLinkedPicks,
+  linkedMeetingIds,
   getTimeShapeWindow,
 } from '../time-shape-logic';
 
@@ -491,5 +493,47 @@ describe('getTimeShapeWindow', () => {
   it('spans exactly (endHour - startHour) hours', () => {
     const window = getTimeShapeWindow('2026-07-21', 'America/New_York', 8, 18);
     expect(window.end.getTime() - window.start.getTime()).toBe(10 * 60 * 60 * 1000);
+  });
+});
+
+describe('excludeLinkedPicks (Clarity Phase 7 P2, spec G3 — timeline dedup)', () => {
+  const meetings = [{ id: 'gcal-1' }, { id: 'gcal-2' }];
+
+  it('excludes a pick whose calendar_event_id matches a rendered meeting', () => {
+    const picks = [
+      { label: 'Standup prep', calendar_event_id: 'gcal-1' },
+      { label: 'BRIC review', calendar_event_id: null },
+    ];
+    expect(excludeLinkedPicks(picks, meetings)).toEqual([{ label: 'BRIC review', calendar_event_id: null }]);
+  });
+
+  it('keeps a pick linked to an event that is NOT among today\'s rendered meetings', () => {
+    const picks = [{ label: 'Stale link', calendar_event_id: 'gcal-stale' }];
+    expect(excludeLinkedPicks(picks, meetings)).toEqual(picks);
+  });
+
+  it('keeps every unlinked pick untouched', () => {
+    const picks = [{ label: 'A', calendar_event_id: null }, { label: 'B', calendar_event_id: null }];
+    expect(excludeLinkedPicks(picks, meetings)).toEqual(picks);
+  });
+
+  it('is a no-op with zero meetings', () => {
+    const picks = [{ label: 'A', calendar_event_id: 'gcal-1' }];
+    expect(excludeLinkedPicks(picks, [])).toEqual(picks);
+  });
+});
+
+describe('linkedMeetingIds (Clarity Phase 7 P2, spec G3)', () => {
+  it('collects the calendar_event_ids of every linked pick', () => {
+    const picks = [
+      { label: 'A', calendar_event_id: 'gcal-1' },
+      { label: 'B', calendar_event_id: null },
+      { label: 'C', calendar_event_id: 'gcal-2' },
+    ];
+    expect(linkedMeetingIds(picks)).toEqual(new Set(['gcal-1', 'gcal-2']));
+  });
+
+  it('is empty when nothing is linked', () => {
+    expect(linkedMeetingIds([{ label: 'A', calendar_event_id: null }])).toEqual(new Set());
   });
 });

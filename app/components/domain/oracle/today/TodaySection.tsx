@@ -10,6 +10,7 @@ import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preference
 import { TODAY_PICK_WIP_CAP, isPastWarningThreshold } from '@/lib/today-picks';
 import { Spinner } from '@/components/ui/spinner';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
+import { excludeLinkedPicks, linkedMeetingIds } from './time-shape-logic';
 import { TimeShape } from './TimeShape';
 import { NowStrip } from './NowStrip';
 import { TodayPickCard } from './TodayPickCard';
@@ -135,17 +136,31 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
         </div>
       ) : (
         <>
-          {calendarData && (
-            <TimeShape
-              date={calendarData.date}
-              timezone={calendarData.timezone}
-              meetings={calendarData.meetings}
-              focusLabels={uncompleted.map((p) => p.label ?? p.arc?.name ?? p.task?.title ?? p.session?.title ?? t('task'))}
-              nowMs={nowMs}
-              meetingMinutes={today?.meeting_minutes ?? 0}
-              dueTasksCount={today?.due_tasks_count ?? 0}
-            />
-          )}
+          {calendarData && (() => {
+            // Clarity Phase 7 (P2, spec G3) — timeline dedup: a pick linked to a rendered
+            // meeting (calendar_event_id matches) is the SAME commitment that meeting
+            // block already renders — it contributes no separate focus block, and that
+            // meeting's own chip renders "styled as linked" instead (see TimeShape).
+            const dedupablePicks = uncompleted.map((p) => ({
+              label: p.label ?? p.arc?.name ?? p.task?.title ?? p.session?.title ?? t('task'),
+              calendar_event_id: p.calendar_event_id,
+            }));
+            const focusLabels = excludeLinkedPicks(dedupablePicks, calendarData.meetings).map((p) => p.label);
+            const linkedIds = linkedMeetingIds(dedupablePicks);
+
+            return (
+              <TimeShape
+                date={calendarData.date}
+                timezone={calendarData.timezone}
+                meetings={calendarData.meetings}
+                focusLabels={focusLabels}
+                linkedMeetingIds={linkedIds}
+                nowMs={nowMs}
+                meetingMinutes={today?.meeting_minutes ?? 0}
+                dueTasksCount={today?.due_tasks_count ?? 0}
+              />
+            );
+          })()}
 
           {picks.length === 0 ? (
             <p className="px-1 py-2 text-sm text-text-sub">

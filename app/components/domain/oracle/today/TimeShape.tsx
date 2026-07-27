@@ -1,5 +1,6 @@
 'use client';
 
+import { Link2 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { TodayCalendarMeeting } from '@/lib/hooks/use-today';
 import {
@@ -27,7 +28,13 @@ interface TimeShapeProps {
   // this zone, never UTC — the fix for "a 9am ET meeting shows at 13:00".
   timezone: string;
   meetings: TodayCalendarMeeting[];
-  focusLabels: string[]; // uncompleted picks, in sort order
+  focusLabels: string[]; // uncompleted picks, in sort order — already deduped (see TodaySection)
+  // Clarity Phase 7 (P2, spec G3) — the timeline dedup: meeting ids that have a Today pick
+  // linked to them (TodayPick.calendar_event_id). That meeting's own chip renders "styled
+  // as linked" (a small link glyph) — the merged representation for that one commitment,
+  // instead of also rendering the pick as a separate focus block (see TodaySection, which
+  // excludes linked picks from `focusLabels` before this component ever sees them).
+  linkedMeetingIds?: Set<string>;
   nowMs: number;
   meetingMinutes: number;
   dueTasksCount: number;
@@ -55,6 +62,7 @@ export function TimeShape({
   timezone,
   meetings,
   focusLabels,
+  linkedMeetingIds,
   nowMs,
   meetingMinutes,
   dueTasksCount,
@@ -99,23 +107,35 @@ export function TimeShape({
         ))}
       </div>
 
-      {meetingBlocks.map((b) => (
-        <div
-          key={b.id}
-          className="absolute top-5 h-9 overflow-hidden rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold"
-          style={{
-            left: `${b.leftPercent}%`,
-            width: `${b.widthPercent}%`,
-            backgroundColor: 'var(--error-subtle)',
-            borderColor: 'var(--error)',
-            color: 'var(--error)',
-          }}
-          data-testid="time-shape-block"
-          data-kind="meeting"
-        >
-          <span className="block truncate">{b.label}</span>
-        </div>
-      ))}
+      {meetingBlocks.map((b) => {
+        // Clarity Phase 7 (P2, spec G3) — this meeting has a Today pick linked to it
+        // (same commitment); it renders as the ONE merged chip instead of a duplicate.
+        const isLinked = linkedMeetingIds?.has(b.id) ?? false;
+        return (
+          <div
+            key={b.id}
+            className={cn(
+              'absolute top-5 h-9 overflow-hidden rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold',
+              isLinked && 'ring-1 ring-inset ring-[color:var(--accent)]'
+            )}
+            style={{
+              left: `${b.leftPercent}%`,
+              width: `${b.widthPercent}%`,
+              backgroundColor: 'var(--error-subtle)',
+              borderColor: 'var(--error)',
+              color: 'var(--error)',
+            }}
+            data-testid="time-shape-block"
+            data-kind="meeting"
+            data-linked={isLinked || undefined}
+          >
+            <span className="flex items-center gap-0.5 truncate">
+              {isLinked && <Link2 className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />}
+              <span className="truncate">{b.label}</span>
+            </span>
+          </div>
+        );
+      })}
 
       {bufferBlocks.map((b) => (
         <div
