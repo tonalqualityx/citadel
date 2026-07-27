@@ -28,7 +28,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
           { name: 'machine', type: 'object', required: true, description: '{ name (unique machine key), hostname? }' },
           { name: 'sent_at', type: 'ISO-8601', required: false, description: 'Heartbeat/call timestamp; updates machine.last_heartbeat_at' },
           { name: 'events', type: 'object', required: false, description: 'Array of hook events (max 500): { kind, external_id, source, ts, title?, cwd?, model?, tokens_total?, payload? }' },
-          { name: 'snapshot', type: 'object', required: false, description: '{ sessions: [{ external_id, source, title?, cwd?, model?, remote_url?, status?, needs_attention?, attention_reason?, started_at?, last_event_at?, ended_at?, tokens_total?, meta?, agents?: [...], session_type?, goal?, waiting_on?, ask_queue?, ask_severity?, arc_id?, archived_at? }] }. remote_url (Phase 3, nullable) must be an https://claude.ai/code/... URL or null to clear — anything else 400s the whole request. Clarity Phase 1 session-meaning fields (session_type/goal/waiting_on/ask_queue/ask_severity/arc_id/archived_at) are each independently nullable-optional: absent leaves the stored value untouched, explicit null clears it. goal/waiting_on are capped at 2000 chars.' },
+          { name: 'snapshot', type: 'object', required: false, description: '{ sessions: [{ external_id, source, title?, cwd?, model?, remote_url?, status?, needs_attention?, attention_reason?, started_at?, last_event_at?, ended_at?, tokens_total?, meta?, agents?: [...], session_type?, goal?, waiting_on?, ask_queue?, ask_severity?, arc_id?, archived_at? }] }. remote_url (Phase 3, nullable) must be an https://claude.ai/code/... URL or null to clear — anything else 400s the whole request. Clarity Phase 1 session-meaning fields (session_type/goal/waiting_on/ask_queue/ask_severity/arc_id/archived_at) are each independently nullable-optional: absent leaves the stored value untouched, explicit null clears it. goal/waiting_on are capped at 2000 chars. Clarity Phase 7 — a truthy arc_id is existence-checked against Arc; a miss stores null and adds a message to the response\'s `warnings` array instead of failing the whole call (explicit null is a legitimate clear, never checked/warned).' },
         ],
         responseExample: {
           success: true,
@@ -38,6 +38,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
           agents_upserted: 'number',
           reconciled_stale: 'number',
           pruned_events: 'number',
+          warnings: ['string'],
         },
       },
     ],

@@ -66,7 +66,11 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'header enrichment: `sessions[]` (the arc\'s linked session(s), from ' +
           'origin_session_external_id + any arc_id-linked OracleSession rows, merged/deduped) ' +
           'and `estimated_minutes_total` (sum of the arc\'s OPEN tasks\' estimated_minutes; ' +
-          'each task in `tasks[]` also carries its own `estimated_minutes`).',
+          'each task in `tasks[]` also carries its own `estimated_minutes`). Clarity Phase 7 ' +
+          '(Seeing Stone Reckoning P1) adds the sales-pipeline link `accord`/`accord_id` ' +
+          '(status + lead contact fields — the accord\'s 7-stage status is never the primary ' +
+          'signal, just enough here for a caller that wants it), `email_asks[]` (emails ' +
+          'attached directly to this arc), and `today_picks[]` (picks referencing this arc).',
         auth: 'required',
         responseExample: {
           id: 'uuid',
@@ -74,6 +78,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           status: 'empty|open|complete',
           estimate_override_minutes: 'number|null',
           estimated_minutes_total: 'number',
+          next_touch: 'ISO-8601|null',
+          cover_url: 'string|null',
+          accord_id: 'uuid|null',
+          accord: { id: 'uuid', name: 'string', status: 'lead|meeting|proposal|contract|signed|active|lost', lead_name: 'string|null', lead_business_name: 'string|null', lead_email: 'string|null', lead_phone: 'string|null' },
           sessions: [
             {
               id: 'uuid',
@@ -86,12 +94,20 @@ export const clarityEndpoints: ApiEndpoint[] = [
             },
           ],
           tasks: [{ id: 'uuid', title: 'string', status: 'string', estimated_minutes: 'number|null' }],
+          email_asks: [{ id: 'uuid', subject: 'string', from_email: 'string', from_name: 'string|null', gist: 'string|null', deep_link: 'string', received_at: 'ISO-8601' }],
+          today_picks: [{ id: 'uuid', date: 'ISO-8601', item_type: 'arc|task|session|lead|note', label: 'string|null', sort: 'number', started_at: 'ISO-8601|null', completed_at: 'ISO-8601|null', calendar_event_id: 'string|null' }],
         },
       },
       {
         method: 'PATCH',
         summary: 'Update an arc. Setting closed_at is the "close thread" action; passing closed_at: null reopens it; omitting it leaves it untouched.',
         auth: 'required',
+        responseNotes:
+          'Clarity Phase 7 — the completion-nudge hook: when this PATCH is the arc\'s ' +
+          'CLOSING transition (closed_at newly set — was null before) and the arc has an ' +
+          'attached email (email_asks[0], newest first), the response ALSO includes ' +
+          '`completion_nudge: { thread_id, subject, from_email }` (omitted otherwise). ' +
+          'Draft-only forever (SOUL law) — the UI wires the accept/draft flow in Phase 2.',
         bodySchema: [
           { name: 'name', type: 'string', required: false, description: '' },
           { name: 'description', type: 'string', required: false, description: '' },
@@ -100,7 +116,59 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'closed_at', type: 'ISO-8601', required: false, description: 'Set to close the thread; null to reopen; absent to leave untouched' },
           { name: 'snoozed_until', type: 'ISO-8601', required: false, description: 'Clarity Phase 5 — the Soothsayer\'s snooze action. Set to hide the arc from default surfaces (Today\'s no-day-assigned guarantee, Soothsayer\'s unplanned section) until the date passes; null un-snoozes; absent leaves untouched' },
           { name: 'estimate_override_minutes', type: 'number', required: false, description: 'Clarity Phase 4c — arc board header time estimate override. Set to hand-pick a total that overrides the computed sum of open tasks\' estimated_minutes ("~2h (set by hand)"); null clears the override; absent leaves untouched' },
+          { name: 'next_touch', type: 'ISO-8601', required: false, description: 'Clarity Phase 7 — the anti-drop-net "act by" date (distinct from snoozed_until\'s "hide until"). null clears it; absent leaves untouched.' },
+          { name: 'accord_id', type: 'uuid', required: false, description: 'Clarity Phase 7 — the sales-pipeline link (404 if the accord does not exist). One accord hosts many arcs over its life. null detaches; absent leaves untouched.' },
+          { name: 'cover_url', type: 'string', required: false, description: 'Clarity Phase 7 — the arc board card\'s cover image. null clears it; absent leaves untouched.' },
         ],
+      },
+    ],
+  },
+  {
+    path: '/api/arcs/{id}/context',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Clarity Phase 7 (Seeing Stone Reckoning P1) — the session-briefing endpoint. A ' +
+          'Claude Code session declaring this arc at birth (or any existing session ' +
+          'orienting itself) reads this ONE call for everything the arc touches. ' +
+          'Read-only, additive, same auth gate as the rest of the arcs surface.',
+        auth: 'required',
+        responseNotes:
+          '`accord.other_arcs` is the "relevant details from earlier rounds" hook — every ' +
+          'other arc on the SAME accord (report round -> proposal round -> negotiation round ' +
+          '-> kickoff round, etc.), with name + closed_at only. `tasks.open` is the arc\'s ' +
+          'non-done/abandoned tasks (priority then due_date order); `tasks.recent` is its ' +
+          'last 10 done/abandoned tasks (updated_at desc) — context on what\'s already ' +
+          'resolved. `sessions[]` merges origin_session_external_id with any arc_id-linked ' +
+          'OracleSession rows, same convention as the arc board\'s own session panel. ' +
+          '`activity` is a recent-activity timestamp summary (last task update, last email ' +
+          'received, last session activity, the arc\'s own updated_at) — all null when there ' +
+          'is nothing of that kind yet.',
+        responseExample: {
+          arc: { id: 'uuid', name: 'string', description: 'string|null', status: 'empty|open|complete', next_touch: 'ISO-8601|null', snoozed_until: 'ISO-8601|null', closed_at: 'ISO-8601|null', cover_url: 'string|null', created_at: 'ISO-8601', updated_at: 'ISO-8601' },
+          client: { id: 'uuid', name: 'string' },
+          project: { id: 'uuid', name: 'string', status: 'string' },
+          accord: {
+            id: 'uuid', name: 'string', status: 'lead|meeting|proposal|contract|signed|active|lost',
+            lead_name: 'string|null', lead_business_name: 'string|null', lead_email: 'string|null', lead_phone: 'string|null',
+            other_arcs: [{ id: 'uuid', name: 'string', closed_at: 'ISO-8601|null' }],
+          },
+          tasks: {
+            open: [{ id: 'uuid', title: 'string', status: 'string', priority: 'number', due_date: 'ISO-8601|null' }],
+            recent: [{ id: 'uuid', title: 'string', status: 'string', priority: 'number', due_date: 'ISO-8601|null' }],
+          },
+          emails: [{ id: 'uuid', subject: 'string', gist: 'string|null', deep_link: 'string', received_at: 'ISO-8601' }],
+          sessions: [{ external_id: 'string', title: 'string|null', status: 'string', goal: 'string|null', waiting_on: 'string|null' }],
+          next_touch: 'ISO-8601|null',
+          activity: {
+            last_task_activity_at: 'ISO-8601|null',
+            last_email_received_at: 'ISO-8601|null',
+            last_session_activity_at: 'ISO-8601|null',
+            arc_updated_at: 'ISO-8601',
+          },
+        },
       },
     ],
   },
@@ -246,7 +314,17 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'trigger chip\'s quiet counts. Clarity Phase 6b: intent additionally accepts ' +
           '"admin" (business-critical non-client mail: accountant/bookkeeper/banking/tax) — ' +
           'its own `lanes.admin` count, NEVER folded into `lanes.general` the way null is; ' +
-          'the admin lane renders FIRST in both the trigger chip and the drawer grouping.',
+          'the admin lane renders FIRST in both the trigger chip and the drawer grouping. ' +
+          'Clarity Phase 7 — TRUTHFUL COUNTS (G6 fix): meta.counts gains `intake`/`crisis`; ' +
+          '`total` now sums ALL SIX (decide+answer+review+do+intake+crisis) instead of ' +
+          'silently excluding intake/crisis. PLATE RULE (Q16): a task under a project whose ' +
+          'status is quote (still being estimated) or queue (approved, not started) ' +
+          'contributes ZERO to `do` or its count — ad-hoc tasks with no project are never ' +
+          'touched; it surfaces the instant the project flips in_progress. Scoped to the ' +
+          '4 do-queue sweeps only (focus/overdue/blocked/open-within-14d) — awaiting-review ' +
+          'is untouched. PRIORITY FLOAT: `do` is stable-sorted so priority-1 items float to ' +
+          'the top, then priority-2, everything else keeping its existing relative order — ' +
+          'applied once, after every source (all 4 sweeps + routed session asks) has landed.',
         responseExample: {
           waiting: [
             {
@@ -308,6 +386,8 @@ export const clarityEndpoints: ApiEndpoint[] = [
               answer: 'number',
               review: 'number',
               do: 'number',
+              intake: 'number',
+              crisis: 'number',
               total: 'number',
             },
           },
@@ -398,7 +478,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'launch_blocking->2/internal->3 mapping session-tasks uses (lib/ask-severity.ts). ' +
           'arc_id/arc_name reuse the exact same shared resolution as session-tasks ' +
           '(lib/arc-resolution.ts). sop_id is a pure passthrough — no SOP-guessing logic exists ' +
-          'yet (out of v1 scope). Sets email_ask.task_id + state=handled on success.',
+          'yet (out of v1 scope). Sets email_ask.task_id + state=handled on success. ' +
+          'Clarity Phase 7 — when the created task resolves to an arc, ALSO stamps the ' +
+          'email_ask\'s own arc_id (not just the task\'s), same as a manual ' +
+          'POST .../attach would.',
         bodySchema: [
           { name: 'arc_id', type: 'uuid', required: false, description: 'XOR with arc_name — 400 if both given' },
           { name: 'arc_name', type: 'string', required: false, description: 'XOR with arc_id' },
@@ -418,12 +501,43 @@ export const clarityEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/email-asks/{id}/attach',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Clarity Phase 7 (Seeing Stone Reckoning P1) — email<->arc/task attachment. When ' +
+          'Mike rules an email actionable, it leaves the intake drawer and attaches directly ' +
+          'to an arc OR task (exactly one per call). Admin-only.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Sets state=handled the instant either FK is set (same "resolved from Mike\'s ' +
+          'perspective" convention as the drawer\'s other actions). Idempotent: re-POSTing ' +
+          'the same {arc_id} or {task_id} just re-confirms — no error, no duplicate side ' +
+          'effect. 400 if neither or both of arc_id/task_id are given; 404 if the given ' +
+          'arc/task does not exist.',
+        bodySchema: [
+          { name: 'arc_id', type: 'uuid', required: false, description: 'Exactly one of arc_id/task_id required' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'Exactly one of arc_id/task_id required' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          arc_id: 'uuid|null',
+          task_id: 'uuid|null',
+          state: 'handled',
+        },
+      },
+    ],
+  },
+  {
     path: '/api/today',
     group: 'clarity',
     methods: [
       {
         method: 'GET',
-        summary: 'List Today picks (the day\'s chosen commitments) with joined arc/task/session/charter summaries and a derived per-type primary action.',
+        summary: 'List Today picks (the day\'s chosen commitments) with joined arc/task/session/charter/accord summaries and a derived per-type primary action.',
         auth: 'required',
         roles: ['admin'],
         queryParams: [
@@ -433,7 +547,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'Clarity Phase 3d: "today"/date resolves to the REQUESTING USER\'s own timezone ' +
           '(UserPreference.timezone -> CITADEL_DISPLAY_TZ env -> America/New_York — see ' +
           'lib/services/user-timezone.ts), not a plain UTC calendar day. `timezone` in the ' +
-          'response is that resolved zone; the client formats every rendered time in it.',
+          'response is that resolved zone; the client formats every rendered time in it. ' +
+          'Clarity Phase 7 — item_type=lead\'s ref is now Accord (`accord`/`accord_id`), not ' +
+          'Charter; `charter`/`charter_id` stay populated for BACK-COMPAT rendering of any ' +
+          'pre-rewire lead pick that still only carries a charter_id.',
         responseExample: {
           date: 'YYYY-MM-DD',
           timezone: 'America/New_York',
@@ -450,9 +567,12 @@ export const clarityEndpoints: ApiEndpoint[] = [
               session: { external_id: 'string', title: 'string|null', status: 'string', remote_url: 'string|null', goal: 'string|null' },
               charter_id: 'uuid|null',
               charter: { id: 'uuid', name: 'string' },
+              accord_id: 'uuid|null',
+              accord: { id: 'uuid', name: 'string', status: 'string' },
               label: 'string|null',
               sort: 'number',
               completed_at: 'ISO-8601|null',
+              calendar_event_id: 'string|null',
               primary_action: { kind: 'respond|resume|arc|quest|charter|toggle' },
               created_at: 'ISO-8601',
               updated_at: 'ISO-8601',
@@ -463,20 +583,25 @@ export const clarityEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'POST',
-        summary: 'Add a Today pick. Exactly one of arc_id/task_id/session_external_id/charter_id (or `label` for a note) identifies the pick — validated here, not the DB.',
+        summary: 'Add a Today pick. Exactly one of arc_id/task_id/session_external_id/accord_id (or `label` for a note) identifies the pick — validated here, not the DB.',
         auth: 'required',
         roles: ['admin'],
         responseNotes:
           'WIP ceiling: a 6th uncompleted pick for the date is rejected with 409 (finish or drop one first). ' +
-          'Exactly-one-ref validation returns 400. arc_id/task_id/charter_id are 404-checked against their tables; ' +
-          'session_external_id is not (Oracle sessions are not a DB relation here).',
+          'Exactly-one-ref validation returns 400. arc_id/task_id/accord_id are 404-checked against their tables; ' +
+          'session_external_id is not (Oracle sessions are not a DB relation here). ' +
+          'Clarity Phase 7 — item_type=lead validates/writes against Accord now (the real ' +
+          'pipeline entity), not Charter (a signed contract, the semantic opposite of a ' +
+          'lead). charter_id is accepted at the schema level only for back-compat — it is ' +
+          'rejected as a stray ref on every type, including lead, so no NEW pick can ever ' +
+          'be created against it.',
         bodySchema: [
           { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD; defaults to today in the requester\'s resolved timezone (see GET\'s responseNotes)' },
           { name: 'item_type', type: 'string', required: true, description: 'arc|task|session|lead|note' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=arc' },
           { name: 'task_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=task' },
           { name: 'session_external_id', type: 'string', required: false, description: 'Required (and only) for item_type=session' },
-          { name: 'charter_id', type: 'uuid', required: false, description: 'Required (and only) for item_type=lead' },
+          { name: 'accord_id', type: 'uuid', required: false, description: 'Clarity Phase 7 — required (and only) for item_type=lead. Replaces charter_id as the lead write target.' },
           { name: 'label', type: 'string', required: false, description: 'Required (and only) for item_type=note; an override display string on other types' },
           { name: 'sort', type: 'number', required: false, description: '' },
         ],
@@ -489,13 +614,15 @@ export const clarityEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'PATCH',
-        summary: 'Update a Today pick: sort, completed_at (quiet completion toggle), or label. The pick\'s type/ref is never re-pointed here.',
+        summary: 'Update a Today pick: sort, completed_at (quiet completion toggle), label, date (move to a different day), or calendar_event_id. The pick\'s type/ref is never re-pointed here.',
         auth: 'required',
         roles: ['admin'],
         bodySchema: [
           { name: 'sort', type: 'number', required: false, description: '' },
           { name: 'completed_at', type: 'ISO-8601', required: false, description: 'Set to complete; null to un-complete; absent to leave untouched' },
           { name: 'label', type: 'string', required: false, description: '' },
+          { name: 'date', type: 'string', required: false, description: 'Clarity Phase 7 — YYYY-MM-DD, moves the pick to a different day (previously silently ignored). Never re-validated against the destination day\'s WIP cap.' },
+          { name: 'calendar_event_id', type: 'string', required: false, description: 'Clarity Phase 7 — the pick<->calendar-event link (CalendarEvent.event_id, matched by string, not a DB relation). null clears it; absent leaves untouched.' },
         ],
       },
       {

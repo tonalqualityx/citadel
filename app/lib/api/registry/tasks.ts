@@ -197,6 +197,14 @@ export const taskEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 4b — attach to an arc (404 if the arc does not exist); pass null to explicitly detach; omit to leave untouched. PM/Admin only.' },
         ],
+        responseNotes:
+          'Clarity Phase 7 — the completion-nudge hook: a status-only PATCH ({ status: ' +
+          '"done" }) that transitions the task INTO done (never on a no-op re-PATCH of an ' +
+          'already-done task) includes `completion_nudge: { thread_id, subject, from_email }` ' +
+          'in the response when the task has an attached email — checked directly ' +
+          '(EmailAsk.task_id) first, falling back to the task\'s arc (EmailAsk.arc_id) if the ' +
+          'task itself has none. Omitted when there is no attached email anywhere. Draft-only ' +
+          'forever (SOUL law) — the UI wires the accept/draft flow in Phase 2.',
         responseExample: {
           id: 'uuid',
           title: 'string',
@@ -204,6 +212,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           arc_id: 'uuid|null',
           arc: { id: 'uuid', name: 'string' },
           updated_at: 'ISO-8601',
+          completion_nudge: { thread_id: 'string|null', subject: 'string', from_email: 'string' },
         },
       },
       {
