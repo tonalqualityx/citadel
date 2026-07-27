@@ -109,7 +109,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     await prisma.emailAsk.update({
       where: { id: ask.id },
-      data: { task_id: task.id, state: 'handled' },
+      data: {
+        task_id: task.id,
+        state: 'handled',
+        // Clarity Phase 7 — when the created task resolves to an arc, stamp the ask's
+        // own arc_id too (not just the task's) — the ask now shows up directly on the
+        // arc workspace, same as if it had been attached via POST .../attach.
+        ...(arcId ? { arc_id: arcId } : {}),
+      },
     });
 
     return NextResponse.json(formatTaskResponse(task), { status: 201 });

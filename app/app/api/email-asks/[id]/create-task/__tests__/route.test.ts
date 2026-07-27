@@ -167,6 +167,32 @@ describe('POST /api/email-asks/[id]/create-task', () => {
     );
   });
 
+  // Clarity Phase 7 — when the created task resolves to an arc, the ask's OWN arc_id is
+  // stamped too (not just the task's) so it shows up directly on the arc workspace.
+  it('stamps the ask\'s arc_id when the created task resolves to an arc', async () => {
+    mockAskFindUnique.mockResolvedValue(ask());
+    mockArcFindMany.mockResolvedValue([]);
+    (prisma.arc.create as Mock).mockResolvedValue({ id: 'arc-new' });
+    mockTaskCreate.mockResolvedValue({ id: 'task-4' });
+
+    await POST(req({ arc_name: 'Herba site incident' }), ctx());
+
+    expect(mockAskUpdate).toHaveBeenCalledWith({
+      where: { id: 'ask-1' },
+      data: { task_id: 'task-4', state: 'handled', arc_id: 'arc-new' },
+    });
+  });
+
+  it('does not set the ask\'s arc_id when the created task has no arc', async () => {
+    mockAskFindUnique.mockResolvedValue(ask());
+    mockTaskCreate.mockResolvedValue({ id: 'task-1' });
+
+    await POST(req(), ctx());
+
+    const updateCall = mockAskUpdate.mock.calls[0][0];
+    expect(updateCall.data).not.toHaveProperty('arc_id');
+  });
+
   it('passes through sop_id with no resolution logic', async () => {
     mockAskFindUnique.mockResolvedValue(ask());
     mockTaskCreate.mockResolvedValue({ id: 'task-5' });

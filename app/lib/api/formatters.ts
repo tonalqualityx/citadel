@@ -1156,6 +1156,9 @@ export function formatEmailAskResponse(ask: any) {
     calendar_requested: ask.calendar_requested ?? false,
     calendar_event_id: ask.calendar_event_id ?? null,
     task_id: ask.task_id ?? null,
+    // Clarity Phase 7 — email-arc attachment: the ask leaves the intake drawer and
+    // attaches directly to the arc it belongs to (as well as, or instead of, a task).
+    arc_id: ask.arc_id ?? null,
     deep_link: ask.deep_link,
     received_at: ask.received_at,
     created_at: ask.created_at,
