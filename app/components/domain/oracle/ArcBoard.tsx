@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Pencil, Plus } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, ExternalLink, Handshake, Mail, CalendarClock } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -21,14 +21,25 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Avatar } from '@/components/ui/avatar';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useTerminology } from '@/lib/hooks/use-terminology';
+import { useNow } from '@/lib/hooks/use-now';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { useQueryClient } from '@tanstack/react-query';
-import { useArc, arcKeys, useUpdateArcEstimate, useCloseArc, type ArcTask } from '@/lib/hooks/use-arcs';
+import {
+  useArc,
+  useArcContext,
+  arcKeys,
+  useUpdateArcEstimate,
+  useUpdateArcNextTouch,
+  useCloseArc,
+  type ArcTask,
+  type ArcDetail,
+} from '@/lib/hooks/use-arcs';
 import { useUpdateTaskStatus, useCreateTask } from '@/lib/hooks/use-tasks';
 import { getArcStatus, getArcProgressPercent } from '@/lib/arc-status';
 import { capColumnCards, isWithinColumnLimit } from '@/lib/kanban-caps';
-import { arcEstimateDisplay } from './arc-board-logic';
+import { arcEstimateDisplay, nextTouchInputValue, isNextTouchOverdue } from './arc-board-logic';
 import { ArcSessionPanel } from './ArcSessionPanel';
 
 interface ArcBoardProps {
@@ -240,6 +251,7 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <NextTouchPanel arcId={arcId} nextTouch={arc.next_touch} />
           <EstimateBadge
             arcId={arcId}
             estimatedMinutesTotal={arc.estimated_minutes_total}
@@ -250,17 +262,22 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
           {/* Clarity Phase 7 (P2) — wires the existing (previously unused) useCloseArc
               hook: a trivially-reachable close/reopen affordance, and the completion
               nudge's other trigger point (spec Q12) alongside task status transitions. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => closeArc.mutate({ id: arcId, close: !arc.closed_at })}
-            disabled={closeArc.isPending}
-            data-testid="arc-board-close-toggle"
-          >
-            {arc.closed_at ? 'Reopen arc' : 'Close arc'}
-          </Button>
+          <Tooltip content={arc.closed_at ? 'Reopens this arc so it surfaces on active views again' : 'Marks this arc done — no more open work expected'}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => closeArc.mutate({ id: arcId, close: !arc.closed_at })}
+              disabled={closeArc.isPending}
+              data-testid="arc-board-close-toggle"
+            >
+              {arc.closed_at ? 'Reopen arc' : 'Close arc'}
+            </Button>
+          </Tooltip>
         </div>
       </div>
+
+      <AccordPanel arc={arc} />
+      <EmailAsksPanel emailAsks={arc.email_asks} />
 
       <ArcSessionPanel sessions={arc.sessions} />
 
@@ -430,6 +447,184 @@ function QuickAddQuest({ arcId }: { arcId: string }) {
         Save
       </Button>
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
+// Clarity Phase 3 (Seeing Stone Reckoning) — the arc workspace's accord panel: renders
+// only when the arc is linked to a pipeline accord (spec Q4, "the sales-pipeline link").
+// Lead name/business/contact + status as PLAIN TEXT (never a stage-editing control — the
+// glass never treats accord stage as the tracked thing, per Mike's ruling) + links to
+// sibling arcs on the same accord (the "relevant details from earlier rounds" hook),
+// read via GET /api/arcs/{id}/context — additive, quiet, no new fetch on the common path
+// since useArcContext is only enabled once an accord_id is known.
+function AccordPanel({ arc }: { arc: ArcDetail }) {
+  const { data: context } = useArcContext(arc.id, { enabled: !!arc.accord_id });
+  if (!arc.accord) return null;
+
+  const siblingArcs = context?.accord?.other_arcs ?? [];
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border-warm bg-surface p-3" data-testid="arc-accord-panel">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-sub">
+        <Handshake className="h-3.5 w-3.5" aria-hidden="true" />
+        Pipeline
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+        <span className="font-medium text-text-main">{arc.accord.lead_name ?? arc.accord.name}</span>
+        {arc.accord.lead_business_name && (
+          <span className="text-text-sub">{arc.accord.lead_business_name}</span>
+        )}
+        <span className="text-xs capitalize text-text-sub" data-testid="arc-accord-status">
+          {arc.accord.status}
+        </span>
+      </div>
+      {(arc.accord.lead_email || arc.accord.lead_phone) && (
+        <div className="flex flex-wrap gap-x-3 text-xs text-text-sub">
+          {arc.accord.lead_email && <span>{arc.accord.lead_email}</span>}
+          {arc.accord.lead_phone && <span>{arc.accord.lead_phone}</span>}
+        </div>
+      )}
+      {siblingArcs.length > 0 && (
+        <div className="flex flex-col gap-1 border-t border-border-warm pt-2">
+          <span className="text-xs text-text-sub">Other arcs on this accord</span>
+          <div className="flex flex-wrap gap-2">
+            {siblingArcs.map((sibling) => (
+              <Link
+                key={sibling.id}
+                href={`/oracle/arcs/${sibling.id}`}
+                className={cn(
+                  'rounded-full border border-border-warm px-2 py-0.5 text-xs text-text-sub hover:text-text-main',
+                  sibling.closed_at && 'opacity-60'
+                )}
+                data-testid="arc-sibling-link"
+              >
+                {sibling.name}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Clarity Phase 3 (Reckoning) — the arc workspace's attached-emails panel (spec Q4:
+// "emails attach directly to arcs" — exactly the shapeless-arc case, zero tasks yet, but
+// the originating email is what matters most). Renders only when at least one email is
+// attached; the deep link opens Gmail directly, same convention as the intake drawer's
+// own "Open email" action.
+function EmailAsksPanel({ emailAsks }: { emailAsks: ArcDetail['email_asks'] }) {
+  if (emailAsks.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border-warm bg-surface p-3" data-testid="arc-emails-panel">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-sub">
+        <Mail className="h-3.5 w-3.5" aria-hidden="true" />
+        Attached emails
+        <span className="rounded-full border border-border-warm bg-background-light px-1.5 text-xs text-text-sub">
+          {emailAsks.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {emailAsks.map((ask) => (
+          <a
+            key={ask.id}
+            href={ask.deep_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex flex-col gap-0.5 rounded border border-border-warm/60 p-2 hover:bg-background-light"
+            data-testid="arc-email-ask-item"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-sm font-medium text-text-main">{ask.subject}</span>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-text-sub" aria-hidden="true" />
+            </div>
+            <span className="truncate text-xs text-text-sub">
+              {ask.from_name ?? ask.from_email}
+            </span>
+            {ask.gist && <span className="truncate text-xs text-text-sub">{ask.gist}</span>}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Clarity Phase 3 (Reckoning) — the arc workspace's next-touch panel: display + inline
+// edit (spec Q2's "act by" date, distinct from snooze's "hide until"). A quiet warning
+// tint marks a past-due date (the anti-drop-net's aging signal) — never a countdown,
+// never guilt language, per the DON'T-BUILD list.
+function NextTouchPanel({ arcId, nextTouch }: { arcId: string; nextTouch: string | null }) {
+  const [editing, setEditing] = React.useState(false);
+  const [value, setValue] = React.useState(nextTouchInputValue(nextTouch));
+  const updateNextTouch = useUpdateArcNextTouch();
+  // Date.now() is an impure call — reading it via useNow (same ticking-clock pattern
+  // used elsewhere in this domain) keeps render pure and the overdue flag still fresh.
+  const nowMs = useNow(60_000);
+  const overdue = isNextTouchOverdue(nextTouch, nowMs);
+
+  function openEditor() {
+    setValue(nextTouchInputValue(nextTouch));
+    setEditing(true);
+  }
+
+  function save(e: React.FormEvent) {
+    e.preventDefault();
+    const iso = value ? new Date(`${value}T00:00:00.000Z`).toISOString() : null;
+    updateNextTouch.mutate({ id: arcId, nextTouch: iso }, { onSuccess: () => setEditing(false) });
+  }
+
+  function clear() {
+    updateNextTouch.mutate({ id: arcId, nextTouch: null }, { onSuccess: () => setEditing(false) });
+  }
+
+  if (!editing) {
+    return (
+      <Tooltip content="When you'll next act on this arc — the anti-drop-net date. Click to set or change it.">
+        <button
+          type="button"
+          onClick={openEditor}
+          className={cn(
+            'flex items-center gap-1 text-xs hover:text-text-main',
+            overdue ? 'font-semibold text-[var(--warning)]' : 'text-text-sub'
+          )}
+          data-testid="arc-next-touch-badge"
+          data-overdue={overdue || undefined}
+        >
+          <CalendarClock className="h-3 w-3" aria-hidden="true" />
+          {nextTouch ? `Next touch ${nextTouchInputValue(nextTouch)}` : 'Set next touch'}
+          <Pencil className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={save}
+      className="flex items-center gap-1.5 rounded-lg border border-border-warm bg-surface p-1.5"
+      data-testid="arc-next-touch-form"
+    >
+      <input
+        autoFocus
+        type="date"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="rounded border border-border-warm bg-surface px-2 py-1 text-xs text-text-main"
+        data-testid="arc-next-touch-input"
+      />
+      <Button type="submit" variant="primary" size="sm" disabled={updateNextTouch.isPending}>
+        Save
+      </Button>
+      {nextTouch && (
+        <Button type="button" variant="ghost" size="sm" onClick={clear} disabled={updateNextTouch.isPending}>
+          Clear
+        </Button>
+      )}
+      <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
         Cancel
       </Button>
     </form>

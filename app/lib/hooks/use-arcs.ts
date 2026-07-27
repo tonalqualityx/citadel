@@ -50,6 +50,20 @@ export interface ArcEmailAskSummary {
   received_at: string;
 }
 
+// Clarity Phase 3 (Seeing Stone Reckoning) — the arc workspace's accord panel: the
+// sales-pipeline link's lead-contact summary. `status` is shown as plain text, never a
+// stage-editing control (spec Q1: the glass never treats accord stage as the tracked
+// thing).
+export interface ArcAccordSummary {
+  id: string;
+  name: string;
+  status: string;
+  lead_name: string | null;
+  lead_business_name: string | null;
+  lead_email: string | null;
+  lead_phone: string | null;
+}
+
 export interface ArcDetail {
   id: string;
   name: string;
@@ -63,6 +77,15 @@ export interface ArcDetail {
   closed_at: string | null;
   // Clarity Phase 5 — the Soothsayer's snooze action.
   snoozed_until: string | null;
+  // Clarity Phase 3 (Reckoning) — the anti-drop-net "act by" date, distinct from
+  // snoozed_until ("hide until"). Never conflated (see the schema's own doc comment).
+  next_touch: string | null;
+  // Clarity Phase 3 (Reckoning) — the sales-pipeline link (was already returned by the
+  // API since Phase 1; the type just hadn't caught up until the arc workspace needed it).
+  accord_id: string | null;
+  accord: ArcAccordSummary | null;
+  // Clarity Phase 3 (Reckoning) — the arc board card's cover image.
+  cover_url: string | null;
   // Clarity Phase 4c — the arc board header enrichment.
   estimate_override_minutes: number | null;
   estimated_minutes_total: number;
@@ -79,6 +102,54 @@ export interface ArcDetail {
   // (closed_at set, was null) when the arc has an attached email — see
   // use-completion-nudge.ts's hasCompletionNudge (key-presence check, not truthiness).
   completion_nudge?: { thread_id: string | null; subject: string; from_email: string };
+}
+
+// Clarity Phase 3 (Reckoning) — the sibling-arc surfacing hook: GET /api/arcs/{id}/context
+// (the session-briefing endpoint) already computes "other arcs on the same accord" server-
+// side; the arc workspace's accord panel reads the same endpoint for that one list rather
+// than re-deriving it client-side.
+export interface ArcContextSiblingArc {
+  id: string;
+  name: string;
+  closed_at: string | null;
+}
+
+export interface ArcContext {
+  arc: {
+    id: string;
+    name: string;
+    description: string | null;
+    status: ArcStatus;
+    next_touch: string | null;
+    snoozed_until: string | null;
+    closed_at: string | null;
+    cover_url: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  client: { id: string; name: string } | null;
+  project: { id: string; name: string; status: string } | null;
+  accord: (ArcAccordSummary & { other_arcs: ArcContextSiblingArc[] }) | null;
+  tasks: {
+    open: Array<{ id: string; title: string; status: string; priority: number; due_date: string | null }>;
+    recent: Array<{ id: string; title: string; status: string; priority: number; due_date: string | null; updated_at: string }>;
+  };
+  emails: Array<{ id: string; subject: string; gist: string | null; deep_link: string; received_at: string }>;
+  sessions: Array<{
+    external_id: string;
+    title: string | null;
+    status: string;
+    goal: string | null;
+    waiting_on: string | null;
+    last_event_at: string | null;
+  }>;
+  next_touch: string | null;
+  activity: {
+    last_task_activity_at: string | null;
+    last_email_received_at: string | null;
+    last_session_activity_at: string | null;
+    arc_updated_at: string;
+  };
 }
 
 export interface ArcSummary {
@@ -111,6 +182,7 @@ export const arcKeys = {
   all: ['arcs'] as const,
   list: (status?: string) => [...arcKeys.all, 'list', status ?? 'any'] as const,
   detail: (id: string) => [...arcKeys.all, 'detail', id] as const,
+  context: (id: string) => [...arcKeys.all, 'context', id] as const,
 };
 
 export function useArcs(status?: ArcStatus) {
@@ -125,6 +197,34 @@ export function useArc(id: string, options?: { enabled?: boolean }) {
     queryKey: arcKeys.detail(id),
     queryFn: () => apiClient.get<ArcDetail>(`/arcs/${id}`),
     enabled: options?.enabled ?? !!id,
+  });
+}
+
+// Clarity Phase 3 (Reckoning) — the arc workspace's accord panel: sibling arcs on the
+// same accord (the "relevant details from earlier rounds" hook).
+export function useArcContext(id: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: arcKeys.context(id),
+    queryFn: () => apiClient.get<ArcContext>(`/arcs/${id}/context`),
+    enabled: options?.enabled ?? !!id,
+  });
+}
+
+// Clarity Phase 3 (Reckoning) — the arc workspace's next-touch inline edit (spec Q2's
+// real, distinct-from-snooze "act by" column).
+export function useUpdateArcNextTouch() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, nextTouch }: { id: string; nextTouch: string | null }) =>
+      apiClient.patch<ArcDetail>(`/arcs/${id}`, { next_touch: nextTouch }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: arcKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: arcKeys.all });
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to update next touch');
+    },
   });
 }
 
