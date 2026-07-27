@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useNow } from '@/lib/hooks/use-now';
 import { useTodayPicks, useTodayCalendar } from '@/lib/hooks/use-today';
+import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
 import { TODAY_PICK_WIP_CAP, isPastWarningThreshold } from '@/lib/today-picks';
 import { Spinner } from '@/components/ui/spinner';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
@@ -40,7 +41,19 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
   const nowMs = useNow(30_000);
   const { data: todayData, isLoading: picksLoading } = useTodayPicks();
   const { data: calendarData, isLoading: calendarLoading } = useTodayCalendar();
-  const [lens, setLens] = React.useState<'list' | 'board'>('list');
+  // Clarity Phase 7 (P2) — the list/board lens toggle, persisted cross-device via
+  // UserPreference (spec Q10). `localLens` is a same-session optimistic override so the
+  // toggle feels instant; before any click this render, the server's own today_view wins
+  // (never a client-only choice) — after a click, both agree once the PATCH settles.
+  const { data: preferencesData } = usePreferences();
+  const updatePreferences = useUpdatePreferences();
+  const [localLens, setLocalLens] = React.useState<'list' | 'board' | null>(null);
+  const lens = localLens ?? preferencesData?.preferences.today_view ?? 'list';
+
+  function setLens(next: 'list' | 'board') {
+    setLocalLens(next);
+    updatePreferences.mutate({ today_view: next });
+  }
 
   const isLoading = picksLoading || calendarLoading;
 

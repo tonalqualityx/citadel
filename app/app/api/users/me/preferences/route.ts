@@ -8,6 +8,8 @@ const updatePreferencesSchema = z.object({
   naming_convention: z.enum(['awesome', 'standard']).optional(),
   theme: z.enum(['light', 'dim', 'dark', 'system']).optional(),
   notification_bundle: z.boolean().optional(),
+  // Clarity Phase 7 (P2) — the Today section's list/board lens, persisted cross-device.
+  today_view: z.enum(['list', 'board']).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -20,6 +22,7 @@ export async function GET(request: NextRequest) {
         naming_convention: true,
         theme: true,
         notification_bundle: true,
+        today_view: true,
       },
     });
 
@@ -29,6 +32,7 @@ export async function GET(request: NextRequest) {
         naming_convention: 'awesome',
         theme: 'system',
         notification_bundle: true,
+        today_view: 'list',
       },
     });
   } catch (error) {
@@ -52,11 +56,13 @@ export async function PATCH(request: NextRequest) {
         naming_convention: validated.naming_convention ?? 'awesome',
         theme: validated.theme ?? 'system',
         notification_bundle: validated.notification_bundle ?? true,
+        today_view: validated.today_view ?? 'list',
       },
       select: {
         naming_convention: true,
         theme: true,
         notification_bundle: true,
+        today_view: true,
       },
     });
 

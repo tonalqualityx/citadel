@@ -78,6 +78,8 @@ model UserPreference {
   // not a forced default — a user who's never set one shouldn't silently inherit Mike's zone
   // if the fallback chain changes later. No settings UI to edit this yet (Phase 4).
   timezone            String?          @db.VarChar(64)
+  // Clarity Phase 7 (P2) — the Today section's list/board lens, persisted cross-device.
+  today_view          TodayViewLens    @default(list)
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 
@@ -298,6 +300,15 @@ enum Theme {
   dim
   dark
   system
+}
+
+// Clarity Phase 7 (Seeing Stone Reckoning P2) — the Today section's list/board lens
+// toggle, persisted cross-device (spec Q10: UserPreference over localStorage — Mike's
+// real mobile flow is fleet -> spawn session -> Claude app, not this toggle on phone, but
+// the desktop preference should still follow him between machines).
+enum TodayViewLens {
+  list
+  board
 }
 
 enum NotificationType {

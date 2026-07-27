@@ -33,7 +33,9 @@ const COLUMN_TITLES: Record<BoardColumnId, string> = {
   done: 'Done',
 };
 
-const COLUMN_ORDER: BoardColumnId[] = ['todo', 'doing', 'done'];
+// Clarity Phase 7 (P2) — kanban defaults (spec): Doing leads (research law "doing leads;
+// done sinks"), To do next, Done last and collapsed by default (see doneExpanded below).
+const COLUMN_ORDER: BoardColumnId[] = ['doing', 'todo', 'done'];
 
 // The Today board lens: same picks as the list, viewed as columns To do / Doing / Done —
 // Clarity Phase 4b made this a REAL, server-persisted state (today_picks.started_at) with
@@ -49,6 +51,11 @@ const COLUMN_ORDER: BoardColumnId[] = ['todo', 'doing', 'done'];
 export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
   const updatePick = useUpdateTodayPick();
   const [activePick, setActivePick] = React.useState<TodayPick | null>(null);
+  // Clarity Phase 7 (P2) — Done renders collapsed by default (count + expand), per the
+  // kanban-defaults spec ("done sinks"). Session-local, resets on mount/reload — but a
+  // drop landing IN Done during this session auto-expands (immediate feedback for the
+  // thing you just finished), see movePick below.
+  const [doneExpanded, setDoneExpanded] = React.useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -66,6 +73,7 @@ export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
   function movePick(pickId: string, target: BoardColumnId) {
     const pick = picks.find((p) => p.id === pickId);
     if (!pick) return;
+    if (target === 'done') setDoneExpanded(true);
     const source = columnForPick(pick);
     const fields = fieldsForTransition(source, target);
     if (!fields) return;
@@ -96,7 +104,13 @@ export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="today-board">
         {COLUMN_ORDER.map((columnId) => {
           const cards = columns[columnId];
-          const { visible, overflowCount } = capColumnCards(cards);
+          const isDone = columnId === 'done';
+          // Clarity Phase 7 (P2) — collapsed Done shows zero cards (just the count +
+          // expand affordance); the column div itself (below) stays mounted as the
+          // droppable target regardless, so dropping into a collapsed Done still works.
+          const { visible, overflowCount } = isDone && !doneExpanded
+            ? { visible: [], overflowCount: 0 }
+            : capColumnCards(cards);
           const isDoing = columnId === 'doing';
           return (
             <TodayBoardColumn
@@ -109,6 +123,8 @@ export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
               overCap={isDoing && doingOverCap}
               onStart={columnId === 'todo' ? (pickId) => movePick(pickId, 'doing') : undefined}
               legacyAttentionArcIds={legacyAttentionArcIds}
+              collapsed={isDone && !doneExpanded}
+              onToggleCollapsed={isDone ? () => setDoneExpanded((v) => !v) : undefined}
             />
           );
         })}
@@ -136,6 +152,8 @@ function TodayBoardColumn({
   overCap,
   onStart,
   legacyAttentionArcIds,
+  collapsed,
+  onToggleCollapsed,
 }: {
   id: BoardColumnId;
   title: string;
@@ -145,6 +163,9 @@ function TodayBoardColumn({
   overCap: boolean;
   onStart?: (pickId: string) => void;
   legacyAttentionArcIds?: Set<string>;
+  // Clarity Phase 7 (P2) — Done renders collapsed by default (count + expand).
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -158,12 +179,24 @@ function TodayBoardColumn({
       )}
       data-testid={`today-board-column-${id}`}
       data-over-cap={overCap ? 'true' : undefined}
+      data-collapsed={collapsed || undefined}
     >
       <div className="flex items-center justify-between px-1">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-text-sub">{title}</h4>
-        <span className="rounded-full border border-border-warm bg-surface px-2 text-xs text-text-sub">
-          {total}
-        </span>
+        {onToggleCollapsed ? (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="rounded-full border border-border-warm bg-surface px-2 text-xs text-text-sub hover:text-text-main"
+            data-testid="today-board-done-toggle"
+          >
+            {total} · {collapsed ? 'Show' : 'Hide'}
+          </button>
+        ) : (
+          <span className="rounded-full border border-border-warm bg-surface px-2 text-xs text-text-sub">
+            {total}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">

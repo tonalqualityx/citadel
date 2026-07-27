@@ -181,14 +181,25 @@ test('Clarity Phase 4b — Today board lens: drag a pick To do -> Doing -> Done,
   await expect(doneColumn.getByText(BOARD_TASK_TITLE, { exact: false })).toBeVisible({ timeout: 10000 });
   await expect(doingColumn.getByText(BOARD_TASK_TITLE, { exact: false })).toHaveCount(0);
 
-  // Persisted server-side, not just an optimistic client-only reorder — reload and
-  // re-enter the board lens (lens choice itself is session-local, not persisted).
+  // Persisted server-side, not just an optimistic client-only reorder — reload. The lens
+  // choice itself is ALSO now persisted (Clarity Phase 7 P2 — UserPreference.today_view),
+  // so this click is a no-op confirmation rather than a real re-selection; harmless either
+  // way. Clarity Phase 7 (P2) also collapses the Done column by default on every fresh
+  // mount (session-local, resets on reload) — expand it before checking the card landed.
   await page.reload();
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Board view' }).click();
+  await page.getByTestId('today-board-done-toggle').click();
   await expect(
     page.getByTestId('today-board-column-done').getByText(BOARD_TASK_TITLE, { exact: false })
   ).toBeVisible({ timeout: 10000 });
+
+  // Clarity Phase 7 (P2) — today_view now persists cross-device on the shared admin's own
+  // UserPreference row, which this dev DB does NOT reset between test files/runs. Reset it
+  // back to the suite's default (list) so every other spec's implicit "default is list
+  // view" assumption (e.g. oracle-phase3.spec.ts's today-list-scoped query) keeps holding,
+  // regardless of file/test execution order.
+  await page.request.patch('/api/users/me/preferences', { data: { today_view: 'list' } });
 });
 
 test('Clarity Phase 4b — Intake relocated to the header: trigger chip, drawer opens, Archive removes the item', async ({

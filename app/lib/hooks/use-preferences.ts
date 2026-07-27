@@ -5,6 +5,8 @@ export interface UserPreferences {
   naming_convention: 'awesome' | 'standard';
   theme: 'light' | 'dim' | 'dark' | 'system';
   notification_bundle: boolean;
+  // Clarity Phase 7 (P2) — the Today section's list/board lens, persisted cross-device.
+  today_view: 'list' | 'board';
 }
 
 interface PreferencesResponse {
