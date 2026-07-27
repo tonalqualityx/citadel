@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useCreateIdea } from '@/lib/hooks/use-ideas';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
@@ -11,6 +13,7 @@ import type { WaitingOnMeResponse } from '@/lib/hooks/use-waiting-on-me';
 import { CronHealthLine } from './CronHealthLine';
 import { WeekStrip } from './today/WeekStrip';
 import { IntakeDrawer } from './intake/IntakeDrawer';
+import { NewArcModal } from './NewArcModal';
 
 interface OracleHeaderProps {
   machines: OracleMachineDTO[];
@@ -38,6 +41,7 @@ function formatToday(timezone: string): string {
 // straight to /api/ideas, source=oracle), and the week capacity strip.
 export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProps) {
   const [ideaText, setIdeaText] = React.useState('');
+  const [newArcOpen, setNewArcOpen] = React.useState(false);
   const createIdea = useCreateIdea();
   const { data: calendarData } = useTodayCalendar();
   const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
@@ -82,9 +86,26 @@ export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProp
       </form>
 
       <div className="flex flex-col items-end gap-1.5">
-        {calendarData && <WeekStrip week={calendarData.week} todayDate={calendarData.date} />}
+        <div className="flex items-center gap-2">
+          {/* Clarity Phase 3 (Reckoning, spec Q4) — starts a shapeless arc container in
+              two fields; navigates straight into its workspace on success. */}
+          <Tooltip content="Starts a new arc — just a name. Add tasks, emails, or a client once you're inside.">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setNewArcOpen(true)}
+              data-testid="new-arc-trigger"
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              New arc
+            </Button>
+          </Tooltip>
+          {calendarData && <WeekStrip week={calendarData.week} todayDate={calendarData.date} />}
+        </div>
         {intake && <IntakeDrawer intake={intake} timezone={timezone} />}
       </div>
+
+      <NewArcModal open={newArcOpen} onOpenChange={setNewArcOpen} />
     </header>
   );
 }

@@ -210,6 +210,29 @@ export function useArcContext(id: string, options?: { enabled?: boolean }) {
   });
 }
 
+export interface CreateArcInput {
+  name: string;
+  description?: string | null;
+  client_id?: string | null;
+}
+
+// Clarity Phase 3 (Reckoning, spec Q4) — the New-arc button: starts a shapeless
+// container (name + optional client, zero other required structure); the caller
+// navigates straight into the new arc's workspace page on success.
+export function useCreateArc() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: CreateArcInput) => apiClient.post<ArcDetail>('/arcs', input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: arcKeys.all });
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to create arc');
+    },
+  });
+}
+
 // Clarity Phase 3 (Reckoning) — the arc workspace's next-touch inline edit (spec Q2's
 // real, distinct-from-snooze "act by" column).
 export function useUpdateArcNextTouch() {
