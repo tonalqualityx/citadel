@@ -185,10 +185,11 @@ export const arcKeys = {
   context: (id: string) => [...arcKeys.all, 'context', id] as const,
 };
 
-export function useArcs(status?: ArcStatus) {
+export function useArcs(status?: ArcStatus, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: arcKeys.list(status),
     queryFn: () => apiClient.get<ArcsResponse>('/arcs', { params: status ? { status } : undefined }),
+    enabled: options?.enabled ?? true,
   });
 }
 

@@ -16,7 +16,9 @@ import type { EmailAsk, WaitingOnMeResponse } from '@/lib/hooks/use-waiting-on-m
 import { useUpdateEmailAsk, useCreateTaskFromEmailAsk } from '@/lib/hooks/use-email-asks';
 import { crisisFromLabel } from '@/components/domain/oracle/crisis/crisis-strip-logic';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
+import { Tooltip } from '@/components/ui/tooltip';
 import { intakeChipLine, groupAsksByLane, formatProposedEvent, calendarButtonState } from './intake-drawer-logic';
+import { IntakeAttachPicker } from './IntakeAttachPicker';
 
 interface IntakeDrawerProps {
   intake: WaitingOnMeResponse['intake'];
@@ -232,26 +234,31 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
                             >
                               {group.lane === 'sales' ? 'Create lead quest + open' : 'Create + open'}
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleArchive(ask)}
-                              disabled={updateAsk.isPending}
-                              aria-label="Archive"
-                            >
-                              <Archive className="h-3.5 w-3.5" aria-hidden="true" />
-                              Archive
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDismiss(ask)}
-                              disabled={updateAsk.isPending}
-                              aria-label="Dismiss"
-                            >
-                              <X className="h-3.5 w-3.5" aria-hidden="true" />
-                            </Button>
+                            <Tooltip content="Files this email for the classifier to archive in Gmail later">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleArchive(ask)}
+                                disabled={updateAsk.isPending}
+                                aria-label="Archive"
+                              >
+                                <Archive className="h-3.5 w-3.5" aria-hidden="true" />
+                                Archive
+                              </Button>
+                            </Tooltip>
+                            <Tooltip content="Dismiss — clears this from Intake with no other action">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDismiss(ask)}
+                                disabled={updateAsk.isPending}
+                                aria-label="Dismiss"
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              </Button>
+                            </Tooltip>
                           </div>
+                          <IntakeAttachPicker askId={ask.id} />
                         </Card>
                       ))}
                     </div>

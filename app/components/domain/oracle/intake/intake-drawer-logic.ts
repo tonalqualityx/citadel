@@ -126,3 +126,30 @@ export function calendarButtonState(ask: {
   if (ask.calendar_requested) return 'queued';
   return 'add';
 }
+
+// Clarity Phase 3 (Seeing Stone Reckoning, spec Q4/Q11) — the intake attach picker's
+// search-select: a mixed, filtered list of open arcs + open tasks. Kept a plain array
+// (never a >12-row browse-everything list) — this is a quick "attach to the thing I
+// already have in mind" gesture, not a full search UI.
+export interface AttachPickerResult {
+  kind: 'arc' | 'task';
+  id: string;
+  label: string;
+}
+
+const ATTACH_PICKER_RESULT_LIMIT = 12;
+
+export function attachPickerResults(
+  arcs: Array<{ id: string; name: string }>,
+  tasks: Array<{ id: string; title: string }>,
+  query: string
+): AttachPickerResult[] {
+  const q = query.trim().toLowerCase();
+  const arcResults: AttachPickerResult[] = arcs
+    .filter((a) => !q || a.name.toLowerCase().includes(q))
+    .map((a) => ({ kind: 'arc' as const, id: a.id, label: a.name }));
+  const taskResults: AttachPickerResult[] = tasks
+    .filter((t) => !q || t.title.toLowerCase().includes(q))
+    .map((t) => ({ kind: 'task' as const, id: t.id, label: t.title }));
+  return [...arcResults, ...taskResults].slice(0, ATTACH_PICKER_RESULT_LIMIT);
+}

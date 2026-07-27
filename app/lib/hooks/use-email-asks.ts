@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
+import { arcKeys } from '@/lib/hooks/use-arcs';
 import type { EmailAsk } from '@/lib/hooks/use-waiting-on-me';
 
 // Clarity Phase 4a — email on the Seeing Stone. Reads (crisis/intake) come bundled inside
@@ -48,6 +49,36 @@ export function useUpdateEmailAsk() {
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to update email');
+    },
+  });
+}
+
+export interface AttachEmailAskInput {
+  arc_id?: string;
+  task_id?: string;
+}
+
+// Clarity Phase 3 (Seeing Stone Reckoning, spec Q4/Q11) — the intake drawer's "Attach
+// to…" picker: POSTs to the already-built /api/email-asks/{id}/attach endpoint (arc_id
+// XOR task_id), which sets state=handled server-side — the ask leaves the drawer's
+// list the instant this succeeds, same "resolved from Mike's perspective immediately"
+// convention as Archive/Dismiss. Invalidates the attached arc's own detail query too, so
+// its attached-emails panel picks up the new email without a manual refresh.
+export function useAttachEmailAsk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: AttachEmailAskInput }) =>
+      apiClient.post<EmailAsk>(`/email-asks/${id}/attach`, data),
+    onSuccess: (_data, variables) => {
+      invalidateEmailSurfaces(queryClient);
+      if (variables.data.arc_id) {
+        queryClient.invalidateQueries({ queryKey: arcKeys.detail(variables.data.arc_id) });
+      }
+      showToast.success('Attached');
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to attach email');
     },
   });
 }

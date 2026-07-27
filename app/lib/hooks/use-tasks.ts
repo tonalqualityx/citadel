@@ -150,9 +150,10 @@ export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   is_support?: boolean;
 }
 
-export function useTasks(filters: TaskFilters = {}) {
+export function useTasks(filters: TaskFilters = {}, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: taskKeys.list(filters),
+    enabled: options?.enabled ?? true,
     queryFn: () => {
       // Convert statuses array to comma-separated string for API
       const { statuses, accord_id, charter_id, maintenance_period, ...rest } = filters;
