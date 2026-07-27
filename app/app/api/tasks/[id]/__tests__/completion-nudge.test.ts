@@ -68,7 +68,7 @@ function makeRequest(body: object) {
 
 const makeParams = () => Promise.resolve({ id: 'task-1' });
 
-function existingTask(overrides: Record<string, any> = {}) {
+function existingTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
     status: 'in_progress',
@@ -80,7 +80,7 @@ function existingTask(overrides: Record<string, any> = {}) {
   };
 }
 
-function updatedTask(overrides: Record<string, any> = {}) {
+function updatedTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
     status: 'done',
