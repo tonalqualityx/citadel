@@ -294,7 +294,41 @@ export async function PATCH(
       // Propagate blocking status to dependent tasks
       await propagateBlockingStatus(id, statusData.status, existingTask.status);
 
-      return NextResponse.json(formatTaskResponse(task));
+      // Clarity Phase 7 — the completion-nudge hook: closing a task that has an
+      // attached email (directly, or via its arc) prompts the follow-through — Bast
+      // drafts "work is done" on the original thread for Mike's send (draft-only,
+      // forever; SOUL law). Fires only on the transition INTO done, never on a no-op
+      // re-PATCH of an already-done task. Direct task attachment wins over the arc's
+      // when both exist (the more specific link).
+      let completionNudge: { thread_id: string | null; subject: string; from_email: string } | null = null;
+      if (statusData.status === 'done' && existingTask.status !== 'done') {
+        const attachedEmail =
+          (await prisma.emailAsk.findFirst({
+            where: { task_id: id },
+            orderBy: { received_at: 'desc' },
+            select: { thread_id: true, subject: true, from_email: true },
+          })) ??
+          (task.arc_id
+            ? await prisma.emailAsk.findFirst({
+                where: { arc_id: task.arc_id },
+                orderBy: { received_at: 'desc' },
+                select: { thread_id: true, subject: true, from_email: true },
+              })
+            : null);
+
+        if (attachedEmail) {
+          completionNudge = {
+            thread_id: attachedEmail.thread_id ?? null,
+            subject: attachedEmail.subject,
+            from_email: attachedEmail.from_email,
+          };
+        }
+      }
+
+      return NextResponse.json({
+        ...formatTaskResponse(task),
+        ...(completionNudge ? { completion_nudge: completionNudge } : {}),
+      });
     }
 
     // Regular update - PM/Admin only for most fields

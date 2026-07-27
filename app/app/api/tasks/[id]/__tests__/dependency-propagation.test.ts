@@ -26,6 +26,10 @@ vi.mock('@/lib/db/prisma', () => ({
     projectTeamAssignment: {
       findFirst: vi.fn(),
     },
+    // Clarity Phase 7 — the completion-nudge hook's lookup on transition to done.
+    emailAsk: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -68,6 +72,7 @@ const mockTaskFindUnique = prisma.task.findUnique as Mock;
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockTaskUpdate = prisma.task.update as Mock;
 const mockTaskUpdateMany = prisma.task.updateMany as Mock;
+const mockEmailAskFindFirst = prisma.emailAsk.findFirst as Mock;
 
 function makeRequest(body: object) {
   return new NextRequest('http://localhost/api/tasks/task-1', {
@@ -132,6 +137,7 @@ describe('Task dependency propagation on status change', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRequireAuth.mockResolvedValue({ userId: 'user-1', email: 'test@test.com', role: 'pm' });
+    mockEmailAskFindFirst.mockResolvedValue(null);
   });
 
   describe('ordering-only project (dependencies_ordering_only: true)', () => {
