@@ -2898,3 +2898,25 @@ model RitualRun {
   @@unique([date, kind])
   @@map("ritual_runs")
 }
+
+// Clarity Phase 3 (Seeing Stone Reckoning, spec Q14) — cron chips v1: per-cron
+// Snooze/Dismiss state. A "cron" here is identified by its stable display key
+// (machine name + cron title — see lib/cron-chips.ts's cronKey), NOT a session id,
+// since each run mints a new OracleSession row. Snooze hides the chip until the next
+// local calendar day regardless of continued errors; Dismiss hides it only while the
+// CURRENT attention_reason text matches dismissed_reason — a genuinely new/changed
+// failure message is treated as "re-fired" and the chip reappears even if the snooze/
+// dismiss window hasn't elapsed. Additive, small, its own table (not folded into
+// UserPreference JSON) since it's keyed by cron identity, not by user.
+model CronChipState {
+  id       String @id @default(uuid()) @db.Uuid
+  cron_key String @unique @db.VarChar(300)
+
+  snoozed_until    DateTime?
+  dismissed_reason String?   @db.Text
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("cron_chip_states")
+}
