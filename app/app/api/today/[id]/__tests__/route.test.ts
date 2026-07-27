@@ -47,6 +47,9 @@ function pick(overrides: Record<string, unknown> = {}) {
     sort: 0,
     started_at: null,
     completed_at: null,
+    accord_id: null,
+    accord: null,
+    calendar_event_id: null,
     created_at: new Date(),
     updated_at: new Date(),
     ...overrides,
@@ -153,6 +156,85 @@ describe('PATCH /api/today/[id]', () => {
 
       const updateCall = mockUpdate.mock.calls[0][0];
       expect(updateCall.data).not.toHaveProperty('started_at');
+    });
+  });
+
+  // Clarity Phase 7 — moving a pick's date (previously silently ignored).
+  describe('Clarity Phase 7 — date (move a pick to a different day)', () => {
+    it('moves a pick to a new date', async () => {
+      mockFindUnique.mockResolvedValue(pick());
+      mockUpdate.mockResolvedValue(pick({ date: new Date('2026-07-25T00:00:00.000Z') }));
+
+      const res = await PATCH(req({ date: '2026-07-25' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.date).toEqual(new Date('2026-07-25T00:00:00.000Z').toISOString());
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ date: new Date('2026-07-25T00:00:00.000Z') }) })
+      );
+    });
+
+    it('rejects an invalid date (not YYYY-MM-DD)', async () => {
+      mockFindUnique.mockResolvedValue(pick());
+      const res = await PATCH(req({ date: 'not-a-date' }), ctx());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('leaves date untouched when absent from the request body', async () => {
+      mockFindUnique.mockResolvedValue(pick());
+      mockUpdate.mockResolvedValue(pick({ label: 'Renamed' }));
+
+      await PATCH(req({ label: 'Renamed' }), ctx());
+
+      const updateCall = mockUpdate.mock.calls[0][0];
+      expect(updateCall.data).not.toHaveProperty('date');
+    });
+  });
+
+  // Clarity Phase 7 — the pick<->calendar-event link.
+  describe('Clarity Phase 7 — calendar_event_id', () => {
+    it('sets calendar_event_id', async () => {
+      mockFindUnique.mockResolvedValue(pick());
+      mockUpdate.mockResolvedValue(pick({ calendar_event_id: 'gcal-event-1' }));
+
+      const res = await PATCH(req({ calendar_event_id: 'gcal-event-1' }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.calendar_event_id).toBe('gcal-event-1');
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ calendar_event_id: 'gcal-event-1' }) })
+      );
+    });
+
+    it('clears calendar_event_id when explicitly null', async () => {
+      mockFindUnique.mockResolvedValue(pick({ calendar_event_id: 'gcal-old' }));
+      mockUpdate.mockResolvedValue(pick({ calendar_event_id: null }));
+
+      const res = await PATCH(req({ calendar_event_id: null }), ctx());
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ calendar_event_id: null }) })
+      );
+    });
+
+    it('leaves calendar_event_id untouched when absent from the request body', async () => {
+      mockFindUnique.mockResolvedValue(pick({ calendar_event_id: 'gcal-existing' }));
+      mockUpdate.mockResolvedValue(pick({ calendar_event_id: 'gcal-existing', label: 'Renamed' }));
+
+      await PATCH(req({ label: 'Renamed' }), ctx());
+
+      const updateCall = mockUpdate.mock.calls[0][0];
+      expect(updateCall.data).not.toHaveProperty('calendar_event_id');
+    });
+
+    it('rejects a calendar_event_id over 255 characters', async () => {
+      mockFindUnique.mockResolvedValue(pick());
+      const res = await PATCH(req({ calendar_event_id: 'x'.repeat(256) }), ctx());
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
     });
   });
 });

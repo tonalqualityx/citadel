@@ -7,9 +7,12 @@ import { formatTodayPickResponse } from '@/lib/api/formatters';
 import { getArcStatus } from '@/lib/arc-status';
 import { primaryActionKindForPick, type TodayPickItemType } from '@/lib/today-picks';
 
-// PATCH: sort / completed_at / label only (Today picks don't get their type or ref
-// re-pointed — dropping/re-adding is the "change what a pick is" path). DELETE removes the
-// pick row only; it is never a delete of the underlying arc/task/session/charter.
+// PATCH: sort / completed_at / label / date / calendar_event_id (Today picks don't get
+// their type or ref re-pointed — dropping/re-adding is the "change what a pick is" path).
+// DELETE removes the pick row only; it is never a delete of the underlying
+// arc/task/session/charter.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 const updatePickSchema = z.object({
   sort: z.number().int().optional(),
   completed_at: z.string().datetime().optional().nullable(),
@@ -17,12 +20,23 @@ const updatePickSchema = z.object({
   // survives reload (was session-local before).
   started_at: z.string().datetime().optional().nullable(),
   label: z.string().max(300).optional().nullable(),
+  // Clarity Phase 7 — moving a pick to a different day (this was silently ignored
+  // before this phase). YYYY-MM-DD, stored the same way /api/today's own create path
+  // does (a UTC midnight Date for the @db.Date column) — never re-validated against the
+  // WIP cap on the destination day; that cap is a create-time-only guard.
+  date: z.string().regex(DATE_RE).optional(),
+  // Clarity Phase 7 — the pick<->calendar-event link. Set to attach this pick to a
+  // synced Google Calendar event (CalendarEvent.event_id — not a DB relation, same
+  // "matched by string" convention as session_external_id); null clears it; absent
+  // leaves it untouched.
+  calendar_event_id: z.string().max(255).optional().nullable(),
 });
 
 const PICK_INCLUDE = {
   arc: { include: { tasks: { select: { status: true } } } },
   task: { select: { id: true, title: true, status: true } },
   charter: { select: { id: true, name: true } },
+  accord: { select: { id: true, name: true, status: true } },
 } as const;
 
 async function shapeOne(pick: any) {
@@ -89,6 +103,8 @@ export async function PATCH(
           started_at: data.started_at === null ? null : new Date(data.started_at),
         }),
         ...(data.label !== undefined && { label: data.label }),
+        ...(data.date !== undefined && { date: new Date(`${data.date}T00:00:00.000Z`) }),
+        ...(data.calendar_event_id !== undefined && { calendar_event_id: data.calendar_event_id }),
       },
       include: PICK_INCLUDE,
     });

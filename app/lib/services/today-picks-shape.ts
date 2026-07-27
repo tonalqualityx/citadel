@@ -11,7 +11,10 @@ import { primaryActionKindForPick, type TodayPickItemType } from '@/lib/today-pi
 export const PICK_INCLUDE = {
   arc: { include: { tasks: { select: { status: true } } } },
   task: { select: { id: true, title: true, status: true } },
+  // Clarity Phase 7 — charter stays included for back-compat: a pre-rewire lead pick may
+  // still carry only charter_id (no accord_id) and must keep rendering unchanged.
   charter: { select: { id: true, name: true } },
+  accord: { select: { id: true, name: true, status: true } },
 } as const;
 
 export function fetchTodayPicksForDate(date: Date) {

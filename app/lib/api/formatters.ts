@@ -1185,11 +1185,20 @@ export function formatTodayPickResponse(
     session: extras.sessionSummary ?? null,
     charter_id: pick.charter_id ?? null,
     charter: pick.charter ? { id: pick.charter.id, name: pick.charter.name } : null,
+    // Clarity Phase 7 — the pipeline-lead rewire's new ref: item_type=lead now points here
+    // going forward. charter/charter_id above stay populated (unconditionally, same as
+    // always) purely for back-compat rendering of picks written before the rewire.
+    accord_id: pick.accord_id ?? null,
+    accord: pick.accord ? { id: pick.accord.id, name: pick.accord.name, status: pick.accord.status } : null,
     label: pick.label ?? null,
     sort: pick.sort,
     // Clarity Phase 4b — Today board lens's Doing column, persisted.
     started_at: pick.started_at ?? null,
     completed_at: pick.completed_at ?? null,
+    // Clarity Phase 7 — the pick<->calendar-event link (kills the timeline
+    // triple-render: one commitment renders once, linked, instead of appearing
+    // separately in the calendar feed and the picks feed).
+    calendar_event_id: pick.calendar_event_id ?? null,
     primary_action: extras.primaryAction ?? null,
     created_at: pick.created_at,
     updated_at: pick.updated_at,

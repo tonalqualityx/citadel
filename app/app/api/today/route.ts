@@ -34,7 +34,12 @@ const createPickSchema = z.object({
   arc_id: z.string().uuid().optional().nullable(),
   task_id: z.string().uuid().optional().nullable(),
   session_external_id: z.string().max(255).optional().nullable(),
+  // Clarity Phase 7 — charter_id is kept accepted at the schema level only so an old pick
+  // can never round-trip-fail; validateTodayPickRef rejects it as a stray ref for every
+  // type now (lead's write target moved to accord_id below), so no NEW pick can actually
+  // be created against it — this route never writes charter_id going forward.
   charter_id: z.string().uuid().optional().nullable(),
+  accord_id: z.string().uuid().optional().nullable(),
   label: z.string().max(300).optional().nullable(),
   sort: z.number().int().optional(),
 });
@@ -92,6 +97,7 @@ export async function POST(request: NextRequest) {
       task_id: data.task_id,
       session_external_id: data.session_external_id,
       charter_id: data.charter_id,
+      accord_id: data.accord_id,
       label: data.label,
     });
     if (!validation.valid) {
@@ -123,6 +129,12 @@ export async function POST(request: NextRequest) {
       const charter = await prisma.charter.findUnique({ where: { id: data.charter_id, is_deleted: false } });
       if (!charter) throw new ApiError('Charter not found', 404);
     }
+    // Clarity Phase 7 — the pipeline-lead rewire: item_type=lead validates against Accord
+    // (the real pipeline entity) instead of Charter (a signed contract) from here on.
+    if (data.accord_id) {
+      const accord = await prisma.accord.findUnique({ where: { id: data.accord_id, is_deleted: false } });
+      if (!accord) throw new ApiError('Accord not found', 404);
+    }
 
     const created = await prisma.todayPick.create({
       data: {
@@ -132,6 +144,7 @@ export async function POST(request: NextRequest) {
         task_id: data.task_id ?? null,
         session_external_id: data.session_external_id ?? null,
         charter_id: data.charter_id ?? null,
+        accord_id: data.accord_id ?? null,
         label: data.label ?? null,
         sort: data.sort ?? 0,
       },

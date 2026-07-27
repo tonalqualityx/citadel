@@ -27,6 +27,9 @@ vi.mock('@/lib/db/prisma', () => ({
     charter: {
       findUnique: vi.fn(),
     },
+    accord: {
+      findUnique: vi.fn(),
+    },
     userPreference: {
       findUnique: vi.fn(),
     },
@@ -46,6 +49,7 @@ const mockSessionFindMany = prisma.oracleSession.findMany as Mock;
 const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockTaskFindUnique = prisma.task.findUnique as Mock;
 const mockCharterFindUnique = prisma.charter.findUnique as Mock;
+const mockAccordFindUnique = prisma.accord.findUnique as Mock;
 const mockUserPreferenceFindUnique = prisma.userPreference.findUnique as Mock;
 
 function createGetRequest(params: Record<string, string> = {}): NextRequest {
@@ -73,6 +77,9 @@ function pick(overrides: Record<string, unknown> = {}) {
     session_external_id: null,
     charter_id: null,
     charter: null,
+    accord_id: null,
+    accord: null,
+    calendar_event_id: null,
     label: null,
     sort: 0,
     completed_at: null,
@@ -305,12 +312,43 @@ describe('POST /api/today', () => {
     expect(res.status).toBe(404);
   });
 
-  it('404s when charter_id does not exist', async () => {
+  // Clarity Phase 7 — the pipeline-lead rewire: item_type=lead now validates/writes
+  // against Accord (the real pipeline entity), not Charter (a signed contract).
+  it('rejects a lead pick that only carries the legacy charter_id (no longer a valid write target)', async () => {
     mockCount.mockResolvedValue(0);
-    mockCharterFindUnique.mockResolvedValue(null);
 
     const res = await POST(createPostRequest({ item_type: 'lead', charter_id: '550e8400-e29b-41d4-a716-446655440004' }));
+    expect(res.status).toBe(400);
+    expect(mockCharterFindUnique).not.toHaveBeenCalled();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('404s when accord_id does not exist', async () => {
+    mockCount.mockResolvedValue(0);
+    mockAccordFindUnique.mockResolvedValue(null);
+
+    const res = await POST(createPostRequest({ item_type: 'lead', accord_id: '550e8400-e29b-41d4-a716-446655440004' }));
+    const body = await res.json();
+
     expect(res.status).toBe(404);
+    expect(body.error).toBe('Accord not found');
+  });
+
+  it('creates a lead pick against a valid accord', async () => {
+    mockCount.mockResolvedValue(0);
+    mockAccordFindUnique.mockResolvedValue({ id: '550e8400-e29b-41d4-a716-446655440005' });
+    mockCreate.mockResolvedValue(
+      pick({ id: 'pick-lead', item_type: 'lead', arc_id: null, arc: null, accord_id: '550e8400-e29b-41d4-a716-446655440005', accord: { id: '550e8400-e29b-41d4-a716-446655440005', name: 'Herba', status: 'lead' } })
+    );
+
+    const res = await POST(createPostRequest({ item_type: 'lead', accord_id: '550e8400-e29b-41d4-a716-446655440005' }));
+    const body = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(body.accord_id).toBe('550e8400-e29b-41d4-a716-446655440005');
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ item_type: 'lead', accord_id: '550e8400-e29b-41d4-a716-446655440005' }) })
+    );
   });
 
   it('rejects a 6th uncompleted pick for the date with 409', async () => {

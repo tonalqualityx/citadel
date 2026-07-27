@@ -23,8 +23,19 @@ describe('validateTodayPickRef', () => {
     ).toEqual({ valid: true });
   });
 
-  it('accepts a lead pick with only charter_id', () => {
-    expect(validateTodayPickRef({ item_type: 'lead', charter_id: 'c1' })).toEqual({ valid: true });
+  it('accepts a lead pick with only accord_id (Clarity Phase 7 rewire off Charter)', () => {
+    expect(validateTodayPickRef({ item_type: 'lead', accord_id: 'a1' })).toEqual({ valid: true });
+  });
+
+  it('rejects a lead pick that only carries the legacy charter_id (no longer a valid write target)', () => {
+    const result = validateTodayPickRef({ item_type: 'lead', charter_id: 'c1' });
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/accord_id/);
+  });
+
+  it('rejects a lead pick that carries accord_id AND the legacy charter_id together', () => {
+    const result = validateTodayPickRef({ item_type: 'lead', accord_id: 'a1', charter_id: 'c1' });
+    expect(result.valid).toBe(false);
   });
 
   it('accepts a note pick with only a label', () => {
@@ -55,7 +66,7 @@ describe('validateTodayPickRef', () => {
     expect(result.valid).toBe(false);
   });
 
-  it('rejects a lead pick missing charter_id', () => {
+  it('rejects a lead pick missing accord_id', () => {
     const result = validateTodayPickRef({ item_type: 'lead' });
     expect(result.valid).toBe(false);
   });

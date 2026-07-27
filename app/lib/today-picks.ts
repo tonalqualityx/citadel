@@ -15,7 +15,11 @@ export interface TodayPickRefInput {
   arc_id?: string | null;
   task_id?: string | null;
   session_external_id?: string | null;
+  // Clarity Phase 7 — kept for back-compat READS only (see REF_FIELD_BY_TYPE's doc
+  // comment below). No longer the write target for item_type=lead; still a valid stray
+  // field to reject on any type going forward.
   charter_id?: string | null;
+  accord_id?: string | null;
   label?: string | null;
 }
 
@@ -24,11 +28,18 @@ export interface TodayPickValidationResult {
   error?: string;
 }
 
+// Clarity Phase 7 (Seeing Stone Reckoning P1) — item_type=lead's ref moves off
+// Charter (a SIGNED CONTRACT — the semantic opposite of a lead) onto Accord (the real
+// pipeline record: status lead/meeting/proposal/contract/signed/active/lost). Existing
+// picks written before this rewire may still carry a charter_id with no accord_id — those
+// keep rendering (lib/services/today-picks-shape.ts / formatTodayPickResponse shape both
+// arc/task/session/charter AND accord unconditionally, so a legacy charter-only row is
+// unaffected) — this map only governs what a NEW pick is validated/written against.
 const REF_FIELD_BY_TYPE: Record<Exclude<TodayPickItemType, 'note'>, keyof TodayPickRefInput> = {
   arc: 'arc_id',
   task: 'task_id',
   session: 'session_external_id',
-  lead: 'charter_id',
+  lead: 'accord_id',
 };
 
 const ALL_REF_FIELDS: (keyof TodayPickRefInput)[] = [
@@ -36,6 +47,7 @@ const ALL_REF_FIELDS: (keyof TodayPickRefInput)[] = [
   'task_id',
   'session_external_id',
   'charter_id',
+  'accord_id',
 ];
 
 function isPresent(v: unknown): boolean {
