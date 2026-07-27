@@ -19,6 +19,9 @@ vi.mock('@/lib/db/prisma', () => ({
     project: {
       findUnique: vi.fn(),
     },
+    accord: {
+      findUnique: vi.fn(),
+    },
     oracleSession: {
       findFirst: vi.fn(),
     },
@@ -33,6 +36,7 @@ const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockArcUpdate = prisma.arc.update as Mock;
 const mockClientFindUnique = prisma.client.findUnique as Mock;
 const mockProjectFindUnique = prisma.project.findUnique as Mock;
+const mockAccordFindUnique = prisma.accord.findUnique as Mock;
 const mockOracleSessionFindFirst = prisma.oracleSession.findFirst as Mock;
 
 function arc(overrides: Record<string, unknown> = {}) {
@@ -44,13 +48,19 @@ function arc(overrides: Record<string, unknown> = {}) {
     client: null,
     project_id: null,
     project: null,
+    accord_id: null,
+    accord: null,
     origin_session_external_id: null,
     closed_at: null,
     estimate_override_minutes: null,
+    next_touch: null,
+    cover_url: null,
     created_at: new Date(),
     updated_at: new Date(),
     tasks: [],
     sessions: [],
+    email_asks: [],
+    today_picks: [],
     ...overrides,
   };
 }
@@ -204,6 +214,114 @@ describe('GET /api/arcs/[id]', () => {
 
       expect(mockOracleSessionFindFirst).not.toHaveBeenCalled();
       expect(body.sessions).toEqual([linkedSession]);
+    });
+  });
+
+  // Clarity Phase 7 — Seeing Stone Reckoning P1: accord summary, attached emails, picks.
+  describe('Clarity Phase 7 — accord/email_asks/today_picks', () => {
+    it('includes the accord summary (status + lead contact fields) when the arc is linked to one', async () => {
+      mockArcFindUnique.mockResolvedValue(
+        arc({
+          accord_id: 'accord-1',
+          accord: {
+            id: 'accord-1',
+            name: 'Herba pipeline',
+            status: 'proposal',
+            lead_name: 'Jane Doe',
+            lead_business_name: 'Herba Co',
+            lead_email: 'jane@herba.com',
+            lead_phone: null,
+          },
+        })
+      );
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.accord_id).toBe('accord-1');
+      expect(body.accord).toEqual({
+        id: 'accord-1',
+        name: 'Herba pipeline',
+        status: 'proposal',
+        lead_name: 'Jane Doe',
+        lead_business_name: 'Herba Co',
+        lead_email: 'jane@herba.com',
+        lead_phone: null,
+      });
+    });
+
+    it('accord is null when the arc has no accord link', async () => {
+      mockArcFindUnique.mockResolvedValue(arc());
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.accord_id).toBeNull();
+      expect(body.accord).toBeNull();
+    });
+
+    it('includes attached email_asks', async () => {
+      mockArcFindUnique.mockResolvedValue(
+        arc({
+          email_asks: [
+            {
+              id: 'ask-1',
+              subject: 'Re: proposal',
+              from_email: 'jane@herba.com',
+              from_name: 'Jane',
+              gist: 'Wants a call this week',
+              deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
+              received_at: new Date('2026-07-20T00:00:00.000Z'),
+              thread_id: 'thread-1',
+            },
+          ],
+        })
+      );
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.email_asks).toEqual([
+        {
+          id: 'ask-1',
+          subject: 'Re: proposal',
+          from_email: 'jane@herba.com',
+          from_name: 'Jane',
+          gist: 'Wants a call this week',
+          deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
+          received_at: new Date('2026-07-20T00:00:00.000Z').toISOString(),
+        },
+      ]);
+    });
+
+    it('includes today_picks', async () => {
+      const pickRow = {
+        id: 'pick-1',
+        date: new Date('2026-07-27T00:00:00.000Z'),
+        item_type: 'arc',
+        label: null,
+        sort: 0,
+        started_at: null,
+        completed_at: null,
+        calendar_event_id: null,
+      };
+      mockArcFindUnique.mockResolvedValue(arc({ today_picks: [pickRow] }));
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.today_picks).toHaveLength(1);
+      expect(body.today_picks[0].id).toBe('pick-1');
+    });
+
+    it('next_touch and cover_url pass through', async () => {
+      const nextTouch = new Date('2026-08-01T00:00:00.000Z');
+      mockArcFindUnique.mockResolvedValue(arc({ next_touch: nextTouch, cover_url: 'https://example.com/cover.jpg' }));
+
+      const res = await GET(getRequest(), { params });
+      const body = await res.json();
+
+      expect(body.next_touch).toBe(nextTouch.toISOString());
+      expect(body.cover_url).toBe('https://example.com/cover.jpg');
     });
   });
 });
@@ -395,6 +513,214 @@ describe('PATCH /api/arcs/[id]', () => {
     it('rejects a non-integer estimate_override_minutes', async () => {
       const res = await PATCH(patchRequest({ estimate_override_minutes: 12.5 }), { params });
       expect(res.status).toBe(400);
+    });
+  });
+
+  // Clarity Phase 7 — the anti-drop-net "act by" date.
+  describe('next_touch', () => {
+    it('sets next_touch', async () => {
+      const touch = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+      mockArcUpdate.mockResolvedValue(arc({ next_touch: new Date(touch) }));
+
+      const res = await PATCH(patchRequest({ next_touch: touch }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.next_touch).toBe(new Date(touch).toISOString());
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ next_touch: expect.any(Date) }) })
+      );
+    });
+
+    it('setting next_touch to null clears it', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ next_touch: new Date() }));
+      mockArcUpdate.mockResolvedValue(arc({ next_touch: null }));
+
+      const res = await PATCH(patchRequest({ next_touch: null }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.next_touch).toBeNull();
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ next_touch: null }) })
+      );
+    });
+
+    it('leaves next_touch untouched when absent from the body', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ name: 'Renamed' }));
+      await PATCH(patchRequest({ name: 'Renamed' }), { params });
+
+      const callArgs = mockArcUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect('next_touch' in callArgs.data).toBe(false);
+    });
+
+    it('rejects an invalid next_touch (not ISO-8601)', async () => {
+      const res = await PATCH(patchRequest({ next_touch: 'not-a-date' }), { params });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // Clarity Phase 7 — the sales-pipeline link.
+  describe('accord_id', () => {
+    const ACCORD_UUID = '550e8400-e29b-41d4-a716-446655440010';
+
+    it('attaches a valid accord', async () => {
+      mockAccordFindUnique.mockResolvedValue({ id: ACCORD_UUID });
+      mockArcUpdate.mockResolvedValue(arc({ accord_id: ACCORD_UUID, accord: { id: ACCORD_UUID, name: 'Herba', status: 'lead', lead_name: null, lead_business_name: null, lead_email: null, lead_phone: null } }));
+
+      const res = await PATCH(patchRequest({ accord_id: ACCORD_UUID }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.accord_id).toBe(ACCORD_UUID);
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ accord_id: ACCORD_UUID }) })
+      );
+    });
+
+    it('404s when accord_id does not exist', async () => {
+      mockAccordFindUnique.mockResolvedValue(null);
+      const res = await PATCH(patchRequest({ accord_id: ACCORD_UUID }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(404);
+      expect(body.error).toBe('Accord not found');
+    });
+
+    it('detaches an accord when accord_id is explicitly null', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ accord_id: 'accord-1' }));
+      mockArcUpdate.mockResolvedValue(arc({ accord_id: null, accord: null }));
+
+      const res = await PATCH(patchRequest({ accord_id: null }), { params });
+      expect(res.status).toBe(200);
+      expect(mockAccordFindUnique).not.toHaveBeenCalled();
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ accord_id: null }) })
+      );
+    });
+
+    it('leaves accord_id untouched when absent from the body', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ name: 'Renamed' }));
+      await PATCH(patchRequest({ name: 'Renamed' }), { params });
+
+      const callArgs = mockArcUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect('accord_id' in callArgs.data).toBe(false);
+    });
+  });
+
+  // Clarity Phase 7 — the arc board card's cover image.
+  describe('cover_url', () => {
+    it('sets cover_url', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ cover_url: 'https://example.com/cover.jpg' }));
+
+      const res = await PATCH(patchRequest({ cover_url: 'https://example.com/cover.jpg' }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.cover_url).toBe('https://example.com/cover.jpg');
+    });
+
+    it('clears cover_url when explicitly null', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ cover_url: 'https://example.com/old.jpg' }));
+      mockArcUpdate.mockResolvedValue(arc({ cover_url: null }));
+
+      const res = await PATCH(patchRequest({ cover_url: null }), { params });
+      expect(res.status).toBe(200);
+      expect(mockArcUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ cover_url: null }) })
+      );
+    });
+
+    it('leaves cover_url untouched when absent from the body', async () => {
+      mockArcUpdate.mockResolvedValue(arc({ name: 'Renamed' }));
+      await PATCH(patchRequest({ name: 'Renamed' }), { params });
+
+      const callArgs = mockArcUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect('cover_url' in callArgs.data).toBe(false);
+    });
+  });
+
+  // Clarity Phase 7 — the completion-nudge hook on arc close.
+  describe('completion_nudge on arc close', () => {
+    it('includes completion_nudge when closing an arc that has an attached email', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ closed_at: null }));
+      mockArcUpdate.mockResolvedValue(
+        arc({
+          closed_at: new Date(),
+          email_asks: [
+            {
+              id: 'ask-1',
+              subject: 'Re: proposal',
+              from_email: 'jane@herba.com',
+              from_name: 'Jane',
+              gist: null,
+              deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
+              received_at: new Date(),
+              thread_id: 'thread-1',
+            },
+          ],
+        })
+      );
+
+      const res = await PATCH(patchRequest({ closed_at: new Date().toISOString() }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.completion_nudge).toEqual({
+        thread_id: 'thread-1',
+        subject: 'Re: proposal',
+        from_email: 'jane@herba.com',
+      });
+    });
+
+    it('omits completion_nudge when closing an arc with no attached emails', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ closed_at: null }));
+      mockArcUpdate.mockResolvedValue(arc({ closed_at: new Date(), email_asks: [] }));
+
+      const res = await PATCH(patchRequest({ closed_at: new Date().toISOString() }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.completion_nudge).toBeUndefined();
+    });
+
+    it('omits completion_nudge when the arc was ALREADY closed (not a new transition)', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ closed_at: new Date('2026-01-01T00:00:00.000Z') }));
+      mockArcUpdate.mockResolvedValue(
+        arc({
+          closed_at: new Date('2026-01-01T00:00:00.000Z'),
+          name: 'Renamed',
+          email_asks: [
+            {
+              id: 'ask-1',
+              subject: 'Re: proposal',
+              from_email: 'jane@herba.com',
+              from_name: null,
+              gist: null,
+              deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
+              received_at: new Date(),
+              thread_id: 'thread-1',
+            },
+          ],
+        })
+      );
+
+      const res = await PATCH(patchRequest({ name: 'Renamed' }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.completion_nudge).toBeUndefined();
+    });
+
+    it('omits completion_nudge when reopening an arc (closed_at set to null)', async () => {
+      mockArcFindUnique.mockResolvedValue(arc({ closed_at: new Date() }));
+      mockArcUpdate.mockResolvedValue(arc({ closed_at: null, email_asks: [{ id: 'ask-1', subject: 'X', from_email: 'a@b.com', from_name: null, gist: null, deep_link: 'https://x', received_at: new Date(), thread_id: null }] }));
+
+      const res = await PATCH(patchRequest({ closed_at: null }), { params });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.completion_nudge).toBeUndefined();
     });
   });
 });

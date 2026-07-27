@@ -1064,10 +1064,31 @@ export function formatArcResponse(
     client: arc.client ? { id: arc.client.id, name: arc.client.name } : null,
     project_id: arc.project_id ?? null,
     project: arc.project ? { id: arc.project.id, name: arc.project.name, status: arc.project.status } : null,
+    // Clarity Phase 7 — the sales-pipeline link: one Accord hosts many arcs over its
+    // life. `accord` summary carries status + the lead contact fields ("relevant details
+    // from earlier rounds" hook) — the glass never renders accord.status as the primary
+    // signal, just enough here for a caller that wants it.
+    accord_id: arc.accord_id ?? null,
+    accord: arc.accord
+      ? {
+          id: arc.accord.id,
+          name: arc.accord.name,
+          status: arc.accord.status,
+          lead_name: arc.accord.lead_name ?? null,
+          lead_business_name: arc.accord.lead_business_name ?? null,
+          lead_email: arc.accord.lead_email ?? null,
+          lead_phone: arc.accord.lead_phone ?? null,
+        }
+      : null,
     origin_session_external_id: arc.origin_session_external_id ?? null,
     closed_at: arc.closed_at ?? null,
     // Clarity Phase 5 — the Soothsayer's snooze action.
     snoozed_until: arc.snoozed_until ?? null,
+    // Clarity Phase 7 — the anti-drop-net date ("act by"), distinct from snoozed_until
+    // ("hide until"). Never conflated — see the schema doc comment.
+    next_touch: arc.next_touch ?? null,
+    // Clarity Phase 7 — the arc board card's cover image.
+    cover_url: arc.cover_url ?? null,
     // Clarity Phase 4c — the arc board header's time-estimate override; null = no
     // override, display the computed estimated_minutes_total instead.
     estimate_override_minutes: arc.estimate_override_minutes ?? null,

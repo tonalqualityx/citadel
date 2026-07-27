@@ -22,6 +22,14 @@ const updateArcSchema = z.object({
   // the override (revert to the computed sum); absent leaves untouched. Bounded at
   // ~69 days (100,000 minutes) as a sanity ceiling, not a real product constraint.
   estimate_override_minutes: z.number().int().min(0).max(100_000).optional().nullable(),
+  // Clarity Phase 7 — the anti-drop-net "act by" date. null clears it; absent leaves
+  // untouched. Distinct from snoozed_until ("hide until") — never conflated.
+  next_touch: z.string().datetime().optional().nullable(),
+  // Clarity Phase 7 — the sales-pipeline link. 404s if the accord does not exist; null
+  // detaches; absent leaves untouched.
+  accord_id: z.string().uuid().optional().nullable(),
+  // Clarity Phase 7 — the arc board card's cover image.
+  cover_url: z.string().max(1000).optional().nullable(),
 });
 
 const ARC_SESSION_SELECT = {
@@ -37,6 +45,52 @@ const ARC_SESSION_SELECT = {
 const ARC_DETAIL_INCLUDE = {
   client: { select: { id: true, name: true } },
   project: { select: { id: true, name: true, status: true } },
+  // Clarity Phase 7 — the sales-pipeline link: status + lead contact fields (the
+  // "relevant details from earlier rounds" hook — see /api/arcs/{id}/context for the
+  // full sibling-arc surfacing).
+  accord: {
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      lead_name: true,
+      lead_business_name: true,
+      lead_email: true,
+      lead_phone: true,
+    },
+  },
+  // Clarity Phase 7 — emails attached directly to this arc (the shapeless-arc case:
+  // zero tasks yet, but the originating email is exactly what matters). Newest first.
+  email_asks: {
+    select: {
+      id: true,
+      subject: true,
+      from_email: true,
+      from_name: true,
+      gist: true,
+      deep_link: true,
+      received_at: true,
+      // Clarity Phase 7 — thread_id isn't part of the public summary shape below, only
+      // used internally to build the completion-nudge payload on arc close.
+      thread_id: true,
+    },
+    orderBy: { received_at: 'desc' as const },
+  },
+  // Clarity Phase 7 — Today picks that reference this arc (arc-type picks, or a
+  // note-type pick with an override label attached — any pick row FK'd to it).
+  today_picks: {
+    select: {
+      id: true,
+      date: true,
+      item_type: true,
+      label: true,
+      sort: true,
+      started_at: true,
+      completed_at: true,
+      calendar_event_id: true,
+    },
+    orderBy: { date: 'desc' as const },
+  },
   tasks: {
     where: { is_deleted: false },
     select: {
@@ -87,6 +141,29 @@ async function computeArcExtras(arc: { origin_session_external_id: string | null
   };
 }
 
+// Clarity Phase 7 — the arc detail's attached-email summary. Deliberately a small,
+// stable shape (not the full formatEmailAskResponse) — this is a read-only summary card
+// inside the arc workspace, not the intake drawer's own full email surface.
+function formatArcEmailAskSummary(ask: {
+  id: string;
+  subject: string;
+  from_email: string;
+  from_name: string | null;
+  gist: string | null;
+  deep_link: string;
+  received_at: Date;
+}) {
+  return {
+    id: ask.id,
+    subject: ask.subject,
+    from_email: ask.from_email,
+    from_name: ask.from_name ?? null,
+    gist: ask.gist ?? null,
+    deep_link: ask.deep_link,
+    received_at: ask.received_at,
+  };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -109,6 +186,8 @@ export async function GET(
     return NextResponse.json({
       ...formatArcResponse(arc, getArcStatus(arc), extras),
       tasks: arc.tasks,
+      email_asks: arc.email_asks.map(formatArcEmailAskSummary),
+      today_picks: arc.today_picks,
     });
   } catch (error) {
     return handleApiError(error);
@@ -140,6 +219,15 @@ export async function PATCH(
       }
     }
 
+    if (data.accord_id) {
+      const accord = await prisma.accord.findUnique({
+        where: { id: data.accord_id, is_deleted: false },
+      });
+      if (!accord) {
+        throw new ApiError('Accord not found', 404);
+      }
+    }
+
     if (data.project_id) {
       const project = await prisma.project.findUnique({
         where: { id: data.project_id, is_deleted: false },
@@ -165,15 +253,39 @@ export async function PATCH(
         ...(data.estimate_override_minutes !== undefined && {
           estimate_override_minutes: data.estimate_override_minutes,
         }),
+        ...(data.next_touch !== undefined && {
+          next_touch: data.next_touch ? new Date(data.next_touch) : null,
+        }),
+        ...(data.accord_id !== undefined && { accord_id: data.accord_id }),
+        ...(data.cover_url !== undefined && { cover_url: data.cover_url }),
       },
       include: ARC_DETAIL_INCLUDE,
     });
 
     const extras = await computeArcExtras(arc);
 
+    // Clarity Phase 7 — the completion-nudge hook: closing an arc that has an attached
+    // email prompts the follow-through (Bast drafts "work is done" on the original
+    // thread; draft-only, never auto-sent — the UI wires the accept/draft flow next
+    // phase). Fires only on the NEWLY-closing transition (existing.closed_at was null),
+    // never on every PATCH that happens to touch an already-closed arc.
+    const isNewlyClosing = data.closed_at !== undefined && data.closed_at !== null && !existing.closed_at;
+    const firstAttachedEmail = isNewlyClosing ? arc.email_asks[0] : undefined;
+
     return NextResponse.json({
       ...formatArcResponse(arc, getArcStatus(arc), extras),
       tasks: arc.tasks,
+      email_asks: arc.email_asks.map(formatArcEmailAskSummary),
+      today_picks: arc.today_picks,
+      ...(firstAttachedEmail
+        ? {
+            completion_nudge: {
+              thread_id: firstAttachedEmail.thread_id ?? null,
+              subject: firstAttachedEmail.subject,
+              from_email: firstAttachedEmail.from_email,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     return handleApiError(error);
