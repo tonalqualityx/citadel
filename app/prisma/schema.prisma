@@ -2862,3 +2862,28 @@ model EmailAsk {
   @@index([arc_id])
   @@map("email_asks")
 }
+
+// Clarity Phase 7 (Seeing Stone Reckoning P2) — the ritual gate. A hard cover over the
+// Seeing Stone's front page (Today/Needs Reshi) until the day's morning ritual has run OR
+// Mike explicitly bails. `kind` supports future rituals (evening, Monday sweep) without a
+// schema change — this phase only writes/reads kind="morning". One row per (date, kind):
+// ran_at is stamped by the ritual SESSION itself (machine-side, POSTing on Mike's behalf —
+// never a "ritual is done" button in the UI, per the spec's explicit ruling against a
+// guilt-shaped affordance); bailed_at is stamped by the UI's own "Bail for today" button, a
+// real, deliberate, logged click. Either satisfies the gate — a day can carry both (bailed,
+// then the ritual actually ran later) without conflict. Bails are never deleted or hidden;
+// they're the Monday sweep's own signal ("ritual too heavy this week").
+model RitualRun {
+  id   String   @id @default(uuid()) @db.Uuid
+  date DateTime @db.Date
+  kind String   @default("morning") @db.VarChar(20)
+
+  ran_at    DateTime?
+  bailed_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([date, kind])
+  @@map("ritual_runs")
+}

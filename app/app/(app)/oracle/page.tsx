@@ -11,6 +11,8 @@ import { OracleHeader } from '@/components/domain/oracle/OracleHeader';
 import { TodaySection } from '@/components/domain/oracle/today/TodaySection';
 import { NeedsReshi } from '@/components/domain/oracle/needs-reshi/NeedsReshi';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
+import { RitualGate } from '@/components/domain/oracle/RitualGate';
+import { hasCrisis } from '@/components/domain/oracle/crisis/crisis-strip-logic';
 import { TaskPeekProvider } from '@/lib/contexts/task-peek-context';
 import {
   groupNonWaitingSessions,
@@ -95,11 +97,15 @@ export default function OraclePage() {
 
         {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
 
-        <TodaySection legacyAttentionArcIds={legacyAttentionArcIds} />
+        {/* Clarity Phase 7 (P2) — the ritual gate (spec Q7). CrisisStrip above stays a
+            sibling, never a child, of the gate — it must render THROUGH the cover, always. */}
+        <RitualGate hasCrisis={hasCrisis(waitingOnMeData?.crisis ?? [])}>
+          <TodaySection legacyAttentionArcIds={legacyAttentionArcIds} />
 
-        {waitingOnMeData && (
-          <NeedsReshi data={waitingOnMeData} liveSessions={liveSessions} nowMs={now} />
-        )}
+          {waitingOnMeData && (
+            <NeedsReshi data={waitingOnMeData} liveSessions={liveSessions} nowMs={now} />
+          )}
+        </RitualGate>
       </div>
     </TaskPeekProvider>
   );

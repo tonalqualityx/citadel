@@ -38,6 +38,16 @@ export default async function globalSetup(config: FullConfig) {
   await page.getByLabel('Password').fill('password123');
   await page.click('button[type="submit"]');
   await page.waitForURL(/.*dashboard/, { timeout: 15000 });
+
+  // Clarity Phase 7 (P2) — the new ritual gate hard-covers /oracle's Today/Needs Reshi
+  // until the morning ritual has run or been bailed. Every existing Oracle e2e spec (Phase
+  // 3 onward) navigates straight to /oracle expecting Today to already be interactive —
+  // none of them know about the gate, and shouldn't have to: seed today's ritual as "ran"
+  // once, here, for the whole shared-auth-state run, exactly the way a real morning ritual
+  // having already executed would leave the day. This is a real API call (not a DB seed
+  // script), authenticated via the same shared session the storageState below captures.
+  await context.request.post(`${baseURL}/api/ritual-runs`, { data: { action: 'ran' } });
+
   await context.storageState({ path: SHARED_AUTH_STATE_PATH });
   await browser.close();
 }
