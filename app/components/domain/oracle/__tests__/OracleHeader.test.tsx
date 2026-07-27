@@ -41,6 +41,39 @@ beforeEach(() => {
   });
 });
 
+describe('OracleHeader — Catch bar prefixes (Clarity Phase 3 Reckoning, spec Q19)', () => {
+  it('"task: …" POSTs to /tasks with Mike as assignee, not_started, priority 3', async () => {
+    mockPost.mockResolvedValue({ id: 'task-1', title: 'call the bookkeeper' });
+    renderWithClient(<OracleHeader machines={[]} />);
+
+    const input = screen.getByTestId('idea-quickadd-input');
+    fireEvent.change(input, { target: { value: 'task: call the bookkeeper' } });
+    fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/tasks', {
+        title: 'call the bookkeeper',
+        assignee_id: '3ecfb7be-20bb-43cb-9b4d-31c44337dc81',
+        status: 'not_started',
+        priority: 3,
+      })
+    );
+  });
+
+  it('anything else still files to /ideas', async () => {
+    mockPost.mockResolvedValue({ id: 'idea-1', text: 'a stray thought' });
+    renderWithClient(<OracleHeader machines={[]} />);
+
+    const input = screen.getByTestId('idea-quickadd-input');
+    fireEvent.change(input, { target: { value: 'a stray thought' } });
+    fireEvent.submit(input.closest('form')!);
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/ideas', { text: 'a stray thought', source: 'oracle' })
+    );
+  });
+});
+
 describe('OracleHeader — New arc button (Clarity Phase 3 Reckoning, spec Q4)', () => {
   it('opens the New arc modal', async () => {
     renderWithClient(<OracleHeader machines={[]} />);

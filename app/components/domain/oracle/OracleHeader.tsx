@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useCreateIdea } from '@/lib/hooks/use-ideas';
+import { useCreateTask } from '@/lib/hooks/use-tasks';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
 import type { WaitingOnMeResponse } from '@/lib/hooks/use-waiting-on-me';
@@ -14,6 +15,7 @@ import { CronHealthLine } from './CronHealthLine';
 import { WeekStrip } from './today/WeekStrip';
 import { IntakeDrawer } from './intake/IntakeDrawer';
 import { NewArcModal } from './NewArcModal';
+import { parseCatchInput, MIKE_USER_ID } from './oracle-header-logic';
 
 interface OracleHeaderProps {
   machines: OracleMachineDTO[];
@@ -40,18 +42,32 @@ function formatToday(timezone: string): string {
 // exception-based display, healthy crons render nothing), the idea quick-add ("idea: …"
 // straight to /api/ideas, source=oracle), and the week capacity strip.
 export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProps) {
-  const [ideaText, setIdeaText] = React.useState('');
+  const [catchText, setCatchText] = React.useState('');
   const [newArcOpen, setNewArcOpen] = React.useState(false);
   const createIdea = useCreateIdea();
+  const createTask = useCreateTask();
   const { data: calendarData } = useTodayCalendar();
   const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
 
-  function submitIdea(e: React.FormEvent) {
+  // Clarity Phase 3 (Reckoning, spec Q19) — the Catch bar accepts either prefix: "task: …"
+  // files straight to /api/tasks (assignee Mike, not_started, priority 3); anything else
+  // (including the original bare/"idea: …" input) keeps filing to the ideas bank — the
+  // bar's original single purpose, never removed.
+  function submitCatch(e: React.FormEvent) {
     e.preventDefault();
-    const text = ideaText.trim();
-    if (!text) return;
-    createIdea.mutate({ text, source: 'oracle' }, { onSuccess: () => setIdeaText('') });
+    const parsed = parseCatchInput(catchText);
+    if (!parsed) return;
+    if (parsed.kind === 'task') {
+      createTask.mutate(
+        { title: parsed.text, assignee_id: MIKE_USER_ID, status: 'not_started', priority: 3 },
+        { onSuccess: () => setCatchText('') }
+      );
+    } else {
+      createIdea.mutate({ text: parsed.text, source: 'oracle' }, { onSuccess: () => setCatchText('') });
+    }
   }
+
+  const isPending = createIdea.isPending || createTask.isPending;
 
   return (
     <header className="flex flex-wrap items-start justify-between gap-3" data-testid="oracle-header">
@@ -72,15 +88,15 @@ export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProp
         )}
       </div>
 
-      <form onSubmit={submitIdea} className="flex min-w-[230px] max-w-[380px] flex-1 gap-1.5">
+      <form onSubmit={submitCatch} className="flex min-w-[230px] max-w-[380px] flex-1 gap-1.5">
         <input
-          value={ideaText}
-          onChange={(e) => setIdeaText(e.target.value)}
-          placeholder="idea: … (files straight to the Ideas list)"
+          value={catchText}
+          onChange={(e) => setCatchText(e.target.value)}
+          placeholder="idea: … or task: … (files to Ideas or Tasks)"
           className="flex-1 rounded-lg border border-border-warm bg-surface px-2.5 py-1.5 text-sm text-text-main placeholder:text-text-sub"
           data-testid="idea-quickadd-input"
         />
-        <Button type="submit" variant="primary" size="sm" disabled={createIdea.isPending || !ideaText.trim()}>
+        <Button type="submit" variant="primary" size="sm" disabled={isPending || !catchText.trim()}>
           Catch
         </Button>
       </form>
