@@ -17,6 +17,61 @@ interface NeedsReshiProps {
   nowMs: number;
 }
 
+// Mobile-only collapse toggle for a queue header. On desktop the queue is always
+// expanded (per the mobile hard rule below), so the header renders as plain, non-
+// interactive text there instead of a <button> whose onClick would be a no-op —
+// a control that looks clickable but does nothing on desktop is worse than no
+// control at all.
+function QueueHeader({
+  icon: Icon,
+  label,
+  count,
+  isMobile,
+  collapsedOnMobile,
+  onToggle,
+}: {
+  icon: typeof Inbox;
+  label: string;
+  count: number;
+  isMobile: boolean;
+  collapsedOnMobile: boolean;
+  onToggle: () => void;
+}) {
+  const content = (
+    <>
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      {label}
+      <span className="rounded-full border border-border-warm bg-background-light px-2 text-xs text-text-sub">
+        {count}
+      </span>
+      {isMobile && (
+        <ChevronRight
+          className={cn('h-3.5 w-3.5 text-text-sub transition-transform', !collapsedOnMobile && 'rotate-90')}
+        />
+      )}
+    </>
+  );
+
+  if (!isMobile) {
+    return (
+      <div className="flex min-h-9 items-center gap-1.5 rounded px-1 text-left text-sm font-semibold text-text-main">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsedOnMobile}
+      className="flex min-h-9 items-center gap-1.5 rounded px-1 text-left text-sm font-semibold text-text-main"
+    >
+      {content}
+    </button>
+  );
+}
+
 // Clarity Phase 5 rework (Mike's ruling, 2026-07-22): Decide + Answer merge into ONE
 // "Waiting on you" queue (declared session asks, type-chipped decision/reply — see
 // needs-reshi-logic.ts's buildWaitingColumn). Legacy hook-flagged needs_attention sessions
@@ -60,26 +115,14 @@ export function NeedsReshi({ data, liveSessions, nowMs }: NeedsReshiProps) {
       <h2 className="px-1 text-xs font-bold uppercase tracking-wide text-text-sub">Needs Reshi</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2" data-testid="needs-reshi-column-waiting">
-          <button
-            type="button"
-            onClick={() => isMobile && toggle('waiting')}
-            aria-expanded={!waitingCollapsedOnMobile}
-            className="flex min-h-9 items-center gap-1.5 rounded px-1 text-left text-sm font-semibold text-text-main"
-          >
-            <Inbox className="h-4 w-4" aria-hidden="true" />
-            Waiting on you
-            <span className="rounded-full border border-border-warm bg-background-light px-2 text-xs text-text-sub">
-              {data.waiting.length}
-            </span>
-            {isMobile && (
-              <ChevronRight
-                className={cn(
-                  'h-3.5 w-3.5 text-text-sub transition-transform',
-                  !waitingCollapsedOnMobile && 'rotate-90'
-                )}
-              />
-            )}
-          </button>
+          <QueueHeader
+            icon={Inbox}
+            label="Waiting on you"
+            count={data.waiting.length}
+            isMobile={isMobile}
+            collapsedOnMobile={waitingCollapsedOnMobile}
+            onToggle={() => toggle('waiting')}
+          />
 
           {!waitingCollapsedOnMobile && (
             <>
@@ -98,26 +141,14 @@ export function NeedsReshi({ data, liveSessions, nowMs }: NeedsReshiProps) {
         </div>
 
         <div className="flex flex-col gap-2" data-testid="needs-reshi-column-review">
-          <button
-            type="button"
-            onClick={() => isMobile && toggle('review')}
-            aria-expanded={!reviewCollapsedOnMobile}
-            className="flex min-h-9 items-center gap-1.5 rounded px-1 text-left text-sm font-semibold text-text-main"
-          >
-            <CheckSquare className="h-4 w-4" aria-hidden="true" />
-            Review
-            <span className="rounded-full border border-border-warm bg-background-light px-2 text-xs text-text-sub">
-              {data.review.length}
-            </span>
-            {isMobile && (
-              <ChevronRight
-                className={cn(
-                  'h-3.5 w-3.5 text-text-sub transition-transform',
-                  !reviewCollapsedOnMobile && 'rotate-90'
-                )}
-              />
-            )}
-          </button>
+          <QueueHeader
+            icon={CheckSquare}
+            label="Review"
+            count={data.review.length}
+            isMobile={isMobile}
+            collapsedOnMobile={reviewCollapsedOnMobile}
+            onToggle={() => toggle('review')}
+          />
 
           {!reviewCollapsedOnMobile && (
             <div className="flex flex-col gap-2">

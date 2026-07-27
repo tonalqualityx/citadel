@@ -5,6 +5,7 @@ import { Check, ExternalLink, Focus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useNow } from '@/lib/hooks/use-now';
@@ -137,32 +138,35 @@ export function TodayPickCard({
             <SnoozeMenu arcId={pick.arc_id} snoozedUntil={pick.arc?.snoozed_until ?? null} />
           )}
           {!isDone && showFocusButton && (
+            <Tooltip content="Opens Focus Mode — a full-view timer on just this pick, with a park option when you step away">
+              <button
+                type="button"
+                onClick={() => enterFocus(pick)}
+                aria-label="Focus on this"
+                data-testid="today-pick-focus-button"
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-border-warm text-text-sub hover:bg-background-light"
+              >
+                <Focus className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip content={isDone ? 'Marks this pick not done again' : 'Marks this pick done'}>
             <button
               type="button"
-              onClick={() => enterFocus(pick)}
-              aria-label="Focus on this"
-              title="Focus"
-              data-testid="today-pick-focus-button"
-              className="flex h-7 w-7 items-center justify-center rounded-full border border-border-warm text-text-sub hover:bg-background-light"
+              onClick={toggleDone}
+              aria-label={isDone ? 'Mark not done' : 'Mark done'}
+              aria-pressed={isDone}
+              data-testid="today-pick-toggle"
+              className={cn(
+                'flex h-7 w-7 items-center justify-center rounded-full border transition-colors',
+                isDone
+                  ? 'border-transparent bg-[var(--success-subtle)] text-[var(--success)]'
+                  : 'border-border-warm text-text-sub hover:bg-background-light'
+              )}
             >
-              <Focus className="h-3.5 w-3.5" />
+              <Check className="h-3.5 w-3.5" />
             </button>
-          )}
-          <button
-            type="button"
-            onClick={toggleDone}
-            aria-label={isDone ? 'Mark not done' : 'Mark done'}
-            aria-pressed={isDone}
-            data-testid="today-pick-toggle"
-            className={cn(
-              'flex h-7 w-7 items-center justify-center rounded-full border transition-colors',
-              isDone
-                ? 'border-transparent bg-[var(--success-subtle)] text-[var(--success)]'
-                : 'border-border-warm text-text-sub hover:bg-background-light'
-            )}
-          >
-            <Check className="h-3.5 w-3.5" />
-          </button>
+          </Tooltip>
         </div>
       </div>
 

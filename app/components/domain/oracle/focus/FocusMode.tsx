@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip } from '@/components/ui/tooltip';
 import { RichTextRenderer } from '@/components/ui/rich-text-editor';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { useNow } from '@/lib/hooks/use-now';
@@ -119,15 +120,17 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
       className="fixed inset-0 z-50 flex flex-col items-center gap-6 overflow-y-auto bg-background p-6"
       data-testid="focus-mode-overlay"
     >
-      <button
-        type="button"
-        onClick={onExit}
-        aria-label="Exit focus"
-        className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full border border-border-warm text-text-sub hover:bg-background-light"
-        data-testid="focus-mode-exit"
-      >
-        <X className="h-4 w-4" />
-      </button>
+      <Tooltip content="Exits Focus Mode and returns to Today — nothing here is lost, just closed">
+        <button
+          type="button"
+          onClick={onExit}
+          aria-label="Exit focus"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full border border-border-warm text-text-sub hover:bg-background-light"
+          data-testid="focus-mode-exit"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </Tooltip>
 
       {waitingOnMeData && waitingOnMeData.crisis.length > 0 && (
         <div className="w-full max-w-2xl" data-testid="focus-mode-crisis-banner">

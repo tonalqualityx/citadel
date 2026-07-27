@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils/cn';
 import { useSnoozeArc } from '@/lib/hooks/use-arcs';
 import { computeSnoozeUntil, isArcSnoozed, type SnoozeQuickOption } from '@/lib/arc-snooze';
@@ -50,16 +51,18 @@ export function SnoozeMenu({ arcId, snoozedUntil, className }: SnoozeMenuProps) 
 
   return (
     <div className={cn('relative inline-block', className)} data-testid="snooze-menu">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="Snooze"
-        aria-expanded={open}
-        data-testid="snooze-menu-trigger"
-        className="flex h-6 w-6 items-center justify-center rounded-full text-text-sub hover:bg-background-light"
-      >
-        <Moon className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
+      <Tooltip content="Opens snooze options — hides this arc from view until a wake date you pick">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Snooze"
+          aria-expanded={open}
+          data-testid="snooze-menu-trigger"
+          className="flex h-6 w-6 items-center justify-center rounded-full text-text-sub hover:bg-background-light"
+        >
+          <Moon className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </Tooltip>
 
       {open && (
         <div
