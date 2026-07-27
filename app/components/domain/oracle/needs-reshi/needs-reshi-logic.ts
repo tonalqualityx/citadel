@@ -104,6 +104,11 @@ export interface ReviewGroup {
   oldestWaitAt: string | null;
   topItemTitle: string;
   items: AskCardData[];
+  /** Clarity Phase 3 (Seeing Stone Reckoning, spec Q5) — "pick the arc" for a review
+   *  batch: the ONE arc every item in this group shares, or null when the group spans
+   *  more than one arc (a client-grouped batch can mix arcs) or has none at all. Only
+   *  a well-defined single arc makes "Add to Today" for THIS group meaningful. */
+  arcId: string | null;
 }
 
 type ReviewCardInput = WaitingOnMeCard;
@@ -146,6 +151,12 @@ export function groupReviewByClient(cards: ReviewCardInput[]): ReviewGroup[] {
     });
     const oldest = sortedItems.find((i) => !!i.waiting_since) ?? sortedItems[0];
 
+    // "Pick the arc": well-defined only when every item in the group agrees on the
+    // same single arc id (an arc-fallback group with no client always qualifies; a
+    // client-grouped batch qualifies only when it happens to be single-arc too).
+    const arcIds = new Set(sortedItems.map((i) => i.arc?.id).filter((id): id is string => !!id));
+    const arcId = arcIds.size === 1 ? [...arcIds][0] : null;
+
     return {
       key,
       label,
@@ -153,6 +164,7 @@ export function groupReviewByClient(cards: ReviewCardInput[]): ReviewGroup[] {
       oldestWaitAt: oldest?.waiting_since ?? null,
       topItemTitle: oldest?.title ?? 'Untitled',
       items: sortedItems.map((c) => waitingOnMeCardToAskCardData(c)),
+      arcId,
     };
   });
 

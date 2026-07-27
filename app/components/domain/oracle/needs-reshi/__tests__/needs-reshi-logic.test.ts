@@ -142,6 +142,36 @@ describe('groupReviewByClient', () => {
     expect(groups[0].key).toBe('other');
   });
 
+  describe('arcId — the review-batch "pick the arc" (Clarity Phase 3 Reckoning, spec Q5)', () => {
+    it('is the shared arc id when every item in the group has the same arc', () => {
+      const groups = groupReviewByClient([
+        taskCard({ id: 't1', client: { id: 'c1', name: 'Herba' }, arc: { id: 'arc-1', name: 'Herba site' } }),
+        taskCard({ id: 't2', client: { id: 'c1', name: 'Herba' }, arc: { id: 'arc-1', name: 'Herba site' } }),
+      ]);
+      expect(groups[0].arcId).toBe('arc-1');
+    });
+
+    it('is null when the group has no arc at all', () => {
+      const groups = groupReviewByClient([taskCard({ id: 't1', client: null, arc: null })]);
+      expect(groups[0].arcId).toBeNull();
+    });
+
+    it('is null when the group spans more than one arc', () => {
+      const groups = groupReviewByClient([
+        taskCard({ id: 't1', client: { id: 'c1', name: 'Herba' }, arc: { id: 'arc-1', name: 'A' } }),
+        taskCard({ id: 't2', client: { id: 'c1', name: 'Herba' }, arc: { id: 'arc-2', name: 'B' } }),
+      ]);
+      expect(groups[0].arcId).toBeNull();
+    });
+
+    it('the arc-fallback grouping (single arc by construction) always has arcId set', () => {
+      const groups = groupReviewByClient([
+        sessionAskCard({ id: 's1', client: null, arc: { id: 'arc-9', name: 'Growth Roadmap' } }),
+      ]);
+      expect(groups[0].arcId).toBe('arc-9');
+    });
+  });
+
   it('sorts groups oldest-wait-first (across groups)', () => {
     const groups = groupReviewByClient([
       taskCard({
