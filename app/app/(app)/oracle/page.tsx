@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { OracleHeader } from '@/components/domain/oracle/OracleHeader';
 import { TodaySection } from '@/components/domain/oracle/today/TodaySection';
 import { NeedsReshi } from '@/components/domain/oracle/needs-reshi/NeedsReshi';
+import { PipelineLane } from '@/components/domain/oracle/PipelineLane';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { RitualGate } from '@/components/domain/oracle/RitualGate';
 import { hasCrisis } from '@/components/domain/oracle/crisis/crisis-strip-logic';
@@ -108,6 +109,10 @@ export default function OraclePage() {
           {waitingOnMeData && (
             <NeedsReshi data={waitingOnMeData} liveSessions={liveSessions} nowMs={now} />
           )}
+
+          {/* Clarity Phase 3 (Reckoning, spec Q1) — the pipeline lane: read + link only,
+              lives in the ledger area alongside Needs Reshi. */}
+          <PipelineLane />
         </RitualGate>
       </div>
       </FocusModeProvider>

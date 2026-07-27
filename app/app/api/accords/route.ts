@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatAccordResponse } from '@/lib/api/formatters';
+import { pipelineGroupForStatus, PIPELINE_GROUP_CAP, type PipelineGroupKey } from '@/lib/pipeline';
 
 const createAccordSchema = z.object({
   name: z.string().min(1).max(255),
@@ -17,10 +18,78 @@ const createAccordSchema = z.object({
   status: z.enum(['lead', 'meeting']).optional(),
 });
 
+// Clarity Phase 3 (Seeing Stone Reckoning, spec Q1) — the pipeline lane's read shape: 3
+// forward-motion-framed groupings, each accord annotated with its OPEN arc (the work
+// actually moving it forward) or null (the "no active arc" signal Mike needs — something
+// in the pipeline with nothing moving it). Read-only: no stage-editing, no drag, this
+// round.
+interface PipelineAccordRow {
+  id: string;
+  name: string;
+  status: string;
+  lead_name: string | null;
+  lead_business_name: string | null;
+  client: { id: string; name: string } | null;
+  open_arc: { id: string; name: string } | null;
+}
+
+async function fetchPipelineGrouped(): Promise<Record<PipelineGroupKey, PipelineAccordRow[]>> {
+  const accords = await prisma.accord.findMany({
+    where: { is_deleted: false },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      lead_name: true,
+      lead_business_name: true,
+      client: { select: { id: true, name: true } },
+    },
+    orderBy: { entered_current_status_at: 'desc' },
+  });
+
+  const accordIds = accords.map((a) => a.id);
+  const openArcs = accordIds.length
+    ? await prisma.arc.findMany({
+        where: { accord_id: { in: accordIds }, closed_at: null },
+        select: { id: true, name: true, accord_id: true },
+        orderBy: { updated_at: 'desc' },
+      })
+    : [];
+  // First occurrence per accord_id wins — openArcs is already ordered most-recently-
+  // updated first, so this is "the open arc most recently worked" per accord.
+  const openArcByAccordId = new Map<string, { id: string; name: string }>();
+  for (const arc of openArcs) {
+    if (arc.accord_id && !openArcByAccordId.has(arc.accord_id)) {
+      openArcByAccordId.set(arc.accord_id, { id: arc.id, name: arc.name });
+    }
+  }
+
+  const groups: Record<PipelineGroupKey, PipelineAccordRow[]> = { prospect: [], in_motion: [], closed: [] };
+  for (const accord of accords) {
+    const key = pipelineGroupForStatus(accord.status);
+    if (groups[key].length >= PIPELINE_GROUP_CAP) continue;
+    groups[key].push({
+      id: accord.id,
+      name: accord.name,
+      status: accord.status,
+      lead_name: accord.lead_name,
+      lead_business_name: accord.lead_business_name,
+      client: accord.client,
+      open_arc: openArcByAccordId.get(accord.id) ?? null,
+    });
+  }
+  return groups;
+}
+
 export async function GET(request: NextRequest) {
   try {
     await requireAuth();
     const { searchParams } = new URL(request.url);
+
+    if (searchParams.get('grouped') === 'pipeline') {
+      const groups = await fetchPipelineGrouped();
+      return NextResponse.json({ groups });
+    }
 
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '20');

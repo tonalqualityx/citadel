@@ -40,6 +40,35 @@ export function useAccords(filters: AccordFilters = {}) {
   });
 }
 
+// Clarity Phase 3 (Seeing Stone Reckoning, spec Q1) — the pipeline lane: accords grouped
+// into 3 forward-motion groupings, each annotated with its own OPEN arc (the work moving
+// it forward) or null (the "no active arc" signal). Read-only this round — no stage-
+// editing, no drag.
+export interface PipelineAccordRow {
+  id: string;
+  name: string;
+  status: string;
+  lead_name: string | null;
+  lead_business_name: string | null;
+  client: { id: string; name: string } | null;
+  open_arc: { id: string; name: string } | null;
+}
+
+export interface PipelineGroupedResponse {
+  groups: {
+    prospect: PipelineAccordRow[];
+    in_motion: PipelineAccordRow[];
+    closed: PipelineAccordRow[];
+  };
+}
+
+export function usePipelineAccords() {
+  return useQuery({
+    queryKey: [...accordKeys.all, 'pipeline'] as const,
+    queryFn: () => apiClient.get<PipelineGroupedResponse>('/accords', { params: { grouped: 'pipeline' } }),
+  });
+}
+
 export function useAccord(id: string | undefined) {
   return useQuery({
     queryKey: accordKeys.detail(id!),

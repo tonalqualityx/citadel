@@ -20,6 +20,10 @@ vi.mock('@/lib/db/prisma', () => ({
     client: {
       findUnique: vi.fn(),
     },
+    // Clarity Phase 3 (Reckoning) — the pipeline lane's "open arc per accord" lookup.
+    arc: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -45,6 +49,7 @@ const mockAccordFindUnique = prisma.accord.findUnique as Mock;
 const mockAccordUpdate = prisma.accord.update as Mock;
 const mockAccordCount = prisma.accord.count as Mock;
 const mockClientFindUnique = prisma.client.findUnique as Mock;
+const mockArcFindMany = prisma.arc.findMany as Mock;
 
 function createPostRequest(body: object): NextRequest {
   return new NextRequest('http://localhost:3000/api/accords', {
@@ -267,6 +272,72 @@ describe('GET /api/accords', () => {
         }),
       })
     );
+  });
+});
+
+describe('GET /api/accords?grouped=pipeline (Clarity Phase 3 Reckoning, spec Q1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({
+      userId: 'user-123',
+      role: 'pm',
+      email: 'pm@example.com',
+    });
+  });
+
+  it('collapses accords into exactly 3 groupings by status', async () => {
+    mockAccordFindMany.mockResolvedValue([
+      { id: 'a1', name: 'Lead A', status: 'lead', lead_name: 'Jane', lead_business_name: 'Acme', client: null },
+      { id: 'a2', name: 'Meeting B', status: 'meeting', lead_name: null, lead_business_name: null, client: null },
+      { id: 'a3', name: 'Proposal C', status: 'proposal', lead_name: null, lead_business_name: null, client: null },
+      { id: 'a4', name: 'Contract D', status: 'contract', lead_name: null, lead_business_name: null, client: null },
+      { id: 'a5', name: 'Signed E', status: 'signed', lead_name: null, lead_business_name: null, client: null },
+      { id: 'a6', name: 'Active F', status: 'active', lead_name: null, lead_business_name: null, client: null },
+      { id: 'a7', name: 'Lost G', status: 'lost', lead_name: null, lead_business_name: null, client: null },
+    ]);
+    mockArcFindMany.mockResolvedValue([]);
+
+    const request = createGetRequest({ grouped: 'pipeline' });
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.groups.prospect.map((r: { id: string }) => r.id)).toEqual(['a1', 'a2']);
+    expect(body.groups.in_motion.map((r: { id: string }) => r.id)).toEqual(['a3', 'a4']);
+    expect(body.groups.closed.map((r: { id: string }) => r.id)).toEqual(['a5', 'a6', 'a7']);
+  });
+
+  it('annotates each accord with its most-recently-updated OPEN arc, or null', async () => {
+    mockAccordFindMany.mockResolvedValue([
+      { id: 'a1', name: 'Lead A', status: 'lead', lead_name: null, lead_business_name: null, client: null },
+      { id: 'a2', name: 'Lead B', status: 'lead', lead_name: null, lead_business_name: null, client: null },
+    ]);
+    mockArcFindMany.mockResolvedValue([
+      { id: 'arc-1', name: 'Report arc', accord_id: 'a1' },
+    ]);
+
+    const request = createGetRequest({ grouped: 'pipeline' });
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(body.groups.prospect[0].open_arc).toEqual({ id: 'arc-1', name: 'Report arc' });
+    expect(body.groups.prospect[1].open_arc).toBeNull();
+    expect(mockArcFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ closed_at: null }) })
+    );
+  });
+
+  it('never applies pagination/status filters when grouped=pipeline is set', async () => {
+    mockAccordFindMany.mockResolvedValue([]);
+    mockArcFindMany.mockResolvedValue([]);
+
+    const request = createGetRequest({ grouped: 'pipeline', status: 'lead' });
+    await GET(request);
+
+    expect(mockAccordFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { is_deleted: false } })
+    );
+    expect(mockAccordCount).not.toHaveBeenCalled();
   });
 });
 
