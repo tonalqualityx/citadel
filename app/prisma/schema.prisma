@@ -1060,10 +1060,14 @@ model Task {
   // Clarity Phase 1: quests spawned from a Claude Code session (source=session), and
   // lightweight "arc" (micro-project) grouping. Arc status is never stored — see
   // lib/arc-status.ts. origin_url is a future email deep-link, unused for now.
-  arc_id                      String?  @db.Uuid
-  arc                         Arc?     @relation(fields: [arc_id], references: [id])
-  source_session_external_id  String?  @db.VarChar(255)
-  origin_url                  String?  @db.VarChar(1000)
+  arc_id                     String? @db.Uuid
+  arc                        Arc?    @relation(fields: [arc_id], references: [id])
+  source_session_external_id String? @db.VarChar(255)
+  origin_url                 String? @db.VarChar(1000)
+
+  // Clarity Phase 7 — the kanban card image cover (Mike-liked feature; the arc card's
+  // cover_url mirrors this same convention).
+  cover_url String? @db.VarChar(1000)
 
   // Client staging approval (clients are not Users — approval is by ClientContact)
   staging_preview_url    String?        @db.VarChar(500)
@@ -1551,6 +1555,13 @@ model Accord {
   charters             Charter[]
   tasks                Task[]
   automation_logs      SalesAutomationLog[]
+  // Clarity Phase 7 — one accord hosts many arcs over its life (report arc -> proposal
+  // arc -> negotiation arc -> kickoff arc). See Arc.accord_id's doc comment.
+  arcs                 Arc[]
+  // Clarity Phase 7 — TodayPick's pipeline-lead wiring, rewired off Charter (signed
+  // contracts, the semantic opposite of a lead) onto Accord (the real pipeline entity).
+  // See TodayPick.accord_id's doc comment.
+  today_picks          TodayPick[]
 
   @@index([client_id])
   @@index([owner_id])
@@ -2583,6 +2594,16 @@ model Arc {
   project_id String?  @db.Uuid
   project    Project? @relation(fields: [project_id], references: [id])
 
+  // Clarity Phase 7 — the sales-pipeline link ("Seeing Stone Reckoning"). One Accord
+  // (the real pipeline record — status lead/meeting/proposal/contract/signed/active/lost)
+  // hosts MANY arcs over its life (report arc -> proposal arc -> negotiation arc ->
+  // kickoff arc); each arc still connects its own tasks/emails independently. Never the
+  // thing the glass tracks by itself — later arcs on the same accord surface relevant
+  // context from earlier ones (the /context briefing endpoint's job), the accord's 7-stage
+  // status is never rendered as the primary signal.
+  accord_id String? @db.Uuid
+  accord    Accord? @relation(fields: [accord_id], references: [id])
+
   // The session that first spawned this arc (provenance only).
   origin_session_external_id String? @db.VarChar(255)
 
@@ -2594,6 +2615,15 @@ model Arc {
   // this date passes; null = not snoozed. Never a stored status — same "derive, don't
   // store" discipline as ArcStatus, this is just a wake-up timestamp, not a state machine.
   snoozed_until DateTime?
+
+  // Clarity Phase 7 — the anti-drop-net date ("act by", distinct from snoozed_until's
+  // "hide until"). Every tracked arc carries one; a past-due next_touch feeds the ritual
+  // aging list. Never conflated with snooze — that was the black-hole bug in data form
+  // (research distillation, Seeing Stone Reckoning P2). null = no commitment date set yet.
+  next_touch DateTime?
+
+  // Clarity Phase 7 — the arc board card's cover image (kanban card image covers).
+  cover_url String? @db.VarChar(1000)
 
   // Clarity Phase 4c — the arc board header's time estimate. null = no manual override;
   // the board displays the SUM of the arc's open tasks' estimated_minutes instead. Set =
@@ -2608,9 +2638,11 @@ model Arc {
   tasks       Task[]
   sessions    OracleSession[]
   today_picks TodayPick[]
+  email_asks  EmailAsk[]
 
   @@index([project_id])
   @@index([client_id])
+  @@index([accord_id])
   @@map("arcs")
 }
 
@@ -2642,10 +2674,15 @@ model TodayPick {
   // pick may reference a session even after it goes stale/ends).
   session_external_id String? @db.VarChar(255)
 
-  // Sales lead (Task already uses the Charter relation for "sales pipeline" linkage — see
-  // Task.charter_id above — so this mirrors that established convention).
+  // Sales lead — Clarity Phase 7 rewires item_type=lead's ref off Charter (a SIGNED
+  // contract, the semantic opposite of a lead) onto Accord (the real pipeline record:
+  // status lead/meeting/proposal/.../lost). charter_id/charter are kept, UNUSED BY NEW
+  // WRITES, purely for back-compat reads of any pre-rewire "lead" picks that still carry
+  // a charter_id (see lib/today-picks.ts's REF_FIELD_BY_TYPE + the shaping fallback).
   charter_id String?  @db.Uuid
   charter    Charter? @relation(fields: [charter_id], references: [id])
+  accord_id  String?  @db.Uuid
+  accord     Accord?  @relation(fields: [accord_id], references: [id])
 
   label String? @db.VarChar(300) // free-form commitment text (type=note, or an override)
 
@@ -2657,6 +2694,14 @@ model TodayPick {
   started_at   DateTime?
   completed_at DateTime?
 
+  // Clarity Phase 7 — the timeline-triple-render fix: a pick that represents a real,
+  // time-bound commitment links to its synced Google Calendar event (CalendarEvent.
+  // event_id, NOT a DB relation — same "not FK, matched by string" convention as
+  // OracleSession.external_id elsewhere in this model) so the day track renders ONE
+  // commitment once instead of the calendar feed and the picks feed each showing it
+  // separately. null = this pick has no linked calendar event.
+  calendar_event_id String? @db.VarChar(255)
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -2664,6 +2709,8 @@ model TodayPick {
   @@index([arc_id])
   @@index([task_id])
   @@index([charter_id])
+  @@index([accord_id])
+  @@index([calendar_event_id])
   @@map("today_picks")
 }
 
@@ -2694,9 +2741,9 @@ model Idea {
 // Synced via POST /api/oracle/calendar-sync (upsert by event_id + prune-within-window on
 // cancellation); read by GET /api/today/calendar. Additive-only — Meeting is untouched.
 model CalendarEvent {
-  id       String   @id @default(uuid()) @db.Uuid
-  event_id String   @unique @db.VarChar(255) // Google Calendar event id
-  title    String   @db.VarChar(500)
+  id       String @id @default(uuid()) @db.Uuid
+  event_id String @unique @db.VarChar(255) // Google Calendar event id
+  title    String @db.VarChar(500)
 
   starts_at DateTime
   ends_at   DateTime
@@ -2794,6 +2841,15 @@ model EmailAsk {
   task_id String? @db.Uuid
   task    Task?   @relation(fields: [task_id], references: [id])
 
+  // Clarity Phase 7 — email-arc attachment. When Mike rules an email actionable, it
+  // leaves the intake drawer and attaches directly to the arc it belongs to (as well as,
+  // or instead of, a task via task_id above) — the arc is exactly where the originating
+  // email matters most for a shapeless thread with zero tasks yet. Set via
+  // POST /api/email-asks/{id}/attach; create-task also stamps this when the task it
+  // creates resolves to an arc.
+  arc_id String? @db.Uuid
+  arc    Arc?    @relation(fields: [arc_id], references: [id])
+
   deep_link   String   @db.VarChar(1000)
   received_at DateTime
 
@@ -2803,5 +2859,6 @@ model EmailAsk {
   @@index([state])
   @@index([is_urgent])
   @@index([received_at])
+  @@index([arc_id])
   @@map("email_asks")
 }
