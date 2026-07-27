@@ -19,6 +19,8 @@ vi.mock('@/lib/db/prisma', () => ({
     },
     oracleAgent: { upsert: vi.fn() },
     oracleEvent: { create: vi.fn(), deleteMany: vi.fn() },
+    // Clarity Phase 7 — arc_id existence-check hardening.
+    arc: { findUnique: vi.fn() },
   },
 }));
 
@@ -35,6 +37,7 @@ const mockSessionUpdateMany = prisma.oracleSession.updateMany as Mock;
 const mockAgentUpsert = prisma.oracleAgent.upsert as Mock;
 const mockEventCreate = prisma.oracleEvent.create as Mock;
 const mockEventDeleteMany = prisma.oracleEvent.deleteMany as Mock;
+const mockArcFindUnique = prisma.arc.findUnique as Mock;
 
 const BOT = { userId: 'oracle-bot-1', role: 'pm', email: 'oracle@indelible.bot' };
 const HUMAN = { userId: 'human-1', role: 'pm', email: 'mike@becomeindelible.com' };
@@ -57,6 +60,10 @@ beforeEach(() => {
   mockEventCreate.mockResolvedValue({});
   mockEventDeleteMany.mockResolvedValue({ count: 0 });
   mockAgentUpsert.mockResolvedValue({});
+  // Clarity Phase 7 — default an arc_id passed through as FOUND, so every pre-existing
+  // test that sets arc_id keeps its original (pre-hardening) behavior unless it
+  // explicitly overrides this to simulate a miss.
+  mockArcFindUnique.mockResolvedValue({ id: 'some-arc' });
 });
 
 describe('POST /api/oracle/ingest — auth', () => {
@@ -1074,5 +1081,159 @@ describe('POST /api/oracle/ingest — session meaning (Clarity Phase 1)', () => 
     expect(res.status).toBe(200);
     const callArgs = mockSessionUpdate.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(callArgs.data).toEqual({ status: 'waiting', last_event_at: expect.any(Date) });
+  });
+});
+
+// Clarity Phase 7 (Seeing Stone Reckoning P1) — harden the snapshot's arc_id
+// passthrough: existence-checked now, a miss stores null + a warning instead of trusting
+// the value blindly or failing the whole ingest beat.
+describe('POST /api/oracle/ingest — arc_id hardening (Clarity Phase 7)', () => {
+  beforeEach(() => {
+    mockRequireAuth.mockResolvedValue(BOT);
+  });
+
+  const arcId = '550e8400-e29b-41d4-a716-446655440000';
+
+  it('writes arc_id as-is and reports no warning when the arc exists', async () => {
+    mockArcFindUnique.mockResolvedValue({ id: arcId });
+    mockSessionCreate.mockResolvedValue({
+      id: 'sess-arc-ok',
+      source: 'claude_code',
+      external_id: 'cc-arc-ok',
+      status: 'waiting',
+      last_event_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: { sessions: [{ external_id: 'cc-arc-ok', source: 'claude_code', status: 'waiting', arc_id: arcId }] },
+      })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.warnings).toEqual([]);
+    expect(mockSessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ arc_id: arcId }) })
+    );
+  });
+
+  it('stores null and reports a warning instead of failing when arc_id does not exist', async () => {
+    mockArcFindUnique.mockResolvedValue(null);
+    mockSessionCreate.mockResolvedValue({
+      id: 'sess-arc-miss',
+      source: 'claude_code',
+      external_id: 'cc-arc-miss',
+      status: 'waiting',
+      last_event_at: new Date(),
+      updated_at: new Date(),
+    });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: { sessions: [{ external_id: 'cc-arc-miss', source: 'claude_code', status: 'waiting', arc_id: arcId }] },
+      })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.warnings).toHaveLength(1);
+    expect(body.warnings[0]).toMatch(/cc-arc-miss/);
+    expect(body.warnings[0]).toMatch(arcId);
+    expect(mockSessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ arc_id: null }) })
+    );
+  });
+
+  it('an explicit null arc_id clears it with no existence check and no warning', async () => {
+    const existing = {
+      id: 'sess-arc-clear',
+      source: 'claude_code',
+      external_id: 'cc-arc-clear',
+      status: 'running',
+      arc_id: 'old-arc',
+      last_event_at: new Date(Date.now() - 5_000),
+      updated_at: new Date(Date.now() - 5_000),
+    };
+    mockSessionFindUnique.mockResolvedValue(existing);
+    mockSessionUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...existing,
+      ...data,
+    }));
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: { sessions: [{ external_id: 'cc-arc-clear', source: 'claude_code', status: 'running', arc_id: null }] },
+      })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.warnings).toEqual([]);
+    expect(mockArcFindUnique).not.toHaveBeenCalled();
+    expect(mockSessionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ arc_id: null }) })
+    );
+  });
+
+  it('caches the existence check across multiple sessions sharing the same arc_id in one call', async () => {
+    mockArcFindUnique.mockResolvedValue({ id: arcId });
+    mockSessionCreate
+      .mockResolvedValueOnce({ id: 's1', source: 'claude_code', external_id: 'cc-a', status: 'waiting', last_event_at: new Date(), updated_at: new Date() })
+      .mockResolvedValueOnce({ id: 's2', source: 'claude_code', external_id: 'cc-b', status: 'waiting', last_event_at: new Date(), updated_at: new Date() });
+
+    await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            { external_id: 'cc-a', source: 'claude_code', status: 'waiting', arc_id: arcId },
+            { external_id: 'cc-b', source: 'claude_code', status: 'waiting', arc_id: arcId },
+          ],
+        },
+      })
+    );
+
+    expect(mockArcFindUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('one bad arc_id does not block other sessions in the same snapshot batch', async () => {
+    const goodArcId = '660e8400-e29b-41d4-a716-446655440099';
+    mockArcFindUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === arcId ? null : { id: where.id }
+    );
+    mockSessionCreate
+      .mockResolvedValueOnce({ id: 's1', source: 'claude_code', external_id: 'cc-bad-arc', status: 'waiting', last_event_at: new Date(), updated_at: new Date() })
+      .mockResolvedValueOnce({ id: 's2', source: 'claude_code', external_id: 'cc-good-arc', status: 'waiting', last_event_at: new Date(), updated_at: new Date() });
+
+    const res = await POST(
+      ingestRequest({
+        machine: { name: 'reshi-workstation' },
+        snapshot: {
+          sessions: [
+            { external_id: 'cc-bad-arc', source: 'claude_code', status: 'waiting', arc_id: arcId },
+            { external_id: 'cc-good-arc', source: 'claude_code', status: 'waiting', arc_id: goodArcId },
+          ],
+        },
+      })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.sessions_upserted).toBe(2);
+    expect(body.warnings).toHaveLength(1);
+    expect(mockSessionCreate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ data: expect.objectContaining({ arc_id: null }) })
+    );
+    expect(mockSessionCreate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ data: expect.objectContaining({ arc_id: goodArcId }) })
+    );
   });
 });

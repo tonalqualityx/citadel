@@ -350,6 +350,23 @@ export async function POST(request: NextRequest) {
     let agentsUpserted = 0;
     let reconciledStale = 0;
 
+    // Clarity Phase 7 (Seeing Stone Reckoning P1) — harden the snapshot's arc_id
+    // passthrough: previously trusted blindly (a heartbeat resolving arc_name->arc_id
+    // client-side could race a deleted/renamed arc and write a dangling FK). Now
+    // existence-checked per call; a miss stores null and surfaces a warning instead of
+    // failing the whole ingest beat (never let one bad arc_id in a batch of N sessions
+    // take down the heartbeat). Cached per-call since the same arc_id can recur across
+    // multiple sessions in one snapshot.
+    const warnings: string[] = [];
+    const arcExistsCache = new Map<string, boolean>();
+    async function arcExists(arcId: string): Promise<boolean> {
+      if (arcExistsCache.has(arcId)) return arcExistsCache.get(arcId)!;
+      const found = await prisma.arc.findUnique({ where: { id: arcId }, select: { id: true } });
+      const exists = !!found;
+      arcExistsCache.set(arcId, exists);
+      return exists;
+    }
+
     if (data.snapshot) {
       const snapshotKeys = new Set<string>();
 
@@ -358,6 +375,21 @@ export async function POST(request: NextRequest) {
 
         const existing = await loadSession(snap.source, snap.external_id);
         const resolvedTokens = resolveTokensTotal(snap.source, snap.tokens_total, existing?.tokens_total);
+
+        // A truthy arc_id (not null/undefined — explicit null is a legitimate "clear
+        // it" write, not a miss) gets existence-checked; on miss it's stored as null and
+        // a warning is added, rather than writing a dangling FK or failing the request.
+        let resolvedArcId: string | null | undefined = snap.arc_id;
+        if (snap.arc_id) {
+          const exists = await arcExists(snap.arc_id);
+          if (!exists) {
+            warnings.push(
+              `snapshot session ${snap.external_id}: arc_id ${snap.arc_id} not found — stored as null`
+            );
+            resolvedArcId = null;
+          }
+        }
+
         const fields: Record<string, unknown> = {
           ...(snap.title !== undefined && { title: snap.title }),
           ...(snap.cwd !== undefined && { cwd: snap.cwd }),
@@ -377,7 +409,7 @@ export async function POST(request: NextRequest) {
           ...(snap.waiting_on !== undefined && { waiting_on: snap.waiting_on }),
           ...(snap.ask_queue !== undefined && { ask_queue: snap.ask_queue }),
           ...(snap.ask_severity !== undefined && { ask_severity: snap.ask_severity }),
-          ...(snap.arc_id !== undefined && { arc_id: snap.arc_id }),
+          ...(snap.arc_id !== undefined && { arc_id: resolvedArcId }),
           ...(snap.archived_at !== undefined && { archived_at: snap.archived_at }),
           last_event_at: snap.last_event_at ?? now,
         };
@@ -489,6 +521,10 @@ export async function POST(request: NextRequest) {
       agents_upserted: agentsUpserted,
       reconciled_stale: reconciledStale,
       pruned_events: prunedEvents,
+      // Clarity Phase 7 — non-fatal issues from this call (currently: a snapshot
+      // session's arc_id that didn't resolve to a real arc — stored as null instead of
+      // failing the beat). Always present, empty when there's nothing to report.
+      warnings,
     });
   } catch (error) {
     return handleApiError(error);
