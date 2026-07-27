@@ -25,6 +25,8 @@ export const PICK_INCLUDE = {
       energy_estimate: true,
       battery_impact: true,
       mystery_factor: true,
+      // Clarity Phase 7 — the Today pick card's cover band.
+      cover_url: true,
     },
   },
   // Clarity Phase 7 — charter stays included for back-compat: a pre-rewire lead pick may
@@ -86,6 +88,8 @@ export async function shapeTodayPicks(
           // "Unsnooze", not the quick-option list, even though it's odd to have picked a
           // snoozed arc for today in the first place).
           snoozed_until: pick.arc.snoozed_until ?? null,
+          // Clarity Phase 7 — the Today pick card's cover band, for arc-type picks.
+          cover_url: pick.arc.cover_url ?? null,
           ...(opts.withProgress ? { progress_percent: getArcProgressPercent(pick.arc.tasks) } : {}),
         }
       : null;

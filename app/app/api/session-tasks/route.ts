@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
@@ -7,6 +8,7 @@ import { formatTaskResponse } from '@/lib/api/formatters';
 import { serializeRichText } from '@/lib/api/blocknote';
 import { resolveArc } from '@/lib/arc-resolution';
 import { SEVERITY_TO_PRIORITY } from '@/lib/ask-severity';
+import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 
 // The quest-from-session endpoint: a Claude Code session (or the future heartbeat) parks
 // a real Task on Mike, tied back to the session that spawned it. Bearer auth via
@@ -124,13 +126,20 @@ export async function POST(request: NextRequest) {
 
     const priority = data.severity ? SEVERITY_TO_PRIORITY[data.severity] : 3;
 
+    // Clarity Phase 7 (Seeing Stone Reckoning) — card covers: same assignment-time pattern
+    // as POST /api/tasks (id generated upfront so cover_url lands in the same insert).
+    const taskId = randomUUID();
+    const coverUrl = await resolveCoverUrl({ itemId: taskId, clientId: data.client_id ?? null });
+
     const task = await prisma.task.create({
       data: {
+        id: taskId,
         title: data.title,
         description: serializeRichText(data.description),
         status: 'not_started',
         priority,
         client_id: data.client_id ?? null,
+        cover_url: coverUrl,
         assignee_id: assignee.id,
         due_date: data.due_date ? new Date(data.due_date) : null,
         source: 'session',

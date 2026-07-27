@@ -62,8 +62,16 @@ describe('resolveArc', () => {
     await expect(
       resolveArc({ arc_name: 'Done arc', originSessionExternalId: 'sess-1' })
     ).resolves.toBe('a4');
+    // Clarity Phase 7 — id and cover_url are generated (a fresh UUID + a deterministic
+    // pool pick keyed by that UUID, see lib/utils/deterministic-cover.ts) rather than
+    // fixed values, so this only asserts their shape, not an exact value.
     expect(mockCreate).toHaveBeenCalledWith({
-      data: { name: 'Done arc', origin_session_external_id: 'sess-1' },
+      data: {
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        name: 'Done arc',
+        origin_session_external_id: 'sess-1',
+        cover_url: expect.stringMatching(/^\/covers\/.+\.jpg$/),
+      },
     });
   });
 
@@ -73,7 +81,12 @@ describe('resolveArc', () => {
 
     await expect(resolveArc({ arc_name: 'Brand new' })).resolves.toBe('a5');
     expect(mockCreate).toHaveBeenCalledWith({
-      data: { name: 'Brand new', origin_session_external_id: null },
+      data: {
+        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        name: 'Brand new',
+        origin_session_external_id: null,
+        cover_url: expect.stringMatching(/^\/covers\/.+\.jpg$/),
+      },
     });
   });
 });

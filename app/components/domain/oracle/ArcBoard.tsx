@@ -41,6 +41,7 @@ import { getArcStatus, getArcProgressPercent } from '@/lib/arc-status';
 import { capColumnCards, isWithinColumnLimit } from '@/lib/kanban-caps';
 import { arcEstimateDisplay, nextTouchInputValue, isNextTouchOverdue } from './arc-board-logic';
 import { ArcSessionPanel } from './ArcSessionPanel';
+import { CoverBand } from './CoverBand';
 
 interface ArcBoardProps {
   arcId: string;
@@ -242,6 +243,8 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
         Seeing Stone
       </Link>
 
+      <CoverBand coverUrl={arc.cover_url} itemId={arc.id} className="h-16 rounded-lg" />
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-bold text-text-main">{arc.name}</h1>
@@ -336,6 +339,7 @@ function ArcTaskCard({ task, isOverlay }: { task: ArcTask; isOverlay?: boolean }
 
   return (
     <DraggableCard id={task.id} disabled={isOverlay}>
+      <CoverBand coverUrl={task.cover_url} itemId={task.id} className="-mx-2.5 -mt-2.5 mb-1.5 h-6 rounded-t-[7px]" />
       <div className="flex items-start justify-between gap-2">
         <button
           type="button"
@@ -644,7 +648,7 @@ function DraggableCard({ id, disabled, children }: { id: string; disabled?: bool
       {...attributes}
       {...listeners}
       className={cn(
-        'cursor-grab rounded-lg border border-border-warm bg-surface p-2.5 shadow-sm active:cursor-grabbing',
+        'cursor-grab overflow-hidden rounded-lg border border-border-warm bg-surface p-2.5 shadow-sm active:cursor-grabbing',
         isDragging && 'opacity-40'
       )}
     >

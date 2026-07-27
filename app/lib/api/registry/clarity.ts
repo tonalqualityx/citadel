@@ -779,4 +779,38 @@ export const clarityEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/oracle/backfill-covers',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Clarity Phase 7 (Seeing Stone Reckoning) — one-time (idempotent, re-runnable) ' +
+          'backfill: assigns cover_url to every existing arc and every OPEN task (not_started, ' +
+          'in_progress, review, blocked) that does not already have one. Same resolution chain ' +
+          'as creation-time assignment (client og:image where resolvable, else a deterministic ' +
+          'pool pick — see lib/services/cover-assignment.ts). Only ever touches rows where ' +
+          'cover_url IS NULL, so re-running after a first successful pass is a fast no-op. ' +
+          'Admin-only.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [
+          { name: 'dry_run', type: 'boolean', required: false, description: 'When "true", reports counts without writing anything.' },
+        ],
+        responseExample: {
+          dry_run: 'boolean',
+          arcs_found_missing: 'number',
+          tasks_found_missing: 'number',
+          arcs_backfilled: 'number',
+          tasks_backfilled: 'number',
+          arcs_remaining_null: 'number',
+          tasks_remaining_null: 'number',
+        },
+        responseNotes:
+          'The acceptance criterion is arcs_remaining_null === 0 && tasks_remaining_null === 0 ' +
+          'after a real (non-dry-run) pass — zero cover-less cards.',
+      },
+    ],
+  },
 ];

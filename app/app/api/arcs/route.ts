@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
@@ -5,6 +6,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatArcResponse } from '@/lib/api/formatters';
 import { getArcStatus, type ArcStatus } from '@/lib/arc-status';
+import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 
 const createArcSchema = z.object({
   name: z.string().min(1).max(300),
@@ -77,12 +79,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Clarity Phase 7 (Seeing Stone Reckoning) — card covers: id generated upfront so the
+    // resolved cover_url (client og:image, else a deterministic pool pick — see
+    // lib/services/cover-assignment.ts) lands in the SAME insert. Never fails/blocks arc
+    // creation on a network hiccup — resolveCoverUrl always resolves to something usable.
+    const arcId = randomUUID();
+    const coverUrl = await resolveCoverUrl({ itemId: arcId, clientId: data.client_id });
+
     const arc = await prisma.arc.create({
       data: {
+        id: arcId,
         name: data.name,
         description: data.description,
         client_id: data.client_id,
         project_id: data.project_id,
+        cover_url: coverUrl,
       },
       include: ARC_INCLUDE,
     });

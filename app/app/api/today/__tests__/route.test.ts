@@ -118,6 +118,8 @@ describe('GET /api/today', () => {
       status: 'open',
       task_count: 2,
       snoozed_until: null,
+      // Clarity Phase 7 — the Today pick card's cover band (fixture arc has no cover_url).
+      cover_url: null,
     });
     expect(body.picks[0].primary_action).toEqual({ kind: 'arc' });
     expect(body.meta.total).toBe(1);

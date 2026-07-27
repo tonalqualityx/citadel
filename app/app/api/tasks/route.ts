@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
@@ -8,6 +9,7 @@ import { serializeRichText } from '@/lib/api/blocknote';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
+import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
@@ -415,8 +417,19 @@ export async function POST(request: NextRequest) {
       // default assignee still creates unassigned rather than blocking the quick-add.
     }
 
+    // Clarity Phase 7 (Seeing Stone Reckoning) — card covers: the id is generated here
+    // (rather than left to Prisma's own @default(uuid())) so resolveCoverUrl can be
+    // computed BEFORE the insert and written in the same create call — no follow-up
+    // update, no window where the row briefly has a null cover. See
+    // lib/services/cover-assignment.ts: og:image from the client's site where resolvable,
+    // else a deterministic pick from the bundled cover pool (never fails, never blocks
+    // creation on a network hiccup).
+    const taskId = randomUUID();
+    const coverUrl = await resolveCoverUrl({ itemId: taskId, clientId });
+
     const task = await prisma.task.create({
       data: {
+        id: taskId,
         title: data.title,
         // Markdown / plain string / raw BlockNote array → BlockNote JSON document.
         description: serializeRichText(data.description),
@@ -424,6 +437,7 @@ export async function POST(request: NextRequest) {
         priority: data.priority || sopDefaults.default_priority || 3,
         project_id: data.project_id,
         client_id: clientId,
+        cover_url: coverUrl,
         arc_id: data.arc_id,
         site_id: data.site_id,
         phase_id: data.phase_id,

@@ -1,6 +1,8 @@
+import { randomUUID } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { getArcStatus } from '@/lib/arc-status';
 import { ApiError } from '@/lib/api/errors';
+import { deterministicPoolCover } from '@/lib/utils/deterministic-cover';
 
 // Clarity Phase 4a: extracted verbatim from app/api/session-tasks/route.ts's inline arc
 // resolution (POST handler) so /api/email-asks/[id]/create-task can reuse the EXACT same
@@ -51,10 +53,18 @@ export async function resolveArc(input: ArcResolutionInput): Promise<string | nu
       return reusable.id;
     }
 
+    // Clarity Phase 7 (Seeing Stone Reckoning) — card covers: an arc minted here never has
+    // a client_id (this resolution path only ever carries a bare name), so there is no
+    // og:image to attempt — go straight to the deterministic pool pick (pure hash, no I/O).
+    // Id generated upfront so cover_url lands in the same insert as every other creation
+    // path in this phase.
+    const newArcId = randomUUID();
     const created = await prisma.arc.create({
       data: {
+        id: newArcId,
         name: arc_name,
         origin_session_external_id: originSessionExternalId ?? null,
+        cover_url: deterministicPoolCover(newArcId),
       },
     });
     return created.id;

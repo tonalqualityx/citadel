@@ -107,6 +107,8 @@ const ARC_DETAIL_INCLUDE = {
       approved: true,
       // Clarity Phase 4c — the arc board header's time estimate.
       estimated_minutes: true,
+      // Clarity Phase 7 — the arc board task card's cover band.
+      cover_url: true,
     },
     orderBy: [{ priority: 'asc' as const }, { created_at: 'desc' as const }],
   },

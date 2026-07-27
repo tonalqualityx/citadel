@@ -13,6 +13,7 @@ import { useUpdateTodayPick } from '@/lib/hooks/use-today';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { useFocusMode } from '@/lib/contexts/focus-mode-context';
 import { SnoozeMenu } from '@/components/domain/oracle/soothsayer/SnoozeMenu';
+import { CoverBand } from '@/components/domain/oracle/CoverBand';
 import { commandAge } from '@/components/domain/oracle/oracle-logic';
 import type { TodayPick } from '@/lib/hooks/use-today';
 
@@ -86,6 +87,11 @@ export function TodayPickCard({
   // useNow is a cheap, dependency-free ticking clock, same pattern used elsewhere.
   const nowMs = useNow(30_000);
   const isDone = !!pick.completed_at;
+  // Clarity Phase 7 — an arc-type pick's cover wins over a task-type pick's (a pick is
+  // exactly one of the two, per the XOR the API already enforces, so this is really just
+  // "whichever ref this pick actually carries").
+  const coverUrl = pick.arc?.cover_url ?? pick.task?.cover_url ?? null;
+  const coverItemId = pick.arc_id ?? pick.task_id ?? pick.id;
 
   function toggleDone() {
     updatePick.mutate({
@@ -98,12 +104,13 @@ export function TodayPickCard({
 
   return (
     <Card
-      className={cn('flex flex-col gap-2 border-l-[3px] p-3', className)}
+      className={cn('flex flex-col gap-2 overflow-hidden border-l-[3px] p-3', className)}
       style={{ borderLeftColor: isDone ? 'var(--success)' : 'var(--accent)' }}
       data-testid={testId ?? 'today-pick-card'}
       data-item-type={pick.item_type}
       data-completed={isDone || undefined}
     >
+      <CoverBand coverUrl={coverUrl} itemId={coverItemId} className="-mx-3 -mt-3 mb-1 h-7 rounded-t-[7px]" />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div

@@ -1022,6 +1022,8 @@ export function formatTaskResponse(task: any) {
     arc: task.arc ? { id: task.arc.id, name: task.arc.name } : null,
     source_session_external_id: task.source_session_external_id ?? null,
     origin_url: task.origin_url ?? null,
+    // Clarity Phase 7 — the kanban card's cover image (mirrors the arc card's same field).
+    cover_url: task.cover_url ?? null,
     is_deleted: task.is_deleted,
     created_at: task.created_at,
     updated_at: task.updated_at,
@@ -1179,6 +1181,8 @@ export function formatTodayPickResponse(
       task_count: number;
       progress_percent?: number;
       snoozed_until?: Date | string | null;
+      // Clarity Phase 7 — the Today pick card's cover band, for arc-type picks.
+      cover_url?: string | null;
     } | null;
     sessionSummary?: {
       external_id: string;
@@ -1219,6 +1223,8 @@ export function formatTodayPickResponse(
           energy_estimate: pick.task.energy_estimate ?? null,
           battery_impact: pick.task.battery_impact ?? null,
           mystery_factor: pick.task.mystery_factor ?? null,
+          // Clarity Phase 7 — the Today pick card's cover band, for task-type picks.
+          cover_url: pick.task.cover_url ?? null,
         }
       : null,
     session_external_id: pick.session_external_id ?? null,

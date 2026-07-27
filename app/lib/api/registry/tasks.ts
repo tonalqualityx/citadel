@@ -64,6 +64,11 @@ export const taskEndpoints: ApiEndpoint[] = [
             is_billable: 'boolean',
             invoiced: 'boolean',
             is_deleted: 'boolean',
+            // Clarity Phase 7 (Seeing Stone Reckoning) — the kanban card's cover image.
+            // Server-assigned at creation (never client-settable via this endpoint): the
+            // client's site og:image where resolvable, else a deterministic pick from the
+            // bundled cover pool. See lib/services/cover-assignment.ts.
+            cover_url: 'string|null',
             created_at: 'ISO-8601',
             updated_at: 'ISO-8601',
           }],
@@ -109,6 +114,9 @@ export const taskEndpoints: ApiEndpoint[] = [
           project_id: 'uuid|null',
           arc_id: 'uuid|null',
           arc: { id: 'uuid', name: 'string' },
+          // Clarity Phase 7 — assigned automatically at creation (see the GET response
+          // note above); not a request field, always present in the response.
+          cover_url: 'string|null',
           created_at: 'ISO-8601',
         },
       },

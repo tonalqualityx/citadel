@@ -23,6 +23,8 @@ export interface ArcTask {
   // Clarity Phase 4c — the arc board header's time estimate sums these across the arc's
   // open tasks.
   estimated_minutes: number | null;
+  // Clarity Phase 7 — the arc board task card's cover band.
+  cover_url: string | null;
 }
 
 // Clarity Phase 4c — the arc board header's session panel: one of the arc's linked

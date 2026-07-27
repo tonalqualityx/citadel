@@ -187,4 +187,33 @@ describe('TodayPickCard', () => {
       expect(screen.queryByTestId('today-pick-waiting-since')).not.toBeInTheDocument();
     });
   });
+
+  describe('cover band (Clarity Phase 7)', () => {
+    it('renders no cover band when the task has no cover_url', () => {
+      renderWithClient(<TodayPickCard pick={questPick()} />);
+      expect(screen.queryByTestId('card-cover-band')).not.toBeInTheDocument();
+    });
+
+    it("renders the task's cover_url when present", () => {
+      const pick = questPick({
+        task: { ...questPick().task!, cover_url: '/covers/some-cover.jpg' },
+      });
+      renderWithClient(<TodayPickCard pick={pick} />);
+      const img = screen.getByTestId('card-cover-band').querySelector('img');
+      expect(img).toHaveAttribute('src', '/covers/some-cover.jpg');
+    });
+
+    it("prefers the arc's cover_url over the task's for an arc-type pick", () => {
+      const pick = questPick({
+        item_type: 'arc',
+        arc_id: 'arc-1',
+        arc: { id: 'arc-1', name: 'An arc', status: 'open', task_count: 2, cover_url: '/covers/arc-cover.jpg' },
+        task_id: null,
+        task: null,
+      });
+      renderWithClient(<TodayPickCard pick={pick} />);
+      const img = screen.getByTestId('card-cover-band').querySelector('img');
+      expect(img).toHaveAttribute('src', '/covers/arc-cover.jpg');
+    });
+  });
 });

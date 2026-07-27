@@ -23,6 +23,8 @@ export interface TodayPick {
     // itself never sets this (undefined there, unchanged behavior).
     progress_percent?: number;
     snoozed_until?: string | null;
+    // Clarity Phase 7 — the Today pick card's cover band.
+    cover_url?: string | null;
   } | null;
   task_id: string | null;
   task: {
@@ -39,6 +41,8 @@ export interface TodayPick {
     energy_estimate: number | null;
     battery_impact: string | null;
     mystery_factor: string | null;
+    // Clarity Phase 7 — the Today pick card's cover band.
+    cover_url?: string | null;
   } | null;
   session_external_id: string | null;
   session: {
