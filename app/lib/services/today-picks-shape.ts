@@ -10,7 +10,10 @@ import { primaryActionKindForPick, type TodayPickItemType } from '@/lib/today-pi
 
 export const PICK_INCLUDE = {
   arc: { include: { tasks: { select: { status: true } } } },
-  task: { select: { id: true, title: true, status: true } },
+  // Clarity Phase 7 (P2) — priority/due_date threaded through for the Now Strip's honest
+  // reason chips ("P1"/"P2", "due today") — additive select, no behavior change for any
+  // existing consumer that doesn't read these two new task fields.
+  task: { select: { id: true, title: true, status: true, priority: true, due_date: true } },
   // Clarity Phase 7 — charter stays included for back-compat: a pre-rewire lead pick may
   // still carry only charter_id (no accord_id) and must keep rendering unchanged.
   charter: { select: { id: true, name: true } },

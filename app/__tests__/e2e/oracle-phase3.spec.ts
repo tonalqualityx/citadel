@@ -122,7 +122,13 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
   await page.screenshot({ path: `${SCREENSHOT_DIR}/desktop-1280-oracle.png`, fullPage: true });
 
   // --- navigate to the arc board via the seeded pick's "Arc" primary action ---
-  const arcCard = page.getByTestId('today-pick-card').filter({ hasText: 'E2E Clarity Phase 3 Arc (demo)' });
+  // Clarity Phase 7 (P2) — the Now Strip (spec Q7) renders this SAME uncompleted pick a
+  // second time above the main list (by design: "replacing nothing"), so this scopes to
+  // the main list lens's own container rather than matching page-wide.
+  const arcCard = page
+    .getByTestId('today-list')
+    .getByTestId('today-pick-card')
+    .filter({ hasText: 'E2E Clarity Phase 3 Arc (demo)' });
   await expect(arcCard).toBeVisible();
   await arcCard.getByRole('link', { name: 'Arc' }).click();
   await expect(page).toHaveURL(/\/oracle\/arcs\/.+/);

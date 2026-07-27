@@ -34,7 +34,10 @@ const updatePickSchema = z.object({
 
 const PICK_INCLUDE = {
   arc: { include: { tasks: { select: { status: true } } } },
-  task: { select: { id: true, title: true, status: true } },
+  // Clarity Phase 7 (P2) — kept in lockstep with lib/services/today-picks-shape.ts's own
+  // PICK_INCLUDE (see that file's comment) so a single-pick PATCH response shapes
+  // identically to the list GET's.
+  task: { select: { id: true, title: true, status: true, priority: true, due_date: true } },
   charter: { select: { id: true, name: true } },
   accord: { select: { id: true, name: true, status: true } },
 } as const;

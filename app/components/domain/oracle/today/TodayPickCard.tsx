@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Check, ExternalLink } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import { useTerminology } from '@/lib/hooks/use-terminology';
@@ -21,6 +22,15 @@ interface TodayPickCardProps {
   // so every existing caller (Today board lens, drag overlay, etc.) that doesn't pass it
   // just renders with no dot, same as before this phase.
   hasAttentionDot?: boolean;
+  // Clarity Phase 7 (P2) — the Now Strip's single, honestly-derived reason chip ("in
+  // progress", "P1", "due today", "picked this morning" — see now-strip-logic.ts). Optional
+  // so every other caller (plain Today list/board) renders with no chip, unchanged.
+  reasonLabel?: string;
+  // Clarity Phase 7 (P2) — the Now Strip intentionally renders the SAME pick a second
+  // time above the main list ("replacing nothing" per spec). A distinct testid for that
+  // copy keeps every existing (and future) unscoped `today-pick-card` query pointed at
+  // exactly one element instead of hitting a strict-mode "2 elements" violation.
+  testId?: string;
 }
 
 function pickDisplayName(pick: TodayPick): string {
@@ -48,7 +58,7 @@ function pickSubline(pick: TodayPick, t: (k: 'task' | 'tasks') => string): strin
 // Respond/resume, arc -> arc board, task -> quest, lead -> charter, note -> done-toggle. A
 // quiet complete-toggle (check morph, no modal/confetti/sound) is available on every card
 // regardless of type — sub-second, quiet completion per the evidence-bound design rules.
-export function TodayPickCard({ pick, className, hasAttentionDot }: TodayPickCardProps) {
+export function TodayPickCard({ pick, className, hasAttentionDot, reasonLabel, testId }: TodayPickCardProps) {
   const { t } = useTerminology();
   const updatePick = useUpdateTodayPick();
   const { openTaskPeek } = useTaskPeek();
@@ -73,7 +83,7 @@ export function TodayPickCard({ pick, className, hasAttentionDot }: TodayPickCar
     <Card
       className={cn('flex flex-col gap-2 border-l-[3px] p-3', className)}
       style={{ borderLeftColor: isDone ? 'var(--success)' : 'var(--accent)' }}
-      data-testid="today-pick-card"
+      data-testid={testId ?? 'today-pick-card'}
       data-item-type={pick.item_type}
       data-completed={isDone || undefined}
     >
@@ -99,6 +109,11 @@ export function TodayPickCard({ pick, className, hasAttentionDot }: TodayPickCar
             <div className="truncate text-xs text-text-sub" data-testid="today-pick-waiting-since">
               waiting since {commandAge(pick.session.last_event_at, nowMs)}
             </div>
+          )}
+          {reasonLabel && !isDone && (
+            <Badge variant="default" size="sm" className="mt-1 w-fit" data-testid="now-strip-reason-chip">
+              {reasonLabel}
+            </Badge>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">

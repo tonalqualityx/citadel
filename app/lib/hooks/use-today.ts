@@ -25,7 +25,15 @@ export interface TodayPick {
     snoozed_until?: string | null;
   } | null;
   task_id: string | null;
-  task: { id: string; title: string; status: string } | null;
+  task: {
+    id: string;
+    title: string;
+    status: string;
+    // Clarity Phase 7 (P2) — feeds the Now Strip's honest reason chips ("P1"/"P2", "due
+    // today"). Never fabricated: null unless the underlying task actually carries it.
+    priority: number | null;
+    due_date: string | null;
+  } | null;
   session_external_id: string | null;
   session: {
     external_id: string;
@@ -40,11 +48,17 @@ export interface TodayPick {
   } | null;
   charter_id: string | null;
   charter: { id: string; name: string } | null;
+  // Clarity Phase 7 — the pipeline-lead rewire's new ref (item_type=lead now points here).
+  accord_id: string | null;
+  accord: { id: string; name: string; status: string } | null;
   label: string | null;
   sort: number;
   // Clarity Phase 4b — Today board lens's Doing column, persisted server-side.
   started_at: string | null;
   completed_at: string | null;
+  // Clarity Phase 7 — the pick<->calendar-event link (TimeShape dedup: a pick linked to a
+  // rendered meeting renders as ONE merged chip, never twice — see time-shape-logic.ts).
+  calendar_event_id: string | null;
   primary_action: { kind: TodayPrimaryActionKind } | null;
   created_at: string;
   updated_at: string;

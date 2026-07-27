@@ -1204,7 +1204,17 @@ export function formatTodayPickResponse(
     arc_id: pick.arc_id ?? null,
     arc: extras.arcSummary ?? (pick.arc ? { id: pick.arc.id, name: pick.arc.name } : null),
     task_id: pick.task_id ?? null,
-    task: pick.task ? { id: pick.task.id, title: pick.task.title, status: pick.task.status } : null,
+    task: pick.task
+      ? {
+          id: pick.task.id,
+          title: pick.task.title,
+          status: pick.task.status,
+          // Clarity Phase 7 (P2) — feeds the Now Strip's honest reason chip derivation
+          // (never fabricated: only rendered when the underlying task actually carries it).
+          priority: pick.task.priority ?? null,
+          due_date: pick.task.due_date ?? null,
+        }
+      : null,
     session_external_id: pick.session_external_id ?? null,
     session: extras.sessionSummary ?? null,
     charter_id: pick.charter_id ?? null,

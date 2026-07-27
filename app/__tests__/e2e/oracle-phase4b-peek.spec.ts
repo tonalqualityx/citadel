@@ -46,6 +46,12 @@ async function dragTo(
   source: import('@playwright/test').Locator,
   target: import('@playwright/test').Locator
 ) {
+  // Clarity Phase 7 (P2) — the Now Strip added new content above the Today board, pushing
+  // it further down the page than boundingBox()'s raw viewport-relative coordinates (this
+  // helper's whole strategy) assumed. boundingBox() does NOT auto-scroll an off-screen
+  // element into view the way a real click()/dragTo() would — scroll explicitly first so
+  // the manual mouse choreography below actually lands on real, visible elements.
+  await source.scrollIntoViewIfNeeded();
   const sourceBox = await source.boundingBox();
   const targetBox = await target.boundingBox();
   if (!sourceBox || !targetBox) {

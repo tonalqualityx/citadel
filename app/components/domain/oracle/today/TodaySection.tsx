@@ -10,6 +10,7 @@ import { TODAY_PICK_WIP_CAP, isPastWarningThreshold } from '@/lib/today-picks';
 import { Spinner } from '@/components/ui/spinner';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { TimeShape } from './TimeShape';
+import { NowStrip } from './NowStrip';
 import { TodayPickCard } from './TodayPickCard';
 import { TodayBoard } from './TodayBoard';
 import { DueSoonRow } from './DueSoonRow';
@@ -58,7 +59,19 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
   const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
 
   return (
-    <section className="flex flex-col gap-2" data-testid="today-section">
+    <section className="flex flex-col gap-3" data-testid="today-section">
+      {!isLoading && (
+        <NowStrip
+          picks={uncompleted}
+          todayDateStr={calendarData?.date ?? today?.date ?? ''}
+          legacyAttentionArcIds={legacyAttentionArcIds}
+        />
+      )}
+
+      {/* Clarity Phase 7 (P2) — the Now Strip leads; everything below reads visually
+          secondary (research law: execution view leads, planning view stays present but
+          demoted — never hidden). */}
+      <div className="flex flex-col gap-2 opacity-90">
       <div className="flex flex-wrap items-center gap-2 px-1">
         <h2 className="text-xs font-bold uppercase tracking-wide text-text-sub">Today</h2>
         <span
@@ -142,6 +155,7 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
           <DueSoonRow />
         </>
       )}
+      </div>
     </section>
   );
 }
