@@ -24,7 +24,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { useQueryClient } from '@tanstack/react-query';
-import { useArc, arcKeys, useUpdateArcEstimate, type ArcTask } from '@/lib/hooks/use-arcs';
+import { useArc, arcKeys, useUpdateArcEstimate, useCloseArc, type ArcTask } from '@/lib/hooks/use-arcs';
 import { useUpdateTaskStatus, useCreateTask } from '@/lib/hooks/use-tasks';
 import { getArcStatus, getArcProgressPercent } from '@/lib/arc-status';
 import { capColumnCards, isWithinColumnLimit } from '@/lib/kanban-caps';
@@ -160,6 +160,7 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
   const { t } = useTerminology();
   const { data: arc, isLoading, isError } = useArc(arcId);
   const updateStatus = useUpdateTaskStatus();
+  const closeArc = useCloseArc();
   const queryClient = useQueryClient();
   const [activeTask, setActiveTask] = React.useState<ArcTask | null>(null);
 
@@ -246,6 +247,18 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
           />
           <ProgressBar percent={percent} />
           <QuickAddQuest arcId={arcId} />
+          {/* Clarity Phase 7 (P2) — wires the existing (previously unused) useCloseArc
+              hook: a trivially-reachable close/reopen affordance, and the completion
+              nudge's other trigger point (spec Q12) alongside task status transitions. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => closeArc.mutate({ id: arcId, close: !arc.closed_at })}
+            disabled={closeArc.isPending}
+            data-testid="arc-board-close-toggle"
+          >
+            {arc.closed_at ? 'Reopen arc' : 'Close arc'}
+          </Button>
         </div>
       </div>
 

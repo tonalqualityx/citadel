@@ -4,6 +4,7 @@ import { taskKeys, TaskFilters, projectKeys } from '@/lib/api/query-keys';
 import { arcKeys } from '@/lib/hooks/use-arcs';
 import { showToast } from '@/lib/hooks/use-toast';
 import { useTimer } from '@/lib/contexts/timer-context';
+import { hasCompletionNudge, showCompletionNudge } from '@/lib/hooks/use-completion-nudge';
 
 export interface Task {
   id: string;
@@ -89,6 +90,10 @@ export interface Task {
   is_deleted: boolean;
   created_at: string;
   updated_at: string;
+  // Clarity Phase 7 — present ONLY on the PATCH response for a status transition into
+  // `done` that has an attached email (task-direct, or via its arc) — see
+  // use-completion-nudge.ts's hasCompletionNudge (key-presence check, not truthiness).
+  completion_nudge?: { thread_id: string | null; subject: string; from_email: string };
 }
 
 export interface Requirement {
@@ -223,6 +228,9 @@ export function useUpdateTask() {
           queryKey: projectKeys.detail(data.project_id),
         });
       }
+      // Clarity Phase 7 (P2) — the completion nudge (spec Q12): a non-blocking prompt,
+      // never a re-nagging one — dismissal (including the toast timing out) does nothing.
+      if (hasCompletionNudge(data)) showCompletionNudge(data.completion_nudge);
     },
     onError: (error) => {
       console.error('Failed to update task:', error);
@@ -301,6 +309,9 @@ export function useUpdateTaskStatus() {
           queryKey: projectKeys.detail(data.project_id),
         });
       }
+      // Clarity Phase 7 (P2) — the completion nudge (spec Q12); see useUpdateTask's own
+      // identical wiring above (both hit the same PATCH /api/tasks/[id] status->done path).
+      if (hasCompletionNudge(data)) showCompletionNudge(data.completion_nudge);
     },
   });
 }

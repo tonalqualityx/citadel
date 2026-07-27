@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
+import { hasCompletionNudge, showCompletionNudge } from '@/lib/hooks/use-completion-nudge';
 
 // Clarity Phase 1/3 — Arc (lightweight micro-project grouping) reads/writes for the Oracle
 // Today section and the arc board (/oracle/arcs/[id]).
@@ -74,6 +75,10 @@ export interface ArcDetail {
   // response; the type just hadn't caught up until Focus Mode needed it for its
   // "attached email deep-links" panel — see focus-mode-logic.ts).
   email_asks: ArcEmailAskSummary[];
+  // Clarity Phase 7 — present ONLY on the PATCH response for the newly-closing transition
+  // (closed_at set, was null) when the arc has an attached email — see
+  // use-completion-nudge.ts's hasCompletionNudge (key-presence check, not truthiness).
+  completion_nudge?: { thread_id: string | null; subject: string; from_email: string };
 }
 
 export interface ArcSummary {
@@ -129,9 +134,11 @@ export function useCloseArc() {
   return useMutation({
     mutationFn: ({ id, close }: { id: string; close: boolean }) =>
       apiClient.patch<ArcDetail>(`/arcs/${id}`, { closed_at: close ? new Date().toISOString() : null }),
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: arcKeys.detail(variables.id) });
       queryClient.invalidateQueries({ queryKey: arcKeys.all });
+      // Clarity Phase 7 (P2) — the completion nudge (spec Q12).
+      if (hasCompletionNudge(data)) showCompletionNudge(data.completion_nudge);
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to update arc');
