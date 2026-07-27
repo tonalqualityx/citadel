@@ -37,6 +37,18 @@ export interface ArcSessionSummary {
   last_event_at: string | null;
 }
 
+// Clarity Phase 7 — the arc detail's attached-email summary (see /api/arcs/[id]'s
+// formatArcEmailAskSummary). Focus Mode's arc-linked deep-links read this.
+export interface ArcEmailAskSummary {
+  id: string;
+  subject: string;
+  from_email: string;
+  from_name: string | null;
+  gist: string | null;
+  deep_link: string;
+  received_at: string;
+}
+
 export interface ArcDetail {
   id: string;
   name: string;
@@ -58,6 +70,10 @@ export interface ArcDetail {
   created_at: string;
   updated_at: string;
   tasks: ArcTask[];
+  // Clarity Phase 7 — emails attached directly to this arc (was already in the API
+  // response; the type just hadn't caught up until Focus Mode needed it for its
+  // "attached email deep-links" panel — see focus-mode-logic.ts).
+  email_asks: ArcEmailAskSummary[];
 }
 
 export interface ArcSummary {

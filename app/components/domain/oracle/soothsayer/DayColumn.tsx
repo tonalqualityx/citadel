@@ -49,6 +49,10 @@ export function DayColumn({ day, todayDateStr, legacyAttentionArcIds }: DayColum
               key={pick.id}
               pick={pick}
               hasAttentionDot={!!pick.arc_id && legacyAttentionArcIds.has(pick.arc_id)}
+              // Clarity Phase 7 (P2) — these cards preview FUTURE days' plans; Focus Mode
+              // is a "now" affordance and doesn't belong here (also avoids squeezing the
+              // narrow day column's title down to zero width with a 3rd button).
+              showFocusButton={false}
             />
           ))
         )}

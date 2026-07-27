@@ -62,6 +62,16 @@ beforeEach(() => {
 });
 
 describe('TodayPickCard', () => {
+  it('shows the Focus button by default', () => {
+    renderWithClient(<TodayPickCard pick={questPick()} />);
+    expect(screen.getByTestId('today-pick-focus-button')).toBeVisible();
+  });
+
+  it('hides the Focus button when showFocusButton is false (Soothsayer day columns)', () => {
+    renderWithClient(<TodayPickCard pick={questPick()} showFocusButton={false} />);
+    expect(screen.queryByTestId('today-pick-focus-button')).not.toBeInTheDocument();
+  });
+
   it('the quest action opens the peek with the task id, not a navigation link', () => {
     renderWithClient(<TodayPickCard pick={questPick()} />);
 

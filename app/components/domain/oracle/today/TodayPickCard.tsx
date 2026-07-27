@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Check, ExternalLink } from 'lucide-react';
+import { Check, ExternalLink, Focus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { useTerminology } from '@/lib/hooks/use-terminology';
 import { useNow } from '@/lib/hooks/use-now';
 import { useUpdateTodayPick } from '@/lib/hooks/use-today';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
+import { useFocusMode } from '@/lib/contexts/focus-mode-context';
 import { SnoozeMenu } from '@/components/domain/oracle/soothsayer/SnoozeMenu';
 import { commandAge } from '@/components/domain/oracle/oracle-logic';
 import type { TodayPick } from '@/lib/hooks/use-today';
@@ -31,6 +32,13 @@ interface TodayPickCardProps {
   // copy keeps every existing (and future) unscoped `today-pick-card` query pointed at
   // exactly one element instead of hitting a strict-mode "2 elements" violation.
   testId?: string;
+  // Clarity Phase 7 (P2) — Focus Mode's entry button. Defaults to shown (the Today list/
+  // board/Now Strip are all "work NOW" surfaces where it belongs); the Soothsayer's day
+  // columns opt out — those cards preview FUTURE days' plans, where "focus on this now"
+  // doesn't apply, and a 3rd button there was squeezing the title's min-w-0 truncated
+  // span down to zero width in that narrower layout (a real rendering regression this
+  // caught, not just a semantic nicety).
+  showFocusButton?: boolean;
 }
 
 function pickDisplayName(pick: TodayPick): string {
@@ -58,10 +66,18 @@ function pickSubline(pick: TodayPick, t: (k: 'task' | 'tasks') => string): strin
 // Respond/resume, arc -> arc board, task -> quest, lead -> charter, note -> done-toggle. A
 // quiet complete-toggle (check morph, no modal/confetti/sound) is available on every card
 // regardless of type — sub-second, quiet completion per the evidence-bound design rules.
-export function TodayPickCard({ pick, className, hasAttentionDot, reasonLabel, testId }: TodayPickCardProps) {
+export function TodayPickCard({
+  pick,
+  className,
+  hasAttentionDot,
+  reasonLabel,
+  testId,
+  showFocusButton = true,
+}: TodayPickCardProps) {
   const { t } = useTerminology();
   const updatePick = useUpdateTodayPick();
   const { openTaskPeek } = useTaskPeek();
+  const { enterFocus } = useFocusMode();
   // Clarity Phase 4c — parity fix: a session-type pick's card renders the same quiet
   // "waiting since <time>" line the arc board's session panel does, when its session is
   // flagged needs_attention. Self-contained (like ArcSessionPanel) rather than threaded
@@ -119,6 +135,18 @@ export function TodayPickCard({ pick, className, hasAttentionDot, reasonLabel, t
         <div className="flex shrink-0 items-center gap-1">
           {pick.item_type === 'arc' && pick.arc_id && (
             <SnoozeMenu arcId={pick.arc_id} snoozedUntil={pick.arc?.snoozed_until ?? null} />
+          )}
+          {!isDone && showFocusButton && (
+            <button
+              type="button"
+              onClick={() => enterFocus(pick)}
+              aria-label="Focus on this"
+              title="Focus"
+              data-testid="today-pick-focus-button"
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-border-warm text-text-sub hover:bg-background-light"
+            >
+              <Focus className="h-3.5 w-3.5" />
+            </button>
           )}
           <button
             type="button"

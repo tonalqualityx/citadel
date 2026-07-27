@@ -14,6 +14,7 @@ import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { RitualGate } from '@/components/domain/oracle/RitualGate';
 import { hasCrisis } from '@/components/domain/oracle/crisis/crisis-strip-logic';
 import { TaskPeekProvider } from '@/lib/contexts/task-peek-context';
+import { FocusModeProvider } from '@/lib/contexts/focus-mode-context';
 import {
   groupNonWaitingSessions,
   legacyNeedsAttentionArcIds,
@@ -88,6 +89,8 @@ export default function OraclePage() {
     // cards, Today pick cards, the due-soon row, intake drawer's Create + open) opens the
     // shared peek drawer this provider owns, instead of navigating away from /oracle.
     <TaskPeekProvider>
+      {/* Clarity Phase 7 (P2) — Focus Mode (spec Q8), entered from any Today card. */}
+      <FocusModeProvider>
       <div className="flex flex-col gap-4">
         <OracleHeader
           machines={data.machines}
@@ -107,6 +110,7 @@ export default function OraclePage() {
           )}
         </RitualGate>
       </div>
+      </FocusModeProvider>
     </TaskPeekProvider>
   );
 }
