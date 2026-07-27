@@ -8,6 +8,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useTodayCalendar } from '@/lib/hooks/use-today';
 import { useCreateIdea } from '@/lib/hooks/use-ideas';
 import { useCreateTask } from '@/lib/hooks/use-tasks';
+import { useTriageStats } from '@/lib/hooks/use-triage-stats';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
 import type { WaitingOnMeResponse } from '@/lib/hooks/use-waiting-on-me';
@@ -38,6 +39,10 @@ function formatToday(timezone: string): string {
   return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: timezone });
 }
 
+// Clarity Phase 3 (Reckoning, spec Q11) — the triage visibility chip's destination:
+// Gmail's Bast/Archived-Auto label, where every auto-archived message actually lands.
+const AUTO_ARCHIVED_LABEL_URL = 'https://mail.google.com/mail/u/0/#label/Bast%2FArchived-Auto';
+
 // Header: title, the machine-health one-liner (crons visible ONLY when erroring —
 // exception-based display, healthy crons render nothing), the idea quick-add ("idea: …"
 // straight to /api/ideas, source=oracle), and the week capacity strip.
@@ -46,6 +51,7 @@ export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProp
   const [newArcOpen, setNewArcOpen] = React.useState(false);
   const createIdea = useCreateIdea();
   const createTask = useCreateTask();
+  const { data: triageStats } = useTriageStats();
   const { data: calendarData } = useTodayCalendar();
   const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
 
@@ -118,7 +124,24 @@ export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProp
           </Tooltip>
           {calendarData && <WeekStrip week={calendarData.week} todayDate={calendarData.date} />}
         </div>
-        {intake && <IntakeDrawer intake={intake} timezone={timezone} />}
+        <div className="flex items-center gap-2">
+          {/* Clarity Phase 3 (Reckoning, spec Q11) — the triage visibility chip:
+              anti-silent-triage, only renders when there's something to check. */}
+          {!!triageStats && triageStats.archived_count > 0 && (
+            <Tooltip content="Auto-archived by the classifier today — click to review the list in Gmail">
+              <a
+                href={AUTO_ARCHIVED_LABEL_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="triage-archived-chip"
+                className="rounded-full border border-border-warm bg-surface px-2.5 py-1 text-xs text-text-sub hover:bg-background-light hover:text-text-main"
+              >
+                {triageStats.archived_count} auto-archived today
+              </a>
+            </Tooltip>
+          )}
+          {intake && <IntakeDrawer intake={intake} timezone={timezone} />}
+        </div>
       </div>
 
       <NewArcModal open={newArcOpen} onOpenChange={setNewArcOpen} />

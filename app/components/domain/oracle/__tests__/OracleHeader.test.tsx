@@ -37,6 +37,9 @@ beforeEach(() => {
         week: [],
       });
     }
+    if (url.startsWith('/oracle/triage-stats')) {
+      return Promise.resolve({ date: '2026-07-27', archived_count: 0 });
+    }
     return Promise.resolve({});
   });
 });
@@ -96,5 +99,32 @@ describe('OracleHeader — New arc button (Clarity Phase 3 Reckoning, spec Q4)',
       expect(mockPost).toHaveBeenCalledWith('/arcs', { name: 'New thing', client_id: null })
     );
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/oracle/arcs/arc-9'));
+  });
+});
+
+describe('OracleHeader — triage visibility chip (Clarity Phase 3 Reckoning, spec Q11)', () => {
+  it('renders nothing when nothing was auto-archived today', async () => {
+    renderWithClient(<OracleHeader machines={[]} />);
+    await waitFor(() =>
+      expect(mockGet.mock.calls.some((call) => call[0] === '/oracle/triage-stats')).toBe(true)
+    );
+    expect(screen.queryByTestId('triage-archived-chip')).not.toBeInTheDocument();
+  });
+
+  it('shows the count and links to the Gmail auto-archived label when > 0', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url.startsWith('/oracle/triage-stats')) {
+        return Promise.resolve({ date: '2026-07-27', archived_count: 4 });
+      }
+      if (url.startsWith('/today/calendar')) {
+        return Promise.resolve({ date: '2026-07-27', timezone: 'America/New_York', meetings: [], allDay: [], week: [] });
+      }
+      return Promise.resolve({});
+    });
+    renderWithClient(<OracleHeader machines={[]} />);
+
+    const chip = await screen.findByTestId('triage-archived-chip');
+    expect(chip).toHaveTextContent('4 auto-archived today');
+    expect(chip).toHaveAttribute('href', 'https://mail.google.com/mail/u/0/#label/Bast%2FArchived-Auto');
   });
 });
