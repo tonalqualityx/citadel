@@ -146,6 +146,8 @@ test('Clarity Phase 5 — Seeing Stone: merged "Waiting on you" queue renders a 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Needs Reshi now lives in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   const waitingColumn = page.getByTestId('needs-reshi-column-waiting');
   await expect(waitingColumn).toBeVisible({ timeout: 15000 });
@@ -164,6 +166,8 @@ test('Clarity Phase 5 — Seeing Stone: Review groups by client, expanding shows
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Needs Reshi now lives in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   const reviewColumn = page.getByTestId('needs-reshi-column-review');
   await expect(reviewColumn).toBeVisible({ timeout: 15000 });
@@ -186,6 +190,9 @@ test('Clarity Phase 5 — Seeing Stone: attention dot appears on a linked arc\'s
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Today pick cards with the attention dot now render in
+  // Plan mode's board/list (the Work hero's cards use a different testid, hero-pick-card).
+  await page.getByTestId('mode-tab-plan').click();
 
   const arcPickCard = page.getByTestId('today-pick-card').filter({ hasText: ATTENTION_ARC_NAME });
   await expect(arcPickCard).toBeVisible({ timeout: 15000 });
@@ -201,6 +208,8 @@ test('Clarity Phase 5 (coordinator addition) — arc board: back-to-Seeing-Stone
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Today pick cards now render in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   const arcPickCard = page.getByTestId('today-pick-card').filter({ hasText: ATTENTION_ARC_NAME });
   await expect(arcPickCard).toBeVisible({ timeout: 15000 });
@@ -221,6 +230,8 @@ test('Clarity Phase 5 (coordinator addition) — arc board: add a quest via the 
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Today pick cards now render in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   const arcPickCard = page.getByTestId('today-pick-card').filter({ hasText: ATTENTION_ARC_NAME });
   await expect(arcPickCard).toBeVisible({ timeout: 15000 });

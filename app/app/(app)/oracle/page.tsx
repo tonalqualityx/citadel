@@ -8,12 +8,10 @@ import { useWaitingOnMe } from '@/lib/hooks/use-waiting-on-me';
 import { useNow } from '@/lib/hooks/use-now';
 import { Spinner } from '@/components/ui/spinner';
 import { OracleHeader } from '@/components/domain/oracle/OracleHeader';
-import { TodaySection } from '@/components/domain/oracle/today/TodaySection';
-import { NeedsReshi } from '@/components/domain/oracle/needs-reshi/NeedsReshi';
-import { PipelineLane } from '@/components/domain/oracle/PipelineLane';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { RitualGate } from '@/components/domain/oracle/RitualGate';
 import { hasCrisis } from '@/components/domain/oracle/crisis/crisis-strip-logic';
+import { ModeShell } from '@/components/domain/oracle/modes/ModeShell';
 import { TaskPeekProvider } from '@/lib/contexts/task-peek-context';
 import { FocusModeProvider } from '@/lib/contexts/focus-mode-context';
 import {
@@ -22,18 +20,21 @@ import {
   flattenSessions,
 } from '@/components/domain/oracle/oracle-logic';
 
-// Clarity Phase 3c — Fleet screen split. Mike's ruling: the Seeing Stone (/oracle) is
-// the ATTENTION surface only — header (idea quick-add, week strip, cron health) ->
-// Today -> Needs Reshi (merged "Waiting on you" + grouped Review). In Motion and Docked
-// (the fleet machinery) moved to their own screen, /oracle/fleet (see
-// app/(app)/oracle/fleet/page.tsx) — reached via the header's quiet "N in motion · M
-// docked" link.
+// Clarity Phase 8 (composition) — the three-mode rebuild (Work/Plan/Process; see
+// components/domain/oracle/modes/ModeShell.tsx and the mode-escort law in
+// mode-shell-logic.ts). This page now only ever mounts: the slimmed header, the crisis
+// strip (a SIBLING of the ritual gate — must render through the cover, always), the
+// ritual gate, and the mode shell — every other surface Phase 1-7 built (Today, Needs
+// Reshi, Pipeline, the week strip, the cron health line) now lives INSIDE one of the three
+// modes, reused as-is (see WorkView/PlanView/ProcessView).
 //
-// Clarity Phase 5 — legacy hook-flagged needs_attention sessions with no manifest ask no
-// longer render as cards here at all (Mike's ruling: "legacy flag-only cards REMOVED from
-// the glass"). Linked-to-an-arc ones become a quiet attention dot on the arc's own Today
-// pick card (legacyNeedsAttentionArcIds below); unlinked ones moved entirely to the Fleet
-// screen (see app/(app)/oracle/fleet/page.tsx's WaitingStrip).
+// Clarity Phase 3c — Fleet screen split (unchanged): the Seeing Stone is the ATTENTION
+// surface only; In Motion/Docked live on their own screen, /oracle/fleet.
+//
+// Clarity Phase 5 — legacy hook-flagged needs_attention sessions with no manifest ask
+// still never render as their own cards here (Mike's ruling stands): linked-to-an-arc ones
+// become a quiet attention dot on the arc's Today pick card (Plan mode); unlinked ones
+// live on the Fleet screen.
 export default function OraclePage() {
   const [mounted, setMounted] = React.useState(false);
   const router = useRouter();
@@ -81,7 +82,7 @@ export default function OraclePage() {
   // ever needs the totals.
   const groups = groupNonWaitingSessions(data.machines);
   // Clarity Phase 5 — the arc ids carrying a linked legacy needs-attention session, for
-  // Today's attention-dot lookup (see TodaySection's legacyAttentionArcIds prop).
+  // Plan mode's attention-dot lookup (see TodaySection's legacyAttentionArcIds prop).
   const legacyAttentionArcIds = legacyNeedsAttentionArcIds(data.machines, now);
   const liveSessions = flattenSessions(data.machines);
 
@@ -90,31 +91,28 @@ export default function OraclePage() {
     // cards, Today pick cards, the due-soon row, intake drawer's Create + open) opens the
     // shared peek drawer this provider owns, instead of navigating away from /oracle.
     <TaskPeekProvider>
-      {/* Clarity Phase 7 (P2) — Focus Mode (spec Q8), entered from any Today card. */}
+      {/* Clarity Phase 7 (P2) — Focus Mode (spec Q8), entered from any Today/hero card. */}
       <FocusModeProvider>
-      <div className="flex flex-col gap-4">
-        <OracleHeader
-          machines={data.machines}
-          fleetCounts={{ inMotion: groups.working.length, docked: groups.idle.length }}
-          intake={waitingOnMeData?.intake}
-        />
+        <div className="flex flex-col gap-4">
+          <OracleHeader
+            fleetCounts={{ inMotion: groups.working.length, docked: groups.idle.length }}
+            intake={waitingOnMeData?.intake}
+          />
 
-        {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
+          {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
 
-        {/* Clarity Phase 7 (P2) — the ritual gate (spec Q7). CrisisStrip above stays a
-            sibling, never a child, of the gate — it must render THROUGH the cover, always. */}
-        <RitualGate hasCrisis={hasCrisis(waitingOnMeData?.crisis ?? [])}>
-          <TodaySection legacyAttentionArcIds={legacyAttentionArcIds} />
-
-          {waitingOnMeData && (
-            <NeedsReshi data={waitingOnMeData} liveSessions={liveSessions} nowMs={now} />
-          )}
-
-          {/* Clarity Phase 3 (Reckoning, spec Q1) — the pipeline lane: read + link only,
-              lives in the ledger area alongside Needs Reshi. */}
-          <PipelineLane />
-        </RitualGate>
-      </div>
+          {/* Clarity Phase 7 (P2) — the ritual gate (spec Q7). CrisisStrip above stays a
+              sibling, never a child, of the gate — it must render THROUGH the cover,
+              always. */}
+          <RitualGate hasCrisis={hasCrisis(waitingOnMeData?.crisis ?? [])}>
+            <ModeShell
+              machines={data.machines}
+              liveSessions={liveSessions}
+              legacyAttentionArcIds={legacyAttentionArcIds}
+              nowMs={now}
+            />
+          </RitualGate>
+        </div>
       </FocusModeProvider>
     </TaskPeekProvider>
   );

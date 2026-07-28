@@ -120,6 +120,9 @@ test('Clarity Phase 4a — due-soon row renders the fixture task, add-to-Today m
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — the due-soon row (inside TodaySection) now lives in
+  // Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   const dueSoonRow = page.getByTestId('due-soon-row');
   await expect(dueSoonRow).toBeVisible({ timeout: 15000 });

@@ -59,6 +59,10 @@ test('Oracle Phase 3 — desktop layout, arc board drag-move, screenshots', asyn
 
   await page.goto('/oracle');
   await expect(page.getByTestId('oracle-header')).toBeVisible();
+  // Clarity Phase 8 (composition) — /oracle now lands in Work mode; the board/Today
+  // section this test exercises lives in Plan mode (mode-escort law: entered via a tab
+  // click, never the default).
+  await page.getByTestId('mode-tab-plan').click();
   await expect(page.getByTestId('today-section')).toBeVisible();
   await page.waitForLoadState('networkidle');
 
@@ -199,10 +203,18 @@ test('Oracle Phase 3 — mobile layout, no horizontal overflow', async ({ page }
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
   await expect(page.getByTestId('oracle-header')).toBeVisible();
-  await expect(page.getByTestId('today-section')).toBeVisible();
+  // Clarity Phase 8 (composition) — mobile lands in Work mode by default (mode-escort
+  // law); Work mode's own content is the real proxy for "did the page load" here.
+  await expect(page.getByTestId('work-view')).toBeVisible();
 
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/mobile-390-oracle.png`, fullPage: true });
+
+  // Plan mode carries the most content-dense surfaces (board, ledger, pipeline) — worth
+  // its own no-overflow check at the same narrow viewport.
+  await page.getByTestId('mode-tab-plan').click();
+  await expect(page.getByTestId('today-section')).toBeVisible();
+  await assertNoHorizontalOverflow(page);
 
   // Ported from the retired legacy Oracle e2e specs' 360px discipline: no horizontal
   // scroll at the narrowest supported viewport, on Seeing Stone specifically.

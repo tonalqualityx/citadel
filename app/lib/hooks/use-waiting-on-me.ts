@@ -92,7 +92,19 @@ export interface WaitingOnMeResponse {
     items: EmailAsk[];
   };
   meta: {
-    counts: { waiting: number; decide: number; answer: number; review: number; do: number; total: number };
+    // Clarity Phase 8 (composition) — pre-existing drift fixed here: the route has
+    // returned intake/crisis in these counts since Phase 7 (the "truthful counts" fix),
+    // but this type never declared them. Work mode's doors read these.
+    counts: {
+      waiting: number;
+      decide: number;
+      answer: number;
+      review: number;
+      do: number;
+      intake: number;
+      crisis: number;
+      total: number;
+    };
   };
 }
 

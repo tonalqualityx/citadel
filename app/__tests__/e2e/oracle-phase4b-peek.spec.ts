@@ -77,6 +77,8 @@ test('Clarity Phase 4b — Review card opens the quest peek on-page, Escape clos
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Needs Reshi now lives in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   // Clarity Phase 5 — Review is now grouped by client (fallback arc, then "Other"); this
   // fixture task has neither, so it lands in the "Other" group, collapsed by default.
@@ -119,6 +121,8 @@ test('Clarity Phase 4b — mobile: peek renders as a slide-over, no horizontal o
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — Needs Reshi now lives in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   const reviewColumn = page.getByTestId('needs-reshi-column-review');
   await expect(reviewColumn).toBeVisible({ timeout: 15000 });
@@ -152,6 +156,8 @@ test('Clarity Phase 4b — Today board lens: drag a pick To do -> Doing -> Done,
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
+  // Clarity Phase 8 (composition) — the Today board lens now lives in Plan mode.
+  await page.getByTestId('mode-tab-plan').click();
 
   await page.getByRole('button', { name: 'Board view' }).click();
   const board = page.getByTestId('today-board');
@@ -188,6 +194,9 @@ test('Clarity Phase 4b — Today board lens: drag a pick To do -> Doing -> Done,
   // mount (session-local, resets on reload) — expand it before checking the card landed.
   await page.reload();
   await page.waitForLoadState('networkidle');
+  // Reload lands back in Work mode (mode is session-local, never persisted — mode-escort
+  // law) — re-enter Plan mode before Board view is reachable again.
+  await page.getByTestId('mode-tab-plan').click();
   await page.getByRole('button', { name: 'Board view' }).click();
   await page.getByTestId('today-board-done-toggle').click();
   await expect(

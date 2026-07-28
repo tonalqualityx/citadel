@@ -10,16 +10,12 @@ import { useCreateIdea } from '@/lib/hooks/use-ideas';
 import { useCreateTask } from '@/lib/hooks/use-tasks';
 import { useTriageStats } from '@/lib/hooks/use-triage-stats';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
-import type { OracleMachineDTO } from '@/lib/types/oracle';
 import type { WaitingOnMeResponse } from '@/lib/hooks/use-waiting-on-me';
-import { CronHealthLine } from './CronHealthLine';
-import { WeekStrip } from './today/WeekStrip';
 import { IntakeDrawer } from './intake/IntakeDrawer';
 import { NewArcModal } from './NewArcModal';
 import { parseCatchInput, MIKE_USER_ID } from './oracle-header-logic';
 
 interface OracleHeaderProps {
-  machines: OracleMachineDTO[];
   /** Clarity Phase 3c — quiet, count-only link to the Fleet screen ("N in motion · M
    *  docked"), where the In Motion/Docked machinery now lives. Optional so the header
    *  still renders sanely if a caller ever omits it. */
@@ -43,10 +39,14 @@ function formatToday(timezone: string): string {
 // Gmail's Bast/Archived-Auto label, where every auto-archived message actually lands.
 const AUTO_ARCHIVED_LABEL_URL = 'https://mail.google.com/mail/u/0/#label/Bast%2FArchived-Auto';
 
-// Header: title, the machine-health one-liner (crons visible ONLY when erroring —
-// exception-based display, healthy crons render nothing), the idea quick-add ("idea: …"
-// straight to /api/ideas, source=oracle), and the week capacity strip.
-export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProps) {
+// Header: title, date, the idea quick-add ("idea: …" straight to /api/ideas, source=oracle
+// — or "task: …" straight to /api/tasks), New arc, the fleet link, the triage chip, and the
+// Intake drawer trigger. Clarity Phase 8 (composition) — the machine-health cron line moved
+// into Work mode's signals rail (SignalsRail mounts CronHealthLine directly) and the week
+// capacity strip moved into Plan mode (PlanView mounts WeekStrip directly) — both were
+// always-visible header furniture that the mode-escort law now scopes to the mode that
+// actually needs them.
+export function OracleHeader({ fleetCounts, intake }: OracleHeaderProps) {
   const [catchText, setCatchText] = React.useState('');
   const [newArcOpen, setNewArcOpen] = React.useState(false);
   const createIdea = useCreateIdea();
@@ -81,7 +81,6 @@ export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProp
         <h1 className="text-lg font-bold text-text-main">Seeing Stone</h1>
         <div className="flex items-center gap-1.5 text-xs text-text-sub">
           <span>{formatToday(timezone)}</span>
-          <CronHealthLine machines={machines} />
         </div>
         {fleetCounts && (
           <Link
@@ -122,7 +121,6 @@ export function OracleHeader({ machines, fleetCounts, intake }: OracleHeaderProp
               New arc
             </Button>
           </Tooltip>
-          {calendarData && <WeekStrip week={calendarData.week} todayDate={calendarData.date} />}
         </div>
         <div className="flex items-center gap-2">
           {/* Clarity Phase 3 (Reckoning, spec Q11) — the triage visibility chip:
