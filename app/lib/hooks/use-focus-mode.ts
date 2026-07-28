@@ -7,7 +7,11 @@ import { taskKeys } from '@/lib/api/query-keys';
 import { todayKeys } from '@/lib/hooks/use-today';
 import { timeEntryKeys } from '@/lib/hooks/use-time-entries';
 import type { TodayPick } from '@/lib/hooks/use-today';
-import { formatParkNoteText, type ParkNoteInput } from '@/components/domain/oracle/focus/focus-mode-logic';
+import {
+  formatParkNoteText,
+  upsertWorkingNotesBlock,
+  type ParkNoteInput,
+} from '@/components/domain/oracle/focus/focus-mode-logic';
 
 // Clarity Phase 7 (Seeing Stone Reckoning P2) — Focus Mode's park action (spec Q8). The
 // spec's literal wording is "appended to the task description" — that's exactly what
@@ -83,6 +87,46 @@ export function useParkFocusSession() {
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to save where you left off');
+    },
+  });
+}
+
+// Clarity Phase 7 (repair, 2026-07-27) — Focus Mode's always-present "Working notes"
+// textarea (spec: the workspace fix). Debounced auto-save, one dedicated home per pick
+// type — exactly mirroring useParkFocusSession above so park and live notes never fight
+// over two different storage locations: a task pick updates/creates ONE dedicated
+// paragraph in its description (see upsertWorkingNotesBlock — never a fresh paragraph
+// per keystroke), everything else overwrites the pick's own `label` field, same as Park
+// already does for non-task picks.
+interface SaveFocusNotesParams {
+  pick: TodayPick;
+  text: string;
+  // The task's current description (already fetched/cached by FocusMode) — passed in
+  // rather than re-fetched, same pattern as ParkParams.currentTaskDescription.
+  currentTaskDescription?: unknown;
+}
+
+export function useSaveFocusNotes() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ pick, text, currentTaskDescription }: SaveFocusNotesParams) => {
+      if (pick.item_type === 'task' && pick.task_id) {
+        await apiClient.patch(`/tasks/${pick.task_id}`, {
+          description: upsertWorkingNotesBlock(currentTaskDescription, text),
+        });
+      } else {
+        await apiClient.patch(`/today/${pick.id}`, { label: text });
+      }
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.pick.task_id) {
+        queryClient.invalidateQueries({ queryKey: taskKeys.detail(variables.pick.task_id) });
+      }
+      queryClient.invalidateQueries({ queryKey: todayKeys.all });
+    },
+    onError: (error) => {
+      showToast.apiError(error, 'Failed to save your working notes');
     },
   });
 }

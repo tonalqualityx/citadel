@@ -6,13 +6,14 @@ import { ExternalLink, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip } from '@/components/ui/tooltip';
-import { RichTextRenderer } from '@/components/ui/rich-text-editor';
+import { RichTextRenderer, getBlockNotePlainText } from '@/components/ui/rich-text-editor';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { useNow } from '@/lib/hooks/use-now';
 import { useTask } from '@/lib/hooks/use-tasks';
 import { useArc } from '@/lib/hooks/use-arcs';
 import { useWaitingOnMe } from '@/lib/hooks/use-waiting-on-me';
-import { useParkFocusSession } from '@/lib/hooks/use-focus-mode';
+import { useParkFocusSession, useSaveFocusNotes } from '@/lib/hooks/use-focus-mode';
+import { formatShortDate } from '@/lib/utils/time';
 import type { TodayPick } from '@/lib/hooks/use-today';
 import {
   FOCUS_DURATION_PRESETS_MINUTES,
@@ -21,8 +22,14 @@ import {
   remainingSeconds,
   isTimeUp,
   isValidParkNote,
+  extractWorkingNotes,
   type FocusDurationChoice,
 } from './focus-mode-logic';
+
+// Clarity Phase 7 (repair, 2026-07-27) — auto-save waits for a pause in typing rather than
+// firing on every keystroke; short enough that "close the laptop mid-thought" still gets
+// captured, long enough that it isn't hammering the API on every character.
+const NOTES_AUTOSAVE_DEBOUNCE_MS = 800;
 
 interface FocusModeProps {
   pick: TodayPick;
@@ -57,6 +64,7 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
 
   const { data: waitingOnMeData } = useWaitingOnMe();
   const park = useParkFocusSession();
+  const saveNotes = useSaveFocusNotes();
 
   const isTaskPick = pick.item_type === 'task' && !!pick.task_id;
   const { data: task } = useTask(pick.task_id ?? '', { enabled: isTaskPick });
@@ -66,6 +74,54 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
   // surfaces its arc's attached emails, not just an arc-type pick's).
   const resolvedArcId = pick.item_type === 'arc' ? pick.arc_id : task?.arc_id ?? null;
   const { data: arc } = useArc(resolvedArcId ?? '', { enabled: !!resolvedArcId });
+
+  // Clarity Phase 7 (repair, 2026-07-27) — Working notes: always-present, auto-saved,
+  // sharing ONE home with Park (task description's dedicated notes paragraph, or the
+  // pick's own `label` for everything else — see use-focus-mode.ts).
+  //
+  // A non-task pick's baseline (its label) is known synchronously at mount, so `notes`
+  // and `lastSavedNotesRef` start already equal — the autosave effect below sees no diff
+  // and never fires from initialization alone. A task pick's real description arrives
+  // async (useTask); `lastSavedNotesRef` starts at the `null` sentinel so the autosave
+  // effect stays inert until the load-and-prefill effect below actually has a baseline.
+  const [notes, setNotes] = React.useState<string>(() => (isTaskPick ? '' : pick.label ?? ''));
+  const lastSavedNotesRef = React.useRef<string | null>(isTaskPick ? null : pick.label ?? '');
+  // Flips true the instant a real baseline exists to diff against (immediately for a
+  // non-task pick; once the task fetch lands for a task pick) — a plain STATE value
+  // (not just the ref) so the autosave effect below is guaranteed to re-run at that exact
+  // moment, even if the user already typed something and `notes` itself didn't change.
+  const [notesPrimed, setNotesPrimed] = React.useState(!isTaskPick);
+
+  React.useEffect(() => {
+    if (!isTaskPick || lastSavedNotesRef.current !== null) return; // non-task, or already primed
+    if (task === undefined) return; // still loading the task's real description
+    const initial = extractWorkingNotes(task.description);
+    lastSavedNotesRef.current = initial;
+    // A fast typer can start editing before the task fetch resolves — functional form so
+    // we only apply the fetched baseline if the textarea is STILL untouched ('' is the
+    // only possible value before this effect ever runs for a task pick); a real edit
+    // already in progress is preserved, and the autosave effect below picks it up via
+    // `notesPrimed` flipping, not via `notes` itself changing.
+    setNotes((current) => (current === '' ? initial : current));
+    setNotesPrimed(true);
+  }, [isTaskPick, task]);
+
+  React.useEffect(() => {
+    // Never fires on initialization itself (lastSavedNotesRef starts equal to `notes`) —
+    // only a REAL edit past that point schedules a save.
+    if (!notesPrimed || lastSavedNotesRef.current === null || notes === lastSavedNotesRef.current) return;
+    const timer = setTimeout(() => {
+      lastSavedNotesRef.current = notes;
+      saveNotes.mutate({ pick, text: notes, currentTaskDescription: task?.description });
+    }, NOTES_AUTOSAVE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+    // `notes`/`notesPrimed` are the only intentional retrigger deps: pick/task/saveNotes
+    // are read at fire-time via closure (they don't change mid-session for a given focus
+    // entry), and deliberately aren't tracked here — including them would refire the
+    // effect (and reset the debounce timer) on every task-data refetch, not just on real
+    // edits or the one-time primed transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, notesPrimed]);
 
   const timeUp = durationChoice ? isTimeUp(durationChoice, startedAtMs, nowMs) : false;
 
@@ -147,7 +203,7 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
         />
       ) : (
         <div className="flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4">
-          <FocusCard pick={pick} task={task} arc={arc} />
+          <FocusCard pick={pick} task={task} arc={arc} notes={notes} onNotesChange={setNotes} />
 
           <div className="flex items-center gap-2">
             <Button
@@ -242,36 +298,67 @@ function DurationDeclare({
   );
 }
 
+// Clarity Phase 7 (repair, 2026-07-27) — the real fix for Mike's screenshot: focus mode
+// was "a bare title floating in a void with a Park button, nothing else." This card now
+// always shows whatever real context exists (description, priority/due date, arc + its
+// attached emails) and ALWAYS offers an editable, auto-saved Working notes area — never a
+// void, even for a card with no description yet (see the empty-state line below).
 function FocusCard({
   pick,
   task,
   arc,
+  notes,
+  onNotesChange,
 }: {
   pick: TodayPick;
-  task?: { description: unknown } | null;
-  arc?: { id: string; description: string | null; email_asks: Array<{ id: string; subject: string; deep_link: string }> } | null;
+  task?: { description: unknown; priority?: number | null; due_date?: string | null } | null;
+  arc?: {
+    id: string;
+    name: string;
+    description: string | null;
+    email_asks: Array<{ id: string; subject: string; deep_link: string }>;
+  } | null;
+  notes: string;
+  onNotesChange: (value: string) => void;
 }) {
+  const taskDescriptionText =
+    pick.item_type === 'task' && task ? getBlockNotePlainText(task.description) : '';
+  const hasTaskDescription = taskDescriptionText.trim().length > 0;
+  const hasArcDescription = pick.item_type === 'arc' && !!arc?.description?.trim();
+
   return (
     <div className="flex w-full flex-col gap-3 rounded-lg border border-border-warm bg-surface p-6" data-testid="focus-mode-card">
       <h1 className="text-xl font-semibold text-text-main" data-testid="focus-mode-title">
         {pickTitle(pick)}
       </h1>
 
-      {pick.item_type === 'task' && task?.description ? (
-        <RichTextRenderer content={task.description} className="text-sm text-text-sub" />
-      ) : null}
+      {hasTaskDescription ? (
+        <RichTextRenderer content={task!.description} className="text-sm text-text-sub" />
+      ) : hasArcDescription ? (
+        <p className="whitespace-pre-wrap text-sm text-text-sub">{arc!.description}</p>
+      ) : (
+        // Clarity Phase 7 (repair) — never a void: a card with nothing on it yet says so
+        // quietly, and points at the one thing that will actually give it context.
+        <p className="text-sm text-text-sub" data-testid="focus-mode-empty-context">
+          No context on this card yet — notes below become its context.
+        </p>
+      )}
 
-      {pick.item_type === 'arc' && arc?.description ? (
-        <p className="whitespace-pre-wrap text-sm text-text-sub">{arc.description}</p>
-      ) : null}
+      {pick.item_type === 'task' && task && (task.priority != null || task.due_date) && (
+        <p className="text-xs text-text-sub" data-testid="focus-mode-meta-line">
+          {task.priority != null ? `P${task.priority}` : null}
+          {task.priority != null && task.due_date ? ' · ' : null}
+          {task.due_date ? `Due ${formatShortDate(new Date(task.due_date))}` : null}
+        </p>
+      )}
 
       {arc && (
         <Link
           href={`/oracle/arcs/${arc.id}`}
-          className="w-fit text-sm text-primary hover:underline"
+          className="flex w-fit items-center gap-1 text-sm text-primary hover:underline"
           data-testid="focus-mode-arc-link"
         >
-          Open arc
+          {arc.name}
         </Link>
       )}
 
@@ -292,6 +379,17 @@ function FocusCard({
           ))}
         </div>
       )}
+
+      {/* Clarity Phase 7 (repair) — ALWAYS present, regardless of pick type or whether
+          there's a description yet: auto-saved (debounced) into the same home Park
+          already writes to (see FocusMode's notes effects + use-focus-mode.ts). */}
+      <Textarea
+        label="Working notes"
+        value={notes}
+        onChange={(e) => onNotesChange(e.target.value)}
+        placeholder="What's the shape of this, right now?"
+        data-testid="focus-mode-notes"
+      />
     </div>
   );
 }

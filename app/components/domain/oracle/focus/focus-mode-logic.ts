@@ -68,3 +68,56 @@ export function formatParkNoteText(input: ParkNoteInput, nowMs: number): string 
   if (input.nextStep.trim()) parts.push(`Next step: ${input.nextStep.trim()}`);
   return parts.join(' — ');
 }
+
+// ============================================
+// Working notes (Clarity Phase 7 repair, 2026-07-27) — Focus Mode's always-present,
+// auto-saved "Working notes" textarea. Mike's screenshot was a bare title floating in a
+// void with a Park button and nothing else; this is the fix. Notes share ONE home with the
+// existing Park capture (task description for a task pick, the pick's own `label` field
+// for everything else — see use-focus-mode.ts's useParkFocusSession) rather than a second,
+// competing storage location.
+// ============================================
+
+/** The stable block id the working-notes paragraph is stored under inside a task's
+ *  BlockNote description. Fixed (not a fresh crypto.randomUUID() per save) so autosave
+ *  updates the SAME paragraph in place across debounce ticks instead of appending a new
+ *  one every few keystrokes. */
+export const FOCUS_NOTES_BLOCK_ID = 'focus-mode-working-notes';
+
+/** Reads the dedicated working-notes paragraph's plain text back out of a task's stored
+ *  BlockNote description, so Focus Mode can pre-fill the textarea with whatever was saved
+ *  last time (task picks only — see extractWorkingNotesLabel for non-task picks, which is
+ *  just the pick's own label). '' when there's no such block yet — a brand-new pick, or a
+ *  description that predates this feature entirely. */
+export function extractWorkingNotes(description: unknown): string {
+  if (!Array.isArray(description)) return '';
+  const block = description.find(
+    (b): b is { id: string; content?: Array<{ text?: string }> } =>
+      !!b && typeof b === 'object' && (b as { id?: unknown }).id === FOCUS_NOTES_BLOCK_ID
+  );
+  if (!block || !Array.isArray(block.content)) return '';
+  return block.content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join('');
+}
+
+/** Returns a new BlockNote block array with the dedicated working-notes paragraph created
+ *  (if this is the first save) or updated in place (every save after that) — the
+ *  "appending/updating a dedicated notes paragraph" the spec calls for, never a fresh
+ *  paragraph piling up on every debounce tick. Every other existing block is left
+ *  untouched, in its original position. */
+export function upsertWorkingNotesBlock(description: unknown, text: string): unknown[] {
+  const blocks = Array.isArray(description) ? [...description] : [];
+  const notesBlock = {
+    id: FOCUS_NOTES_BLOCK_ID,
+    type: 'paragraph',
+    content: [{ type: 'text', text, styles: {} }],
+  };
+  const idx = blocks.findIndex(
+    (b) => !!b && typeof b === 'object' && (b as { id?: unknown }).id === FOCUS_NOTES_BLOCK_ID
+  );
+  if (idx >= 0) {
+    blocks[idx] = notesBlock;
+  } else {
+    blocks.push(notesBlock);
+  }
+  return blocks;
+}

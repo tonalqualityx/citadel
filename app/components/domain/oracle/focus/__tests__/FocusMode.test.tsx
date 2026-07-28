@@ -17,6 +17,19 @@ vi.mock('@/lib/api/client', () => ({
   },
 }));
 
+// Clarity Phase 7 (repair) — FocusCard now actually renders a task's real description via
+// RichTextRenderer (previously untested — every existing task-pick fixture had description:
+// null). BlockNote itself doesn't run under jsdom without help; mocked the same way
+// components/ui/__tests__/rich-text-renderer.test.tsx already does for this exact reason.
+vi.mock('@blocknote/mantine', () => ({
+  BlockNoteView: () => <div data-testid="blocknote-view">BlockNote Editor</div>,
+}));
+vi.mock('@blocknote/react', () => ({
+  useCreateBlockNote: ({ initialContent }: { initialContent?: unknown[] }) => ({
+    document: initialContent || [],
+  }),
+}));
+
 function notePick(overrides: Partial<TodayPick> = {}): TodayPick {
   return {
     id: 'pick-1',
@@ -251,5 +264,209 @@ describe('FocusMode — at-zero behavior', () => {
       vi.advanceTimersByTime(2000);
     });
     expect(screen.getByTestId('focus-mode-clock')).not.toHaveTextContent('25:00');
+  });
+});
+
+// Clarity Phase 7 (repair, 2026-07-27) — Mike's screenshot: "a bare title floating in a
+// void with a Park button, nothing else." These tests prove the actual workspace: real
+// description (or a quiet, honest empty-state), priority/due date, the arc as a real link
+// with its attached emails, and an ALWAYS-present, auto-saved Working notes area.
+describe('FocusMode — workspace (Clarity Phase 7 repair)', () => {
+  beforeEach(() => {
+    mockNoCrisis();
+  });
+
+  it('shows the quiet empty-state line (never a void) when a task pick has no description yet', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+      if (path === '/tasks/task-1') {
+        // FocusCard reads priority/due_date off the real FETCHED task (this response),
+        // not the lighter TodayPick.task summary — both are set here on purpose.
+        return Promise.resolve({
+          id: 'task-1',
+          title: 'Fix the thing',
+          description: null,
+          arc_id: null,
+          priority: 2,
+          due_date: '2026-08-01',
+        });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+
+    const pick = notePick({
+      item_type: 'task',
+      task_id: 'task-1',
+      task: { id: 'task-1', title: 'Fix the thing', status: 'in_progress', priority: 2, due_date: '2026-08-01', energy_estimate: null, battery_impact: null, mystery_factor: null },
+      label: null,
+    });
+
+    renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+    expect(await screen.findByTestId('focus-mode-empty-context')).toHaveTextContent(
+      'No context on this card yet'
+    );
+    // Always present, regardless of whether there's a description.
+    expect(screen.getByTestId('focus-mode-notes')).toBeInTheDocument();
+    // Priority/due date line renders from the real fetched task, when present — waits for
+    // that fetch specifically (the empty-context line above renders regardless of whether
+    // the task has loaded yet, so it isn't itself proof the fetch landed).
+    const metaLine = await screen.findByTestId('focus-mode-meta-line');
+    expect(metaLine).toHaveTextContent('P2');
+    expect(metaLine).toHaveTextContent('Due');
+  });
+
+  it('renders a real task description via the rich-text renderer instead of the empty state', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+      if (path === '/tasks/task-1') {
+        return Promise.resolve({
+          id: 'task-1',
+          title: 'Fix the thing',
+          description: [
+            { id: 'd1', type: 'paragraph', content: [{ type: 'text', text: 'Real context here', styles: {} }] },
+          ],
+          arc_id: null,
+        });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+
+    const pick = notePick({
+      item_type: 'task',
+      task_id: 'task-1',
+      task: { id: 'task-1', title: 'Fix the thing', status: 'in_progress', priority: null, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null },
+      label: null,
+    });
+
+    renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+    expect(await screen.findByTestId('blocknote-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('focus-mode-empty-context')).not.toBeInTheDocument();
+    // No priority/due date — neither was set on the fetched task.
+    expect(screen.queryByTestId('focus-mode-meta-line')).not.toBeInTheDocument();
+  });
+
+  it('renders the arc name as a real link, plus its attached emails as deep links', async () => {
+    mockGet.mockImplementation((path: string) => {
+      if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+      if (path === '/arcs/arc-1') {
+        return Promise.resolve({
+          id: 'arc-1',
+          name: 'BRIC onboarding',
+          description: null,
+          email_asks: [{ id: 'ask-1', subject: 'Re: kickoff', deep_link: 'https://mail.example.com/ask-1' }],
+        });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+
+    const pick = notePick({
+      item_type: 'arc',
+      arc_id: 'arc-1',
+      arc: { id: 'arc-1', name: 'BRIC onboarding', status: 'open', task_count: 3 },
+      label: null,
+    });
+
+    renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+    const arcLink = await screen.findByTestId('focus-mode-arc-link');
+    expect(arcLink).toHaveTextContent('BRIC onboarding');
+    expect(arcLink).toHaveAttribute('href', '/oracle/arcs/arc-1');
+    const emailLink = screen.getByText('Re: kickoff');
+    expect(emailLink.closest('a')).toHaveAttribute('href', 'https://mail.example.com/ask-1');
+  });
+
+  describe('Working notes autosave', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('debounces, then PATCHes the pick label for a non-task pick (same home Park uses)', async () => {
+      vi.useFakeTimers();
+      mockGet.mockImplementation((path: string) =>
+        path === '/waiting-on-me' ? Promise.resolve({ crisis: [] }) : Promise.reject(new Error(`unexpected GET ${path}`))
+      );
+      mockPatch.mockResolvedValue({});
+
+      renderWithClient(<FocusMode pick={notePick()} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      // Plain sync lookup, not `findByTestId` — its internal polling relies on real
+      // timers, which are faked in this describe block. The textarea is already in the
+      // DOM synchronously (fireEvent.click is wrapped in `act`), so no waiting is needed.
+      const notes = screen.getByTestId('focus-mode-notes');
+      // Pre-filled from the pick's own label — same home Park already writes to.
+      expect(notes).toHaveValue('Call the bank');
+
+      fireEvent.change(notes, { target: { value: 'Call the bank re: the wire' } });
+      // Not yet — still inside the debounce window.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(mockPatch).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(mockPatch).toHaveBeenCalledWith('/today/pick-1', { label: 'Call the bank re: the wire' });
+    });
+
+    it('debounces, then PATCHes the dedicated notes paragraph on the task description for a task pick', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+        if (path === '/tasks/task-1') {
+          return Promise.resolve({ id: 'task-1', title: 'Fix the thing', description: null, arc_id: null });
+        }
+        return Promise.reject(new Error(`unexpected GET ${path}`));
+      });
+      mockPatch.mockResolvedValue({});
+
+      const pick = notePick({
+        item_type: 'task',
+        task_id: 'task-1',
+        task: { id: 'task-1', title: 'Fix the thing', status: 'in_progress', priority: null, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null },
+        label: null,
+      });
+
+      renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      // Let the task fetch (real GET, real timers) actually land — including react-query
+      // processing the resolved promise into state — before switching to fake timers for
+      // the debounce itself. This is the realistic sequencing (the task's own data loads
+      // fast in practice), not the fast-typer race the component's `notesPrimed` guard
+      // exists to handle separately.
+      await screen.findByTestId('focus-mode-notes');
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+
+      vi.useFakeTimers();
+      const notes = screen.getByTestId('focus-mode-notes');
+      fireEvent.change(notes, { target: { value: 'the actual shape of this' } });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(mockPatch).toHaveBeenCalledWith(
+        '/tasks/task-1',
+        expect.objectContaining({
+          description: [
+            expect.objectContaining({
+              id: 'focus-mode-working-notes',
+              content: [{ type: 'text', text: 'the actual shape of this', styles: {} }],
+            }),
+          ],
+        })
+      );
+      // Never the Park mutation's endpoint shape for a task (no TimeEntry POST either) —
+      // notes autosave and Park are two distinct actions sharing one storage location.
+      expect(mockPost).not.toHaveBeenCalled();
+    });
   });
 });
