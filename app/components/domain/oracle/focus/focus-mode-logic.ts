@@ -99,6 +99,21 @@ export function extractWorkingNotes(description: unknown): string {
   return block.content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join('');
 }
 
+// ============================================
+// Type-aware focus actions (scope addition, live-usage report mid-build) — Focus Mode
+// offered ONLY Park; every pick type also gets Complete, task picks get "Mark quest done",
+// arc picks get "Add quest" + a quiet "Close this arc?" offer once its open tasks hit zero.
+// ============================================
+
+/** An arc has open work remaining when at least one of its tasks is neither done nor
+ *  abandoned — the same "not finished, not given up on" test used elsewhere (e.g. the
+ *  plate rule's own notIn set). An arc with ZERO tasks at all also has no open tasks
+ *  (nothing left to block a close offer), which is the correct behavior for a
+ *  shapeless arc that never grew any. */
+export function arcHasOpenTasks(taskStatuses: string[]): boolean {
+  return taskStatuses.some((s) => s !== 'done' && s !== 'abandoned');
+}
+
 /** Returns a new BlockNote block array with the dedicated working-notes paragraph created
  *  (if this is the first save) or updated in place (every save after that) — the
  *  "appending/updating a dedicated notes paragraph" the spec calls for, never a fresh

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FocusMode } from '../FocusMode';
+import { TimerProvider } from '@/lib/contexts/timer-context';
 import type { TodayPick } from '@/lib/hooks/use-today';
 
 const mockGet = vi.fn();
@@ -59,7 +60,13 @@ function notePick(overrides: Partial<TodayPick> = {}): TodayPick {
 
 function renderWithClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  // TimerProvider: useUpdateTask (now used by the "Mark quest done" action) reads
+  // useTimer() internally to auto-stop a running timer on a done transition.
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TimerProvider>{ui}</TimerProvider>
+    </QueryClientProvider>
+  );
 }
 
 function mockNoCrisis() {
@@ -467,6 +474,204 @@ describe('FocusMode — workspace (Clarity Phase 7 repair)', () => {
       // Never the Park mutation's endpoint shape for a task (no TimeEntry POST either) —
       // notes autosave and Park are two distinct actions sharing one storage location.
       expect(mockPost).not.toHaveBeenCalled();
+    });
+  });
+
+  // Scope addition (live-usage report, mid-build): Focus Mode offered ONLY Park.
+  describe('Type-aware focus actions', () => {
+    it('Complete is offered on every pick type and PATCHes completed_at, then exits', async () => {
+      mockNoCrisis();
+      mockPatch.mockResolvedValue({});
+      const onExit = vi.fn();
+      const pick = notePick({ label: 'Call the bank' });
+
+      renderWithClient(<FocusMode pick={pick} onExit={onExit} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      await screen.findByTestId('focus-mode-actions');
+      fireEvent.click(screen.getByTestId('focus-mode-complete-button'));
+
+      await waitFor(() => {
+        expect(mockPatch).toHaveBeenCalledWith(
+          '/today/pick-1',
+          expect.objectContaining({ completed_at: expect.any(String) })
+        );
+        expect(onExit).toHaveBeenCalled();
+      });
+    });
+
+    it('"Mark quest done" is offered ONLY on task picks, PATCHes the task status, and exits', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+        if (path === '/tasks/task-1') {
+          return Promise.resolve({ id: 'task-1', title: 'Fix the thing', status: 'in_progress', description: null });
+        }
+        return Promise.reject(new Error(`unexpected GET ${path}`));
+      });
+      mockPatch.mockResolvedValue({ id: 'task-1', status: 'done' });
+      const onExit = vi.fn();
+      const pick = notePick({
+        item_type: 'task',
+        task_id: 'task-1',
+        task: { id: 'task-1', title: 'Fix the thing', status: 'in_progress', priority: null, due_date: null, promised_to: null, energy_estimate: null, battery_impact: null, mystery_factor: null },
+        label: null,
+      });
+
+      renderWithClient(<FocusMode pick={pick} onExit={onExit} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      const markDoneBtn = await screen.findByTestId('focus-mode-mark-quest-done');
+      fireEvent.click(markDoneBtn);
+
+      await waitFor(() => {
+        expect(mockPatch).toHaveBeenCalledWith('/tasks/task-1', { status: 'done' });
+        expect(onExit).toHaveBeenCalled();
+      });
+    });
+
+    it('"Mark quest done" is absent on a non-task pick', async () => {
+      mockNoCrisis();
+      const pick = notePick({ label: 'Call the bank' });
+      renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      await screen.findByTestId('focus-mode-actions');
+      expect(screen.queryByTestId('focus-mode-mark-quest-done')).not.toBeInTheDocument();
+    });
+
+    it('"Add quest" is offered ONLY on arc picks; submitting requires a commitment choice, then POSTs the task', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+        if (path === '/arcs/arc-1') {
+          return Promise.resolve({ id: 'arc-1', name: 'BRIC onboarding', description: null, email_asks: [], tasks: [] });
+        }
+        return Promise.reject(new Error(`unexpected GET ${path}`));
+      });
+      mockPost.mockResolvedValue({ id: 'new-task-1', title: 'Ship the thing' });
+      const pick = notePick({
+        item_type: 'arc',
+        arc_id: 'arc-1',
+        arc: { id: 'arc-1', name: 'BRIC onboarding', status: 'open', task_count: 0 },
+        label: null,
+      });
+
+      renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      await screen.findByTestId('focus-mode-add-quest-toggle');
+      fireEvent.click(screen.getByTestId('focus-mode-add-quest-toggle'));
+
+      const form = await screen.findByTestId('focus-mode-add-quest-form');
+      fireEvent.change(within(form).getByTestId('focus-mode-add-quest-title'), { target: { value: 'Ship the thing' } });
+
+      // No commitment chosen yet — Save stays disabled.
+      expect(within(form).getByTestId('focus-mode-add-quest-submit')).toBeDisabled();
+
+      fireEvent.click(within(form).getByTestId('focus-mode-add-quest-commitment-internal'));
+      fireEvent.click(within(form).getByTestId('focus-mode-add-quest-submit'));
+
+      await waitFor(() => {
+        expect(mockPost).toHaveBeenCalledWith(
+          '/tasks',
+          expect.objectContaining({ title: 'Ship the thing', arc_id: 'arc-1', promised_to: null })
+        );
+      });
+    });
+
+    it('"Add quest" requires a name when Promised is chosen', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+        if (path === '/arcs/arc-1') {
+          return Promise.resolve({ id: 'arc-1', name: 'BRIC onboarding', description: null, email_asks: [], tasks: [] });
+        }
+        return Promise.reject(new Error(`unexpected GET ${path}`));
+      });
+      const pick = notePick({
+        item_type: 'arc',
+        arc_id: 'arc-1',
+        arc: { id: 'arc-1', name: 'BRIC onboarding', status: 'open', task_count: 0 },
+        label: null,
+      });
+
+      renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      fireEvent.click(await screen.findByTestId('focus-mode-add-quest-toggle'));
+      const form = await screen.findByTestId('focus-mode-add-quest-form');
+      fireEvent.change(within(form).getByTestId('focus-mode-add-quest-title'), { target: { value: 'Ship it' } });
+      fireEvent.click(within(form).getByTestId('focus-mode-add-quest-commitment-promised'));
+
+      expect(within(form).getByTestId('focus-mode-add-quest-submit')).toBeDisabled();
+      fireEvent.change(within(form).getByTestId('focus-mode-add-quest-promised-to'), { target: { value: 'Dan' } });
+      expect(within(form).getByTestId('focus-mode-add-quest-submit')).not.toBeDisabled();
+    });
+
+    it('"Add quest" is absent on a non-arc pick', async () => {
+      mockNoCrisis();
+      const pick = notePick({ label: 'Call the bank' });
+      renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      await screen.findByTestId('focus-mode-actions');
+      expect(screen.queryByTestId('focus-mode-add-quest-toggle')).not.toBeInTheDocument();
+    });
+
+    it('offers "Close this arc?" when an arc pick\'s open task count hits zero', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+        if (path === '/arcs/arc-1') {
+          return Promise.resolve({
+            id: 'arc-1', name: 'BRIC onboarding', description: null, email_asks: [], closed_at: null,
+            tasks: [{ id: 't1', status: 'done' }, { id: 't2', status: 'abandoned' }],
+          });
+        }
+        return Promise.reject(new Error(`unexpected GET ${path}`));
+      });
+      mockPatch.mockResolvedValue({ id: 'arc-1', closed_at: '2026-07-28T00:00:00.000Z' });
+      const onExit = vi.fn();
+      const pick = notePick({
+        item_type: 'arc',
+        arc_id: 'arc-1',
+        arc: { id: 'arc-1', name: 'BRIC onboarding', status: 'open', task_count: 2 },
+        label: null,
+      });
+
+      renderWithClient(<FocusMode pick={pick} onExit={onExit} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      const closeOffer = await screen.findByTestId('focus-mode-close-arc-offer');
+      expect(closeOffer).toBeVisible();
+      fireEvent.click(screen.getByTestId('focus-mode-close-arc-button'));
+
+      await waitFor(() => {
+        expect(mockPatch).toHaveBeenCalledWith('/arcs/arc-1', expect.objectContaining({ closed_at: expect.any(String) }));
+        expect(onExit).toHaveBeenCalled();
+      });
+    });
+
+    it('never offers "Close this arc?" while the arc still has open tasks', async () => {
+      mockGet.mockImplementation((path: string) => {
+        if (path === '/waiting-on-me') return Promise.resolve({ crisis: [] });
+        if (path === '/arcs/arc-1') {
+          return Promise.resolve({
+            id: 'arc-1', name: 'BRIC onboarding', description: null, email_asks: [], closed_at: null,
+            tasks: [{ id: 't1', status: 'in_progress' }],
+          });
+        }
+        return Promise.reject(new Error(`unexpected GET ${path}`));
+      });
+      const pick = notePick({
+        item_type: 'arc',
+        arc_id: 'arc-1',
+        arc: { id: 'arc-1', name: 'BRIC onboarding', status: 'open', task_count: 1 },
+        label: null,
+      });
+
+      renderWithClient(<FocusMode pick={pick} onExit={vi.fn()} />);
+      fireEvent.click(screen.getByTestId('focus-duration-open-ended'));
+
+      await screen.findByTestId('focus-mode-actions');
+      expect(screen.queryByTestId('focus-mode-close-arc-offer')).not.toBeInTheDocument();
     });
   });
 });

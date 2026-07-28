@@ -2,17 +2,19 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ExternalLink, X } from 'lucide-react';
+import { ExternalLink, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip } from '@/components/ui/tooltip';
 import { RichTextRenderer, getBlockNotePlainText } from '@/components/ui/rich-text-editor';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
 import { useNow } from '@/lib/hooks/use-now';
-import { useTask } from '@/lib/hooks/use-tasks';
-import { useArc } from '@/lib/hooks/use-arcs';
+import { useTask, useCreateTask, useUpdateTask } from '@/lib/hooks/use-tasks';
+import { useArc, useCloseArc } from '@/lib/hooks/use-arcs';
 import { useWaitingOnMe } from '@/lib/hooks/use-waiting-on-me';
 import { useParkFocusSession, useSaveFocusNotes } from '@/lib/hooks/use-focus-mode';
+import { useUpdateTodayPick } from '@/lib/hooks/use-today';
 import { formatShortDate } from '@/lib/utils/time';
 import type { TodayPick } from '@/lib/hooks/use-today';
 import {
@@ -23,6 +25,7 @@ import {
   isTimeUp,
   isValidParkNote,
   extractWorkingNotes,
+  arcHasOpenTasks,
   type FocusDurationChoice,
 } from './focus-mode-logic';
 
@@ -67,6 +70,7 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
   const saveNotes = useSaveFocusNotes();
 
   const isTaskPick = pick.item_type === 'task' && !!pick.task_id;
+  const isArcPick = pick.item_type === 'arc' && !!pick.arc_id;
   const { data: task } = useTask(pick.task_id ?? '', { enabled: isTaskPick });
 
   // The arc to show/link: a direct arc-type pick's own arc, or the underlying task's arc
@@ -74,6 +78,63 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
   // surfaces its arc's attached emails, not just an arc-type pick's).
   const resolvedArcId = pick.item_type === 'arc' ? pick.arc_id : task?.arc_id ?? null;
   const { data: arc } = useArc(resolvedArcId ?? '', { enabled: !!resolvedArcId });
+
+  // Scope addition (live-usage report, mid-build): Focus Mode offered ONLY Park.
+  // Complete/Mark-quest-done/Add-quest/Close-arc all reuse EXISTING mutations verbatim —
+  // useUpdateTask and useCloseArc already surface the completion nudge themselves (see
+  // use-completion-nudge.ts), so neither needs to be re-handled here.
+  const completePick = useUpdateTodayPick();
+  const updateTask = useUpdateTask();
+  const createTask = useCreateTask();
+  const closeArc = useCloseArc();
+  const [addQuestOpen, setAddQuestOpen] = React.useState(false);
+  const [addQuestTitle, setAddQuestTitle] = React.useState('');
+  const [addQuestCommitment, setAddQuestCommitment] = React.useState<'promised' | 'internal' | null>(null);
+  const [addQuestPromisedTo, setAddQuestPromisedTo] = React.useState('');
+
+  function handleComplete() {
+    completePick.mutate(
+      { id: pick.id, data: { completed_at: new Date().toISOString() } },
+      { onSuccess: onExit }
+    );
+  }
+
+  function handleMarkQuestDone() {
+    if (!pick.task_id) return;
+    updateTask.mutate({ id: pick.task_id, data: { status: 'done' } }, { onSuccess: onExit });
+  }
+
+  function submitAddQuest(e: React.FormEvent) {
+    e.preventDefault();
+    const title = addQuestTitle.trim();
+    if (!title || !addQuestCommitment || !resolvedArcId) return;
+    if (addQuestCommitment === 'promised' && !addQuestPromisedTo.trim()) return;
+    createTask.mutate(
+      {
+        title,
+        arc_id: resolvedArcId,
+        promised_to: addQuestCommitment === 'promised' ? addQuestPromisedTo.trim() : null,
+      },
+      {
+        onSuccess: () => {
+          setAddQuestTitle('');
+          setAddQuestCommitment(null);
+          setAddQuestPromisedTo('');
+          setAddQuestOpen(false);
+        },
+      }
+    );
+  }
+
+  function handleCloseArc() {
+    if (!resolvedArcId) return;
+    closeArc.mutate({ id: resolvedArcId, close: true }, { onSuccess: onExit });
+  }
+
+  // Quiet offer, arc picks only: once every task on this arc is done/abandoned (or it
+  // never grew any), ask rather than assume — Mike's own act closes it, never automatic.
+  const showCloseArcOffer =
+    isArcPick && !!arc && !arc.closed_at && !arcHasOpenTasks((arc.tasks ?? []).map((t) => t.status));
 
   // Clarity Phase 7 (repair, 2026-07-27) — Working notes: always-present, auto-saved,
   // sharing ONE home with Park (task description's dedicated notes paragraph, or the
@@ -205,7 +266,47 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
         <div className="flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-4">
           <FocusCard pick={pick} task={task} arc={arc} notes={notes} onNotesChange={setNotes} />
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2" data-testid="focus-mode-actions">
+            <Tooltip content="Marks this pick done and exits focus — the quiet, sub-second completion, same as everywhere else">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleComplete}
+                disabled={completePick.isPending}
+                data-testid="focus-mode-complete-button"
+              >
+                Complete
+              </Button>
+            </Tooltip>
+
+            {isTaskPick && (
+              <Tooltip content="Marks the underlying quest done (status → done) and exits focus — surfaces a done-reply draft prompt if an email started this work">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleMarkQuestDone}
+                  disabled={updateTask.isPending}
+                  data-testid="focus-mode-mark-quest-done"
+                >
+                  Mark quest done
+                </Button>
+              </Tooltip>
+            )}
+
+            {isArcPick && (
+              <Tooltip content="Adds a quest to this arc without leaving focus">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setAddQuestOpen((v) => !v)}
+                  data-testid="focus-mode-add-quest-toggle"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Add quest
+                </Button>
+              </Tooltip>
+            )}
+
             <Button
               variant="secondary"
               size="sm"
@@ -215,6 +316,97 @@ export function FocusMode({ pick, onExit }: FocusModeProps) {
               Park
             </Button>
           </div>
+
+          {isArcPick && addQuestOpen && (
+            <form
+              onSubmit={submitAddQuest}
+              className="flex w-full max-w-md flex-col gap-2 rounded-lg border border-border-warm bg-surface p-3"
+              data-testid="focus-mode-add-quest-form"
+            >
+              <Input
+                autoFocus
+                value={addQuestTitle}
+                onChange={(e) => setAddQuestTitle(e.target.value)}
+                placeholder="New quest title…"
+                data-testid="focus-mode-add-quest-title"
+              />
+              <div className="flex gap-2" role="radiogroup" aria-label="Commitment">
+                <button
+                  type="button"
+                  data-testid="focus-mode-add-quest-commitment-promised"
+                  role="radio"
+                  aria-checked={addQuestCommitment === 'promised'}
+                  onClick={() => setAddQuestCommitment('promised')}
+                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                    addQuestCommitment === 'promised'
+                      ? 'border-primary bg-primary/10 font-medium text-primary'
+                      : 'border-border-warm text-text-sub hover:border-primary/50'
+                  }`}
+                >
+                  Promised to someone
+                </button>
+                <button
+                  type="button"
+                  data-testid="focus-mode-add-quest-commitment-internal"
+                  role="radio"
+                  aria-checked={addQuestCommitment === 'internal'}
+                  onClick={() => setAddQuestCommitment('internal')}
+                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                    addQuestCommitment === 'internal'
+                      ? 'border-primary bg-primary/10 font-medium text-primary'
+                      : 'border-border-warm text-text-sub hover:border-primary/50'
+                  }`}
+                >
+                  Internal (target)
+                </button>
+              </div>
+              {addQuestCommitment === 'promised' && (
+                <Input
+                  value={addQuestPromisedTo}
+                  onChange={(e) => setAddQuestPromisedTo(e.target.value)}
+                  placeholder="Promised to…"
+                  data-testid="focus-mode-add-quest-promised-to"
+                />
+              )}
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={
+                    createTask.isPending ||
+                    !addQuestTitle.trim() ||
+                    !addQuestCommitment ||
+                    (addQuestCommitment === 'promised' && !addQuestPromisedTo.trim())
+                  }
+                  data-testid="focus-mode-add-quest-submit"
+                >
+                  Save
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAddQuestOpen(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {showCloseArcOffer && (
+            <div
+              className="flex w-full max-w-md items-center justify-between gap-2 rounded-lg border border-dashed border-border-warm bg-background-light px-3 py-2"
+              data-testid="focus-mode-close-arc-offer"
+            >
+              <span className="text-xs text-text-sub">Every quest on this arc is done. Close it?</span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCloseArc}
+                disabled={closeArc.isPending}
+                data-testid="focus-mode-close-arc-button"
+              >
+                Close this arc
+              </Button>
+            </div>
+          )}
 
           {parkDialogOpen && (
             <ParkDialog

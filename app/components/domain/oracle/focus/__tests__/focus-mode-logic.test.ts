@@ -11,6 +11,7 @@ import {
   FOCUS_NOTES_BLOCK_ID,
   extractWorkingNotes,
   upsertWorkingNotesBlock,
+  arcHasOpenTasks,
 } from '../focus-mode-logic';
 
 const START = new Date('2026-07-27T09:00:00.000Z').getTime();
@@ -142,5 +143,21 @@ describe('extractWorkingNotes / upsertWorkingNotesBlock', () => {
 
     expect(updated.map((b) => b.id)).toEqual(['a', FOCUS_NOTES_BLOCK_ID, 'b']);
     expect(extractWorkingNotes(updated)).toBe('new notes');
+  });
+});
+
+describe('arcHasOpenTasks (scope addition — Close-arc offer)', () => {
+  it('true when at least one task is neither done nor abandoned', () => {
+    expect(arcHasOpenTasks(['done', 'in_progress'])).toBe(true);
+    expect(arcHasOpenTasks(['not_started'])).toBe(true);
+  });
+
+  it('false when every task is done or abandoned', () => {
+    expect(arcHasOpenTasks(['done', 'done'])).toBe(false);
+    expect(arcHasOpenTasks(['done', 'abandoned'])).toBe(false);
+  });
+
+  it('false for an arc with zero tasks (never blocks the close offer)', () => {
+    expect(arcHasOpenTasks([])).toBe(false);
   });
 });
