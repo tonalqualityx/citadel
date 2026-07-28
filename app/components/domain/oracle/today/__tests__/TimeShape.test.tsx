@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import * as React from 'react';
 import { TimeShape } from '../TimeShape';
 
@@ -81,5 +81,53 @@ describe('TimeShape — no fabricated times (Clarity Phase 7 repair)', () => {
     );
 
     expect(screen.queryAllByTestId('time-shape-block')).toHaveLength(0);
+  });
+});
+
+// Clarity Phase 8 (composition) — calendar events are clickable context cards (Mike 07-28).
+describe('TimeShape — clickable meeting context popover (Clarity Phase 8)', () => {
+  const meetingWithContext = {
+    id: 'gcal-ctx',
+    title: 'BRIC board',
+    start: '2026-07-27T13:00:00.000Z',
+    end: '2026-07-27T13:30:00.000Z',
+    description: 'Quarterly review',
+    meet_url: 'https://meet.google.com/e2e-fixture',
+    location: 'Springfield VT',
+    attendees: [{ email: 'dan@example.com', display_name: 'Dan', response_status: 'accepted' }],
+  };
+
+  it('a meeting block wraps a real button (no dead click, G11)', () => {
+    render(
+      <TimeShape date={WINDOW_DATE} timezone={TZ} meetings={[meetingWithContext]} nowMs={NOW} meetingMinutes={30} dueTasksCount={0} />
+    );
+    expect(screen.getByTestId('time-shape-meeting-trigger').tagName).toBe('BUTTON');
+    // The outer positioned wrapper (left/width, the element existing e2e position
+    // assertions read .style.left off) still carries the shared time-shape-block testid.
+    expect(document.querySelector('[data-testid="time-shape-block"][data-kind="meeting"]')).not.toBeNull();
+  });
+
+  it('carries a hover title with the meeting title + time range', () => {
+    render(
+      <TimeShape date={WINDOW_DATE} timezone={TZ} meetings={[meetingWithContext]} nowMs={NOW} meetingMinutes={30} dueTasksCount={0} />
+    );
+    expect(screen.getByTestId('time-shape-meeting-trigger')).toHaveAttribute('title', expect.stringContaining('BRIC board'));
+  });
+
+  it('clicking the block opens the popover with the meeting details; clicking again closes it', () => {
+    render(
+      <TimeShape date={WINDOW_DATE} timezone={TZ} meetings={[meetingWithContext]} nowMs={NOW} meetingMinutes={30} dueTasksCount={0} />
+    );
+    expect(screen.queryByTestId('calendar-event-popover')).not.toBeInTheDocument();
+
+    const trigger = screen.getByTestId('time-shape-meeting-trigger');
+    fireEvent.click(trigger);
+    const popover = screen.getByTestId('calendar-event-popover');
+    expect(popover).toHaveTextContent('BRIC board');
+    expect(popover).toHaveTextContent('Springfield VT');
+    expect(screen.getByTestId('calendar-event-join')).toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId('calendar-event-popover')).not.toBeInTheDocument();
   });
 });

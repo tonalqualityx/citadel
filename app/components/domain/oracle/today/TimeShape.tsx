@@ -1,8 +1,11 @@
 'use client';
 
+import * as React from 'react';
 import { Link2 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { TodayCalendarMeeting } from '@/lib/hooks/use-today';
+import { CalendarEventPopover } from './CalendarEventPopover';
+import { formatMeetingRange } from './calendar-event-popover-logic';
 import {
   layoutMeetingBlocks,
   layoutBufferBlocks,
@@ -66,6 +69,14 @@ export function TimeShape({
   meetingMinutes,
   dueTasksCount,
 }: TimeShapeProps) {
+  // Clarity Phase 8 (composition) — clock-strip/track events are clickable context cards
+  // (Mike 07-28). Self-contained: TimeShape owns which meeting's popover (if any) is open
+  // rather than threading state through every caller (TodaySection today, PlanView later) —
+  // this widget already owns its own layout math, so it's the natural owner of "which block
+  // is expanded" too.
+  const [openMeetingId, setOpenMeetingId] = React.useState<string | null>(null);
+  const meetingById = React.useMemo(() => new Map(meetings.map((m) => [m.id, m])), [meetings]);
+
   const window = getTimeShapeWindow(date, timezone, DAY_TRACK_START_HOUR, DAY_TRACK_END_HOUR);
 
   const meetingBlocks = layoutMeetingBlocks(meetings, window);
@@ -84,7 +95,12 @@ export function TimeShape({
   return (
     <div
       className={cn(
-        'relative h-16 overflow-hidden rounded-lg border bg-surface',
+        // Clarity Phase 8 (composition) — overflow was `hidden`; changed to `visible` so a
+        // meeting block's popover (an absolutely-positioned child) isn't clipped by the
+        // track's own rounded border. Blocks are laid out within [0,100]% of the window by
+        // construction (see layoutMeetingBlocks), so this doesn't reintroduce visible
+        // spillover of the blocks themselves.
+        'relative h-16 overflow-visible rounded-lg border bg-surface',
         overCap ? 'border-[color:var(--warning)]' : 'border-border-warm'
       )}
       data-testid="time-shape"
@@ -108,28 +124,44 @@ export function TimeShape({
         // Clarity Phase 7 (P2, spec G3) — this meeting has a Today pick linked to it
         // (same commitment); it renders as the ONE merged chip instead of a duplicate.
         const isLinked = linkedMeetingIds?.has(b.id) ?? false;
+        const meeting = meetingById.get(b.id);
         return (
           <div
             key={b.id}
-            className={cn(
-              'absolute top-5 h-9 overflow-hidden rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold',
-              isLinked && 'ring-1 ring-inset ring-[color:var(--accent)]'
-            )}
-            style={{
-              left: `${b.leftPercent}%`,
-              width: `${b.widthPercent}%`,
-              backgroundColor: 'var(--error-subtle)',
-              borderColor: 'var(--error)',
-              color: 'var(--error)',
-            }}
+            className="absolute top-5 h-9"
+            style={{ left: `${b.leftPercent}%`, width: `${b.widthPercent}%` }}
             data-testid="time-shape-block"
             data-kind="meeting"
             data-linked={isLinked || undefined}
           >
-            <span className="flex items-center gap-0.5 truncate">
-              {isLinked && <Link2 className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />}
-              <span className="truncate">{b.label}</span>
-            </span>
+            <button
+              type="button"
+              onClick={() => meeting && setOpenMeetingId((v) => (v === b.id ? null : b.id))}
+              title={meeting ? `${meeting.title} · ${formatMeetingRange(meeting.start, meeting.end, timezone)}` : b.label}
+              className={cn(
+                'flex h-full w-full items-center overflow-hidden rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold transition-opacity hover:opacity-80',
+                isLinked && 'ring-1 ring-inset ring-[color:var(--accent)]'
+              )}
+              style={{
+                backgroundColor: 'var(--error-subtle)',
+                borderColor: 'var(--error)',
+                color: 'var(--error)',
+              }}
+              data-testid="time-shape-meeting-trigger"
+            >
+              <span className="flex items-center gap-0.5 truncate">
+                {isLinked && <Link2 className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />}
+                <span className="truncate">{b.label}</span>
+              </span>
+            </button>
+            {meeting && (
+              <CalendarEventPopover
+                meeting={meeting}
+                timezone={timezone}
+                open={openMeetingId === b.id}
+                onClose={() => setOpenMeetingId(null)}
+              />
+            )}
           </div>
         );
       })}
