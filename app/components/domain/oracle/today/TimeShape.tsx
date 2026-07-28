@@ -7,7 +7,6 @@ import {
   layoutMeetingBlocks,
   layoutBufferBlocks,
   layoutPrepBlocks,
-  layoutFocusBlocks,
   computeNowLinePercent,
   dayCapacityFillPercent,
   isDayOverCapacity,
@@ -28,12 +27,13 @@ interface TimeShapeProps {
   // this zone, never UTC — the fix for "a 9am ET meeting shows at 13:00".
   timezone: string;
   meetings: TodayCalendarMeeting[];
-  focusLabels: string[]; // uncompleted picks, in sort order — already deduped (see TodaySection)
-  // Clarity Phase 7 (P2, spec G3) — the timeline dedup: meeting ids that have a Today pick
-  // linked to them (TodayPick.calendar_event_id). That meeting's own chip renders "styled
-  // as linked" (a small link glyph) — the merged representation for that one commitment,
-  // instead of also rendering the pick as a separate focus block (see TodaySection, which
-  // excludes linked picks from `focusLabels` before this component ever sees them).
+  // Clarity Phase 7 (P2, spec G3; repair 2026-07-27) — the timeline dedup: meeting ids
+  // that have a Today pick linked to them (TodayPick.calendar_event_id). That meeting's
+  // own chip renders "styled as linked" (a small link glyph) instead of a separate block —
+  // the ONLY way an unscheduled/uncalendared pick may appear on this clock at all. There is
+  // deliberately no `focusLabels` prop anymore: fabricating a time slot for a pick with no
+  // real calendar_event_id (spreading it proportionally across the day's open runway) was
+  // the actual "fake times" bug Mike flagged — the timeline is a clock, not a to-do list.
   linkedMeetingIds?: Set<string>;
   nowMs: number;
   meetingMinutes: number;
@@ -61,7 +61,6 @@ export function TimeShape({
   date,
   timezone,
   meetings,
-  focusLabels,
   linkedMeetingIds,
   nowMs,
   meetingMinutes,
@@ -72,14 +71,12 @@ export function TimeShape({
   const meetingBlocks = layoutMeetingBlocks(meetings, window);
   // Clarity Phase 3b — every meeting costs a 15-minute recovery buffer after it ends
   // (Mike-directed: attention takes that break whether planned or not). Rendered as the
-  // meeting's low-intensity "shadow"; also carved out of the runway so focus picks never
-  // get laid into it (see layoutFocusBlocks' occupiedBlocks param).
+  // meeting's low-intensity "shadow".
   const bufferBlocks = layoutBufferBlocks(meetings, window);
   // Clarity Phase 5 — every meeting also costs a 20-minute prep window before it starts
   // (Mike-directed: same "attention takes it whether planned or not" reasoning as the
-  // trailing buffer). Also carved out of the runway so focus picks never land there.
+  // trailing buffer).
   const prepBlocks = layoutPrepBlocks(meetings, window);
-  const focusBlocks = layoutFocusBlocks(focusLabels, [...meetingBlocks, ...bufferBlocks, ...prepBlocks], window);
   const nowPercent = computeNowLinePercent(nowMs, window);
   const fill = dayCapacityFillPercent(meetingMinutes, dueTasksCount);
   const overCap = isDayOverCapacity(fill);
@@ -167,25 +164,6 @@ export function TimeShape({
           data-kind="prep"
           title="prep time"
         />
-      ))}
-
-      {focusBlocks.map((b) => (
-        <div
-          key={b.id}
-          className="absolute top-5 h-9 overflow-hidden rounded-md border px-1.5 py-0.5 text-[0.65rem] font-semibold"
-          style={{
-            left: `${b.leftPercent}%`,
-            width: `${b.widthPercent}%`,
-            backgroundColor: 'var(--accent-subtle)',
-            borderColor: 'var(--accent)',
-            color: 'var(--accent)',
-          }}
-          data-testid="time-shape-block"
-          data-kind="focus"
-        >
-          <span className="block truncate">{b.label}</span>
-          <span className="block truncate text-[0.6rem] font-normal opacity-75">focus</span>
-        </div>
       ))}
 
       {nowPercent !== null && (

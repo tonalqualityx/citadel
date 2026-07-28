@@ -370,13 +370,22 @@ export function excludeLinkedPicks<T extends DedupablePick>(
 
 /** The set of rendered meetings' ids that have at least one Today pick linked to them —
  *  TimeShape uses this to style that meeting's own chip as "linked" (the merged
- *  representation), rather than rendering the pick a second time. */
-export function linkedMeetingIds<T extends DedupablePick>(picks: T[]): Set<string> {
+ *  representation), rather than rendering the pick a second time. Only needs
+ *  `calendar_event_id` (unlike DedupablePick, no `label` required) — Clarity Phase 7
+ *  repair dropped the fabricated-focus-block path that used to need the label too. */
+export function linkedMeetingIds<T extends Pick<DedupablePick, 'calendar_event_id'>>(picks: T[]): Set<string> {
   return new Set(
     picks.filter((p): p is T & { calendar_event_id: string } => !!p.calendar_event_id).map((p) => p.calendar_event_id)
   );
 }
 
+// Clarity Phase 7 (repair, 2026-07-27) — RETIRED from the UI. This is exactly the
+// fabrication Mike flagged: it invents a time slot for a pick that was never actually
+// scheduled to run at that hour. TimeShape no longer calls this (no `focusLabels` prop
+// exists anymore) — an unscheduled pick simply doesn't render on the clock, full stop.
+// Left in place (pure, still unit-tested below) as documented history of the bug rather
+// than deleted outright; do not wire this back into TimeShape without a real product
+// decision to reintroduce fabricated placement.
 export function layoutFocusBlocks(
   labels: string[],
   occupiedBlocks: TimeShapeBlock[],

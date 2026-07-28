@@ -10,7 +10,7 @@ import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preference
 import { TODAY_PICK_WIP_CAP, isPastWarningThreshold } from '@/lib/today-picks';
 import { Spinner } from '@/components/ui/spinner';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
-import { excludeLinkedPicks, linkedMeetingIds } from './time-shape-logic';
+import { linkedMeetingIds } from './time-shape-logic';
 import { ENERGY_FILTER_OPTIONS, filterPicksByEnergy, type EnergyFilterValue } from './energy-filter-logic';
 import { columnForPick, type BoardColumnId } from './today-board-logic';
 import { TimeShape } from './TimeShape';
@@ -200,23 +200,22 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
       ) : (
         <>
           {calendarData && (() => {
-            // Clarity Phase 7 (P2, spec G3) — timeline dedup: a pick linked to a rendered
-            // meeting (calendar_event_id matches) is the SAME commitment that meeting
-            // block already renders — it contributes no separate focus block, and that
-            // meeting's own chip renders "styled as linked" instead (see TimeShape).
-            const dedupablePicks = uncompleted.map((p) => ({
-              label: p.label ?? p.arc?.name ?? p.task?.title ?? p.session?.title ?? t('task'),
-              calendar_event_id: p.calendar_event_id,
-            }));
-            const focusLabels = excludeLinkedPicks(dedupablePicks, calendarData.meetings).map((p) => p.label);
-            const linkedIds = linkedMeetingIds(dedupablePicks);
+            // Clarity Phase 7 (repair, 2026-07-27) — the timeline is a clock, not a
+            // to-do list: only a pick with a real calendar_event_id matched to an actual
+            // rendered meeting may appear on it, and it renders as that meeting's own
+            // "linked" chip (see TimeShape) — never a second, separate block. Unscheduled
+            // picks are NO LONGER spread across fabricated hour slots (that was tonight's
+            // "fake times" bug); if that leaves the track showing only real meetings, that
+            // is correct, not a regression.
+            const linkedIds = linkedMeetingIds(
+              uncompleted.map((p) => ({ calendar_event_id: p.calendar_event_id }))
+            );
 
             return (
               <TimeShape
                 date={calendarData.date}
                 timezone={calendarData.timezone}
                 meetings={calendarData.meetings}
-                focusLabels={focusLabels}
                 linkedMeetingIds={linkedIds}
                 nowMs={nowMs}
                 meetingMinutes={today?.meeting_minutes ?? 0}
