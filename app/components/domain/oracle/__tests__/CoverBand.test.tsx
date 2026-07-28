@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CoverBand } from '../CoverBand';
+
+// Clarity Phase 7 (repair) — covers are gated OFF by default in the shipped app (see
+// lib/config/feature-flags.ts and CoverBand.flag.test.tsx for that default-off contract).
+// This file exercises CoverBand's own render/fallback logic, which must still be correct
+// once the flag is on — so the whole suite forces it on rather than asserting on markup
+// that never renders in production today.
+vi.mock('@/lib/config/feature-flags', () => ({ COVERS_ENABLED: true }));
 
 describe('CoverBand', () => {
   it('renders nothing when coverUrl is null', () => {

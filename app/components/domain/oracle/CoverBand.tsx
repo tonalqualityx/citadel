@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils/cn';
 import { deterministicCoverDataUri } from '@/lib/utils/deterministic-cover';
+import { COVERS_ENABLED } from '@/lib/config/feature-flags';
 
 interface CoverBandProps {
   /** The item's already-resolved cover_url (set server-side at creation/backfill time —
@@ -29,6 +30,11 @@ export function CoverBand({ coverUrl, itemId, className }: CoverBandProps) {
   React.useEffect(() => {
     setSrc(coverUrl ?? null);
   }, [coverUrl]);
+
+  // Clarity Phase 7 (repair) — covers render as broken gray smears at real card sizes;
+  // gated off by a single flag (lib/config/feature-flags.ts) until the design is fixed.
+  // Assignment/backfill (cover_url on Arc/Task) is untouched — only this render gates.
+  if (!COVERS_ENABLED) return null;
 
   if (!src) return null;
 

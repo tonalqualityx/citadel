@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import * as React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -194,26 +194,57 @@ describe('TodayPickCard', () => {
       expect(screen.queryByTestId('card-cover-band')).not.toBeInTheDocument();
     });
 
-    it("renders the task's cover_url when present", () => {
+    // Clarity Phase 7 (repair, 2026-07-27) — covers are gated OFF by default
+    // (lib/config/feature-flags.ts): they render as broken gray smears at real card
+    // sizes. This is the real, unmocked default — the two tests below it re-mock the
+    // flag to `true` to keep proving the coverUrl-threading logic itself is still
+    // correct once the visual gets fixed and the flag flips on.
+    it('renders no cover band even when the task HAS a cover_url — covers default off', () => {
       const pick = questPick({
         task: { ...questPick().task!, cover_url: '/covers/some-cover.jpg' },
       });
       renderWithClient(<TodayPickCard pick={pick} />);
-      const img = screen.getByTestId('card-cover-band').querySelector('img');
-      expect(img).toHaveAttribute('src', '/covers/some-cover.jpg');
+      expect(screen.queryByTestId('card-cover-band')).not.toBeInTheDocument();
     });
 
-    it("prefers the arc's cover_url over the task's for an arc-type pick", () => {
-      const pick = questPick({
-        item_type: 'arc',
-        arc_id: 'arc-1',
-        arc: { id: 'arc-1', name: 'An arc', status: 'open', task_count: 2, cover_url: '/covers/arc-cover.jpg' },
-        task_id: null,
-        task: null,
+    describe('when the covers flag is enabled', () => {
+      beforeEach(() => {
+        // TodayPickCard (and CoverBand underneath it) were already imported statically at
+        // the top of this file — reset the module registry so the next dynamic import
+        // actually re-evaluates against the mocked flag, instead of returning the
+        // already-cached (real, flag-off) module.
+        vi.resetModules();
+        vi.doMock('@/lib/config/feature-flags', () => ({ COVERS_ENABLED: true }));
       });
-      renderWithClient(<TodayPickCard pick={pick} />);
-      const img = screen.getByTestId('card-cover-band').querySelector('img');
-      expect(img).toHaveAttribute('src', '/covers/arc-cover.jpg');
+
+      afterEach(() => {
+        vi.resetModules();
+        vi.doUnmock('@/lib/config/feature-flags');
+      });
+
+      it("renders the task's cover_url when present", async () => {
+        const { TodayPickCard: FlaggedCard } = await import('../TodayPickCard');
+        const pick = questPick({
+          task: { ...questPick().task!, cover_url: '/covers/some-cover.jpg' },
+        });
+        renderWithClient(<FlaggedCard pick={pick} />);
+        const img = screen.getByTestId('card-cover-band').querySelector('img');
+        expect(img).toHaveAttribute('src', '/covers/some-cover.jpg');
+      });
+
+      it("prefers the arc's cover_url over the task's for an arc-type pick", async () => {
+        const { TodayPickCard: FlaggedCard } = await import('../TodayPickCard');
+        const pick = questPick({
+          item_type: 'arc',
+          arc_id: 'arc-1',
+          arc: { id: 'arc-1', name: 'An arc', status: 'open', task_count: 2, cover_url: '/covers/arc-cover.jpg' },
+          task_id: null,
+          task: null,
+        });
+        renderWithClient(<FlaggedCard pick={pick} />);
+        const img = screen.getByTestId('card-cover-band').querySelector('img');
+        expect(img).toHaveAttribute('src', '/covers/arc-cover.jpg');
+      });
     });
   });
 });
