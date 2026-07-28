@@ -57,13 +57,14 @@ test('Clarity Phase 6/6b — trigger chip shows four lane counts, drawer groups 
 
   const trigger = page.getByTestId('intake-drawer-trigger');
   await expect(trigger).toBeVisible({ timeout: 15000 });
-  // General lane may carry other fixtures too (see this file's header note) — assert the
-  // admin/meeting/sales counts exactly (exclusively ours) and that the general emoji is
-  // present with at least our one seeded item, rather than an exact total.
-  await expect(trigger).toHaveText(/🧾 1/);
+  // Clarity Phase 8 (composition) — seed-clarity-phase8-fixtures.ts now ALSO seeds
+  // admin/meeting/sales items (for the Process dealer's multi-lane coverage), so those
+  // lanes are no longer exclusively this file's fixture either — every lane count here is
+  // now "at least ours," the same discipline already applied to the general lane below.
+  await expect(trigger).toHaveText(/🧾 \d+/);
   await expect(trigger).toHaveText(/📬 \d+/);
-  await expect(trigger).toHaveText(/🤝 1/);
-  await expect(trigger).toHaveText(/💰 1/);
+  await expect(trigger).toHaveText(/🤝 \d+/);
+  await expect(trigger).toHaveText(/💰 \d+/);
 
   await trigger.click();
   const drawer = page.getByTestId('intake-drawer');
@@ -177,9 +178,11 @@ test('Clarity Phase 6 — mobile: lanes stack, chip counts stay visible, no hori
 
   const trigger = page.getByTestId('intake-drawer-trigger');
   await expect(trigger).toBeVisible({ timeout: 15000 });
-  await expect(trigger).toHaveText(/🧾 1/);
-  await expect(trigger).toHaveText(/🤝 1/);
-  await expect(trigger).toHaveText(/💰 1/);
+  // Clarity Phase 8 (composition) — see the earlier test's own note; these lanes are no
+  // longer exclusively this file's fixture.
+  await expect(trigger).toHaveText(/🧾 \d+/);
+  await expect(trigger).toHaveText(/🤝 \d+/);
+  await expect(trigger).toHaveText(/💰 \d+/);
 
   await trigger.click();
   await expect(page.getByTestId('intake-drawer')).toHaveAttribute('data-state', 'open');

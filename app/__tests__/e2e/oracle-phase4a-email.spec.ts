@@ -52,12 +52,20 @@ test('Clarity Phase 4a — crisis strip renders with the seeded urgent ask, scre
   // compile+data-fetch can occasionally run past the 5s default — every assertion after
   // this one is on already-rendered content, so only this one needs the margin.
   await expect(crisisStrip).toBeVisible({ timeout: 15000 });
-  await expect(crisisStrip.getByText('E2E: Site is down (fixture)')).toBeVisible();
-  await expect(crisisStrip.getByText(/From: Jane Client/)).toBeVisible();
-  await expect(crisisStrip.getByText('Client reports the production site is returning 500s.')).toBeVisible();
-  await expect(crisisStrip.getByText('client-blocking')).toBeVisible();
 
-  const openEmailLink = crisisStrip.getByRole('link', { name: /open email/i });
+  // Clarity Phase 8 (composition) — seed-clarity-phase8-fixtures.ts ALSO seeds a crisis
+  // fixture now, so the strip may carry more than this file's one item; scope every
+  // assertion (including the Handled click) to THIS specific card by its own text, rather
+  // than assuming exclusivity across the shared crisis surface.
+  const thisCrisisCard = crisisStrip
+    .getByTestId('crisis-card')
+    .filter({ hasText: 'E2E: Site is down (fixture)' });
+  await expect(thisCrisisCard.getByText('E2E: Site is down (fixture)')).toBeVisible();
+  await expect(thisCrisisCard.getByText(/From: Jane Client/)).toBeVisible();
+  await expect(thisCrisisCard.getByText('Client reports the production site is returning 500s.')).toBeVisible();
+  await expect(thisCrisisCard.getByText('client-blocking').first()).toBeVisible();
+
+  const openEmailLink = thisCrisisCard.getByRole('link', { name: /open email/i });
   await expect(openEmailLink).toHaveAttribute(
     'href',
     'https://mail.google.com/mail/u/0/#inbox/e2e-fixture-urgent'
@@ -68,11 +76,15 @@ test('Clarity Phase 4a — crisis strip renders with the seeded urgent ask, scre
   // The one screenshot Bast's render review needs WITH the crisis strip visible.
   await page.screenshot({ path: `${SCREENSHOT_DIR}/desktop-1280-oracle-crisis-visible.png`, fullPage: true });
 
-  await crisisStrip.getByRole('button', { name: /handled/i }).click();
+  await thisCrisisCard.getByRole('button', { name: /handled/i }).click();
 
-  // PATCH invalidates the waiting-on-me query; the strip re-fetches to empty and, per its
-  // exception-based "zero pixels when calm" render rule, unmounts entirely.
-  await expect(page.getByTestId('crisis-strip')).toHaveCount(0, { timeout: 10000 });
+  // PATCH invalidates the waiting-on-me query; THIS card disappears from the strip. The
+  // strip itself only unmounts entirely (its exception-based "zero pixels when calm" rule)
+  // once every crisis item is cleared — no longer assumed here, since another fixture may
+  // still have an open crisis item of its own.
+  await expect(page.getByTestId('crisis-strip').getByText('E2E: Site is down (fixture)')).toHaveCount(0, {
+    timeout: 10000,
+  });
 });
 
 test('Clarity Phase 4a — intake trigger chip in the header opens a drawer showing the seeded ask', async ({ page }) => {
