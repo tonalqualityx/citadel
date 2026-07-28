@@ -71,6 +71,24 @@
     --text-main: var(--text-primary);
     --text-sub: var(--text-secondary);
     --border-warm: var(--border);
+
+    /*
+     * Mantine body-color bridge — SYSTEMIC FIX.
+     * `@mantine/core/styles.css` (imported app-wide in app/(app)/layout.tsx) carries an
+     * UNLAYERED rule `body,:host { color: var(--mantine-color-text); background-color:
+     * var(--mantine-color-body) }`. Mantine only defines those two variables under
+     * `:root[data-mantine-color-scheme='light'|'dark']`, but this app has no MantineProvider /
+     * ColorSchemeScript, so that attribute is never set → both variables are undefined → body
+     * `color` falls back to browser-default black. Because Mantine's rule is unlayered it beats
+     * our own `@layer base` `body { color: var(--text-primary) }` regardless of import order, so
+     * every bare text node (one with no explicit text-* class) rendered black — invisible on the
+     * dark/dim themes. Bridging the two Mantine vars to our themed tokens (indirection resolves
+     * lazily, so it follows the .theme-* class swaps automatically) makes Mantine's body rule —
+     * and Mantine components — resolve to the correct color in every theme. Root cause, not a
+     * per-node patch (see the former spot-fix comment in oracle/CronHealthLine.tsx).
+     */
+    --mantine-color-text: var(--text-primary);
+    --mantine-color-body: var(--bg-primary);
   }
 
   /* Light theme explicit override */
