@@ -41,6 +41,11 @@ export interface AskCardData {
   // decide/answer queues this item originally declared. Undefined outside that queue
   // (Review's grouped cards don't carry it).
   queueType?: WaitingQueueType;
+  // Clarity Phase 8 (shakedown, 2026-07-28) — carried through so a review batch's inline
+  // "View details" expansion (ReviewBatchDealCard) can show each item's own waiting-age
+  // and link straight to its arc, instead of only the group's oldest-item summary.
+  waitingSince?: string | null;
+  arcId?: string | null;
 }
 
 export function waitingOnMeCardToAskCardData(
@@ -57,6 +62,8 @@ export function waitingOnMeCardToAskCardData(
       severity: card.severity,
       primaryAction: card.task_id ? { kind: 'open_review', taskId: card.task_id } : { kind: 'none' },
       queueType,
+      waitingSince: card.waiting_since,
+      arcId: card.arc?.id ?? null,
     };
   }
 
@@ -68,6 +75,8 @@ export function waitingOnMeCardToAskCardData(
     severity: card.severity,
     primaryAction: remoteUrl ? { kind: 'respond', remoteUrl } : { kind: 'none' },
     queueType,
+    waitingSince: card.waiting_since,
+    arcId: card.arc?.id ?? null,
   };
 }
 

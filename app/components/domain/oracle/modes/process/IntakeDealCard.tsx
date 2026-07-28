@@ -8,6 +8,7 @@ import { useUpdateEmailAsk, useCreateTaskFromEmailAsk } from '@/lib/hooks/use-em
 import { useCreateAccord } from '@/lib/hooks/use-accords';
 import { IntakeAttachPicker } from '@/components/domain/oracle/intake/IntakeAttachPicker';
 import { crisisFromLabel } from '@/components/domain/oracle/crisis/crisis-strip-logic';
+import { showToast } from '@/lib/hooks/use-toast';
 import type { EmailAsk } from '@/lib/hooks/use-waiting-on-me';
 
 interface IntakeDealCardProps {
@@ -45,7 +46,21 @@ export function IntakeDealCard({ ask, onRouted }: IntakeDealCardProps) {
   }
 
   function handleDismiss() {
-    updateAsk.mutate({ id: ask.id, data: { state: 'dismissed' } }, { onSuccess: onRouted });
+    // Clarity Phase 8 (shakedown, 2026-07-28) — useUpdateEmailAsk's own onSuccess is
+    // deliberately quiet (handled/dismissed are exception-clearing, not "created" moments),
+    // but Dismiss removes the email from Intake entirely with no undo — that's exactly the
+    // kind of consequential, easy-to-miss effect the shakedown asked every dealer action to
+    // say out loud. Toast lives here, at the call site, rather than in the shared hook (the
+    // hook is also used by the Intake drawer's own Dismiss, whose quiet behavior stays as-is).
+    updateAsk.mutate(
+      { id: ask.id, data: { state: 'dismissed' } },
+      {
+        onSuccess: () => {
+          showToast.success('Dismissed — cleared from Intake');
+          onRouted();
+        },
+      }
+    );
   }
 
   const busy = updateAsk.isPending || createTask.isPending || createAccord.isPending;
