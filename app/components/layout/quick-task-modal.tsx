@@ -52,9 +52,18 @@ const quickTaskSchema = z.object({
   is_retainer_work: z.boolean(),
   charter_id: z.string().optional(),
   due_date: z.string().optional(),
+  // Clarity Phase 8 (composition) — no defaultValue below, so the form cannot be submitted
+  // until Mike explicitly picks one. "promised" additionally requires a non-empty name.
+  commitment: z.enum(['promised', 'internal'], {
+    message: 'Choose promised or internal before saving',
+  }),
+  promised_to: z.string().max(200).optional(),
 }).refine(
   (data) => !data.site_id || data.task_type,
   { message: 'Task type is required when a site is selected', path: ['task_type'] }
+).refine(
+  (data) => data.commitment !== 'promised' || !!data.promised_to?.trim(),
+  { message: 'Who is this promised to?', path: ['promised_to'] }
 );
 
 type QuickTaskFormData = z.infer<typeof quickTaskSchema>;
@@ -115,6 +124,7 @@ export function QuickTaskModal() {
   const mysteryFactor = watch('mystery_factor');
   const isRetainerWork = watch('is_retainer_work');
   const taskType = watch('task_type');
+  const commitment = watch('commitment');
 
   // Fetch sites filtered by client
   const { data: sitesData, isLoading: sitesLoading } = useSites({
@@ -398,6 +408,8 @@ export function QuickTaskModal() {
         is_retainer_work: data.is_retainer_work,
         charter_id: data.charter_id || null,
         due_date: data.due_date ? new Date(data.due_date).toISOString() : null,
+        // Clarity Phase 8 (composition) — the promised/target discriminator.
+        promised_to: data.commitment === 'promised' ? data.promised_to!.trim() : null,
       };
 
       const task = await createTask.mutateAsync(payload);
@@ -652,6 +664,55 @@ export function QuickTaskModal() {
                     error={errors.due_date?.message}
                   />
                   <p className="text-xs text-text-sub mt-1">Default: 4 business days</p>
+                </div>
+
+                {/* Clarity Phase 8 (composition) — the promised/target discriminator. No
+                    default is selected; the form cannot submit until Mike chooses one. */}
+                <div>
+                  <span className="block text-sm font-medium text-text-main mb-1.5">Commitment</span>
+                  <div className="flex gap-2" role="radiogroup" aria-label="Commitment">
+                    <button
+                      type="button"
+                      data-testid="commitment-promised"
+                      role="radio"
+                      aria-checked={commitment === 'promised'}
+                      onClick={() => setValue('commitment', 'promised', { shouldValidate: true })}
+                      className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
+                        commitment === 'promised'
+                          ? 'border-primary bg-primary/10 text-primary font-medium'
+                          : 'border-border text-text-sub hover:border-primary/50'
+                      }`}
+                    >
+                      Promised to someone
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="commitment-internal"
+                      role="radio"
+                      aria-checked={commitment === 'internal'}
+                      onClick={() => setValue('commitment', 'internal', { shouldValidate: true })}
+                      className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
+                        commitment === 'internal'
+                          ? 'border-primary bg-primary/10 text-primary font-medium'
+                          : 'border-border text-text-sub hover:border-primary/50'
+                      }`}
+                    >
+                      Internal (target)
+                    </button>
+                  </div>
+                  {commitment === 'promised' && (
+                    <Input
+                      data-testid="promised-to-input"
+                      label="Promised to"
+                      placeholder="Ricson & Hannah"
+                      className="mt-2"
+                      {...register('promised_to')}
+                      error={errors.promised_to?.message}
+                    />
+                  )}
+                  {errors.commitment?.message && (
+                    <p className="text-sm text-red-500 mt-1">{errors.commitment.message}</p>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-3 justify-center">

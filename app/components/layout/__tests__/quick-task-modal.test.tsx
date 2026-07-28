@@ -164,6 +164,7 @@ describe('QuickTaskModal', () => {
       fireEvent.change(titleInput, { target: { value: 'Test Task Title' } });
 
       // Click Create button
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -194,6 +195,7 @@ describe('QuickTaskModal', () => {
       fireEvent.change(titleInput, { target: { value: 'Test Task' } });
 
       // Click Create & Open button
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createOpenButton = screen.getByRole('button', { name: /create & open/i });
       fireEvent.click(createOpenButton);
 
@@ -219,6 +221,7 @@ describe('QuickTaskModal', () => {
       fireEvent.change(titleInput, { target: { value: 'Test Task' } });
 
       // Click Create button
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -241,6 +244,7 @@ describe('QuickTaskModal', () => {
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'First Task' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -302,6 +306,7 @@ describe('QuickTaskModal', () => {
       fireEvent.change(titleInput, { target: { value: 'Test Task' } });
 
       // Click Create
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -366,6 +371,7 @@ describe('QuickTaskModal', () => {
       const dueDateInput = screen.getByLabelText(/due date/i);
       fireEvent.change(dueDateInput, { target: { value: '2026-02-15' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -395,6 +401,7 @@ describe('QuickTaskModal', () => {
       const dueDateInput = screen.getByLabelText(/due date/i);
       fireEvent.change(dueDateInput, { target: { value: '' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -424,6 +431,7 @@ describe('QuickTaskModal', () => {
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'Test Task' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const createButton = screen.getByRole('button', { name: /^create$/i });
       fireEvent.click(createButton);
 
@@ -445,6 +453,76 @@ describe('QuickTaskModal', () => {
       const expectedValue = formatDateForInput(expectedDate);
 
       expect(newDueDateInput.value).toBe(expectedValue);
+    });
+  });
+
+  describe('Commitment discriminator (Clarity Phase 8)', () => {
+    it('does not submit when neither Promised nor Internal is chosen', async () => {
+      render(<QuickTaskModal />);
+
+      fireEvent.click(screen.getByRole('button', { name: /new task/i }));
+      await waitFor(() => {
+        expect(screen.getByText('Quick Create Task')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'Test Task' } });
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      expect(mockMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('does not submit when Promised is chosen but no name is given', async () => {
+      render(<QuickTaskModal />);
+
+      fireEvent.click(screen.getByRole('button', { name: /new task/i }));
+      await waitFor(() => {
+        expect(screen.getByText('Quick Create Task')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'Test Task' } });
+      fireEvent.click(screen.getByTestId('commitment-promised'));
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      expect(mockMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('submits promised_to when Promised is chosen with a name', async () => {
+      render(<QuickTaskModal />);
+
+      fireEvent.click(screen.getByRole('button', { name: /new task/i }));
+      await waitFor(() => {
+        expect(screen.getByText('Quick Create Task')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'Test Task' } });
+      fireEvent.click(screen.getByTestId('commitment-promised'));
+      fireEvent.change(screen.getByTestId('promised-to-input'), { target: { value: 'Ricson & Hannah' } });
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({ promised_to: 'Ricson & Hannah' })
+        );
+      });
+    });
+
+    it('submits promised_to: null when Internal is chosen', async () => {
+      render(<QuickTaskModal />);
+
+      fireEvent.click(screen.getByRole('button', { name: /new task/i }));
+      await waitFor(() => {
+        expect(screen.getByText('Quick Create Task')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'Test Task' } });
+      fireEvent.click(screen.getByTestId('commitment-internal'));
+      fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
+
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({ promised_to: null })
+        );
+      });
     });
   });
 });

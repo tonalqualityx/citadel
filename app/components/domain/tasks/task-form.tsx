@@ -44,7 +44,17 @@ const taskSchema = z.object({
   billing_target: z.string().optional(), // String for input, convert to number
   billing_amount: z.string().optional(), // String for input, convert to number
   is_retainer_work: z.boolean(),
-});
+  // Clarity Phase 8 (composition) — no defaultValue for a NEW task, so the form cannot
+  // submit until Mike picks one; an existing task always defaults from task.promised_to
+  // (never blocked from saving). "promised" additionally requires a non-empty name.
+  commitment: z.enum(['promised', 'internal'], {
+    message: 'Choose promised or internal before saving',
+  }),
+  promised_to: z.string().max(200).optional(),
+}).refine(
+  (data) => data.commitment !== 'promised' || !!data.promised_to?.trim(),
+  { message: 'Who is this promised to?', path: ['promised_to'] }
+);
 
 type TaskFormData = z.infer<typeof taskSchema>;
 
@@ -104,6 +114,10 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
       billing_target: task?.billing_target?.toString() || '',
       billing_amount: task?.billing_amount?.toString() || '',
       is_retainer_work: task?.is_retainer_work ?? false,
+      // Clarity Phase 8 (composition) — an existing task always has a derivable choice
+      // (never blocked from saving); a brand-new task gets no default.
+      commitment: task ? (task.promised_to ? 'promised' : 'internal') : undefined,
+      promised_to: task?.promised_to || '',
     },
   });
 
@@ -187,6 +201,8 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
         billing_target: data.billing_target ? parseInt(data.billing_target) : null,
         billing_amount: data.billing_amount ? parseFloat(data.billing_amount) : null,
         is_retainer_work: data.is_retainer_work,
+        // Clarity Phase 8 (composition) — the promised/target discriminator.
+        promised_to: data.commitment === 'promised' ? data.promised_to!.trim() : null,
         ...(defaultAccordId && !isEdit ? { accord_id: defaultAccordId } : {}),
       };
 
@@ -327,6 +343,55 @@ export function TaskForm({ task, defaultProjectId, defaultClientId, defaultAccor
             type="date"
             {...register('due_date')}
           />
+        </div>
+
+        {/* Clarity Phase 8 (composition) — the promised/target discriminator. No default
+            for a new task; an existing task always prefills from promised_to. */}
+        <div>
+          <span className="block text-sm font-medium text-text-main mb-1">Commitment</span>
+          <div className="flex gap-2" role="radiogroup" aria-label="Commitment">
+            <button
+              type="button"
+              data-testid="commitment-promised"
+              role="radio"
+              aria-checked={watch('commitment') === 'promised'}
+              onClick={() => setValue('commitment', 'promised', { shouldValidate: true })}
+              className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
+                watch('commitment') === 'promised'
+                  ? 'border-primary bg-primary/10 text-primary font-medium'
+                  : 'border-border text-text-sub hover:border-primary/50'
+              }`}
+            >
+              Promised to someone
+            </button>
+            <button
+              type="button"
+              data-testid="commitment-internal"
+              role="radio"
+              aria-checked={watch('commitment') === 'internal'}
+              onClick={() => setValue('commitment', 'internal', { shouldValidate: true })}
+              className={`flex-1 rounded-md border px-3 py-2 text-sm transition-colors ${
+                watch('commitment') === 'internal'
+                  ? 'border-primary bg-primary/10 text-primary font-medium'
+                  : 'border-border text-text-sub hover:border-primary/50'
+              }`}
+            >
+              Internal (target)
+            </button>
+          </div>
+          {watch('commitment') === 'promised' && (
+            <Input
+              data-testid="promised-to-input"
+              label="Promised to"
+              placeholder="Ricson & Hannah"
+              className="mt-2"
+              {...register('promised_to')}
+              error={errors.promised_to?.message}
+            />
+          )}
+          {errors.commitment?.message && (
+            <p className="text-sm text-red-500 mt-1">{errors.commitment.message}</p>
+          )}
         </div>
 
         <div>

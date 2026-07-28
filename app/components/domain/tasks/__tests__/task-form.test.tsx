@@ -124,6 +124,7 @@ vi.mock('@/lib/hooks/use-terminology', () => ({
 
 // Import after mocks
 import { TaskForm } from '../task-form';
+import type { Task } from '@/lib/hooks/use-tasks';
 
 describe('TaskForm', () => {
   const mockOnSuccess = vi.fn();
@@ -141,6 +142,7 @@ describe('TaskForm', () => {
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'Simple Task' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const submitButton = screen.getByRole('button', { name: /create task/i });
       fireEvent.click(submitButton);
 
@@ -153,6 +155,87 @@ describe('TaskForm', () => {
             energy_estimate: 1,
             mystery_factor: 'average',
             battery_impact: 'average_drain',
+            promised_to: null,
+          })
+        );
+      });
+    });
+  });
+
+  describe('Commitment discriminator (Clarity Phase 8)', () => {
+    it('does not submit a new task when no commitment is chosen', async () => {
+      render(<TaskForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'No commitment' } });
+      fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+      expect(mockCreateMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('does not submit when Promised is chosen but no name is given', async () => {
+      render(<TaskForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'Promised, no name' } });
+      fireEvent.click(screen.getByTestId('commitment-promised'));
+      fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+      expect(mockCreateMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('submits promised_to when Promised is chosen with a name', async () => {
+      render(<TaskForm onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+
+      fireEvent.change(screen.getByPlaceholderText('Task title'), { target: { value: 'Promised task' } });
+      fireEvent.click(screen.getByTestId('commitment-promised'));
+      fireEvent.change(screen.getByTestId('promised-to-input'), { target: { value: 'Dan Cotter' } });
+      fireEvent.click(screen.getByRole('button', { name: /create task/i }));
+
+      await waitFor(() => {
+        expect(mockCreateMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({ promised_to: 'Dan Cotter' })
+        );
+      });
+    });
+
+    it('prefills Promised + the name when editing a task that already has promised_to', () => {
+      const existingTask = {
+        id: 'task-existing',
+        title: 'Existing Task',
+        status: 'in_progress' as const,
+        priority: 2,
+        promised_to: 'Ricson & Hannah',
+        energy_estimate: 5,
+        mystery_factor: 'significant',
+        battery_impact: 'high_drain',
+      };
+
+      render(
+        <TaskForm task={existingTask as unknown as Task} onSuccess={mockOnSuccess} onCancel={mockOnCancel} />
+      );
+
+      expect(screen.getByTestId('commitment-promised')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByTestId('promised-to-input')).toHaveValue('Ricson & Hannah');
+    });
+
+    it('never blocks saving an existing task even without re-touching the commitment fields', async () => {
+      const existingTask = {
+        id: 'task-existing',
+        title: 'Existing Task',
+        status: 'in_progress' as const,
+        priority: 2,
+      };
+
+      render(
+        <TaskForm task={existingTask as unknown as Task} onSuccess={mockOnSuccess} onCancel={mockOnCancel} />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => {
+        expect(mockUpdateMutateAsync).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'task-existing',
+            data: expect.objectContaining({ promised_to: null }),
           })
         );
       });
@@ -179,6 +262,7 @@ describe('TaskForm', () => {
       fireEvent.change(titleInput, { target: { value: 'Task from SOP' } });
 
       // Submit the form
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const submitButton = screen.getByRole('button', { name: /create task/i });
       fireEvent.click(submitButton);
 
@@ -212,6 +296,7 @@ describe('TaskForm', () => {
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'Bug fix task' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const submitButton = screen.getByRole('button', { name: /create task/i });
       fireEvent.click(submitButton);
 
@@ -270,6 +355,7 @@ describe('TaskForm', () => {
       const titleInput = screen.getByPlaceholderText('Task title');
       fireEvent.change(titleInput, { target: { value: 'Overridden task' } });
 
+      fireEvent.click(screen.getByTestId('commitment-internal'));
       const submitButton = screen.getByRole('button', { name: /create task/i });
       fireEvent.click(submitButton);
 
