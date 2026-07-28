@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
@@ -23,12 +24,32 @@ const MAX_EVENTS = 500;
 // z.coerce.date() (not the stricter z.string().datetime()) — same convention as
 // /api/oracle/ingest's eventInSchema.ts, since real Google Calendar timestamps arrive with
 // a numeric UTC offset (e.g. "2026-07-21T09:00:00-04:00"), not always a bare "Z" suffix.
+// Clarity Phase 8 (composition) — Google's attendee list, snake_cased by the machine-side
+// syncer. response_status is passed through UNTRANSLATED (needsAction|declined|tentative|
+// accepted, or any future Google value) — deliberately z.string(), not z.enum(): a new
+// Google status must never 400 an entire 500-event sync. The UI maps known values and
+// falls back to "no reply".
+const attendeeSchema = z.object({
+  email: z.string().min(1).max(320),
+  display_name: z.string().max(200).nullable().optional(),
+  response_status: z.string().max(30).nullable().optional(),
+  organizer: z.boolean().optional(),
+  self: z.boolean().optional(),
+});
+
 const eventSchema = z.object({
   event_id: z.string().min(1).max(255),
   title: z.string().min(1).max(500),
   starts_at: z.coerce.date(),
   ends_at: z.coerce.date(),
   all_day: z.boolean().optional().default(false),
+  // Clarity Phase 8 (composition) — all four optional+nullable; ABSENT is treated
+  // identically to null (the field is cleared on update), so a description/Meet link/
+  // location/attendee removed in Google actually disappears here too on the next sync.
+  description: z.string().max(10_000).nullable().optional(),
+  meet_url: z.string().max(1000).nullable().optional(),
+  location: z.string().max(500).nullable().optional(),
+  attendees: z.array(attendeeSchema).max(100).nullable().optional(),
 });
 
 const calendarSyncSchema = z
@@ -59,12 +80,20 @@ export async function POST(request: NextRequest) {
           starts_at: event.starts_at,
           ends_at: event.ends_at,
           all_day: event.all_day,
+          description: event.description ?? null,
+          meet_url: event.meet_url ?? null,
+          location: event.location ?? null,
+          attendees: event.attendees ?? Prisma.DbNull,
         },
         update: {
           title: event.title,
           starts_at: event.starts_at,
           ends_at: event.ends_at,
           all_day: event.all_day,
+          description: event.description ?? null,
+          meet_url: event.meet_url ?? null,
+          location: event.location ?? null,
+          attendees: event.attendees ?? Prisma.DbNull,
         },
       });
       upserted++;

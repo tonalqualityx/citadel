@@ -2783,6 +2783,17 @@ model CalendarEvent {
   ends_at   DateTime
   all_day   Boolean  @default(false)
 
+  // Clarity Phase 8 (composition) — meeting context, so a clock-strip event is a clickable
+  // context card instead of a bare title (Mike 07-28). All nullable + all set-or-cleared on
+  // every sync pass (absent in the payload => written back as null), so removing a Meet link
+  // or a description in Google actually removes it here.
+  description String? @db.Text
+  meet_url    String? @db.VarChar(1000) // hangoutLink, else the first video conferenceData entryPoint uri
+  location    String? @db.VarChar(500)
+  // [{ email, display_name, response_status, organizer, self }] — Google's attendee list,
+  // snake_cased by the syncer. Json (not a table): read-only display data, never queried.
+  attendees   Json?
+
   source String @default("google") @db.VarChar(50)
 
   created_at DateTime @default(now())

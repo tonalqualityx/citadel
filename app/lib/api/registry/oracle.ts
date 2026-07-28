@@ -58,7 +58,13 @@ export const oracleEndpoints: ApiEndpoint[] = [
           'whose event_id was NOT in this payload — that\'s how a cancelled/deleted meeting disappears. ' +
           'Rows with starts_at outside the window are never touched by this call. The machine-side caller ' +
           '(~/.claude/tools/oracle/clarity/calendar-sync.py, STAGED — not cron-wired) is expected to ' +
-          're-sync a rolling window (e.g. now-2h to now+7d) on every run.',
+          're-sync a rolling window (e.g. now-2h to now+7d) on every run. ' +
+          'Clarity Phase 8 — description/meet_url/location/attendees are optional+nullable; ' +
+          'ABSENT is treated identically to null and WRITES BACK NULL on update (both create ' +
+          'and update branches set all four), so a description or Meet link removed in Google ' +
+          'actually disappears from the glass on the next sync pass. attendees is ' +
+          '[{email, display_name, response_status, organizer, self}] — response_status is ' +
+          'Google\'s raw value, never translated server-side.',
         bodySchema: [
           { name: 'window_start', type: 'ISO-8601', required: true, description: '' },
           { name: 'window_end', type: 'ISO-8601', required: true, description: 'Must be at or after window_start' },
@@ -66,7 +72,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
             name: 'events',
             type: 'object',
             required: true,
-            description: 'Array (max 500): { event_id (Google event id, unique), title, starts_at, ends_at, all_day? (default false) }',
+            description: 'Array (max 500): { event_id (Google event id, unique), title, starts_at, ends_at, all_day? (default false), description?, meet_url?, location?, attendees? }',
           },
         ],
         responseExample: {

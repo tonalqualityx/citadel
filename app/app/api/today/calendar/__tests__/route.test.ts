@@ -106,6 +106,56 @@ describe('GET /api/today/calendar', () => {
     expect(body.allDay[0].title).toBe('Home');
   });
 
+  it('threads meeting context (description/meet_url/location/attendees) through, Clarity Phase 8', async () => {
+    mockCalendarEventFindMany
+      .mockResolvedValueOnce([
+        {
+          event_id: 'm-ctx',
+          title: 'BRIC board',
+          starts_at: new Date('2026-07-21T13:00:00.000Z'),
+          ends_at: new Date('2026-07-21T14:00:00.000Z'),
+          all_day: false,
+          description: 'Quarterly review',
+          meet_url: 'https://meet.google.com/zvw-jerq-hoi',
+          location: 'Springfield VT',
+          attendees: [{ email: 'dan@example.com', display_name: 'Dan', response_status: 'accepted' }],
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = await GET(createGetRequest({ date: '2026-07-21' }));
+    const body = await res.json();
+
+    expect(body.meetings[0]).toMatchObject({
+      description: 'Quarterly review',
+      meet_url: 'https://meet.google.com/zvw-jerq-hoi',
+      location: 'Springfield VT',
+      attendees: [{ email: 'dan@example.com', display_name: 'Dan', response_status: 'accepted' }],
+    });
+  });
+
+  it('nulls out meeting context fields when absent, never leaving them undefined', async () => {
+    mockCalendarEventFindMany
+      .mockResolvedValueOnce([
+        {
+          event_id: 'm-plain',
+          title: 'Plain meeting',
+          starts_at: new Date('2026-07-21T13:00:00.000Z'),
+          ends_at: new Date('2026-07-21T14:00:00.000Z'),
+          all_day: false,
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = await GET(createGetRequest({ date: '2026-07-21' }));
+    const body = await res.json();
+
+    expect(body.meetings[0].description).toBeNull();
+    expect(body.meetings[0].meet_url).toBeNull();
+    expect(body.meetings[0].location).toBeNull();
+    expect(body.meetings[0].attendees).toBeNull();
+  });
+
   it('returns a 5-day week strip starting at the requested date, as raw counts (no encoding)', async () => {
     mockCalendarEventFindMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     mockTaskFindMany.mockResolvedValueOnce([]);

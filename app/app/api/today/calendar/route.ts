@@ -66,27 +66,41 @@ export async function GET(request: NextRequest) {
 
     const dayEvents = await prisma.calendarEvent.findMany({
       where: { starts_at: { gte: start, lte: end } },
-      select: { event_id: true, title: true, starts_at: true, ends_at: true, all_day: true },
+      select: {
+        event_id: true,
+        title: true,
+        starts_at: true,
+        ends_at: true,
+        all_day: true,
+        // Clarity Phase 8 (composition) — meeting context for the clickable calendar
+        // popover.
+        description: true,
+        meet_url: true,
+        location: true,
+        attendees: true,
+      },
       orderBy: { starts_at: 'asc' },
     });
 
-    const meetings = dayEvents
-      .filter((e) => !e.all_day)
-      .map((e) => ({
-        id: e.event_id,
-        title: e.title,
-        start: e.starts_at.toISOString(),
-        end: e.ends_at.toISOString(),
-      }));
+    const mapEvent = (e: (typeof dayEvents)[number]) => ({
+      id: e.event_id,
+      title: e.title,
+      start: e.starts_at.toISOString(),
+      end: e.ends_at.toISOString(),
+      description: e.description ?? null,
+      meet_url: e.meet_url ?? null,
+      location: e.location ?? null,
+      attendees: (e.attendees as unknown as Array<{
+        email: string;
+        display_name: string | null;
+        response_status: string | null;
+        organizer?: boolean;
+        self?: boolean;
+      }> | null) ?? null,
+    });
 
-    const allDay = dayEvents
-      .filter((e) => e.all_day)
-      .map((e) => ({
-        id: e.event_id,
-        title: e.title,
-        start: e.starts_at.toISOString(),
-        end: e.ends_at.toISOString(),
-      }));
+    const meetings = dayEvents.filter((e) => !e.all_day).map(mapEvent);
+    const allDay = dayEvents.filter((e) => e.all_day).map(mapEvent);
 
     // Week strip: today (or the requested date) through weekStripDays-1 days forward.
     const weekDateStrs = Array.from({ length: weekStripDays }, (_, i) => addDays(dateStr, i));

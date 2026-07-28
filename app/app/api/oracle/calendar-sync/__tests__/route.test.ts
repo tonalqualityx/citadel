@@ -165,6 +165,92 @@ describe('POST /api/oracle/calendar-sync', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('meeting context (Clarity Phase 8)', () => {
+    it('upserts description/meet_url/location/attendees on create AND update', async () => {
+      await POST(
+        postRequest({
+          window_start: WINDOW_START,
+          window_end: WINDOW_END,
+          events: [
+            {
+              event_id: 'evt-ctx',
+              title: 'BRIC board',
+              starts_at: '2026-07-21T13:00:00.000Z',
+              ends_at: '2026-07-21T14:00:00.000Z',
+              description: 'Quarterly review — https://docs.example.com/agenda',
+              meet_url: 'https://meet.google.com/zvw-jerq-hoi',
+              location: 'Springfield VT',
+              attendees: [{ email: 'dan@example.com', display_name: 'Dan', response_status: 'accepted', organizer: true, self: false }],
+            },
+          ],
+        })
+      );
+
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            description: 'Quarterly review — https://docs.example.com/agenda',
+            meet_url: 'https://meet.google.com/zvw-jerq-hoi',
+            location: 'Springfield VT',
+            attendees: [{ email: 'dan@example.com', display_name: 'Dan', response_status: 'accepted', organizer: true, self: false }],
+          }),
+          update: expect.objectContaining({
+            description: 'Quarterly review — https://docs.example.com/agenda',
+            meet_url: 'https://meet.google.com/zvw-jerq-hoi',
+            location: 'Springfield VT',
+          }),
+        })
+      );
+    });
+
+    it('clears description/meet_url/location to null and attendees to DbNull when absent (removed upstream)', async () => {
+      await POST(
+        postRequest({
+          window_start: WINDOW_START,
+          window_end: WINDOW_END,
+          events: [
+            {
+              event_id: 'evt-ctx-2',
+              title: 'Plain event, no context',
+              starts_at: '2026-07-21T13:00:00.000Z',
+              ends_at: '2026-07-21T14:00:00.000Z',
+            },
+          ],
+        })
+      );
+
+      const call = mockUpsert.mock.calls[0][0];
+      expect(call.create.description).toBeNull();
+      expect(call.create.meet_url).toBeNull();
+      expect(call.create.location).toBeNull();
+      expect(call.update.description).toBeNull();
+      expect(call.update.meet_url).toBeNull();
+      expect(call.update.location).toBeNull();
+      // Prisma.DbNull for a Json? column — a bare `null` is a type/behavior mismatch for JSONB.
+      expect(String(call.create.attendees)).toContain('DbNull');
+      expect(String(call.update.attendees)).toContain('DbNull');
+    });
+
+    it('accepts an unrecognized response_status without 400ing the whole sync', async () => {
+      const res = await POST(
+        postRequest({
+          window_start: WINDOW_START,
+          window_end: WINDOW_END,
+          events: [
+            {
+              event_id: 'evt-ctx-3',
+              title: 'Future Google status',
+              starts_at: '2026-07-21T13:00:00.000Z',
+              ends_at: '2026-07-21T14:00:00.000Z',
+              attendees: [{ email: 'a@example.com', response_status: 'some_future_status' }],
+            },
+          ],
+        })
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
   it('rejects when unauthenticated', async () => {
     const { AuthError } = await import('@/lib/api/errors');
     mockRequireAuth.mockRejectedValue(new AuthError('Authentication required', 401));
