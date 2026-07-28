@@ -14,7 +14,6 @@ import { linkedMeetingIds } from './time-shape-logic';
 import { ENERGY_FILTER_OPTIONS, filterPicksByEnergy, type EnergyFilterValue } from './energy-filter-logic';
 import { columnForPick, type BoardColumnId } from './today-board-logic';
 import { TimeShape } from './TimeShape';
-import { NowStrip } from './NowStrip';
 import { TodayPickCard } from './TodayPickCard';
 import { TodayBoard } from './TodayBoard';
 import { DueSoonRow } from './DueSoonRow';
@@ -112,21 +111,15 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
   // Falls back to the client-safe default while calendarData is still loading —
   // reconciles with the resolved zone the instant the response arrives.
   const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
+  // Clarity Phase 8 (composition) — every card's reason chip needs this. The Work mode
+  // hero (modes/work/TodaysPicksHero) is now the execution-view leader described in the
+  // comment this replaces; TodaySection itself becomes Plan mode's board section (see
+  // PlanView.tsx).
+  const todayDateStr = calendarData?.date ?? today?.date ?? '';
 
   return (
     <section className="flex flex-col gap-3" data-testid="today-section">
-      {!isLoading && (
-        <NowStrip
-          picks={uncompleted}
-          todayDateStr={calendarData?.date ?? today?.date ?? ''}
-          legacyAttentionArcIds={legacyAttentionArcIds}
-        />
-      )}
-
-      {/* Clarity Phase 7 (P2) — the Now Strip leads; everything below reads visually
-          secondary (research law: execution view leads, planning view stays present but
-          demoted — never hidden). */}
-      <div className="flex flex-col gap-2 opacity-90">
+      <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 px-1">
         <h2 className="text-xs font-bold uppercase tracking-wide text-text-sub">Today</h2>
         <span
@@ -249,6 +242,7 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
                 <TodayPickCard
                   key={pick.id}
                   pick={pick}
+                  todayDateStr={todayDateStr}
                   hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
                 />
               ))}
@@ -256,6 +250,7 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
           ) : (
             <TodayBoard
               picks={visiblePicks}
+              todayDateStr={todayDateStr}
               legacyAttentionArcIds={legacyAttentionArcIds}
               hiddenCountByColumn={hiddenCountByColumn}
               onShowAllFilter={() => setEnergyFilter('all')}

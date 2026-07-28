@@ -53,6 +53,10 @@ export function DayColumn({ day, todayDateStr, legacyAttentionArcIds }: DayColum
               // is a "now" affordance and doesn't belong here (also avoids squeezing the
               // narrow day column's title down to zero width with a 3rd button).
               showFocusButton={false}
+              // Clarity Phase 8 (composition) — a future day's card must never claim "in
+              // progress" or "due today" (that's only ever true of TODAY); no reason chip
+              // on any Soothsayer card, today's column included.
+              showReasonChip={false}
             />
           ))
         )}

@@ -247,4 +247,43 @@ describe('TodayPickCard', () => {
       });
     });
   });
+
+  describe('reason chip (Clarity Phase 8)', () => {
+    it('renders the promised chip for a task promised to someone, due today', () => {
+      const p = questPick({
+        task: { id: 'task-99', title: 'Fix the thing', status: 'not_started', priority: 3, due_date: '2026-07-22T00:00:00.000Z', promised_to: 'Ricson & Hannah', energy_estimate: null, battery_impact: null, mystery_factor: null },
+      });
+      renderWithClient(<TodayPickCard pick={p} todayDateStr="2026-07-22" />);
+      const chip = screen.getByTestId('reason-chip');
+      expect(chip).toHaveAttribute('data-variant', 'promised');
+      expect(chip).toHaveTextContent('promised: due today');
+    });
+
+    it('renders the quiet target chip for an internal task with a due date, never "overdue"', () => {
+      const p = questPick({
+        task: { id: 'task-99', title: 'Fix the thing', status: 'not_started', priority: 3, due_date: '2026-01-01T00:00:00.000Z', promised_to: null, energy_estimate: null, battery_impact: null, mystery_factor: null },
+      });
+      renderWithClient(<TodayPickCard pick={p} todayDateStr="2026-07-22" />);
+      const chip = screen.getByTestId('reason-chip');
+      expect(chip).toHaveAttribute('data-variant', 'target');
+      expect(chip.textContent).not.toMatch(/overdue/i);
+    });
+
+    it('renders "in progress" once started_at is set, regardless of promised_to/due_date', () => {
+      const p = questPick({ started_at: '2026-07-22T09:00:00.000Z' });
+      renderWithClient(<TodayPickCard pick={p} todayDateStr="2026-07-22" />);
+      expect(screen.getByTestId('reason-chip')).toHaveTextContent('in progress');
+    });
+
+    it('omits the reason chip entirely when showReasonChip is false', () => {
+      renderWithClient(<TodayPickCard pick={questPick()} todayDateStr="2026-07-22" showReasonChip={false} />);
+      expect(screen.queryByTestId('reason-chip')).not.toBeInTheDocument();
+    });
+
+    it('never shows a reason chip on a completed pick', () => {
+      const p = questPick({ completed_at: '2026-07-22T12:00:00.000Z' });
+      renderWithClient(<TodayPickCard pick={p} todayDateStr="2026-07-22" />);
+      expect(screen.queryByTestId('reason-chip')).not.toBeInTheDocument();
+    });
+  });
 });

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { Check, ExternalLink, Focus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils/cn';
@@ -15,6 +14,8 @@ import { useFocusMode } from '@/lib/contexts/focus-mode-context';
 import { SnoozeMenu } from '@/components/domain/oracle/soothsayer/SnoozeMenu';
 import { CoverBand } from '@/components/domain/oracle/CoverBand';
 import { commandAge } from '@/components/domain/oracle/oracle-logic';
+import { ReasonChip } from '@/components/domain/oracle/ReasonChip';
+import { reasonChipForPick } from '@/lib/reason-chips';
 import type { TodayPick } from '@/lib/hooks/use-today';
 
 interface TodayPickCardProps {
@@ -25,10 +26,16 @@ interface TodayPickCardProps {
   // so every existing caller (Today board lens, drag overlay, etc.) that doesn't pass it
   // just renders with no dot, same as before this phase.
   hasAttentionDot?: boolean;
-  // Clarity Phase 7 (P2) — the Now Strip's single, honestly-derived reason chip ("in
-  // progress", "P1", "due today", "picked this morning" — see now-strip-logic.ts). Optional
-  // so every other caller (plain Today list/board) renders with no chip, unchanged.
-  reasonLabel?: string;
+  // Clarity Phase 8 (composition) — YYYY-MM-DD in the requester's resolved timezone, needed
+  // to label the reason chip's due date ("today"/"tomorrow"/"this week"/...). Every caller
+  // that renders a chip (showReasonChip defaults true) must pass this; a caller rendering
+  // FUTURE-day cards (the Soothsayer) passes showReasonChip={false} instead — a future-day
+  // card must never claim "in progress" or "due today".
+  todayDateStr?: string;
+  // Clarity Phase 8 (composition) — the one honest reason chip (see lib/reason-chips.ts).
+  // Defaults true: the wireframe puts a chip on every Work hero card AND every Plan kanban/
+  // list card. Callers previewing a future day (DayColumn) opt out.
+  showReasonChip?: boolean;
   // Clarity Phase 7 (P2) — the Now Strip intentionally renders the SAME pick a second
   // time above the main list ("replacing nothing" per spec). A distinct testid for that
   // copy keeps every existing (and future) unscoped `today-pick-card` query pointed at
@@ -72,7 +79,8 @@ export function TodayPickCard({
   pick,
   className,
   hasAttentionDot,
-  reasonLabel,
+  todayDateStr,
+  showReasonChip = true,
   testId,
   showFocusButton = true,
 }: TodayPickCardProps) {
@@ -134,10 +142,11 @@ export function TodayPickCard({
               waiting since {commandAge(pick.session.last_event_at, nowMs)}
             </div>
           )}
-          {reasonLabel && !isDone && (
-            <Badge variant="default" size="sm" className="mt-1 w-fit" data-testid="now-strip-reason-chip">
-              {reasonLabel}
-            </Badge>
+          {showReasonChip && !isDone && (
+            <ReasonChip
+              chip={reasonChipForPick(pick, { todayDateStr: todayDateStr ?? '' })}
+              className="mt-1"
+            />
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">

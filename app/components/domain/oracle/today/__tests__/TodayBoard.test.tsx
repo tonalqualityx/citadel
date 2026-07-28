@@ -49,7 +49,7 @@ function renderWithClient(ui: React.ReactElement) {
 
 describe('TodayBoard', () => {
   it('renders columns in Doing, To do, Done order', () => {
-    renderWithClient(<TodayBoard picks={[]} />);
+    renderWithClient(<TodayBoard todayDateStr="2026-07-27" picks={[]} />);
     const board = screen.getByTestId('today-board');
     const columnIds = Array.from(board.querySelectorAll('[data-testid^="today-board-column-"]')).map((el) =>
       el.getAttribute('data-testid')
@@ -63,7 +63,7 @@ describe('TodayBoard', () => {
 
   it('renders Done collapsed by default — count shown, card hidden', () => {
     const donePick = pick({ id: 'done-1', label: 'Finished thing', completed_at: '2026-07-27T10:00:00.000Z' });
-    renderWithClient(<TodayBoard picks={[donePick]} />);
+    renderWithClient(<TodayBoard todayDateStr="2026-07-27" picks={[donePick]} />);
 
     const doneColumn = screen.getByTestId('today-board-column-done');
     expect(doneColumn).toHaveAttribute('data-collapsed', 'true');
@@ -73,7 +73,7 @@ describe('TodayBoard', () => {
 
   it('clicking Show reveals the Done column cards', () => {
     const donePick = pick({ id: 'done-1', label: 'Finished thing', completed_at: '2026-07-27T10:00:00.000Z' });
-    renderWithClient(<TodayBoard picks={[donePick]} />);
+    renderWithClient(<TodayBoard todayDateStr="2026-07-27" picks={[donePick]} />);
 
     fireEvent.click(screen.getByTestId('today-board-done-toggle'));
 
@@ -82,7 +82,7 @@ describe('TodayBoard', () => {
   });
 
   it('a non-Done column never gets the collapse toggle', () => {
-    renderWithClient(<TodayBoard picks={[pick({ id: 'todo-1' })]} />);
+    renderWithClient(<TodayBoard todayDateStr="2026-07-27" picks={[pick({ id: 'todo-1' })]} />);
     expect(screen.getByTestId('today-board-column-todo').querySelector('[data-testid="today-board-done-toggle"]')).toBeNull();
   });
 
@@ -91,13 +91,13 @@ describe('TodayBoard', () => {
   // render a bare empty box that reads as data loss.
   describe('hidden-by-filter messaging', () => {
     it('shows nothing when hiddenCountByColumn is omitted (no active filter)', () => {
-      renderWithClient(<TodayBoard picks={[]} />);
+      renderWithClient(<TodayBoard todayDateStr="2026-07-27" picks={[]} />);
       expect(screen.queryByTestId('today-board-column-hidden')).not.toBeInTheDocument();
     });
 
     it('shows "N hidden by filter" in an empty column that the filter hid picks from', () => {
       renderWithClient(
-        <TodayBoard picks={[]} hiddenCountByColumn={{ todo: 3, doing: 0, done: 0 }} />
+        <TodayBoard todayDateStr="2026-07-27" picks={[]} hiddenCountByColumn={{ todo: 3, doing: 0, done: 0 }} />
       );
       const todoColumn = screen.getByTestId('today-board-column-todo');
       expect(todoColumn.querySelector('[data-testid="today-board-column-hidden"]')).toHaveTextContent(
@@ -110,7 +110,7 @@ describe('TodayBoard', () => {
 
     it('never shows the hidden line for a column that genuinely has cards', () => {
       renderWithClient(
-        <TodayBoard picks={[pick({ id: 'todo-1' })]} hiddenCountByColumn={{ todo: 5, doing: 0, done: 0 }} />
+        <TodayBoard todayDateStr="2026-07-27" picks={[pick({ id: 'todo-1' })]} hiddenCountByColumn={{ todo: 5, doing: 0, done: 0 }} />
       );
       expect(
         screen.getByTestId('today-board-column-todo').querySelector('[data-testid="today-board-column-hidden"]')
@@ -120,7 +120,7 @@ describe('TodayBoard', () => {
     it('"show all" calls onShowAllFilter', () => {
       const onShowAllFilter = vi.fn();
       renderWithClient(
-        <TodayBoard picks={[]} hiddenCountByColumn={{ todo: 2, doing: 0, done: 0 }} onShowAllFilter={onShowAllFilter} />
+        <TodayBoard todayDateStr="2026-07-27" picks={[]} hiddenCountByColumn={{ todo: 2, doing: 0, done: 0 }} onShowAllFilter={onShowAllFilter} />
       );
       fireEvent.click(screen.getByText('show all'));
       expect(onShowAllFilter).toHaveBeenCalled();

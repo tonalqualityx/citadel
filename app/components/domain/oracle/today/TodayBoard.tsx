@@ -23,6 +23,9 @@ import { columnForPick, fieldsForTransition, type BoardColumnId } from './today-
 
 interface TodayBoardProps {
   picks: TodayPick[];
+  // Clarity Phase 8 (composition) — YYYY-MM-DD in the requester's resolved timezone,
+  // threaded to every card's reason chip.
+  todayDateStr: string;
   // Clarity Phase 5 — threaded through to each card's attention dot, same as the list lens.
   legacyAttentionArcIds?: Set<string>;
   // Clarity Phase 7 (repair, 2026-07-27) — how many picks the active energy filter is
@@ -57,7 +60,7 @@ const COLUMN_ORDER: BoardColumnId[] = ['doing', 'todo', 'done'];
 // out of Done). The existing checkmark toggle (in TodayPickCard) remains a same-effect
 // shortcut for Doing/To do -> Done. The Doing column's soft WIP cap (>=3, warning tint,
 // never a hard block) applies here exactly as before, now driven by real column membership.
-export function TodayBoard({ picks, legacyAttentionArcIds, hiddenCountByColumn, onShowAllFilter }: TodayBoardProps) {
+export function TodayBoard({ picks, todayDateStr, legacyAttentionArcIds, hiddenCountByColumn, onShowAllFilter }: TodayBoardProps) {
   const updatePick = useUpdateTodayPick();
   const [activePick, setActivePick] = React.useState<TodayPick | null>(null);
   // Clarity Phase 7 (P2) — Done renders collapsed by default (count + expand), per the
@@ -131,6 +134,7 @@ export function TodayBoard({ picks, legacyAttentionArcIds, hiddenCountByColumn, 
               total={cards.length}
               overCap={isDoing && doingOverCap}
               onStart={columnId === 'todo' ? (pickId) => movePick(pickId, 'doing') : undefined}
+              todayDateStr={todayDateStr}
               legacyAttentionArcIds={legacyAttentionArcIds}
               collapsed={isDone && !doneExpanded}
               onToggleCollapsed={isDone ? () => setDoneExpanded((v) => !v) : undefined}
@@ -145,6 +149,7 @@ export function TodayBoard({ picks, legacyAttentionArcIds, hiddenCountByColumn, 
           <div className="opacity-90">
             <TodayPickCard
               pick={activePick}
+              todayDateStr={todayDateStr}
               hasAttentionDot={!!activePick.arc_id && !!legacyAttentionArcIds?.has(activePick.arc_id)}
             />
           </div>
@@ -162,6 +167,7 @@ function TodayBoardColumn({
   total,
   overCap,
   onStart,
+  todayDateStr,
   legacyAttentionArcIds,
   collapsed,
   onToggleCollapsed,
@@ -175,6 +181,7 @@ function TodayBoardColumn({
   total: number;
   overCap: boolean;
   onStart?: (pickId: string) => void;
+  todayDateStr: string;
   legacyAttentionArcIds?: Set<string>;
   // Clarity Phase 7 (P2) — Done renders collapsed by default (count + expand).
   collapsed?: boolean;
@@ -220,6 +227,7 @@ function TodayBoardColumn({
           <div key={pick.id} className="flex flex-col gap-1">
             <DraggableTodayPick
               pick={pick}
+              todayDateStr={todayDateStr}
               hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
             />
             {onStart && (
@@ -260,7 +268,7 @@ function TodayBoardColumn({
   );
 }
 
-function DraggableTodayPick({ pick, hasAttentionDot }: { pick: TodayPick; hasAttentionDot?: boolean }) {
+function DraggableTodayPick({ pick, todayDateStr, hasAttentionDot }: { pick: TodayPick; todayDateStr: string; hasAttentionDot?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: pick.id });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -275,7 +283,7 @@ function DraggableTodayPick({ pick, hasAttentionDot }: { pick: TodayPick; hasAtt
       className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
       data-testid="today-board-draggable-pick"
     >
-      <TodayPickCard pick={pick} hasAttentionDot={hasAttentionDot} />
+      <TodayPickCard pick={pick} todayDateStr={todayDateStr} hasAttentionDot={hasAttentionDot} />
     </div>
   );
 }
