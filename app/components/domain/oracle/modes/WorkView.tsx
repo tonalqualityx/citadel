@@ -5,7 +5,7 @@ import { useTodayPicks, useTodayCalendar, useDueSoonTasks } from '@/lib/hooks/us
 import { usePipelineAccords } from '@/lib/hooks/use-accords';
 import { useTriageStats } from '@/lib/hooks/use-triage-stats';
 import { selectWaitingSessions } from '@/components/domain/oracle/oracle-logic';
-import { countPromisedDueToday } from '@/lib/reason-chips';
+import { promisedDueTodayTasks as selectPromisedDueTodayTasks } from '@/lib/reason-chips';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import type { OracleMachineDTO } from '@/lib/types/oracle';
 import type { OracleSessionWithMachine } from '@/lib/types/oracle';
@@ -41,24 +41,46 @@ export function WorkView({ machines, liveSessions, waitingOnMe, nowMs, onGoToMod
   const todayDateStr = calendarData?.date ?? '';
 
   const crisisCount = waitingOnMe?.crisis.length ?? 0;
-  const sessionsNeedingYouCount = selectWaitingSessions(machines, nowMs).length;
+  // Clarity Phase 8 (shakedown round 2) — the signals rail's "N sessions need you" chip
+  // expands into this exact list (title, waiting_on/ask, remote_url) so the chip's count
+  // and its expanded contents can never disagree.
+  const sessionsNeedingYou = React.useMemo(() => selectWaitingSessions(machines, nowMs), [machines, nowMs]);
 
   // Union of due-soon tasks + today-picked tasks with a due date, deduped by task id — the
   // signals rail and the Due-soon door read the same union so they can never disagree.
   const dueSoonTasks = React.useMemo(() => {
-    const byId = new Map<string, { id: string; promised_to: string | null; due_date: string | null }>();
+    const byId = new Map<
+      string,
+      { id: string; title: string; promised_to: string | null; due_date: string | null }
+    >();
     for (const t of dueSoonData?.tasks ?? []) {
-      byId.set(t.id, { id: t.id, promised_to: t.promised_to, due_date: t.due_date });
+      byId.set(t.id, { id: t.id, title: t.title, promised_to: t.promised_to, due_date: t.due_date });
     }
     for (const p of picks) {
       if (p.task && p.task.due_date) {
-        byId.set(p.task.id, { id: p.task.id, promised_to: p.task.promised_to, due_date: p.task.due_date });
+        byId.set(p.task.id, {
+          id: p.task.id,
+          title: p.task.title,
+          promised_to: p.task.promised_to,
+          due_date: p.task.due_date,
+        });
       }
     }
     return Array.from(byId.values());
   }, [dueSoonData, picks]);
 
-  const promisedDueTodayCount = countPromisedDueToday(dueSoonTasks, todayDateStr);
+  // Clarity Phase 8 (shakedown round 2) — the signals rail's "N promised tasks due today"
+  // chip expands into this exact list. promisedDueTodayTasks's filter guarantees due_date is
+  // set on every element it returns; the cast documents that invariant for the narrower
+  // (non-nullable) prop type the expand panel wants.
+  const promisedDueTodayTasksList = React.useMemo(
+    () =>
+      selectPromisedDueTodayTasks(dueSoonTasks, todayDateStr).map((t) => ({
+        ...t,
+        due_date: t.due_date as string,
+      })),
+    [dueSoonTasks, todayDateStr]
+  );
 
   const reviewOldest = (waitingOnMe?.review ?? [])
     .map((r) => r.waiting_since)
@@ -96,9 +118,11 @@ export function WorkView({ machines, liveSessions, waitingOnMe, nowMs, onGoToMod
     <div className="flex flex-col gap-5" data-testid="work-view">
       <SignalsRail
         crisisCount={crisisCount}
-        promisedDueTodayCount={promisedDueTodayCount}
-        sessionsNeedingYouCount={sessionsNeedingYouCount}
+        promisedDueTodayTasks={promisedDueTodayTasksList}
+        sessionsNeedingYou={sessionsNeedingYou}
         machines={machines}
+        todayDateStr={todayDateStr}
+        onGoToMode={onGoToMode}
       />
       <ClockStrip todayLabel={todayLabel} meetings={calendarData?.meetings ?? []} timezone={timezone} />
       <TodaysPicksHero picks={picks} sessions={liveSessions} todayDateStr={todayDateStr} />

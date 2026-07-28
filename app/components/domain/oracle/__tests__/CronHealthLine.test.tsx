@@ -60,6 +60,17 @@ describe('CronHealthLine (Clarity Phase 3 Reckoning, spec Q14)', () => {
     expect(screen.getByText(/all crons healthy/)).toBeInTheDocument();
   });
 
+  // Clarity Phase 8 (shakedown round 2) — regression test for Mike's live dark-mode report:
+  // this line used to be a bare, unclassed <span>, inheriting whatever ambient color its
+  // mount point happened to have (which resolved to browser-default black under
+  // app/(app)/layout.tsx's Mantine stylesheet import, invisible on the dark theme's
+  // near-black surface). It must always carry an explicit muted-foreground token so it
+  // reads correctly regardless of where it's mounted.
+  it('the healthy line carries an explicit muted-foreground token, not inherited ambient color', () => {
+    renderWithClient(<CronHealthLine machines={[]} />);
+    expect(screen.getByText(/all crons healthy/)).toHaveClass('text-text-sub');
+  });
+
   it('renders a chip per erroring cron', async () => {
     renderWithClient(<CronHealthLine machines={[machineWithErroringCron()]} />);
     expect(await screen.findByTestId('cron-chip-trigger')).toHaveTextContent('email-check');

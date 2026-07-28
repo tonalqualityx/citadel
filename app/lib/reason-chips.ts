@@ -124,16 +124,28 @@ export function reasonChipForTask(task: ReasonChipTaskInput, opts: { todayDateSt
   return reasonChipForPick({ task }, opts);
 }
 
+/** Clarity Phase 8 (shakedown) — the promised-to-a-person tasks due exactly today, in full
+ *  (not just a count): the signals rail's "N promised tasks due today" chip expands into
+ *  this exact list, so the chip's count and its expanded contents can never disagree — one
+ *  predicate, walked once. Reuses the identical `!!promised_to` presence test as the chip
+ *  rules above. */
+export function promisedDueTodayTasks<T extends { promised_to: string | null; due_date: string | null }>(
+  tasks: T[],
+  todayDateStr: string
+): T[] {
+  return tasks.filter(
+    (t) => !!t.promised_to && !!t.due_date && daysBetween(todayDateStr, t.due_date) === 0
+  );
+}
+
 /** True count of promised-to-a-person tasks due exactly today — used by the signals rail
- *  and nowhere else; reuses the identical `!!promised_to` presence test as the chip rules
- *  above so the rail and the chips can never disagree. */
+ *  and nowhere else; delegates to promisedDueTodayTasks so the count can never drift from
+ *  the list the rail's expand panel renders. */
 export function countPromisedDueToday(
   tasks: Array<{ promised_to: string | null; due_date: string | null }>,
   todayDateStr: string
 ): number {
-  return tasks.filter(
-    (t) => !!t.promised_to && !!t.due_date && daysBetween(todayDateStr, t.due_date) === 0
-  ).length;
+  return promisedDueTodayTasks(tasks, todayDateStr).length;
 }
 
 export interface DueSoonDoorSummary {

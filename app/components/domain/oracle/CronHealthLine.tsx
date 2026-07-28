@@ -89,7 +89,15 @@ export function CronHealthLine({ machines, bullet = true }: CronHealthLineProps)
   );
 
   if (crons.length === 0) {
-    return <span>{bullet ? '· ' : ''}all crons healthy</span>;
+    // Clarity Phase 8 (shakedown round 2) — explicit muted-foreground token, not inherited
+    // ambient color: this line sits directly under SignalsRail's flex-col wrapper with no
+    // colored ancestor, and the app-wide Mantine stylesheet import
+    // (app/(app)/layout.tsx's `@mantine/core/styles.css`) sets `body { color:
+    // var(--mantine-color-text) }`, an undefined variable that resolves to browser-default
+    // black — invisible on the dark theme's near-black surface. Every OTHER text node in
+    // this tree is safe only because it already carries an explicit text-* class; this one
+    // didn't, which is exactly the bug Mike hit.
+    return <span className="text-text-sub">{bullet ? '· ' : ''}all crons healthy</span>;
   }
 
   return (
