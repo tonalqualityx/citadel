@@ -1072,6 +1072,16 @@ model Task {
   // Notes
   notes String? @db.Text
 
+  // Clarity Phase 8 (composition) — the promised/target discriminator. PRESENCE is the
+  // signal: a non-null value means "this was promised to a named person" (the string IS
+  // who), and its due date renders as an assertive filled chip. null means internal work
+  // toward a self-set target — a quiet outline chip, never red, never the word "overdue"
+  // (research DON'T-BUILD: always-visible overdue counts / time-guilt mechanics). Never
+  // required by the API — the zero-friction capture paths (Catch bar, arc "+ Quest",
+  // email->task, completion nudge) must stay one gesture; the two real task FORMS require
+  // an explicit choice client-side.
+  promised_to String? @db.VarChar(200)
+
   // Classification & source (Bast triage). tags carry triage states (bast-doable,
   // needs-info, awaiting-client-approval, ...) AND classification namespaces (stack:eleventy,
   // kind:content, ...).

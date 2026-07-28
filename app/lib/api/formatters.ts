@@ -964,6 +964,8 @@ export function formatTaskResponse(task: any) {
     estimated_minutes: task.estimated_minutes,
     battery_impact: task.battery_impact,
     due_date: task.due_date,
+    // Clarity Phase 8 (composition) — presence = promised to a named person.
+    promised_to: task.promised_to ?? null,
     started_at: task.started_at,
     completed_at: task.completed_at,
     requirements: task.requirements,
@@ -1217,6 +1219,8 @@ export function formatTodayPickResponse(
           // (never fabricated: only rendered when the underlying task actually carries it).
           priority: pick.task.priority ?? null,
           due_date: pick.task.due_date ?? null,
+          // Clarity Phase 8 (composition) — the reason-chip module's promised/target rule.
+          promised_to: pick.task.promised_to ?? null,
           // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chips read
           // these three fields; additive, never a behavior change for any existing
           // consumer that doesn't read them.

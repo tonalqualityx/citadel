@@ -562,7 +562,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
               arc_id: 'uuid|null',
               arc: { id: 'uuid', name: 'string', status: 'empty|open|complete', task_count: 'number' },
               task_id: 'uuid|null',
-              task: { id: 'uuid', title: 'string', status: 'string' },
+              task: { id: 'uuid', title: 'string', status: 'string', promised_to: 'string|null' },
               session_external_id: 'string|null',
               session: { external_id: 'string', title: 'string|null', status: 'string', remote_url: 'string|null', goal: 'string|null' },
               charter_id: 'uuid|null',
@@ -651,6 +651,9 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'Clarity Phase 3b: reads the calendar_events table (synced via POST /api/oracle/calendar-sync ' +
           'from Mike\'s real Google Calendar) — real start/end durations, no more assumed duration. ' +
           'All-day events are excluded from `meetings` entirely and returned separately in `allDay`. ' +
+          'Clarity Phase 8 — `meetings`/`allDay` entries carry description/meet_url/location/attendees ' +
+          '(synced from Google via calendar-sync; all nullable, cleared on the next sync pass if removed ' +
+          'upstream) so a clock-strip event is a clickable context card. ' +
           '`week[].meeting_minutes` is each day\'s real per-event duration PLUS a 20-minute leading prep ' +
           'window and a 15-minute trailing recovery buffer around every timed meeting (Clarity Phase 5 — ' +
           'mutually truncated against neighboring meetings, clamped to the day start, never double-counted; ' +
@@ -667,8 +670,16 @@ export const clarityEndpoints: ApiEndpoint[] = [
         responseExample: {
           date: 'YYYY-MM-DD',
           timezone: 'America/New_York',
-          meetings: [{ id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
-          allDay: [{ id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601' }],
+          meetings: [{
+            id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601',
+            description: 'string|null', meet_url: 'string|null', location: 'string|null',
+            attendees: '{email,display_name,response_status,organizer,self}[]|null',
+          }],
+          allDay: [{
+            id: 'string', title: 'string', start: 'ISO-8601', end: 'ISO-8601',
+            description: 'string|null', meet_url: 'string|null', location: 'string|null',
+            attendees: '{email,display_name,response_status,organizer,self}[]|null',
+          }],
           week: [
             { date: 'YYYY-MM-DD', meeting_minutes: 'number', meetings_count: 'number', due_tasks_count: 'number' },
           ],
@@ -700,7 +711,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           date: 'YYYY-MM-DD',
           timezone: 'America/New_York',
           tasks: [
-            { id: 'uuid', title: 'string', status: 'string', priority: 'number', due_date: 'ISO-8601' },
+            { id: 'uuid', title: 'string', status: 'string', priority: 'number', due_date: 'ISO-8601', promised_to: 'string|null' },
           ],
           meta: { total: 'number' },
         },

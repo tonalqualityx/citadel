@@ -38,7 +38,17 @@ export async function GET(request: NextRequest) {
           status: { notIn: NOT_DONE_ABANDONED },
           due_date: { not: null },
         },
-        select: { id: true, title: true, status: true, priority: true, due_date: true, arc_id: true },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          priority: true,
+          due_date: true,
+          arc_id: true,
+          // Clarity Phase 8 (composition) — the reason-chip module's promised/target rule
+          // and the Due-soon door's "promised" vs "targets" subtext.
+          promised_to: true,
+        },
         orderBy: { due_date: 'asc' },
       }),
       prisma.todayPick.findMany({
@@ -73,6 +83,7 @@ export async function GET(request: NextRequest) {
         status: t.status,
         priority: t.priority,
         due_date: t.due_date,
+        promised_to: t.promised_to ?? null,
       })),
       meta: { total: dueSoon.length },
     });

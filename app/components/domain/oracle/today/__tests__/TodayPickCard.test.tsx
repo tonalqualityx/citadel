@@ -37,7 +37,7 @@ function questPick(overrides: Partial<TodayPick> = {}): TodayPick {
     arc_id: null,
     arc: null,
     task_id: 'task-99',
-    task: { id: 'task-99', title: 'Fix the thing', status: 'in_progress', priority: 3, due_date: null, energy_estimate: null, battery_impact: null, mystery_factor: null  },
+    task: { id: 'task-99', title: 'Fix the thing', status: 'in_progress', priority: 3, due_date: null, promised_to: null, energy_estimate: null, battery_impact: null, mystery_factor: null  },
     session_external_id: null,
     session: null,
     charter_id: null,

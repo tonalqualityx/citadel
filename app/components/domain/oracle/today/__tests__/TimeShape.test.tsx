@@ -13,7 +13,7 @@ describe('TimeShape — timeline dedup (Clarity Phase 7 P2, spec G3)', () => {
       <TimeShape
         date={WINDOW_DATE}
         timezone={TZ}
-        meetings={[{ id: 'gcal-1', title: 'Client call', start: '2026-07-27T13:00:00.000Z', end: '2026-07-27T13:30:00.000Z' }]}
+        meetings={[{ id: 'gcal-1', title: 'Client call', start: '2026-07-27T13:00:00.000Z', end: '2026-07-27T13:30:00.000Z', description: null, meet_url: null, location: null, attendees: null }]}
         nowMs={NOW}
         meetingMinutes={30}
         dueTasksCount={0}
@@ -29,7 +29,7 @@ describe('TimeShape — timeline dedup (Clarity Phase 7 P2, spec G3)', () => {
       <TimeShape
         date={WINDOW_DATE}
         timezone={TZ}
-        meetings={[{ id: 'gcal-1', title: 'Client call', start: '2026-07-27T13:00:00.000Z', end: '2026-07-27T13:30:00.000Z' }]}
+        meetings={[{ id: 'gcal-1', title: 'Client call', start: '2026-07-27T13:00:00.000Z', end: '2026-07-27T13:30:00.000Z', description: null, meet_url: null, location: null, attendees: null }]}
         linkedMeetingIds={new Set(['gcal-1'])}
         nowMs={NOW}
         meetingMinutes={30}
@@ -54,7 +54,7 @@ describe('TimeShape — no fabricated times (Clarity Phase 7 repair)', () => {
       <TimeShape
         date={WINDOW_DATE}
         timezone={TZ}
-        meetings={[{ id: 'gcal-1', title: 'Client call', start: '2026-07-27T13:00:00.000Z', end: '2026-07-27T13:30:00.000Z' }]}
+        meetings={[{ id: 'gcal-1', title: 'Client call', start: '2026-07-27T13:00:00.000Z', end: '2026-07-27T13:30:00.000Z', description: null, meet_url: null, location: null, attendees: null }]}
         linkedMeetingIds={new Set(['gcal-1'])}
         nowMs={NOW}
         meetingMinutes={30}

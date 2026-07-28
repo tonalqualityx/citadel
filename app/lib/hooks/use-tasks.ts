@@ -54,6 +54,8 @@ export interface Task {
   battery_impact: string;
   time_spent_minutes: number | null;
   due_date: string | null;
+  // Clarity Phase 8 (composition) — presence = promised to a named person; null = internal.
+  promised_to: string | null;
   started_at: string | null;
   completed_at: string | null;
   requirements: Requirement[] | null;
@@ -135,6 +137,9 @@ export interface CreateTaskInput {
   due_date?: string | null;
   notes?: string | null;
   accord_id?: string | null;
+  // Clarity Phase 8 (composition) — set to a name to mark "promised to someone"; null/absent
+  // = internal/target. The two task-creation forms require an explicit choice client-side.
+  promised_to?: string | null;
 }
 
 export interface UpdateTaskInput extends Partial<CreateTaskInput> {

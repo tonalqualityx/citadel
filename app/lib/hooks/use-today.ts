@@ -35,6 +35,9 @@ export interface TodayPick {
     // today"). Never fabricated: null unless the underlying task actually carries it.
     priority: number | null;
     due_date: string | null;
+    // Clarity Phase 8 (composition) — reason-chip module's promised/target rule: presence
+    // = promised to a named person, null = internal/target.
+    promised_to: string | null;
     // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chips ("Low-
     // energy wins" / "Deep work" / "All"). Never fabricated: null unless the underlying
     // task actually carries it.
@@ -85,11 +88,30 @@ export interface TodayResponse {
   meta: { total: number; uncompleted: number; cap: number };
 }
 
+// Clarity Phase 8 (composition) — Google's attendee list, snake_cased by the machine-side
+// syncer. response_status is passed through UNTRANSLATED (needsAction|declined|tentative|
+// accepted, or any future Google value) — the UI maps known values and falls back to "no
+// reply" rather than ever breaking on an unrecognized status.
+export interface CalendarAttendee {
+  email: string;
+  display_name: string | null;
+  response_status: string | null;
+  organizer?: boolean;
+  self?: boolean;
+}
+
 export interface TodayCalendarMeeting {
   id: string;
   title: string;
   start: string;
   end: string;
+  // Clarity Phase 8 (composition) — meeting context for the clickable calendar-event
+  // popover. All nullable: absent in a sync pass writes back as null (so removing a
+  // description/Meet link/location/attendee in Google actually clears it here too).
+  description: string | null;
+  meet_url: string | null;
+  location: string | null;
+  attendees: CalendarAttendee[] | null;
 }
 
 export interface TodayCalendarWeekDay {
@@ -139,6 +161,8 @@ export interface DueSoonTask {
   status: string;
   priority: number;
   due_date: string;
+  // Clarity Phase 8 (composition) — reason-chip module's promised/target rule.
+  promised_to: string | null;
 }
 
 export interface DueSoonResponse {

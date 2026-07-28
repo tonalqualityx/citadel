@@ -48,6 +48,11 @@ const createTaskSchema = z.object({
   started_at: z.string().datetime().optional().nullable(),
   // Accepts Markdown / plain string OR a raw BlockNote array (see description).
   notes: z.any().optional().nullable(),
+  // Clarity Phase 8 (composition) — presence = promised to a named person; null/absent =
+  // internal/target. Deliberately permissive here (see the two task-creation FORMS for the
+  // required client-side choice) — server-side enforcement would 400 the completion-nudge
+  // draft path, the intake create+open gesture, and session-task creation.
+  promised_to: z.string().max(200).optional().nullable(),
   // Billing fields
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
@@ -457,6 +462,7 @@ export async function POST(request: NextRequest) {
         started_at: startedAt,
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: serializeRichText(data.notes),
+        promised_to: data.promised_to ?? null,
         // Billing fields - charter tasks are never billable (already invoiced via charter)
         is_billable: data.charter_id ? false : (data.is_billable ?? true),
         billing_target: data.billing_target,

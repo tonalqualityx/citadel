@@ -55,6 +55,9 @@ export const taskEndpoints: ApiEndpoint[] = [
             estimated_minutes: 'number|null',
             battery_impact: 'average_drain|high_drain|energizing',
             due_date: 'ISO-8601|null',
+            // Clarity Phase 8 (composition) — presence = promised to a named person; null =
+            // internal/target. See the reason-chip module for the rendering rule.
+            promised_to: 'string|null',
             started_at: 'ISO-8601|null',
             completed_at: 'ISO-8601|null',
             time_spent_minutes: 'number|null',
@@ -95,6 +98,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'mystery_factor', type: 'string', required: false, description: 'none, average, significant, no_idea' },
           { name: 'battery_impact', type: 'string', required: false, description: 'average_drain, high_drain, energizing' },
           { name: 'due_date', type: 'ISO-8601', required: false, description: 'Due date' },
+          { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — set to a name to mark this task promised to that person; omit/null for internal/target work. Permissive here; the in-app task-creation forms require an explicit choice.' },
           { name: 'needs_review', type: 'boolean', required: false, description: 'Whether task needs review' },
           { name: 'reviewer_id', type: 'uuid', required: false, description: 'Reviewer user ID' },
           { name: 'sop_id', type: 'uuid', required: false, description: 'Associated SOP' },
@@ -166,6 +170,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           estimated_minutes: 'number|null',
           battery_impact: 'string',
           due_date: 'ISO-8601|null',
+          promised_to: 'string|null',
           started_at: 'ISO-8601|null',
           completed_at: 'ISO-8601|null',
           requirements: 'string|null',
@@ -204,6 +209,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         auth: 'required',
         bodySchema: [
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 4b — attach to an arc (404 if the arc does not exist); pass null to explicitly detach; omit to leave untouched. PM/Admin only.' },
+          { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — omit to leave untouched, null to clear back to internal/target, a name to set promised-to.' },
         ],
         responseNotes:
           'Clarity Phase 7 — the completion-nudge hook: a status-only PATCH ({ status: ' +

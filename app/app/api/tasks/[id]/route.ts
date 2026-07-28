@@ -57,6 +57,10 @@ const updateTaskSchema = z.object({
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
   due_date: z.string().datetime().optional().nullable(),
   notes: z.any().optional(), // BlockNote JSON content
+  // Clarity Phase 8 (composition) — absent = untouched; explicit null clears back to
+  // "internal/target"; a non-empty string sets "promised to this person". Permissive
+  // server-side by design (see route.ts POST comment).
+  promised_to: z.string().max(200).optional().nullable(),
   requirements: z.array(requirementEntrySchema).optional().nullable(),
   // Quality Gate (PM/Admin only)
   review_requirements: z.array(requirementEntrySchema).optional().nullable(),
@@ -349,6 +353,7 @@ export async function PATCH(
         'due_date',
         'no_time_needed',
         'site_id',
+        'promised_to',
       ];
       const attemptedFields = Object.keys(body);
       const disallowedFields = attemptedFields.filter(
@@ -467,6 +472,7 @@ export async function PATCH(
     if (data.due_date !== undefined) {
       updateData.due_date = data.due_date ? new Date(data.due_date) : null;
     }
+    if (data.promised_to !== undefined) updateData.promised_to = data.promised_to;
 
     // Review workflow fields - only task creator or PM/Admin can update
     const canUpdateReviewFields = existingTask.created_by_id === auth.userId || auth.role !== 'tech';

@@ -27,6 +27,8 @@ export const PICK_INCLUDE = {
       mystery_factor: true,
       // Clarity Phase 7 — the Today pick card's cover band.
       cover_url: true,
+      // Clarity Phase 8 (composition) — the reason-chip module's promised/target rule.
+      promised_to: true,
     },
   },
   // Clarity Phase 7 — charter stays included for back-compat: a pre-rewire lead pick may
