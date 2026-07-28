@@ -140,3 +140,106 @@ describe('TodaySection — energy filter chips (Clarity Phase 3 Reckoning, spec 
     expect(screen.getByTestId('today-wip-count')).toHaveTextContent('2');
   });
 });
+
+// Clarity Phase 7 (repair, 2026-07-27) — Mike's binding correction: the page must always
+// LAND on "All", regardless of whatever filter was last persisted server-side. A stale
+// "Deep work" filter silently hiding the To Do column read as data loss tonight.
+describe('TodaySection — energy filter always opens on All (Clarity Phase 7 repair)', () => {
+  it('opens on "All" even when the stored preference is a different filter', async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/today') {
+        return Promise.resolve({
+          date: '2026-07-27',
+          timezone: 'America/New_York',
+          picks: [taskPick('low', { energy_estimate: 1 }), taskPick('high', { energy_estimate: 8 })],
+          meta: { total: 2, uncompleted: 2, cap: 5 },
+        });
+      }
+      if (url === '/today/calendar') {
+        return Promise.resolve({ date: '2026-07-27', timezone: 'America/New_York', meetings: [], allDay: [], week: [] });
+      }
+      if (url === '/users/me/preferences') {
+        return Promise.resolve({
+          preferences: {
+            naming_convention: 'standard',
+            theme: 'system',
+            notification_bundle: true,
+            today_view: 'list',
+            // The last thing this user picked, persisted server-side.
+            energy_filter: 'deep_work',
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    renderWithClient(<TodaySection />);
+
+    expect(await screen.findByTestId('energy-filter-all')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('energy-filter-deep_work')).toHaveAttribute('aria-pressed', 'false');
+    // Both picks visible — the stored "Deep work" filter never applied to the landing render.
+    const list = await screen.findByTestId('today-list');
+    expect(list).toHaveTextContent('Task low');
+    expect(list).toHaveTextContent('Task high');
+  });
+});
+
+// Clarity Phase 7 (repair, 2026-07-27) — an active filter hiding every pick shows a quiet
+// count + "show all" instead of a bare empty grid (which read as data loss tonight).
+describe('TodaySection — "N hidden by filter" empty state (Clarity Phase 7 repair)', () => {
+  beforeEach(() => {
+    // Both fixture picks are low-energy — "Deep work" matches neither, so the whole list
+    // empties out purely because of the filter (never because there's nothing picked).
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/today') {
+        return Promise.resolve({
+          date: '2026-07-27',
+          timezone: 'America/New_York',
+          picks: [taskPick('a', { energy_estimate: 1 }), taskPick('b', { energy_estimate: 2 })],
+          meta: { total: 2, uncompleted: 2, cap: 5 },
+        });
+      }
+      if (url === '/today/calendar') {
+        return Promise.resolve({ date: '2026-07-27', timezone: 'America/New_York', meetings: [], allDay: [], week: [] });
+      }
+      if (url === '/users/me/preferences') {
+        return Promise.resolve({
+          preferences: {
+            naming_convention: 'standard',
+            theme: 'system',
+            notification_bundle: true,
+            today_view: 'list',
+            energy_filter: 'all',
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+  });
+
+  it('shows "N hidden by filter" instead of a bare empty list', async () => {
+    renderWithClient(<TodaySection />);
+    await screen.findByTestId('today-list');
+
+    fireEvent.click(screen.getByTestId('energy-filter-deep_work'));
+
+    const empty = await screen.findByTestId('energy-filter-empty');
+    expect(empty).toHaveTextContent('2 hidden by filter');
+    expect(screen.queryByTestId('today-list')).not.toBeInTheDocument();
+  });
+
+  it('"show all" resets the filter back to All and the list reappears', async () => {
+    renderWithClient(<TodaySection />);
+    await screen.findByTestId('today-list');
+
+    fireEvent.click(screen.getByTestId('energy-filter-deep_work'));
+    await screen.findByTestId('energy-filter-empty');
+
+    fireEvent.click(screen.getByTestId('energy-filter-show-all'));
+
+    await waitFor(() => expect(screen.getByTestId('energy-filter-all')).toHaveAttribute('aria-pressed', 'true'));
+    const list = await screen.findByTestId('today-list');
+    expect(list).toHaveTextContent('Task a');
+    expect(list).toHaveTextContent('Task b');
+  });
+});

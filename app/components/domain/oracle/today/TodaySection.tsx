@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { excludeLinkedPicks, linkedMeetingIds } from './time-shape-logic';
 import { ENERGY_FILTER_OPTIONS, filterPicksByEnergy, type EnergyFilterValue } from './energy-filter-logic';
+import { columnForPick, type BoardColumnId } from './today-board-logic';
 import { TimeShape } from './TimeShape';
 import { NowStrip } from './NowStrip';
 import { TodayPickCard } from './TodayPickCard';
@@ -60,8 +61,15 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
   // Clarity Phase 3 (Reckoning, spec Q9/G10) — the energy filter chips: a VIEW filter
   // only, persisted the same optimistic-then-server way as the list/board lens above —
   // never a reorder of the stored picks themselves.
+  //
+  // Clarity Phase 7 (repair, 2026-07-27) — Mike's binding correction: the page must always
+  // LAND on "All", never on whatever filter was last persisted. An empty TO DO column from
+  // a stale "Deep work" filter read as data loss tonight. The stored preference is still
+  // PATCHed on every click (so it round-trips cross-device the way today_view does), but it
+  // is deliberately never read back as the initial/landing value here — only this session's
+  // own clicks (localEnergyFilter) ever move it off "All".
   const [localEnergyFilter, setLocalEnergyFilter] = React.useState<EnergyFilterValue | null>(null);
-  const energyFilter = localEnergyFilter ?? preferencesData?.preferences.energy_filter ?? 'all';
+  const energyFilter = localEnergyFilter ?? 'all';
 
   function setEnergyFilter(next: EnergyFilterValue) {
     setLocalEnergyFilter(next);
@@ -84,6 +92,21 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
   // and the header's WIP/done counters stay UNFILTERED — those are honest counts of
   // what's actually picked, never something a view filter should make look smaller.
   const visiblePicks = filterPicksByEnergy(picks, energyFilter);
+
+  // Clarity Phase 7 (repair, 2026-07-27) — the board lens buckets picks per column
+  // (To do/Doing/Done); a filter can hide every pick in ONE column while others still
+  // show cards, which read as data loss (an empty To Do column, specifically, was
+  // tonight's incident) rather than "the filter did this." Per-column hidden counts let
+  // TodayBoard render a quiet "N hidden by filter" line in exactly the columns it's true
+  // for, instead of a bare empty box. Plain per-render computation, same as visiblePicks
+  // above — the list is Today-sized (a handful of picks), not worth memoizing.
+  const hiddenCountByColumn: Record<BoardColumnId, number> = { todo: 0, doing: 0, done: 0 };
+  if (energyFilter !== 'all') {
+    const visibleIds = new Set(visiblePicks.map((p) => p.id));
+    for (const p of picks) {
+      if (!visibleIds.has(p.id)) hiddenCountByColumn[columnForPick(p)] += 1;
+    }
+  }
 
   const today = calendarData?.week?.[0];
   // Falls back to the client-safe default while calendarData is still loading —
@@ -207,8 +230,19 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
               Nothing picked for today yet — add a focus, {t('task')}, or a quick note above.
             </p>
           ) : visiblePicks.length === 0 ? (
+            // Clarity Phase 7 (repair, 2026-07-27) — an active filter hiding every pick
+            // reads as a quiet "nothing matches, here's how many and how to see them",
+            // never a bare empty grid (that read as data loss tonight).
             <p className="px-1 py-2 text-sm text-text-sub" data-testid="energy-filter-empty">
-              Nothing matches this filter — try All.
+              {picks.length} hidden by filter —{' '}
+              <button
+                type="button"
+                onClick={() => setEnergyFilter('all')}
+                className="underline decoration-dotted hover:text-text-main"
+                data-testid="energy-filter-show-all"
+              >
+                show all
+              </button>
             </p>
           ) : lens === 'list' ? (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" data-testid="today-list">
@@ -221,7 +255,12 @@ export function TodaySection({ legacyAttentionArcIds }: TodaySectionProps = {}) 
               ))}
             </div>
           ) : (
-            <TodayBoard picks={visiblePicks} legacyAttentionArcIds={legacyAttentionArcIds} />
+            <TodayBoard
+              picks={visiblePicks}
+              legacyAttentionArcIds={legacyAttentionArcIds}
+              hiddenCountByColumn={hiddenCountByColumn}
+              onShowAllFilter={() => setEnergyFilter('all')}
+            />
           )}
 
           <DueSoonRow />

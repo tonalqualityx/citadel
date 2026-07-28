@@ -25,6 +25,15 @@ interface TodayBoardProps {
   picks: TodayPick[];
   // Clarity Phase 5 — threaded through to each card's attention dot, same as the list lens.
   legacyAttentionArcIds?: Set<string>;
+  // Clarity Phase 7 (repair, 2026-07-27) — how many picks the active energy filter is
+  // hiding FROM EACH column specifically (computed against the full, unfiltered picks —
+  // see TodaySection). A column that renders zero cards because of the filter shows a
+  // quiet "N hidden by filter" line instead of a bare empty box (an empty To Do column
+  // read as data loss tonight). Omitted/all-zero when the filter is "All".
+  hiddenCountByColumn?: Record<BoardColumnId, number>;
+  // Clarity Phase 7 (repair) — resets the energy filter to "All", wired to the hidden-
+  // count line's "show all" affordance.
+  onShowAllFilter?: () => void;
 }
 
 const COLUMN_TITLES: Record<BoardColumnId, string> = {
@@ -48,7 +57,7 @@ const COLUMN_ORDER: BoardColumnId[] = ['doing', 'todo', 'done'];
 // out of Done). The existing checkmark toggle (in TodayPickCard) remains a same-effect
 // shortcut for Doing/To do -> Done. The Doing column's soft WIP cap (>=3, warning tint,
 // never a hard block) applies here exactly as before, now driven by real column membership.
-export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
+export function TodayBoard({ picks, legacyAttentionArcIds, hiddenCountByColumn, onShowAllFilter }: TodayBoardProps) {
   const updatePick = useUpdateTodayPick();
   const [activePick, setActivePick] = React.useState<TodayPick | null>(null);
   // Clarity Phase 7 (P2) — Done renders collapsed by default (count + expand), per the
@@ -125,6 +134,8 @@ export function TodayBoard({ picks, legacyAttentionArcIds }: TodayBoardProps) {
               legacyAttentionArcIds={legacyAttentionArcIds}
               collapsed={isDone && !doneExpanded}
               onToggleCollapsed={isDone ? () => setDoneExpanded((v) => !v) : undefined}
+              hiddenCount={hiddenCountByColumn?.[columnId] ?? 0}
+              onShowAllFilter={onShowAllFilter}
             />
           );
         })}
@@ -154,6 +165,8 @@ function TodayBoardColumn({
   legacyAttentionArcIds,
   collapsed,
   onToggleCollapsed,
+  hiddenCount,
+  onShowAllFilter,
 }: {
   id: BoardColumnId;
   title: string;
@@ -166,6 +179,9 @@ function TodayBoardColumn({
   // Clarity Phase 7 (P2) — Done renders collapsed by default (count + expand).
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  // Clarity Phase 7 (repair, 2026-07-27) — see TodayBoardProps.hiddenCountByColumn.
+  hiddenCount?: number;
+  onShowAllFilter?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -222,6 +238,23 @@ function TodayBoardColumn({
 
       {overflowCount > 0 && (
         <div className="px-1 text-center text-xs text-text-sub">+ {overflowCount} more</div>
+      )}
+
+      {/* Clarity Phase 7 (repair, 2026-07-27) — this column renders zero cards only
+          because the active energy filter hid every pick that belongs here (a real,
+          non-empty column reading as empty was tonight's data-loss scare) — never
+          silently show a bare empty box for that specific case. */}
+      {total === 0 && !!hiddenCount && (
+        <p className="px-1 text-center text-xs text-text-sub" data-testid="today-board-column-hidden">
+          {hiddenCount} hidden by filter —{' '}
+          <button
+            type="button"
+            onClick={onShowAllFilter}
+            className="underline decoration-dotted hover:text-text-main"
+          >
+            show all
+          </button>
+        </p>
       )}
     </div>
   );

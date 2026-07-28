@@ -85,4 +85,45 @@ describe('TodayBoard', () => {
     renderWithClient(<TodayBoard picks={[pick({ id: 'todo-1' })]} />);
     expect(screen.getByTestId('today-board-column-todo').querySelector('[data-testid="today-board-done-toggle"]')).toBeNull();
   });
+
+  // Clarity Phase 7 (repair, 2026-07-27) — an active energy filter hiding every pick from
+  // one column (To Do, in Mike's actual incident) must show why the column is empty, never
+  // render a bare empty box that reads as data loss.
+  describe('hidden-by-filter messaging', () => {
+    it('shows nothing when hiddenCountByColumn is omitted (no active filter)', () => {
+      renderWithClient(<TodayBoard picks={[]} />);
+      expect(screen.queryByTestId('today-board-column-hidden')).not.toBeInTheDocument();
+    });
+
+    it('shows "N hidden by filter" in an empty column that the filter hid picks from', () => {
+      renderWithClient(
+        <TodayBoard picks={[]} hiddenCountByColumn={{ todo: 3, doing: 0, done: 0 }} />
+      );
+      const todoColumn = screen.getByTestId('today-board-column-todo');
+      expect(todoColumn.querySelector('[data-testid="today-board-column-hidden"]')).toHaveTextContent(
+        '3 hidden by filter'
+      );
+      // Columns the filter didn't empty stay silent.
+      const doingColumn = screen.getByTestId('today-board-column-doing');
+      expect(doingColumn.querySelector('[data-testid="today-board-column-hidden"]')).toBeNull();
+    });
+
+    it('never shows the hidden line for a column that genuinely has cards', () => {
+      renderWithClient(
+        <TodayBoard picks={[pick({ id: 'todo-1' })]} hiddenCountByColumn={{ todo: 5, doing: 0, done: 0 }} />
+      );
+      expect(
+        screen.getByTestId('today-board-column-todo').querySelector('[data-testid="today-board-column-hidden"]')
+      ).toBeNull();
+    });
+
+    it('"show all" calls onShowAllFilter', () => {
+      const onShowAllFilter = vi.fn();
+      renderWithClient(
+        <TodayBoard picks={[]} hiddenCountByColumn={{ todo: 2, doing: 0, done: 0 }} onShowAllFilter={onShowAllFilter} />
+      );
+      fireEvent.click(screen.getByText('show all'));
+      expect(onShowAllFilter).toHaveBeenCalled();
+    });
+  });
 });
