@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
       kind,
       ran_at: run?.ran_at ?? null,
       bailed_at: run?.bailed_at ?? null,
+      quickstart_at: run?.quickstart_at ?? null,
     });
   } catch (error) {
     return handleApiError(error);
@@ -46,6 +47,9 @@ const postSchema = z.object({
   date: z.string().regex(DATE_RE).optional(),
   kind: z.string().max(20).optional(),
   action: z.enum(['ran', 'bailed']),
+  // Clarity Phase 8 (composition) — the gate's Quick-start door: stamps quickstart_at
+  // alongside ran_at. Only meaningful with action='ran'; ignored otherwise.
+  quickstart: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -65,6 +69,8 @@ export async function POST(request: NextRequest) {
     // (unique on date+kind) and never regress the other field — a bail doesn't get
     // clobbered by a later ran, and vice versa; each action only ever touches its own
     // timestamp.
+    const stampQuickstart = data.action === 'ran' && !!data.quickstart;
+
     const run = await prisma.ritualRun.upsert({
       where: { date_kind: { date, kind } },
       create: {
@@ -72,10 +78,12 @@ export async function POST(request: NextRequest) {
         kind,
         ran_at: data.action === 'ran' ? now : null,
         bailed_at: data.action === 'bailed' ? now : null,
+        quickstart_at: stampQuickstart ? now : null,
       },
       update: {
         ...(data.action === 'ran' && { ran_at: now }),
         ...(data.action === 'bailed' && { bailed_at: now }),
+        ...(stampQuickstart && { quickstart_at: now }),
       },
     });
 
@@ -84,6 +92,7 @@ export async function POST(request: NextRequest) {
       kind,
       ran_at: run.ran_at,
       bailed_at: run.bailed_at,
+      quickstart_at: run.quickstart_at,
     });
   } catch (error) {
     return handleApiError(error);

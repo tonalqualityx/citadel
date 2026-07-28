@@ -688,6 +688,50 @@ export const clarityEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/ritual-runs',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary: "Clarity Phase 7/8 — the ritual gate's backing store: has the morning ritual run, bailed, or been quick-started for a given day+kind?",
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [
+          { name: 'kind', type: 'string', required: false, description: 'Defaults to "morning" — the only kind currently used.' },
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD in the requester\'s resolved timezone; defaults to today in that zone.' },
+        ],
+        responseExample: {
+          date: 'YYYY-MM-DD', kind: 'morning',
+          ran_at: 'ISO-8601|null', bailed_at: 'ISO-8601|null',
+          quickstart_at: 'ISO-8601|null',
+        },
+      },
+      {
+        method: 'POST',
+        summary: 'Records a ritual action for the day: ran, bailed, or a quickstart-flagged ran.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Idempotent upsert keyed on date+kind — repeat POSTs never duplicate a row and never regress ' +
+          'the other timestamp (a bail is never clobbered by a later ran, and vice versa; each action only ' +
+          'touches its own field). Clarity Phase 8 — quickstart:true (only meaningful with action=\'ran\') ' +
+          'additionally stamps quickstart_at, recording that the gate was satisfied via the Quick-start door ' +
+          'rather than a full ritual; a later plain ran the same day never clears an already-set quickstart_at.',
+        bodySchema: [
+          { name: 'action', type: 'string', required: true, description: '"ran" or "bailed"' },
+          { name: 'kind', type: 'string', required: false, description: 'Defaults to "morning".' },
+          { name: 'date', type: 'string', required: false, description: 'YYYY-MM-DD; defaults to today in the requester\'s resolved timezone.' },
+          { name: 'quickstart', type: 'boolean', required: false, description: 'Clarity Phase 8 — stamps quickstart_at alongside ran_at when action=\'ran\'.' },
+        ],
+        responseExample: {
+          date: 'YYYY-MM-DD', kind: 'morning',
+          ran_at: 'ISO-8601|null', bailed_at: 'ISO-8601|null',
+          quickstart_at: 'ISO-8601|null',
+        },
+      },
+    ],
+  },
+  {
     path: '/api/today/due-soon',
     group: 'clarity',
     methods: [

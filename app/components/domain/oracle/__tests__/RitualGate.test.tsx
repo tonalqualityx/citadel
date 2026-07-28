@@ -31,7 +31,7 @@ function mockEndpoints({
 }) {
   mockGet.mockImplementation((path: string) => {
     if (path === '/ritual-runs') {
-      return Promise.resolve({ date: '2026-07-27', kind: 'morning', ran_at: ranAt, bailed_at: bailedAt });
+      return Promise.resolve({ date: '2026-07-27', kind: 'morning', ran_at: ranAt, bailed_at: bailedAt, quickstart_at: null });
     }
     if (path === '/today') {
       return Promise.resolve({
@@ -155,5 +155,97 @@ describe('RitualGate', () => {
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/ritual-runs', expect.objectContaining({ action: 'bailed' }))
     );
+  });
+
+  describe('Full ritual door (Clarity Phase 8)', () => {
+    it('renders a Full ritual door that does NOT POST anything on click', async () => {
+      mockEndpoints({});
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+
+      renderWithClient(
+        <RitualGate hasCrisis={false}>
+          <div>content</div>
+        </RitualGate>
+      );
+
+      await waitFor(() => expect(screen.getByTestId('ritual-gate-full-ritual')).toBeVisible());
+      await user.click(screen.getByTestId('ritual-gate-full-ritual'));
+
+      // Purely informational — the real ritual runs machine-side; this door never POSTs
+      // a "ran"/"bailed" action and the cover stays up.
+      expect(mockPost).not.toHaveBeenCalled();
+      expect(screen.getByTestId('ritual-gate-cover')).toBeVisible();
+    });
+  });
+
+  describe('Quick-start door (Clarity Phase 8, DAY-REALITY ADDENDUM #2)', () => {
+    it('renders the quickstart input and submit button', async () => {
+      mockEndpoints({});
+      renderWithClient(
+        <RitualGate hasCrisis={false}>
+          <div>content</div>
+        </RitualGate>
+      );
+
+      await waitFor(() => expect(screen.getByTestId('ritual-gate-quickstart-input')).toBeVisible());
+      expect(screen.getByTestId('ritual-gate-quickstart-submit')).toBeVisible();
+    });
+
+    it('does not submit when the input is empty', async () => {
+      mockEndpoints({});
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+
+      renderWithClient(
+        <RitualGate hasCrisis={false}>
+          <div>content</div>
+        </RitualGate>
+      );
+
+      await waitFor(() => expect(screen.getByTestId('ritual-gate-quickstart-submit')).toBeVisible());
+      await user.click(screen.getByTestId('ritual-gate-quickstart-submit'));
+
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('submitting the one thing POSTs the note pick FIRST, then the quickstart-flagged ran', async () => {
+      mockEndpoints({});
+      mockPost.mockImplementation((path: string) => {
+        if (path === '/today') return Promise.resolve({ id: 'pick-1' });
+        if (path === '/ritual-runs') {
+          return Promise.resolve({
+            date: '2026-07-27', kind: 'morning', ran_at: '2026-07-27T07:00:00.000Z',
+            bailed_at: null, quickstart_at: '2026-07-27T07:00:00.000Z',
+          });
+        }
+        return Promise.reject(new Error(`unexpected path ${path}`));
+      });
+      const { default: userEvent } = await import('@testing-library/user-event');
+      const user = userEvent.setup();
+
+      renderWithClient(
+        <RitualGate hasCrisis={false}>
+          <div data-testid="gated-content">content</div>
+        </RitualGate>
+      );
+
+      await waitFor(() => expect(screen.getByTestId('ritual-gate-quickstart-input')).toBeVisible());
+      await user.type(screen.getByTestId('ritual-gate-quickstart-input'), 'Ship the calendar popover');
+      await user.click(screen.getByTestId('ritual-gate-quickstart-submit'));
+
+      await waitFor(() => {
+        expect(mockPost).toHaveBeenCalledWith('/today', expect.objectContaining({ item_type: 'note', label: 'Ship the calendar popover' }));
+        expect(mockPost).toHaveBeenCalledWith('/ritual-runs', expect.objectContaining({ action: 'ran', quickstart: true }));
+      });
+
+      const todayCallIndex = mockPost.mock.calls.findIndex((c) => c[0] === '/today');
+      const ritualCallIndex = mockPost.mock.calls.findIndex((c) => c[0] === '/ritual-runs');
+      expect(todayCallIndex).toBeGreaterThanOrEqual(0);
+      expect(ritualCallIndex).toBeGreaterThan(todayCallIndex);
+
+      // The gate opens (children render) once the mutation settles.
+      await waitFor(() => expect(screen.getByTestId('gated-content')).toBeVisible());
+    });
   });
 });

@@ -167,3 +167,73 @@ describe('POST /api/ritual-runs', () => {
     expect(mockUpsert).toHaveBeenCalled();
   });
 });
+
+describe('POST /api/ritual-runs — Quick-start (Clarity Phase 8)', () => {
+  it('quickstart:true with action=ran stamps BOTH ran_at and quickstart_at', async () => {
+    mockUpsert.mockResolvedValue({
+      id: 'r1',
+      date: new Date('2026-07-27T00:00:00.000Z'),
+      kind: 'morning',
+      ran_at: new Date(),
+      bailed_at: null,
+      quickstart_at: new Date(),
+    });
+
+    const res = await POST(postReq({ date: '2026-07-27', action: 'ran', quickstart: true }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.ran_at).not.toBeNull();
+    expect(body.quickstart_at).not.toBeNull();
+    const call = mockUpsert.mock.calls[0][0];
+    expect(call.create.quickstart_at).toBeInstanceOf(Date);
+    expect(call.update.quickstart_at).toBeInstanceOf(Date);
+  });
+
+  it('a later plain `ran` (no quickstart) the same day does not clear an already-set quickstart_at (never included in the update)', async () => {
+    mockUpsert.mockResolvedValue({
+      id: 'r1',
+      date: new Date('2026-07-27T00:00:00.000Z'),
+      kind: 'morning',
+      ran_at: new Date(),
+      bailed_at: null,
+      quickstart_at: new Date('2026-07-27T07:00:00.000Z'),
+    });
+
+    await POST(postReq({ date: '2026-07-27', action: 'ran' }));
+    const call = mockUpsert.mock.calls[0][0];
+    expect(call.update).toEqual({ ran_at: expect.any(Date) });
+    expect(call.update.quickstart_at).toBeUndefined();
+  });
+
+  it('quickstart:true with action=bailed is a no-op for quickstart_at (only meaningful with action=ran)', async () => {
+    mockUpsert.mockResolvedValue({
+      id: 'r1',
+      date: new Date('2026-07-27T00:00:00.000Z'),
+      kind: 'morning',
+      ran_at: null,
+      bailed_at: new Date(),
+      quickstart_at: null,
+    });
+
+    await POST(postReq({ date: '2026-07-27', action: 'bailed', quickstart: true }));
+    const call = mockUpsert.mock.calls[0][0];
+    expect(call.update.quickstart_at).toBeUndefined();
+    expect(call.create.quickstart_at).toBeNull();
+  });
+
+  it('GET returns quickstart_at', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'r1',
+      date: new Date('2026-07-27T00:00:00.000Z'),
+      kind: 'morning',
+      ran_at: new Date(),
+      bailed_at: null,
+      quickstart_at: new Date(),
+    });
+
+    const res = await GET(getReq({ date: '2026-07-27' }));
+    const body = await res.json();
+    expect(body.quickstart_at).not.toBeNull();
+  });
+});

@@ -2925,6 +2925,13 @@ model RitualRun {
 
   ran_at    DateTime?
   bailed_at DateTime?
+  // Clarity Phase 8 (composition) — the gate's third door (DAY-REALITY ADDENDUM #2). A
+  // quick-start satisfies the gate exactly like a full ritual (ran_at is stamped too), but
+  // records that it was the SHORT door — that's what lets an "the wave broke, want the
+  // full ritual?" offer around 11am be honest instead of guessed. Never cleared once set
+  // by a later plain `ran` the same day (each action only ever touches its own field, per
+  // the upsert's existing convention).
+  quickstart_at DateTime?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
