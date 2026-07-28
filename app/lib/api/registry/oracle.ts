@@ -320,4 +320,34 @@ export const oracleEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/oracle/admin-soon',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'GET',
+        summary: "Clarity Phase 8 (composition) — Process mode's admin-soon stage: the weekly ~45-60 min batch's third deal (after intake, after review).",
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          '"Admin-soon" is a PRAGMATIC, documented filter (not a new task field) — a task qualifies via ' +
+          'ANY of: (a) explicit — tagged "kind:admin" (always wins); (b) small internal bite — no client, ' +
+          'no project, energy_estimate <= 3, and mystery_factor != no_idea (the SMALL-BITE HONESTY LAW: a ' +
+          'task the system cannot honestly size is never offered inside a timeboxed chunk); (c) admin-lane ' +
+          'provenance — referenced by an EmailAsk with intent=admin. All three additionally pass the same ' +
+          'plate rule /api/waiting-on-me uses (a task under a quote/queue-status project contributes zero). ' +
+          'Ordered due_date asc (nulls last), then priority asc, then created_at asc; capped at 20.',
+        responseExample: {
+          tasks: [
+            {
+              id: 'uuid', title: 'string', status: 'string', priority: 'number',
+              due_date: 'ISO-8601|null', promised_to: 'string|null',
+              client: { id: 'uuid', name: 'string' }, source_intent: 'admin|null',
+            },
+          ],
+          meta: { total: 'number', cap: 20 },
+        },
+      },
+    ],
+  },
 ];
