@@ -39,9 +39,15 @@ const newSessionSchema = z.object({
 
 const CWD_DATALIST_ID = 'oracle-new-session-cwd-options';
 
+// The dispatcher hard-rejects any cwd that does not resolve under the machine's
+// $HOME (oracle-dispatch.py containment), so the form opens prefilled with the
+// one directory guaranteed to pass instead of an empty field a user can submit
+// as "/" and only find out a minute later from the dispatch log.
+const DEFAULT_CWD = '/home/mike';
+
 export function NewSessionModal({ open, onOpenChange, machines }: NewSessionModalProps) {
   const [machine, setMachine] = React.useState('');
-  const [cwd, setCwd] = React.useState('');
+  const [cwd, setCwd] = React.useState(DEFAULT_CWD);
   const [title, setTitle] = React.useState('');
   const [prompt, setPrompt] = React.useState('');
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
@@ -58,7 +64,7 @@ export function NewSessionModal({ open, onOpenChange, machines }: NewSessionModa
   React.useEffect(() => {
     if (!open) return;
     setMachine(machines.length === 1 ? machines[0].name : '');
-    setCwd('');
+    setCwd(DEFAULT_CWD);
     setTitle('');
     setPrompt('');
     setFieldErrors({});

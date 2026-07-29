@@ -44,9 +44,16 @@ describe('NewSessionModal', () => {
     mockMutationState = { isPending: false, isError: false, error: null };
   });
 
-  it('blocks submit and shows an inline error when cwd is empty (required field)', () => {
+  it('opens with the working directory prefilled to /home/mike (dispatcher-safe default)', () => {
     render(<NewSessionModal open onOpenChange={vi.fn()} machines={[makeMachine()]} />);
 
+    expect(screen.getByLabelText('Working directory')).toHaveValue('/home/mike');
+  });
+
+  it('blocks submit and shows an inline error when cwd is cleared (required field)', () => {
+    render(<NewSessionModal open onOpenChange={vi.fn()} machines={[makeMachine()]} />);
+
+    fireEvent.change(screen.getByLabelText('Working directory'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /queue session/i }));
 
     expect(mockMutate).not.toHaveBeenCalled();
