@@ -13,6 +13,12 @@ export interface Task {
   status: string;
   priority: number;
   is_focus: boolean;
+  // Provenance (Phase 8 shakedown, Mike 2026-07-29): where this task came from. The API
+  // has returned these since the email->task path shipped, but the type never declared
+  // them, so no surface could render the email a task was born from.
+  source: string | null;
+  source_ref: string | null;
+  origin_url: string | null;
   // Triage-state + stack:/kind: classification tags (read-only display; see bast-work-support)
   tags: string[];
   project_id: string | null;

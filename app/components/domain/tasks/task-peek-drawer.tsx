@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Scroll,
   Milestone,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '@/lib/hooks/use-auth';
 import { useTask, useUpdateTask } from '@/lib/hooks/use-tasks';
@@ -315,6 +316,26 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                     />
                   )}
                 </div>
+
+                {/* Origin (Phase 8 shakedown, Mike 2026-07-29): a task born from an email
+                    carried source/origin_url all along, but no surface rendered the link —
+                    "where do I see the connection to the email?" had no answer. */}
+                {task.origin_url && (
+                  <a
+                    href={task.origin_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-text-sub hover:text-primary"
+                    data-testid="task-peek-origin-link"
+                  >
+                    {task.source === 'email' ? (
+                      <Mail className="h-4 w-4" />
+                    ) : (
+                      <ExternalLink className="h-4 w-4" />
+                    )}
+                    <span>{task.source === 'email' ? 'From email' : 'Origin'}</span>
+                  </a>
+                )}
 
                 {/* Charter */}
                 {task.charter && (
