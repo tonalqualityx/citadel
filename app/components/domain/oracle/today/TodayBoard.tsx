@@ -231,12 +231,18 @@ function TodayBoardColumn({
               hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
             />
             {onStart && (
+              // Phase 8 shakedown (Mike, 2026-07-29): the old dotted-underline text link
+              // rendered as detached debris floating between cards. A right-aligned pill,
+              // pulled up against its card, reads as that card's control.
               <button
                 type="button"
                 onClick={() => onStart(pick.id)}
-                className="self-start px-1 text-xs text-text-sub underline decoration-dotted hover:text-text-main"
+                className="-mt-0.5 inline-flex items-center gap-1 self-end rounded-full border border-border-warm bg-surface px-2.5 py-0.5 text-xs font-medium text-text-sub transition-colors hover:border-[color:var(--accent)] hover:text-text-main"
                 data-testid="today-board-start-button"
               >
+                <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="currentColor" aria-hidden="true">
+                  <path d="M3 2l7 4-7 4z" />
+                </svg>
                 Start
               </button>
             )}
