@@ -45,9 +45,11 @@ const COLUMN_TITLES: Record<BoardColumnId, string> = {
   done: 'Done',
 };
 
-// Clarity Phase 7 (P2) — kanban defaults (spec): Doing leads (research law "doing leads;
-// done sinks"), To do next, Done last and collapsed by default (see doneExpanded below).
-const COLUMN_ORDER: BoardColumnId[] = ['doing', 'todo', 'done'];
+// Phase 8 shakedown (Mike, 2026-07-29, supersedes the Phase 7 "doing leads" research
+// law): a kanban reads To Do -> Doing -> Done, left to right, and departing from the
+// convention read as a broken board, not a design choice. Done stays collapsed by
+// default (see doneExpanded below).
+const COLUMN_ORDER: BoardColumnId[] = ['todo', 'doing', 'done'];
 
 // The Today board lens: same picks as the list, viewed as columns To do / Doing / Done —
 // Clarity Phase 4b made this a REAL, server-persisted state (today_picks.started_at) with
@@ -224,29 +226,13 @@ function TodayBoardColumn({
 
       <div className="flex flex-col gap-2">
         {cards.map((pick) => (
-          <div key={pick.id} className="flex flex-col gap-1">
-            <DraggableTodayPick
-              pick={pick}
-              todayDateStr={todayDateStr}
-              hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
-            />
-            {onStart && (
-              // Phase 8 shakedown (Mike, 2026-07-29): the old dotted-underline text link
-              // rendered as detached debris floating between cards. A right-aligned pill,
-              // pulled up against its card, reads as that card's control.
-              <button
-                type="button"
-                onClick={() => onStart(pick.id)}
-                className="-mt-0.5 inline-flex items-center gap-1 self-end rounded-full border border-border-warm bg-surface px-2.5 py-0.5 text-xs font-medium text-text-sub transition-colors hover:border-[color:var(--accent)] hover:text-text-main"
-                data-testid="today-board-start-button"
-              >
-                <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="currentColor" aria-hidden="true">
-                  <path d="M3 2l7 4-7 4z" />
-                </svg>
-                Start
-              </button>
-            )}
-          </div>
+          <DraggableTodayPick
+            key={pick.id}
+            pick={pick}
+            todayDateStr={todayDateStr}
+            hasAttentionDot={!!pick.arc_id && !!legacyAttentionArcIds?.has(pick.arc_id)}
+            onStart={onStart ? () => onStart(pick.id) : undefined}
+          />
         ))}
       </div>
 
@@ -274,7 +260,7 @@ function TodayBoardColumn({
   );
 }
 
-function DraggableTodayPick({ pick, todayDateStr, hasAttentionDot }: { pick: TodayPick; todayDateStr: string; hasAttentionDot?: boolean }) {
+function DraggableTodayPick({ pick, todayDateStr, hasAttentionDot, onStart }: { pick: TodayPick; todayDateStr: string; hasAttentionDot?: boolean; onStart?: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: pick.id });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -289,7 +275,7 @@ function DraggableTodayPick({ pick, todayDateStr, hasAttentionDot }: { pick: Tod
       className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-40')}
       data-testid="today-board-draggable-pick"
     >
-      <TodayPickCard pick={pick} todayDateStr={todayDateStr} hasAttentionDot={hasAttentionDot} />
+      <TodayPickCard pick={pick} todayDateStr={todayDateStr} hasAttentionDot={hasAttentionDot} onStart={onStart} />
     </div>
   );
 }

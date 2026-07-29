@@ -48,15 +48,15 @@ function renderWithClient(ui: React.ReactElement) {
 }
 
 describe('TodayBoard', () => {
-  it('renders columns in Doing, To do, Done order', () => {
+  it('renders columns in To do, Doing, Done order (standard kanban, Mike 2026-07-29)', () => {
     renderWithClient(<TodayBoard todayDateStr="2026-07-27" picks={[]} />);
     const board = screen.getByTestId('today-board');
     const columnIds = Array.from(board.querySelectorAll('[data-testid^="today-board-column-"]')).map((el) =>
       el.getAttribute('data-testid')
     );
     expect(columnIds).toEqual([
-      'today-board-column-doing',
       'today-board-column-todo',
+      'today-board-column-doing',
       'today-board-column-done',
     ]);
   });

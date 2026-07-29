@@ -48,6 +48,11 @@ interface TodayPickCardProps {
   // span down to zero width in that narrower layout (a real rendering regression this
   // caught, not just a semantic nicety).
   showFocusButton?: boolean;
+  // Phase 8 shakedown (Mike, 2026-07-29): the board's To Do column passes this so Start
+  // lives INSIDE the card's action row, next to the primary action — the two prior
+  // attempts (dotted text link, then a pill floating under the card) both read as
+  // detached debris between cards.
+  onStart?: () => void;
 }
 
 function pickDisplayName(pick: TodayPick): string {
@@ -83,6 +88,7 @@ export function TodayPickCard({
   showReasonChip = true,
   testId,
   showFocusButton = true,
+  onStart,
 }: TodayPickCardProps) {
   const { t } = useTerminology();
   const updatePick = useUpdateTodayPick();
@@ -188,6 +194,19 @@ export function TodayPickCard({
 
       {!isDone && (
         <div className="flex items-center gap-2">
+          {onStart && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onStart}
+              data-testid="today-board-start-button"
+            >
+              <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="currentColor" aria-hidden="true">
+                <path d="M3 2l7 4-7 4z" />
+              </svg>
+              Start
+            </Button>
+          )}
           {kind === 'respond' && pick.session?.remote_url && (
             <Button asChild variant="primary" size="sm">
               <a href={pick.session.remote_url} target="_blank" rel="noopener noreferrer">
