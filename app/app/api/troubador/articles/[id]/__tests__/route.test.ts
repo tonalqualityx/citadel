@@ -134,6 +134,24 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('schedules an approved article and recomputes the run stage', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'approved', locked: true }));
+    mockFindMany.mockResolvedValue([]); // no same-day conflict
+
+    const res = await PATCH(
+      patchReq({ action: 'schedule', scheduled_date: '2026-07-10T15:00:00.000Z' }),
+      { params }
+    );
+
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.status).toBe('scheduled');
+    expect(data.scheduled_date).toBeInstanceOf(Date);
+    // Scheduling completes the writing phase — the run stage must be recomputed.
+    expect(prisma.troubadorRun.findUnique).toHaveBeenCalled();
+  });
+
   it('resolves outstanding feedback when a rewrite returns the article to review', async () => {
     mockRequireAuth.mockResolvedValue(BOT);
     mockFindFirst.mockResolvedValue(articleRow({ status: 'needs_revision' }));

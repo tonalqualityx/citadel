@@ -168,6 +168,8 @@ export async function PATCH(
       if (article.status === 'approved') {
         setStatus('scheduled');
       }
+      // Scheduling can complete a run's writing phase just like approve does.
+      advanceRun = true;
     } else if (data.scheduled_date === null) {
       update.scheduled_date = null;
     }
