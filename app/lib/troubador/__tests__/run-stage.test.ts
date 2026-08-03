@@ -59,8 +59,41 @@ describe('recomputeProductionStage', () => {
     });
   });
 
-  it('does nothing when the run is not in the production phase', async () => {
+  it('leaves a pre-production run alone while any article is still being written/reviewed', async () => {
     mockRunFindUnique.mockResolvedValue({ stage: 'researching' });
+    mockArticleFindMany.mockResolvedValue(statuses('in_review', 'approved'));
+
+    await recomputeProductionStage('run-1');
+
+    expect(mockRunUpdate).not.toHaveBeenCalled();
+  });
+
+  it('advances a stranded pre-production run to publishing once all live articles are approved/scheduled', async () => {
+    mockRunFindUnique.mockResolvedValue({ stage: 'researching' });
+    mockArticleFindMany.mockResolvedValue(statuses('scheduled'));
+
+    await recomputeProductionStage('run-1');
+
+    expect(mockRunUpdate).toHaveBeenCalledWith({
+      where: { id: 'run-1' },
+      data: { stage: 'publishing' },
+    });
+  });
+
+  it('advances a stranded pre-production run straight to done when everything is published/postponed', async () => {
+    mockRunFindUnique.mockResolvedValue({ stage: 'ready_for_interview' });
+    mockArticleFindMany.mockResolvedValue(statuses('published', 'postponed'));
+
+    await recomputeProductionStage('run-1');
+
+    expect(mockRunUpdate).toHaveBeenCalledWith({
+      where: { id: 'run-1' },
+      data: { stage: 'done' },
+    });
+  });
+
+  it('never touches a cancelled run', async () => {
+    mockRunFindUnique.mockResolvedValue({ stage: 'cancelled' });
 
     await recomputeProductionStage('run-1');
 

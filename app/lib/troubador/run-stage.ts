@@ -15,15 +15,21 @@ const WRITING_STATUSES = [
  *  - publishing    : all live articles are approved/scheduled (nothing left to write)
  *  - done          : every live article is published or postponed
  *
- * "Live" = not dropped. Only acts while the run is already in the production phase
- * (in_production | publishing | done) — it never pulls a run back past the interview.
+ * "Live" = not dropped. Runs already in the production phase
+ * (in_production | publishing | done) are kept in sync freely. A run still in a
+ * pre-production stage (e.g. a hand-drafted manual run whose stage never walked
+ * the interview path — the stage field is not directly PATCHable, so it strands)
+ * advances only once nothing is left to write: it may jump to publishing/done,
+ * but never to in_production, which would skip the gates those earlier stages own.
+ * Cancelled runs are never touched.
  */
 export async function recomputeProductionStage(runId: string): Promise<void> {
   const run = await prisma.troubadorRun.findUnique({
     where: { id: runId },
     select: { stage: true },
   });
-  if (!run || !['in_production', 'publishing', 'done'].includes(run.stage)) return;
+  if (!run || run.stage === 'cancelled') return;
+  const inProductionPhase = ['in_production', 'publishing', 'done'].includes(run.stage);
 
   const articles = await prisma.article.findMany({
     where: { run_id: runId, is_deleted: false, status: { not: 'dropped' } },
@@ -40,6 +46,8 @@ export async function recomputeProductionStage(runId: string): Promise<void> {
     // All remaining live articles are approved/scheduled — ready to publish.
     target = 'publishing';
   }
+
+  if (!inProductionPhase && target === 'in_production') return;
 
   if (target !== run.stage) {
     await prisma.troubadorRun.update({ where: { id: runId }, data: { stage: target } });
