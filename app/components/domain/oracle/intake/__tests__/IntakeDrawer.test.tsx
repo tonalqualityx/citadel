@@ -469,3 +469,113 @@ describe('IntakeDrawer', () => {
     });
   });
 });
+
+// 2026-08-03 — collapse. The drawer used to render one card per MESSAGE; on the day this
+// was written that meant 46 cards for 23 real things, over half of them one ow-staff
+// announcement plus its reply chorus. These assert the UI actually collapses, since the
+// fixtures above all carry thread_id: null and so exercise only the singleton path.
+describe('IntakeDrawer collapse', () => {
+  function owThread(n: number): EmailAsk[] {
+    return [
+      ask({
+        id: 'ow-0',
+        thread_id: 'ow',
+        subject: '[ow-staff] NEW HANDBOOK, WHO DIS?',
+        gist: null,
+        received_at: '2026-08-02T13:00:00.000Z',
+      }),
+      ...Array.from({ length: n - 1 }, (_, i) =>
+        ask({
+          id: `ow-${i + 1}`,
+          thread_id: 'ow',
+          from_name: `Replier ${i + 1}`,
+          subject: 'Re: [ow-staff] NEW HANDBOOK, WHO DIS?',
+          gist: null,
+          // real instants, 30 min apart, so a 24-message thread doesn't overflow the hour
+          received_at: new Date(Date.parse('2026-08-02T13:00:00.000Z') + (i + 1) * 30 * 60_000).toISOString(),
+        })
+      ),
+    ];
+  }
+
+  it('renders one card for a 24-message thread, showing the announcement not the chatter', () => {
+    const items = owThread(24);
+    renderWithClient(
+      <IntakeDrawer
+        intake={{ count: 24, newest_at: items[23].received_at, lanes: { admin: 0, general: 24, meeting: 0, sales: 0 }, items }}
+        timezone="America/New_York"
+      />
+    );
+    fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+    expect(screen.getAllByTestId('intake-card')).toHaveLength(1);
+    expect(screen.getByText('[ow-staff] NEW HANDBOOK, WHO DIS?')).toBeVisible();
+    expect(screen.getByTestId('intake-collapse-toggle')).toHaveTextContent(
+      '24 messages · 23 replies since · newest 8:30 PM'
+    );
+  });
+
+  it('keeps the chorus one click away rather than on screen', () => {
+    const items = owThread(3);
+    renderWithClient(
+      <IntakeDrawer
+        intake={{ count: 3, newest_at: items[2].received_at, lanes: { admin: 0, general: 3, meeting: 0, sales: 0 }, items }}
+        timezone="America/New_York"
+      />
+    );
+    fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+    expect(screen.queryByTestId('intake-collapse-members')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('intake-collapse-toggle'));
+    const members = screen.getByTestId('intake-collapse-members');
+    expect(members).toBeVisible();
+    // the anchor is NOT repeated in the member list — only the replies
+    expect(members.querySelectorAll('li')).toHaveLength(2);
+  });
+
+  it('archiving a collapsed row files EVERY message under it, not just the anchor', async () => {
+    mockPatch.mockResolvedValue({});
+    const items = owThread(3);
+    renderWithClient(
+      <IntakeDrawer
+        intake={{ count: 3, newest_at: items[2].received_at, lanes: { admin: 0, general: 3, meeting: 0, sales: 0 }, items }}
+        timezone="America/New_York"
+      />
+    );
+    fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(3));
+    const archived = mockPatch.mock.calls.map((c) => (c[0] as string).split('/').pop());
+    expect(archived.sort()).toEqual(['ow-0', 'ow-1', 'ow-2']);
+    for (const call of mockPatch.mock.calls) {
+      expect(call[1]).toEqual({ state: 'archive_requested' });
+    }
+  });
+
+  it('labels the bulk action with the count so the blast radius is visible', () => {
+    const items = owThread(4);
+    renderWithClient(
+      <IntakeDrawer
+        intake={{ count: 4, newest_at: items[3].received_at, lanes: { admin: 0, general: 4, meeting: 0, sales: 0 }, items }}
+        timezone="America/New_York"
+      />
+    );
+    fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+    expect(screen.getByRole('button', { name: 'Archive' })).toHaveTextContent('Archive all 4');
+  });
+
+  it('leaves a single unthreaded message exactly as it was — no collapse chrome', () => {
+    renderWithClient(
+      <IntakeDrawer
+        intake={{ count: 1, newest_at: '2026-07-21T20:00:00.000Z', lanes: GENERAL_ONLY_LANES, items: [ask()] }}
+        timezone="America/New_York"
+      />
+    );
+    fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+    expect(screen.getAllByTestId('intake-card')).toHaveLength(1);
+    expect(screen.queryByTestId('intake-collapse')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Archive' })).toHaveTextContent('Archive');
+  });
+});

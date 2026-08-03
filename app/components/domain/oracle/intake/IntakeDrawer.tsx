@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Archive, CalendarPlus, ExternalLink, Plus, StickyNote, X } from 'lucide-react';
+import { Archive, CalendarPlus, ChevronDown, ChevronRight, ExternalLink, Plus, StickyNote, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,7 +17,15 @@ import { useUpdateEmailAsk, useCreateTaskFromEmailAsk } from '@/lib/hooks/use-em
 import { crisisFromLabel } from '@/components/domain/oracle/crisis/crisis-strip-logic';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { Tooltip } from '@/components/ui/tooltip';
-import { intakeChipLine, groupAsksByLane, formatProposedEvent, calendarButtonState } from './intake-drawer-logic';
+import {
+  intakeChipLine,
+  groupAsksByLane,
+  formatProposedEvent,
+  calendarButtonState,
+  collapseAsks,
+  collapseSummaryLine,
+  type CollapsedGroup,
+} from './intake-drawer-logic';
 import { IntakeAttachPicker } from './IntakeAttachPicker';
 
 interface IntakeDrawerProps {
@@ -119,6 +127,56 @@ function MeetingEventBlock({ ask, timezone }: { ask: EmailAsk; timezone: string 
   );
 }
 
+// 2026-08-03 — the collapsed row's activity line plus an opt-in list of what it stands for.
+// Mike asked for the count of new items and a note about the most recent one, without
+// losing the ability to see the individual messages: "The thing I must see is the
+// announcement. The rest is basically fun." So the chorus is present, quiet, and one click
+// away rather than occupying 23 rows of the drawer.
+function CollapsedMembers({
+  group,
+  timezone,
+}: {
+  group: CollapsedGroup<EmailAsk>;
+  timezone: string;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const others = group.items.filter((m) => m.id !== group.anchor.id);
+
+  return (
+    <div className="flex flex-col gap-1" data-testid="intake-collapse">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        data-testid="intake-collapse-toggle"
+        className="flex items-center gap-1 self-start text-xs text-text-sub hover:text-text-main"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        )}
+        {collapseSummaryLine(group, timezone)}
+      </button>
+      {expanded && (
+        <ul className="flex flex-col gap-0.5 border-l border-border-warm pl-2" data-testid="intake-collapse-members">
+          {others.map((m) => (
+            <li key={m.id} className="flex items-baseline gap-1.5 text-xs text-text-sub">
+              <a
+                href={m.deep_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="truncate hover:text-text-main hover:underline"
+              >
+                {m.from_name || m.from_email} — {m.subject}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // Clarity Phase 4b — Mike's ruling: Intake relocated out of the main column entirely (was a
 // large in-page expandable section under Needs Reshi) into a compact clickable trigger up
 // in the header, opening a slide-over drawer — the SAME Drawer/Sheet pattern the quest peek
@@ -146,6 +204,17 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
 
   function handleDismiss(ask: EmailAsk) {
     updateAsk.mutate({ id: ask.id, data: { state: 'dismissed' } });
+  }
+
+  // 2026-08-03 — a collapsed row stands for every message under it, so resolving the row
+  // must resolve ALL of them. Dismissing only the anchor would drop one card and leave the
+  // other 23 replies to reappear as their own rows, which is the pile we just removed.
+  function handleDismissGroup(asks: EmailAsk[]) {
+    asks.forEach((a) => updateAsk.mutate({ id: a.id, data: { state: 'dismissed' } }));
+  }
+
+  function handleArchiveGroup(asks: EmailAsk[]) {
+    asks.forEach((a) => updateAsk.mutate({ id: a.id, data: { state: 'archive_requested' } }));
   }
 
   // Clarity Phase 4b — Archive is resolved from Mike's perspective the instant he clicks
@@ -200,11 +269,20 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
                       <h3 className="px-1 text-xs font-medium uppercase tracking-wide text-text-sub">
                         {group.label}
                       </h3>
-                      {group.asks.map((ask) => (
-                        <Card key={ask.id} className="flex flex-col gap-1.5 p-3" data-testid="intake-card">
+                      {collapseAsks(group.asks).map((collapsed) => {
+                        // The anchor carries the signal: a conversation's OPENING message,
+                        // or a recurring report's LATEST instalment. Every per-message
+                        // affordance below acts on it; the resolve actions act on the
+                        // whole group.
+                        const ask = collapsed.anchor;
+                        return (
+                        <Card key={collapsed.key} className="flex flex-col gap-1.5 p-3" data-testid="intake-card">
                           <span className="truncate text-xs text-text-sub">{crisisFromLabel(ask)}</span>
                           <p className="truncate text-sm font-medium text-text-main">{ask.subject}</p>
                           {ask.gist && <p className="truncate text-xs text-text-sub">{ask.gist}</p>}
+                          {collapsed.total > 1 && (
+                            <CollapsedMembers group={collapsed} timezone={timezone} />
+                          )}
 
                           {group.lane === 'meeting' && <MeetingEventBlock ask={ask} timezone={timezone} />}
 
@@ -234,23 +312,43 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
                             >
                               {group.lane === 'sales' ? 'Create lead quest + open' : 'Create + open'}
                             </Button>
-                            <Tooltip content="Files this email for the classifier to archive in Gmail later">
+                            <Tooltip
+                              content={
+                                collapsed.total > 1
+                                  ? `Files all ${collapsed.total} messages for the classifier to archive in Gmail later`
+                                  : 'Files this email for the classifier to archive in Gmail later'
+                              }
+                            >
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleArchive(ask)}
+                                onClick={() =>
+                                  collapsed.total > 1
+                                    ? handleArchiveGroup(collapsed.items)
+                                    : handleArchive(ask)
+                                }
                                 disabled={updateAsk.isPending}
                                 aria-label="Archive"
                               >
                                 <Archive className="h-3.5 w-3.5" aria-hidden="true" />
-                                Archive
+                                {collapsed.total > 1 ? `Archive all ${collapsed.total}` : 'Archive'}
                               </Button>
                             </Tooltip>
-                            <Tooltip content="Dismiss — clears this from Intake with no other action">
+                            <Tooltip
+                              content={
+                                collapsed.total > 1
+                                  ? `Dismiss — clears all ${collapsed.total} messages from Intake with no other action`
+                                  : 'Dismiss — clears this from Intake with no other action'
+                              }
+                            >
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleDismiss(ask)}
+                                onClick={() =>
+                                  collapsed.total > 1
+                                    ? handleDismissGroup(collapsed.items)
+                                    : handleDismiss(ask)
+                                }
                                 disabled={updateAsk.isPending}
                                 aria-label="Dismiss"
                               >
@@ -260,7 +358,8 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
                           </div>
                           <IntakeAttachPicker askId={ask.id} />
                         </Card>
-                      ))}
+                        );
+                      })}
                     </div>
                   ))
                 )}
