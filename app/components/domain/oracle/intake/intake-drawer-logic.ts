@@ -88,6 +88,186 @@ export function groupAsksByLane<T extends { intent: EmailAskLane | null }>(asks:
   })).filter((group) => group.asks.length > 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Intake collapse (2026-08-03, Mike's ruling in the Monday ritual).
+//
+// The drawer rendered one row per MESSAGE. On the day this was written that meant
+// 46 rows standing for 23 real things, and a single ow-staff thread accounted for
+// 24 of the 46 — over half the drawer was one announcement plus its reply chorus.
+// Mike: "The thing I must see is the announcement. The rest is basically fun."
+//
+// Two DIFFERENT collapses are needed, and conflating them gets one of them wrong:
+//
+//   thread — many messages, ONE thread_id. A conversation. The signal is the
+//            OPENING message (the announcement / the ask); later messages are the
+//            chorus. Anchor = oldest.
+//   series — many messages, MANY thread_ids, same automated sender repeating the
+//            same report ("Saiph triage digest — Jul 31 / Aug 1 / Aug 2 / Aug 3").
+//            Thread grouping does nothing for these. The signal is the LATEST one;
+//            the earlier ones are superseded. Anchor = newest.
+//
+// Every group also carries `newest` regardless of which end the anchor came from,
+// because Mike asked for both: the thing he must see, AND a note about the most
+// recent activity.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CollapseKind = 'thread' | 'series' | 'single';
+
+export interface CollapsibleAsk {
+  id: string;
+  /** Nullable on EmailAsk. A null thread_id means "we don't know what conversation this
+   *  belongs to" — such messages must each stand alone, never be piled together into one
+   *  bogus null-keyed thread. */
+  thread_id: string | null;
+  from_email: string;
+  subject: string;
+  received_at: string;
+  intent: EmailAskLane | null;
+}
+
+export interface CollapsedGroup<T> {
+  kind: CollapseKind;
+  /** Stable identity for React keys and bulk actions (thread id, or sender+stem). */
+  key: string;
+  lane: EmailAskLane;
+  /** The message that carries the signal — oldest for a thread, newest for a series. */
+  anchor: T;
+  /** The most recent message in the group (=== anchor for a series or a single). */
+  newest: T;
+  /** How many messages this row stands for. */
+  total: number;
+  /** Messages beyond the anchor — the "23 replies since" count. */
+  since: number;
+  /** Every member, oldest first, for the expanded view. */
+  items: T[];
+}
+
+/** Ascending by received_at, with id as a deterministic tiebreak so equal timestamps
+ *  (the classifier stamps a whole batch with one `datetime.now()`) never produce an
+ *  unstable anchor. */
+function byReceivedAsc<T extends CollapsibleAsk>(a: T, b: T): number {
+  const t = Date.parse(a.received_at) - Date.parse(b.received_at);
+  return t !== 0 ? t : a.id.localeCompare(b.id);
+}
+
+const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec';
+
+/** Reduces a subject to the stem shared across one recurring report's instalments, so
+ *  "Saiph triage digest — Aug 3" and "… — Jul 31" land on the same key.
+ *
+ *  Deliberately conservative — it strips only tails that are unambiguously an
+ *  instalment marker (a trailing date, a trailing ISO date, an issue number), never a
+ *  trailing word. Over-stripping would fuse genuinely different mail: note that
+ *  "…invoice is available for whoismikedion.com" and "…for becomeindelible.com" keep
+ *  their distinct domains and correctly stay apart. */
+export function seriesStem(subject: string): string {
+  let s = subject.trim();
+  // trailing "— Aug 3" / "- Jul 31, 2026" / "Aug 3" (em dash, en dash, or hyphen)
+  s = s.replace(
+    new RegExp(`[\\u2014\\u2013-]?\\s*(${MONTHS})\\w*\\.?\\s+\\d{1,2}(,?\\s*\\d{4})?\\s*$`, 'i'),
+    ''
+  );
+  // trailing ISO date, with or without a leading separator
+  s = s.replace(/[—–-]?\s*\d{4}-\d{2}-\d{2}\s*$/, '');
+  // issue/invoice numbers anywhere ("Invoice #3350" and "#3353" are one series)
+  s = s.replace(/#\d+/g, '');
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** A series needs a stem substantial enough to be meaningful — collapsing on "re:" or
+ *  a two-letter remnant would fuse unrelated mail. */
+const MIN_SERIES_STEM = 8;
+
+function makeGroup<T extends CollapsibleAsk>(
+  kind: CollapseKind,
+  key: string,
+  sorted: T[],
+  anchor: T
+): CollapsedGroup<T> {
+  return {
+    kind,
+    key,
+    lane: laneForAsk(anchor),
+    anchor,
+    newest: sorted[sorted.length - 1],
+    total: sorted.length,
+    since: sorted.length - 1,
+    items: sorted,
+  };
+}
+
+/** Collapses a flat list of intake messages into the rows the drawer should actually
+ *  render: multi-message threads, then recurring series among what's left, then true
+ *  singletons. Result is ordered newest-activity first.
+ *
+ *  Series grouping is applied ONLY to messages that are alone in their own thread. A
+ *  message already inside a real conversation belongs to that conversation; letting it
+ *  also match a series key would double-count it and split a thread across two rows. */
+export function collapseAsks<T extends CollapsibleAsk>(asks: T[]): CollapsedGroup<T>[] {
+  const byThread = new Map<string, T[]>();
+  for (const ask of asks) {
+    // A null thread_id gets a key unique to the message, so unknowns stay separate.
+    const key = ask.thread_id ?? ` nothread:${ask.id}`;
+    const bucket = byThread.get(key);
+    if (bucket) bucket.push(ask);
+    else byThread.set(key, [ask]);
+  }
+
+  const groups: CollapsedGroup<T>[] = [];
+  const loners: T[] = [];
+  for (const [threadId, members] of byThread) {
+    if (members.length > 1) {
+      const sorted = [...members].sort(byReceivedAsc);
+      // A conversation's signal is where it STARTED.
+      groups.push(makeGroup('thread', `thread:${threadId}`, sorted, sorted[0]));
+    } else {
+      loners.push(members[0]);
+    }
+  }
+
+  const bySeries = new Map<string, T[]>();
+  for (const ask of loners) {
+    const stem = seriesStem(ask.subject);
+    const key = `${(ask.from_email || '').toLowerCase()}|${stem}`;
+    if (stem.length < MIN_SERIES_STEM) {
+      groups.push(makeGroup('single', `single:${ask.id}`, [ask], ask));
+      continue;
+    }
+    const bucket = bySeries.get(key);
+    if (bucket) bucket.push(ask);
+    else bySeries.set(key, [ask]);
+  }
+
+  for (const [key, members] of bySeries) {
+    const sorted = [...members].sort(byReceivedAsc);
+    if (sorted.length > 1) {
+      // A repeating report's signal is the LATEST instalment; earlier ones are superseded.
+      groups.push(makeGroup('series', `series:${key}`, sorted, sorted[sorted.length - 1]));
+    } else {
+      groups.push(makeGroup('single', `single:${sorted[0].id}`, sorted, sorted[0]));
+    }
+  }
+
+  return groups.sort((a, b) => {
+    const t = Date.parse(b.newest.received_at) - Date.parse(a.newest.received_at);
+    return t !== 0 ? t : a.key.localeCompare(b.key);
+  });
+}
+
+/** The collapsed row's activity line: "24 messages · 23 replies since · newest 2:41 PM"
+ *  for a thread, "4 reports · newest 7:15 AM" for a series, and just the time for a
+ *  single. Returns the pieces already joined — the component stays presentational. */
+export function collapseSummaryLine<T extends CollapsibleAsk>(
+  group: CollapsedGroup<T>,
+  timezone: string
+): string {
+  const newest = `newest ${formatNewestAt(group.newest.received_at, timezone)}`;
+  if (group.kind === 'single') return newest;
+  if (group.kind === 'series') return `${group.total} reports · ${newest}`;
+  const replies = group.since === 1 ? '1 reply since' : `${group.since} replies since`;
+  return `${group.total} messages · ${replies} · ${newest}`;
+}
+
 /** "📅 Thu 7/24 · 3:30 PM · 45m" in the given IANA zone — the meeting-lane card's
  *  prominent parsed-time display. Only ever called when proposed_event_at is set (a
  *  high-confidence classifier parse); minutes is omitted from the string when absent. */
