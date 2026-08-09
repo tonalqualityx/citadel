@@ -13,15 +13,25 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+// Ops-review B6 — the sign route fires this after the signature write. Mocked wholesale
+// here: its own behavior (task creation, dedupe, notification) is covered by
+// lib/services/__tests__/kickoff.test.ts. This file only asserts the route calls it with
+// the right args and that its outcome never affects the sign response.
+vi.mock('@/lib/services/kickoff', () => ({
+  runSignatureKickoffAutomation: vi.fn(),
+}));
+
 import { GET } from '../[token]/route';
 import { POST } from '../[token]/sign/route';
 import { validateMsaToken, logPortalSession } from '@/lib/services/portal';
+import { runSignatureKickoffAutomation } from '@/lib/services/kickoff';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
 const mockValidateMsaToken = validateMsaToken as Mock;
 const mockLogPortalSession = logPortalSession as Mock;
 const mockSignatureUpdate = prisma.clientMsaSignature.update as Mock;
+const mockRunSignatureKickoffAutomation = runSignatureKickoffAutomation as Mock;
 
 const mockMsaSignature = {
   id: 'sig-123',
@@ -261,6 +271,49 @@ describe('Portal MSA Routes', () => {
         action: 'sign',
         metadata: { signer_name: 'Jane Doe', signer_email: 'jane@acme.com' },
       });
+    });
+
+    it('runs the kickoff automation with the msa signature type and client identity', async () => {
+      mockValidateMsaToken.mockResolvedValue(mockMsaSignature);
+      mockSignatureUpdate.mockResolvedValue({});
+
+      const request = makeRequest('http://localhost/api/portal/msa/valid-token/sign', {
+        method: 'POST',
+        body: JSON.stringify({
+          signer_name: 'Jane Doe',
+          signer_email: 'jane@acme.com',
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      await POST(request, makeParams('valid-token'));
+
+      expect(mockRunSignatureKickoffAutomation).toHaveBeenCalledWith({
+        signatureType: 'msa',
+        clientId: 'client-1',
+        clientName: 'Test Client',
+        signerName: 'Jane Doe',
+        signerEmail: 'jane@acme.com',
+      });
+    });
+
+    it('still signs successfully even if the kickoff automation rejects', async () => {
+      mockValidateMsaToken.mockResolvedValue(mockMsaSignature);
+      mockSignatureUpdate.mockResolvedValue({});
+      mockRunSignatureKickoffAutomation.mockRejectedValueOnce(new Error('boom'));
+
+      const request = makeRequest('http://localhost/api/portal/msa/valid-token/sign', {
+        method: 'POST',
+        body: JSON.stringify({
+          signer_name: 'Jane Doe',
+          signer_email: 'jane@acme.com',
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const response = await POST(request, makeParams('valid-token'));
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.message).toBe('MSA signed successfully');
     });
   });
 });

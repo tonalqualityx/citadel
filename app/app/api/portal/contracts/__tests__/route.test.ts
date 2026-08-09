@@ -20,6 +20,14 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+// Ops-review B6 — the sign route fires this after the signature write. Mocked wholesale
+// here: its own behavior (task creation, dedupe, notification) is covered by
+// lib/services/__tests__/kickoff.test.ts. This file only asserts the route calls it with
+// the right args and that its outcome never affects the sign response.
+vi.mock('@/lib/services/kickoff', () => ({
+  runSignatureKickoffAutomation: vi.fn(),
+}));
+
 // Mock error handler
 vi.mock('@/lib/api/errors', () => ({
   handleApiError: vi.fn((error: any) => {
@@ -42,6 +50,7 @@ vi.mock('@/lib/api/errors', () => ({
 import { GET } from '../../contracts/[token]/route';
 import { POST } from '../../contracts/[token]/sign/route';
 import { validateContractToken, logPortalSession } from '@/lib/services/portal';
+import { runSignatureKickoffAutomation } from '@/lib/services/kickoff';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
@@ -49,6 +58,7 @@ const mockValidateToken = vi.mocked(validateContractToken);
 const mockLogSession = vi.mocked(logPortalSession);
 const mockContractUpdate = prisma.contract.update as Mock;
 const mockAccordUpdate = prisma.accord.update as Mock;
+const mockRunSignatureKickoffAutomation = runSignatureKickoffAutomation as Mock;
 
 // -- Mock Data --
 
@@ -167,6 +177,47 @@ describe('POST /api/portal/contracts/:token/sign', () => {
       action: 'sign',
       metadata: { signer_name: 'John Doe', signer_email: 'john@example.com' },
     });
+  });
+
+  it('runs the kickoff automation with the contract signature type and accord identity', async () => {
+    mockValidateToken.mockResolvedValue(mockContract as any);
+    mockContractUpdate.mockResolvedValue({});
+    mockAccordUpdate.mockResolvedValue({});
+
+    const request = new NextRequest('http://localhost:3000/api/portal/contracts/valid-token/sign', {
+      method: 'POST',
+      body: JSON.stringify({ signer_name: 'John Doe', signer_email: 'john@example.com' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    await POST(request, { params: viewParams });
+
+    expect(mockRunSignatureKickoffAutomation).toHaveBeenCalledWith({
+      signatureType: 'contract',
+      clientId: null,
+      clientName: 'Test Client',
+      accordId: 'accord-123',
+      accordName: 'Test Accord',
+      signerName: 'John Doe',
+      signerEmail: 'john@example.com',
+    });
+  });
+
+  it('still signs successfully even if the kickoff automation rejects', async () => {
+    mockValidateToken.mockResolvedValue(mockContract as any);
+    mockContractUpdate.mockResolvedValue({});
+    mockAccordUpdate.mockResolvedValue({});
+    mockRunSignatureKickoffAutomation.mockRejectedValueOnce(new Error('boom'));
+
+    const request = new NextRequest('http://localhost:3000/api/portal/contracts/valid-token/sign', {
+      method: 'POST',
+      body: JSON.stringify({ signer_name: 'John Doe', signer_email: 'john@example.com' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const response = await POST(request, { params: viewParams });
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.message).toBe('Contract signed successfully');
   });
 
   it('rejects already-signed contract', async () => {

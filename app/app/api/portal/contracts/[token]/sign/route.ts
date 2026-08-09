@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { validateContractToken, logPortalSession, getClientIp } from '@/lib/services/portal';
+import { runSignatureKickoffAutomation } from '@/lib/services/kickoff';
 
 const signSchema = z.object({
   signer_name: z.string().min(1, 'Signer name is required'),
@@ -70,6 +71,28 @@ export async function POST(
         signer_email: data.signer_email,
       },
     });
+
+    // Ops-review B6: the signature itself is already committed above — everything from here
+    // down is best-effort automation (kickoff task + notification) that must NEVER turn a
+    // successful signature into a failed response. runSignatureKickoffAutomation already
+    // catches everything internally; this try/catch is a second, redundant safety net.
+    try {
+      await runSignatureKickoffAutomation({
+        signatureType: 'contract',
+        clientId: contract.accord.client?.id ?? null,
+        clientName:
+          contract.accord.client?.name ||
+          contract.accord.lead_business_name ||
+          contract.accord.lead_name ||
+          'Client',
+        accordId: contract.accord_id,
+        accordName: contract.accord.name,
+        signerName: data.signer_name,
+        signerEmail: data.signer_email,
+      });
+    } catch (kickoffError) {
+      console.error('[portal/contracts/sign] Kickoff automation threw unexpectedly:', kickoffError);
+    }
 
     return NextResponse.json({
       message: 'Contract signed successfully',

@@ -285,15 +285,41 @@ export async function notifyContractSent(
 export async function notifyContractSigned(
   accordId: string,
   accordName: string,
-  pmUserId: string
+  pmUserId: string,
+  kickoffTaskReady: boolean = false
 ) {
   await createNotification({
     userId: pmUserId,
     type: 'system_alert',
     title: `Contract signed: ${accordName}`,
-    message: 'Client has signed the contract',
+    message: kickoffTaskReady
+      ? 'Client has signed the contract. Kickoff task is ready.'
+      : 'Client has signed the contract',
     entityType: 'accord',
     entityId: accordId,
+    priority: 'high',
+  });
+}
+
+// Ops-review B6 — the MSA-signing counterpart to notifyContractSigned above. A
+// ClientMsaSignature isn't tied to a specific accord (it's a per-client agreement), so this
+// notifies against the client instead. See lib/services/kickoff.ts's runSignatureKickoffAutomation
+// for the caller — fired right after the kickoff task is created (or found already-deduped).
+export async function notifyMsaSigned(
+  clientId: string,
+  clientName: string,
+  pmUserId: string,
+  kickoffTaskReady: boolean = false
+) {
+  await createNotification({
+    userId: pmUserId,
+    type: 'system_alert',
+    title: `MSA signed: ${clientName}`,
+    message: kickoffTaskReady
+      ? 'Client has signed the MSA. Kickoff task is ready.'
+      : 'Client has signed the MSA',
+    entityType: 'client',
+    entityId: clientId,
     priority: 'high',
   });
 }

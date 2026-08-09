@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { validateMsaToken, logPortalSession, getClientIp } from '@/lib/services/portal';
+import { runSignatureKickoffAutomation } from '@/lib/services/kickoff';
 
 const signSchema = z.object({
   signer_name: z.string().min(1),
@@ -55,6 +56,22 @@ export async function POST(
       action: 'sign',
       metadata: { signer_name: data.signer_name, signer_email: data.signer_email },
     });
+
+    // Ops-review B6: the signature itself is already committed above — everything from here
+    // down is best-effort automation (kickoff task + notification) that must NEVER turn a
+    // successful signature into a failed response. runSignatureKickoffAutomation already
+    // catches everything internally; this try/catch is a second, redundant safety net.
+    try {
+      await runSignatureKickoffAutomation({
+        signatureType: 'msa',
+        clientId: signature.client.id,
+        clientName: signature.client.name,
+        signerName: data.signer_name,
+        signerEmail: data.signer_email,
+      });
+    } catch (kickoffError) {
+      console.error('[portal/msa/sign] Kickoff automation threw unexpectedly:', kickoffError);
+    }
 
     return NextResponse.json({
       message: 'MSA signed successfully',
