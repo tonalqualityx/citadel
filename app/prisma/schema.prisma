@@ -712,6 +712,7 @@ model Site {
   troubador_runs              TroubadorRun[]
   articles                    Article[]
   brand_profile               BrandProfile?
+  stats_snapshots             SiteStatsSnapshot[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
@@ -1423,6 +1424,33 @@ model ActivityLog {
   @@index([user_id])
   @@index([created_at])
   @@map("activity_logs")
+}
+
+// ============================================
+// SITE STATS SNAPSHOTS (Portal v2 phase 1 — machine-collector ingest, client-portal read)
+// ============================================
+
+// A point-in-time stats snapshot for a site, pushed by a machine-side collector (out of scope for
+// this build — see /api/cron/site-stats for the ingest contract) and read by the client portal via
+// /api/portal/stats. `payload` is intentionally a free-form JSON blob (leads/forms, sessions, top
+// sources, rankings, uptime — whatever the collector for that period/source carries); the
+// documented shape lives as a TypeScript contract on the ingest route, not enforced at the DB
+// layer, since collectors are a separate, not-yet-built subsystem. Additive table — no existing
+// model touched.
+model SiteStatsSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  site_id     String   @db.Uuid
+  site        Site     @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  captured_at DateTime // when the underlying stats period ended (collector-supplied, not now())
+  period      String   @db.VarChar(20) // e.g. 'day' | 'week' | 'month' — collector-defined
+  payload     Json // SiteStatsPayload shape — see app/api/cron/site-stats/route.ts
+  source      String   @db.VarChar(100) // collector identifier, e.g. 'ga4-collector', 'uptime-kuma'
+  created_at  DateTime @default(now())
+
+  // One snapshot per site+period+captured_at — re-pushing the same period is an upsert, not a dupe.
+  @@unique([site_id, period, captured_at])
+  @@index([site_id, captured_at])
+  @@map("site_stats_snapshots")
 }
 
 // ============================================

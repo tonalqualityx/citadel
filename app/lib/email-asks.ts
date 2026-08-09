@@ -68,3 +68,51 @@ export function matchClientByEmailDomain(
   }
   return null;
 }
+
+// Matches the classifier's own `#<view>/<thread-or-message-id>` fragment shape (any view
+// name — `inbox`, `all`, or something future) so BOTH the old broken links this normalizer
+// exists to heal (`#inbox/<id>`) and the new correct ones it should pass straight through
+// (`#all/<id>`) parse with the same regex.
+const GMAIL_FRAGMENT_ID_RE = /#[^/]+\/(.+)$/;
+
+/**
+ * Rewrites a stored Gmail deep link to be account-index-agnostic and archive-safe, so
+ * BOTH classes of already-persisted bad row heal on the way out of the API without a DB
+ * migration:
+ *
+ *  1. Old links hardcode `u/0` (Google account slot 0). Mike runs two Google accounts
+ *     (mike@becomeindelible.com in slot 0, mike@whoismikedion.com in slot 1) — a `u/0`
+ *     link opens the WRONG mailbox for any ask whose `account` isn't whichever address
+ *     currently occupies slot 0, and slot assignment isn't even guaranteed stable.
+ *     `u/?authuser=<account>` tells Gmail to resolve the account by identity instead,
+ *     which works regardless of index.
+ *  2. Old links use `#inbox/<id>`, which only resolves while the message is still
+ *     sitting in the inbox — once archived (which the classifier does routinely), the
+ *     link 404s inside Gmail even with the right account. `#all/<id>` resolves from All
+ *     Mail, so it keeps working whether the thread is inboxed or archived.
+ *
+ * Same fix as the classifier's own `_deep_link()` (~/.claude/tools/oracle/clarity/
+ * email-classifier.py) applies to NEW rows at write time; this is the read-side twin for
+ * the many rows already sitting in prod with the old shape. Never throws: a null/empty
+ * account, a non-Gmail URL, or a fragment with no parseable id all fall through to the
+ * input unchanged rather than risk mangling a link Mike is about to click. Idempotent —
+ * re-running this on an already-correct `u/?authuser=...#all/<id>` link is a no-op, since
+ * the id is re-extracted and the URL is rebuilt from scratch every time.
+ */
+export function normalizeGmailDeepLink(deepLink: string, account: string | null): string {
+  if (!account) return deepLink;
+
+  let url: URL;
+  try {
+    url = new URL(deepLink);
+  } catch {
+    return deepLink;
+  }
+  if (url.hostname !== 'mail.google.com') return deepLink;
+
+  const match = url.hash.match(GMAIL_FRAGMENT_ID_RE);
+  if (!match) return deepLink;
+  const id = match[1];
+
+  return `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(account)}#all/${id}`;
+}

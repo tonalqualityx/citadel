@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatArcResponse } from '@/lib/api/formatters';
 import { getArcStatus, sumOpenEstimatedMinutes } from '@/lib/arc-status';
 import { mergeArcSessions, type ArcLinkedSession } from '@/lib/arc-sessions';
+import { normalizeGmailDeepLink } from '@/lib/email-asks';
 
 const updateArcSchema = z.object({
   name: z.string().min(1).max(300).optional(),
@@ -73,6 +74,10 @@ const ARC_DETAIL_INCLUDE = {
       // Clarity Phase 7 — thread_id isn't part of the public summary shape below, only
       // used internally to build the completion-nudge payload on arc close.
       thread_id: true,
+      // Gmail-deep-link fix — not part of the public summary shape either, only used
+      // internally by formatArcEmailAskSummary to normalize deep_link before it's
+      // returned (see normalizeGmailDeepLink's own doc comment).
+      account: true,
     },
     orderBy: { received_at: 'desc' as const },
   },
@@ -154,6 +159,7 @@ function formatArcEmailAskSummary(ask: {
   gist: string | null;
   deep_link: string;
   received_at: Date;
+  account: string | null;
 }) {
   return {
     id: ask.id,
@@ -161,7 +167,7 @@ function formatArcEmailAskSummary(ask: {
     from_email: ask.from_email,
     from_name: ask.from_name ?? null,
     gist: ask.gist ?? null,
-    deep_link: ask.deep_link,
+    deep_link: normalizeGmailDeepLink(ask.deep_link, ask.account ?? null),
     received_at: ask.received_at,
   };
 }

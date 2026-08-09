@@ -48,13 +48,20 @@ export function laneForAsk(ask: { intent: EmailAskLane | null }): EmailAskLane {
 const CHIP_ORDER: EmailAskLane[] = ['admin', 'general', 'meeting', 'sales'];
 const CHIP_EMOJI: Record<EmailAskLane, string> = { admin: '🧾', general: '📬', meeting: '🤝', sales: '💰' };
 
+/** Single source of truth for a lane's emoji — the trigger chip (intakeChipLine below) and
+ *  the drawer's own per-lane group header (IntakeDrawer.tsx) both call this rather than
+ *  each keeping their own copy of the emoji map, so the two can never drift apart. */
+export function laneEmoji(lane: EmailAskLane): string {
+  return CHIP_EMOJI[lane];
+}
+
 /** The header trigger chip's text: one quiet count per non-empty lane ("🧾 1 · 📬 4 · 🤝 1 ·
  *  💰 2"), each zero-count lane rendering NOTHING (exception display, not a "0" badge).
  *  When every lane is zero, falls back to the existing quiet all-zero line ("📬 Intake ·
  *  0") rather than rendering nothing at all — the trigger chip is a stable, always-there
  *  landmark. */
 export function intakeChipLine(lanes: LaneCounts): string {
-  const parts = CHIP_ORDER.filter((lane) => lanes[lane] > 0).map((lane) => `${CHIP_EMOJI[lane]} ${lanes[lane]}`);
+  const parts = CHIP_ORDER.filter((lane) => lanes[lane] > 0).map((lane) => `${laneEmoji(lane)} ${lanes[lane]}`);
   // All-zero fallback is timezone-independent (count 0 -> intakeSummaryLine never touches
   // its timezone param), so no real zone needs to be threaded in just for this branch.
   if (parts.length === 0) return intakeSummaryLine(0, null, 'America/New_York');

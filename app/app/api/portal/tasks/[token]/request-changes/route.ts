@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { prisma } from '@/lib/db/prisma';
-import { handleApiError, ApiError } from '@/lib/api/errors';
+import { handleApiError } from '@/lib/api/errors';
 import {
   validateTaskToken,
   resolveTaskContact,
-  getBastUserId,
+  recordTaskClientRequestChanges,
   logPortalSession,
   getClientIp,
 } from '@/lib/services/portal';
@@ -16,7 +15,9 @@ const requestChangesSchema = z.object({
 
 // POST /api/portal/tasks/:token/request-changes - Client asks for rework. Public, token-gated.
 // Re-opens the task (status → not_started) and records the client's note as a client-visible
-// comment (the "what"). This is the client side of the team review-feedback loop.
+// comment (the "what"). This is the client side of the team review-feedback loop. Mutation core
+// lives in recordTaskClientRequestChanges() (lib/services/portal.ts), shared with the
+// session-scoped equivalent at POST /api/portal/tasks/:id/request-changes.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -32,36 +33,11 @@ export async function POST(
       );
     }
 
-    if (task.client_approved_at) {
-      throw new ApiError('This work has already been approved', 400);
-    }
-
     const body = await request.json();
     const { note } = requestChangesSchema.parse(body);
 
     const contact = await resolveTaskContact(task);
-    const bastUserId = await getBastUserId();
-    if (!bastUserId) {
-      throw new ApiError('Unable to record your feedback right now', 500);
-    }
-
-    // Comments require a User author; the client is a ClientContact, so attribute to Bast and
-    // label the source in the body. Client-visible (is_internal: false) so it shows in-thread.
-    const attribution = contact?.name ? `${contact.name} (client)` : 'Client';
-    await prisma.$transaction([
-      prisma.comment.create({
-        data: {
-          task_id: task.id,
-          user_id: bastUserId,
-          content: `${attribution} requested changes via the approval portal:\n\n${note}`,
-          is_internal: false,
-        },
-      }),
-      prisma.task.update({
-        where: { id: task.id },
-        data: { status: 'not_started' },
-      }),
-    ]);
+    await recordTaskClientRequestChanges(task, note, contact?.name ?? null);
 
     await logPortalSession({
       tokenType: 'task_approval',

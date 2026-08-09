@@ -7,6 +7,7 @@
 
 import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
+import { ApiError } from '@/lib/api/errors';
 
 const TOKEN_LENGTH = 64; // 128 hex characters
 const DEFAULT_EXPIRY_DAYS = 60;
@@ -356,6 +357,90 @@ export async function recordArticleClientApproval(
   });
 
   return { approved_at: approvedAt, contact_id: resolvedContactId, already_approved: false };
+}
+
+/**
+ * Record client approval on a task (idempotent). Sets client_approved_at + approved_by_contact_id
+ * and, for staged client sites (site.auto_deploy === false), flags the staging→prod promotion as
+ * pending via an internal note (never an in-app deploy — that's still a deliberate operator step).
+ *
+ * Shared mutation core for BOTH the token-gated flow (POST /api/portal/tasks/:token/approve) and
+ * the session-scoped flow (POST /api/portal/tasks/:id/approve, Portal v2 phase 1) — one source of
+ * truth for what "a client approved this task" means, regardless of how they got authenticated.
+ */
+export async function recordTaskClientApproval(
+  task: { id: string; client_approved_at: Date | null; site?: { auto_deploy: boolean } | null },
+  contactId: string | null
+): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean }> {
+  if (task.client_approved_at) {
+    return { already_approved: true, approved_at: task.client_approved_at, promotion_pending: false };
+  }
+
+  const approvedAt = new Date();
+  await prisma.task.update({
+    where: { id: task.id },
+    data: {
+      client_approved_at: approvedAt,
+      approved_by_contact_id: contactId,
+    },
+  });
+
+  const promotionPending = task.site?.auto_deploy === false;
+  if (promotionPending) {
+    const bastUserId = await getBastUserId();
+    if (bastUserId) {
+      await prisma.comment.create({
+        data: {
+          task_id: task.id,
+          user_id: bastUserId,
+          content:
+            '~ Bast: Client approved the staged work via the portal. Staging→prod promotion is pending an operator (no auto-deploy on this site).',
+          is_internal: true,
+        },
+      });
+    }
+  }
+
+  return { already_approved: false, approved_at: approvedAt, promotion_pending: promotionPending };
+}
+
+/**
+ * Record a client's "please make changes" response on a task: re-opens it (status → not_started)
+ * and records the note as a client-visible comment (attributed to Bast — comments require a User
+ * author, the client is a ClientContact — see the module header's attribution pattern). Throws
+ * ApiError(400) if the task is already approved, ApiError(500) if no Bast user exists to attribute
+ * the comment to. Shared by the token-gated and session-scoped flows — see
+ * `recordTaskClientApproval` above for why this is a shared core rather than duplicated per flow.
+ */
+export async function recordTaskClientRequestChanges(
+  task: { id: string; client_approved_at: Date | null },
+  note: string,
+  contactName: string | null
+): Promise<void> {
+  if (task.client_approved_at) {
+    throw new ApiError('This work has already been approved', 400);
+  }
+
+  const bastUserId = await getBastUserId();
+  if (!bastUserId) {
+    throw new ApiError('Unable to record your feedback right now', 500);
+  }
+
+  const attribution = contactName ? `${contactName} (client)` : 'Client';
+  await prisma.$transaction([
+    prisma.comment.create({
+      data: {
+        task_id: task.id,
+        user_id: bastUserId,
+        content: `${attribution} requested changes via the approval portal:\n\n${note}`,
+        is_internal: false,
+      },
+    }),
+    prisma.task.update({
+      where: { id: task.id },
+      data: { status: 'not_started' },
+    }),
+  ]);
 }
 
 /**

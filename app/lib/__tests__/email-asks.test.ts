@@ -4,6 +4,7 @@ import {
   isDueSoon,
   extractEmailDomain,
   matchClientByEmailDomain,
+  normalizeGmailDeepLink,
 } from '../email-asks';
 
 describe('stripSubjectPrefix', () => {
@@ -130,5 +131,71 @@ describe('matchClientByEmailDomain', () => {
 
   it('returns null for an unparseable from_email', () => {
     expect(matchClientByEmailDomain('not-an-email', clients)).toBeNull();
+  });
+});
+
+describe('normalizeGmailDeepLink', () => {
+  it('rewrites an old u/0 #inbox/ link to authuser + #all/ for account 0', () => {
+    expect(
+      normalizeGmailDeepLink(
+        'https://mail.google.com/mail/u/0/#inbox/18abc123',
+        'mike@becomeindelible.com'
+      )
+    ).toBe('https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/18abc123');
+  });
+
+  it('rewrites an old u/0 #inbox/ link for the second account, not just the first', () => {
+    expect(
+      normalizeGmailDeepLink(
+        'https://mail.google.com/mail/u/0/#inbox/18abc123',
+        'mike@whoismikedion.com'
+      )
+    ).toBe('https://mail.google.com/mail/u/?authuser=mike%40whoismikedion.com#all/18abc123');
+  });
+
+  it('rewrites an #all/ link too (index still gets fixed even if archive-safety was already right)', () => {
+    expect(
+      normalizeGmailDeepLink(
+        'https://mail.google.com/mail/u/0/#all/18abc123',
+        'mike@becomeindelible.com'
+      )
+    ).toBe('https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/18abc123');
+  });
+
+  it('is idempotent: re-normalizing an already-correct link returns the same link', () => {
+    const already =
+      'https://mail.google.com/mail/u/?authuser=mike%40whoismikedion.com#all/18abc123';
+    expect(normalizeGmailDeepLink(already, 'mike@whoismikedion.com')).toBe(already);
+  });
+
+  it('returns the input unchanged when account is null', () => {
+    const link = 'https://mail.google.com/mail/u/0/#inbox/18abc123';
+    expect(normalizeGmailDeepLink(link, null)).toBe(link);
+  });
+
+  it('returns the input unchanged when account is an empty string', () => {
+    const link = 'https://mail.google.com/mail/u/0/#inbox/18abc123';
+    expect(normalizeGmailDeepLink(link, '')).toBe(link);
+  });
+
+  it('returns a non-Gmail URL unchanged rather than mangling it', () => {
+    const link = 'https://example.com/mail/u/0/#inbox/18abc123';
+    expect(normalizeGmailDeepLink(link, 'mike@becomeindelible.com')).toBe(link);
+  });
+
+  it('returns the input unchanged when the URL has no parseable fragment id', () => {
+    const link = 'https://mail.google.com/mail/u/0/';
+    expect(normalizeGmailDeepLink(link, 'mike@becomeindelible.com')).toBe(link);
+  });
+
+  it('returns the input unchanged when the string is not a valid URL at all', () => {
+    const link = 'not-a-url';
+    expect(normalizeGmailDeepLink(link, 'mike@becomeindelible.com')).toBe(link);
+  });
+
+  it('URL-encodes special characters in the account email', () => {
+    expect(
+      normalizeGmailDeepLink('https://mail.google.com/mail/u/0/#inbox/xyz', 'a+b@example.com')
+    ).toBe('https://mail.google.com/mail/u/?authuser=a%2Bb%40example.com#all/xyz');
   });
 });

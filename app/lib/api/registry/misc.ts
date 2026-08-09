@@ -191,6 +191,27 @@ export const miscEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/cron/site-stats',
+    group: 'misc',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal v2 phase 1: machine-side collector ingest for site stats snapshots (leads/forms, traffic, rankings, uptime). Idempotent upsert keyed on site_id+period+captured_at. CRON_SECRET-gated, not the Oracle service-user pattern — see SiteStatsPayload in the route file for the documented payload contract.',
+        auth: 'cron',
+        bodySchema: [
+          { name: 'site_id', type: 'uuid', required: true, description: 'The site this snapshot is for' },
+          { name: 'period', type: 'string', required: true, description: "'day' | 'week' | 'month'" },
+          { name: 'captured_at', type: 'ISO-8601', required: true, description: 'When the underlying stats period ended' },
+          { name: 'source', type: 'string', required: true, description: "Collector identifier, e.g. 'ga4-collector'" },
+          { name: 'payload', type: 'object', required: true, description: 'SiteStatsPayload — leads/traffic/rankings/uptime_pct, all optional' },
+        ],
+        responseExample: { success: true, snapshot: { id: 'uuid', captured_at: 'ISO-8601', period: 'day' } },
+        responseNotes: '401 wrong/missing x-cron-secret; 400 malformed envelope; 404 unknown site_id.',
+      },
+    ],
+  },
+  {
     path: '/api/cron/task-due-soon',
     group: 'misc',
     methods: [

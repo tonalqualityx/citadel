@@ -26,10 +26,10 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'GET',
         summary:
-          'Redeem a magic-link token: issues a 7-day client-scoped session cookie and redirects into the portal. The link is reusable until it expires (each redemption starts its own session), so previews/multiple team members can use it. Public, no auth required.',
+          'Redeem a magic-link token: issues a client-scoped session cookie (30 days, sliding on activity up to 90 days max — Portal v2 phase 1) and redirects into the portal. The link is reusable until it expires (each redemption starts its own session), so previews/multiple team members can use it. Public, no auth required.',
         auth: 'none',
         responseNotes:
-          'Sets the httpOnly `client_session` cookie and 303-redirects to /portal on success; redirects to /portal/login?error=invalid for an unknown/expired token (no cookie set).',
+          'Sets the httpOnly `client_session` cookie and 303-redirects to /portal on success; redirects to /portal/login?error=invalid for an unknown/expired token (no cookie set). Every subsequent authenticated portal request extends the session (see requireClientAuth in client-auth.ts), capped at 90 days from the session\'s own creation.',
       },
     ],
   },
@@ -45,6 +45,134 @@ export const portalEndpoints: ApiEndpoint[] = [
         responseExample: { client: { id: 'uuid', name: 'string' } },
         responseNotes:
           '401 without a valid client session; 403 when the session belongs to a different client; 404 if the client does not exist.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/home',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal v2 phase 1: one aggregate payload for the client account home — identity, pending approvals (in_review articles WITH their comment thread + tasks awaiting client approval WITH staging preview), open/active projects, an open-amount billing summary, a derived recent-activity feed, and the latest stats snapshot per site. Requires a client_session cookie; every field is scoped to the session\'s client_id.',
+        auth: 'session',
+        responseExample: {
+          client: { id: 'uuid', name: 'string' },
+          pending_approvals: {
+            articles: [
+              {
+                id: 'uuid', title: 'string', status: 'in_review', body: 'string|null',
+                comments: [{ id: 'uuid', content: 'string', author_name: 'string|null', created_at: 'ISO-8601' }],
+                created_at: 'ISO-8601', updated_at: 'ISO-8601',
+              },
+            ],
+            tasks: [
+              {
+                id: 'uuid', title: 'string', description: 'object|null', status: 'review',
+                estimated_minutes: 'number|null', comments: [], staging_preview_url: 'string|null',
+                staging_deployed_at: 'ISO-8601|null', created_at: 'ISO-8601', updated_at: 'ISO-8601',
+              },
+            ],
+          },
+          projects: [{ id: 'uuid', name: 'string', status: 'ready|in_progress|review', target_date: 'ISO-8601|null', updated_at: 'ISO-8601' }],
+          billing: { open_amount: 'number', open_count: 'number' },
+          activity: [{ type: 'task_completed|task_approved|article_published', id: 'uuid', title: 'string', url: 'string|null', at: 'ISO-8601' }],
+          stats: [
+            {
+              site: { id: 'uuid', name: 'string' },
+              captured_at: 'ISO-8601', period: 'day|week|month',
+              payload: { leads: { count: 'number', change_pct: 'number|null' }, uptime_pct: 'number|null' },
+            },
+          ],
+        },
+        responseNotes:
+          '401 without a valid client session; 404 if the session\'s client record no longer resolves. "billing.open_amount" is computed from billing-eligible, not-yet-invoiced Task + Milestone rows (no Invoice model exists in this schema) — amount + count only, never rates/margins/internal targets. "activity" is derived from client-safe task/article state, not the internal ActivityLog (which carries non-client-safe diffs). "stats" omits any site with no snapshot yet rather than fabricating zeros.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/tasks',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "Portal v2 phase 1: the logged-in client's tasks — those awaiting THEIR approval, plus recently-approved ones — mirroring the GET /api/portal/articles session-scoped list pattern. Requires a client_session cookie.",
+        auth: 'session',
+        responseExample: {
+          pending: [
+            {
+              id: 'uuid', title: 'string', description: 'object|null', status: 'review',
+              estimated_minutes: 'number|null', comments: [], staging_preview_url: 'string|null',
+              staging_deployed_at: 'ISO-8601|null', created_at: 'ISO-8601', updated_at: 'ISO-8601',
+            },
+          ],
+          recently_approved: [
+            {
+              id: 'uuid', title: 'string', description: 'object|null', status: 'done',
+              estimated_minutes: 'number|null', comments: [], client_approved_at: 'ISO-8601',
+              created_at: 'ISO-8601', updated_at: 'ISO-8601',
+            },
+          ],
+        },
+        responseNotes:
+          '401 without a valid client session. "pending" = client_approved_at is null (NOT gated on a minted portal_token — a session can review any of its own tasks). Per-item actions: POST /api/portal/tasks/mine/:id/approve and .../request-changes.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/tasks/mine/:id/approve',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal v2 phase 1: session-scoped equivalent of POST /api/portal/tasks/:token/approve — same shared mutation (recordTaskClientApproval), authenticated via the client_session cookie instead of a portal_token. Requires a client_session cookie.',
+        auth: 'session',
+        responseExample: { message: 'Approved', approved_at: 'ISO-8601', promotion_pending: 'boolean' },
+        responseNotes:
+          '401 without a session; 404 if the task does not exist or belongs to another client (existence not leaked — never 403). Idempotent (already_approved: true on a repeat call).',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/tasks/mine/:id/request-changes',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal v2 phase 1: session-scoped equivalent of POST /api/portal/tasks/:token/request-changes — same shared mutation (recordTaskClientRequestChanges). The acting contact is the session\'s own contact (more precise than the token flow\'s best-guess resolution). Requires a client_session cookie.',
+        auth: 'session',
+        bodySchema: [
+          { name: 'note', type: 'string', required: true, description: "What needs changing (the 'what')" },
+        ],
+        responseExample: { message: 'string', status: 'not_started' },
+        responseNotes: '401 without a session; 404 task not found/not this client; 400 already approved or an empty note.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/stats',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "Portal v2 phase 1: the logged-in client's latest stats snapshot per site (leads/forms, traffic, rankings, uptime — see SiteStatsPayload). Requires a client_session cookie.",
+        auth: 'session',
+        responseExample: {
+          sites: [
+            {
+              site: { id: 'uuid', name: 'string' },
+              captured_at: 'ISO-8601', period: 'day|week|month',
+              payload: { leads: { count: 'number', change_pct: 'number|null' }, uptime_pct: 'number|null' },
+            },
+          ],
+        },
+        responseNotes:
+          '401 without a valid client session. Sites with no snapshot yet are omitted (no fabricated zeros). See POST /api/cron/site-stats for the ingest contract.',
       },
     ],
   },

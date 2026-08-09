@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { ApiError } from '@/lib/api/errors';
 
 vi.mock('@/lib/services/portal', () => ({
   validateTaskToken: vi.fn(),
@@ -8,6 +9,8 @@ vi.mock('@/lib/services/portal', () => ({
   resolveTaskContact: vi.fn(),
   listContactSites: vi.fn(),
   getBastUserId: vi.fn(),
+  recordTaskClientApproval: vi.fn(),
+  recordTaskClientRequestChanges: vi.fn(),
 }));
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -30,6 +33,8 @@ import {
   resolveTaskContact,
   listContactSites,
   getBastUserId,
+  recordTaskClientApproval,
+  recordTaskClientRequestChanges,
 } from '@/lib/services/portal';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
@@ -39,6 +44,8 @@ const mockLogPortalSession = logPortalSession as Mock;
 const mockResolveTaskContact = resolveTaskContact as Mock;
 const mockListContactSites = listContactSites as Mock;
 const mockGetBastUserId = getBastUserId as Mock;
+const mockRecordTaskClientApproval = recordTaskClientApproval as Mock;
+const mockRecordTaskClientRequestChanges = recordTaskClientRequestChanges as Mock;
 
 const mockPortalTask = {
   id: 'task-123',
@@ -184,9 +191,20 @@ describe('GET /api/portal/tasks/:token', () => {
   });
 });
 
+// APPROVE/REQUEST_CHANGES mutation logic now lives in the shared
+// recordTaskClientApproval()/recordTaskClientRequestChanges() (lib/services/portal.ts), reused
+// by both the token flow (these routes) and the session flow (app/api/portal/tasks/[id]/*). These
+// two describe blocks assert the ROUTE wires token validation + the shared function correctly;
+// the shared function's own mutation behavior (prisma calls, idempotency, promotion-pending) is
+// unit-tested directly in lib/services/__tests__/portal.test.ts.
 describe('POST /api/portal/tasks/:token/approve', () => {
-  it('records client approval with the resolved contact', async () => {
+  it('resolves the contact and delegates to the shared approval function', async () => {
     mockValidateTaskToken.mockResolvedValue(mockPortalTask);
+    mockRecordTaskClientApproval.mockResolvedValue({
+      already_approved: false,
+      approved_at: new Date('2026-06-22T12:00:00Z'),
+      promotion_pending: false,
+    });
 
     const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
     const data = await response.json();
@@ -194,12 +212,7 @@ describe('POST /api/portal/tasks/:token/approve', () => {
     expect(response.status).toBe(200);
     expect(data.message).toBe('Approved');
     expect(data.promotion_pending).toBe(false);
-    expect((prisma.task.update as Mock)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'task-123' },
-        data: expect.objectContaining({ approved_by_contact_id: 'contact-1' }),
-      })
-    );
+    expect(mockRecordTaskClientApproval).toHaveBeenCalledWith(mockPortalTask, 'contact-1');
     expect(mockLogPortalSession).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept' }));
   });
 
@@ -208,27 +221,36 @@ describe('POST /api/portal/tasks/:token/approve', () => {
       ...mockPortalTask,
       client_approved_at: new Date('2026-06-20T09:00:00Z'),
     });
+    mockRecordTaskClientApproval.mockResolvedValue({
+      already_approved: true,
+      approved_at: new Date('2026-06-20T09:00:00Z'),
+      promotion_pending: false,
+    });
 
     const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
     const data = await response.json();
 
     expect(data.already_approved).toBe(true);
-    expect((prisma.task.update as Mock)).not.toHaveBeenCalled();
+    expect(data.message).toBe('Already approved');
   });
 
-  it('flags promotion_pending and writes an internal note for staged client sites', async () => {
+  it('surfaces promotion_pending from the shared function for staged client sites', async () => {
     mockValidateTaskToken.mockResolvedValue({
       ...mockPortalTask,
       site: { id: 'site-1', name: 'Acme', auto_deploy: false, client_id: 'client-1' },
     });
-    (prisma.user.findFirst as Mock).mockResolvedValue({ id: 'bast-user' });
+    mockRecordTaskClientApproval.mockResolvedValue({
+      already_approved: false,
+      approved_at: new Date('2026-06-22T12:00:00Z'),
+      promotion_pending: true,
+    });
 
     const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
     const data = await response.json();
 
     expect(data.promotion_pending).toBe(true);
-    expect((prisma.comment.create as Mock)).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ is_internal: true }) })
+    expect(mockLogPortalSession).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ promotion_pending: true }) })
     );
   });
 
@@ -237,12 +259,14 @@ describe('POST /api/portal/tasks/:token/approve', () => {
 
     const response = await APPROVE(postReq('bad'), makeParams('bad'));
     expect(response.status).toBe(404);
+    expect(mockRecordTaskClientApproval).not.toHaveBeenCalled();
   });
 });
 
 describe('POST /api/portal/tasks/:token/request-changes', () => {
-  it('re-opens the task and stores a client-visible note', async () => {
+  it('resolves the contact and delegates to the shared request-changes function', async () => {
     mockValidateTaskToken.mockResolvedValue(mockPortalTask);
+    mockRecordTaskClientRequestChanges.mockResolvedValue(undefined);
 
     const response = await REQUEST_CHANGES(
       postReq('valid-token', { note: 'The logo is too small' }),
@@ -252,23 +276,17 @@ describe('POST /api/portal/tasks/:token/request-changes', () => {
 
     expect(response.status).toBe(200);
     expect(data.status).toBe('not_started');
-    expect((prisma.comment.create as Mock)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          is_internal: false,
-          content: expect.stringContaining('The logo is too small'),
-        }),
-      })
-    );
-    expect((prisma.task.update as Mock)).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'not_started' } })
+    expect(mockRecordTaskClientRequestChanges).toHaveBeenCalledWith(
+      mockPortalTask,
+      'The logo is too small',
+      'Jane'
     );
     expect(mockLogPortalSession).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'changes_requested' })
     );
   });
 
-  it('rejects an empty note', async () => {
+  it('rejects an empty note before calling the shared function', async () => {
     mockValidateTaskToken.mockResolvedValue(mockPortalTask);
 
     const response = await REQUEST_CHANGES(
@@ -276,13 +294,17 @@ describe('POST /api/portal/tasks/:token/request-changes', () => {
       makeParams('valid-token')
     );
     expect(response.status).toBe(400);
+    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
   });
 
-  it('rejects when already approved', async () => {
+  it('propagates the 400 the shared function throws when already approved', async () => {
     mockValidateTaskToken.mockResolvedValue({
       ...mockPortalTask,
       client_approved_at: new Date('2026-06-20T09:00:00Z'),
     });
+    mockRecordTaskClientRequestChanges.mockRejectedValue(
+      new ApiError('This work has already been approved', 400)
+    );
 
     const response = await REQUEST_CHANGES(
       postReq('valid-token', { note: 'too late' }),
@@ -296,6 +318,7 @@ describe('POST /api/portal/tasks/:token/request-changes', () => {
 
     const response = await REQUEST_CHANGES(postReq('bad', { note: 'x' }), makeParams('bad'));
     expect(response.status).toBe(404);
+    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
   });
 });
 

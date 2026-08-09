@@ -17,13 +17,16 @@ import { useUpdateEmailAsk, useCreateTaskFromEmailAsk } from '@/lib/hooks/use-em
 import { crisisFromLabel } from '@/components/domain/oracle/crisis/crisis-strip-logic';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { Tooltip } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils/cn';
 import {
   intakeChipLine,
   groupAsksByLane,
+  laneEmoji,
   formatProposedEvent,
   calendarButtonState,
   collapseAsks,
   collapseSummaryLine,
+  type LaneGroup,
   type CollapsedGroup,
 } from './intake-drawer-logic';
 import { IntakeAttachPicker } from './IntakeAttachPicker';
@@ -177,6 +180,162 @@ function CollapsedMembers({
   );
 }
 
+// 2026-08-05 — Mike's ruling: each lane group in the drawer (Admin/Meeting/Sales/General)
+// gets its own collapse toggle, plus the lane's icon and count on the header so it reads
+// the same shorthand as the trigger chip ("💰 Sales 2"). Groups default OPEN — Mike asked
+// for the ability to collapse, not for collapsed-by-default, and existing tests assert
+// lane contents are visible on first open. State lives in plain useState here rather than
+// CollapsibleGroup (components/domain/oracle/CollapsibleGroup.tsx) — that component's
+// existing consumers (SnoozedRow, MachineSection, PipelineLane) hardcode a different
+// typographic treatment (bold, monospace, "(count)" suffix) and it has no icon slot, so
+// bending it to fit here would either risk their look or bolt on props only this call site
+// uses. Same chevron-rotate pattern, purpose-built markup.
+//
+// Extracted into its own component (same split as TrainingNoteField / MeetingEventBlock /
+// CollapsedMembers above) because each lane now needs its own open/closed state — a hook
+// can't be called inside the parent's .map() callback. Mirrors those siblings by pulling
+// its own mutation hooks directly rather than threading handler props down.
+function IntakeLaneSection({ group, timezone }: { group: LaneGroup<EmailAsk>; timezone: string }) {
+  const [open, setOpen] = React.useState(true);
+  const updateAsk = useUpdateEmailAsk();
+  const createTask = useCreateTaskFromEmailAsk();
+  const { openTaskPeek } = useTaskPeek();
+
+  function handleDismiss(ask: EmailAsk) {
+    updateAsk.mutate({ id: ask.id, data: { state: 'dismissed' } });
+  }
+
+  function handleDismissGroup(asks: EmailAsk[]) {
+    asks.forEach((a) => updateAsk.mutate({ id: a.id, data: { state: 'dismissed' } }));
+  }
+
+  function handleArchiveGroup(asks: EmailAsk[]) {
+    asks.forEach((a) => updateAsk.mutate({ id: a.id, data: { state: 'archive_requested' } }));
+  }
+
+  function handleArchive(ask: EmailAsk) {
+    updateAsk.mutate({ id: ask.id, data: { state: 'archive_requested' } });
+  }
+
+  function handleCreate(ask: EmailAsk) {
+    createTask.mutate({ id: ask.id });
+  }
+
+  async function handleCreateAndOpen(ask: EmailAsk) {
+    const task = await createTask.mutateAsync({ id: ask.id });
+    openTaskPeek(task.id);
+  }
+
+  return (
+    <div className="flex flex-col gap-2" data-testid={`intake-lane-${group.lane}`}>
+      {/* Heading wraps the button rather than the other way round: <button> takes phrasing
+          content only, and the ARIA accordion pattern wants the control INSIDE the heading
+          so heading-navigation lands on a lane and still exposes its expanded state. */}
+      <h3 className="self-start">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          data-testid={`intake-lane-toggle-${group.lane}`}
+          className="flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium uppercase tracking-wide text-text-sub hover:bg-background-light/50"
+        >
+          <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} aria-hidden="true" />
+          {laneEmoji(group.lane)} {group.label} {group.asks.length}
+        </button>
+      </h3>
+      {open && (
+        <div className="flex flex-col gap-2">
+          {collapseAsks(group.asks).map((collapsed) => {
+            // The anchor carries the signal: a conversation's OPENING message,
+            // or a recurring report's LATEST instalment. Every per-message
+            // affordance below acts on it; the resolve actions act on the
+            // whole group.
+            const ask = collapsed.anchor;
+            return (
+              <Card key={collapsed.key} className="flex flex-col gap-1.5 p-3" data-testid="intake-card">
+                <span className="truncate text-xs text-text-sub">{crisisFromLabel(ask)}</span>
+                <p className="truncate text-sm font-medium text-text-main">{ask.subject}</p>
+                {ask.gist && <p className="truncate text-xs text-text-sub">{ask.gist}</p>}
+                {collapsed.total > 1 && <CollapsedMembers group={collapsed} timezone={timezone} />}
+
+                {group.lane === 'meeting' && <MeetingEventBlock ask={ask} timezone={timezone} />}
+
+                <TrainingNoteField ask={ask} />
+
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <Button asChild variant="secondary" size="sm">
+                    <a href={ask.deep_link} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      Open email
+                    </a>
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleCreate(ask)}
+                    disabled={createTask.isPending}
+                  >
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    {group.lane === 'sales' ? 'Create lead quest' : 'Create'}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleCreateAndOpen(ask)}
+                    disabled={createTask.isPending}
+                  >
+                    {group.lane === 'sales' ? 'Create lead quest + open' : 'Create + open'}
+                  </Button>
+                  <Tooltip
+                    content={
+                      collapsed.total > 1
+                        ? `Files all ${collapsed.total} messages for the classifier to archive in Gmail later`
+                        : 'Files this email for the classifier to archive in Gmail later'
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        collapsed.total > 1 ? handleArchiveGroup(collapsed.items) : handleArchive(ask)
+                      }
+                      disabled={updateAsk.isPending}
+                      aria-label="Archive"
+                    >
+                      <Archive className="h-3.5 w-3.5" aria-hidden="true" />
+                      {collapsed.total > 1 ? `Archive all ${collapsed.total}` : 'Archive'}
+                    </Button>
+                  </Tooltip>
+                  <Tooltip
+                    content={
+                      collapsed.total > 1
+                        ? `Dismiss — clears all ${collapsed.total} messages from Intake with no other action`
+                        : 'Dismiss — clears this from Intake with no other action'
+                    }
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        collapsed.total > 1 ? handleDismissGroup(collapsed.items) : handleDismiss(ask)
+                      }
+                      disabled={updateAsk.isPending}
+                      aria-label="Dismiss"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Button>
+                  </Tooltip>
+                </div>
+                <IntakeAttachPicker askId={ask.id} />
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Clarity Phase 4b — Mike's ruling: Intake relocated out of the main column entirely (was a
 // large in-page expandable section under Needs Reshi) into a compact clickable trigger up
 // in the header, opening a slide-over drawer — the SAME Drawer/Sheet pattern the quest peek
@@ -198,42 +357,6 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
   // trigger's first click — avoids ever having two of these layers registered at once
   // unless Mike has actually opened Intake, which is the rare case.
   const [hasOpened, setHasOpened] = React.useState(false);
-  const updateAsk = useUpdateEmailAsk();
-  const createTask = useCreateTaskFromEmailAsk();
-  const { openTaskPeek } = useTaskPeek();
-
-  function handleDismiss(ask: EmailAsk) {
-    updateAsk.mutate({ id: ask.id, data: { state: 'dismissed' } });
-  }
-
-  // 2026-08-03 — a collapsed row stands for every message under it, so resolving the row
-  // must resolve ALL of them. Dismissing only the anchor would drop one card and leave the
-  // other 23 replies to reappear as their own rows, which is the pile we just removed.
-  function handleDismissGroup(asks: EmailAsk[]) {
-    asks.forEach((a) => updateAsk.mutate({ id: a.id, data: { state: 'dismissed' } }));
-  }
-
-  function handleArchiveGroup(asks: EmailAsk[]) {
-    asks.forEach((a) => updateAsk.mutate({ id: a.id, data: { state: 'archive_requested' } }));
-  }
-
-  // Clarity Phase 4b — Archive is resolved from Mike's perspective the instant he clicks
-  // it: state=archive_requested drops the ask out of this drawer's list immediately (the
-  // underlying query filters state=open). The classifier picks up archive_requested asks
-  // via GET /api/email-asks machine-side and executes the real Gmail archive later.
-  function handleArchive(ask: EmailAsk) {
-    updateAsk.mutate({ id: ask.id, data: { state: 'archive_requested' } });
-  }
-
-  function handleCreate(ask: EmailAsk) {
-    createTask.mutate({ id: ask.id });
-  }
-
-  // Create + open peeks the new quest on-page instead of navigating away from /oracle.
-  async function handleCreateAndOpen(ask: EmailAsk) {
-    const task = await createTask.mutateAsync({ id: ask.id });
-    openTaskPeek(task.id);
-  }
 
   // Clarity Phase 6 — lane groups (Meeting, Sales, General order, empty lanes skipped).
   const laneGroups = groupAsksByLane(intake.items);
@@ -265,102 +388,7 @@ export function IntakeDrawer({ intake, timezone }: IntakeDrawerProps) {
                   <p className="px-1 text-sm text-text-sub">Nothing waiting.</p>
                 ) : (
                   laneGroups.map((group) => (
-                    <div key={group.lane} className="flex flex-col gap-2" data-testid={`intake-lane-${group.lane}`}>
-                      <h3 className="px-1 text-xs font-medium uppercase tracking-wide text-text-sub">
-                        {group.label}
-                      </h3>
-                      {collapseAsks(group.asks).map((collapsed) => {
-                        // The anchor carries the signal: a conversation's OPENING message,
-                        // or a recurring report's LATEST instalment. Every per-message
-                        // affordance below acts on it; the resolve actions act on the
-                        // whole group.
-                        const ask = collapsed.anchor;
-                        return (
-                        <Card key={collapsed.key} className="flex flex-col gap-1.5 p-3" data-testid="intake-card">
-                          <span className="truncate text-xs text-text-sub">{crisisFromLabel(ask)}</span>
-                          <p className="truncate text-sm font-medium text-text-main">{ask.subject}</p>
-                          {ask.gist && <p className="truncate text-xs text-text-sub">{ask.gist}</p>}
-                          {collapsed.total > 1 && (
-                            <CollapsedMembers group={collapsed} timezone={timezone} />
-                          )}
-
-                          {group.lane === 'meeting' && <MeetingEventBlock ask={ask} timezone={timezone} />}
-
-                          <TrainingNoteField ask={ask} />
-
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                            <Button asChild variant="secondary" size="sm">
-                              <a href={ask.deep_link} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                                Open email
-                              </a>
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleCreate(ask)}
-                              disabled={createTask.isPending}
-                            >
-                              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                              {group.lane === 'sales' ? 'Create lead quest' : 'Create'}
-                            </Button>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              onClick={() => handleCreateAndOpen(ask)}
-                              disabled={createTask.isPending}
-                            >
-                              {group.lane === 'sales' ? 'Create lead quest + open' : 'Create + open'}
-                            </Button>
-                            <Tooltip
-                              content={
-                                collapsed.total > 1
-                                  ? `Files all ${collapsed.total} messages for the classifier to archive in Gmail later`
-                                  : 'Files this email for the classifier to archive in Gmail later'
-                              }
-                            >
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  collapsed.total > 1
-                                    ? handleArchiveGroup(collapsed.items)
-                                    : handleArchive(ask)
-                                }
-                                disabled={updateAsk.isPending}
-                                aria-label="Archive"
-                              >
-                                <Archive className="h-3.5 w-3.5" aria-hidden="true" />
-                                {collapsed.total > 1 ? `Archive all ${collapsed.total}` : 'Archive'}
-                              </Button>
-                            </Tooltip>
-                            <Tooltip
-                              content={
-                                collapsed.total > 1
-                                  ? `Dismiss — clears all ${collapsed.total} messages from Intake with no other action`
-                                  : 'Dismiss — clears this from Intake with no other action'
-                              }
-                            >
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  collapsed.total > 1
-                                    ? handleDismissGroup(collapsed.items)
-                                    : handleDismiss(ask)
-                                }
-                                disabled={updateAsk.isPending}
-                                aria-label="Dismiss"
-                              >
-                                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                              </Button>
-                            </Tooltip>
-                          </div>
-                          <IntakeAttachPicker askId={ask.id} />
-                        </Card>
-                        );
-                      })}
-                    </div>
+                    <IntakeLaneSection key={group.lane} group={group} timezone={timezone} />
                   ))
                 )}
               </div>

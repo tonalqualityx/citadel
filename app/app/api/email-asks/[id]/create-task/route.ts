@@ -7,7 +7,7 @@ import { formatTaskResponse } from '@/lib/api/formatters';
 import { serializeRichText } from '@/lib/api/blocknote';
 import { resolveArc } from '@/lib/arc-resolution';
 import { priorityForSeverity } from '@/lib/ask-severity';
-import { stripSubjectPrefix, matchClientByEmailDomain } from '@/lib/email-asks';
+import { stripSubjectPrefix, matchClientByEmailDomain, normalizeGmailDeepLink } from '@/lib/email-asks';
 
 // Clarity Phase 4a — the crisis strip's/intake drawer's "Create" and "Create + open"
 // backend. Admin-only, same as the rest of the Oracle surface. Idempotent: if the ask
@@ -85,7 +85,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const arcId = await resolveArc({ arc_id: data.arc_id, arc_name: data.arc_name });
 
     const title = stripSubjectPrefix(ask.subject) || ask.subject;
-    const descriptionLines = [ask.gist, `Email: ${ask.deep_link}`].filter(Boolean);
+    // Heals the account-index/inbox-only link (see normalizeGmailDeepLink's own doc
+    // comment) before it gets baked into the new task's description/origin_url — those
+    // are a fresh copy, not a live reference back to the ask, so an unhealed link here
+    // would stay broken forever even after the ask's own deep_link is fixed.
+    const deepLink = normalizeGmailDeepLink(ask.deep_link, ask.account);
+    const descriptionLines = [ask.gist, `Email: ${deepLink}`].filter(Boolean);
     const priority = priorityForSeverity(ask.severity);
 
     const task = await prisma.task.create({
@@ -98,7 +103,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         assignee_id: assignee.id,
         source: 'email',
         source_ref: ask.message_id,
-        origin_url: ask.deep_link,
+        origin_url: deepLink,
         arc_id: arcId,
         sop_id: data.sop_id ?? null,
         needs_review: false,

@@ -3,14 +3,18 @@ import { getClientIp } from '@/lib/services/portal';
 import {
   consumeClientMagicLink,
   CLIENT_SESSION_COOKIE,
+  SESSION_TTL_DAYS,
 } from '@/lib/services/client-auth';
 
-const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// Sourced from client-auth.ts so the cookie's maxAge can never drift out of sync with the DB
+// row's expires_at (the two used to be separately hardcoded — see client-auth.ts history).
+const SESSION_MAX_AGE_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
 
 // GET /api/portal/login/:token
-// The magic-link target (email links are GET). Single-use: consumes the token, issues a 7-day
-// client-scoped session cookie, and redirects into the portal. An invalid/expired/used token
-// redirects to the login page with an error flag (no session set).
+// The magic-link target (email links are GET). Consumes the token, issues a client-scoped session
+// cookie (SESSION_TTL_DAYS, sliding on activity up to MAX_SESSION_TTL_DAYS — see client-auth.ts),
+// and redirects into the portal. An invalid/expired token redirects to the login page with an
+// error flag (no session set).
 //
 // Note: as a GET it can be triggered by email link-prefetchers; the short magic-link TTL bounds
 // that, and a consumed link simply requires re-requesting. Revisit with a POST interstitial if

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { getArcStatus } from '@/lib/arc-status';
+import { normalizeGmailDeepLink } from '@/lib/email-asks';
 
 // Clarity Phase 7 (Seeing Stone Reckoning P1) — the session-briefing endpoint. A Claude
 // Code session declaring this arc at birth (singleton->session promotion, and any
@@ -82,7 +83,9 @@ export async function GET(
         }),
         prisma.emailAsk.findMany({
           where: { arc_id: id },
-          select: { id: true, subject: true, gist: true, deep_link: true, received_at: true },
+          // account isn't part of this endpoint's public shape — selected only so the
+          // map below can heal deep_link via normalizeGmailDeepLink, then dropped.
+          select: { id: true, subject: true, gist: true, deep_link: true, received_at: true, account: true },
           orderBy: { received_at: 'desc' },
         }),
         prisma.oracleSession.findMany({
@@ -136,6 +139,14 @@ export async function GET(
       return !latest || ts > latest ? ts : latest;
     }, null);
 
+    // Heal deep_link (account-index/inbox-only fix — see normalizeGmailDeepLink's own
+    // doc comment) and drop `account` again — it was selected only to make this possible,
+    // never part of this endpoint's public shape.
+    const normalizedEmails = emails.map(({ account, ...rest }) => ({
+      ...rest,
+      deep_link: normalizeGmailDeepLink(rest.deep_link, account),
+    }));
+
     return NextResponse.json({
       arc: {
         id: arc.id,
@@ -169,12 +180,12 @@ export async function GET(
         open: openTasks,
         recent: recentTasks,
       },
-      emails,
+      emails: normalizedEmails,
       sessions,
       next_touch: arc.next_touch ?? null,
       activity: {
         last_task_activity_at: lastTaskActivity?.updated_at ?? null,
-        last_email_received_at: emails[0]?.received_at ?? null,
+        last_email_received_at: normalizedEmails[0]?.received_at ?? null,
         last_session_activity_at: lastSessionActivityAt,
         arc_updated_at: arc.updated_at,
       },

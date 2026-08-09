@@ -77,3 +77,18 @@ export function formatArticleForClient(article: any) {
     updated_at: article.updated_at,
   };
 }
+
+/**
+ * Project a SiteStatsSnapshot down to the client-safe view.
+ * Exposes: captured_at, period, and the payload as pushed by the collector (leads/traffic/
+ * rankings/uptime_pct — see SiteStatsPayload in app/api/cron/site-stats/route.ts). `source`
+ * (the collector identifier, e.g. 'ga4-collector') is internal plumbing and never exposed —
+ * clients see what was measured, not how.
+ */
+export function formatSiteStatsForClient(snapshot: any) {
+  return {
+    captured_at: snapshot.captured_at,
+    period: snapshot.period,
+    payload: snapshot.payload ?? {},
+  };
+}

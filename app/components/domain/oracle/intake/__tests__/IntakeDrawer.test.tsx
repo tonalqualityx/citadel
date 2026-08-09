@@ -263,7 +263,13 @@ describe('IntakeDrawer', () => {
 
       const cardsContainer = screen.getByTestId('intake-cards');
       const laneHeadings = cardsContainer.querySelectorAll('h3');
-      expect(Array.from(laneHeadings).map((h) => h.textContent)).toEqual(['Meeting', 'Sales', 'General']);
+      // 2026-08-05 — the lane header now carries the lane's icon and raw ask count
+      // alongside the title, matching the trigger chip's own per-lane shorthand.
+      expect(Array.from(laneHeadings).map((h) => h.textContent)).toEqual([
+        '🤝 Meeting 1',
+        '💰 Sales 1',
+        '📬 General 1',
+      ]);
 
       expect(screen.getByTestId('intake-lane-meeting')).toBeVisible();
       expect(screen.getByTestId('intake-lane-sales')).toBeVisible();
@@ -440,7 +446,12 @@ describe('IntakeDrawer', () => {
 
         const cardsContainer = screen.getByTestId('intake-cards');
         const laneHeadings = cardsContainer.querySelectorAll('h3');
-        expect(Array.from(laneHeadings).map((h) => h.textContent)).toEqual(['Admin', 'Meeting', 'Sales', 'General']);
+        expect(Array.from(laneHeadings).map((h) => h.textContent)).toEqual([
+          '🧾 Admin 1',
+          '🤝 Meeting 1',
+          '💰 Sales 1',
+          '📬 General 1',
+        ]);
         expect(screen.getByTestId('intake-lane-admin')).toBeVisible();
       });
 
@@ -465,6 +476,83 @@ describe('IntakeDrawer', () => {
         expect(screen.getByRole('button', { name: /^create \+ open$/i })).toBeVisible();
         expect(screen.queryByRole('button', { name: /lead quest/i })).not.toBeInTheDocument();
         expect(screen.queryByTestId('meeting-event-block')).not.toBeInTheDocument();
+      });
+    });
+
+    // 2026-08-05 — Mike's ruling: each lane group gets its own collapse toggle, defaulting
+    // OPEN (he asked for the ABILITY to collapse, not collapsed-by-default). The header
+    // carries the lane's icon + raw ask count alongside the title.
+    describe('lane collapse', () => {
+      it('lane groups render open by default, with the correct icon, title, and raw ask count', () => {
+        renderWithClient(
+          <IntakeDrawer
+            intake={{
+              count: 3,
+              newest_at: '2026-07-21T20:00:00.000Z',
+              lanes: { admin: 0, general: 1, meeting: 1, sales: 1 },
+              items: threeLaneAsks(),
+            }}
+            timezone="America/New_York"
+          />
+        );
+
+        fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+        const meetingToggle = screen.getByTestId('intake-lane-toggle-meeting');
+        expect(meetingToggle).toHaveAttribute('aria-expanded', 'true');
+        expect(meetingToggle).toHaveTextContent('🤝 Meeting 1');
+        expect(screen.getByText('Can we meet Thursday?')).toBeVisible();
+      });
+
+      it('clicking a lane toggle collapses that lane\'s cards, and clicking again re-expands', () => {
+        renderWithClient(
+          <IntakeDrawer
+            intake={{
+              count: 3,
+              newest_at: '2026-07-21T20:00:00.000Z',
+              lanes: { admin: 0, general: 1, meeting: 1, sales: 1 },
+              items: threeLaneAsks(),
+            }}
+            timezone="America/New_York"
+          />
+        );
+
+        fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+
+        const meetingToggle = screen.getByTestId('intake-lane-toggle-meeting');
+        expect(screen.getByText('Can we meet Thursday?')).toBeVisible();
+
+        fireEvent.click(meetingToggle);
+        expect(meetingToggle).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.queryByText('Can we meet Thursday?')).not.toBeInTheDocument();
+
+        fireEvent.click(meetingToggle);
+        expect(meetingToggle).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('Can we meet Thursday?')).toBeVisible();
+      });
+
+      it('collapsing one lane does not collapse the others', () => {
+        renderWithClient(
+          <IntakeDrawer
+            intake={{
+              count: 3,
+              newest_at: '2026-07-21T20:00:00.000Z',
+              lanes: { admin: 0, general: 1, meeting: 1, sales: 1 },
+              items: threeLaneAsks(),
+            }}
+            timezone="America/New_York"
+          />
+        );
+
+        fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+        fireEvent.click(screen.getByTestId('intake-lane-toggle-meeting'));
+
+        expect(screen.queryByText('Can we meet Thursday?')).not.toBeInTheDocument();
+        // Sales and General stay open and their cards stay visible.
+        expect(screen.getByTestId('intake-lane-toggle-sales')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('Interested in your services')).toBeVisible();
+        expect(screen.getByTestId('intake-lane-toggle-general')).toHaveAttribute('aria-expanded', 'true');
+        expect(screen.getByText('General question')).toBeVisible();
       });
     });
   });

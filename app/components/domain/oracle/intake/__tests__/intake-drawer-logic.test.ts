@@ -3,6 +3,7 @@ import {
   formatNewestAt,
   intakeSummaryLine,
   laneForAsk,
+  laneEmoji,
   intakeChipLine,
   groupAsksByLane,
   formatProposedEvent,
@@ -55,6 +56,17 @@ describe('laneForAsk', () => {
 
   it('Clarity Phase 6b — passes through the admin intent (never a null-fallback)', () => {
     expect(laneForAsk({ intent: 'admin' })).toBe('admin');
+  });
+});
+
+// The drawer's own per-lane group header (IntakeDrawer.tsx) reuses this same accessor for
+// its icon, so it and the trigger chip below can never show different emoji for one lane.
+describe('laneEmoji', () => {
+  it('returns the same emoji intakeChipLine uses for each lane', () => {
+    expect(laneEmoji('admin')).toBe('🧾');
+    expect(laneEmoji('general')).toBe('📬');
+    expect(laneEmoji('meeting')).toBe('🤝');
+    expect(laneEmoji('sales')).toBe('💰');
   });
 });
 

@@ -8,7 +8,7 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     clientContact: { findMany: vi.fn(), findUnique: vi.fn() },
-    portalSession: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+    portalSession: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
   },
 }));
 
@@ -27,6 +27,8 @@ import {
   requireClientAuth,
   assertClientScope,
   CLIENT_SESSION_COOKIE,
+  SESSION_TTL_DAYS,
+  MAX_SESSION_TTL_DAYS,
 } from '../client-auth';
 import type { Mock } from 'vitest';
 
@@ -35,6 +37,7 @@ const mockFindManyContacts = prisma.clientContact.findMany as Mock;
 const mockFindUniqueContact = prisma.clientContact.findUnique as Mock;
 const mockCreate = prisma.portalSession.create as Mock;
 const mockFindFirst = prisma.portalSession.findFirst as Mock;
+const mockUpdate = prisma.portalSession.update as Mock;
 const mockSendEmail = sendClientMagicLinkEmail as Mock;
 
 beforeEach(() => {
@@ -155,7 +158,7 @@ describe('consumeClientMagicLink', () => {
     magic_token_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
   };
 
-  it('issues a ~7-day session by minting a NEW session row (link is never consumed)', async () => {
+  it('issues a ~30-day session by minting a NEW session row (link is never consumed)', async () => {
     mockFindFirst.mockResolvedValue(linkRow);
     mockCreate.mockResolvedValue({});
 
@@ -165,10 +168,12 @@ describe('consumeClientMagicLink', () => {
     expect(result!.clientId).toBe('client-acme');
     expect(result!.contactId).toBe('contact-1');
     expect(result!.sessionToken).toEqual(expect.any(String));
-    // ~7 days out (allow a minute of slack).
+    // ~SESSION_TTL_DAYS (30) out (allow a minute of slack). The initial grant is the sliding
+    // window's starting point — activity extends it further, see the requireClientAuth tests.
     const ms = result!.expiresAt.getTime() - Date.now();
-    expect(ms).toBeGreaterThan(7 * 24 * 60 * 60 * 1000 - 60_000);
-    expect(ms).toBeLessThan(7 * 24 * 60 * 60 * 1000 + 60_000);
+    const ttlMs = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
+    expect(ms).toBeGreaterThan(ttlMs - 60_000);
+    expect(ms).toBeLessThan(ttlMs + 60_000);
     // The link lookup is NOT gated on consumed_at — that's what makes the link reusable.
     expect(mockFindFirst.mock.calls[0][0].where).not.toHaveProperty('consumed_at');
     // A fresh session row is created (the durable link row is left untouched).
@@ -243,12 +248,16 @@ describe('validateClientSession', () => {
 
 describe('requireClientAuth', () => {
   it('returns the session when the cookie is valid', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'good-token' }) });
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'good-token' }), set });
     mockFindFirst.mockResolvedValue({
+      id: 'session-1',
       entity_id: 'client-acme',
       contact_id: 'contact-1',
       expires_at: new Date(Date.now() + 60 * 60 * 1000),
+      created_at: new Date(Date.now() - 60 * 60 * 1000),
     });
+    mockUpdate.mockResolvedValue({});
     const session = await requireClientAuth();
     expect(session.clientId).toBe('client-acme');
   });
@@ -266,12 +275,105 @@ describe('requireClientAuth', () => {
 
   it('reads from the client_session cookie name', async () => {
     const get = vi.fn(() => ({ value: 'good-token' }));
-    mockCookies.mockResolvedValue({ get });
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get, set });
     mockFindFirst.mockResolvedValue({
-      entity_id: 'c', contact_id: 'x', expires_at: new Date(Date.now() + 1000),
+      id: 'session-1', entity_id: 'c', contact_id: 'x',
+      expires_at: new Date(Date.now() + 1000), created_at: new Date(),
     });
+    mockUpdate.mockResolvedValue({});
     await requireClientAuth();
     expect(get).toHaveBeenCalledWith(CLIENT_SESSION_COOKIE);
+  });
+});
+
+describe('requireClientAuth — sliding session refresh', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  it('extends a near-expiry session forward and re-sets the cookie', async () => {
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'good-token' }), set });
+    // Created 20 days ago, expiring in 2 days — well inside the 90-day cap, so the slide should
+    // land at ~SESSION_TTL_DAYS (30) from now, not the cap.
+    mockFindFirst.mockResolvedValue({
+      id: 'session-1',
+      entity_id: 'client-acme',
+      contact_id: 'contact-1',
+      expires_at: new Date(Date.now() + 2 * DAY_MS),
+      created_at: new Date(Date.now() - 20 * DAY_MS),
+    });
+    mockUpdate.mockResolvedValue({});
+
+    await requireClientAuth();
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    const [{ where, data }] = mockUpdate.mock.calls[0];
+    expect(where).toEqual({ id: 'session-1' });
+    const slidMs = data.expires_at.getTime() - Date.now();
+    const ttlMs = SESSION_TTL_DAYS * DAY_MS;
+    expect(slidMs).toBeGreaterThan(ttlMs - 60_000);
+    expect(slidMs).toBeLessThan(ttlMs + 60_000);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0][0]).toBe(CLIENT_SESSION_COOKIE);
+  });
+
+  it('does not write when the extension would not be meaningful (debounce)', async () => {
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'good-token' }), set });
+    // A session that was just refreshed — already sitting at ~SESSION_TTL_DAYS out.
+    mockFindFirst.mockResolvedValue({
+      id: 'session-1',
+      entity_id: 'client-acme',
+      contact_id: 'contact-1',
+      expires_at: new Date(Date.now() + SESSION_TTL_DAYS * DAY_MS - 60_000),
+      created_at: new Date(Date.now() - DAY_MS),
+    });
+
+    await requireClientAuth();
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('caps the slide at MAX_SESSION_TTL_DAYS from the session\'s own creation', async () => {
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'good-token' }), set });
+    // Created 85 days ago — a full 30-day slide would blow past the 90-day absolute cap, which
+    // lands only 5 days out from now.
+    const createdAt = new Date(Date.now() - 85 * DAY_MS);
+    mockFindFirst.mockResolvedValue({
+      id: 'session-1',
+      entity_id: 'client-acme',
+      contact_id: 'contact-1',
+      expires_at: new Date(Date.now() + 2 * DAY_MS),
+      created_at: createdAt,
+    });
+    mockUpdate.mockResolvedValue({});
+
+    await requireClientAuth();
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    const capMs = createdAt.getTime() + MAX_SESSION_TTL_DAYS * DAY_MS;
+    const [{ data }] = mockUpdate.mock.calls[0];
+    expect(data.expires_at.getTime()).toBe(capMs);
+  });
+
+  it('never blocks the request when the DB write fails (best-effort)', async () => {
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'good-token' }), set });
+    mockFindFirst.mockResolvedValue({
+      id: 'session-1',
+      entity_id: 'client-acme',
+      contact_id: 'contact-1',
+      expires_at: new Date(Date.now() + 2 * DAY_MS),
+      created_at: new Date(Date.now() - 20 * DAY_MS),
+    });
+    mockUpdate.mockRejectedValue(new Error('db down'));
+
+    const session = await requireClientAuth();
+
+    expect(session.clientId).toBe('client-acme');
+    expect(set).not.toHaveBeenCalled();
   });
 });
 

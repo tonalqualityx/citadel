@@ -20,6 +20,12 @@
  * single-use. This is a deliberate, temporary tradeoff for a small team-sharing use case — a
  * forwarded/leaked link grants its client's scope for up to 7 days. It will be tightened when the
  * full per-contact login lands.
+ *
+ * Portal v2 phase 1 (2026-08-09, Mike ops-review Q5): once redeemed, a session now SLIDES —
+ * `requireClientAuth()` extends `expires_at` (and re-sets the cookie's maxAge) on activity, up to
+ * `MAX_SESSION_TTL_DAYS` from the session's own `created_at`. The magic-link request/invite window
+ * itself (`MAGIC_LINK_TTL_DAYS`/`TEAM_INVITE_TTL_DAYS`) is unchanged — only the logged-in session's
+ * lifetime changed, per the approved decision ("magic-link flow otherwise unchanged").
  */
 
 import { randomBytes } from 'crypto';
@@ -31,13 +37,19 @@ import { sendClientMagicLinkEmail } from '@/lib/services/email';
 export const CLIENT_SESSION_COOKIE = 'client_session';
 const TOKEN_TYPE = 'client_session';
 /**
- * Both the self-service request link and the team-generated invite link are valid for 7 days and
+ * The self-service request link and the team-generated invite link are valid for 7 days and
  * reusable within that window (so the client can share one link with their team, and link
  * prefetchers can't burn it). Still client-scoped on every redemption.
  */
 const MAGIC_LINK_TTL_DAYS = 7;
-const SESSION_TTL_DAYS = 7;
+/** A logged-in session's sliding window: each activity extends it this far into the future. */
+export const SESSION_TTL_DAYS = 30;
+/** Absolute cap on a session's lifetime from its own `created_at`, regardless of activity. */
+export const MAX_SESSION_TTL_DAYS = 90;
 const TEAM_INVITE_TTL_DAYS = 7;
+/** Only write the extended expiry (DB + cookie) when it moves the deadline by more than this —
+ *  avoids a write + Set-Cookie on every single portal request. */
+const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
 export interface ClientSession {
   clientId: string;
@@ -222,10 +234,20 @@ export async function consumeClientMagicLink(input: {
   };
 }
 
+interface ActiveSessionRow {
+  id: string;
+  entity_id: string;
+  contact_id: string;
+  expires_at: Date;
+  created_at: Date;
+}
+
 /**
- * Resolve an active client session from a raw session token. Null if unknown or expired.
+ * Look up a session row by token and return it only if it's a real, unexpired client-login
+ * session. Shared by `validateClientSession()` (identity-only callers) and `requireClientAuth()`
+ * (which additionally needs `id`/`created_at`/`expires_at` to drive the sliding refresh).
  */
-export async function validateClientSession(sessionToken: string): Promise<ClientSession | null> {
+async function findActiveSessionRow(sessionToken: string): Promise<ActiveSessionRow | null> {
   if (!sessionToken) return null;
 
   const row = await prisma.portalSession.findFirst({
@@ -233,19 +255,74 @@ export async function validateClientSession(sessionToken: string): Promise<Clien
       session_token: sessionToken,
       token_type: TOKEN_TYPE,
     },
-    select: { entity_id: true, contact_id: true, expires_at: true },
+    select: { id: true, entity_id: true, contact_id: true, expires_at: true, created_at: true },
   });
 
-  if (!row || !row.contact_id) return null;
-  if (!row.expires_at || row.expires_at < new Date()) return null;
+  if (!row || !row.contact_id || !row.expires_at) return null;
+  if (row.expires_at < new Date()) return null;
+
+  return row as ActiveSessionRow;
+}
+
+/**
+ * Resolve an active client session from a raw session token. Null if unknown or expired.
+ * Identity-only — does not slide the session (no cookie access here); pair with
+ * `requireClientAuth()` for the full cookie-backed, self-extending flow.
+ */
+export async function validateClientSession(sessionToken: string): Promise<ClientSession | null> {
+  const row = await findActiveSessionRow(sessionToken);
+  if (!row) return null;
 
   return { clientId: row.entity_id, contactId: row.contact_id };
+}
+
+/**
+ * Extend a session on activity: slides `expires_at` forward by `SESSION_TTL_DAYS`, capped at
+ * `MAX_SESSION_TTL_DAYS` from the session's own `created_at`. Debounced — only writes (DB +
+ * cookie) when the extension is meaningful, per `REFRESH_THRESHOLD_MS`. Best-effort: a failed
+ * write never blocks the request, it just means this particular activity didn't slide the window.
+ */
+async function slideSessionExpiry(
+  cookieStore: Awaited<ReturnType<typeof cookies>>,
+  token: string,
+  row: ActiveSessionRow
+): Promise<void> {
+  const now = Date.now();
+  const absoluteCapMs = row.created_at.getTime() + MAX_SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const slidingTargetMs = now + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const newExpiresMs = Math.min(slidingTargetMs, absoluteCapMs);
+  const currentExpiresMs = row.expires_at.getTime();
+
+  if (newExpiresMs - currentExpiresMs <= REFRESH_THRESHOLD_MS) return;
+
+  const newExpiresAt = new Date(newExpiresMs);
+
+  try {
+    await prisma.portalSession.update({
+      where: { id: row.id },
+      data: { expires_at: newExpiresAt },
+    });
+  } catch (error) {
+    console.error('Failed to slide client session expiry:', error);
+    return;
+  }
+
+  cookieStore.set(CLIENT_SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: Math.max(0, Math.floor((newExpiresMs - now) / 1000)),
+    path: '/',
+  });
 }
 
 /**
  * Require an authenticated client-portal session (reads the `client_session` cookie).
  * Throws AuthError(401) when there is no valid session. The returned scope is the ONLY client
  * this request may touch — pair with `assertClientScope()` on any client-scoped resource.
+ *
+ * Sliding session: on every successful call, extends the session's expiry (DB row + cookie) up to
+ * `MAX_SESSION_TTL_DAYS` from its creation — see `slideSessionExpiry()`.
  */
 export async function requireClientAuth(): Promise<ClientSession> {
   const cookieStore = await cookies();
@@ -255,12 +332,14 @@ export async function requireClientAuth(): Promise<ClientSession> {
     throw new AuthError('Client authentication required', 401);
   }
 
-  const session = await validateClientSession(token);
-  if (!session) {
+  const row = await findActiveSessionRow(token);
+  if (!row) {
     throw new AuthError('Invalid or expired session', 401);
   }
 
-  return session;
+  await slideSessionExpiry(cookieStore, token, row);
+
+  return { clientId: row.entity_id, contactId: row.contact_id };
 }
 
 /**
@@ -276,5 +355,6 @@ export function assertClientScope(session: ClientSession, clientId: string): voi
 export const __testing = {
   MAGIC_LINK_TTL_DAYS,
   SESSION_TTL_DAYS,
+  MAX_SESSION_TTL_DAYS,
   TEAM_INVITE_TTL_DAYS,
 };

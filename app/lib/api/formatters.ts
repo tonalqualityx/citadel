@@ -1,3 +1,5 @@
+import { normalizeGmailDeepLink } from '@/lib/email-asks';
+
 export function formatClientContactResponse(contact: any) {
   return {
     id: contact.id,
@@ -1163,7 +1165,9 @@ export function formatEmailAskResponse(ask: any) {
     // Clarity Phase 7 — email-arc attachment: the ask leaves the intake drawer and
     // attaches directly to the arc it belongs to (as well as, or instead of, a task).
     arc_id: ask.arc_id ?? null,
-    deep_link: ask.deep_link,
+    // Heals the account-index-hardcoded (`u/0`) / inbox-only (`#inbox/`) links already
+    // sitting in prod on the way out — see normalizeGmailDeepLink's own doc comment.
+    deep_link: normalizeGmailDeepLink(ask.deep_link, ask.account ?? null),
     received_at: ask.received_at,
     created_at: ask.created_at,
     updated_at: ask.updated_at,

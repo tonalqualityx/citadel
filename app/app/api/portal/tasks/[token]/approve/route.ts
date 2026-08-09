@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import {
   validateTaskToken,
   resolveTaskContact,
+  recordTaskClientApproval,
   logPortalSession,
   getClientIp,
 } from '@/lib/services/portal';
@@ -12,6 +12,8 @@ import {
 // Sets client_approved_at + approved_by_contact_id. For staged client sites
 // (site.auto_deploy === false) the actual staging→prod promotion is a separate operator step
 // (no in-app deploy pipeline yet), so we record a promotion-pending marker rather than deploy.
+// Mutation core lives in recordTaskClientApproval() (lib/services/portal.ts), shared with the
+// session-scoped equivalent at POST /api/portal/tasks/:id/approve.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
@@ -27,45 +29,15 @@ export async function POST(
       );
     }
 
-    // Idempotent: a second approve is a no-op.
-    if (task.client_approved_at) {
+    const contact = await resolveTaskContact(task);
+    const result = await recordTaskClientApproval(task, contact?.id ?? null);
+
+    if (result.already_approved) {
       return NextResponse.json({
         message: 'Already approved',
         already_approved: true,
-        approved_at: task.client_approved_at,
+        approved_at: result.approved_at,
       });
-    }
-
-    const contact = await resolveTaskContact(task);
-    const approvedAt = new Date();
-
-    await prisma.task.update({
-      where: { id: task.id },
-      data: {
-        client_approved_at: approvedAt,
-        approved_by_contact_id: contact?.id ?? null,
-      },
-    });
-
-    // Staged client sites need a staging→prod promotion. There is no in-app deploy pipeline,
-    // so flag it for the operator via an internal (never client-visible) note instead of
-    // performing an irreversible deploy here.
-    const promotionPending = task.site?.auto_deploy === false;
-    if (promotionPending) {
-      const bastUserId = await prisma.user
-        .findFirst({ where: { email: 'bast@becomeindelible.com' }, select: { id: true } })
-        .then((u) => u?.id ?? null);
-      if (bastUserId) {
-        await prisma.comment.create({
-          data: {
-            task_id: task.id,
-            user_id: bastUserId,
-            content:
-              '~ Bast: Client approved the staged work via the portal. Staging→prod promotion is pending an operator (no auto-deploy on this site).',
-            is_internal: true,
-          },
-        });
-      }
     }
 
     await logPortalSession({
@@ -74,13 +46,13 @@ export async function POST(
       ipAddress: getClientIp(request),
       userAgent: request.headers.get('user-agent'),
       action: 'accept',
-      metadata: { approved_by_contact_id: contact?.id ?? null, promotion_pending: promotionPending },
+      metadata: { approved_by_contact_id: contact?.id ?? null, promotion_pending: result.promotion_pending },
     });
 
     return NextResponse.json({
       message: 'Approved',
-      approved_at: approvedAt,
-      promotion_pending: promotionPending,
+      approved_at: result.approved_at,
+      promotion_pending: result.promotion_pending,
     });
   } catch (error) {
     return handleApiError(error);

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { POST } from '../route';
+import { normalizeGmailDeepLink } from '@/lib/email-asks';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
@@ -108,7 +109,10 @@ describe('POST /api/email-asks/[id]/create-task', () => {
           assignee_id: 'operator-1',
           source: 'email',
           source_ref: 'msg-1',
-          origin_url: ask().deep_link,
+          // The route normalizes the ask's Gmail deep link (account-index/inbox-only fix,
+          // see normalizeGmailDeepLink's own doc comment) before baking it into the new
+          // task's origin_url — this asserts the healed link, not the raw fixture one.
+          origin_url: normalizeGmailDeepLink(ask().deep_link, ask().account),
           client_id: null,
           arc_id: null,
         }),
