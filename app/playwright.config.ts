@@ -9,7 +9,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Serial everywhere, matching CI: specs seed real rows in the shared e2e DB (e.g. the
+  // contract-sign specs create kickoff tasks), and parallel workers let one spec's live
+  // fixtures leak into another's board/count assertions (2026-08-09 flake investigation).
+  workers: 1,
   reporter: 'html',
   use: {
     baseURL: 'http://localhost:3000',
