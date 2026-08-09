@@ -73,7 +73,10 @@ test('Clarity Phase 6/6b — trigger chip shows four lane counts, drawer groups 
   // Lane headers render in Admin, Meeting, Sales, General order, each only when non-empty.
   const cardsContainer = page.getByTestId('intake-cards');
   const laneHeadings = cardsContainer.locator('h3');
-  await expect(laneHeadings).toHaveText(['Admin', 'Meeting', 'Sales', 'General']);
+  // 2026-08-05 — the header now carries the lane's icon + raw ask count alongside the
+  // title ("🧾 Admin 3"); counts are dynamic (other seed scripts also populate these
+  // lanes, per this file's own header note), so match by pattern rather than exact text.
+  await expect(laneHeadings).toHaveText([/🧾 Admin \d+/, /🤝 Meeting \d+/, /💰 Sales \d+/, /📬 General \d+/]);
 
   const adminLane = page.getByTestId('intake-lane-admin');
   const meetingLane = page.getByTestId('intake-lane-meeting');
@@ -200,7 +203,10 @@ test('Clarity Phase 6 — mobile: lanes stack, chip counts stay visible, no hori
   // above every other lane's top.
   const cardsContainer = page.getByTestId('intake-cards');
   const laneHeadings = cardsContainer.locator('h3');
-  await expect(laneHeadings).toHaveText(['Admin', 'Meeting', 'Sales', 'General']);
+  // 2026-08-05 — the header now carries the lane's icon + raw ask count alongside the
+  // title ("🧾 Admin 3"); counts are dynamic (other seed scripts also populate these
+  // lanes, per this file's own header note), so match by pattern rather than exact text.
+  await expect(laneHeadings).toHaveText([/🧾 Admin \d+/, /🤝 Meeting \d+/, /💰 Sales \d+/, /📬 General \d+/]);
 
   // Stacked, not side-by-side: each subsequent lane's top sits below the previous lane's
   // bottom (admin -> meeting -> sales, general asserted just above via heading order).

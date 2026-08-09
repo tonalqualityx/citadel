@@ -66,9 +66,12 @@ test('Clarity Phase 4a — crisis strip renders with the seeded urgent ask, scre
   await expect(thisCrisisCard.getByText('client-blocking').first()).toBeVisible();
 
   const openEmailLink = thisCrisisCard.getByRole('link', { name: /open email/i });
+  // The API normalizes the fixture's raw stored `u/0/#inbox/` link (account-index/
+  // inbox-only fix, see normalizeGmailDeepLink's own doc comment) on the way out — this
+  // asserts the healed href the page actually renders, not the raw seeded value.
   await expect(openEmailLink).toHaveAttribute(
     'href',
-    'https://mail.google.com/mail/u/0/#inbox/e2e-fixture-urgent'
+    'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/e2e-fixture-urgent'
   );
   await expect(openEmailLink).toHaveAttribute('target', '_blank');
 
@@ -114,9 +117,10 @@ test('Clarity Phase 4a — intake trigger chip in the header opens a drawer show
   await expect(cards).toBeVisible();
   const fixtureCard = cards.getByTestId('intake-card').filter({ hasText: 'E2E: Question about the proposal (fixture)' });
   await expect(fixtureCard).toBeVisible();
+  // Healed href on the way out of the API — see the crisis-strip assertion above.
   await expect(fixtureCard.getByRole('link', { name: /open email/i })).toHaveAttribute(
     'href',
-    'https://mail.google.com/mail/u/0/#inbox/e2e-fixture-intake'
+    'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/e2e-fixture-intake'
   );
   await expect(fixtureCard.getByRole('button', { name: /^create$/i })).toBeVisible();
   await expect(fixtureCard.getByRole('button', { name: /create \+ open/i })).toBeVisible();
