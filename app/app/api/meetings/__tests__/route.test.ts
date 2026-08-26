@@ -258,6 +258,44 @@ describe('POST /api/meetings', () => {
     );
   });
 
+  // project-record-citadel-changes.md section 0.2 (ruling 33) — a pre-signature sales call
+  // has no Client record yet; client_id is now optional/nullable on create.
+  it('creates a meeting with no client_id (pre-signature meeting) without a 500 or client lookup', async () => {
+    const request = createPostRequest({
+      title: 'Discovery Call',
+      meeting_date: '2026-03-15T10:00:00.000Z',
+    });
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockClientFindUnique).not.toHaveBeenCalled();
+    expect(mockMeetingCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: 'Discovery Call',
+          client_id: null,
+        }),
+      })
+    );
+  });
+
+  it('creates a meeting with explicit client_id: null the same as omitting it', async () => {
+    const request = createPostRequest({
+      title: 'Discovery Call',
+      client_id: null,
+      meeting_date: '2026-03-15T10:00:00.000Z',
+    });
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockClientFindUnique).not.toHaveBeenCalled();
+    expect(mockMeetingCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ client_id: null }),
+      })
+    );
+  });
+
   it('returns 400 for missing required fields (Zod validation)', async () => {
     const request = createPostRequest({
       title: 'No Client or Date',

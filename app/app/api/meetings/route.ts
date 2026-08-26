@@ -26,7 +26,10 @@ const meetingInclude = {
 
 const createMeetingSchema = z.object({
   title: z.string().min(1).max(255),
-  client_id: z.string().uuid(),
+  // project-record-citadel-changes.md section 0.2 (ruling 33) — nullable: a pre-signature
+  // sales call has no Client record yet. meeting_accords carries the pipeline-lead link for
+  // those instead (via accord_ids below).
+  client_id: z.string().uuid().optional().nullable(),
   meeting_date: z.string().datetime(),
   summary: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -103,18 +106,20 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const data = createMeetingSchema.parse(body);
 
-    // Validate client exists
-    const client = await prisma.client.findUnique({
-      where: { id: data.client_id },
-    });
-    if (!client) {
-      throw new ApiError('Client not found', 404);
+    // Validate client exists, only when one was provided (pre-signature meetings have none).
+    if (data.client_id) {
+      const client = await prisma.client.findUnique({
+        where: { id: data.client_id },
+      });
+      if (!client) {
+        throw new ApiError('Client not found', 404);
+      }
     }
 
     const meeting = await prisma.meeting.create({
       data: {
         title: data.title,
-        client_id: data.client_id,
+        client_id: data.client_id ?? null,
         meeting_date: new Date(data.meeting_date),
         summary: data.summary || null,
         notes: data.notes || null,

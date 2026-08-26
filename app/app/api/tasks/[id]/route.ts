@@ -8,7 +8,12 @@ import { serializeRichText } from '@/lib/api/blocknote';
 import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logStatusChange, logUpdate, logDelete } from '@/lib/services/activity';
-import { unblockEligibleDependents, reblockDependents } from '@/lib/services/dependencies';
+import {
+  unblockEligibleDependents,
+  reblockDependents,
+  areBlockersSatisfied,
+  wouldCreateCycle,
+} from '@/lib/services/dependencies';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
@@ -85,6 +90,15 @@ const updateTaskSchema = z.object({
   staging_deployed_at: z.string().datetime().optional().nullable(),
   client_approved_at: z.string().datetime().optional().nullable(),
   approved_by_contact_id: z.string().uuid().optional().nullable(),
+  // project-record-citadel-changes.md addendum (ruling 32) — additive/removable dependency
+  // editing. Not in allowedTechFields above, so tech users can't reach this (PM/Admin only,
+  // same gating as the other planning-shaped fields on this route).
+  blocked_by_ids: z
+    .object({
+      connect: z.array(z.string().uuid()).optional(),
+      disconnect: z.array(z.string().uuid()).optional(),
+    })
+    .optional(),
 });
 
 const updateStatusSchema = z.object({
@@ -414,6 +428,35 @@ export async function PATCH(
       }
     }
 
+    // project-record-citadel-changes.md addendum (ruling 32) — dependency connect/disconnect.
+    // Validate connect ids exist, reject a cycle with 422, and note whether the connect
+    // introduces an unsatisfied blocker (forces status to `blocked` below, mirroring the
+    // wizard's dependency wiring). Release on disconnect relies on the existing
+    // unblockEligibleDependents/healBlockedTasks sweep, never a bespoke path here.
+    let forceBlockedStatus = false;
+    if (data.blocked_by_ids !== undefined) {
+      const connectIds = data.blocked_by_ids.connect ?? [];
+      const disconnectIds = data.blocked_by_ids.disconnect ?? [];
+
+      if (connectIds.length > 0) {
+        const blockers = await prisma.task.findMany({
+          where: { id: { in: connectIds }, is_deleted: false },
+          select: { id: true },
+        });
+        if (blockers.length !== new Set(connectIds).size) {
+          throw new ApiError('One or more blocker tasks not found', 404);
+        }
+
+        if (await wouldCreateCycle(id, connectIds)) {
+          throw new ApiError('Adding this dependency would create a cycle', 422);
+        }
+
+        if (!(await areBlockersSatisfied(connectIds))) {
+          forceBlockedStatus = true;
+        }
+      }
+    }
+
     // Build update data explicitly to avoid Prisma type conflicts
     const updateData: Record<string, any> = {
       estimated_minutes: estimatedMinutes,
@@ -527,6 +570,24 @@ export async function PATCH(
       updateData.client_approved_at = data.client_approved_at ? new Date(data.client_approved_at) : null;
     }
     if (data.approved_by_contact_id !== undefined) updateData.approved_by_contact_id = data.approved_by_contact_id;
+
+    // project-record-citadel-changes.md addendum (ruling 32) — apply the dependency edit and,
+    // on a connect with an unsatisfied blocker, force the dependent to `blocked` (never on a
+    // task that's already done/abandoned — completed work doesn't get resurrected by a later
+    // dependency edit).
+    if (data.blocked_by_ids?.connect?.length || data.blocked_by_ids?.disconnect?.length) {
+      updateData.blocked_by = {
+        ...(data.blocked_by_ids.connect?.length
+          ? { connect: data.blocked_by_ids.connect.map((bid) => ({ id: bid })) }
+          : {}),
+        ...(data.blocked_by_ids.disconnect?.length
+          ? { disconnect: data.blocked_by_ids.disconnect.map((bid) => ({ id: bid })) }
+          : {}),
+      };
+    }
+    if (forceBlockedStatus && !['done', 'abandoned'].includes(existingTask.status)) {
+      updateData.status = 'blocked';
+    }
 
     const task = await prisma.task.update({
       where: { id },

@@ -1034,3 +1034,76 @@ describe('GET /api/tasks', () => {
     });
   });
 });
+
+// project-record-citadel-changes.md addendum (ruling 32) — POST /api/tasks blocked_by_ids.
+// dependencies.ts is NOT mocked here — these exercise the real areBlockersSatisfied /
+// wouldCreateCycle predicates against the same mocked prisma.task.findMany used above.
+describe('POST /api/tasks — dependency wiring (blocked_by_ids)', () => {
+  const blockerId = '550e8400-e29b-41d4-a716-446655440010';
+
+  function blockerRow(id: string, status: string, approved: boolean, orderingOnly: boolean) {
+    return { id, status, approved, project: { dependencies_ordering_only: orderingOnly } };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({
+      userId: 'user-123',
+      role: 'pm',
+      email: 'pm@example.com',
+    });
+    mockTaskCreate.mockResolvedValue(mockCreatedTask);
+  });
+
+  it('create-with-deps: connects blocked_by_ids and leaves default status when the blocker is already satisfied', async () => {
+    mockTaskFindMany
+      .mockResolvedValueOnce([{ id: blockerId }]) // existence check
+      .mockResolvedValueOnce([blockerRow(blockerId, 'done', true, false)]) // areBlockersSatisfied
+      .mockResolvedValueOnce([{ blocked_by: [] }]); // wouldCreateCycle BFS on the blocker
+
+    const request = createPostRequest({ title: 'Depends on satisfied blocker', blocked_by_ids: [blockerId] });
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockTaskCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'not_started',
+          blocked_by: { connect: [{ id: blockerId }] },
+        }),
+      })
+    );
+  });
+
+  it('create-with-deps: starts `blocked` when the connected blocker is unsatisfied', async () => {
+    mockTaskFindMany
+      .mockResolvedValueOnce([{ id: blockerId }]) // existence check
+      .mockResolvedValueOnce([blockerRow(blockerId, 'in_progress', false, false)]) // unsatisfied
+      .mockResolvedValueOnce([{ blocked_by: [] }]); // wouldCreateCycle BFS
+
+    const request = createPostRequest({ title: 'Depends on unsatisfied blocker', blocked_by_ids: [blockerId] });
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    expect(mockTaskCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'blocked',
+          blocked_by: { connect: [{ id: blockerId }] },
+        }),
+      })
+    );
+  });
+
+  it('returns 404 when a blocked_by_ids entry does not resolve to a real task', async () => {
+    mockTaskFindMany.mockResolvedValueOnce([]); // existence check finds nothing
+
+    const request = createPostRequest({ title: 'Bad dependency', blocked_by_ids: [blockerId] });
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error).toBe('One or more blocker tasks not found');
+    expect(mockTaskCreate).not.toHaveBeenCalled();
+  });
+});

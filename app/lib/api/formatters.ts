@@ -450,6 +450,13 @@ export function formatAccordResponse(accord: any) {
     rejection_reason: accord.rejection_reason,
     payment_confirmed: accord.payment_confirmed,
     payment_confirmed_at: accord.payment_confirmed_at,
+    // project-record-citadel-changes.md (ruling 33) — MUST always be present, even null:
+    // project_record.py's feature-detection reads these keys off the GET response to decide
+    // whether it can write real pipeline fields instead of degrading to its local shadow
+    // index. Never drop them from this formatter, even if they're unset on the row.
+    pipeline_stage: accord.pipeline_stage,
+    pipeline_stage_at: accord.pipeline_stage_at,
+    record_dir: accord.record_dir,
     total_value: accord.total_value ? Number(accord.total_value) : null,
     entered_current_status_at: accord.entered_current_status_at,
     lost_at: accord.lost_at,
@@ -1256,5 +1263,41 @@ export function formatTodayPickResponse(
     primary_action: extras.primaryAction ?? null,
     created_at: pick.created_at,
     updated_at: pick.updated_at,
+  };
+}
+
+// project-record-citadel-changes.md section 1.3 / 2.3 (ruling 33, 2026-08-27) — the billing
+// schedule row. Field-for-field target of Wright's ScheduledInvoice dataclass.
+export function formatScheduledInvoiceResponse(row: any) {
+  return {
+    id: row.id,
+    accord_id: row.accord_id,
+    client_id: row.client_id,
+    project_id: row.project_id,
+    charter_id: row.charter_id,
+    ware_id: row.ware_id,
+    accord_item_id: row.accord_item_id,
+    item_kind: row.item_kind,
+    trigger_type: row.trigger_type,
+    trigger_ref: row.trigger_ref,
+    amount_source: row.amount_source,
+    amount_percent:
+      row.amount_percent !== null && row.amount_percent !== undefined
+        ? Number(row.amount_percent)
+        : null,
+    amount_cached:
+      row.amount_cached !== null && row.amount_cached !== undefined
+        ? Number(row.amount_cached)
+        : null,
+    currency: row.currency,
+    due_on: row.due_on,
+    status: row.status,
+    notified_at: row.notified_at,
+    sent_at: row.sent_at,
+    paid_at: row.paid_at,
+    quickbooks_ref: row.quickbooks_ref,
+    notes: row.notes,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   };
 }

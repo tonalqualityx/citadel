@@ -17,6 +17,13 @@ const updateAccordSchema = z.object({
   notes: z.string().optional().nullable(),
   rejection_reason: z.string().optional().nullable(),
   payment_confirmed: z.boolean().optional(),
+  // project-record-citadel-changes.md section 2.1 (ruling 33) — must ship together with the
+  // formatAccordResponse additions or feature-detection in project_record.py never flips to
+  // true (see that doc's 2.2 note): without this, a PATCH carrying these keys is silently
+  // accepted and silently dropped (zod strips unknown keys by default).
+  pipeline_stage: z.string().max(50).optional().nullable(),
+  pipeline_stage_at: z.string().datetime().optional().nullable(),
+  record_dir: z.string().max(1000).optional().nullable(),
 });
 
 export async function GET(
@@ -90,6 +97,12 @@ export async function PATCH(
       data: {
         ...data,
         lead_email: data.lead_email === '' ? null : data.lead_email,
+        pipeline_stage_at:
+          data.pipeline_stage_at !== undefined
+            ? data.pipeline_stage_at
+              ? new Date(data.pipeline_stage_at)
+              : null
+            : undefined,
       },
       include: {
         client: {

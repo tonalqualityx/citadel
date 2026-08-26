@@ -960,7 +960,9 @@ export interface AutomationRuleListResponse {
 export interface Meeting {
   id: string;
   title: string;
-  client_id: string;
+  // project-record-citadel-changes.md section 0.2 (ruling 33) — nullable: a pre-signature
+  // sales call has no Client record yet.
+  client_id: string | null;
   meeting_date: string;
   summary: string | null;
   notes: string | null;

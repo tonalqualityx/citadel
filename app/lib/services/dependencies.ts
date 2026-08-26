@@ -95,6 +95,69 @@ export async function reblockDependents(taskId: string): Promise<string[]> {
 }
 
 /**
+ * Whether every blocker in `blockerIds` is currently satisfied (per each blocker's project
+ * gating mode). Reuses the same select shape as the reactive triggers above (never a second,
+ * drifting copy of the field list) — see `BLOCKER_SATISFACTION_SELECT`. An empty list is
+ * vacuously satisfied (`.every` on `[]` is `true`), matching `healBlockedTasks`' own
+ * "no remaining blockers" case.
+ *
+ * Used by the task-create and task-PATCH dependency wiring (project-record-citadel-changes.md
+ * addendum, ruling 32) to decide whether a newly-connected dependent starts/moves to `blocked`.
+ */
+export async function areBlockersSatisfied(blockerIds: string[]): Promise<boolean> {
+  if (blockerIds.length === 0) return true;
+  const blockers = await prisma.task.findMany({
+    where: { id: { in: blockerIds }, ...BLOCKER_SATISFACTION_SELECT.where },
+    select: BLOCKER_SATISFACTION_SELECT.select,
+  });
+  return blockers.every(isBlockerSatisfied);
+}
+
+/**
+ * Cycle detection for the ad hoc dependency API (project-record-citadel-changes.md addendum,
+ * ruling 32). The recipe wizard only ever wires a DAG by construction; individually-created/
+ * -patched tasks have no such guarantee, so every `blocked_by` connect must be checked before
+ * it's written.
+ *
+ * Adding the edge `taskId depends on candidateBlockerId` creates a cycle exactly when
+ * `candidateBlockerId` is `taskId` itself, or when `taskId` is already reachable by walking
+ * FROM the candidate along its own `blocked_by` edges (i.e. the candidate already, directly or
+ * transitively, depends on `taskId` — so the new edge would close a loop). BFS, bounded by a
+ * visited set so it terminates even over a graph that already (incorrectly) has a cycle in it.
+ */
+export async function wouldCreateCycle(
+  taskId: string,
+  candidateBlockerIds: string[]
+): Promise<boolean> {
+  const uniqueCandidates = Array.from(new Set(candidateBlockerIds));
+  if (uniqueCandidates.includes(taskId)) return true; // self-dependency
+
+  const visited = new Set<string>(uniqueCandidates);
+  let frontier = uniqueCandidates;
+
+  while (frontier.length > 0) {
+    const rows = await prisma.task.findMany({
+      where: { id: { in: frontier } },
+      select: { blocked_by: { select: { id: true } } },
+    });
+
+    const nextFrontier: string[] = [];
+    for (const row of rows) {
+      for (const b of row.blocked_by) {
+        if (b.id === taskId) return true;
+        if (!visited.has(b.id)) {
+          visited.add(b.id);
+          nextFrontier.push(b.id);
+        }
+      }
+    }
+    frontier = nextFrontier;
+  }
+
+  return false;
+}
+
+/**
  * Self-healing backstop: sweep EVERY `blocked` task and unblock any whose blockers are all
  * satisfied. Robust to a missed propagation from any cause (a project toggled to
  * ordering-only, a blocker completed via a path that didn't run the reactive trigger, etc.).

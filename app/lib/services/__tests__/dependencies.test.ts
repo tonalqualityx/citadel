@@ -16,6 +16,8 @@ import {
   unblockEligibleDependents,
   reblockDependents,
   healBlockedTasks,
+  areBlockersSatisfied,
+  wouldCreateCycle,
 } from '../dependencies';
 import type { Mock } from 'vitest';
 
@@ -204,5 +206,98 @@ describe('reblockDependents (reopen trigger)', () => {
     const ids = await reblockDependents('task-1');
     expect(ids).toEqual([]);
     expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+// project-record-citadel-changes.md addendum (ruling 32) — dependency API predicates shared
+// by the task create/PATCH routes.
+describe('areBlockersSatisfied', () => {
+  it('is vacuously true for an empty blocker list (no query issued)', async () => {
+    const result = await areBlockersSatisfied([]);
+    expect(result).toBe(true);
+    expect(mockFindMany).not.toHaveBeenCalled();
+  });
+
+  it('is true when every blocker satisfies its project gating mode', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      blocker('b1', 'done', true, false),
+      blocker('b2', 'done', false, true),
+    ]);
+
+    const result = await areBlockersSatisfied(['b1', 'b2']);
+
+    expect(result).toBe(true);
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { id: { in: ['b1', 'b2'] }, is_deleted: false },
+      select: {
+        id: true,
+        status: true,
+        approved: true,
+        project: { select: { dependencies_ordering_only: true } },
+      },
+    });
+  });
+
+  it('is false when any blocker is unsatisfied', async () => {
+    mockFindMany.mockResolvedValueOnce([
+      blocker('b1', 'done', true, false),
+      blocker('b2', 'in_progress', false, true),
+    ]);
+
+    const result = await areBlockersSatisfied(['b1', 'b2']);
+    expect(result).toBe(false);
+  });
+});
+
+describe('wouldCreateCycle', () => {
+  it('rejects a task depending directly on itself', async () => {
+    const result = await wouldCreateCycle('task-1', ['task-1']);
+    expect(result).toBe(true);
+    expect(mockFindMany).not.toHaveBeenCalled(); // caught before any query
+  });
+
+  it('is false when the candidate blocker has no blockers of its own', async () => {
+    mockFindMany.mockResolvedValueOnce([{ blocked_by: [] }]);
+
+    const result = await wouldCreateCycle('task-1', ['task-2']);
+
+    expect(result).toBe(false);
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { id: { in: ['task-2'] } },
+      select: { blocked_by: { select: { id: true } } },
+    });
+  });
+
+  it('detects an indirect cycle: candidate transitively already depends on the task', async () => {
+    // task-1 wants to add "depends on task-2". task-2 already depends on task-3, which
+    // already depends on task-1 — adding the edge would close the loop.
+    mockFindMany
+      .mockResolvedValueOnce([{ blocked_by: [{ id: 'task-3' }] }]) // frontier: task-2
+      .mockResolvedValueOnce([{ blocked_by: [{ id: 'task-1' }] }]); // frontier: task-3
+
+    const result = await wouldCreateCycle('task-1', ['task-2']);
+
+    expect(result).toBe(true);
+    expect(mockFindMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('is false for an unrelated, non-cyclic dependency graph', async () => {
+    mockFindMany
+      .mockResolvedValueOnce([{ blocked_by: [{ id: 'task-9' }] }])
+      .mockResolvedValueOnce([{ blocked_by: [] }]);
+
+    const result = await wouldCreateCycle('task-1', ['task-2']);
+    expect(result).toBe(false);
+  });
+
+  it('terminates on a graph that already contains a cycle unrelated to the check', async () => {
+    // task-9 <-> task-10 already cycle among themselves; must not infinite-loop.
+    mockFindMany
+      .mockResolvedValueOnce([{ blocked_by: [{ id: 'task-9' }] }])
+      .mockResolvedValueOnce([{ blocked_by: [{ id: 'task-10' }] }])
+      .mockResolvedValueOnce([{ blocked_by: [{ id: 'task-9' }] }]);
+
+    const result = await wouldCreateCycle('task-1', ['task-2']);
+    expect(result).toBe(false);
   });
 });

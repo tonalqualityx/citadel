@@ -10,6 +10,7 @@ import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
 import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
+import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
 import { MysteryFactor, BatteryImpact } from '@prisma/client';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
@@ -71,6 +72,10 @@ const createTaskSchema = z.object({
   staging_deployed_at: z.string().datetime().optional().nullable(),
   client_approved_at: z.string().datetime().optional().nullable(),
   approved_by_contact_id: z.string().uuid().optional().nullable(),
+  // project-record-citadel-changes.md addendum (ruling 32) — the dependency API. A brand-new
+  // task can never be part of an existing cycle (nothing can already depend on an id that
+  // didn't exist a moment ago), but IDs are still validated to exist before connecting.
+  blocked_by_ids: z.array(z.string().uuid()).optional(),
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -317,6 +322,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // project-record-citadel-changes.md addendum (ruling 32) — validate blockers exist, then
+    // start the task `blocked` if any is unsatisfied (mirrors the wizard's connect + the
+    // PATCH connect path below). Release relies on the existing propagation triggers /
+    // healBlockedTasks, never a bespoke path here.
+    const blockedByIds = data.blocked_by_ids ?? [];
+    let initialStatusOverride: 'blocked' | null = null;
+    if (blockedByIds.length > 0) {
+      const blockers = await prisma.task.findMany({
+        where: { id: { in: blockedByIds }, is_deleted: false },
+        select: { id: true },
+      });
+      if (blockers.length !== new Set(blockedByIds).size) {
+        throw new ApiError('One or more blocker tasks not found', 404);
+      }
+      if (!(await areBlockersSatisfied(blockedByIds))) {
+        initialStatusOverride = 'blocked';
+      }
+    }
+
     // If an SOP is linked, fetch it to copy requirements and defaults
     let sopDefaults: {
       requirements?: any;
@@ -432,13 +456,20 @@ export async function POST(request: NextRequest) {
     const taskId = randomUUID();
     const coverUrl = await resolveCoverUrl({ itemId: taskId, clientId });
 
+    // project-record-citadel-changes.md addendum (ruling 32) — defense-in-depth: taskId is
+    // freshly minted so nothing can already reference it, but this keeps the create path on
+    // the exact same guard as PATCH's connect path rather than special-casing it away.
+    if (blockedByIds.length > 0 && (await wouldCreateCycle(taskId, blockedByIds))) {
+      throw new ApiError('Adding this dependency would create a cycle', 422);
+    }
+
     const task = await prisma.task.create({
       data: {
         id: taskId,
         title: data.title,
         // Markdown / plain string / raw BlockNote array → BlockNote JSON document.
         description: serializeRichText(data.description),
-        status: data.status || 'not_started',
+        status: initialStatusOverride || data.status || 'not_started',
         priority: data.priority || sopDefaults.default_priority || 3,
         project_id: data.project_id,
         client_id: clientId,
@@ -484,8 +515,17 @@ export async function POST(request: NextRequest) {
         client_approved_at: data.client_approved_at ? new Date(data.client_approved_at) : null,
         approved_by_contact_id: data.approved_by_contact_id,
         created_by_id: auth.userId,
+        blocked_by: blockedByIds.length
+          ? { connect: blockedByIds.map((bid) => ({ id: bid })) }
+          : undefined,
       },
       include: {
+        blocked_by: {
+          select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } },
+        },
+        blocking: {
+          select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } },
+        },
         project: {
           select: {
             id: true,
