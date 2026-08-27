@@ -199,6 +199,109 @@ describe('PATCH /api/troubador/articles/[id]', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('reverts a scheduled article to approved when its date is cleared', async () => {
+    // Un-scheduling used to leave status='scheduled' with a null date, which the
+    // publish work-queue can never surface — the article vanished for good.
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(
+      articleRow({ status: 'scheduled', locked: true, scheduled_date: new Date() })
+    );
+
+    const res = await PATCH(patchReq({ scheduled_date: null }), { params });
+
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.scheduled_date).toBeNull();
+    expect(data.status).toBe('approved');
+    // Back to publish-now means the run's phase has to be recomputed.
+    expect(prisma.troubadorRun.findUnique).toHaveBeenCalled();
+  });
+
+  it('leaves status alone when clearing the date on a non-scheduled article', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'in_review', scheduled_date: new Date() }));
+
+    const res = await PATCH(patchReq({ scheduled_date: null }), { params });
+
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.scheduled_date).toBeNull();
+    expect(data.status).toBeUndefined();
+  });
+
+  it('accepts scheduled_date:null alongside the redundant status it already applies', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(
+      articleRow({ status: 'scheduled', locked: true, scheduled_date: new Date() })
+    );
+
+    const res = await PATCH(patchReq({ scheduled_date: null, status: 'approved' }), { params });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data.status).toBe('approved');
+  });
+
+  it('rejects a bare status:approved instead of silently returning 200 (400)', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'scheduled' }));
+
+    const res = await PATCH(patchReq({ status: 'approved' }), { params });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each(['dropped', 'postponed', 'needs_revision', 'pending_research'])(
+    'rejects action-gated status %s with a 400 rather than a silent no-op',
+    async (status) => {
+      mockRequireAuth.mockResolvedValue(HUMAN);
+      mockFindFirst.mockResolvedValue(articleRow({ status: 'in_review' }));
+
+      const res = await PATCH(patchReq({ status }), { params });
+
+      expect(res.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    }
+  );
+
+  it('honours status:scheduled when a date comes with it', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'approved', locked: true }));
+    mockFindMany.mockResolvedValue([]); // no same-day conflict
+
+    const res = await PATCH(
+      patchReq({ status: 'scheduled', scheduled_date: '2026-09-10T15:00:00.000Z' }),
+      { params }
+    );
+
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.status).toBe('scheduled');
+    expect(data.scheduled_date).toBeInstanceOf(Date);
+  });
+
+  it('honours status:scheduled when the article already carries a date', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(
+      articleRow({ status: 'in_review', scheduled_date: new Date('2026-09-10T00:00:00.000Z') })
+    );
+
+    const res = await PATCH(patchReq({ status: 'scheduled' }), { params });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].data.status).toBe('scheduled');
+  });
+
+  it('rejects status:scheduled when there is no date to wait for (400)', async () => {
+    mockRequireAuth.mockResolvedValue(HUMAN);
+    mockFindFirst.mockResolvedValue(articleRow({ status: 'approved', scheduled_date: null }));
+
+    const res = await PATCH(patchReq({ status: 'scheduled' }), { params });
+
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('notifies the editor when the worker moves an article to in_review', async () => {
     const { notifyArticleNeedsReview } = await import(
       '@/lib/services/troubador-notifications'

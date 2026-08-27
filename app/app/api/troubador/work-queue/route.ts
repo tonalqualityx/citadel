@@ -92,8 +92,16 @@ export async function GET() {
               article_slug: a.slug,
               urgency_date: run.updated_at,
             });
-          } else if (a.status === 'approved' && !isLeaseActive(a.claimed_at)) {
+          } else if (
+            (a.status === 'approved' || (a.status === 'scheduled' && !a.scheduled_date)) &&
+            !isLeaseActive(a.claimed_at)
+          ) {
             // Approved copy is ready to publish now (no future scheduling requested).
+            // A `scheduled` article whose date has been cleared belongs here too:
+            // it has no future date left to wait for, and the dated branch below
+            // requires a non-null date, so without this it would never surface
+            // again. The article PATCH route no longer creates that state, but
+            // rows stranded by the old behaviour still need a way back in.
             items.push({
               action: 'publish_article',
               ...base,

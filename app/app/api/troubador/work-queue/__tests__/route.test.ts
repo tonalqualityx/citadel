@@ -106,6 +106,25 @@ describe('GET /api/troubador/work-queue — publish surfacing', () => {
     ]);
     expect(await actions()).toEqual([]);
   });
+
+  it('surfaces publish_article for a scheduled article whose date was cleared (the publish deadlock)', async () => {
+    // Un-scheduling used to leave status='scheduled' with a null date: neither the
+    // approved branch nor the date-arrived branch matched, so the article was
+    // invisible to the worker forever.
+    mockRunFindMany.mockResolvedValue([
+      run('publishing', [article({ status: 'scheduled', scheduled_date: null })]),
+    ]);
+    expect(await actions()).toEqual([{ action: 'publish_article', article_id: 'a1' }]);
+  });
+
+  it('does NOT surface a dateless scheduled article while its worker lease is active', async () => {
+    mockRunFindMany.mockResolvedValue([
+      run('publishing', [
+        article({ status: 'scheduled', scheduled_date: null, claimed_at: new Date() }),
+      ]),
+    ]);
+    expect(await actions()).toEqual([]);
+  });
 });
 
 describe('GET /api/troubador/work-queue — existing in_production work (no regression)', () => {

@@ -55,6 +55,27 @@ const articleStatusEnum = z.enum([
 
 const checkStateEnum = z.enum(['pending', 'passed', 'check_failed', 'compliance_hold']);
 
+// `status` values a caller may write directly on this route. Everything else in
+// the enum is gated behind `action` (which carries the role check, the lock, and
+// the run-stage recompute) — sending one of those as a raw `status` used to
+// return 200 having changed nothing, which is how a dated article could get
+// stranded with no way back (the publish deadlock).
+const DIRECTLY_SETTABLE_STATUSES = [
+  'researched',
+  'drafting',
+  'in_review',
+  'scheduled',
+  'published',
+];
+
+const STATUS_ROUTE_HINT: Record<string, string> = {
+  approved: "use action: 'approve' — approval is pm/admin-gated and locks the copy",
+  dropped: "use action: 'drop'",
+  postponed: "use action: 'postpone'",
+  needs_revision: "set by client/editor feedback, or action: 'reactivate' on a postponed article",
+  pending_research: 'is the initial status and is not a valid manual transition',
+};
+
 const patchArticleSchema = z.object({
   research_summary: z.string().optional(),
   body: z.string().optional(),
@@ -172,6 +193,15 @@ export async function PATCH(
       advanceRun = true;
     } else if (data.scheduled_date === null) {
       update.scheduled_date = null;
+      // Un-scheduling must walk the status back too. `scheduled` is only ever
+      // reached from `approved` (just above), and the publish work-queue only
+      // surfaces a `scheduled` article once its date has ARRIVED — so a
+      // `scheduled` article with a null date is invisible to the worker
+      // forever. Restoring `approved` puts it back on the publish-now path.
+      if (article.status === 'scheduled') {
+        setStatus('approved');
+        advanceRun = true;
+      }
     }
 
     // Worker draft-field status transitions
@@ -183,6 +213,34 @@ export async function PATCH(
       if (data.status === 'in_review' && article.run?.assignee_id) {
         notifyReview = true;
       }
+    } else if (data.status === 'scheduled') {
+      // Honour an explicit `scheduled` only when the article will actually have a
+      // date to wait for — otherwise it lands in the invisible state described
+      // above. (The locked-worker guard already permits this status; until now
+      // the handler ignored it.)
+      const willHaveDate =
+        update.scheduled_date instanceof Date ||
+        (data.scheduled_date === undefined && article.scheduled_date != null);
+      if (!willHaveDate) {
+        throw new ApiError(
+          "status 'scheduled' requires a scheduled_date — send scheduled_date alongside it",
+          400
+        );
+      }
+      setStatus('scheduled');
+    } else if (
+      data.status !== undefined &&
+      update.status !== data.status &&
+      !DIRECTLY_SETTABLE_STATUSES.includes(data.status)
+    ) {
+      // Never accept a status we are not going to write: a silent 200 leaves the
+      // caller believing the transition stuck.
+      throw new ApiError(
+        `status '${data.status}' cannot be set directly — ${
+          STATUS_ROUTE_HINT[data.status] ?? 'it is not a valid manual transition'
+        }`,
+        400
+      );
     }
 
     // Content fields

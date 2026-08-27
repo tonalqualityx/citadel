@@ -14,7 +14,7 @@ export const troubadorEndpoints: ApiEndpoint[] = [
         summary: 'Worker entry point: actionable items across all runs, ordered by urgency.',
         auth: 'required',
         responseNotes:
-          'Returns one entry per unit of machine work the worker should do next. action ∈ generate_proposals | create_articles | research_article | post_interview_questions | draft_article | rewrite_article | publish_article. Scans runs in planning|topic_selection|researching|in_production|publishing. publish_article is surfaced for approved articles (publish now) and for scheduled articles whose date has arrived, across both in_production and publishing runs. Respects human gates and leases.',
+          'Returns one entry per unit of machine work the worker should do next. action ∈ generate_proposals | create_articles | research_article | post_interview_questions | draft_article | rewrite_article | publish_article. Scans runs in planning|topic_selection|researching|in_production|publishing. publish_article is surfaced for approved articles (publish now), for scheduled articles whose date has arrived, and for scheduled articles whose date has been cleared (nothing left to wait for), across both in_production and publishing runs. Respects human gates and leases.',
         responseExample: {
           items: [
             {
@@ -327,7 +327,7 @@ export const troubadorEndpoints: ApiEndpoint[] = [
         summary: 'Worker (draft/research/check/status) or human (approve/drop/postpone/edit/schedule).',
         auth: 'required',
         responseNotes:
-          'Worker may set research_summary, body, social_copy, check_state, and transitions drafting→in_review / needs_revision→in_review. Worker may NEVER set approved. Human approve sets approved + locks copy (worker stops touching it). Drop = permanent; postpone = parked (does not block run→done). Scheduling avoids same-site same-day collisions.',
+          'Worker may set research_summary, body, social_copy, check_state, and transitions drafting→in_review / needs_revision→in_review. Worker may NEVER set approved. Human approve sets approved + locks copy (worker stops touching it). Drop = permanent; postpone = parked (does not block run→done). Scheduling avoids same-site same-day collisions. status is directly settable only for researched|drafting|in_review|scheduled|published (scheduled requires a scheduled_date); approved|dropped|postponed|needs_revision|pending_research are action-gated and now return 400 instead of a silent 200. Clearing scheduled_date on a scheduled article reverts it to approved so it stays visible to the publish work-queue.',
         responseExample: { id: 'uuid', status: 'string', locked: 'boolean', updated_at: 'ISO-8601' },
       },
     ],
