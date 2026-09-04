@@ -101,6 +101,16 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const lens = searchParams.get('lens');
+    // MEDIUM-1 fix (verification pass): `ids` (comma-separated) scopes this entire
+    // route — including every downstream signal query below, since they're all keyed
+    // off `projects`/`projectIds`/`clientIds` derived from the query below — to exactly
+    // those projects. Lets the next-step machine job's `--requested` poll fetch project
+    // details for only the queued ids instead of every in-progress project on every
+    // tick. Omitted (the existing behavior) means every in-progress project, as before.
+    const idsParam = searchParams.get('ids');
+    const requestedIds = idsParam
+      ? idsParam.split(',').map((s) => s.trim()).filter(Boolean)
+      : null;
 
     const now = new Date();
     const meetingWindowEnd = new Date(now.getTime() + MEETING_RISK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
@@ -110,7 +120,12 @@ export async function GET(request: NextRequest) {
     // Only in-progress CONTRACTED projects — quote/queue/retainer/internal/done/
     // suspended/cancelled projects never show up here.
     const projects = await prisma.project.findMany({
-      where: { type: 'project', status: 'in_progress', is_deleted: false },
+      where: {
+        type: 'project',
+        status: 'in_progress',
+        is_deleted: false,
+        ...(requestedIds ? { id: { in: requestedIds } } : {}),
+      },
       select: {
         id: true,
         name: true,
@@ -183,10 +198,17 @@ export async function GET(request: NextRequest) {
     // fetches every matching row from the database, then reduces in the query engine),
     // confirmed by capturing the actual SQL Prisma issued. For a project with a lot of
     // comment history that's an unbounded fetch masquerading as a bounded one. This is
-    // now a REAL `SELECT DISTINCT ON (task_id)` via `$queryRaw`, parameterized with
-    // `Prisma.join` — feeds decision/clarification/review (task.last_comment). It no
-    // longer doubles as the movement comment source; see C3 below (humanMovementComments)
-    // for why per-task-latest was itself a bug for movement specifically.
+    // now a REAL `SELECT DISTINCT ON (task_id)` via `$queryRaw` — feeds
+    // decision/clarification/review (task.last_comment). It no longer doubles as the
+    // movement comment source; see C3 below (humanMovementComments) for why
+    // per-task-latest was itself a bug for movement specifically.
+    // MEDIUM-2 fix (verification pass): the WHERE clause used to cast the COLUMN
+    // (`c.task_id::text IN (${Prisma.join(taskIds)})`), which defeats `comments`'
+    // btree index on `task_id` (a `text` cast on every row forces a sequential scan
+    // instead of an index lookup). Fixed by casting the PARAMETER instead —
+    // `c.task_id = ANY(${taskIds}::uuid[])` — so `task_id` itself is compared
+    // uuid-to-uuid and the index is usable. Verified with `EXPLAIN` under
+    // `SET enable_seqscan=off` against the local DB (see the plan's Phase 3 gates).
     const lastComments: LastCommentRow[] = taskIds.length
       ? await prisma.$queryRaw<LastCommentRow[]>(Prisma.sql`
           SELECT DISTINCT ON (c.task_id)
@@ -194,7 +216,7 @@ export async function GET(request: NextRequest) {
             c.mentioned_user_ids, c.created_at
           FROM comments c
           JOIN users u ON u.id = c.user_id
-          WHERE c.task_id::text IN (${Prisma.join(taskIds)}) AND c.is_deleted = false
+          WHERE c.task_id = ANY(${taskIds}::uuid[]) AND c.is_deleted = false
           ORDER BY c.task_id, c.created_at DESC
         `)
       : [];

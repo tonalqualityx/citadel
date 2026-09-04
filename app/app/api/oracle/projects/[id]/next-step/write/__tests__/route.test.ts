@@ -108,6 +108,27 @@ describe('PUT /api/oracle/projects/[id]/next-step/write', () => {
     expect(call.data.next_step_refresh_requested_at).toBeNull();
   });
 
+  it('HIGH-2: leaves email_summary untouched in the update payload when the key is absent from the body', async () => {
+    await PUT(req(validBody()), { params }); // validBody() never sets email_summary
+    const call = mockProjectUpdate.mock.calls[0][0];
+    expect(call.data).not.toHaveProperty('email_summary');
+    expect(call.data).not.toHaveProperty('email_summary_at');
+  });
+
+  it('HIGH-2: clears email_summary when the key is explicitly sent as null', async () => {
+    await PUT(req(validBody({ email_summary: null })), { params });
+    const call = mockProjectUpdate.mock.calls[0][0];
+    expect(call.data.email_summary).toBeNull();
+    expect(call.data.email_summary_at).toBeNull();
+  });
+
+  it('HIGH-2: writes email_summary when the key is sent with a string value', async () => {
+    await PUT(req(validBody({ email_summary: 'Client confirmed the launch date.' })), { params });
+    const call = mockProjectUpdate.mock.calls[0][0];
+    expect(call.data.email_summary).toBe('Client confirmed the launch date.');
+    expect(call.data.email_summary_at).toBeInstanceOf(Date);
+  });
+
   it('422s with violations when next_step_text fails the writing-standard lint', async () => {
     const res = await PUT(req(validBody({ text: 'Waiting on gate B6 to clear.' })), { params });
     expect(res.status).toBe(422);

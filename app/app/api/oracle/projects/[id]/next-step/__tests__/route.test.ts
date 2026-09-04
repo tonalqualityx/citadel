@@ -147,6 +147,17 @@ describe('PATCH /api/oracle/projects/[id]/next-step', () => {
     await PATCH(req({ text: 'Call the client' }), { params });
     expect(mockLogUpdate).toHaveBeenCalled();
   });
+
+  it('LOW-d: records the prior next_step_text in `from`, not a hardcoded null', async () => {
+    mockProjectFindUnique.mockResolvedValue({
+      id: PROJECT_ID, name: 'Herba rebuild', next_step_text: 'Wait for the graph candidate',
+    });
+    await PATCH(req({ text: 'Call the client' }), { params });
+    expect(mockLogUpdate).toHaveBeenCalledWith(
+      'mike-1', 'project', PROJECT_ID, 'Herba rebuild',
+      expect.objectContaining({ next_step: { from: 'Wait for the graph candidate', to: 'Call the client' } })
+    );
+  });
 });
 
 describe('DELETE /api/oracle/projects/[id]/next-step', () => {
@@ -178,6 +189,20 @@ describe('DELETE /api/oracle/projects/[id]/next-step', () => {
         next_step_at: null,
       },
     });
+  });
+
+  it('LOW-d: records the prior next_step_source/text in `from`, not a hardcoded mike', async () => {
+    mockProjectFindUnique.mockResolvedValue({
+      id: PROJECT_ID, name: 'Herba rebuild', next_step_text: 'Wait for Mike', next_step_source: 'mike',
+    });
+    await DELETE(req(undefined, 'DELETE'), { params });
+    expect(mockLogUpdate).toHaveBeenCalledWith(
+      'mike-1', 'project', PROJECT_ID, 'Herba rebuild',
+      expect.objectContaining({
+        next_step_override: { from: 'mike', to: null },
+        next_step: { from: 'Wait for Mike', to: null },
+      })
+    );
   });
 
   it('logs the clear', async () => {

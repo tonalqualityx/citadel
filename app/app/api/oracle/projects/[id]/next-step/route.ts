@@ -38,7 +38,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const project = await prisma.project.findUnique({
       where: { id: projectId, is_deleted: false },
-      select: { id: true, name: true },
+      select: { id: true, name: true, next_step_text: true },
     });
     if (!project) {
       throw new ApiError('Project not found', 404);
@@ -67,8 +67,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       include: { next_step_owner: { select: { id: true, name: true } } },
     });
 
+    // LOW-d fix (verification pass): `from` now records the project's ACTUAL prior
+    // next_step_text (previously hardcoded `null` regardless of what was there before —
+    // an override replacing an existing bast/graph line looked, in the activity log,
+    // indistinguishable from one replacing nothing).
     await logUpdate(auth.userId, 'project', projectId, project.name, {
-      next_step: { from: null, to: data.text },
+      next_step: { from: project.next_step_text, to: data.text },
     });
 
     return NextResponse.json({
@@ -93,7 +97,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
     const project = await prisma.project.findUnique({
       where: { id: projectId, is_deleted: false },
-      select: { id: true, name: true },
+      select: { id: true, name: true, next_step_text: true, next_step_source: true },
     });
     if (!project) {
       throw new ApiError('Project not found', 404);
@@ -110,8 +114,13 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       },
     });
 
+    // LOW-d fix (verification pass): `from` records the project's actual prior
+    // next_step_source/text rather than a hardcoded 'mike' — DELETE is normally called
+    // only when an override IS in place, but a stale UI or a direct API call could hit
+    // it when it isn't, and the log should say what was really cleared, not assume.
     await logUpdate(auth.userId, 'project', projectId, project.name, {
-      next_step_override: { from: 'mike', to: null },
+      next_step_override: { from: project.next_step_source, to: null },
+      next_step: { from: project.next_step_text, to: null },
     });
 
     return NextResponse.json({ success: true });

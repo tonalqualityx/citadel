@@ -463,3 +463,123 @@ Judgment calls made while landing Phase 3:
 2. **The write route rejected every real PUT from the job.** `generated_at: now.isoformat()` in Python emits `+00:00` for a UTC timestamp; the write route's Zod `.datetime()` only accepts the literal `Z` suffix (RFC 3339), so the first real run 400'd. Fixed with an `iso_z()` helper (`...isoformat().replace("+00:00", "Z")`); a regression test (`test_generated_at_matches_the_write_route_zod_datetime_shape`) locks this in at the unit level, since the fake HTTP server's original PUT handler didn't validate the field's format the way the real Zod schema does.
 
 Both fixes are included in the numbers above (final `tsc`/lint/vitest/unittest runs all happened after both fixes landed).
+
+## Phase 3 Verification Fixes (2026-09-04, Opus verifier cross-check)
+
+A second Opus verification pass, run against the real skill file, the real local dev
+server, and real production reads, found and this pass fixed:
+
+- **HIGH-1 — the writing-standard rule blocks the job sent to the model were the wrong
+  text.** `_extract_block`'s non-greedy, attribute-less regex landed on SKILL.md's own
+  doc-mention sentence ("extract each `<writing-rules>...</writing-rules>` span")
+  instead of the real `<writing-rules src="writing-standard">` block a few lines below
+  it — the prompt sent to Sonnet carried literally `"..."` for both rule blocks, on
+  every run, since Phase 3 landed. Fixed: match only a tag carrying `src="..."`, take
+  the LAST such match, and assert each captured block has ≥5 numbered lines;
+  missing/short/malformed now aborts the whole run (exit 2) before any network call or
+  model spend, rather than degrading silently. Also tightened the prompt: removed the
+  "if no single person clearly owns it, both owner fields are null" escape hatch (owner
+  is now required — a User id, a `"Name (role)"` label, or `"Unassigned"` with a stated
+  reason), added explicit "don't restate the project or client name" and "one job per
+  sentence, never two actions joined by and/then" instructions, and added a heuristic
+  post-check (`check_next_step_quality`, name-restatement + curated-verb "and"/"then"
+  detection) that runs alongside the writing-standard lexical gate and triggers the same
+  rewrite-once path. Proven against the verifier's own bad output ("Assign an owner and
+  implement the contact form for Website Redesign.") — that exact line now fails the new
+  check and gets rewritten.
+- **HIGH-2 — a failed sub-fetch (tasks/comments/notes/email-asks) still ran the model
+  and wrote a partial-data result, logged as a pass.** Every fetch helper now returns
+  `(data, error)`; any failure anywhere in `build_project_context` marks the project
+  context-incomplete, skips the model call and the write entirely, and logs outcome
+  `skipped_incomplete_context` (exit code unaffected — this is not a job failure). A
+  failed `/api/email-asks` fetch (shared across all target projects in a run) marks
+  EVERY target project incomplete for that run. On the write route,
+  `PUT .../next-step/write` now checks the RAW request body for whether the
+  `email_summary` key is present at all: absent leaves the stored value untouched,
+  present-with-`null` clears it, present-with-a-string replaces it — previously
+  `data.email_summary ?? null` treated "key omitted" identically to "key sent as null."
+- **MEDIUM-1 — `--requested` was fetching the full signals route on every 2-minute
+  tick.** Restructured `main()`: `--requested` calls ONLY `GET .../refresh-requests`
+  first; on an empty queue (the overwhelming majority of ticks) that is the single
+  network call the run makes. When something IS queued, project details are fetched
+  with a new `ids=` filter on `GET /api/oracle/projects?ids=...` (added to the route;
+  every downstream signal query in that route is already keyed off the project set it
+  loads, so filtering the top query scopes everything under it) rather than the full
+  in-progress listing. `--all` still uses the signals route once, unfiltered. Crontab
+  comment corrected to describe the fixed cost model.
+- **MEDIUM-2 — the C2 fix's `c.task_id::text IN (...)` cast defeats the btree index on
+  `comments.task_id`.** Casting a column forces Postgres to evaluate the cast per row
+  (sequential scan); fixed by casting the PARAMETER instead —
+  `c.task_id = ANY(${taskIds}::uuid[])` — so the comparison stays uuid-to-uuid and the
+  index is usable. Proven with `EXPLAIN` under `SET enable_seqscan=off` against the
+  local DB: the plan shows `Bitmap Index Scan on comments_task_id_idx` /
+  `Index Cond: (task_id = ANY ($0))`, not a sequential scan. A new integration test
+  (`app/api/oracle/projects/__tests__/last-comment-distinct-on.integration.test.ts`,
+  skips with no `DATABASE_URL`) seeds 3 tasks × 3 comments against the real local
+  Postgres, asserts `DISTINCT ON` returns the newest comment per task, asserts the
+  index is used under `enable_seqscan=off`, and cleans up every row it created.
+- **MEDIUM-3 — added the drift test.**
+  `lib/oracle/projects/__tests__/next-step-lint.drift.test.ts` runs 12 sample lines
+  (2 clean, one per grep rule category, plus the four dash-law variants) through both
+  `next-step-lint.ts` and the real `comment-gate.sh` (subprocess; skips with no shell
+  script present) and asserts identical pass/fail verdicts on every one.
+- **MEDIUM-4 — a broken `CITADEL_NEXT_STEP_CONFIG` silently fell back to production.**
+  `load_config()` now returns `(cfg, error)`; a set-but-unreadable/invalid override
+  aborts the run (exit 2) with the reason, rather than quietly using production
+  defaults when a local/test override was clearly intended.
+- **LOW-a/b — a 404 (feature not deployed) or other quiet failure (401/5xx) at the top
+  of `main()` used to log a FATAL line and exit 1 on every single poll tick.** New
+  `_fatal_or_quiet` classifies 401/404/5xx as cron-quiet-by-contract: logged once per
+  hour (state file `~/.local/state/next-step-refresh-notdeployed`), exit 0. A real
+  connection failure or malformed response (no HTTP status at all) stays a loud,
+  every-time exit-1 FATAL. Verified against production: the live `--requested` run
+  (this feature's routes are all still on this unmerged branch) made exactly one GET,
+  logged one `NOTDEPLOYED:` line, and exited 0.
+- **LOW-c — `recent_project_comments` could make up to 200 HTTP requests per project.**
+  Scoped to open tasks (always) plus tasks updated within the last 90 days, capped at
+  `MAX_COMMENT_SCAN_TASKS` (50) total, most-recently-updated first.
+- **LOW-d — next-step PATCH/DELETE activity-log entries hardcoded `from: null` (PATCH)
+  or `from: 'mike'` (DELETE).** Both routes now select and log the project's actual
+  prior `next_step_text`/`next_step_source`.
+- **Unrelated bug caught only by the live local-run gate:** `OPEN_TASK_STATUSES`
+  included `'ready'`, which is not a value of the `TaskStatus` enum — every real call to
+  `GET /api/tasks?statuses=...` 500'd, meaning every real run of this job, since Phase 3
+  landed, would have hit HIGH-2's new context-incomplete path and never written a single
+  next-step line. Removed `'ready'` from the constant (same limitation
+  `next-step-candidate.ts` already documents).
+
+**Gates re-run after these fixes:**
+
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — 725 problems (494 errors/231 warnings), byte-identical to the Phase
+  1/2/3 baseline.
+- `npx vitest run` — 234 files / 2773 tests, zero failures (+2 files/+22 tests over the
+  232/2751 Phase 3 baseline: the drift test file, the MEDIUM-2 integration test file,
+  and new/updated assertions across `route.test.ts`, the next-step write-route test, and
+  the next-step PATCH/DELETE test).
+- `npm run build` — clean; all 6 routes present in the manifest.
+- `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — 38
+  tests, all green (was 9; +29 covering HIGH-1/HIGH-2/MEDIUM-1/MEDIUM-4/LOW-a/b/c).
+- `EXPLAIN` under `SET enable_seqscan=off` (local DB) on the fixed query: plan includes
+  `Bitmap Index Scan on comments_task_id_idx` / `Index Cond: (task_id = ANY ($0))`.
+- `DRY_RUN=1 next-step-refresh.sh --all --print-prompt` against the LOCAL dev server (2
+  in-progress projects): printed both projects' full prompt on the first; both the
+  `<writing-rules src="writing-standard">` (8 numbered lines) and
+  `<comment-rules src="writing-standard">` (7 numbered lines) blocks are present and
+  complete, no `"..."` placeholder. Zero PUTs.
+- ONE real run, LOCAL dev server, `--project 1ed657c7-6e43-473b-8910-ad20fde9d4e4`
+  (Website Redesign; temporary admin API key minted the same way `seed.ts` mints the
+  Oracle service key, revoked and deleted immediately after): wrote
+  `next_step_text: "Assign an owner to build the contact form, since it's not started
+  and unassigned."`, `owner_label: "Unassigned"`, `source: "bast"`. No project name
+  restated, one job, passes `comment-gate.sh` (exit 0) and this pass's own reading.
+  Cost **$0.0883** (Sonnet, medium effort) — the plan's earlier $0.0086 note was a
+  single sample; observed cost across this pass's local runs ranges roughly
+  $0.009-$0.09 per project depending on context size, confirming there is no fixed
+  per-project cost.
+- Live `--requested` run against PRODUCTION (default config, `~/.citadel-token`,
+  GET-only): `GET /api/oracle/projects/refresh-requests` → 404 (this feature is still
+  unmerged), exactly one network call, one `NOTDEPLOYED:` line, exit 0.
+- `crontab -l` diff: comment-only change on the `--requested` poll line, documenting the
+  fixed cost model. Backup of the prior crontab saved to
+  `~/.local/state/crontab-backups/crontab-backup-20260904-164321` before installing.

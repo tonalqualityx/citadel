@@ -17,6 +17,14 @@ import { lintNextStepFields } from '@/lib/oracle/projects/next-step-lint';
 // email summary frozen too; those are independent pieces of information). Either way,
 // next_step_refresh_requested_at is cleared, since the refresh this call answers is done.
 //
+// HIGH-2 fix (verification pass): email_summary has three distinct caller intents, and
+// this route now tells them apart by checking the RAW request body for the key's
+// presence, not just its parsed value — key absent leaves the stored email_summary
+// completely untouched; key present with `null` clears it; key present with a string
+// replaces it. Previously `data.email_summary ?? null` treated "key omitted" exactly
+// like "key sent as null," silently nulling out a real running summary on any write
+// whose body simply didn't happen to include a fresh one.
+//
 // next_step_text and email_summary are both linted server-side with the same
 // writing-standard gate the machine-side job already ran client-side (belt and
 // suspenders: a job bug or a hand-crafted call must not be able to write bad copy) — a
@@ -51,6 +59,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const body = await request.json();
     const data = writeSchema.parse(body);
+    // HIGH-2 fix (verification pass): the caller's intent for email_summary has three
+    // states this route must tell apart — omit the key (leave the stored value
+    // untouched), send it as `null` (clear it), or send it as a string (replace it).
+    // Zod's `.optional()` collapses "key absent" and "key explicitly undefined" into
+    // the same `undefined` on `data.email_summary`, indistinguishable from `?? null`
+    // below — which was unconditionally nulling out email_summary on every write that
+    // didn't happen to include a fresh summary, even when the caller never meant to
+    // touch it. Checked against the RAW parsed body, before Zod's own normalization.
+    const emailSummaryProvided = Object.prototype.hasOwnProperty.call(body, 'email_summary');
 
     if (data.owner_id) {
       const owner = await prisma.user.findUnique({ where: { id: data.owner_id }, select: { id: true } });
@@ -82,8 +99,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
               next_step_source: 'bast' as const,
               next_step_at: new Date(data.generated_at),
             }),
-        email_summary: data.email_summary ?? null,
-        email_summary_at: data.email_summary ? now : null,
+        ...(emailSummaryProvided
+          ? {
+              email_summary: data.email_summary ?? null,
+              email_summary_at: data.email_summary ? now : null,
+            }
+          : {}),
         next_step_refresh_requested_at: null,
       },
       include: { next_step_owner: { select: { id: true, name: true } } },

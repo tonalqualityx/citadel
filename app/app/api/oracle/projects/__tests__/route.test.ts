@@ -116,6 +116,35 @@ describe('GET /api/oracle/projects — filter', () => {
     expect(body.stalled_count).toBe(0);
     expect(body.generated_at).toBeTruthy();
   });
+
+  it('MEDIUM-1: scopes the project query to `ids` when provided', async () => {
+    await GET(getReq('?ids=proj-a,proj-b'));
+    expect(mockProjectFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          type: 'project',
+          status: 'in_progress',
+          is_deleted: false,
+          id: { in: ['proj-a', 'proj-b'] },
+        },
+      })
+    );
+  });
+
+  it('MEDIUM-1: a single id in `ids` still filters correctly', async () => {
+    await GET(getReq('?ids=proj-a'));
+    expect(mockProjectFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: ['proj-a'] } }),
+      })
+    );
+  });
+
+  it('MEDIUM-1: no `ids` param leaves the query unfiltered by id (existing behavior)', async () => {
+    await GET(getReq());
+    const call = mockProjectFindMany.mock.calls[0][0];
+    expect(call.where.id).toBeUndefined();
+  });
 });
 
 describe('GET /api/oracle/projects — stalled sort', () => {
