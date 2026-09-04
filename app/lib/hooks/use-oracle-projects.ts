@@ -17,6 +17,9 @@ export interface OracleProjectOwner {
 export interface OracleProjectNextStep {
   text: string;
   owner: { id: string; name: string } | null;
+  // Phase 3 — an owner who isn't a User (e.g. a client contact, "Andy (client)").
+  // Mutually exclusive with `owner`.
+  owner_label: string | null;
   source: 'graph' | 'bast' | 'mike' | 'none';
   at: string | null;
 }
@@ -39,6 +42,8 @@ export interface OracleProjectCard {
   stalled_on_mike: boolean;
   blockers: Blocker[];
   counts_by_kind: Record<string, number>;
+  // Phase 3 — set while a next-step refresh is queued but not yet written.
+  refresh_requested_at: string | null;
   open_url: string;
 }
 

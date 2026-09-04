@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { MIKE_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import {
   classifyProjectBlockers,
   ownerIsMike,
@@ -62,6 +63,14 @@ import {
 //     project (`soleProjectByClient`, shared with the calendar-event fix above).
 //     Otherwise the ask is not a project blocker — it still surfaces in the general
 //     /api/waiting-on-me feed, just not here.
+//   - C1 (Phase 3 carry-over): stated plainly, since (1)/(3) above both start from
+//     `session.arc_id` — an OracleSession this schema records with NO arc at all cannot
+//     be attributed to any project here, full stop. This route only ever queries
+//     sessions whose arc_id is one of the arcs it already fetched, so an arc-less
+//     session ask never reaches the Projects tab; it stays visible in Needs Reshi
+//     (/api/waiting-on-me) exactly like today. This is a real, permanent gap for
+//     arc-less asks, not a bug — OracleSession has no client/project column of its own
+//     to fall back to.
 //   - The waiting-on-me session-ask sweep is NOT extracted into a shared loader — it's
 //     re-queried here (now scoped by arc.project_id OR arc.client_id, see above), a
 //     different filter shape than the existing global "everything waiting on Mike"
@@ -109,8 +118,10 @@ export async function GET(request: NextRequest) {
         status: true,
         next_step_text: true,
         next_step_owner: { select: { id: true, name: true } },
+        next_step_owner_label: true,
         next_step_source: true,
         next_step_at: true,
+        next_step_refresh_requested_at: true,
         stale_muted_until: true,
       },
       orderBy: { name: 'asc' },
@@ -156,20 +167,38 @@ export async function GET(request: NextRequest) {
       created_at: true,
     } as const;
 
-    // MEDIUM-6, query 1 of 2: the last comment per task, via Postgres DISTINCT ON — feeds
-    // decision/clarification/review (task.last_comment) AND doubles as the full candidate
-    // set for movement.ts's comment source (the project's overall most-recent comment is,
-    // by definition, always its own task's most-recent comment too, so per-task-latest is
-    // a lossless reduction for "what's the last comment anywhere on this project").
-    const lastComments = taskIds.length
-      ? await prisma.comment.findMany({
-          where: { task_id: { in: taskIds }, is_deleted: false },
-          select: COMMENT_SELECT,
-          distinct: ['task_id'],
-          orderBy: [{ task_id: 'asc' }, { created_at: 'desc' }],
-        })
+    interface LastCommentRow {
+      id: string;
+      task_id: string;
+      user_id: string;
+      user_name: string;
+      content: string;
+      mentioned_user_ids: string[];
+      created_at: Date;
+    }
+
+    // C2 fix (Phase 2 carry-over): the previous version of this query used Prisma's
+    // `distinct: ['task_id']` and claimed in a comment that it ran as a Postgres
+    // DISTINCT ON. It doesn't — Prisma Client's `distinct` is applied CLIENT-SIDE (it
+    // fetches every matching row from the database, then reduces in the query engine),
+    // confirmed by capturing the actual SQL Prisma issued. For a project with a lot of
+    // comment history that's an unbounded fetch masquerading as a bounded one. This is
+    // now a REAL `SELECT DISTINCT ON (task_id)` via `$queryRaw`, parameterized with
+    // `Prisma.join` — feeds decision/clarification/review (task.last_comment). It no
+    // longer doubles as the movement comment source; see C3 below (humanMovementComments)
+    // for why per-task-latest was itself a bug for movement specifically.
+    const lastComments: LastCommentRow[] = taskIds.length
+      ? await prisma.$queryRaw<LastCommentRow[]>(Prisma.sql`
+          SELECT DISTINCT ON (c.task_id)
+            c.id, c.task_id, c.user_id, u.name AS user_name, c.content,
+            c.mentioned_user_ids, c.created_at
+          FROM comments c
+          JOIN users u ON u.id = c.user_id
+          WHERE c.task_id::text IN (${Prisma.join(taskIds)}) AND c.is_deleted = false
+          ORDER BY c.task_id, c.created_at DESC
+        `)
       : [];
-    const lastCommentByTask = new Map<string, (typeof lastComments)[number]>();
+    const lastCommentByTask = new Map<string, LastCommentRow>();
     for (const c of lastComments) {
       lastCommentByTask.set(c.task_id, c);
     }
@@ -265,17 +294,32 @@ export async function GET(request: NextRequest) {
       activityLogByProject.set(projectId, list);
     }
 
-    // MEDIUM-6: the movement comment source is built from lastComments (one row per
-    // task), not an unbounded full comment list — see the query-1 doc comment above for
-    // why that's a lossless reduction for "what's the last comment anywhere on this
-    // project."
-    const commentsByProject = new Map<string, typeof lastComments>();
-    for (const c of lastComments) {
+    // C3 fix (Phase 2 carry-over, verifier LOW-C): movement used to be fed from
+    // lastComments (one row per task, the newest only). That hides a real human comment
+    // the instant a LATER Bast comment lands on the same task — the human's actual
+    // movement never reaches lastMovement() at all. Movement now gets its own query:
+    // every comment by a non-bot user on the project's tasks in the last 90 days, not
+    // just the newest-per-task. C5: this reuses the same 90-day window as the mention
+    // scan (mentionLookback) — documented on GET /api/oracle/projects in the registry.
+    const humanMovementComments = taskIds.length
+      ? await prisma.comment.findMany({
+          where: {
+            task_id: { in: taskIds },
+            is_deleted: false,
+            created_at: { gte: mentionLookback },
+            user_id: { notIn: [...BOT_USER_IDS] },
+          },
+          select: COMMENT_SELECT,
+          orderBy: { created_at: 'asc' },
+        })
+      : [];
+    const humanCommentsByProject = new Map<string, typeof humanMovementComments>();
+    for (const c of humanMovementComments) {
       const projectId = taskProjectId.get(c.task_id);
       if (!projectId) continue;
-      const list = commentsByProject.get(projectId) ?? [];
+      const list = humanCommentsByProject.get(projectId) ?? [];
       list.push(c);
-      commentsByProject.set(projectId, list);
+      humanCommentsByProject.set(projectId, list);
     }
 
     const emails = await prisma.emailAsk.findMany({
@@ -438,6 +482,10 @@ export async function GET(request: NextRequest) {
       : [];
     const sessionAsksByProject = new Map<string, ClassifyProjectBlockersInput['session_asks']>();
     for (const s of sessions) {
+      // C1: an ask reaches the Projects tab ONLY when its session declared an arc.
+      // The query above already filters to arc_id IN (arcIds), so this is normally
+      // unreachable in production — it's here as a documented, tested fail-safe (and to
+      // hold if the query above is ever loosened), not dead code to delete.
       if (!s.arc_id) continue;
       const arc = arcById.get(s.arc_id);
       if (!arc) continue;
@@ -484,7 +532,7 @@ export async function GET(request: NextRequest) {
             ? {
                 id: lastComment.id,
                 user_id: lastComment.user_id,
-                user_name: lastComment.user.name,
+                user_name: lastComment.user_name,
                 created_at: lastComment.created_at.toISOString(),
                 content_excerpt: lastComment.content.slice(0, 280),
               }
@@ -505,7 +553,7 @@ export async function GET(request: NextRequest) {
       }));
       const candidate = findNextStepCandidate(nextStepCandidateTasks);
 
-      const projectComments = commentsByProject.get(project.id) ?? [];
+      const projectComments = humanCommentsByProject.get(project.id) ?? [];
       const movementInput: LastMovementInput = {
         time_entries: (timeEntriesByProject.get(project.id) ?? []).map((te) => ({
           user_id: te.user_id,
@@ -576,6 +624,7 @@ export async function GET(request: NextRequest) {
         {
           next_step_text: project.next_step_text,
           next_step_owner: project.next_step_owner,
+          next_step_owner_label: project.next_step_owner_label,
           next_step_source: project.next_step_source,
           next_step_at: project.next_step_at ? project.next_step_at.toISOString() : null,
         },
@@ -599,6 +648,11 @@ export async function GET(request: NextRequest) {
         stalled_on_mike: stalledOnMike,
         blockers,
         counts_by_kind: countsByKind,
+        // Phase 3: when the machine-side job is queued but hasn't written a fresh line
+        // yet, the UI can show a "refreshing" state.
+        refresh_requested_at: project.next_step_refresh_requested_at
+          ? project.next_step_refresh_requested_at.toISOString()
+          : null,
         open_url: `/projects/${project.id}`,
       };
     });

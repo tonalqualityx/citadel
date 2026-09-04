@@ -211,6 +211,9 @@ describe('lastMovement', () => {
   });
 
   it('MEDIUM-3: a Bast comment opening with "done" counts via the comment path even though "cannot" appears later in the body (production-verbatim shape)', () => {
+    // C4 (Phase 3 carry-over): the coinciding activity-log entry is 'done', not
+    // 'in_progress' — in_progress no longer credits Bast with movement on its own OR
+    // via the comment-coincidence check (PROGRESS_STATUSES is done-only as of C4).
     const m = lastMovement(
       input({
         comments: [
@@ -233,15 +236,65 @@ describe('lastMovement', () => {
             entity_type: 'task',
             entity_id: 'task-1',
             created_at: '2026-09-01T10:05:00.000Z',
-            status_to: 'in_progress',
+            status_to: 'done',
           },
         ],
       })
     );
     // Both the comment path (leading "done" overrides the later "cannot") and the
-    // activity-log path (Bast moved the task to in_progress) agree movement happened;
+    // activity-log path (Bast moved the task to done) agree movement happened;
     // lastMovement just returns whichever candidate is latest.
     expect(m).not.toBeNull();
+  });
+
+  it('C4: a Bast activity-log status change to in_progress no longer counts as movement, even alone', () => {
+    const m = lastMovement(
+      input({
+        activity_log: [
+          {
+            id: 'log-1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            action: 'status_changed',
+            entity_type: 'task',
+            entity_id: 'task-1',
+            created_at: '2026-09-01T10:00:00.000Z',
+            status_to: 'in_progress',
+          },
+        ],
+      })
+    );
+    expect(m).toBeNull();
+  });
+
+  it('C4: a non-escalation Bast comment does NOT count via the comment path when the coinciding status change is to in_progress (only done coincidence credits)', () => {
+    const m = lastMovement(
+      input({
+        comments: [
+          {
+            id: 'c1',
+            task_id: 'task-1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            content: 'Wrote the draft and moved it forward.',
+            created_at: '2026-09-01T10:00:00.000Z',
+          },
+        ],
+        activity_log: [
+          {
+            id: 'log-1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            action: 'status_changed',
+            entity_type: 'task',
+            entity_id: 'task-1',
+            created_at: '2026-09-01T10:01:00.000Z',
+            status_to: 'in_progress',
+          },
+        ],
+      })
+    );
+    expect(m).toBeNull();
   });
 
   it('a non-escalation Bast comment counts via the comment path ONLY when it coincides (within 10 min) with a Bast status change to done/in_progress on the same task', () => {

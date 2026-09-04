@@ -63,6 +63,10 @@ export type NextStepSource = 'graph' | 'bast' | 'mike';
 export interface ProjectNextStepFields {
   next_step_text: string | null;
   next_step_owner: { id: string; name: string } | null;
+  // Oracle Projects Tab Phase 3 — an owner who isn't a User (e.g. a client contact).
+  // Mutually exclusive with next_step_owner by construction (the write routes never set
+  // both); read as-is alongside next_step_text/owner for the mike/bast branches only.
+  next_step_owner_label: string | null;
   next_step_source: NextStepSource | null;
   next_step_at: string | null; // ISO
 }
@@ -70,6 +74,7 @@ export interface ProjectNextStepFields {
 export interface NextStepLine {
   text: string;
   owner: { id: string; name: string } | null;
+  owner_label: string | null;
   source: NextStepSource | 'none';
   at: string | null; // ISO
 }
@@ -87,11 +92,23 @@ export function mergeNextStep(
   candidate: NextStepCandidateResult | null
 ): NextStepLine {
   if (project.next_step_source === 'mike' && project.next_step_text) {
-    return { text: project.next_step_text, owner: project.next_step_owner, source: 'mike', at: project.next_step_at };
+    return {
+      text: project.next_step_text,
+      owner: project.next_step_owner,
+      owner_label: project.next_step_owner_label,
+      source: 'mike',
+      at: project.next_step_at,
+    };
   }
 
   if (project.next_step_source === 'bast' && project.next_step_text) {
-    return { text: project.next_step_text, owner: project.next_step_owner, source: 'bast', at: project.next_step_at };
+    return {
+      text: project.next_step_text,
+      owner: project.next_step_owner,
+      owner_label: project.next_step_owner_label,
+      source: 'bast',
+      at: project.next_step_at,
+    };
   }
 
   if (candidate) {
@@ -99,6 +116,7 @@ export function mergeNextStep(
     return {
       text: `Next: ${candidate.task.title}${assigneeText}`,
       owner: candidate.assignee,
+      owner_label: null,
       source: 'graph',
       at: candidate.task.created_at,
     };
@@ -107,6 +125,7 @@ export function mergeNextStep(
   return {
     text: 'No ready task: everything is blocked, done, or already in progress',
     owner: null,
+    owner_label: null,
     source: 'none',
     at: null,
   };

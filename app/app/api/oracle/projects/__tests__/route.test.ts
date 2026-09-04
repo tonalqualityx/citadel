@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { GET } from '../route';
+import { MIKE_USER_ID, BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
@@ -13,6 +14,7 @@ vi.mock('@/lib/db/prisma', () => ({
     project: { findMany: vi.fn() },
     task: { findMany: vi.fn() },
     comment: { findMany: vi.fn() },
+    $queryRaw: vi.fn(),
     timeEntry: { findMany: vi.fn() },
     activityLog: { findMany: vi.fn() },
     emailAsk: { findMany: vi.fn() },
@@ -33,6 +35,7 @@ const mockRequireRole = vi.mocked(requireRole);
 const mockProjectFindMany = prisma.project.findMany as Mock;
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockCommentFindMany = prisma.comment.findMany as Mock;
+const mockQueryRaw = prisma.$queryRaw as Mock;
 const mockTimeEntryFindMany = prisma.timeEntry.findMany as Mock;
 const mockActivityLogFindMany = prisma.activityLog.findMany as Mock;
 const mockEmailAskFindMany = prisma.emailAsk.findMany as Mock;
@@ -51,8 +54,10 @@ function project(overrides: Record<string, unknown> = {}) {
     status: 'in_progress',
     next_step_text: null,
     next_step_owner: null,
+    next_step_owner_label: null,
     next_step_source: null,
     next_step_at: null,
+    next_step_refresh_requested_at: null,
     stale_muted_until: null,
     ...overrides,
   };
@@ -69,6 +74,7 @@ beforeEach(() => {
   mockProjectFindMany.mockResolvedValue([]);
   mockTaskFindMany.mockResolvedValue([]);
   mockCommentFindMany.mockResolvedValue([]);
+  mockQueryRaw.mockResolvedValue([]);
   mockTimeEntryFindMany.mockResolvedValue([]);
   mockActivityLogFindMany.mockResolvedValue([]);
   mockEmailAskFindMany.mockResolvedValue([]);
@@ -572,5 +578,188 @@ describe('GET /api/oracle/projects — days_quiet null sorts as quietest (first)
     const body = await res.json();
 
     expect(body.projects[0].stale).toBe(true);
+  });
+});
+
+// C1 (Phase 3 carry-over)
+describe('GET /api/oracle/projects — arc-less session ask is skipped, not attributed (C1)', () => {
+  it('never surfaces a session_ask blocker for a session with no arc_id', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockArcFindMany.mockResolvedValue([{ id: 'arc-1', project_id: 'proj-1', client_id: null }]);
+    // A session with arc_id: null would never actually come back from the real query
+    // (which filters arc_id IN (arcIds)) — this proves the route's own defensive check,
+    // not the database filter, documenting the arc-less case rather than hiding it.
+    mockOracleSessionFindMany.mockResolvedValue([
+      {
+        external_id: 'sess-arcless',
+        waiting_on: 'Which CMS?',
+        ask_queue: 'decide',
+        ask_severity: null,
+        last_event_at: new Date(),
+        created_at: new Date(),
+        arc_id: null,
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'session_ask')).toBe(false);
+  });
+});
+
+// C3 (Phase 3 carry-over, verifier LOW-C)
+describe('GET /api/oracle/projects — movement sees a human comment even when a later Bast comment is the task\'s last comment (C3)', () => {
+  it('reports last_movement from the earlier human comment, not the later Bast one', async () => {
+    const humanAt = new Date('2026-08-01T10:00:00.000Z');
+    const bastAt = new Date('2026-08-05T10:00:00.000Z');
+
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([
+      {
+        id: 'task-1',
+        title: 'Ship the draft',
+        status: 'in_progress',
+        tags: [],
+        needs_review: false,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: bastAt,
+        created_at: humanAt,
+        project_id: 'proj-1',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+      },
+    ]);
+    // The task's LAST comment (via the raw last-comment-per-task query) is Bast's —
+    // parked, no coinciding status change, so it never counts for movement on its own.
+    mockQueryRaw.mockResolvedValue([
+      {
+        id: 'c-bast',
+        task_id: 'task-1',
+        user_id: BAST_USER_ID,
+        user_name: 'Bast',
+        content: 'Parking this, needs-mike.',
+        mentioned_user_ids: [],
+        created_at: bastAt,
+      },
+    ]);
+    // The human's EARLIER comment on the same task, only visible via the C3 fix's
+    // dedicated 90-day non-bot movement query — pre-fix this row was invisible because
+    // the movement feed only ever saw the task's single latest comment.
+    mockCommentFindMany.mockImplementation((args: { where?: { user_id?: { notIn?: string[] }; OR?: unknown } }) => {
+      if (args?.where?.user_id?.notIn) {
+        return Promise.resolve([
+          {
+            id: 'c-human',
+            task_id: 'task-1',
+            user_id: 'user-1',
+            user: { id: 'user-1', name: 'Alex' },
+            content: 'Kicked off the draft.',
+            mentioned_user_ids: [],
+            created_at: humanAt,
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].last_movement).toEqual({ at: humanAt.toISOString(), who: 'Alex', what: 'commented' });
+  });
+});
+
+// C5 (Phase 3 carry-over)
+describe('GET /api/oracle/projects — 90-day mention window boundary (C5)', () => {
+  function mentionCommentFake(commentAt: Date) {
+    return (args: {
+      where?: { created_at?: { gte?: Date }; OR?: unknown; user_id?: { notIn?: string[] } };
+    }) => {
+      const gte = args?.where?.created_at?.gte;
+      const inWindow = !gte || commentAt >= gte;
+      if (args?.where?.OR) {
+        if (!inWindow) return Promise.resolve([]);
+        return Promise.resolve([
+          {
+            id: 'c-mention',
+            task_id: 'task-1',
+            user_id: 'user-1',
+            user: { id: 'user-1', name: 'Alex' },
+            content: '@Mike can you weigh in on this?',
+            mentioned_user_ids: [MIKE_USER_ID],
+            created_at: commentAt,
+          },
+        ]);
+      }
+      // humanMovementComments query — irrelevant to this test, kept empty.
+      return Promise.resolve([]);
+    };
+  }
+
+  it('does NOT produce a mention blocker for a comment mentioning Mike 91 days ago (outside the window)', async () => {
+    const commentAt = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([
+      {
+        id: 'task-1',
+        title: 'Some task',
+        status: 'not_started',
+        tags: [],
+        needs_review: false,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: commentAt,
+        created_at: commentAt,
+        project_id: 'proj-1',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+      },
+    ]);
+    mockCommentFindMany.mockImplementation(mentionCommentFake(commentAt));
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'mention')).toBe(false);
+  });
+
+  it('DOES produce a mention blocker for a comment mentioning Mike 89 days ago (inside the window)', async () => {
+    const commentAt = new Date(Date.now() - 89 * 24 * 60 * 60 * 1000);
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([
+      {
+        id: 'task-1',
+        title: 'Some task',
+        status: 'not_started',
+        tags: [],
+        needs_review: false,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: commentAt,
+        created_at: commentAt,
+        project_id: 'proj-1',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+      },
+    ]);
+    mockCommentFindMany.mockImplementation(mentionCommentFake(commentAt));
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'mention')).toBe(true);
   });
 });

@@ -377,7 +377,13 @@ export const oracleEndpoints: ApiEndpoint[] = [
           'Judgment calls: EmailAsk.replied is state !== \'open\' only (this schema tracks no outbound ' +
           'reply record); a calendar event links to a client by attendee-email match against that ' +
           'client\'s ClientContact rows (CalendarEvent has no first-class client relation) and, if ' +
-          'matched, is attached to every in-progress project of that client.',
+          'matched, is attached only to a client\'s SOLE in-progress project (ambiguous with 0 or 2+ ' +
+          'never guesses). A session ask (Needs Reshi) surfaces here ONLY when its OracleSession ' +
+          'declared an arc — OracleSession has no client/project column of its own, so an arc-less ' +
+          'ask can never be attributed to a project and stays visible only in /api/waiting-on-me. ' +
+          'The mention scan and the movement comment feed both share the SAME 90-day lookback window ' +
+          '(comments older than 90 days never produce a mention blocker and are never read for ' +
+          'movement either) — this is a fixed window, not configurable per project.',
         responseExample: {
           projects: [
             {
@@ -388,6 +394,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
               next_step: {
                 text: 'string',
                 owner: { id: 'uuid', name: 'string' },
+                owner_label: 'string|null',
                 source: 'graph|bast|mike|none',
                 at: 'ISO-8601|null',
               },
@@ -408,11 +415,123 @@ export const oracleEndpoints: ApiEndpoint[] = [
                 },
               ],
               counts_by_kind: { review: 1 },
+              refresh_requested_at: 'ISO-8601|null',
               open_url: '/projects/uuid',
             },
           ],
           stalled_count: 'number',
           generated_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/next-step',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: "Oracle Projects Tab Phase 3 — Mike's manual next-step override (sticky until changed or cleared).",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Sets next_step_source=mike, which wins over both the nightly/on-demand Bast line and the live ' +
+          'task-graph candidate (see mergeNextStep). owner_id and owner_label are mutually exclusive; ' +
+          'a PATCH always sets both owner fields, clearing whichever one was not sent.',
+        bodySchema: [
+          { name: 'text', type: 'string', required: true, description: '1-500 chars' },
+          { name: 'owner_id', type: 'uuid', required: false, description: 'A User. Mutually exclusive with owner_label.' },
+          { name: 'owner_label', type: 'string', required: false, description: 'Free text for a non-User owner, e.g. "Andy (client)". 1-255 chars.' },
+        ],
+        responseExample: {
+          next_step: { text: 'string', owner: { id: 'uuid', name: 'string' }, owner_label: 'string|null', source: 'mike', at: 'ISO-8601' },
+        },
+      },
+      {
+        method: 'DELETE',
+        summary: "Clears Mike's next-step override — source reverts to null so the next bast refresh or the live graph candidate applies again.",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes: 'Does not itself trigger a refresh; pair with POST .../refresh for an immediate fresh line.',
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/next-step/write',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side job only (next-step-refresh.py): writes a freshly-inferred next-step line and/or email summary.',
+        auth: 'required',
+        responseNotes:
+          "Bearer, any authenticated user — not role-gated (this is a machine endpoint). Mike's override " +
+          "always wins: if the project's CURRENT next_step_source is 'mike', next_step_text/owner/source/at " +
+          'are left untouched, but email_summary is still written (`applied: false` in the response signals ' +
+          'this). Either way, next_step_refresh_requested_at is cleared. next_step_text and email_summary are ' +
+          'both linted server-side against the writing-standard comment-gate patterns ' +
+          '(lib/oracle/projects/next-step-lint.ts) — a violation on either field 422s with no write at all.',
+        bodySchema: [
+          { name: 'text', type: 'string', required: true, description: '1-500 chars' },
+          { name: 'owner_id', type: 'uuid', required: false, description: 'Mutually exclusive with owner_label' },
+          { name: 'owner_label', type: 'string', required: false, description: 'Mutually exclusive with owner_id' },
+          { name: 'email_summary', type: 'string', required: false, description: 'Up to 2000 chars, or null/absent when there are no linked emails' },
+          { name: 'source', type: 'string', required: true, description: "Must be the literal 'bast'" },
+          { name: 'generated_at', type: 'ISO-8601', required: true, description: '' },
+          { name: 'model', type: 'string', required: true, description: 'e.g. "sonnet" — recorded in the activity log' },
+          { name: 'cost_usd', type: 'number', required: false, description: '' },
+        ],
+        responseExample: {
+          applied: 'boolean',
+          next_step: { text: 'string', owner: { id: 'uuid', name: 'string' }, owner_label: 'string|null', source: 'bast', at: 'ISO-8601' },
+          email_summary: 'string|null',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/refresh',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Queues an on-demand next-step refresh for one project.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Stamps next_step_refresh_requested_at; the machine-side job\'s --requested poll (every 2 minutes ' +
+          'during business hours) picks it up and clears the stamp via PUT .../next-step/write. 202 means ' +
+          'queued, not done.',
+        responseExample: { requested_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/refresh',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Queues an on-demand next-step refresh for EVERY in-progress, type=project project at once.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { requested_at: 'ISO-8601', count: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/refresh-requests',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'GET',
+        summary: "Machine-side job only: projects with a queued on-demand refresh, oldest first.",
+        auth: 'required',
+        responseNotes: 'Bearer, any authenticated user — a cheap GET, not a Mike-only action.',
+        responseExample: {
+          ids: ['uuid'],
+          requests: [{ id: 'uuid', requested_at: 'ISO-8601' }],
         },
       },
     ],

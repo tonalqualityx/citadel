@@ -99,6 +99,7 @@ describe('mergeNextStep', () => {
       {
         next_step_text: "Wait for Mike's call with the client",
         next_step_owner: { id: 'mike', name: 'Mike' },
+        next_step_owner_label: null,
         next_step_source: 'mike',
         next_step_at: '2026-09-03T00:00:00.000Z',
       },
@@ -107,6 +108,7 @@ describe('mergeNextStep', () => {
     expect(line).toEqual({
       text: "Wait for Mike's call with the client",
       owner: { id: 'mike', name: 'Mike' },
+      owner_label: null,
       source: 'mike',
       at: '2026-09-03T00:00:00.000Z',
     });
@@ -117,6 +119,7 @@ describe('mergeNextStep', () => {
       {
         next_step_text: 'Bast thinks the next move is a follow-up email',
         next_step_owner: { id: 'user-2', name: 'Jamie' },
+        next_step_owner_label: null,
         next_step_source: 'bast',
         next_step_at: '2026-09-02T00:00:00.000Z',
       },
@@ -128,12 +131,13 @@ describe('mergeNextStep', () => {
 
   it('falls back to the fresh graph candidate when no mike/bast line is stored', () => {
     const line = mergeNextStep(
-      { next_step_text: null, next_step_owner: null, next_step_source: null, next_step_at: null },
+      { next_step_text: null, next_step_owner: null, next_step_owner_label: null, next_step_source: null, next_step_at: null },
       candidate
     );
     expect(line).toEqual({
       text: 'Next: Write the brief (Alex)',
       owner: { id: 'user-1', name: 'Alex' },
+      owner_label: null,
       source: 'graph',
       at: candidateTask.created_at,
     });
@@ -144,6 +148,7 @@ describe('mergeNextStep', () => {
       {
         next_step_text: 'STALE: Next: some old task',
         next_step_owner: null,
+        next_step_owner_label: null,
         next_step_source: 'graph',
         next_step_at: '2026-08-01T00:00:00.000Z',
       },
@@ -155,7 +160,7 @@ describe('mergeNextStep', () => {
 
   it('renders "(unassigned)" when the graph candidate has no assignee', () => {
     const line = mergeNextStep(
-      { next_step_text: null, next_step_owner: null, next_step_source: null, next_step_at: null },
+      { next_step_text: null, next_step_owner: null, next_step_owner_label: null, next_step_source: null, next_step_at: null },
       { task: candidateTask, assignee: null }
     );
     expect(line.text).toBe('Next: Write the brief (unassigned)');
@@ -163,11 +168,53 @@ describe('mergeNextStep', () => {
 
   it('reports "no ready task" when there is no candidate and no stored line', () => {
     const line = mergeNextStep(
-      { next_step_text: null, next_step_owner: null, next_step_source: null, next_step_at: null },
+      { next_step_text: null, next_step_owner: null, next_step_owner_label: null, next_step_source: null, next_step_at: null },
       null
     );
     expect(line.source).toBe('none');
     expect(line.owner).toBeNull();
     expect(line.text).toMatch(/no ready task/i);
+  });
+});
+
+describe('mergeNextStep — owner_label (Phase 3)', () => {
+  const candidateTask = task({ id: 'candidate', title: 'Write the brief' });
+  const candidate = { task: candidateTask, assignee: { id: 'user-1', name: 'Alex' } };
+
+  it("passes through Mike's owner_label when next_step_owner is null", () => {
+    const line = mergeNextStep(
+      {
+        next_step_text: 'Waiting on Andy to send the logo files',
+        next_step_owner: null,
+        next_step_owner_label: 'Andy (client)',
+        next_step_source: 'mike',
+        next_step_at: '2026-09-03T00:00:00.000Z',
+      },
+      candidate
+    );
+    expect(line.owner).toBeNull();
+    expect(line.owner_label).toBe('Andy (client)');
+  });
+
+  it("passes through Bast's owner_label the same way", () => {
+    const line = mergeNextStep(
+      {
+        next_step_text: 'Waiting on the client contact to reply',
+        next_step_owner: null,
+        next_step_owner_label: 'Jordan (client)',
+        next_step_source: 'bast',
+        next_step_at: '2026-09-02T00:00:00.000Z',
+      },
+      candidate
+    );
+    expect(line.owner_label).toBe('Jordan (client)');
+  });
+
+  it('a graph candidate never carries an owner_label', () => {
+    const line = mergeNextStep(
+      { next_step_text: null, next_step_owner: null, next_step_owner_label: null, next_step_source: null, next_step_at: null },
+      candidate
+    );
+    expect(line.owner_label).toBeNull();
   });
 });

@@ -40,11 +40,16 @@ A fourth Oracle mode, **Projects**, showing in-progress contracted projects with
 - [x] `app/api/email-asks/[id]/attach/route.ts` — the `project_id` branch now also stamps `client_id` from the project
 
 ### Phase 3: next-step engine
-- [ ] `app/api/oracle/projects/[id]/next-step/route.ts` — PATCH (Mike override: source=mike) / POST refresh-one (enqueues; returns 202 with job id) 
-- [ ] `app/api/oracle/projects/refresh/route.ts` — POST refresh-all
-- [ ] `app/api/oracle/projects/[id]/next-step/write/route.ts` — PUT used by the machine-side job (bearer) to write `next_step_text/owner/source=bast/at` and `email_summary`
-- [ ] `~/.claude/tools/citadel-projects/next-step-refresh.sh` + `next-step-refresh.py` — gathers ready tasks + recent comments + linked emails per project, runs Sonnet, PUTs the lines, runs `comment-gate.sh` on each line, logs to the ledger; honors `--project <id>` for on-demand; crontab line `0 3 * * *`
-- [ ] `~/.claude/tools/citadel-projects/tests/test_next_step_refresh.py`
+- [x] `app/api/oracle/projects/[id]/next-step/route.ts` — PATCH (Mike override: source=mike, mutually-exclusive `owner_id`/`owner_label`) / DELETE (clears the override). Diverges from this plan line's original one-file PATCH+POST-refresh-one sketch: refresh-one landed as its OWN route (`[id]/refresh/route.ts`, see below) returning 202 `{requested_at}` with no job id — the actual task spec handed to this pass superseded the plan's shorthand, same precedent as Phase 2's `isWaitingOnClient` note.
+- [x] `app/api/oracle/projects/[id]/refresh/route.ts` — POST refresh-one: stamps `next_step_refresh_requested_at`, 202 `{requested_at}`
+- [x] `app/api/oracle/projects/refresh/route.ts` — POST refresh-all (every in-progress `type=project` project)
+- [x] `app/api/oracle/projects/refresh-requests/route.ts` — GET (bearer, any authenticated user): queued refresh ids, oldest first
+- [x] `app/api/oracle/projects/[id]/next-step/write/route.ts` — PUT used by the machine-side job (bearer, any authenticated user) to write `next_step_text/owner/source=bast/at` and `email_summary`; Mike's override always wins (checked at write time, not enqueue time); 422s with `violations` on a writing-standard lint failure
+- [x] `lib/oracle/projects/next-step-lint.ts` (+ tests) — ports comment-gate.sh's 4 grep-based checks (pipeline/gate codes, worker-internal vocabulary, process narration, dash law) for server-side validation of `next_step_text`/`email_summary`
+- [x] `~/.claude/tools/citadel-projects/next-step-refresh.sh` + `next-step-refresh.py` — gathers open tasks + last comment, the last 20 project comments (90 days), linked emails, notes, and the current next-step per project; builds one prompt embedding the writing-standard's writing-rules/comment-rules blocks (read from the skill file at run time); runs `claude -p --model sonnet --effort medium --output-format json`; gates the reply with `comment-gate.sh`, one rewrite on failure, writes nothing on a second failure; PUTs via the write route; logs one ledger row per project. `--all` / `--requested` / `--project <id>`; `DRY_RUN=1` reads real data and prints the plan + prompt sizes, writes nothing
+- [x] `~/.claude/tools/citadel-projects/tests/test_next_step_refresh.py` — 8 tests against a fake HTTP server + fake `claude` binary: happy path, mike-override skip, gate rewrite, second-failure no-write, requested-mode (queued + empty-queue), dry run, `--all` covering every project
+- [x] `lib/hooks/use-next-step.ts` — override/clear/refresh-one/refresh-all mutations, no UI yet (Phase 4)
+- [x] Crontab (file-based edit, backed up first): `0 3 * * *` `--all`; `*/2 6-23 * * *` `--requested`
 
 ### Phase 4: the tab
 - [ ] `components/domain/oracle/modes/projects/ProjectsView.tsx` — lens toggle, grid / kind list, drawer host
@@ -293,7 +298,7 @@ Judgment calls made while landing Phase 2 (pure modules + the signals route + th
 
 4. **Calendar-event -> client linking is by attendee-email match against `ClientContact`, not a first-class relation.** `CalendarEvent` has no client/project column (Google Calendar sync doesn't carry one). The route fetches every `ClientContact` for the in-progress projects' clients, fetches every `CalendarEvent` in the next-3-days window, and matches by lower-cased attendee email against contact email. A matched event is attached to **every** in-progress project of that client — there is no data path from "this meeting is about" to a specific project when a client has more than one live project. This is a real gap or edge case Mike should be aware of on multi-project clients; documented in the route's own doc comment.
 
-5. **Session asks are linked to a project via `Arc.project_id` only.** `OracleSession` has no `task_id` column (only `arc_id`), so "asks link to projects via arc.project_id or task.project_id" resolves in practice to just the arc path for session asks specifically — a session ask with no arc, or an arc with no project, never surfaces as a Projects-tab blocker (it still shows up in the general `/api/waiting-on-me` feed). The waiting-on-me sweep was NOT refactored into a shared loader; this route re-queries `OracleSession` scoped by `arc_id IN (...)` directly — a different filter shape than the existing global endpoint, and duplicating one small query was judged lower-risk than touching a live, heavily-tested route for a two-field reuse.
+5. **Session asks are linked to a project via `Arc.project_id` only.** `OracleSession` has no `task_id` column (only `arc_id`), so "asks link to projects via arc.project_id or task.project_id" resolves in practice to just the arc path for session asks specifically — a session ask with no arc, or an arc with no project, never surfaces as a Projects-tab blocker (it still shows up in the general `/api/waiting-on-me` feed). The waiting-on-me sweep was NOT refactored into a shared loader; this route re-queries `OracleSession` scoped by `arc_id IN (...)` directly — a different filter shape than the existing global endpoint, and duplicating one small query was judged lower-risk than touching a live, heavily-tested route for a two-field reuse. **Stated plainly (Phase 3 carry-over C1):** an ask reaches the Projects tab only when its session declared an arc. `OracleSession` has no client/project column of its own to fall back to, so an arc-less ask is not a bug to fix here — it stays in Needs Reshi, permanently, by design. `route.ts` keeps the `if (!s.arc_id) continue` check as a documented, tested fail-safe even though the query already filters to `arc_id IN (arcIds)`.
 
 6. **`EmailAsk.replied` is `state !== 'open'` only — not "a later Mike reply in the thread."** This schema has no table recording Mike's own outbound replies against an `EmailAsk` (the model only stores inbound asks the classifier flagged); there is no data source to check "did Mike reply in this thread" from. `state` is the only available proxy, and it's a reasonable one (Mike marking an ask handled/dismissed/archive-requested is itself evidence he's dealt with it) but it is not literally what the spec text describes. Flagging this explicitly rather than letting it look like a data-complete implementation.
 
@@ -306,3 +311,155 @@ Judgment calls made while landing Phase 2 (pure modules + the signals route + th
 10. **`next-step-candidate.ts`'s status filter keeps the literal `'ready'` value from the spec text even though no `Task` in this schema can carry it.** `TaskStatus` has no `ready` value (`not_started`/`in_progress`/`review`/`done`/`blocked`/`abandoned`); a task whose blockers are all done is already auto-unblocked back to `not_started` by the existing `lib/services/dependencies.ts` healing logic, so in practice this only ever matches `not_started`. Kept `'ready'` in the allowed-status set anyway since it's free and future-proof (matches the spec text exactly, would just start working if that status value is ever added).
 
 11. **The live read-only check against `GET /api/oracle/projects`** (dev server, local Postgres, bearer token from `~/.citadel-token`) is reported in the session's final summary rather than duplicated here — see the response summary (project names, `stalled_count`, `counts_by_kind` per project) captured at verification time.
+
+## Phase 2 Verification Carry-Overs, Landed With Phase 3 (2026-09-04)
+
+Five findings from the Phase 2 verifier's second pass, fixed before Phase 3's own scope:
+
+**C1 — session-ask arc-less documentation.** `route.ts`'s `if (!s.arc_id) continue` (the
+session-ask loop) is normally unreachable — the query above it already filters to
+`arc_id IN (arcIds)` — but is kept as a documented, tested fail-safe rather than deleted.
+Stated plainly in the route's module doc comment, the `oracle` registry note, and Phase 2
+Note 5 above: an ask reaches the Projects tab ONLY when its session declared an arc.
+`OracleSession` has no client/project column of its own to fall back to, so an arc-less
+ask is not a bug — it stays in Needs Reshi (`/api/waiting-on-me`), permanently, by
+design. New test: a session with `arc_id: null` never produces a `session_ask` blocker.
+
+**C2 — the "Postgres DISTINCT ON" comment was false.** The last-comment-per-task query
+used Prisma's `distinct: ['task_id']`, which is applied CLIENT-SIDE (Prisma fetches every
+matching row, then reduces in the query engine) — confirmed by inspecting the actual SQL
+Prisma issues. Replaced with a REAL `SELECT DISTINCT ON (task_id)` via `prisma.$queryRaw`,
+parameterized with `Prisma.sql`/`Prisma.join`. Tested with the mocked prisma shape
+(`$queryRaw` mocked directly).
+
+**C3 — movement missed human comments buried under a later Bast comment (verifier
+LOW-C).** Movement's comment source used to be the SAME last-comment-per-task set the
+blockers classifier uses — so a human's comment was invisible to `lastMovement()` the
+instant a later Bast comment landed on the same task. Movement now has its OWN query:
+every comment by a non-bot user on the project's tasks in the last 90 days (not
+newest-per-task). New test: a human comment older than a later Bast comment on the same
+task still counts as movement (the Bast comment, correctly, doesn't — it's filtered out
+of this feed entirely; Bast's own progress still counts via the activity-log path).
+
+**C4 — Bast `status_changed` credit narrowed to `done` only.** `movement.ts`'s
+`PROGRESS_STATUSES` was `{done, in_progress}`; a Bast status change to `in_progress`
+isn't itself completed movement (a task can be flipped back with nothing shipped) and no
+longer independently credits Bast, whether via the activity-log path or the
+comment-coincidence path. One existing test's fixture (`in_progress` paired with a
+"done"-opening comment) was updated to `done` to preserve its actual intent; two new
+tests assert `in_progress` alone, and `in_progress` paired with a comment, both now
+produce no movement.
+
+**C5 — the 90-day mention/movement window is now documented and boundary-tested.** The
+`oracle` registry note states plainly that the mention scan and the movement comment feed
+share the SAME 90-day lookback. New tests: a comment mentioning Mike 91 days ago produces
+no mention blocker; the same comment at 89 days does.
+
+Gates after these five fixes (before Phase 3's own routes existed): `tsc` clean; lint
+byte-identical to baseline; `vitest run` 226 files / 2700 tests (+6 over the 2694
+baseline), zero failures.
+
+## Phase 3 Notes (2026-09-04, implementation pass)
+
+Judgment calls made while landing Phase 3:
+
+1. **Route split diverged from this plan's original one-line Phase 3 sketch.** The
+   sketch put PATCH and a refresh-one POST on the same `next-step` route file, returning
+   a job id. The actual task spec (superseding the sketch, same precedent as Phase 2's
+   `isWaitingOnClient`/`ownerIsMike` note) put refresh-one on its own route
+   (`[id]/refresh/route.ts`), returning 202 `{requested_at}` with no job id concept — the
+   "job" is just "a project with `next_step_refresh_requested_at` set," polled by the
+   `--requested` cron, not a tracked async job record.
+
+2. **PATCH/DELETE next-step are PM/Admin; the write route and refresh-requests are any
+   authenticated user (bearer).** The two Mike-facing actions (override, clear) and the
+   two Mike-triggered refresh requests (single, all) are role-gated the same way every
+   other Mike-action route in this feature is. The two machine-only endpoints (the write
+   route the job PUTs to, and the poll's GET) are not role-gated at all — matching the
+   existing convention on `/api/oracle/email-sync` and `/api/session-tasks` (same
+   `requireAuth()` util, cookie session OR API key, no bot-only restriction).
+
+3. **Mike's override is checked at WRITE time, not at enqueue time.** A `POST .../refresh`
+   queues a refresh regardless of whether Mike currently owns the line — the machine-side
+   job always runs and always calls the write route; the write route itself is what
+   refuses to overwrite `next_step_text`/`owner`/`source`/`at` when
+   `next_step_source === 'mike'` (still writing `email_summary` either way). This means a
+   refresh triggered on a Mike-overridden project still costs a `claude -p` call whose
+   next-step half is discarded — accepted, since the alternative (checking source before
+   even queuing) would require the UI to know the current source at click time, which it
+   already does display-side but shouldn't need to re-derive to decide whether a button
+   click "counts."
+
+4. **owner_id and owner_label are mutually exclusive by Zod refinement, not a DB
+   constraint.** The schema allows both columns to be non-null simultaneously; every
+   write path (PATCH, DELETE, the write route) enforces exclusivity in application code.
+   A future direct-SQL write bypassing these routes could violate this — flagged, not
+   solved, since Postgres has no clean way to express "at most one of two nullable
+   columns" as a `CHECK` without a function-based constraint the team doesn't use
+   elsewhere in this schema.
+
+5. **The write-route lint rules are the same four `comment-gate.sh` grep patterns, ported
+   verbatim, not re-derived.** `lib/oracle/projects/next-step-lint.ts` intentionally does
+   NOT port the shell script's word-count cap (`words > 150`) — `next_step_text` already
+   has its own shape (1-500 chars, prompt-instructed to under 30 words) enforced
+   elsewhere, and re-adding an unrelated 150-word cap on top would just be confusing dead
+   weight for a field that's never anywhere near that long. `email_summary` (2000 chars)
+   is linted with the same four checks but no separate length rule beyond its own column
+   cap. The four checks are case-sensitive, matching the shell script's plain `grep -noP`
+   (no `-i`) exactly — verified empirically against the real `comment-gate.sh` (a
+   lowercase-only pattern like `\bran W\b` doesn't match `"Ran W3"`, in the port or the
+   original).
+
+6. **The poll's cost model: near-zero when idle, one `claude -p --model sonnet --effort
+   medium` call per queued project when not.** `--requested` runs every 2 minutes,
+   6am-11pm (510 ticks/day) — each tick is ONE `GET /api/oracle/projects/refresh-requests`
+   (a single indexed `WHERE next_step_refresh_requested_at IS NOT NULL` query) and, on an
+   empty result (the overwhelming majority of ticks — refreshes are triggered by a
+   button, not continuously), the script exits immediately with no further network or
+   `claude` calls at all. The nightly `--all` run is the real cost driver: one `claude -p`
+   call per in-progress project (7 in-progress projects in production at verification
+   time), once per night, plus up to one retry per project when the writing-standard gate
+   fires. Observed cost per project is reported in the Gates section below (this pass's
+   local + production dry-run numbers) — no aggregate daily-cost estimate is claimed here
+   beyond that arithmetic, since it scales directly with however many projects are
+   in-progress on a given night.
+
+7. **The machine-side job fetches ALL email-asks per run, filtering client-side by
+   `project_id`, rather than adding a `project_id` query param to `GET /api/email-asks`.**
+   That route isn't in this phase's route list, and adding a filter to it was judged
+   real scope creep for a job that runs at most every 2 minutes (and usually far less
+   often, given the empty-queue fast path above) — not a hot path. Fetched ONCE per run
+   and reused across every target project (not re-fetched per project) to bound the
+   actual request count regardless of how many projects `--all` covers. Flagged as the
+   first place to add real filtering if `email_asks` ever grows large enough for this to
+   matter.
+
+8. **`next_step_refresh_requested_at` is left SET on a second gate failure.** The task
+   spec says "on a second failure write nothing for that project and log it" — it doesn't
+   say to clear the request flag. This is deliberate: leaving it set means the NEXT
+   `--requested` poll (or the next `--all` night) retries automatically rather than
+   silently dropping the request forever. The tradeoff is a project that keeps failing
+   the gate stays in the queue indefinitely, spending one `claude -p` call (well, two,
+   with the retry) every poll cycle until either the underlying prompt/data issue is
+   fixed or Mike notices in the ledger. Not solved further in this pass — a real backoff
+   or max-attempts rule is a reasonable Phase 4+ follow-up if it proves noisy in
+   practice.
+
+## Phase 3 Gates (2026-09-04, implementation pass)
+
+- [x] `npx prisma migrate deploy` on local Postgres, clean; `prisma db execute` re-run of the Phase 3 migration file exits 0 (idempotent)
+- [x] `npx tsc --noEmit` clean
+- [x] `npm run lint` — 725 problems (494 errors/231 warnings), byte-identical to the Phase 1/2 baseline; this pass adds zero
+- [x] `npx vitest run` — 232 files / 2751 tests, zero failures (baseline going in: 226/2694; +6 files/+57 tests — the 5 carry-over test additions plus every new Phase 3 test file)
+- [x] `npm run build` clean — all 6 new routes present in the manifest (`/api/oracle/projects/[id]/next-step`, `.../write`, `/api/oracle/projects/[id]/refresh`, `/api/oracle/projects/refresh`, `/api/oracle/projects/refresh-requests`)
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — 9 tests, all green (fake HTTP server + fake `claude` binary)
+- [x] `DRY_RUN=1 next-step-refresh.sh --all` against PRODUCTION — the Citadel bearer token and base URL are confirmed live (`GET /api/docs` and `GET /api/tasks` both 200), but `GET /api/oracle/projects` 404s: this whole feature (Phase 2's own signals route included) is on an unmerged branch, never deployed to `main`/production. The script's failure mode here is exactly right — one clean read-only GET, a `FATAL` log line, exit 1, zero `claude` calls, zero PUTs. This gate cannot exercise the full per-project plan against real production data until the branch merges; documented rather than faked.
+- [x] `DRY_RUN=1 next-step-refresh.sh --all` against the LOCAL dev server (2 in-progress projects) — printed both projects' id, prompt char count (1616/1646 chars), and open task/comment/email/note counts; zero PUT requests reached the server (grepped the dev server log).
+- [x] ONE real run, LOCAL dev server, `--project <local id>` (`next dev`, a temporary admin API key minted the same way `seed.ts` mints the Oracle service key, revoked immediately after): wrote `next_step_text: "Assign an owner and implement the contact form for Website Redesign."`, `owner: null`, `source: "bast"`; `refresh_requested_at` confirmed cleared on re-fetch. Cost **$0.0086** (Sonnet, medium effort). Ledger row confirmed at `~/.model-ledger/runs.jsonl` (`source: projects-next-step`, `outcome: pass`).
+
+**Two real bugs, both caught only by this live run (not by the mocked vitest/unittest suites) and fixed before this pass closed:**
+
+1. **C2's raw SQL 500'd on every real call.** `c.task_id IN (${Prisma.join(taskIds)})` compares a `uuid` column against text-typed bound parameters — Postgres has no `uuid = text` operator, so this failed with `42883` the instant it hit a real database (the mocked route test never runs real SQL, so it stayed green through this bug). Fixed by casting the column: `c.task_id::text IN (...)`.
+2. **The write route rejected every real PUT from the job.** `generated_at: now.isoformat()` in Python emits `+00:00` for a UTC timestamp; the write route's Zod `.datetime()` only accepts the literal `Z` suffix (RFC 3339), so the first real run 400'd. Fixed with an `iso_z()` helper (`...isoformat().replace("+00:00", "Z")`); a regression test (`test_generated_at_matches_the_write_route_zod_datetime_shape`) locks this in at the unit level, since the fake HTTP server's original PUT handler didn't validate the field's format the way the real Zod schema does.
+
+Both fixes are included in the numbers above (final `tsc`/lint/vitest/unittest runs all happened after both fixes landed).

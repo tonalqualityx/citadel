@@ -646,8 +646,11 @@ model Project {
   next_step_text     String?          @db.Text
   next_step_owner_id String?          @db.Uuid
   next_step_owner    User?            @relation("ProjectNextStepOwner", fields: [next_step_owner_id], references: [id])
-  next_step_source   NextStepSource?
-  next_step_at       DateTime?
+  // Oracle Projects Phase 3 (2026-09-04) — mirrored from schema.prisma.
+  next_step_owner_label          String?          @db.VarChar(255)
+  next_step_source               NextStepSource?
+  next_step_at                   DateTime?
+  next_step_refresh_requested_at DateTime?
   email_summary      String?          @db.Text
   email_summary_at   DateTime?
   stale_muted_until  DateTime?

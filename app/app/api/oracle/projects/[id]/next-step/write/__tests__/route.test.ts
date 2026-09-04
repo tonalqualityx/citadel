@@ -1,0 +1,156 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
+import type { Mock } from 'vitest';
+import { PUT } from '../route';
+
+vi.mock('@/lib/auth/middleware', () => ({
+  requireAuth: vi.fn(),
+}));
+
+vi.mock('@/lib/db/prisma', () => ({
+  prisma: {
+    project: { findUnique: vi.fn(), update: vi.fn() },
+    user: { findUnique: vi.fn() },
+  },
+}));
+
+vi.mock('@/lib/services/activity', () => ({
+  logActivity: vi.fn(),
+}));
+
+import { requireAuth } from '@/lib/auth/middleware';
+import { prisma } from '@/lib/db/prisma';
+import { logActivity } from '@/lib/services/activity';
+
+const mockRequireAuth = vi.mocked(requireAuth);
+const mockProjectFindUnique = prisma.project.findUnique as Mock;
+const mockProjectUpdate = prisma.project.update as Mock;
+const mockUserFindUnique = prisma.user.findUnique as Mock;
+const mockLogActivity = logActivity as Mock;
+
+const PROJECT_ID = 'project-1';
+const params = Promise.resolve({ id: PROJECT_ID });
+
+function req(body: unknown): NextRequest {
+  return new NextRequest(`http://localhost:3000/api/oracle/projects/${PROJECT_ID}/next-step/write`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+function validBody(overrides: Record<string, unknown> = {}) {
+  return {
+    text: 'Mike needs to approve the homepage copy.',
+    source: 'bast',
+    generated_at: '2026-09-04T03:00:00.000Z',
+    model: 'sonnet',
+    cost_usd: 0.03,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockRequireAuth.mockResolvedValue({ userId: 'bot-1', role: 'admin', email: 'oracle@indelible.bot' });
+  mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID, name: 'Herba rebuild', next_step_source: null });
+  mockProjectUpdate.mockResolvedValue({
+    next_step_text: 'Mike needs to approve the homepage copy.',
+    next_step_owner: null,
+    next_step_owner_label: null,
+    next_step_source: 'bast',
+    next_step_at: new Date('2026-09-04T03:00:00.000Z'),
+    email_summary: null,
+  });
+  mockUserFindUnique.mockResolvedValue({ id: 'user-1' });
+});
+
+describe('PUT /api/oracle/projects/[id]/next-step/write', () => {
+  it('404s when the project does not exist', async () => {
+    mockProjectFindUnique.mockResolvedValue(null);
+    const res = await PUT(req(validBody()), { params });
+    expect(res.status).toBe(404);
+  });
+
+  it('writes next_step_source=bast when there is no current mike override', async () => {
+    const res = await PUT(req(validBody()), { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.applied).toBe(true);
+    expect(mockProjectUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          next_step_text: 'Mike needs to approve the homepage copy.',
+          next_step_source: 'bast',
+          next_step_refresh_requested_at: null,
+        }),
+      })
+    );
+  });
+
+  it("skips writing next_step_* when Mike's override is in place, but still writes email_summary", async () => {
+    mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID, name: 'Herba rebuild', next_step_source: 'mike' });
+    const res = await PUT(req(validBody({ email_summary: 'Client approved the homepage copy.' })), { params });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.applied).toBe(false);
+
+    const call = mockProjectUpdate.mock.calls[0][0];
+    expect(call.data.next_step_text).toBeUndefined();
+    expect(call.data.next_step_source).toBeUndefined();
+    expect(call.data.email_summary).toBe('Client approved the homepage copy.');
+    expect(call.data.next_step_refresh_requested_at).toBeNull();
+  });
+
+  it('clears next_step_refresh_requested_at even when the override is in place', async () => {
+    mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID, name: 'Herba rebuild', next_step_source: 'mike' });
+    await PUT(req(validBody()), { params });
+    const call = mockProjectUpdate.mock.calls[0][0];
+    expect(call.data.next_step_refresh_requested_at).toBeNull();
+  });
+
+  it('422s with violations when next_step_text fails the writing-standard lint', async () => {
+    const res = await PUT(req(validBody({ text: 'Waiting on gate B6 to clear.' })), { params });
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.violations.length).toBeGreaterThan(0);
+    expect(mockProjectUpdate).not.toHaveBeenCalled();
+  });
+
+  it('422s with violations when email_summary fails the writing-standard lint', async () => {
+    const res = await PUT(req(validBody({ email_summary: 'Client replied — approved.' })), { params });
+    expect(res.status).toBe(422);
+    expect(mockProjectUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects both owner_id and owner_label together', async () => {
+    const res = await PUT(
+      req(validBody({ owner_id: '11111111-1111-1111-8111-111111111111', owner_label: 'Andy (client)' })),
+      { params }
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('404s when owner_id does not resolve to a user', async () => {
+    mockUserFindUnique.mockResolvedValue(null);
+    const res = await PUT(req(validBody({ owner_id: '11111111-1111-1111-8111-111111111111' })), { params });
+    expect(res.status).toBe(404);
+  });
+
+  it('rejects a source other than bast', async () => {
+    const res = await PUT(req(validBody({ source: 'graph' })), { params });
+    expect(res.status).toBe(400);
+  });
+
+  it('logs the write with the model and cost', async () => {
+    await PUT(req(validBody()), { params });
+    expect(mockLogActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({
+          next_step_refresh: expect.objectContaining({
+            to: expect.objectContaining({ model: 'sonnet', cost_usd: 0.03 }),
+          }),
+        }),
+      })
+    );
+  });
+});

@@ -870,8 +870,17 @@ model Project {
   next_step_text     String?         @db.Text
   next_step_owner_id String?         @db.Uuid
   next_step_owner    User?           @relation("ProjectNextStepOwner", fields: [next_step_owner_id], references: [id])
-  next_step_source   NextStepSource?
-  next_step_at       DateTime?
+  // Oracle Projects Tab Phase 3 — an owner who is not a User (e.g. a client contact,
+  // "Andy (client)"). Set only when next_step_owner_id is null; the two are mutually
+  // exclusive by construction (the write routes never set both).
+  next_step_owner_label String?         @db.VarChar(255)
+  next_step_source      NextStepSource?
+  next_step_at          DateTime?
+  // Oracle Projects Tab Phase 3 — stamped by POST /api/oracle/projects/[id]/refresh (or
+  // the refresh-all variant); cleared by the machine-side job once it writes a fresh
+  // next_step. Non-null means "a refresh is queued," read by the nightly/poll job via
+  // GET /api/oracle/projects/refresh-requests.
+  next_step_refresh_requested_at DateTime?
 
   // Oracle Projects Phase 1 — the running email summary shown on the project card/drawer
   // (Phase 3's next-step-refresh job writes both fields together).

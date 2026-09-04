@@ -7,21 +7,23 @@ import { BAST_USER_ID, BOT_USER_IDS } from './gate-constants';
 // What counts as movement:
 //   - any time entry logged against the project (by anyone)
 //   - a task status change or comment by a HUMAN (i.e. user_id not in BOT_USER_IDS)
-//   - a Bast-authored activity-log status change to done/in_progress on any task —
-//     Bast actually finishing or advancing work, independent of whatever the
-//     accompanying comment (if any) says (MEDIUM-3)
+//   - a Bast-authored activity-log status change to done on any task — Bast actually
+//     finishing work, independent of whatever the accompanying comment (if any) says
+//     (MEDIUM-3). C4 (Phase 3 carry-over): this used to also credit a status change to
+//     in_progress — narrowed to done only, since starting a task isn't itself completed
+//     movement and in_progress can be flipped back without anything having shipped.
 //   - a comment BY BAST that is NOT an escalation (its first sentence/line, up to 160
 //     chars, doesn't match ESCALATION_RE — unless that first sentence/line OPENS with
 //     "done"/"shipped"/"completed"/"published", which counts as non-escalation
 //     regardless of anything later in the body) AND coincides with a Bast-authored task
-//     status change to done/in_progress on the SAME task within 10 minutes — this is
-//     Bast actually doing work, not just parking a card with a note
+//     status change to done on the SAME task within 10 minutes — this is Bast actually
+//     doing work, not just parking a card with a note
 // What never counts: emails, calendar events, a bot other than Bast, or any Bast
-// activity-log entry that isn't a status change to done/in_progress. A Bast comment that
+// activity-log entry that isn't a status change to done. A Bast comment that
 // doesn't clear the non-escalation + coinciding-progress bar (e.g. a plain "parking
 // this, needs-mike" note) still doesn't count via the comment path — though the SAME
 // underlying event may still register via the activity-log path above if Bast also
-// flipped the task's status to done/in_progress.
+// flipped the task's status to done.
 export interface MovementTimeEntry {
   user_id: string;
   user_name: string;
@@ -76,7 +78,9 @@ const LEADING_COMPLETION_RE = /^\s*(?:@\S+[,:]?\s*)?(done|shipped|completed|publ
 // opening "done.") is no longer wrongly penalized for it.
 const FIRST_SEGMENT_MAX_CHARS = 160;
 const COINCIDENCE_WINDOW_MS = 10 * 60 * 1000;
-const PROGRESS_STATUSES = new Set(['done', 'in_progress']);
+// C4 (Phase 3 carry-over): done only — in_progress no longer independently credits
+// Bast with movement (see the module doc comment above).
+const PROGRESS_STATUSES = new Set(['done']);
 
 function firstSegment(content: string): string {
   const stopIndex = content.search(/[.\n]/);
@@ -123,10 +127,11 @@ export function lastMovement(input: LastMovementInput): Movement | null {
 
   for (const log of input.activity_log) {
     if (BOT_USER_IDS.includes(log.user_id)) {
-      // MEDIUM-3: Bast actually moving a task to done/in_progress is real work, not a
-      // parked note — it counts as movement in its own right, independent of whatever
-      // its accompanying comment (if any) says. Every other bot's activity, and any
-      // other action from Bast, is still skipped entirely.
+      // MEDIUM-3/C4: Bast actually moving a task to done is real work, not a parked
+      // note — it counts as movement in its own right, independent of whatever its
+      // accompanying comment (if any) says. Every other bot's activity, any other
+      // action from Bast, and a Bast status change to in_progress are all still
+      // skipped entirely.
       const isBastProgressChange =
         log.user_id === BAST_USER_ID &&
         log.action === 'status_changed' &&
