@@ -159,6 +159,9 @@ export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   approved?: boolean;
   // Billing fields
   is_support?: boolean;
+  // Oracle Projects Tab Phase 4 — full-replace tags PATCH (BlockerRow's "reply and
+  // clear" removes the parking tag that surfaced the blocker in the first place).
+  tags?: string[];
 }
 
 export function useTasks(filters: TaskFilters = {}, options?: { enabled?: boolean }) {

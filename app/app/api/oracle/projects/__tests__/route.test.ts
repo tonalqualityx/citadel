@@ -59,6 +59,8 @@ function project(overrides: Record<string, unknown> = {}) {
     next_step_at: null,
     next_step_refresh_requested_at: null,
     stale_muted_until: null,
+    email_summary: null,
+    email_summary_at: null,
     ...overrides,
   };
 }
@@ -117,25 +119,28 @@ describe('GET /api/oracle/projects — filter', () => {
     expect(body.generated_at).toBeTruthy();
   });
 
+  const UUID_A = '11111111-1111-4111-8111-111111111111';
+  const UUID_B = '22222222-2222-4222-8222-222222222222';
+
   it('MEDIUM-1: scopes the project query to `ids` when provided', async () => {
-    await GET(getReq('?ids=proj-a,proj-b'));
+    await GET(getReq(`?ids=${UUID_A},${UUID_B}`));
     expect(mockProjectFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           type: 'project',
           status: 'in_progress',
           is_deleted: false,
-          id: { in: ['proj-a', 'proj-b'] },
+          id: { in: [UUID_A, UUID_B] },
         },
       })
     );
   });
 
   it('MEDIUM-1: a single id in `ids` still filters correctly', async () => {
-    await GET(getReq('?ids=proj-a'));
+    await GET(getReq(`?ids=${UUID_A}`));
     expect(mockProjectFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: { in: ['proj-a'] } }),
+        where: expect.objectContaining({ id: { in: [UUID_A] } }),
       })
     );
   });
@@ -144,6 +149,17 @@ describe('GET /api/oracle/projects — filter', () => {
     await GET(getReq());
     const call = mockProjectFindMany.mock.calls[0][0];
     expect(call.where.id).toBeUndefined();
+  });
+
+  it('K5: rejects a non-uuid value in `ids` with 400', async () => {
+    const res = await GET(getReq('?ids=proj-a,proj-b'));
+    expect(res.status).toBe(400);
+    expect(mockProjectFindMany).not.toHaveBeenCalled();
+  });
+
+  it('K5: rejects a mix of valid and invalid ids with 400', async () => {
+    const res = await GET(getReq(`?ids=${UUID_A},not-a-uuid`));
+    expect(res.status).toBe(400);
   });
 });
 
@@ -365,6 +381,65 @@ describe('GET /api/oracle/projects — days_quiet has no lookback window', () =>
     const body = await res.json();
 
     expect(body.projects[0].days_quiet).toBe(40);
+  });
+});
+
+// Phase 4: the drawer's Email summary section needs email_summary/email_summary_at and
+// the full linked_emails list (Phase 2 already loads EmailAsk rows for the client_email
+// blocker; this just surfaces the same rows plus the project's summary text on the card).
+describe('GET /api/oracle/projects — email summary + linked emails (Phase 4)', () => {
+  it('surfaces email_summary, email_summary_at, and linked_emails on the card', async () => {
+    const summaryAt = new Date('2026-09-01T12:00:00Z');
+    mockProjectFindMany.mockResolvedValue([
+      project({
+        id: 'proj-1',
+        email_summary: 'Client confirmed the copy; waiting on final sign-off.',
+        email_summary_at: summaryAt,
+      }),
+    ]);
+    mockEmailAskFindMany.mockResolvedValue([
+      {
+        id: 'email-1',
+        project_id: 'proj-1',
+        from_name: 'Andy',
+        from_email: 'andy@acme.com',
+        subject: 'Re: homepage copy',
+        gist: 'Approves the draft, wants one tweak.',
+        received_at: new Date('2026-09-01T11:00:00Z'),
+        state: 'open',
+        deep_link: 'https://mail.google.com/mail/u/0/#inbox/thread-1',
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+    const card = body.projects[0];
+
+    expect(card.email_summary).toBe('Client confirmed the copy; waiting on final sign-off.');
+    expect(card.email_summary_at).toBe(summaryAt.toISOString());
+    expect(card.linked_emails).toEqual([
+      {
+        id: 'email-1',
+        from: 'Andy <andy@acme.com>',
+        subject: 'Re: homepage copy',
+        gist: 'Approves the draft, wants one tweak.',
+        received_at: new Date('2026-09-01T11:00:00Z').toISOString(),
+        replied: false,
+        deep_link: 'https://mail.google.com/mail/u/0/#inbox/thread-1',
+      },
+    ]);
+  });
+
+  it('email_summary and linked_emails default to null/empty with no data', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+    const card = body.projects[0];
+
+    expect(card.email_summary).toBeNull();
+    expect(card.email_summary_at).toBeNull();
+    expect(card.linked_emails).toEqual([]);
   });
 });
 

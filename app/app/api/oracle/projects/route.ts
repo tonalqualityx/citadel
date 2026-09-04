@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
-import { handleApiError } from '@/lib/api/errors';
+import { handleApiError, ApiError } from '@/lib/api/errors';
 import { MIKE_USER_ID, BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import {
   classifyProjectBlockers,
@@ -111,6 +112,17 @@ export async function GET(request: NextRequest) {
     const requestedIds = idsParam
       ? idsParam.split(',').map((s) => s.trim()).filter(Boolean)
       : null;
+    // K5 (Phase 4 carry-over): reject a malformed id outright rather than silently
+    // passing it into `id: { in: requestedIds } }` — Prisma just returns zero rows for
+    // an id that isn't a valid uuid, which reads to a caller as "no such project" and
+    // hides a real bug in whatever built the query string (the next-step machine job's
+    // `?ids=` fetch, or any future caller) instead of surfacing it.
+    if (requestedIds) {
+      const invalid = requestedIds.filter((id) => !z.string().uuid().safeParse(id).success);
+      if (invalid.length > 0) {
+        throw new ApiError(`Invalid project id(s) in "ids": ${invalid.join(', ')}`, 400);
+      }
+    }
 
     const now = new Date();
     const meetingWindowEnd = new Date(now.getTime() + MEETING_RISK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
@@ -138,6 +150,10 @@ export async function GET(request: NextRequest) {
         next_step_at: true,
         next_step_refresh_requested_at: true,
         stale_muted_until: true,
+        // Phase 4: the drawer's Email summary section needs the running summary text
+        // and when it was last written — the write route already stamps both.
+        email_summary: true,
+        email_summary_at: true,
       },
       orderBy: { name: 'asc' },
     });
@@ -676,6 +692,21 @@ export async function GET(request: NextRequest) {
           ? project.next_step_refresh_requested_at.toISOString()
           : null,
         open_url: `/projects/${project.id}`,
+        // Phase 4: the drawer's Email summary section — the running summary the
+        // machine-side job writes alongside next_step_text, plus every EmailAsk linked
+        // to this project (already loaded above for the client_email blocker), each
+        // carrying its own deep_link so the drawer's list can open the real thread.
+        email_summary: project.email_summary,
+        email_summary_at: project.email_summary_at ? project.email_summary_at.toISOString() : null,
+        linked_emails: (emailsByProject.get(project.id) ?? []).map((e) => ({
+          id: e.id,
+          from: e.from,
+          subject: e.subject,
+          gist: e.gist,
+          received_at: e.received_at,
+          replied: e.replied,
+          deep_link: e.deep_link,
+        })),
       };
     });
 

@@ -52,11 +52,12 @@ A fourth Oracle mode, **Projects**, showing in-progress contracted projects with
 - [x] Crontab (file-based edit, backed up first): `0 3 * * *` `--all`; `*/2 6-23 * * *` `--requested`
 
 ### Phase 4: the tab
-- [ ] `components/domain/oracle/modes/projects/ProjectsView.tsx` — lens toggle, grid / kind list, drawer host
-- [ ] `components/domain/oracle/modes/projects/projects-logic.ts` — pure: sort (stalled first), stalled count, kind grouping, pick payload builder, 20+ collapse rule
-- [ ] `components/domain/oracle/modes/projects/ProjectCard.tsx`, `ProjectDrawer.tsx`, `BlockerRow.tsx`, `KindLens.tsx`, `PickToArcDialog.tsx`, `NotesLog.tsx`, `EmailSummary.tsx`
-- [ ] `components/domain/oracle/modes/projects/__tests__/projects-logic.test.ts`, `ProjectsView.test.tsx`, `ProjectCard.test.tsx`
-- [x] `lib/hooks/use-project-notes.ts` — shipped in Phase 1 alongside the notes routes it wraps (see Phase 1 notes); `lib/hooks/use-pick-to-arc.ts` still Phase 4
+- [x] `components/domain/oracle/modes/projects/ProjectsView.tsx` — lens toggle (By project / By kind, localStorage-persisted), Refresh all, stalled summary line, loading/error/empty states, drawer host
+- [x] `components/domain/oracle/modes/projects/projects-logic.ts` — pure: `sortProjectCards`, `stalledCount`, `groupByKind` (stable heading order), `shouldCollapseToRows`, `lastMovementSentence`, `buildSinglePickPlan`/`buildMultiPickPlan` (pick payload builders, incl. non-task blocker → task-create), `defaultArcNameForHeading`
+- [x] `components/domain/oracle/modes/projects/ProjectCard.tsx`, `ProjectDrawer.tsx`, `BlockerRow.tsx`, `KindLens.tsx`, `PickToArcDialog.tsx`, `NotesLog.tsx`, `EmailSummary.tsx`
+- [x] `components/domain/oracle/modes/projects/__tests__/projects-logic.test.ts`, `ProjectsView.test.tsx`, `ProjectCard.test.tsx`, `ProjectDrawer.test.tsx`, `BlockerRow.test.tsx`, `KindLens.test.tsx` (63 tests total)
+- [x] `lib/hooks/use-project-notes.ts` — shipped in Phase 1 alongside the notes routes it wraps (see Phase 1 notes). **Deviation:** no separate `use-pick-to-arc.ts` was added — see Phase 4 Notes below for why.
+- [x] `__tests__/e2e/oracle-projects-tab.spec.ts` + `scripts/seed-oracle-projects-fixtures.ts` — seeds one in-progress project with a needs-mike decision task (last comment Bast's), one review task, one parked note; opens the tab, asserts the badge/card/red-edge, opens the drawer, replies to the decision blocker, verifies the tag cleared via the real API, screenshots
 
 ### Phase 5: actions + approval loop
 - [ ] `app/api/approval-requests/route.ts` (POST create draft), `[id]/route.ts` (PATCH edit draft / queue / cancel / mark approved), `[id]/seen-in-meeting/route.ts`, `queued/route.ts` (GET for the sender, bearer), `[id]/sent/route.ts` (PUT by the sender)
@@ -108,7 +109,7 @@ Confirmed safe (no assertion changes): `app/api/tasks/__tests__/route.test.ts` (
 - [x] `lastMovement` / `isStale` / `daysSince`: Phase 2 — 15 tests, incl. the Bast-comment coincidence window (in/out of 10 min, same/different task) and the escalation-pattern exclusion
 - [x] `findNextStepCandidate` / `mergeNextStep`: Phase 2 — 16 tests (ordering, blocked_by-all-done, mike/bast/graph/none precedence)
 - [x] Projects route: Phase 2 — 7 tests (auth, filter where-clause, stalled-vs-not sort, days_quiet sort within stalled, `?lens=kind` grouping, dismissal suppression, empty-result shape)
-- [ ] Pick logic: Phase 4
+- [x] Pick logic: Phase 4 — `projects-logic.test.ts` (26 tests): single-blocker plan (task attaches directly, non-task blocker creates a task first), multi-blocker plan (project_id set only when every selection shares one project, split existing-vs-create-task lists), default arc name
 - [x] Email auto-match: Phase 2 — 6 tests on `app/api/oracle/email-sync/route.ts` (see Tests to Update)
 - [ ] ApprovalRequest state machine: Phase 5
 - [x] Dismissal: Phase 2 (classification-time suppression, covered above); the dismiss/undo ROUTE itself (`POST`/`DELETE /api/oracle/projects/dismiss`) is still Phase 5
@@ -583,3 +584,226 @@ server, and real production reads, found and this pass fixed:
 - `crontab -l` diff: comment-only change on the `--requested` poll line, documenting the
   fixed cost model. Backup of the prior crontab saved to
   `~/.local/state/crontab-backups/crontab-backup-20260904-164321` before installing.
+
+## Phase 3 Carry-Overs (K1-K5), landed with Phase 4 (2026-09-04)
+
+A separate handed-off task spec (not this plan file) named five small carry-overs from
+the Phase 3 verifier, done first because they're small and touch the machine-side job
+that's already live on cron. All five are implementation, gate-verified, no separate
+Opus verification pass run on them yet.
+
+**K1 — job prompt nudge (next-step-refresh.py).** Three changes, all in the prompt/
+quality-gate layer, none in the write route:
+1. Added "Do not restate status, assignee, dates, or anything else the card already
+   shows — say only what the reader must do next" to `build_prompt`'s next_step_text
+   instructions, next to the existing project/client-name-restatement line.
+2. "Unassigned" is now framed as a LAST RESORT in the prompt: the model is told to
+   prefer naming who should assign the work instead (e.g. "Mike, assign the contact
+   form to someone this week") and, if it still returns `owner.label: "Unassigned"`,
+   its `reason` must be at least 12 words or the reply is treated as a quality
+   violation and gets the same one-rewrite-then-fail path as every other check
+   (`_unassigned_without_reason`, wired into `evaluate_reply`).
+3. **Heuristic fix, `_has_two_imperative_clauses`:** added a lookahead requiring a real
+   whitespace/punctuation/end-of-string boundary immediately after the captured
+   verb — `[A-Za-z]+` alone stops at a hyphen regardless, so "and sign-off" used to
+   capture "sign" (in the curated verb list) and flag a hyphenated NOUN as if it were a
+   second imperative clause; same for a hyphenated "test-environments" capturing
+   "test". The fix makes the regex simply not match those hyphenated compounds at all.
+   12 new tests cover both the false-positive fix and that genuine two-clause
+   sentences ("Reply... and confirm...", "Ship... then deploy...") still flag.
+
+**K2 — quiet log.** `next-step-refresh.sh` used to write a `start:`/`exit N` pair to
+the log on every invocation, including the overwhelming majority of the `--requested`
+poll's ~510 ticks/day that find nothing queued. Rewritten to capture the python
+script's combined stdout/stderr first, then write nothing at all when the run exited 0
+with empty output OR with exactly the "no refresh requests queued — exiting" line —
+any other outcome (a real OK/FAIL/RETRY line, a NOTDEPLOYED throttle line, a non-zero
+exit) still gets the full start/output/exit treatment.
+
+**K3 — deployment safety.** Added `~/.claude/tools/citadel-projects/deploy.sh`: takes
+`flock ~/.local/state/next-step-refresh.lock`, backs up whatever live
+`next-step-refresh.py`/`.sh` it's about to replace to
+`~/.local/state/next-step-refresh-backups/<file>.<timestamp>`, copies the `.next`
+staging files into place, and `py_compile`/`bash -n`s the result. Both live files' own
+doc comments now say edits go to the `.next` copy, never in place. This pass's own K1/
+K2 edits were made in `next-step-refresh.py.next`/`.sh.next`, verified (the full 50-test
+suite green against a temp copy) BEFORE running `deploy.sh` for real, matching the tool's
+own intended workflow.
+
+**K4 — crontab backup ritual redone.** The crontab backup file
+`~/.local/state/crontab-backups/crontab-backup-20260904-164321` (written at the end of
+Phase 3) no longer matched the live crontab — a `diff` found the `--requested` poll
+line's comment had been hand-edited since (documenting the MEDIUM-1 cost-model fix)
+without a fresh backup being taken. Wrote a new dated backup
+(`crontab-backup-20260904-170042`) from the CURRENT live crontab, installed it from that
+file (a verified no-op — `diff` after install shows zero difference from the backup),
+and kept it.
+
+**K5 — app-side status validation.**
+- `lib/oracle/projects/blockers.ts:197`'s `OPEN_TASK_STATUSES` Set had `'ready'` in it,
+  which is not a value of the Prisma `TaskStatus` enum (this is exactly the bug K1's
+  own job hit before its Phase 3 fix — a bare `ready` sent as a task status 500'd every
+  real call). Removed it (no test in this repo asserted its presence) and left a
+  warning comment on the constant explaining why a non-enum value must never be sent as
+  a query value.
+- `GET /api/tasks?statuses=...` now validates every comma-separated value against the
+  real `TaskStatus` enum and 400s with the offending value(s) named, instead of silently
+  passing an invalid status straight into `status: { in: statusList }` (which Prisma
+  would just quietly match zero rows against). Two new tests.
+- `GET /api/oracle/projects?ids=...` now validates every id as a uuid (`z.string().uuid()`)
+  and 400s on the first invalid one, instead of the same silent-empty-match failure
+  mode. Two existing tests that used non-uuid placeholder ids (`proj-a`, `proj-b`) were
+  updated to real uuid-shaped values; two new tests cover the 400 path.
+- Plan cost paragraph (referenced by the handed-off task spec): the Phase 3 Gates
+  section's two real local runs cost $0.0086 and $0.0883 respectively — the task spec's
+  shorthand for this range is "$0.01 to $0.09 per project observed." At 7 in-progress
+  projects (the production count at Phase 2/3 verification time), one nightly `--all`
+  pass costs roughly 7 × $0.09 ≈ $0.62 worst-case, materially less on a typical night
+  since $0.09 was the higher of two observed samples, not a fixed cost — see Phase 3's
+  own note 6 (no fixed per-project cost, scales with in-progress project count and
+  context size).
+
+**Gates (K1-K5):**
+- `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — 50
+  tests, all green (was 38; +12 covering the K1 prompt/heuristic/Unassigned changes).
+  Run once against the `.next` staging files (temp-copied, before deploy) and once
+  again against the live files after `deploy.sh` — identical result both times.
+- `npx tsc --noEmit` — clean.
+- `npm run lint` — 725 problems (494 errors/231 warnings), byte-identical to the Phase
+  1/2/3 baseline.
+- `npx vitest run` — included in the Phase 4 Gates totals below (K5's app-side changes
+  and Phase 4's UI landed in the same pass).
+- `crontab -l` diff against the new backup — zero difference (verified no-op install).
+- `~/.claude/tools/citadel-projects/deploy.sh` — ran for real: backed up both live
+  files, deployed both `.next` staging files, `py_compile`/`bash -n` both clean.
+
+## Phase 4 Notes (2026-09-04, implementation pass)
+
+**Card anatomy — six elements shipped, not five.** The spec's card-anatomy bullet
+lists client name, project name, next-step sentence (with source hint), owner chip,
+last-movement sentence, AND blocker-count chips — six pieces of information. The Gates
+section's "five elements" phrasing (for the screenshot judgment) is read as the five
+distinguishing TEXT elements (client, project, next step, owner, movement); the chip
+row is real and tested but treated as a bonus/secondary element in that specific count,
+not a contradiction of the six-item card anatomy the component actually renders.
+
+**Next-step source hint.** `nextStepStamp()` (in `ProjectCard.tsx`, not exported to
+`projects-logic.ts` since it's presentational, not pure business logic) maps
+`next_step.source` to the three variants the spec names: `mike` → "Mike's own", `bast`
+→ "Bast, {local time}" (from `next_step.at`), `graph` → "graph". `source: 'none'` (no
+ready task, no override, no machine write yet) shows no stamp — there's nothing to
+attribute the fallback message to.
+
+**BlockerRow's "reply" action is enabled ONLY for task-sourced blockers.** The Blocker
+data model gives `reply` as an available action on decision, clarification, mention,
+session_ask, AND client_email kinds — but session_ask's `source.type` is `'session'`
+and client_email's is `'email'`, neither of which is a task id `POST /tasks/:id/
+comments` can target. Rather than build a second, different "reply" mechanism for
+those two source types in this pass (a session reply and a real client-email SEND are
+both meaningfully Phase-5-shaped — the email one explicitly needs the approval-request/
+Gmail-sender infrastructure that phase builds), BlockerRow only wires `reply` when
+`blocker.source.type === 'task'` (decision, clarification, mention). A session_ask or
+client_email blocker's `reply` action currently renders nothing (not even a disabled
+button) rather than a Phase-5 placeholder — flagged here as a real gap, not silently
+dropped: Phase 5 needs to either build the session/email reply flows or explicitly add
+them to the disabled-with-tooltip set.
+
+**Row-level actions beyond the K bullet's explicit list (`mark_approved`, `resolve_ask`,
+`refresh_next_step`, `suspend`) are rendered disabled-with-tooltip, same as dismiss/
+nudge/send_approval.** The task spec named "dismiss/nudge/send-approval" as the
+Phase-5-deferred set; these four aren't named either way. Judgment call: treated as
+deferred too, since none has a real route/mutation to call yet in this repo (the
+next-step drawer's own "Refresh" button already covers the on-demand next-step
+refresh use case at the project level — a second, row-level refresh control for
+meeting_risk/stale blockers was judged redundant UI, not a missing feature).
+
+**No separate `use-pick-to-arc.ts` hook.** The plan's Phase 1 line flagged this hook as
+"still Phase 4." It wasn't added as its own file: the pick flow is a short SEQUENCE of
+existing, already-tested mutations (optionally `useCreateTask`, optionally
+`useCreateArc`, optionally `useUpdateTask` for the arc attach, then one
+`useCreateTodayPick`) with error handling that's naturally per-step (the plan/gate
+builder in `projects-logic.ts` — `buildSinglePickPlan`/`buildMultiPickPlan` — already
+carries the "what to do, in what order" logic, independently pure-tested). Wrapping
+that sequence in one new orchestration hook would mostly just relocate the same
+`PickToArcDialog.tsx`/`KindLens.tsx` code into a hook file for no behavioral gain in
+this pass; flagged as a candidate to extract if Phase 5's approval loop or a future
+caller needs the same sequence a third time.
+
+**PickToArcDialog vs. KindLens's own inline "New arc…".** These are deliberately two
+different UIs for two different situations, not a shared component: `PickToArcDialog`
+(opened from a single `BlockerRow`'s "Pick" action) lets the user choose no-arc /
+an existing open arc / a brand-new one, and shows the WIP-cap warning + verbatim 409
+up front, per the spec's own description of that dialog specifically. `KindLens`'s
+multi-select action bar's "New arc…" is a plain inline name input (default = heading +
+date) that always creates a new arc — the spec's KindLens bullet describes exactly this
+inline control, with no "choose an existing arc" option in the bulk case. Reusing
+`PickToArcDialog` there would have added an existing-arc choice the spec never asked
+the bulk flow to have.
+
+**Dismissed items section is an honest placeholder.** `BlockerDismissal` (the model)
+and its dismiss/undo routes are Phase 5 work per the plan's own file list. The
+drawer's collapsed "Dismissed items" section renders and expands correctly but shows a
+"coming in the next pass" message rather than a fabricated or always-empty list —
+there is no dismissed-items data in this phase's API response to show.
+
+**BlockerRow's tag-clear fetches the task's current tags fresh at submit time, not from
+a separately-rendered `useTask()` hook.** The first real e2e run against a live local DB
+caught this: `useTask(taskId, {enabled: canClearTag})` sometimes hadn't resolved yet by
+the time the user finished typing and clicked submit (a real race, invisible to the
+component-mocked vitest suite, which mocks the hook's return value directly and so can
+never observe an unresolved-promise window) — the code's `if (parkingTag && task)` guard
+silently skipped the tag PATCH whenever `task` was still `undefined`, so the reply sent
+but the tag never cleared. Fixed by fetching the task directly via `apiClient.get`
+inside `submitReply`, right before building the PATCH body — removes the render-timing
+dependency entirely. `BlockerRow.test.tsx` was updated to mock `@/lib/api/client`
+instead of `useTask`.
+
+**Checkbox and Tooltip got small, backward-compatible extensions.** `components/ui/
+checkbox.tsx` now spreads `...rest` button props (so `aria-label` reaches the DOM —
+without it, KindLens's per-row/per-heading checkboxes had no accessible name at all,
+since the component only forwarded a fixed prop list before). `components/ui/
+tooltip.tsx` was NOT changed — its hover/focus-only visibility meant the disabled
+Phase-5 action buttons in `BlockerRow.tsx` additionally carry a native `title`
+attribute (redundant with the `Tooltip` wrapper) so both the browser's own tooltip and
+jsdom-based tests can read the "coming in the next pass" text without simulating a
+real hover.
+
+## Phase 4 Gates (2026-09-04, implementation pass)
+
+- [x] `npx tsc --noEmit` — clean.
+- [x] `npm run lint` — 725 problems (494 errors/231 warnings), byte-identical to the
+  Phase 1/2/3 baseline; this pass (K5 + Phase 4 combined) adds zero. Two real new-lint
+  issues surfaced and were fixed during this pass, not left as noise: two
+  `react/no-unescaped-entities` files (apostrophes/quotes in JSX text, fixed with
+  `&apos;`/`&quot;`) and one `react-hooks/exhaustive-deps` warning on
+  `ProjectDrawer.tsx`'s draft-reseed effect (deliberately keyed on `project?.id` alone —
+  re-seeding on every poll tick would blow away in-progress edits — silenced with a
+  scoped `eslint-disable-next-line` placed on the actual reported line, the dependency
+  array, not the `useEffect(` call).
+- [x] `npx vitest run` — 240 files / 2842 tests, zero failures (baseline going in:
+  234/2773; +6 files/+69 tests: `projects-logic.test.ts` 26, `ProjectCard.test.tsx` 6,
+  `ProjectsView.test.tsx` 10, `KindLens.test.tsx` 8, `BlockerRow.test.tsx` 7,
+  `ProjectDrawer.test.tsx` 6, plus 6 new tests split across the K5-touched
+  `app/api/tasks/__tests__/route.test.ts` and
+  `app/api/oracle/projects/__tests__/route.test.ts`).
+- [x] `npm run build` — clean, exit 0; all routes present in the manifest.
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — 50
+  tests, all green (K1-K5 gates, see above).
+- [x] `npx playwright test __tests__/e2e/oracle-projects-tab.spec.ts` — green
+  (`1 passed`), local dev server (Playwright's own `webServer`, auto-started/stopped —
+  not left running). Screenshot saved to
+  `app/__tests__/e2e/screenshots/oracle-projects-tab.png`.
+  **One real bug caught only by this live run** (invisible to the mocked component
+  tests): the tag-clear race described above under Phase 4 Notes — fixed before this
+  gate closed, and the fix is reflected in the numbers above.
+- [x] Screenshot read and judged against the card anatomy (Read tool, both the gate
+  screenshot and a second same-session screenshot with the drawer closed for a clearer
+  card view): all five/six face elements present (client name uppercase, project name,
+  next-step text, owner chip, last-movement text, blocker-count chips); the red left
+  edge is real but SUBTLE at full-page thumbnail resolution — confirmed present and
+  correctly red (not a rendering bug) via a 4x pixel-crop of one stalled card's left
+  edge; card heights are visually even across the grid row (fixed `h-56`); the drawer's
+  open state shows Next step / Blockers / Notes / Email summary / Dismissed items in
+  order, matching the spec's section list.
+- [ ] Opus verifier PASS — not run by this pass.
+- [ ] Mike's local review and merge approval — pending.

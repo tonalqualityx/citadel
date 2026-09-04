@@ -30,6 +30,16 @@ export interface OracleProjectMovement {
   what: string;
 }
 
+export interface OracleProjectLinkedEmail {
+  id: string;
+  from: string;
+  subject: string;
+  gist: string | null;
+  received_at: string; // ISO
+  replied: boolean;
+  deep_link: string;
+}
+
 export interface OracleProjectCard {
   id: string;
   name: string;
@@ -45,6 +55,10 @@ export interface OracleProjectCard {
   // Phase 3 — set while a next-step refresh is queued but not yet written.
   refresh_requested_at: string | null;
   open_url: string;
+  // Phase 4 — the drawer's Email summary section.
+  email_summary: string | null;
+  email_summary_at: string | null;
+  linked_emails: OracleProjectLinkedEmail[];
 }
 
 export interface OracleProjectsResponse {

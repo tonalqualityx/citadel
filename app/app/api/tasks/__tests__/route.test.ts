@@ -1004,6 +1004,23 @@ describe('GET /api/tasks', () => {
     );
   });
 
+  it('rejects an unknown status value in statuses with 400 (K5)', async () => {
+    const request = createGetRequest({ statuses: 'not_started,ready' });
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain('ready');
+    expect(mockTaskFindMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a completely bogus statuses value with 400 (K5)', async () => {
+    const request = createGetRequest({ statuses: 'garbage' });
+    const response = await GET(request);
+
+    expect(response.status).toBe(400);
+  });
+
   it('supports project_id filter', async () => {
     const projectId = '550e8400-e29b-41d4-a716-446655440000';
     const request = createGetRequest({ project_id: projectId });

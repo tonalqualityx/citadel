@@ -194,7 +194,15 @@ const MEETING_RISK_STILLNESS_DAYS = 5;
 // comment or an old @-mention says. Review is the mirror image (it only ever fires on
 // `done`, checked in classifyReview itself) — these two rules together are what keeps a
 // finished task from generating a blocker forever.
-const OPEN_TASK_STATUSES = new Set(['not_started', 'ready', 'in_progress', 'blocked', 'review']);
+// WARNING: 'ready' is NOT a value of the Prisma `TaskStatus` enum (not_started,
+// in_progress, review, done, blocked, abandoned — see prisma/schema.prisma) and a
+// task's `status` field can never equal it. It must never be sent as a query value to
+// `GET /api/tasks?statuses=...` — the machine-side next-step job hit exactly this bug
+// (a bare `ready` in its status list 500'd every real call, fixed separately in
+// next-step-refresh.py). Removed from this Set (K5): nothing in this repo's tests
+// depends on it being present, and leaving a non-enum value in a status allowlist is a
+// standing invitation for someone to copy it into a real query param.
+const OPEN_TASK_STATUSES = new Set(['not_started', 'in_progress', 'blocked', 'review']);
 // Blocker kinds a human can explicitly dismiss (mirrors prisma's BlockerDismissalKind
 // enum, which deliberately excludes decision/clarification/client_approval/someone_else —
 // those resolve only through their own state changes: a tag/comment change, an approval

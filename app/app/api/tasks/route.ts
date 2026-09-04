@@ -90,6 +90,13 @@ const createTaskSchema = z.object({
 // Project statuses where tasks are visible to Tech users
 const VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review', 'done'];
 
+// K5 (Phase 4 carry-over): the Prisma `TaskStatus` enum's actual values (see
+// prisma/schema.prisma) — used to validate `?statuses=` below. This list caught a real
+// bug: the machine-side next-step job was sending `statuses=not_started,ready,...`
+// ('ready' is a PROJECT status, not a task one) and every such call 500'd instead of
+// 400ing with a clear reason.
+const TASK_STATUS_VALUES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'];
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await requireAuth();
@@ -120,6 +127,15 @@ export async function GET(request: NextRequest) {
 
     // Parse multiple statuses if provided
     const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
+    if (statusList) {
+      const unknown = statusList.filter((s) => !TASK_STATUS_VALUES.includes(s));
+      if (unknown.length > 0) {
+        throw new ApiError(
+          `Unknown task status value(s): ${unknown.join(', ')}. Valid values: ${TASK_STATUS_VALUES.join(', ')}`,
+          400
+        );
+      }
+    }
 
     // Build base where clause
     const baseConditions: any = {

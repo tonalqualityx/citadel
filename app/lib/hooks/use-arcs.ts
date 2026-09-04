@@ -217,6 +217,9 @@ export interface CreateArcInput {
   name: string;
   description?: string | null;
   client_id?: string | null;
+  // Oracle Projects Tab Phase 4 — the KindLens multi-select "New arc…" action attaches
+  // the new arc to the project its picked blockers belong to.
+  project_id?: string | null;
 }
 
 // Clarity Phase 3 (Reckoning, spec Q4) — the New-arc button: starts a shapeless
