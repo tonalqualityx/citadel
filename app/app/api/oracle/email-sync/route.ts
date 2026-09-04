@@ -66,6 +66,7 @@ async function autoMatchEmailAsk(row: {
   id: string;
   from_email: string;
   client_id: string | null;
+  project_id: string | null;
   match_source: EmailMatchSource | null;
 }): Promise<void> {
   if (row.match_source === 'mike') return; // Mike's ruling is never overwritten
@@ -90,6 +91,9 @@ async function autoMatchEmailAsk(row: {
 
   if (distinctClientIds.length !== 1) {
     // The sender's contact record spans more than one client — ambiguous, can't pick.
+    // LOW-11: no-op once the row is already exactly this shape (an unmatched ask
+    // re-syncs every ~15 min otherwise, issuing an identical write forever).
+    if (row.client_id === null && row.project_id === null && row.match_source === EmailMatchSource.unmatched) return;
     await prisma.emailAsk.update({
       where: { id: row.id },
       data: { client_id: null, project_id: null, match_source: EmailMatchSource.unmatched },
@@ -108,11 +112,28 @@ async function autoMatchEmailAsk(row: {
   });
 
   if (eligibleProjects.length === 1) {
+    const nextProjectId = eligibleProjects[0].id;
+    // LOW-11: no-op if unchanged.
+    if (
+      row.client_id === resolvedClientId &&
+      row.project_id === nextProjectId &&
+      row.match_source === EmailMatchSource.auto
+    ) {
+      return;
+    }
     await prisma.emailAsk.update({
       where: { id: row.id },
-      data: { client_id: resolvedClientId, project_id: eligibleProjects[0].id, match_source: EmailMatchSource.auto },
+      data: { client_id: resolvedClientId, project_id: nextProjectId, match_source: EmailMatchSource.auto },
     });
   } else {
+    // LOW-11: no-op if unchanged.
+    if (
+      row.client_id === resolvedClientId &&
+      row.project_id === null &&
+      row.match_source === EmailMatchSource.unmatched
+    ) {
+      return;
+    }
     await prisma.emailAsk.update({
       where: { id: row.id },
       data: { client_id: resolvedClientId, project_id: null, match_source: EmailMatchSource.unmatched },
@@ -189,6 +210,7 @@ export async function POST(request: NextRequest) {
         id: row.id,
         from_email: ask.from_email,
         client_id: row.client_id,
+        project_id: row.project_id,
         match_source: row.match_source,
       });
 

@@ -109,6 +109,66 @@ describe('classifyProjectBlockers — decision', () => {
     });
     expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
   });
+
+  // HIGH-1
+  it('does NOT fire when the task is done, even tagged needs-mike with a bot last comment', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          status: 'done',
+          tags: ['needs-mike'],
+          last_comment: {
+            id: 'c1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            created_at: '2026-09-09T00:00:00.000Z',
+            content_excerpt: 'Need your call on the color palette.',
+          },
+        }),
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+  });
+
+  // HIGH-1
+  it('does NOT fire when the task is abandoned, even tagged needs-mike with a bot last comment', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          status: 'abandoned',
+          tags: ['needs-mike'],
+          last_comment: {
+            id: 'c1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            created_at: '2026-09-09T00:00:00.000Z',
+            content_excerpt: 'Need your call on the color palette.',
+          },
+        }),
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+  });
+
+  // HIGH-1
+  it('still fires on an open (not_started) task tagged needs-mike', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          status: 'not_started',
+          tags: ['needs-mike'],
+          last_comment: {
+            id: 'c1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            created_at: '2026-09-09T00:00:00.000Z',
+            content_excerpt: 'Need your call on the color palette.',
+          },
+        }),
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(1);
+  });
 });
 
 describe('classifyProjectBlockers — clarification', () => {
@@ -131,6 +191,26 @@ describe('classifyProjectBlockers — clarification', () => {
     expect(blockers).toHaveLength(1);
     expect(blockers[0].kind).toBe('clarification');
     expect(blockers[0].owner.is_mike).toBe(true);
+  });
+
+  // HIGH-1
+  it('does NOT fire when the task is done, even tagged awaiting-clarification', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          status: 'done',
+          tags: ['awaiting-clarification'],
+          last_comment: {
+            id: 'c1',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            created_at: '2026-09-09T00:00:00.000Z',
+            content_excerpt: 'Which domain should this point to?',
+          },
+        }),
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
   });
 });
 
@@ -217,6 +297,16 @@ describe('classifyProjectBlockers — session_ask', () => {
     );
     expect(changedTextStillFires).toHaveLength(1);
   });
+
+  // LOW-8
+  it('source.url points at /oracle with the session id as a query param, not an API-only path', () => {
+    const input = baseInput({
+      session_asks: [
+        { session_external_id: 'sess-1', queue: 'decide', text: 'Which CMS?', severity: null, waiting_since: null },
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)[0].source.url).toBe('/oracle?session=sess-1');
+  });
 });
 
 // Mirrors blockers.ts's private hashAskText (djb2, hex) so the dismissal test above can
@@ -232,6 +322,7 @@ function hashOf(text: string): string {
 describe('classifyProjectBlockers — mention', () => {
   it('fires for a pre-filtered mention with no later Mike reply', () => {
     const input = baseInput({
+      tasks: [task()],
       mentions: [
         { id: 'c1', task_id: 'task-1', author: { id: 'user-2', name: 'Jamie' }, created_at: '2026-09-09T00:00:00.000Z', excerpt: '@Mike thoughts?' },
       ],
@@ -243,10 +334,114 @@ describe('classifyProjectBlockers — mention', () => {
 
   it('is dropped when dismissed by comment id', () => {
     const input = baseInput({
+      tasks: [task()],
       mentions: [{ id: 'c1', task_id: 'task-1', author: { id: 'user-2', name: 'Jamie' }, created_at: '2026-09-09T00:00:00.000Z', excerpt: 'hi' }],
       dismissals: [{ kind: 'mention', source_id: 'c1', source_marker: 'c1', dismissed_at: NOW.toISOString() }],
     });
     expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+  });
+
+  // LOW-12 — a NEW mention (different comment id) on the same task, arriving after an
+  // earlier mention was dismissed, is NOT suppressed by that earlier dismissal — each
+  // mention's dismissal marker is its own comment id, not the task.
+  it('re-surfaces on a new mention for the same task after an earlier one was dismissed', () => {
+    const input = baseInput({
+      tasks: [task()],
+      mentions: [
+        { id: 'c2', task_id: 'task-1', author: { id: 'user-2', name: 'Jamie' }, created_at: '2026-09-10T00:00:00.000Z', excerpt: 'ping again' },
+      ],
+      dismissals: [{ kind: 'mention', source_id: 'c1', source_marker: 'c1', dismissed_at: NOW.toISOString() }],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0].id).toBe('mention:c2');
+  });
+
+  // HIGH-1
+  it('does NOT fire when the mentioned task is done', () => {
+    const input = baseInput({
+      tasks: [task({ status: 'done' })],
+      mentions: [{ id: 'c1', task_id: 'task-1', author: { id: 'user-2', name: 'Jamie' }, created_at: '2026-09-09T00:00:00.000Z', excerpt: 'hi' }],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+  });
+
+  // HIGH-1
+  it('does NOT fire when the mentioned task is abandoned', () => {
+    const input = baseInput({
+      tasks: [task({ status: 'abandoned' })],
+      mentions: [{ id: 'c1', task_id: 'task-1', author: { id: 'user-2', name: 'Jamie' }, created_at: '2026-09-09T00:00:00.000Z', excerpt: 'hi' }],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+  });
+
+  // LOW-8
+  it('source.url points at the task, unchanged (mention has no separate deep link)', () => {
+    const input = baseInput({
+      tasks: [task()],
+      mentions: [{ id: 'c1', task_id: 'task-1', author: { id: 'user-2', name: 'Jamie' }, created_at: '2026-09-09T00:00:00.000Z', excerpt: 'hi' }],
+    });
+    expect(classifyProjectBlockers(input, NOW)[0].source.url).toBe('/tasks/task-1');
+  });
+});
+
+// MEDIUM-4
+describe('classifyProjectBlockers — decision/mention dedup', () => {
+  it('does NOT also emit a mention when the same comment already produced a decision blocker', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          tags: ['needs-mike'],
+          last_comment: {
+            id: 'shared-comment',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            created_at: '2026-09-09T00:00:00.000Z',
+            content_excerpt: '@Mike need your call here.',
+          },
+        }),
+      ],
+      mentions: [
+        {
+          id: 'shared-comment',
+          task_id: 'task-1',
+          author: { id: BAST_USER_ID, name: 'Bast' },
+          created_at: '2026-09-09T00:00:00.000Z',
+          excerpt: '@Mike need your call here.',
+        },
+      ],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0].kind).toBe('decision');
+  });
+
+  it('still emits a mention for a DIFFERENT comment id on the same task', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          tags: ['needs-mike'],
+          last_comment: {
+            id: 'comment-A',
+            user_id: BAST_USER_ID,
+            user_name: 'Bast',
+            created_at: '2026-09-09T00:00:00.000Z',
+            content_excerpt: '@Mike need your call here.',
+          },
+        }),
+      ],
+      mentions: [
+        {
+          id: 'comment-B',
+          task_id: 'task-1',
+          author: { id: BAST_USER_ID, name: 'Bast' },
+          created_at: '2026-09-08T00:00:00.000Z',
+          excerpt: 'earlier ping',
+        },
+      ],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers.map((b) => b.kind).sort()).toEqual(['decision', 'mention']);
   });
 });
 
@@ -254,7 +449,7 @@ describe('classifyProjectBlockers — client_email', () => {
   it('fires for an unreplied linked email', () => {
     const input = baseInput({
       emails: [
-        { id: 'email-1', from: 'client@herba.com', subject: 'New logo files', gist: 'Attached the logo pack', received_at: '2026-09-09T00:00:00.000Z', replied: false },
+        { id: 'email-1', deep_link: 'https://mail.google.com/mail/u/0/#inbox/email-1', from: 'client@herba.com', subject: 'New logo files', gist: 'Attached the logo pack', received_at: '2026-09-09T00:00:00.000Z', replied: false },
       ],
     });
     const blockers = classifyProjectBlockers(input, NOW);
@@ -264,7 +459,7 @@ describe('classifyProjectBlockers — client_email', () => {
 
   it('never fires once replied', () => {
     const input = baseInput({
-      emails: [{ id: 'email-1', from: 'client@herba.com', subject: 'New logo files', gist: null, received_at: '2026-09-09T00:00:00.000Z', replied: true }],
+      emails: [{ id: 'email-1', deep_link: 'https://mail.google.com/mail/u/0/#inbox/email-1', from: 'client@herba.com', subject: 'New logo files', gist: null, received_at: '2026-09-09T00:00:00.000Z', replied: true }],
     });
     expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
   });
@@ -272,7 +467,7 @@ describe('classifyProjectBlockers — client_email', () => {
   it('flags "asks for status, no time logged since" when the subject matches and no time was logged after it arrived', () => {
     const input = baseInput({
       emails: [
-        { id: 'email-1', from: 'client@herba.com', subject: 'Any update on the build?', gist: null, received_at: '2026-09-09T00:00:00.000Z', replied: false },
+        { id: 'email-1', deep_link: 'https://mail.google.com/mail/u/0/#inbox/email-1', from: 'client@herba.com', subject: 'Any update on the build?', gist: null, received_at: '2026-09-09T00:00:00.000Z', replied: false },
       ],
       time_entries: [],
     });
@@ -283,12 +478,30 @@ describe('classifyProjectBlockers — client_email', () => {
   it('does NOT flag the status pattern when time WAS logged after the email arrived', () => {
     const input = baseInput({
       emails: [
-        { id: 'email-1', from: 'client@herba.com', subject: 'Any update on the build?', gist: null, received_at: '2026-09-09T00:00:00.000Z', replied: false },
+        { id: 'email-1', deep_link: 'https://mail.google.com/mail/u/0/#inbox/email-1', from: 'client@herba.com', subject: 'Any update on the build?', gist: null, received_at: '2026-09-09T00:00:00.000Z', replied: false },
       ],
       time_entries: [{ started_at: '2026-09-09T12:00:00.000Z' }],
     });
     const blockers = classifyProjectBlockers(input, NOW);
     expect(blockers[0].detail).not.toMatch(/no time logged/);
+  });
+
+  // LOW-8
+  it('source.url is the EmailAsk deep_link (Gmail), not the API-only /email-asks path', () => {
+    const input = baseInput({
+      emails: [
+        {
+          id: 'email-1',
+          deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-abc',
+          from: 'client@herba.com',
+          subject: 'New logo files',
+          gist: null,
+          received_at: '2026-09-09T00:00:00.000Z',
+          replied: false,
+        },
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)[0].source.url).toBe('https://mail.google.com/mail/u/0/#inbox/msg-abc');
   });
 });
 
@@ -296,7 +509,7 @@ describe('classifyProjectBlockers — client_approval', () => {
   it('owner is Mike for a draft', () => {
     const input = baseInput({
       approval_requests: [
-        { id: 'ar-1', task_id: 'task-1', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null },
+        { id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null },
       ],
     });
     expect(classifyProjectBlockers(input, NOW)[0].owner.is_mike).toBe(true);
@@ -308,6 +521,7 @@ describe('classifyProjectBlockers — client_approval', () => {
         {
           id: 'ar-1',
           task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-10T00:00:00.000Z', // sent today, well inside chase_after_days
           chase_after_days: 3,
@@ -327,6 +541,7 @@ describe('classifyProjectBlockers — client_approval', () => {
         {
           id: 'ar-1',
           task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-01T00:00:00.000Z', // Tuesday; NOW is 2026-09-10 (Thursday) — well over 3 business days
           chase_after_days: 3,
@@ -345,6 +560,7 @@ describe('classifyProjectBlockers — client_approval', () => {
         {
           id: 'ar-1',
           task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
           status: 'replied',
           sent_at: '2026-09-09T00:00:00.000Z',
           chase_after_days: 3,
@@ -359,7 +575,7 @@ describe('classifyProjectBlockers — client_approval', () => {
   it('does not fire once approved or changes_requested or cancelled', () => {
     for (const status of ['approved', 'changes_requested', 'cancelled'] as const) {
       const input = baseInput({
-        approval_requests: [{ id: 'ar-1', task_id: 'task-1', status, sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
+        approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status, sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
       });
       expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
     }
@@ -367,9 +583,47 @@ describe('classifyProjectBlockers — client_approval', () => {
 
   it('client_approval blockers never carry a dismiss action', () => {
     const input = baseInput({
-      approval_requests: [{ id: 'ar-1', task_id: 'task-1', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
+      approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
     });
     expect(classifyProjectBlockers(input, NOW)[0].actions).not.toContain('dismiss');
+  });
+
+  // MEDIUM-7 — a draft/queued approval has no sent_at/replied_at; `since` must fall back
+  // to created_at (so it actually ages) rather than `now` (which never ages at all).
+  it('a draft approval\'s `since` is its created_at, not `now`', () => {
+    const input = baseInput({
+      approval_requests: [
+        {
+          id: 'ar-1',
+          task_id: 'task-1',
+          created_at: '2026-08-20T00:00:00.000Z',
+          status: 'draft',
+          sent_at: null,
+          chase_after_days: 3,
+          replied_at: null,
+          contact: null,
+        },
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)[0].since).toBe('2026-08-20T00:00:00.000Z');
+  });
+
+  it('a queued approval\'s `since` is also its created_at', () => {
+    const input = baseInput({
+      approval_requests: [
+        {
+          id: 'ar-1',
+          task_id: 'task-1',
+          created_at: '2026-08-15T00:00:00.000Z',
+          status: 'queued',
+          sent_at: null,
+          chase_after_days: 3,
+          replied_at: null,
+          contact: null,
+        },
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)[0].since).toBe('2026-08-15T00:00:00.000Z');
   });
 });
 
@@ -441,6 +695,7 @@ describe('classifyProjectBlockers — stale', () => {
         {
           id: 'ar-1',
           task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-09T00:00:00.000Z', // recent, still within chase window -> client-owned
           chase_after_days: 3,
@@ -457,10 +712,33 @@ describe('classifyProjectBlockers — stale', () => {
   it('still fires alongside a MIKE-owned client_approval blocker', () => {
     const input = baseInput({
       last_movement_at: '2026-08-01T00:00:00.000Z',
-      approval_requests: [{ id: 'ar-1', task_id: 'task-1', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
+      approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
     });
     const kinds = classifyProjectBlockers(input, NOW).map((b) => b.kind);
     expect(kinds).toEqual(expect.arrayContaining(['client_approval', 'stale']));
+  });
+
+  // LOW-12 — the stale dismissal's marker is the last_movement_at it was dismissed
+  // against. Once real movement happens, last_movement_at changes, the marker no longer
+  // matches, and the (now-stale-again) project re-surfaces rather than staying
+  // permanently silenced by an old dismissal.
+  it('re-surfaces once movement changes last_movement_at past a stale dismissal keyed to the OLD movement', () => {
+    const oldMovement = '2026-08-01T00:00:00.000Z';
+    const dismissedInput = baseInput({
+      last_movement_at: oldMovement,
+      dismissals: [{ kind: 'stale', source_id: 'proj-1', source_marker: oldMovement, dismissed_at: NOW.toISOString() }],
+    });
+    expect(classifyProjectBlockers(dismissedInput, NOW)).toHaveLength(0); // dismissal still matches
+
+    // Movement happened, but it's STILL 7+ days ago as of NOW (still stale) — only the
+    // marker changed, which is exactly what should invalidate the old dismissal.
+    const newMovement = '2026-08-25T00:00:00.000Z';
+    const afterMovementInput = baseInput({
+      last_movement_at: newMovement,
+      dismissals: [{ kind: 'stale', source_id: 'proj-1', source_marker: oldMovement, dismissed_at: NOW.toISOString() }],
+    });
+    const blockers = classifyProjectBlockers(afterMovementInput, NOW);
+    expect(blockers.some((b) => b.kind === 'stale')).toBe(true);
   });
 });
 
@@ -498,6 +776,7 @@ describe('ownerIsMike', () => {
         {
           id: 'ar-1',
           task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-09T00:00:00.000Z',
           chase_after_days: 3,

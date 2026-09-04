@@ -296,3 +296,281 @@ describe('GET /api/oracle/projects — dismissal suppression', () => {
     expect(body.projects[0].stalled_on_mike).toBe(false);
   });
 });
+
+// HIGH-2
+describe('GET /api/oracle/projects — days_quiet has no lookback window', () => {
+  it('reports days_quiet from a 40-day-old activity-log entry, not an older time entry that would win under a 30-day lookback', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([]);
+    // A much older time entry — under the removed 30-day lookback, this would have been
+    // the ONLY candidate left once the 40-day-old activity-log row got filtered out.
+    mockTimeEntryFindMany.mockResolvedValue([
+      {
+        project_id: 'proj-1',
+        task_id: null,
+        user_id: 'u1',
+        user: { name: 'Alex' },
+        started_at: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
+      },
+    ]);
+    mockActivityLogFindMany.mockResolvedValue([
+      {
+        id: 'log-1',
+        user_id: 'u1',
+        user: { name: 'Alex' },
+        action: 'status_changed',
+        entity_type: 'project',
+        entity_id: 'proj-1',
+        created_at: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+        changes: { status: { to: 'in_progress' } },
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].days_quiet).toBe(40);
+  });
+});
+
+// LOW-12
+describe('GET /api/oracle/projects — zero-task project', () => {
+  it('returns a valid card with no crash for an in-progress project with zero tasks', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.projects).toHaveLength(1);
+    expect(body.projects[0].id).toBe('proj-1');
+    expect(body.projects[0].blockers).toEqual(expect.any(Array));
+    expect(body.projects[0].next_step.text).toBe('No ready task: everything is blocked, done, or already in progress');
+  });
+});
+
+// Judgment call overturned (calendar events)
+describe('GET /api/oracle/projects — calendar-event attach requires exactly one eligible project', () => {
+  it('does NOT attach a matched event to either project when the client has TWO in-progress projects', async () => {
+    mockProjectFindMany.mockResolvedValue([
+      project({ id: 'proj-a', client: { id: 'client-multi', name: 'Multi Co' } }),
+      project({ id: 'proj-b', client: { id: 'client-multi', name: 'Multi Co' } }),
+    ]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-multi', email: 'contact@multi.com' }]);
+    mockCalendarEventFindMany.mockResolvedValue([
+      {
+        id: 'event-1',
+        title: 'Multi Co check-in',
+        starts_at: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
+        attendees: [{ email: 'contact@multi.com' }],
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    for (const p of body.projects) {
+      expect(p.blockers.some((b: { kind: string }) => b.kind === 'meeting_risk')).toBe(false);
+    }
+  });
+
+  it('DOES attach a matched event when the client has exactly ONE in-progress project', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-sole', client: { id: 'client-sole', name: 'Sole Co' } })]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-sole', email: 'contact@sole.com' }]);
+    mockCalendarEventFindMany.mockResolvedValue([
+      {
+        id: 'event-1',
+        title: 'Sole Co check-in',
+        starts_at: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
+        attendees: [{ email: 'contact@sole.com' }],
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'meeting_risk')).toBe(true);
+  });
+});
+
+// MEDIUM-5
+describe('GET /api/oracle/projects — session-ask project linking', () => {
+  it('links via arc.project_id when set', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockArcFindMany.mockResolvedValue([{ id: 'arc-1', project_id: 'proj-1', client_id: null }]);
+    mockOracleSessionFindMany.mockResolvedValue([
+      {
+        external_id: 'sess-1',
+        waiting_on: 'Which CMS?',
+        ask_queue: 'decide',
+        ask_severity: null,
+        last_event_at: new Date(),
+        created_at: new Date(),
+        arc_id: 'arc-1',
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'session_ask')).toBe(true);
+  });
+
+  it('falls back to the arc\'s client scope when arc.project_id is null and the client has exactly one in-progress project', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1', client: { id: 'client-1', name: 'Herba' } })]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockArcFindMany.mockResolvedValue([{ id: 'arc-1', project_id: null, client_id: 'client-1' }]);
+    mockOracleSessionFindMany.mockResolvedValue([
+      {
+        external_id: 'sess-1',
+        waiting_on: 'Which CMS?',
+        ask_queue: 'decide',
+        ask_severity: null,
+        last_event_at: new Date(),
+        created_at: new Date(),
+        arc_id: 'arc-1',
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'session_ask')).toBe(true);
+  });
+
+  it('does NOT attach when arc.project_id is null and the client has TWO in-progress projects (ambiguous)', async () => {
+    mockProjectFindMany.mockResolvedValue([
+      project({ id: 'proj-a', client: { id: 'client-multi', name: 'Multi Co' } }),
+      project({ id: 'proj-b', client: { id: 'client-multi', name: 'Multi Co' } }),
+    ]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockArcFindMany.mockResolvedValue([{ id: 'arc-1', project_id: null, client_id: 'client-multi' }]);
+    mockOracleSessionFindMany.mockResolvedValue([
+      {
+        external_id: 'sess-1',
+        waiting_on: 'Which CMS?',
+        ask_queue: 'decide',
+        ask_severity: null,
+        last_event_at: new Date(),
+        created_at: new Date(),
+        arc_id: 'arc-1',
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    for (const p of body.projects) {
+      expect(p.blockers.some((b: { kind: string }) => b.kind === 'session_ask')).toBe(false);
+    }
+  });
+});
+
+// LOW-9
+describe('GET /api/oracle/projects — days_quiet null sorts as quietest (first), and stale honors the mute', () => {
+  it('sorts a project with NO recorded movement (days_quiet null) before one with a finite days_quiet, within the stalled bucket', async () => {
+    mockProjectFindMany.mockResolvedValue([
+      project({ id: 'has-movement', name: 'Has Movement', client: { id: 'client-a', name: 'A' } }),
+      project({ id: 'no-movement', name: 'No Movement', client: { id: 'client-b', name: 'B' } }),
+    ]);
+    mockTaskFindMany.mockResolvedValue([
+      {
+        id: 'task-a',
+        title: 'Needs review A',
+        status: 'done',
+        tags: [],
+        needs_review: true,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: new Date('2026-09-09T00:00:00.000Z'),
+        created_at: new Date('2026-09-01T00:00:00.000Z'),
+        project_id: 'has-movement',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+      },
+      {
+        id: 'task-b',
+        title: 'Needs review B',
+        status: 'done',
+        tags: [],
+        needs_review: true,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: new Date('2026-09-09T00:00:00.000Z'),
+        created_at: new Date('2026-09-01T00:00:00.000Z'),
+        project_id: 'no-movement',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+      },
+    ]);
+    // Only has-movement gets a (very old, but present) time entry — no-movement gets
+    // NOTHING, so its days_quiet comes back null (Infinity internally).
+    mockTimeEntryFindMany.mockResolvedValue([
+      {
+        project_id: 'has-movement',
+        task_id: null,
+        user_id: 'u1',
+        user: { name: 'Alex' },
+        started_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].id).toBe('no-movement');
+    expect(body.projects[0].days_quiet).toBeNull();
+    expect(body.projects[1].id).toBe('has-movement');
+    expect(typeof body.projects[1].days_quiet).toBe('number');
+  });
+
+  it('reports stale: false when stale_muted_until is in the future, even with old movement', async () => {
+    mockProjectFindMany.mockResolvedValue([
+      project({ id: 'proj-1', stale_muted_until: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000) }),
+    ]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockTimeEntryFindMany.mockResolvedValue([
+      {
+        project_id: 'proj-1',
+        task_id: null,
+        user_id: 'u1',
+        user: { name: 'Alex' },
+        started_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].stale).toBe(false);
+  });
+
+  it('reports stale: true when there is no mute and movement is old', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([]);
+    mockTimeEntryFindMany.mockResolvedValue([
+      {
+        project_id: 'proj-1',
+        task_id: null,
+        user_id: 'u1',
+        user: { name: 'Alex' },
+        started_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+
+    expect(body.projects[0].stale).toBe(true);
+  });
+});

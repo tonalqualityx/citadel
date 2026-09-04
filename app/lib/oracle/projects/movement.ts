@@ -7,13 +7,21 @@ import { BAST_USER_ID, BOT_USER_IDS } from './gate-constants';
 // What counts as movement:
 //   - any time entry logged against the project (by anyone)
 //   - a task status change or comment by a HUMAN (i.e. user_id not in BOT_USER_IDS)
-//   - a comment BY BAST that is NOT an escalation (doesn't match ESCALATION_RE) AND
-//     coincides with a Bast-authored task status change to done/in_progress on the SAME
-//     task within 10 minutes — this is Bast actually doing work, not just parking a card
-//     with a note
-// What never counts: emails, calendar events. Bast comments that don't clear the
-// non-escalation + coinciding-progress bar (e.g. a plain "parking this, needs-mike" note)
-// don't count either — that's the whole point of the stale signal existing.
+//   - a Bast-authored activity-log status change to done/in_progress on any task —
+//     Bast actually finishing or advancing work, independent of whatever the
+//     accompanying comment (if any) says (MEDIUM-3)
+//   - a comment BY BAST that is NOT an escalation (its first sentence/line, up to 160
+//     chars, doesn't match ESCALATION_RE — unless that first sentence/line OPENS with
+//     "done"/"shipped"/"completed"/"published", which counts as non-escalation
+//     regardless of anything later in the body) AND coincides with a Bast-authored task
+//     status change to done/in_progress on the SAME task within 10 minutes — this is
+//     Bast actually doing work, not just parking a card with a note
+// What never counts: emails, calendar events, a bot other than Bast, or any Bast
+// activity-log entry that isn't a status change to done/in_progress. A Bast comment that
+// doesn't clear the non-escalation + coinciding-progress bar (e.g. a plain "parking
+// this, needs-mike" note) still doesn't count via the comment path — though the SAME
+// underlying event may still register via the activity-log path above if Bast also
+// flipped the task's status to done/in_progress.
 export interface MovementTimeEntry {
   user_id: string;
   user_name: string;
@@ -54,8 +62,33 @@ export interface Movement {
 }
 
 const ESCALATION_RE = /needs-mike|awaiting-clarification|can't|cannot|blocked|parking|escalat/i;
+// MEDIUM-3: a comment declaring itself DONE right up front ("@Mike done. ... cannot ...")
+// is a completion, not an escalation, no matter what shows up later in the body — the
+// leading word wins outright, skipping the ESCALATION_RE check entirely. An optional
+// "@name" (or "@name," / "@name:") prefix is allowed before it.
+const LEADING_COMPLETION_RE = /^\s*(?:@\S+[,:]?\s*)?(done|shipped|completed|published)\b/i;
+// The escalation test only ever looks at the comment's first sentence/line — the first
+// 160 chars up to (not including) the first '.' or newline. A comment that OPENS with
+// "Tests pass, gates green, nothing blocked." still matches "blocked" in that first
+// clause (this alone doesn't save it — see the activity-log status_changed credit
+// below, which is what actually covers that shape) but a comment whose escalation-
+// sounding word only shows up several sentences later (e.g. "...cannot..." after an
+// opening "done.") is no longer wrongly penalized for it.
+const FIRST_SEGMENT_MAX_CHARS = 160;
 const COINCIDENCE_WINDOW_MS = 10 * 60 * 1000;
 const PROGRESS_STATUSES = new Set(['done', 'in_progress']);
+
+function firstSegment(content: string): string {
+  const stopIndex = content.search(/[.\n]/);
+  const cut = stopIndex === -1 ? content : content.slice(0, stopIndex);
+  return cut.slice(0, FIRST_SEGMENT_MAX_CHARS);
+}
+
+function isEscalationComment(content: string): boolean {
+  const segment = firstSegment(content);
+  if (LEADING_COMPLETION_RE.test(segment)) return false;
+  return ESCALATION_RE.test(segment);
+}
 
 function describeActivity(log: MovementActivityLogEntry): string {
   if (log.action === 'status_changed' && log.status_to) {
@@ -89,7 +122,20 @@ export function lastMovement(input: LastMovementInput): Movement | null {
   }
 
   for (const log of input.activity_log) {
-    if (BOT_USER_IDS.includes(log.user_id)) continue; // human-authored log entries only here
+    if (BOT_USER_IDS.includes(log.user_id)) {
+      // MEDIUM-3: Bast actually moving a task to done/in_progress is real work, not a
+      // parked note — it counts as movement in its own right, independent of whatever
+      // its accompanying comment (if any) says. Every other bot's activity, and any
+      // other action from Bast, is still skipped entirely.
+      const isBastProgressChange =
+        log.user_id === BAST_USER_ID &&
+        log.action === 'status_changed' &&
+        !!log.status_to &&
+        PROGRESS_STATUSES.has(log.status_to);
+      if (!isBastProgressChange) continue;
+      candidates.push({ at: log.created_at, who: log.user_name, what: describeActivity(log) });
+      continue;
+    }
     candidates.push({ at: log.created_at, who: log.user_name, what: describeActivity(log) });
   }
 
@@ -99,7 +145,7 @@ export function lastMovement(input: LastMovementInput): Movement | null {
       continue;
     }
     if (comment.user_id !== BAST_USER_ID) continue; // only Bast's comments ever get bot credit
-    if (ESCALATION_RE.test(comment.content)) continue;
+    if (isEscalationComment(comment.content)) continue;
     if (!bastCommentCoincidesWithProgress(comment, input.activity_log)) continue;
     candidates.push({ at: comment.created_at, who: comment.user_name, what: 'made progress' });
   }

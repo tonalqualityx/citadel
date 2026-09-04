@@ -134,6 +134,133 @@ Confirmed safe (no assertion changes): `app/api/tasks/__tests__/route.test.ts` (
 - [ ] Opus verifier PASS — not run by this pass
 - [ ] Mike's local review and merge approval — pending
 
+## Phase 2 Fixes — Opus verifier findings (2026-09-04, second verification pass)
+
+An Opus verifier ran `classifyProjectBlockers`/`lastMovement` over production data (7
+in-progress projects, 231 tasks) via a throwaway cross-check script and found the board
+would lie in several ways. All findings below are fixed, gate-verified, and re-checked
+against the same production data.
+
+**HIGH-1 — blockers fired on done/abandoned tasks (58% of production blockers).**
+`classifyDecisionAndClarification` and `classifyMentions` (`lib/oracle/projects/blockers.ts`)
+now only fire for tasks whose status is one of `not_started`/`ready`/`in_progress`/
+`blocked`/`review` (`OPEN_TASK_STATUSES`) — never `done`/`abandoned`. `review` already
+only ever fired on `done`, so it needed no change. A mention whose task can't be found at
+all is treated as not-open (fail-safe), same as done/abandoned. Production re-check:
+EMDR's one done task still tagged `needs-mike` no longer produces a `decision` blocker
+(confirmed against the raw production task list — it's the only such row on any of the 7
+projects).
+
+**HIGH-2 — the 30-day ActivityLog lookback corrupted `days_quiet`.**
+`app/api/oracle/projects/route.ts`'s activity-log query had a
+`created_at >= now - 30d` filter while the time_entries and comments queries stayed
+unbounded — the moment a project's true last movement was an activity-log row between 30
+and ~100+ days old, the query never fetched it and `lastMovement()` fell back to a much
+older candidate (Saiph: reported 101 days quiet, true 37). Fixed by removing the lookback
+entirely; all three movement sources are now unbounded and consistent with each other.
+Production re-check: Saiph now reports `days_quiet: 37`, matching the verifier's
+hand-computed true value.
+
+**MEDIUM-3 — `ESCALATION_RE` substring-matched the whole comment body.**
+`lib/oracle/projects/movement.ts`'s escalation check now only looks at the comment's
+first sentence/line (first 160 chars up to the first `.` or newline), and a first
+sentence/line that OPENS with "done"/"shipped"/"completed"/"published" (optionally after
+an `@name` prefix) counts as movement regardless of anything later in the body — this
+fixes the "@Mike done. ... cannot ..." shape. Separately, Bast's own activity-log
+`status_changed` entries to `done`/`in_progress` now count as movement in their own
+right, independent of whatever comment (if any) accompanies them — this is what actually
+fixes the "...gates green, nothing blocked." shape (its first sentence still contains
+"blocked" and doesn't clear the comment-path bar, but the coincident Bast status change
+to done now registers on its own). Every other bot, and any Bast activity that isn't a
+status change to done/in_progress, still never counts.
+
+**MEDIUM-4 — decision/mention double-counted the same comment.**
+`classifyDecisionAndClarification` now returns the set of comment ids it consumed;
+`classifyMentions` skips any mention whose id is in that set. Production re-check: VCDP
+(which has both `decision` and `awaiting-clarification` tags in play) now reports zero
+`mention` blockers alongside its 7 `decision` + 1 `clarification` — previously the same
+underlying comments would have double-counted as mentions too.
+
+**MEDIUM-5 — session asks linked via `arc.project_id` only, orphaning both live asks.**
+`app/api/oracle/projects/route.ts` now resolves a session ask's project in order: (1)
+`arc.project_id`; (2) the ask's task's `project_id` — OracleSession has no `task_id`
+column in this schema (only `arc_id`), so this path is structurally unavailable and
+documented as such; (3) the session's client scope (`arc.client_id`) when that client has
+EXACTLY ONE in-progress `type=project` project (`soleProjectByClient`, shared with the
+calendar-event fix below). The arc query now also fetches arcs matching the target
+CLIENT ids (not just target project ids) so path (3) has data to work with.
+
+**Judgment call OVERTURNED — calendar-event → client linking.** The Phase 2 judgment call
+of "a matched event attaches to every in-progress project of the client" is overturned:
+it now attaches ONLY when the client has exactly one in-progress `type=project` project
+(the same rule as the email auto-matcher), via the same `soleProjectByClient` map. A
+client with zero or 2+ eligible projects gets no `meeting_risk` blocker from that event on
+any of its projects.
+
+**MEDIUM-6 — unbounded comment load + O(n²) mention scan.**
+The single unbounded `comment.findMany` is now two bounded queries: (1) the last comment
+per task via Postgres `DISTINCT ON` (`distinct: ['task_id']` + `orderBy` desc by
+`created_at`) — feeds decision/clarification/review AND doubles as the full candidate set
+for `movement.ts`'s comment source (a lossless reduction: the project's overall latest
+comment is always its own task's latest comment too); (2) comments from the last 90 days
+that mention Mike or are authored by Mike — feeds the mention scan. The O(n²)
+`comments.some(...)` "later Mike reply" check is replaced with an O(n)
+`Map<task_id, Date>` of each task's latest Mike-authored comment time. Query count stays
+fixed (two comment queries instead of one, not per-task/per-project).
+
+**MEDIUM-7 — a draft/queued `client_approval` never aged.**
+`BlockerApprovalRequest` gained a `created_at` field; `since` is now
+`ar.sent_at ?? ar.replied_at ?? ar.created_at` (created_at is never null, so the `now`
+fallback is gone entirely).
+
+**LOW-8 — API-only `source.url` for emails and sessions.**
+Email blockers now use the EmailAsk's own `deep_link` (the Gmail message) instead of
+`/email-asks/{id}`. Session-ask blockers now point at `/oracle?session={id}` (the Needs
+Reshi surface, with the session id riding along as a query param for the UI to pick up
+later) instead of `/oracle/sessions/{id}`.
+
+**LOW-9 — `days_quiet: null` sorted last; `stale` ignored `stale_muted_until`.**
+The sort comparator now maps a null `days_quiet` (no recorded movement, ever) to
+`+Infinity` rather than `-1`, so it sorts to the TOP of the stalled bucket (quietest
+first) instead of the bottom. The response's `stale` field is now computed the same way
+the stale blocker itself is: `rawStale && !isStaleMuted`, where `isStaleMuted` checks
+`stale_muted_until` against `now` — previously this field ignored the mute entirely.
+
+**LOW-10 — stale docs described the old timestamp-equality behavior.**
+`lib/api/registry/projects.ts`'s notes-route docs now describe the real, current
+behavior: `stale_muted_until` is always `MAX(until_date)` over the project's live
+`parked_until` notes, recomputed on every write — not a direct stamp/equality-match
+against a single note.
+
+**LOW-11 — email auto-match issued an identical update on every sync for unmatched rows.**
+`autoMatchEmailAsk` (`app/api/oracle/email-sync/route.ts`) now takes the row's existing
+`project_id` too, and short-circuits before writing whenever the computed
+client/project/match_source triple already equals what's stored.
+
+**LOW-12 — test gaps.** Added: a zero-task in-progress project (route-level, no crash, a
+valid empty-blockers card); a stale-dismissal re-surface once `last_movement_at` changes
+past the dismissal's marker; a mention re-surface on a NEW comment id after an earlier
+mention on the same task was dismissed; a behavioral case-insensitivity test for the email
+auto-matcher (an uppercase `MIKE@X.com` sender resolves through `mode: 'insensitive'` to
+the correct client/project, asserted against both the mocked `clientContact.findMany`
+call args and the final resolved match).
+
+**Drift test extended — `MIKE_USER_ID`.** `gate-constants.drift.test.ts` now also greps
+`MIKE_ID` out of `~/.claude/tools/citadel-worker/spawn-gate.py` (the constant has no home
+in `gate.json`, but IS hardcoded there) and asserts it matches `MIKE_USER_ID`, skipping
+with a clear reason when that file isn't present on the machine.
+
+**Gates (this pass):** `npx tsc --noEmit` clean; `npm run lint` — 725 problems (494
+errors/231 warnings), byte-identical to baseline; `npx vitest run` — 226 files / 2,694
+tests, zero failures (+34 tests over this pass's own starting point of 2,660); `npm run
+build` clean, `/api/oracle/projects` still in the route manifest. Production cross-check
+(re-run of the verifier's own script against the same 7-project production snapshot,
+against the FIXED code): EMDR's done task tagged `needs-mike` no longer produces a
+`decision` blocker (counts: `{"review":1}` only); Saiph reports `days_quiet: 37`
+(verifier's hand-computed true value, exact match); VCDP reports zero `mention` blockers
+alongside its `decision`/`clarification` ones (no more double-count). `stalled_count`
+across the 7-project snapshot: 6 (Forever Homes is the only non-stalled project).
+
 ## Phase 1 Notes (2026-09-04, implementation pass)
 
 Judgment calls made while landing Phase 1:

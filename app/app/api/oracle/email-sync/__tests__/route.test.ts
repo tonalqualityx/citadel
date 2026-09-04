@@ -352,5 +352,66 @@ describe('POST /api/oracle/email-sync', () => {
       expect(mockProjectFindMany).not.toHaveBeenCalled();
       expect(mockEmailAskUpdate).not.toHaveBeenCalled();
     });
+
+    // LOW-11
+    it('is a no-op when the row is already correctly unmatched (one client, zero eligible projects)', async () => {
+      mockUpsert.mockResolvedValue({
+        id: 'ask-already-unmatched',
+        client_id: 'client-1',
+        project_id: null,
+        match_source: 'unmatched',
+      });
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([]); // would recompute to the exact same shape
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-noop-unmatched' })] }));
+
+      expect(mockEmailAskUpdate).not.toHaveBeenCalled();
+    });
+
+    // LOW-11
+    it('is a no-op when the row is already correctly auto-matched to the same client and project', async () => {
+      mockUpsert.mockResolvedValue({
+        id: 'ask-already-auto',
+        client_id: 'client-1',
+        project_id: 'project-1',
+        match_source: 'auto',
+      });
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([{ id: 'project-1' }]);
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-noop-auto' })] }));
+
+      // Note: the SAME-client 'auto' short-circuit already returns before recomputing
+      // eligible projects at all — this is really exercising that earlier branch, which
+      // is itself the strongest possible no-op (it never even re-queries).
+      expect(mockProjectFindMany).not.toHaveBeenCalled();
+      expect(mockEmailAskUpdate).not.toHaveBeenCalled();
+    });
+
+    // LOW-12 — behavioral case-insensitivity: an uppercase sender address still resolves
+    // through to the correct client/project, and the DB query itself carries the raw
+    // (unmodified) address with mode: 'insensitive' rather than the route lowercasing it
+    // itself.
+    it('resolves the client/project for an UPPERCASE sender email (case-insensitive match)', async () => {
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([{ id: 'project-1' }]);
+
+      const res = await POST(
+        postRequest({
+          asks: [baseAsk({ message_id: 'msg-uppercase', from_email: 'MIKE@X.com' })],
+        })
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockClientContactFindMany).toHaveBeenCalledWith({
+        where: { email: { equals: 'MIKE@X.com', mode: 'insensitive' }, is_deleted: false },
+        select: { client_id: true },
+      });
+      expect(mockEmailAskUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { client_id: 'client-1', project_id: 'project-1', match_source: 'auto' },
+      });
+    });
   });
 });

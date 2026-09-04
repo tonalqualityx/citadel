@@ -61,6 +61,9 @@ export interface BlockerEmail {
   received_at: string; // ISO
   // Computed upstream: a later message from Mike exists in the thread, OR state != open.
   replied: boolean;
+  // LOW-8: the EmailAsk's own Gmail deep_link — used as the blocker's source.url instead
+  // of an API-only /email-asks/{id} path, which is nothing a human can actually open.
+  deep_link: string;
 }
 
 export type ApprovalRequestStatus =
@@ -79,6 +82,9 @@ export interface BlockerApprovalRequest {
   sent_at: string | null; // ISO
   chase_after_days: number;
   replied_at: string | null; // ISO
+  // MEDIUM-7: always present (the row's own creation time) — the final fallback for
+  // `since` so a draft/queued approval actually ages instead of reporting "now" forever.
+  created_at: string; // ISO
   contact: { id: string; name: string } | null;
 }
 
@@ -183,6 +189,12 @@ export interface Blocker {
 const STALE_DAYS_THRESHOLD = 7;
 const MEETING_RISK_WINDOW_DAYS = 3;
 const MEETING_RISK_STILLNESS_DAYS = 5;
+// HIGH-1: decision/clarification/mention are asks for a LIVE task — a task already
+// done or abandoned can't still be waiting on Mike's word, no matter what its last
+// comment or an old @-mention says. Review is the mirror image (it only ever fires on
+// `done`, checked in classifyReview itself) — these two rules together are what keeps a
+// finished task from generating a blocker forever.
+const OPEN_TASK_STATUSES = new Set(['not_started', 'ready', 'in_progress', 'blocked', 'review']);
 // Blocker kinds a human can explicitly dismiss (mirrors prisma's BlockerDismissalKind
 // enum, which deliberately excludes decision/clarification/client_approval/someone_else —
 // those resolve only through their own state changes: a tag/comment change, an approval
@@ -255,9 +267,17 @@ function taskSource(taskId: string): BlockerSource {
   return { type: 'task', id: taskId, url: `/tasks/${taskId}` };
 }
 
-function classifyDecisionAndClarification(input: ClassifyProjectBlockersInput): Blocker[] {
+// Returns both the blockers AND the set of comment ids they were built from — MEDIUM-4
+// needs that set so classifyMentions never ALSO emits a mention blocker for the exact
+// same comment (a comment that's both a task's last comment, tagged needs-mike/
+// awaiting-clarification, AND happens to @-mention Mike would otherwise double-count).
+function classifyDecisionAndClarification(
+  input: ClassifyProjectBlockersInput
+): { blockers: Blocker[]; consumedCommentIds: Set<string> } {
   const out: Blocker[] = [];
+  const consumedCommentIds = new Set<string>();
   for (const task of input.tasks) {
+    if (!OPEN_TASK_STATUSES.has(task.status)) continue; // HIGH-1: never on a done/abandoned task
     if (!task.last_comment) continue;
     if (!BOT_USER_IDS.includes(task.last_comment.user_id)) continue;
 
@@ -269,6 +289,7 @@ function classifyDecisionAndClarification(input: ClassifyProjectBlockersInput): 
     }
     if (!kind) continue;
 
+    consumedCommentIds.add(task.last_comment.id);
     out.push({
       kind,
       id: `${kind}:${task.id}`,
@@ -280,7 +301,7 @@ function classifyDecisionAndClarification(input: ClassifyProjectBlockersInput): 
       actions: ['reply', 'open_task'],
     });
   }
-  return out;
+  return { blockers: out, consumedCommentIds };
 }
 
 function classifyReview(input: ClassifyProjectBlockersInput): Blocker[] {
@@ -317,7 +338,10 @@ function classifySessionAsks(input: ClassifyProjectBlockersInput): Blocker[] {
       title: ask.text ?? 'A session is waiting on you',
       detail: ask.text ?? '',
       owner: mikeOwner(),
-      source: { type: 'session', id: ask.session_external_id, url: `/oracle/sessions/${ask.session_external_id}` },
+      // LOW-8: /oracle/sessions/{id} is an API-only path, nothing a human can open. The
+      // Needs Reshi surface (/oracle) is where session asks actually render; the session
+      // id rides along as a query param for the UI to pick up and deep-link into later.
+      source: { type: 'session', id: ask.session_external_id, url: `/oracle?session=${ask.session_external_id}` },
       since: ask.waiting_since ?? new Date(0).toISOString(),
       actions: ['reply', 'resolve_ask', 'dismiss'],
     });
@@ -325,9 +349,16 @@ function classifySessionAsks(input: ClassifyProjectBlockersInput): Blocker[] {
   return out;
 }
 
-function classifyMentions(input: ClassifyProjectBlockersInput): Blocker[] {
+function classifyMentions(input: ClassifyProjectBlockersInput, consumedCommentIds: Set<string>): Blocker[] {
+  const taskById = new Map(input.tasks.map((t) => [t.id, t]));
   const out: Blocker[] = [];
   for (const mention of input.mentions) {
+    if (consumedCommentIds.has(mention.id)) continue; // MEDIUM-4: already a decision/clarification
+
+    const task = taskById.get(mention.task_id);
+    // HIGH-1: fail-safe — an unknown task is treated as not-open, same as done/abandoned.
+    if (!task || !OPEN_TASK_STATUSES.has(task.status)) continue;
+
     if (isDismissed(input.dismissals, 'mention', mention.id, mention.id)) continue;
 
     out.push({
@@ -363,7 +394,9 @@ function classifyClientEmails(input: ClassifyProjectBlockersInput): Blocker[] {
         ? `${email.gist ?? email.subject} — asks for status, no time logged since`
         : (email.gist ?? email.subject),
       owner: mikeOwner(),
-      source: { type: 'email', id: email.id, url: `/email-asks/${email.id}` },
+      // LOW-8: /email-asks/{id} is an API-only path — the deep_link is the actual Gmail
+      // message a human can open.
+      source: { type: 'email', id: email.id, url: email.deep_link },
       since: email.received_at,
       actions: ['reply', 'open_email', 'dismiss'],
     });
@@ -402,7 +435,10 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
       detail,
       owner,
       source: { type: 'approval_request', id: ar.id, url: `/tasks/${ar.task_id}` },
-      since: ar.sent_at ?? ar.replied_at ?? now.toISOString(),
+      // MEDIUM-7: created_at (never null) is the final fallback, not `now` — a draft/
+      // queued approval that's never been sent has no sent_at/replied_at, and falling
+      // back to `now` made it look freshly-minted on every single request forever.
+      since: ar.sent_at ?? ar.replied_at ?? ar.created_at,
       actions: mikeOwns ? ['send_approval', 'mark_approved'] : ['nudge'],
     });
   }
@@ -491,11 +527,12 @@ function classifyMeetingRisk(input: ClassifyProjectBlockersInput, now: Date): Bl
 }
 
 export function classifyProjectBlockers(input: ClassifyProjectBlockersInput, now: Date): Blocker[] {
+  const { blockers: decisionAndClarification, consumedCommentIds } = classifyDecisionAndClarification(input);
   const blockers: Blocker[] = [
-    ...classifyDecisionAndClarification(input),
+    ...decisionAndClarification,
     ...classifyReview(input),
     ...classifySessionAsks(input),
-    ...classifyMentions(input),
+    ...classifyMentions(input, consumedCommentIds),
     ...classifyClientEmails(input),
     ...classifyClientApprovals(input, now),
     ...classifySomeoneElse(input, now),

@@ -32,16 +32,50 @@ import {
 //     OUTBOUND replies (EmailAsk only stores inbound asks the classifier flagged), so
 //     "a later message from Mike exists in the thread" isn't something this table can
 //     answer — state is the only available proxy.
+//   - HIGH-2 fix (verification pass): the ActivityLog query previously carried a 30-day
+//     `created_at >= lookback` filter while the time_entries and comments queries stayed
+//     unbounded. That silently corrupted days_quiet the moment a project's TRUE last
+//     movement was an activity-log row older than 30 days but younger than its next-best
+//     candidate — the query never even fetched that row, so lastMovement() fell back to
+//     something much older (production case: reported 101 days quiet, true 37). Fixed by
+//     removing the lookback outright — all three movement sources are now unbounded,
+//     matching each other. If activity-log volume ever becomes a real concern for a
+//     long-lived project, the documented fallback is a per-project cap of the newest 500
+//     rows (`take: 500` ordered `created_at desc` per project_id), not a shared date
+//     window — a uniform date cutoff is exactly the bug being fixed here.
 //   - Calendar-event -> client linking is by attendee email matching a ClientContact
 //     email for that project's client (case-insensitive). CalendarEvent has no
-//     first-class client relation. A matched event is attached to every in-progress
-//     project of that client (there's no way to know which project a meeting is "about"
-//     from calendar data alone).
+//     first-class client relation. Judgment call OVERTURNED (verification pass): a
+//     matched event no longer attaches to every in-progress project of a multi-project
+//     client — it attaches ONLY when that client has exactly one in-progress
+//     type=project project (the same rule the email auto-matcher already uses), via
+//     `soleProjectByClient` below. A client with zero or 2+ eligible projects gets no
+//     meeting_risk blocker from that event on ANY of its projects — ambiguous is treated
+//     as "don't guess," not "guess everywhere."
+//   - MEDIUM-5 fix (verification pass): session asks used to link to a project via
+//     `arc.project_id` ONLY, orphaning every ask whose arc had no project (100% of live
+//     asks at verification time). The resolution order is now: (1) the ask's arc's
+//     project_id; (2) the ask's task's project_id — not implemented, because
+//     OracleSession has no task_id column in this schema (only arc_id), so this path is
+//     structurally a no-op here, same limitation as before; (3) the session's CLIENT
+//     scope (arc.client_id) when that client has exactly one in-progress type=project
+//     project (`soleProjectByClient`, shared with the calendar-event fix above).
+//     Otherwise the ask is not a project blocker — it still surfaces in the general
+//     /api/waiting-on-me feed, just not here.
 //   - The waiting-on-me session-ask sweep is NOT extracted into a shared loader — it's
-//     re-queried here scoped by `arc.project_id IN (...)`, a different filter shape than
-//     the existing global "everything waiting on Mike" endpoint. Duplicating this one
-//     small query was judged lower-risk than refactoring a live, heavily-tested route.
-const NEXT_MOVEMENT_LOOKBACK_DAYS = 30;
+//     re-queried here (now scoped by arc.project_id OR arc.client_id, see above), a
+//     different filter shape than the existing global "everything waiting on Mike"
+//     endpoint. Duplicating this one small query was judged lower-risk than refactoring a
+//     live, heavily-tested route.
+//   - MEDIUM-6 fix (verification pass): comments were previously loaded completely
+//     unbounded (every comment on every task of every in-progress project) and the
+//     mention-vs-later-Mike-reply check was an O(n^2) `.some()` scan over that same full
+//     list. Replaced with two bounded queries — the last comment per task (via `distinct`,
+//     feeds decision/clarification/review and the movement comment source) and comments
+//     from the last 90 days that mention Mike or are authored by Mike (feeds the mention
+//     scan) — plus an O(n) Map of each task's latest Mike-authored comment time for the
+//     "later reply" check, replacing the nested scan. The query COUNT stays fixed (two
+//     comment queries instead of one, not one per task/project).
 const MEETING_RISK_WINDOW_DAYS = 3;
 
 type ChangesJson = { status?: { from?: string; to?: string } } | null | undefined;
@@ -60,8 +94,9 @@ export async function GET(request: NextRequest) {
     const lens = searchParams.get('lens');
 
     const now = new Date();
-    const movementLookback = new Date(now.getTime() - NEXT_MOVEMENT_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
     const meetingWindowEnd = new Date(now.getTime() + MEETING_RISK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    // MEDIUM-6: bounds the mention-scan comment query (see the module doc comment).
+    const mentionLookback = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
     // Only in-progress CONTRACTED projects — quote/queue/retainer/internal/done/
     // suspended/cancelled projects never show up here.
@@ -111,38 +146,67 @@ export async function GET(request: NextRequest) {
     const taskIds = tasks.map((t) => t.id);
     const taskProjectId = new Map(tasks.map((t) => [t.id, t.project_id]));
 
-    const comments = taskIds.length
+    const COMMENT_SELECT = {
+      id: true,
+      task_id: true,
+      user_id: true,
+      user: { select: { id: true, name: true } },
+      content: true,
+      mentioned_user_ids: true,
+      created_at: true,
+    } as const;
+
+    // MEDIUM-6, query 1 of 2: the last comment per task, via Postgres DISTINCT ON — feeds
+    // decision/clarification/review (task.last_comment) AND doubles as the full candidate
+    // set for movement.ts's comment source (the project's overall most-recent comment is,
+    // by definition, always its own task's most-recent comment too, so per-task-latest is
+    // a lossless reduction for "what's the last comment anywhere on this project").
+    const lastComments = taskIds.length
       ? await prisma.comment.findMany({
           where: { task_id: { in: taskIds }, is_deleted: false },
-          select: {
-            id: true,
-            task_id: true,
-            user_id: true,
-            user: { select: { id: true, name: true } },
-            content: true,
-            mentioned_user_ids: true,
-            created_at: true,
+          select: COMMENT_SELECT,
+          distinct: ['task_id'],
+          orderBy: [{ task_id: 'asc' }, { created_at: 'desc' }],
+        })
+      : [];
+    const lastCommentByTask = new Map<string, (typeof lastComments)[number]>();
+    for (const c of lastComments) {
+      lastCommentByTask.set(c.task_id, c);
+    }
+
+    // MEDIUM-6, query 2 of 2: comments from the last 90 days that either mention Mike or
+    // are authored by Mike — the only rows the mention scan needs (a candidate mention,
+    // or a possible "Mike already replied" row for the later-reply check). A mention
+    // itself must be within this window to be considered at all; any Mike reply to it is
+    // necessarily even more recent, so it's covered by the same window.
+    const mentionWindowComments = taskIds.length
+      ? await prisma.comment.findMany({
+          where: {
+            task_id: { in: taskIds },
+            is_deleted: false,
+            created_at: { gte: mentionLookback },
+            OR: [{ mentioned_user_ids: { has: MIKE_USER_ID } }, { user_id: MIKE_USER_ID }],
           },
+          select: COMMENT_SELECT,
           orderBy: { created_at: 'asc' },
         })
       : [];
 
-    // Last comment per task (max created_at) — feeds decision/clarification/review.
-    const lastCommentByTask = new Map<string, (typeof comments)[number]>();
-    for (const c of comments) {
-      const prev = lastCommentByTask.get(c.task_id);
-      if (!prev || c.created_at > prev.created_at) lastCommentByTask.set(c.task_id, c);
+    // O(n) latest-Mike-reply-per-task map, replacing the old O(n^2) `.some()` scan.
+    const latestMikeReplyAtByTask = new Map<string, Date>();
+    for (const c of mentionWindowComments) {
+      if (c.user_id !== MIKE_USER_ID) continue;
+      const prev = latestMikeReplyAtByTask.get(c.task_id);
+      if (!prev || c.created_at > prev) latestMikeReplyAtByTask.set(c.task_id, c.created_at);
     }
 
     // Mentions of Mike with no LATER reply by Mike on the same task.
     const mentionsByProject = new Map<string, ClassifyProjectBlockersInput['mentions']>();
-    for (const c of comments) {
+    for (const c of mentionWindowComments) {
       if (!c.mentioned_user_ids.includes(MIKE_USER_ID)) continue;
       if (c.user_id === MIKE_USER_ID) continue;
-      const laterMikeReply = comments.some(
-        (later) => later.task_id === c.task_id && later.user_id === MIKE_USER_ID && later.created_at > c.created_at
-      );
-      if (laterMikeReply) continue;
+      const latestReply = latestMikeReplyAtByTask.get(c.task_id);
+      if (latestReply && latestReply > c.created_at) continue;
       const projectId = taskProjectId.get(c.task_id);
       if (!projectId) continue;
       const list = mentionsByProject.get(projectId) ?? [];
@@ -173,8 +237,9 @@ export async function GET(request: NextRequest) {
     }
 
     const activityLog = await prisma.activityLog.findMany({
+      // HIGH-2: no date lookback (see the module doc comment) — bounded only by entity
+      // membership in this fixed, small project/task set.
       where: {
-        created_at: { gte: movementLookback },
         OR: [
           { entity_type: 'task', entity_id: { in: taskIds.length ? taskIds : ['__none__'] } },
           { entity_type: 'project', entity_id: { in: projectIds } },
@@ -200,8 +265,12 @@ export async function GET(request: NextRequest) {
       activityLogByProject.set(projectId, list);
     }
 
-    const commentsByProject = new Map<string, typeof comments>();
-    for (const c of comments) {
+    // MEDIUM-6: the movement comment source is built from lastComments (one row per
+    // task), not an unbounded full comment list — see the query-1 doc comment above for
+    // why that's a lossless reduction for "what's the last comment anywhere on this
+    // project."
+    const commentsByProject = new Map<string, typeof lastComments>();
+    for (const c of lastComments) {
       const projectId = taskProjectId.get(c.task_id);
       if (!projectId) continue;
       const list = commentsByProject.get(projectId) ?? [];
@@ -220,6 +289,7 @@ export async function GET(request: NextRequest) {
         gist: true,
         received_at: true,
         state: true,
+        deep_link: true,
       },
     });
     const emailsByProject = new Map<string, BlockerEmail[]>();
@@ -235,6 +305,7 @@ export async function GET(request: NextRequest) {
         // Judgment call (see module doc comment): this schema tracks no outbound-reply
         // record on EmailAsk, so `replied` is state !== 'open' only.
         replied: e.state !== 'open',
+        deep_link: e.deep_link, // LOW-8: the actual Gmail link, used as the blocker's source.url
       });
       emailsByProject.set(e.project_id, list);
     }
@@ -249,6 +320,7 @@ export async function GET(request: NextRequest) {
         sent_at: true,
         chase_after_days: true,
         replied_at: true,
+        created_at: true,
         contact: { select: { id: true, name: true } },
       },
     });
@@ -262,6 +334,7 @@ export async function GET(request: NextRequest) {
         sent_at: ar.sent_at ? ar.sent_at.toISOString() : null,
         chase_after_days: ar.chase_after_days,
         replied_at: ar.replied_at ? ar.replied_at.toISOString() : null,
+        created_at: ar.created_at.toISOString(), // MEDIUM-7: the `since` fallback that actually ages
         contact: ar.contact ? { id: ar.contact.id, name: ar.contact.name ?? 'the client' } : null,
       });
       approvalRequestsByProject.set(ar.project_id, list);
@@ -278,9 +351,24 @@ export async function GET(request: NextRequest) {
       dismissalsByProject.set(d.project_id, list);
     }
 
+    // Shared by the calendar-event and session-ask fixes below: for a client with
+    // EXACTLY ONE in-progress type=project project (among the `projects` this route
+    // already loaded), that project is the unambiguous target for anything that only
+    // knows the CLIENT, not a specific project. A client with zero or 2+ such projects
+    // has no entry here — deliberately: ambiguous never guesses.
+    const projectCountByClient = new Map<string, number>();
+    for (const p of projects) {
+      projectCountByClient.set(p.client.id, (projectCountByClient.get(p.client.id) ?? 0) + 1);
+    }
+    const soleProjectByClient = new Map<string, string>();
+    for (const p of projects) {
+      if (projectCountByClient.get(p.client.id) === 1) soleProjectByClient.set(p.client.id, p.id);
+    }
+
     // Calendar events with the client, next 3 days — CalendarEvent has no first-class
     // client relation, so this matches attendee emails against the client's
-    // ClientContact rows (case-insensitive). See the module doc comment's judgment call.
+    // ClientContact rows (case-insensitive). See the module doc comment's judgment call:
+    // a matched event attaches ONLY to a client's sole in-progress project.
     const contacts = await prisma.clientContact.findMany({
       where: { client_id: { in: clientIds }, is_deleted: false },
       select: { client_id: true, email: true },
@@ -297,7 +385,7 @@ export async function GET(request: NextRequest) {
       where: { starts_at: { gte: now, lte: meetingWindowEnd } },
       select: { id: true, title: true, starts_at: true, attendees: true },
     });
-    const calendarEventsByClient = new Map<string, BlockerCalendarEvent[]>();
+    const calendarEventsByProject = new Map<string, BlockerCalendarEvent[]>();
     for (const event of upcomingEvents) {
       const attendees = Array.isArray(event.attendees) ? (event.attendees as Array<{ email?: string }>) : [];
       const matchedClientIds = new Set<string>();
@@ -307,20 +395,27 @@ export async function GET(request: NextRequest) {
         if (clientsForEmail) clientsForEmail.forEach((id) => matchedClientIds.add(id));
       }
       for (const clientId of matchedClientIds) {
-        const list = calendarEventsByClient.get(clientId) ?? [];
+        const soleProjectId = soleProjectByClient.get(clientId);
+        if (!soleProjectId) continue; // ambiguous (0 or 2+ eligible projects) — don't guess
+        const list = calendarEventsByProject.get(soleProjectId) ?? [];
         list.push({ id: event.id, title: event.title, starts_at: event.starts_at.toISOString() });
-        calendarEventsByClient.set(clientId, list);
+        calendarEventsByProject.set(soleProjectId, list);
       }
     }
 
-    // Waiting-on-me session asks scoped to these projects, via arc.project_id. Mirrors
-    // app/api/waiting-on-me/route.ts's session sweep (not extracted into a shared
-    // loader — see the module doc comment).
+    // Waiting-on-me session asks. MEDIUM-5: resolution order is (1) the ask's arc's
+    // project_id, (2) the ask's task's project_id — structurally unavailable here,
+    // OracleSession has no task_id column in this schema, only arc_id (see the module
+    // doc comment) — (3) the session's client scope (arc.client_id) via
+    // soleProjectByClient above. Fetches arcs matching EITHER a target project_id OR a
+    // target client_id so path (3) has the data it needs; mirrors (but does not share
+    // a loader with) app/api/waiting-on-me/route.ts's session sweep.
+    const projectIdSet = new Set(projectIds);
     const arcs = await prisma.arc.findMany({
-      where: { project_id: { in: projectIds } },
-      select: { id: true, project_id: true },
+      where: { OR: [{ project_id: { in: projectIds } }, { client_id: { in: clientIds } }] },
+      select: { id: true, project_id: true, client_id: true },
     });
-    const projectIdByArc = new Map(arcs.map((a) => [a.id, a.project_id as string]));
+    const arcById = new Map(arcs.map((a) => [a.id, a]));
     const arcIds = arcs.map((a) => a.id);
     const sessions = arcIds.length
       ? await prisma.oracleSession.findMany({
@@ -343,8 +438,11 @@ export async function GET(request: NextRequest) {
       : [];
     const sessionAsksByProject = new Map<string, ClassifyProjectBlockersInput['session_asks']>();
     for (const s of sessions) {
-      const projectId = s.arc_id ? projectIdByArc.get(s.arc_id) : null;
-      if (!projectId) continue;
+      if (!s.arc_id) continue;
+      const arc = arcById.get(s.arc_id);
+      if (!arc) continue;
+      const projectId = arc.project_id ?? (arc.client_id ? (soleProjectByClient.get(arc.client_id) ?? null) : null);
+      if (!projectId || !projectIdSet.has(projectId)) continue; // not one of our in-progress projects
       const list = sessionAsksByProject.get(projectId) ?? [];
       list.push({
         session_external_id: s.external_id,
@@ -436,6 +534,11 @@ export async function GET(request: NextRequest) {
       const movement = lastMovement(movementInput);
       const daysQuiet = daysSince(movement?.at ?? null, now);
       const rawStale = isStale(movementInput, now);
+      // LOW-9: the response's `stale` field is now computed the SAME way the stale
+      // BLOCKER is (classifyStale suppresses it while stale_muted_until is in the
+      // future) — previously this field ignored the mute entirely and could report
+      // `stale: true` on a project a note had just parked.
+      const isStaleMuted = !!(project.stale_muted_until && project.stale_muted_until > now);
 
       const classifyInput: ClassifyProjectBlockersInput = {
         project: { id: project.id, name: project.name, client: project.client },
@@ -444,7 +547,7 @@ export async function GET(request: NextRequest) {
         session_asks: sessionAsksByProject.get(project.id) ?? [],
         emails: emailsByProject.get(project.id) ?? [],
         approval_requests: approvalRequestsByProject.get(project.id) ?? [],
-        calendar_events: calendarEventsByClient.get(project.client.id) ?? [],
+        calendar_events: calendarEventsByProject.get(project.id) ?? [],
         time_entries: (timeEntriesByProject.get(project.id) ?? []).map((te) => ({
           started_at: te.started_at.toISOString(),
         })),
@@ -492,7 +595,7 @@ export async function GET(request: NextRequest) {
         next_step: nextStep,
         last_movement: movement,
         days_quiet: daysQuiet === Infinity ? null : daysQuiet,
-        stale: rawStale,
+        stale: rawStale && !isStaleMuted,
         stalled_on_mike: stalledOnMike,
         blockers,
         counts_by_kind: countsByKind,
@@ -500,11 +603,15 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Stalled-on-Mike first, then by days_quiet descending (nulls/Infinity sort last).
+    // Stalled-on-Mike first, then by days_quiet descending — quietest first. LOW-9: a
+    // null days_quiet (no recorded movement EVER) is the maximally-quiet case, not the
+    // least — it must sort to the TOP of its bucket, not the bottom, so it's mapped to
+    // +Infinity here rather than -1.
     projectCards.sort((a, b) => {
       if (a.stalled_on_mike !== b.stalled_on_mike) return a.stalled_on_mike ? -1 : 1;
-      const aQuiet = a.days_quiet ?? -1;
-      const bQuiet = b.days_quiet ?? -1;
+      const aQuiet = a.days_quiet ?? Infinity;
+      const bQuiet = b.days_quiet ?? Infinity;
+      if (aQuiet === bQuiet) return 0; // handles both finite ties and Infinity - Infinity (NaN)
       return bQuiet - aQuiet;
     });
 

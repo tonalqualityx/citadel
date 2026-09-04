@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { BLOCKING_TAGS, BOT_USER_IDS, BAST_USER_ID } from '../gate-constants';
+import { BLOCKING_TAGS, BOT_USER_IDS, BAST_USER_ID, MIKE_USER_ID } from '../gate-constants';
 
 // Oracle Projects Tab Phase 2 — gate-constants.ts hand-copies three fields out of
 // ~/.config/citadel-worker/gate.json (blocking_tags, bot_user_ids, assignee_id) so that
@@ -46,5 +46,36 @@ describe.skipIf(!gateConfigExists)(
 if (!gateConfigExists) {
   describe('gate-constants.ts drift check', () => {
     it.skip(`SKIPPED: ${GATE_CONFIG_PATH} not found on this machine (expected in CI / a fresh checkout) — cannot verify drift against the live gate config here`, () => {});
+  });
+}
+
+// Judgment call OVERTURNED (verification pass): MIKE_USER_ID has no home in gate.json
+// (the gate itself never asks "is this Mike"), but it IS hardcoded in spawn-gate.py as
+// MIKE_ID — so it CAN be drift-checked, just against a different file, via a plain
+// regex grep rather than JSON.parse.
+const SPAWN_GATE_PATH = path.join(os.homedir(), '.claude', 'tools', 'citadel-worker', 'spawn-gate.py');
+const spawnGateExists = fs.existsSync(SPAWN_GATE_PATH);
+
+function extractMikeId(source: string): string | null {
+  const match = source.match(/MIKE_ID\s*=\s*["']([^"']+)["']/);
+  return match ? match[1] : null;
+}
+
+describe.skipIf(!spawnGateExists)(
+  'gate-constants.ts MIKE_USER_ID drift check against spawn-gate.py MIKE_ID',
+  () => {
+    const source = spawnGateExists ? fs.readFileSync(SPAWN_GATE_PATH, 'utf-8') : '';
+    const mikeId = extractMikeId(source);
+
+    it('MIKE_USER_ID matches spawn-gate.py\'s hardcoded MIKE_ID', () => {
+      expect(mikeId).not.toBeNull();
+      expect(MIKE_USER_ID).toBe(mikeId);
+    });
+  }
+);
+
+if (!spawnGateExists) {
+  describe('gate-constants.ts MIKE_USER_ID drift check', () => {
+    it.skip(`SKIPPED: ${SPAWN_GATE_PATH} not found on this machine (expected in CI / a fresh checkout) — cannot verify MIKE_USER_ID drift here`, () => {});
   });
 }
