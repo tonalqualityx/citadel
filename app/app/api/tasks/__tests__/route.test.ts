@@ -429,6 +429,54 @@ describe('POST /api/tasks', () => {
     });
   });
 
+  describe('Focus flag (is_focus) on create', () => {
+    it('stores is_focus when the caller asks for focus', async () => {
+      const request = createPostRequest({ title: 'Focused task', is_focus: true });
+      const response = await POST(request);
+
+      expect(response.status).toBe(201);
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ is_focus: true }) })
+      );
+    });
+
+    it('returns the stored focus flag in the create response', async () => {
+      mockTaskCreate.mockResolvedValue({ ...mockCreatedTask, is_focus: true });
+
+      const request = createPostRequest({ title: 'Focused task', is_focus: true });
+      const response = await POST(request);
+      const body = await response.json();
+
+      expect(body.is_focus).toBe(true);
+    });
+
+    it('stores is_focus false when explicitly passed', async () => {
+      const request = createPostRequest({ title: 'Unfocused task', is_focus: false });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ is_focus: false }) })
+      );
+    });
+
+    it('defaults to false when the field is omitted', async () => {
+      const request = createPostRequest({ title: 'Plain task' });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ is_focus: false }) })
+      );
+    });
+
+    it('rejects a non-boolean is_focus instead of silently dropping it', async () => {
+      const request = createPostRequest({ title: 'Bad focus', is_focus: 'yes' });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      expect(mockTaskCreate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Task creation with SOP defaults', () => {
     const sopId = '550e8400-e29b-41d4-a716-446655440003';
 

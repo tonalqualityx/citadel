@@ -30,6 +30,12 @@ const createTaskSchema = z.object({
     .enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'])
     .optional(),
   priority: z.number().min(1).max(5).optional(),
+  // The personal focus flag. PATCH /api/tasks/[id] has always accepted this; before it was
+  // declared here, POST silently stripped it (Zod drops undeclared keys), so an API caller
+  // that asked for focus got a task stored with is_focus:false. A task with is_focus:false
+  // and no due_date matches none of /api/waiting-on-me's five sweeps and is absent from the
+  // feed entirely, not merely ranked low.
+  is_focus: z.boolean().optional(),
   project_id: z.string().uuid().optional().nullable(),
   client_id: z.string().uuid().optional().nullable(),
   // Clarity Phase 5 — the arc board's "+ Quest" quick-add. Mirrors PATCH /api/tasks/[id]'s
@@ -471,6 +477,7 @@ export async function POST(request: NextRequest) {
         description: serializeRichText(data.description),
         status: initialStatusOverride || data.status || 'not_started',
         priority: data.priority || sopDefaults.default_priority || 3,
+        is_focus: data.is_focus ?? false,
         project_id: data.project_id,
         client_id: clientId,
         cover_url: coverUrl,
