@@ -59,25 +59,37 @@ export interface OracleProjectCard {
   email_summary: string | null;
   email_summary_at: string | null;
   linked_emails: OracleProjectLinkedEmail[];
+  // Phase 5 — the drawer's Dismissed items section.
+  dismissals: OracleProjectDismissal[];
+}
+
+export interface OracleProjectDismissal {
+  id: string;
+  kind: string;
+  source_id: string;
+  source_marker: string | null;
+  note: string | null;
+  dismissed_at: string; // ISO
+  dismissed_by: { id: string; name: string } | null;
 }
 
 export interface OracleProjectsResponse {
   projects: OracleProjectCard[];
   stalled_count: number;
   generated_at: string;
-  by_kind?: Record<string, Array<{ blocker: Blocker; project: { id: string; name: string } }>>;
 }
 
+// Phase 5 carry-over E — `?lens=kind` removed: the by-kind lens derives its groups
+// from this same lens-agnostic response via `deriveByKind()` (projects-logic.ts), so
+// there is only ever one query key now.
 export const oracleProjectsKeys = {
   all: ['oracle-projects'] as const,
-  lens: (lens?: 'kind') => [...oracleProjectsKeys.all, lens ?? 'default'] as const,
 };
 
-export function useOracleProjects(lens?: 'kind') {
+export function useOracleProjects() {
   return useQuery({
-    queryKey: oracleProjectsKeys.lens(lens),
-    queryFn: () =>
-      apiClient.get<OracleProjectsResponse>('/oracle/projects', { params: lens ? { lens } : undefined }),
+    queryKey: oracleProjectsKeys.all,
+    queryFn: () => apiClient.get<OracleProjectsResponse>('/oracle/projects'),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });

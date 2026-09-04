@@ -18,12 +18,15 @@ import {
   useClearNextStepOverride,
   useRefreshNextStep,
 } from '@/lib/hooks/use-next-step';
+import { useUndoBlockerDismissal } from '@/lib/hooks/use-blocker-dismissals';
+import { formatRelativeTime } from '@/lib/utils/time';
 import type { OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 import { BlockerRow } from './BlockerRow';
 import { NotesLog } from './NotesLog';
 import { EmailSummary } from './EmailSummary';
 import { PickToArcDialog } from './PickToArcDialog';
-import { nextStepSourceSentence } from './projects-logic';
+import { ApprovalPanel } from './ApprovalPanel';
+import { nextStepSourceSentence, getBlockerTaskId, showsApprovalPanel } from './projects-logic';
 import type { Blocker } from '@/lib/oracle/projects/blockers';
 
 interface ProjectDrawerProps {
@@ -33,8 +36,8 @@ interface ProjectDrawerProps {
 }
 
 // Oracle Projects Tab Phase 4 — the drawer: next step (editable/refreshable), blockers,
-// notes log, email summary, and a collapsed dismissed-items section (Phase 5 populates
-// it — dismissal isn't wired yet, so it's an honest placeholder, not a fake list).
+// notes log, email summary. Phase 5 adds the Client approval section (ApprovalPanel per
+// client_approval/review blocker) and a real Dismissed items list with Undo.
 export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProps) {
   const [editing, setEditing] = React.useState(false);
   const [draftText, setDraftText] = React.useState('');
@@ -44,6 +47,7 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
   const overrideNextStep = useOverrideNextStep(project?.id ?? '');
   const clearOverride = useClearNextStepOverride(project?.id ?? '');
   const refresh = useRefreshNextStep(project?.id ?? '');
+  const undoDismissal = useUndoBlockerDismissal(project?.id ?? '');
 
   // Re-seed the draft only when the drawer switches to a DIFFERENT project — never on
   // every re-render of the same project's data (the 60s background poll would otherwise
@@ -60,6 +64,18 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
   if (!project) return null;
 
   const isRefreshing = !!project.refresh_requested_at;
+  // Phase 5 — one ApprovalPanel per distinct task among the drawer's client_approval/
+  // review blockers (never one per blocker: two review blockers can't share a task, but
+  // a client_approval blocker and its own task's review blocker, if both present, would
+  // otherwise render the same panel twice).
+  const approvalTaskIds = Array.from(
+    new Set(
+      project.blockers
+        .filter(showsApprovalPanel)
+        .map(getBlockerTaskId)
+        .filter((id): id is string => !!id)
+    )
+  );
 
   async function saveOverride() {
     if (!draftText.trim()) return;
@@ -161,11 +177,22 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
                 ) : (
                   <div className="flex flex-col gap-2">
                     {project.blockers.map((blocker) => (
-                      <BlockerRow key={blocker.id} blocker={blocker} onPick={setPickBlocker} />
+                      <BlockerRow key={blocker.id} blocker={blocker} projectId={project.id} onPick={setPickBlocker} />
                     ))}
                   </div>
                 )}
               </section>
+
+              {approvalTaskIds.length > 0 && (
+                <section data-testid="drawer-approvals">
+                  <h3 className="mb-2 text-sm font-semibold text-text-main">Client approval</h3>
+                  <div className="flex flex-col gap-3">
+                    {approvalTaskIds.map((taskId) => (
+                      <ApprovalPanel key={taskId} taskId={taskId} clientId={project.client.id} />
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <section data-testid="drawer-notes">
                 <h3 className="mb-2 text-sm font-semibold text-text-main">Notes</h3>
@@ -182,9 +209,38 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
               </section>
 
               <Collapsible
-                trigger={<h3 className="text-sm font-semibold text-text-main">Dismissed items</h3>}
+                trigger={<h3 className="text-sm font-semibold text-text-main">Dismissed items ({project.dismissals.length})</h3>}
               >
-                <p className="text-sm text-text-sub">Dismissing blockers is coming in the next pass.</p>
+                {project.dismissals.length === 0 ? (
+                  <p className="text-sm text-text-sub">Nothing dismissed on this project.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {project.dismissals.map((dismissal) => (
+                      <div
+                        key={dismissal.id}
+                        data-testid="dismissed-item"
+                        className="flex items-start justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
+                        style={{ borderColor: 'var(--border)' }}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium uppercase tracking-wide text-text-sub">{dismissal.kind}</div>
+                          <div className="text-xs text-text-sub">
+                            {dismissal.dismissed_by?.name ?? 'Someone'} · {formatRelativeTime(dismissal.dismissed_at)}
+                          </div>
+                          {dismissal.note && <div className="mt-1 text-text-main">{dismissal.note}</div>}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => undoDismissal.mutate(dismissal.id)}
+                          disabled={undoDismissal.isPending}
+                        >
+                          Undo
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Collapsible>
             </div>
           </DrawerBody>

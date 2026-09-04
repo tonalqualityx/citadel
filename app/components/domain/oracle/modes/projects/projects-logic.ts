@@ -177,6 +177,35 @@ export function isTaskBlocker(blocker: Pick<Blocker, 'source'>): boolean {
   return blocker.source.type === 'task';
 }
 
+// ----------------------------------------------------------------------------------
+// Approval loop (Phase 5) — deriving the task an ApprovalPanel should target
+// ----------------------------------------------------------------------------------
+
+/**
+ * The task ApprovalPanel should attach a new/edited approval request to. Task-sourced
+ * blockers (review, decision, clarification, mention, someone_else) carry the task id
+ * directly on `source.id`. `client_approval`'s source is the ApprovalRequest itself
+ * (`source.type === 'approval_request'`) — its `source.url` is always `/tasks/{task_id}`
+ * (see lib/oracle/projects/blockers.ts's classifyClientApprovals), so the task id is
+ * the URL's last path segment. Every other kind (email, session ask, meeting risk,
+ * stale) has no task to approve anything against — null.
+ */
+export function getBlockerTaskId(blocker: Pick<Blocker, 'kind' | 'source'>): string | null {
+  if (blocker.source.type === 'task') return blocker.source.id;
+  if (blocker.source.type === 'approval_request') {
+    const segments = blocker.source.url.split('/').filter(Boolean);
+    return segments[segments.length - 1] ?? null;
+  }
+  return null;
+}
+
+/** ApprovalPanel renders for client_approval blockers (the loop's own kind) and review
+ * blockers (a done task waiting on Mike's review may ALSO need the client's sign-off) —
+ * never the other eight kinds, which have no client-approval angle at all. */
+export function showsApprovalPanel(blocker: Pick<Blocker, 'kind'>): boolean {
+  return blocker.kind === 'client_approval' || blocker.kind === 'review';
+}
+
 export interface CreateTaskFromBlockerInput {
   title: string;
   description: string;

@@ -16,8 +16,18 @@ vi.mock('@/lib/hooks/use-comments', () => ({
   useCreateComment: () => ({ mutateAsync: mockCreateCommentMutateAsync, isPending: false }),
 }));
 
+const mockCreateDismissalMutateAsync = vi.fn().mockResolvedValue({});
+
 vi.mock('@/lib/api/client', () => ({
-  apiClient: { get: (...args: unknown[]) => mockApiClientGet(...args) },
+  apiClient: {
+    get: (...args: unknown[]) => mockApiClientGet(...args),
+    post: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
+vi.mock('@/lib/hooks/use-blocker-dismissals', () => ({
+  useCreateBlockerDismissal: () => ({ mutateAsync: mockCreateDismissalMutateAsync, isPending: false }),
 }));
 
 import { BlockerRow } from '../BlockerRow';
@@ -33,6 +43,9 @@ function decisionBlocker(overrides: Partial<Blocker> = {}): Blocker {
     since: '2026-08-01T00:00:00Z',
     actions: ['reply', 'open_task'],
     arc: null,
+    chase_due_at: null,
+    chase_draft: null,
+    dismiss: null,
     ...overrides,
   };
 }
@@ -48,6 +61,9 @@ function reviewBlocker(overrides: Partial<Blocker> = {}): Blocker {
     since: '2026-08-01T00:00:00Z',
     actions: ['approve', 'request_changes', 'open_task', 'dismiss'],
     arc: null,
+    chase_due_at: null,
+    chase_draft: null,
+    dismiss: { kind: 'task', source_id: 'task-2', source_marker: '2026-08-01T00:00:00Z' },
     ...overrides,
   };
 }
@@ -56,7 +72,7 @@ function renderRow(blocker: Blocker, onPick = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <BlockerRow blocker={blocker} onPick={onPick} />
+      <BlockerRow blocker={blocker} projectId="proj-1" onPick={onPick} />
     </QueryClientProvider>
   );
 }
@@ -169,20 +185,51 @@ describe('BlockerRow — approve / request changes', () => {
   });
 });
 
-describe('BlockerRow — deferred (Phase 5) actions', () => {
-  it('dismiss is disabled with a "coming in the next pass" tooltip', () => {
+describe('BlockerRow — Dismiss (Phase 5)', () => {
+  it('is a real, enabled button when the blocker carries a dismiss target, and calls the dismissal mutation with it', async () => {
     renderRow(reviewBlocker());
-    const dismissBtn = screen.getByRole('button', { name: /dismiss/i });
-    expect(dismissBtn).toBeDisabled();
-    expect(dismissBtn).toHaveAttribute('title', 'coming in the next pass');
+    const dismissBtn = screen.getByRole('button', { name: /^dismiss$/i });
+    expect(dismissBtn).not.toBeDisabled();
+    fireEvent.click(dismissBtn);
+    await waitFor(() =>
+      expect(mockCreateDismissalMutateAsync).toHaveBeenCalledWith({
+        kind: 'task',
+        source_id: 'task-2',
+        source_marker: '2026-08-01T00:00:00Z',
+      })
+    );
   });
 
-  it('nudge and send_approval are disabled with a tooltip on a someone_else / client_approval blocker', () => {
+  it('renders no Dismiss control at all when the blocker has no dismiss target (e.g. decision/clarification)', () => {
+    renderRow(decisionBlocker());
+    expect(screen.queryByRole('button', { name: /^dismiss$/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('BlockerRow — Nudge (Phase 5)', () => {
+  it('is a real, enabled button on a someone_else blocker (a resolvable Citadel-user owner), and opens the nudge panel', () => {
     renderRow(
       decisionBlocker({
         kind: 'someone_else',
         id: 'someone_else:1',
+        owner: { id: 'user-9', name: 'Andy', is_mike: false },
         actions: ['nudge', 'pick'],
+      })
+    );
+    const nudgeBtn = screen.getByRole('button', { name: /^nudge$/i });
+    expect(nudgeBtn).not.toBeDisabled();
+    fireEvent.click(nudgeBtn);
+    expect(screen.getByRole('button', { name: /draft a nudge/i })).toBeInTheDocument();
+  });
+
+  it('stays deferred with a tooltip on a stale/meeting_risk blocker (owner is always Mike — no single resolvable recipient)', () => {
+    renderRow(
+      decisionBlocker({
+        kind: 'stale',
+        id: 'stale:proj-1',
+        source: { type: 'project', id: 'proj-1', url: '/projects/proj-1' },
+        actions: ['nudge', 'dismiss'],
+        dismiss: { kind: 'stale', source_id: 'proj-1', source_marker: null },
       })
     );
     const nudgeBtn = screen.getByRole('button', { name: /nudge/i });

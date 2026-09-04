@@ -4,6 +4,12 @@ import { ProjectCard } from '../ProjectCard';
 import type { OracleProjectCard as OracleProjectCardData } from '@/lib/hooks/use-oracle-projects';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
+// Phase 5 carry-over B — same identity-mock convention as ProjectsView.test.tsx: t()
+// passes its key straight through, so "Open project" still reads as itself below.
+vi.mock('@/lib/hooks/use-terminology', () => ({
+  useTerminology: () => ({ t: (k: string) => k }),
+}));
+
 function makeProject(overrides: Partial<OracleProjectCardData> = {}): OracleProjectCardData {
   return {
     id: 'proj-1',
@@ -28,6 +34,7 @@ function makeProject(overrides: Partial<OracleProjectCardData> = {}): OracleProj
     email_summary: null,
     email_summary_at: null,
     linked_emails: [],
+    dismissals: [],
     ...overrides,
   };
 }

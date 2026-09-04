@@ -265,8 +265,13 @@ describe('GET /api/oracle/projects — stalled sort', () => {
   });
 });
 
-describe('GET /api/oracle/projects — kind grouping (?lens=kind)', () => {
-  it('groups blockers by kind across projects when lens=kind', async () => {
+// Phase 5 carry-over E — `?lens=kind`/`by_kind` removed from this route. The by-kind
+// lens now derives its groups client-side from this same response via `deriveByKind()`
+// (components/domain/oracle/modes/projects/projects-logic.ts). This test locks in the
+// removal: `?lens=kind` is just an ignored, unrecognized query param now, and the
+// response never carries a `by_kind` key regardless.
+describe('GET /api/oracle/projects — lens=kind removed (carry-over E)', () => {
+  it('never returns by_kind, even when a stale ?lens=kind caller still sends it', async () => {
     mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
     mockTaskFindMany.mockResolvedValue([
       {
@@ -294,11 +299,9 @@ describe('GET /api/oracle/projects — kind grouping (?lens=kind)', () => {
 
     const withLens = await GET(getReq('?lens=kind'));
     const body = await withLens.json();
-
-    expect(body.by_kind).toBeDefined();
-    expect(body.by_kind.review).toHaveLength(1);
-    expect(body.by_kind.review[0].project).toEqual({ id: 'proj-1', name: 'Herba rebuild' });
-    expect(body.by_kind.review[0].blocker.kind).toBe('review');
+    expect(body.by_kind).toBeUndefined();
+    // The blocker itself is still present in the ordinary per-project shape.
+    expect(body.projects[0].blockers.some((b: { kind: string }) => b.kind === 'review')).toBe(true);
   });
 });
 

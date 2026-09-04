@@ -39,6 +39,9 @@ function decisionBlocker(overrides: Partial<Blocker> = {}): Blocker {
     since: '2026-08-01T00:00:00Z',
     actions: ['reply', 'open_task', 'pick'],
     arc: null,
+    chase_due_at: null,
+    chase_draft: null,
+    dismiss: null,
     ...overrides,
   };
 }

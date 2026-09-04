@@ -360,14 +360,6 @@ export const oracleEndpoints: ApiEndpoint[] = [
           'Oracle Projects Tab Phase 2 — the 4th Oracle mode\'s signals feed: every in-progress contracted project with its blockers, owner, movement, and hybrid next-step line.',
         auth: 'required',
         roles: ['pm', 'admin'],
-        queryParams: [
-          {
-            name: 'lens',
-            type: 'string',
-            required: false,
-            description: 'lens=kind adds `by_kind`: the same blockers grouped by kind across every project, instead of per-project.',
-          },
-        ],
         responseNotes:
           'Loads projects with type=project, status=in_progress, is_deleted=false. Each blocker kind ' +
           '(decision, clarification, review, session_ask, mention, client_email, client_approval, ' +
@@ -533,6 +525,227 @@ export const oracleEndpoints: ApiEndpoint[] = [
           ids: ['uuid'],
           requests: [{ id: 'uuid', requested_at: 'ISO-8601' }],
         },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/dismiss',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Oracle Projects Tab Phase 5 — dismisses one blocker on a project.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Creates a BlockerDismissal row. The classifier (lib/oracle/projects/blockers.ts) hides ' +
+          'exactly that blocker until NEW activity supersedes source_marker (a newer comment id, a ' +
+          'newer email received_at, etc.) — the underlying mention/email/ask/task is never touched. ' +
+          'Every dismissible Blocker carries the exact {kind, source_id, source_marker} triple to send ' +
+          'on its own `dismiss` field (null for the four kinds that resolve only through their own ' +
+          'state changes: decision, clarification, client_approval, someone_else).',
+        bodySchema: [
+          { name: 'kind', type: 'string', required: true, description: 'mention|email|session_ask|task|meeting_risk|stale' },
+          { name: 'source_id', type: 'string', required: true, description: '' },
+          { name: 'source_marker', type: 'string', required: false, description: '' },
+          { name: 'note', type: 'string', required: false, description: '' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          project_id: 'uuid',
+          kind: 'string',
+          source_id: 'string',
+          source_marker: 'string|null',
+          note: 'string|null',
+          dismissed_at: 'ISO-8601',
+          dismissed_by: { id: 'uuid', name: 'string' },
+        },
+      },
+      {
+        method: 'DELETE',
+        summary: 'Undoes one dismissal by its own id.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          { name: 'dismissal_id', type: 'uuid', required: true, description: "The dismissal's own id, distinct from the project id in the URL." },
+        ],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/nudge-draft',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Oracle Projects Tab Phase 5 — drafts a nudge, keyed off who owns the blocker. Never sends anything.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'owner.user_id -> a Citadel user, channel:"comment" (post through the internal-comment ' +
+          'helper, is_internal:true, @-mentioning the owner). owner.contact_id -> a ClientContact, ' +
+          "channel:\"email\" (Mike opens Gmail himself via mailto:, nothing is sent or queued here). " +
+          'owner.label -> no record at all (e.g. a contractor), channel:"email" with an empty `to` and ' +
+          'a note at the top of the body to fill one in.',
+        bodySchema: [
+          { name: 'blocker_id', type: 'string', required: true, description: '' },
+          { name: 'project_id', type: 'uuid', required: true, description: '' },
+          { name: 'owner', type: 'object', required: true, description: 'Exactly one of {user_id}, {contact_id}, or {label}' },
+        ],
+        responseExample: {
+          channel: 'comment|email',
+          to: 'string',
+          subject: 'string',
+          body: 'string',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Oracle Projects Tab Phase 5 — creates a draft approval request. Never sends anything.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'If subject/body are omitted, a server-side plain-text template is built from the task title ' +
+          "and its staging_preview_url when present (draft_source:'graph'). Both the caller-supplied and " +
+          'the templated subject/body are run through the writing-standard lint (lib/oracle/projects/' +
+          'next-step-lint.ts) — a violation 422s the whole call with no row created.',
+        bodySchema: [
+          { name: 'task_id', type: 'uuid', required: true, description: 'Must belong to a project.' },
+          { name: 'contact_id', type: 'uuid', required: false, description: "Must be a live ClientContact on the task's client." },
+          { name: 'to_email', type: 'string', required: false, description: '' },
+          { name: 'subject', type: 'string', required: false, description: '' },
+          { name: 'body', type: 'string', required: false, description: '' },
+        ],
+        responseExample: { id: 'uuid', task_id: 'uuid', project_id: 'uuid', status: 'draft', subject: 'string', body: 'string' },
+      },
+      {
+        method: 'GET',
+        summary: 'Lists approval requests, filtered by status and/or task_id and/or thread_id.',
+        auth: 'required',
+        responseNotes:
+          'Bearer, any authenticated user — `?status=queued` is the machine-side sender\'s own poll ' +
+          '(~/.claude/tools/citadel-approvals/approval-sender.py, cron every 5 minutes); `?task_id=` is ' +
+          "ApprovalPanel's own fetch for one task's approval history; `?thread_id=` is the inbound-email " +
+          'classifier\'s lookup (~/.claude/tools/oracle/clarity/email-classifier.py).',
+        queryParams: [
+          { name: 'status', type: 'string', required: false, description: 'draft|queued|sent|replied|approved|changes_requested|cancelled' },
+          { name: 'task_id', type: 'uuid', required: false, description: '' },
+          { name: 'thread_id', type: 'string', required: false, description: '' },
+        ],
+        responseExample: { requests: [{ id: 'uuid', status: 'string', subject: 'string', to_email: 'string|null' }] },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'The approval-request state machine: draft edits, queue, cancel, mark approved, request changes.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Legal transitions only: draft->queued, queued->cancelled, sent|replied->approved, ' +
+          'sent|replied->changes_requested — anything else 409s. subject/body/to_email are only ' +
+          "editable while the row is still 'draft'. draft->queued requires a non-empty to_email/" +
+          'subject/body and to_email must match a live ClientContact on the task\'s client (422 ' +
+          'otherwise); stamps queued_at/queued_by_id. sent|replied->approved stamps approved_at ONLY ' +
+          '— it never touches the underlying task. sent|replied->changes_requested stamps ' +
+          'changes_requested_at and creates a follow-up task ("Changes requested: <task title>") on ' +
+          'the same project, assigned to Mike, carrying reply_note (or the existing reply_excerpt, or ' +
+          'a generic fallback) as its description.',
+        bodySchema: [
+          { name: 'subject', type: 'string', required: false, description: '' },
+          { name: 'body', type: 'string', required: false, description: '' },
+          { name: 'to_email', type: 'string', required: false, description: '' },
+          { name: 'status', type: 'string', required: false, description: 'queued|cancelled|approved|changes_requested' },
+          { name: 'reply_note', type: 'string', required: false, description: 'Used only on a changes_requested transition.' },
+        ],
+        responseExample: { id: 'uuid', status: 'string', queued_at: 'ISO-8601|null', approved_at: 'ISO-8601|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/sent',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side sender only: marks a queued row sent.',
+        auth: 'required',
+        responseNotes: "Bearer, any authenticated user. 409 if the row isn't currently 'queued'.",
+        bodySchema: [
+          { name: 'message_id', type: 'string', required: true, description: '' },
+          { name: 'thread_id', type: 'string', required: true, description: '' },
+          { name: 'sent_at', type: 'ISO-8601', required: true, description: '' },
+        ],
+        responseExample: { id: 'uuid', status: 'sent', message_id: 'string', thread_id: 'string', sent_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/send-error',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side sender only: records one failed send attempt on a queued row.',
+        auth: 'required',
+        responseNotes:
+          'Bearer, any authenticated user. Stays queued (the next poll retries) unless this is the ' +
+          "3rd recorded error, in which case status falls back to 'draft' with send_error set.",
+        bodySchema: [{ name: 'error', type: 'string', required: true, description: '' }],
+        responseExample: { id: 'uuid', status: 'queued|draft', send_error: 'string', send_error_count: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/seen-in-meeting',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'For the meeting-sync skill (a one-line addition outside this repo, not built here).',
+        auth: 'required',
+        responseNotes:
+          "Bearer, any authenticated user. Stamps seen_in_meeting_at always; flips 'sent' -> 'replied' " +
+          '(stamping replied_at/reply_excerpt from the meeting excerpt) — never downgrades a row already ' +
+          'past sent.',
+        bodySchema: [
+          { name: 'meeting_id', type: 'uuid', required: false, description: 'Accepted but not persisted in this phase.' },
+          { name: 'excerpt', type: 'string', required: true, description: '' },
+          { name: 'at', type: 'ISO-8601', required: true, description: '' },
+        ],
+        responseExample: { id: 'uuid', status: 'string', seen_in_meeting_at: 'ISO-8601', replied_at: 'ISO-8601|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/reply',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Inbound-email classifier only: records a client reply.',
+        auth: 'required',
+        responseNotes:
+          "Bearer, any authenticated user. Flips 'sent' -> 'replied'; a reply on an already-'replied' " +
+          'row just refreshes replied_at/reply_excerpt; a reply on a terminal row (approved/' +
+          'changes_requested/cancelled) records the excerpt but never changes status.',
+        bodySchema: [
+          { name: 'message_id', type: 'string', required: true, description: '' },
+          { name: 'received_at', type: 'ISO-8601', required: true, description: '' },
+          { name: 'excerpt', type: 'string', required: true, description: 'First ~300 chars of the plain body.' },
+        ],
+        responseExample: { id: 'uuid', status: 'replied', replied_at: 'ISO-8601', reply_excerpt: 'string' },
       },
     ],
   },

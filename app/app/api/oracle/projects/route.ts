@@ -101,7 +101,11 @@ export async function GET(request: NextRequest) {
     requireRole(auth, ['pm', 'admin']);
 
     const { searchParams } = new URL(request.url);
-    const lens = searchParams.get('lens');
+    // Phase 5 carry-over E: `?lens=kind`/`by_kind` removed. LOW-12 (Phase 4 fixes)
+    // already moved the by-kind lens onto `deriveByKind()` (projects-logic.ts), which
+    // regroups this SAME response's `projects[].blockers` purely client-side — nothing
+    // has called this param since. The UI derives the grouping; the route no longer
+    // offers a second way to get it.
     // MEDIUM-1 fix (verification pass): `ids` (comma-separated) scopes this entire
     // route — including every downstream signal query below, since they're all keyed
     // off `projects`/`projectIds`/`clientIds` derived from the query below — to exactly
@@ -425,9 +429,23 @@ export async function GET(request: NextRequest) {
       approvalRequestsByProject.set(ar.project_id, list);
     }
 
+    // Phase 5 — id/note/dismissed_by are carried through ONLY so ProjectDrawer's
+    // "Dismissed items" section (list + Undo) can render/act on each row; the pure
+    // classifier below (classifyProjectBlockers's isDismissed) only ever reads
+    // kind/source_id/source_marker, same as before this phase.
     const dismissals = await prisma.blockerDismissal.findMany({
       where: { project_id: { in: projectIds } },
-      select: { project_id: true, kind: true, source_id: true, source_marker: true, dismissed_at: true },
+      select: {
+        id: true,
+        project_id: true,
+        kind: true,
+        source_id: true,
+        source_marker: true,
+        note: true,
+        dismissed_at: true,
+        dismissed_by: { select: { id: true, name: true } },
+      },
+      orderBy: { dismissed_at: 'desc' },
     });
     const dismissalsByProject = new Map<string, typeof dismissals>();
     for (const d of dismissals) {
@@ -711,6 +729,17 @@ export async function GET(request: NextRequest) {
           replied: e.replied,
           deep_link: e.deep_link,
         })),
+        // Phase 5 — the drawer's "Dismissed items" section (list + Undo). Newest first
+        // (see the query's orderBy above).
+        dismissals: (dismissalsByProject.get(project.id) ?? []).map((d) => ({
+          id: d.id,
+          kind: d.kind,
+          source_id: d.source_id,
+          source_marker: d.source_marker,
+          note: d.note,
+          dismissed_at: d.dismissed_at.toISOString(),
+          dismissed_by: d.dismissed_by ? { id: d.dismissed_by.id, name: d.dismissed_by.name } : null,
+        })),
       };
     });
 
@@ -733,18 +762,6 @@ export async function GET(request: NextRequest) {
       stalled_count: stalledCount,
       generated_at: now.toISOString(),
     };
-
-    if (lens === 'kind') {
-      const byKind: Record<string, Array<{ blocker: Blocker; project: { id: string; name: string } }>> = {};
-      for (const card of projectCards) {
-        for (const blocker of card.blockers) {
-          const list = byKind[blocker.kind] ?? [];
-          list.push({ blocker, project: { id: card.id, name: card.name } });
-          byKind[blocker.kind] = list;
-        }
-      }
-      responseBody.by_kind = byKind;
-    }
 
     return NextResponse.json(responseBody);
   } catch (error) {

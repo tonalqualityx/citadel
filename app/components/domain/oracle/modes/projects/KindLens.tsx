@@ -10,6 +10,7 @@ import { useCreateArc } from '@/lib/hooks/use-arcs';
 import { useCreateTodayPick, useTodayPicks } from '@/lib/hooks/use-today';
 import { useCreateTask, useUpdateTask } from '@/lib/hooks/use-tasks';
 import { showToast } from '@/lib/hooks/use-toast';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { oracleProjectsKeys } from '@/lib/hooks/use-oracle-projects';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import {
@@ -47,6 +48,7 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 // it was (never cleared on a partial failure), and the error banner reports exactly how
 // many succeeded before the API's own message is shown verbatim — never a bare catch.
 export function KindLens({ groups, onOpenProject }: KindLensProps) {
+  const { t } = useTerminology();
   const queryClient = useQueryClient();
   const createArc = useCreateArc();
   const createTask = useCreateTask();
@@ -167,7 +169,7 @@ export function KindLens({ groups, onOpenProject }: KindLensProps) {
 
       if (plan.skippedAlreadyInArc.length > 0) {
         showToast.success(
-          `New arc created and picked. ${plan.skippedAlreadyInArc.length} task${plan.skippedAlreadyInArc.length === 1 ? ' was' : 's were'} already in another arc and left there.`
+          `New arc created and picked. ${plan.skippedAlreadyInArc.length} ${plan.skippedAlreadyInArc.length === 1 ? t('task').toLowerCase() : t('tasks').toLowerCase()} ${plan.skippedAlreadyInArc.length === 1 ? 'was' : 'were'} already in another arc and left there.`
         );
       } else {
         showToast.success('New arc created and picked');
@@ -197,12 +199,20 @@ export function KindLens({ groups, onOpenProject }: KindLensProps) {
   return (
     <div className="flex flex-col gap-6 pb-20" data-testid="kind-lens">
       {/* MEDIUM-5 — the cap count shows up front, same as PickToArcDialog, not only once
-          something is selected. */}
-      {today && (
-        <div data-testid="kind-lens-cap-count" className="text-xs text-text-sub">
-          {today.meta.uncompleted} of {today.meta.cap} today&apos;s picks used
-        </div>
-      )}
+          something is selected. Phase 5 carry-over F — while the Today query hasn't
+          resolved yet, remainingCapacity is null, which addAllToToday/createNewArc both
+          already treat as "no cap known" and let a pick proceed WITHOUT a pre-flight cap
+          check. Shows a loading state here (rather than nothing) so Mike sees why the
+          pick actions below are inert, instead of a silently-dead button. */}
+      <div data-testid="kind-lens-cap-count" className="text-xs text-text-sub">
+        {today ? (
+          <>
+            {today.meta.uncompleted} of {today.meta.cap} today&apos;s picks used
+          </>
+        ) : (
+          "Loading today's picks…"
+        )}
+      </div>
 
       {groups.map((group) => {
         const allSelected = group.rows.length > 0 && group.rows.every((r) => selected.has(rowKey(r.project.id, r.blocker.id)));
@@ -278,9 +288,9 @@ export function KindLens({ groups, onOpenProject }: KindLensProps) {
                       <Checkbox
                         checked={moveAlreadyArced}
                         onCheckedChange={(checked) => setMoveAlreadyArced(!!checked)}
-                        aria-label="Move already-arc'd tasks too"
+                        aria-label={`Move already-arc'd ${t('tasks').toLowerCase()} too`}
                       />
-                      Move already-arc&apos;d tasks too
+                      Move already-arc&apos;d {t('tasks').toLowerCase()} too
                     </label>
                   )}
                   <Input
@@ -298,10 +308,10 @@ export function KindLens({ groups, onOpenProject }: KindLensProps) {
                 </>
               ) : (
                 <>
-                  <Button size="sm" variant="secondary" onClick={addAllToToday} disabled={submitting}>
+                  <Button size="sm" variant="secondary" onClick={addAllToToday} disabled={submitting || !today}>
                     Add to today&apos;s picks
                   </Button>
-                  <Button size="sm" variant="primary" onClick={openNewArcInput} disabled={submitting}>
+                  <Button size="sm" variant="primary" onClick={openNewArcInput} disabled={submitting || !today}>
                     New arc…
                   </Button>
                 </>

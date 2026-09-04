@@ -49,6 +49,7 @@ function makeProject(overrides: Partial<OracleProjectCard> = {}): OracleProjectC
     email_summary: null,
     email_summary_at: null,
     linked_emails: [],
+    dismissals: [],
     ...overrides,
   };
 }

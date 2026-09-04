@@ -192,6 +192,22 @@ export interface Blocker {
   // 'task' and that task has one. Always null for a non-task-sourced blocker (nothing to
   // re-home yet — a task doesn't exist until the pick creates one).
   arc: { id: string; name: string } | null;
+  // Phase 5 — client_approval only: when the ApprovalRequest is 'sent', the instant the
+  // chase clock runs out (sent_at + chase_after_days business days). Null for every
+  // other kind, and for a client_approval blocker that hasn't been sent yet (draft/
+  // queued/replied have no chase clock running).
+  chase_due_at: string | null; // ISO
+  // Phase 5 — client_approval only, and only once chase_due_at has passed: a short,
+  // plain chase-email draft ApprovalPanel/NudgePanel can offer as a starting point.
+  // Never sent from here — this module never performs I/O.
+  chase_draft: { subject: string; body: string } | null;
+  // Phase 5 — the EXACT (kind, source_id, source_marker) triple this blocker's own
+  // isDismissed(...) call above checks, so BlockerRow's Dismiss control never has to
+  // re-derive or duplicate that mapping (and can't drift from it). Null for every kind
+  // DISMISSAL_KIND_BY_BLOCKER_KIND doesn't cover (decision, clarification,
+  // client_approval, someone_else) — those resolve only through their own state
+  // changes, never a bare dismiss.
+  dismiss: { kind: string; source_id: string; source_marker: string | null } | null;
 }
 
 const STALE_DAYS_THRESHOLD = 7;
@@ -283,6 +299,44 @@ function taskSource(taskId: string): BlockerSource {
   return { type: 'task', id: taskId, url: `/tasks/${taskId}` };
 }
 
+// Phase 5 — the inverse of businessDaysBetween: adds N business days (Mon-Fri only, same
+// no-holiday-calendar simplification) to a starting instant. Used to compute the
+// client_approval blocker's chase_due_at, so the UI can show "chase due Sep 10" rather
+// than only the after-the-fact "N days overdue" detail text.
+function addBusinessDays(from: Date, days: number): Date {
+  const cur = new Date(from);
+  cur.setHours(0, 0, 0, 0);
+  let added = 0;
+  while (added < days) {
+    cur.setDate(cur.getDate() + 1);
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) added++;
+  }
+  return cur;
+}
+
+// Phase 5 — the short, plain chase-email draft attached to an overdue client_approval
+// blocker. Never sent by itself: ApprovalPanel/NudgePanel offer it as a starting point
+// for a fresh queued send. Kept here (not imported from lib/services/approval-requests.ts)
+// so this pure module stays free of any non-pure dependency; the two templates are
+// deliberately the same shape as lib/services/approval-requests.ts's buildChaseEmailDraft,
+// which the approval-requests API routes use for the same purpose server-side.
+function buildChaseEmailDraft(taskTitle: string, chaseAfterDays: number): { subject: string; body: string } {
+  const subject = `Following up: ${taskTitle}`;
+  const body = [
+    `Hi,`,
+    ``,
+    `Checking in on ${taskTitle}. I sent this over ${chaseAfterDays} business day${
+      chaseAfterDays === 1 ? '' : 's'
+    } ago and have not heard back.`,
+    ``,
+    `Let me know if you have questions, or if this is ready to approve.`,
+    ``,
+    `Mike`,
+  ].join('\n');
+  return { subject, body };
+}
+
 // Returns both the blockers AND the set of comment ids they were built from — MEDIUM-4
 // needs that set so classifyMentions never ALSO emits a mention blocker for the exact
 // same comment (a comment that's both a task's last comment, tagged needs-mike/
@@ -316,6 +370,9 @@ function classifyDecisionAndClarification(
       since: task.last_comment.created_at,
       actions: ['reply', 'open_task'],
       arc: task.arc,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: null,
     });
   }
   return { blockers: out, consumedCommentIds };
@@ -339,6 +396,9 @@ function classifyReview(input: ClassifyProjectBlockersInput): Blocker[] {
       since: task.updated_at,
       actions: ['approve', 'request_changes', 'open_task', 'dismiss'],
       arc: task.arc,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: { kind: 'task', source_id: task.id, source_marker: task.updated_at },
     });
   }
   return out;
@@ -363,6 +423,9 @@ function classifySessionAsks(input: ClassifyProjectBlockersInput): Blocker[] {
       since: ask.waiting_since ?? new Date(0).toISOString(),
       actions: ['reply', 'resolve_ask', 'dismiss'],
       arc: null,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: { kind: 'session_ask', source_id: ask.session_external_id, source_marker: marker },
     });
   }
   return out;
@@ -390,6 +453,9 @@ function classifyMentions(input: ClassifyProjectBlockersInput, consumedCommentId
       since: mention.created_at,
       actions: ['reply', 'open_task', 'dismiss'],
       arc: task.arc,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: { kind: 'mention', source_id: mention.id, source_marker: mention.id },
     });
   }
   return out;
@@ -420,6 +486,9 @@ function classifyClientEmails(input: ClassifyProjectBlockersInput): Blocker[] {
       since: email.received_at,
       actions: ['reply', 'open_email', 'dismiss'],
       arc: null,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: { kind: 'email', source_id: email.id, source_marker: email.received_at },
     });
   }
   return out;
@@ -449,6 +518,13 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
           : 'Draft ready to send for approval'
       : `Awaiting ${ar.contact?.name ?? 'the client'}'s reply`;
 
+    // Phase 5 — the chase clock. chase_due_at is only meaningful once the request has
+    // actually been sent (draft/queued/replied have no clock running); chase_draft is
+    // only populated once that clock has actually run out (overdueChase), matching the
+    // detail text's own "Chase it" branch above.
+    const chaseDueAt = ar.status === 'sent' && ar.sent_at ? addBusinessDays(new Date(ar.sent_at), ar.chase_after_days) : null;
+    const taskTitle = input.tasks.find((t) => t.id === ar.task_id)?.title ?? 'this';
+
     out.push({
       kind: 'client_approval',
       id: `client_approval:${ar.id}`,
@@ -462,6 +538,11 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
       since: ar.sent_at ?? ar.replied_at ?? ar.created_at,
       actions: mikeOwns ? ['send_approval', 'mark_approved'] : ['nudge'],
       arc: null,
+      chase_due_at: chaseDueAt ? chaseDueAt.toISOString() : null,
+      chase_draft: overdueChase ? buildChaseEmailDraft(taskTitle, ar.chase_after_days) : null,
+      // client_approval resolves only through its own ApprovalRequest status changes
+      // (PATCH /api/approval-requests/[id]) — never a bare dismiss.
+      dismiss: null,
     });
   }
   return out;
@@ -485,6 +566,9 @@ function classifySomeoneElse(input: ClassifyProjectBlockersInput, now: Date): Bl
       since: c.since,
       actions: ['nudge', 'pick'],
       arc: task?.arc ?? null,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: null,
     },
   ];
 }
@@ -522,6 +606,9 @@ function classifyStale(
     since: input.last_movement_at ?? now.toISOString(),
     actions: ['refresh_next_step', 'nudge', 'dismiss', 'suspend'],
     arc: null,
+    chase_due_at: null,
+    chase_draft: null,
+    dismiss: { kind: 'stale', source_id: input.project.id, source_marker: marker },
   };
 }
 
@@ -547,6 +634,9 @@ function classifyMeetingRisk(input: ClassifyProjectBlockersInput, now: Date): Bl
       since: input.last_movement_at ?? now.toISOString(),
       actions: ['refresh_next_step', 'nudge', 'dismiss'],
       arc: null,
+      chase_due_at: null,
+      chase_draft: null,
+      dismiss: { kind: 'meeting_risk', source_id: event.id, source_marker: event.starts_at },
     });
   }
   return out;

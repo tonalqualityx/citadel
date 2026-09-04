@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 // Oracle Projects Tab — dash-law regression guard, prose-gate.sh-style. Reads every
@@ -14,11 +13,14 @@ import * as path from 'path';
 // dash reintroduced anywhere else in the tab's JSX/string literals (a label, a title, a
 // toast message, an aria-label).
 //
-// Skips (does not fail) when prose-gate.sh isn't present on this machine — it's a
-// machine-local skill file, not checked into this repo — same skipIf convention as
-// gate-constants.drift.test.ts.
-const PROSE_GATE_PATH = path.join(os.homedir(), '.claude', 'skills', 'writing-standard', 'prose-gate.sh');
-const proseGateExists = fs.existsSync(PROSE_GATE_PATH);
+// Phase 5 carry-over C: this test used to skip when prose-gate.sh was absent, mirroring
+// gate-constants.drift.test.ts's and next-step-lint.drift.test.ts's skipIf convention —
+// but unlike those two, this test never shells out to the external script. It only
+// reimplements the dash-character regex inline (DASH_CHAR_RE below) and reads this
+// repo's own source files, so it has zero runtime dependency on prose-gate.sh existing
+// on the machine. The skipIf was gratuitous: it made the guard silently do nothing on
+// any machine (including CI) that lacks that machine-local skill file. Runs
+// unconditionally now.
 
 // __dirname here is <repo>/lib/oracle/projects/__tests__ — four levels up is the app root.
 const REPO_ROOT = path.resolve(__dirname, '../../../../');
@@ -70,8 +72,8 @@ const DASH_CHAR_RE = /\u{2014}|\u{2013}|&mdash;|&ndash;|&#8212;|&#8211;|&#x2014;
 // code arithmetic never contains an actual em/en dash character — so it stays the
 // guard's full scope.
 
-describe.skipIf(!proseGateExists)('Projects tab dash-law guard (prose-gate.sh dash-character pattern, code stripped of comments)', () => {
-  const files = proseGateExists ? SCAN_DIRS.flatMap(listSourceFiles) : [];
+describe('Projects tab dash-law guard (prose-gate.sh dash-character pattern, code stripped of comments)', () => {
+  const files = SCAN_DIRS.flatMap(listSourceFiles);
 
   it('found source files to scan', () => {
     expect(files.length).toBeGreaterThan(0);
@@ -86,9 +88,3 @@ describe.skipIf(!proseGateExists)('Projects tab dash-law guard (prose-gate.sh da
     });
   }
 });
-
-if (!proseGateExists) {
-  describe('Projects tab dash-law guard', () => {
-    it.skip(`SKIPPED: ${PROSE_GATE_PATH} not found on this machine (expected in CI / a fresh checkout) — cannot load the reference patterns here`, () => {});
-  });
-}

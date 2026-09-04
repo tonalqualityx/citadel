@@ -17,6 +17,19 @@ const APP_ROOT = path.resolve(__dirname, '..', '..');
 // of being run, not of being imported as a module.
 const PROJECT_NAME = 'E2E Oracle Projects Tab Fixture Project';
 const DECISION_TASK_TITLE = 'E2E: decide on the domain migration approach';
+const REVIEW_TASK_TITLE = 'E2E: ship the contact form (needs review)';
+const CONTACT_NAME = 'E2E Fixture Contact';
+const CONTACT_EMAIL = 'e2e-oracle-projects-contact@example.com';
+
+async function openFixtureDrawer(page: import('@playwright/test').Page) {
+  await page.goto('/oracle');
+  await page.getByTestId('mode-tab-projects').click();
+  await page.waitForLoadState('networkidle');
+  const card = page.getByTestId('projects-grid').getByTestId('project-card').filter({ hasText: PROJECT_NAME });
+  await expect(card).toBeVisible();
+  await card.click();
+  await expect(page.getByTestId('drawer-blockers')).toBeVisible();
+}
 
 test.describe.configure({ mode: 'serial' });
 test.use({ storageState: SHARED_AUTH_STATE_PATH });
@@ -90,4 +103,76 @@ test('Oracle Projects Tab — badge, card, drawer, reply-clears-tag, screenshot'
   }).toPass({ timeout: 10_000 });
 
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'oracle-projects-tab.png'), fullPage: true });
+});
+
+// Phase 5 — dismiss a blocker, verify it disappears, undo it, verify it reappears. Runs
+// against the fixture's review blocker (task-sourced, kind='task' dismissal per
+// DISMISSAL_KIND_BY_BLOCKER_KIND). Ends in the same state it started in (undone), so a
+// later test in this serial file still finds the review blocker.
+test('Oracle Projects Tab — dismiss a blocker and undo (real API)', async ({ page }) => {
+  await openFixtureDrawer(page);
+
+  const reviewRow = page.locator('[data-testid="blocker-row"][data-kind="review"]').first();
+  await expect(reviewRow).toBeVisible();
+  await reviewRow.getByRole('button', { name: /^dismiss$/i }).click();
+
+  // The dismissed blocker drops out of the Blockers list entirely (the route excludes
+  // it, not just a client-side hide) — wait for the row itself to go away.
+  await expect(reviewRow).toHaveCount(0, { timeout: 10_000 });
+
+  // Confirmed via the real API too, not just the UI's own optimistic state.
+  const projectsRes = await page.request.get('/api/oracle/projects');
+  expect(projectsRes.ok()).toBe(true);
+  const projectsBody = await projectsRes.json();
+  const fixtureProject = projectsBody.projects.find((p: { name: string }) => p.name === PROJECT_NAME);
+  expect(fixtureProject).toBeTruthy();
+  expect(fixtureProject.blockers.some((b: { kind: string }) => b.kind === 'review')).toBe(false);
+  expect(fixtureProject.dismissals.length).toBeGreaterThan(0);
+
+  // Undo via the drawer's "Dismissed items" section.
+  await page.getByText(/dismissed items \(\d+\)/i).click();
+  const dismissedItem = page.getByTestId('dismissed-item').first();
+  await expect(dismissedItem).toBeVisible();
+  await dismissedItem.getByRole('button', { name: /undo/i }).click();
+
+  await expect(page.locator('[data-testid="blocker-row"][data-kind="review"]')).toHaveCount(1, { timeout: 10_000 });
+});
+
+// Phase 5 — open the ApprovalPanel for the review blocker (review blockers qualify per
+// showsApprovalPanel, same as client_approval ones), draft, pick the fixture contact,
+// and queue it. Verified via the real API — status:'queued' means the machine-side
+// sender would pick this row up on its next poll, not that the UI merely rendered a
+// success toast.
+test('Oracle Projects Tab — opens the ApprovalPanel and queues a draft (status queued via API)', async ({ page }) => {
+  await openFixtureDrawer(page);
+
+  const approvals = page.getByTestId('drawer-approvals');
+  await expect(approvals).toBeVisible();
+  await approvals.getByRole('button', { name: /draft approval request/i }).click();
+
+  const panel = approvals.getByTestId('approval-panel');
+  await expect(panel.getByLabel(/^subject$/i)).toBeVisible({ timeout: 10_000 });
+
+  await panel.getByLabel(/^send to$/i).selectOption({ label: `${CONTACT_NAME} (${CONTACT_EMAIL})` });
+  await panel.getByRole('button', { name: /queue to send from my gmail/i }).click();
+
+  await expect(panel.getByTestId('approval-panel-status')).toHaveText(/queued/i, { timeout: 10_000 });
+
+  // Confirmed via the real API: the row this button just PATCHed is actually 'queued',
+  // with the fixture contact's email, ready for the machine-side sender's next poll.
+  await expect(async () => {
+    const tasksRes = await page.request.get(`/api/tasks?search=${encodeURIComponent(REVIEW_TASK_TITLE)}`);
+    expect(tasksRes.ok()).toBe(true);
+    const tasksBody = await tasksRes.json();
+    const reviewTask = tasksBody.tasks.find((t: { title: string }) => t.title === REVIEW_TASK_TITLE);
+    expect(reviewTask).toBeTruthy();
+
+    const arRes = await page.request.get(`/api/approval-requests?task_id=${reviewTask.id}`);
+    expect(arRes.ok()).toBe(true);
+    const arBody = await arRes.json();
+    expect(arBody.requests.length).toBeGreaterThan(0);
+    const latest = arBody.requests[arBody.requests.length - 1];
+    expect(latest.status).toBe('queued');
+    expect(latest.to_email).toBe(CONTACT_EMAIL);
+  }).toPass({ timeout: 10_000 });
 });

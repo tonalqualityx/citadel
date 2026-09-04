@@ -37,6 +37,7 @@ model User {
   projects_next_step_owner           Project[]                @relation("ProjectNextStepOwner")
   project_notes                      ProjectNote[]
   approval_requests_created          ApprovalRequest[]        @relation("ApprovalRequestCreatedBy")
+  approval_requests_queued           ApprovalRequest[]        @relation("ApprovalRequestQueuedBy")
   blocker_dismissals                 BlockerDismissal[]
   team_assignments                   ProjectTeamAssignment[]
   user_functions                     UserFunction[]
@@ -3244,6 +3245,27 @@ model ApprovalRequest {
 
   // Phase 5 — POST /api/approval-requests/:id/seen-in-meeting, for the meeting-sync skill.
   seen_in_meeting_at DateTime?
+
+  // Phase 5 — state-machine timestamps, one per transition PATCH /api/approval-requests/:id
+  // can make. draft->queued stamps queued_at/queued_by_id; queued->cancelled stamps
+  // cancelled_at; sent|replied->approved stamps approved_at; sent|replied->changes_requested
+  // stamps changes_requested_at. Each is independent of the others — a row can carry at
+  // most one of cancelled_at/approved_at/changes_requested_at, since those three are the
+  // terminal states, but queued_at survives past them as the historical record of when it
+  // was first queued to send.
+  queued_at              DateTime?
+  queued_by_id           String?   @db.Uuid
+  queued_by              User?     @relation("ApprovalRequestQueuedBy", fields: [queued_by_id], references: [id])
+  cancelled_at           DateTime?
+  approved_at            DateTime?
+  changes_requested_at   DateTime?
+
+  // Phase 5 — set by PUT .../send-error when the machine-side sender fails to send a
+  // queued row; cleared on a subsequent successful send. After 3 recorded errors the
+  // sender's own PUT flips status back to 'draft' (see approval-sender.py) rather than
+  // retrying forever — send_error stays set on that draft as the reason it bounced back.
+  send_error       String? @db.Text
+  send_error_count Int     @default(0)
 
   created_by_id String?  @db.Uuid
   created_by    User?    @relation("ApprovalRequestCreatedBy", fields: [created_by_id], references: [id])

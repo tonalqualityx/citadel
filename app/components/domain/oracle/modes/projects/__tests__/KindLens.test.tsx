@@ -21,6 +21,12 @@ vi.mock('@/lib/hooks/use-today', () => ({
   useCreateTodayPick: () => ({ mutateAsync: mockCreatePickMutateAsync, isPending: false }),
   useTodayPicks: (...args: unknown[]) => mockUseTodayPicks(...args),
 }));
+// Phase 5 carry-over B — same identity-mock convention as ProjectsView.test.tsx: keeps
+// every existing 'task'/'tasks' text assertion below valid while proving KindLens's
+// "already in another arc" toast and the re-home checkbox label route through t().
+vi.mock('@/lib/hooks/use-terminology', () => ({
+  useTerminology: () => ({ t: (k: string) => k }),
+}));
 
 import { KindLens } from '../KindLens';
 
@@ -35,6 +41,9 @@ function blocker(overrides: Partial<Blocker> = {}): Blocker {
     since: '2026-08-01T00:00:00Z',
     actions: ['approve', 'request_changes', 'open_task', 'dismiss'],
     arc: null,
+    chase_due_at: null,
+    chase_draft: null,
+    dismiss: null,
     ...overrides,
   };
 }
@@ -203,6 +212,28 @@ describe('KindLens — WIP cap (MEDIUM-5)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('kind-lens-error')).toHaveTextContent('Today is already at the 5-item cap.')
     );
+  });
+});
+
+// Phase 5 carry-over F — pick actions disabled until the Today query has resolved
+// (remainingCapacity is null before then, which the pre-flight cap checks already treat
+// as "no cap known" and let a pick proceed without one).
+describe('KindLens — pick actions wait on the Today query (carry-over F)', () => {
+  it('both pick actions are disabled, and the cap line shows a loading state, before useTodayPicks resolves', () => {
+    mockUseTodayPicks.mockReturnValue({ data: undefined });
+    renderLens();
+    expect(screen.getByTestId('kind-lens-cap-count')).toHaveTextContent("Loading today's picks");
+    fireEvent.click(screen.getByLabelText('Select all Reviews'));
+    expect(screen.getByRole('button', { name: /add to today's picks/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /new arc…/i })).toBeDisabled();
+  });
+
+  it('both pick actions are enabled once useTodayPicks has resolved', () => {
+    mockUseTodayPicks.mockReturnValue({ data: { meta: { total: 2, uncompleted: 2, cap: 5 } } });
+    renderLens();
+    fireEvent.click(screen.getByLabelText('Select all Reviews'));
+    expect(screen.getByRole('button', { name: /add to today's picks/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: /new arc…/i })).not.toBeDisabled();
   });
 });
 

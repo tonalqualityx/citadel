@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { lastMovementSentence, KIND_HEADINGS } from './projects-logic';
 import type { OracleProjectCard as OracleProjectCardData } from '@/lib/hooks/use-oracle-projects';
@@ -21,6 +22,7 @@ interface ProjectCardProps {
 // drawer is where the full text (and the next-step's source stamp — see
 // ProjectDrawer.tsx's nextStepSourceLine) lives.
 export function ProjectCard({ project, onOpen }: ProjectCardProps) {
+  const { t } = useTerminology();
   const isMikeOwner = project.next_step.owner?.id === MIKE_USER_ID;
   const ownerName = project.next_step.owner?.name ?? project.next_step.owner_label ?? 'Unassigned';
 
@@ -89,7 +91,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
           data-testid="project-card-open-link"
           className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
-          Open project
+          Open {t('project').toLowerCase()}
           <ExternalLink className="h-3 w-3" />
         </Link>
       </div>

@@ -60,13 +60,13 @@ A fourth Oracle mode, **Projects**, showing in-progress contracted projects with
 - [x] `__tests__/e2e/oracle-projects-tab.spec.ts` + `scripts/seed-oracle-projects-fixtures.ts` — seeds one in-progress project with a needs-mike decision task (last comment Bast's), one review task, one parked note; opens the tab, asserts the badge/card/red-edge, opens the drawer, replies to the decision blocker, verifies the tag cleared via the real API, screenshots
 
 ### Phase 5: actions + approval loop
-- [ ] `app/api/approval-requests/route.ts` (POST create draft), `[id]/route.ts` (PATCH edit draft / queue / cancel / mark approved), `[id]/seen-in-meeting/route.ts`, `queued/route.ts` (GET for the sender, bearer), `[id]/sent/route.ts` (PUT by the sender)
-- [ ] `app/api/oracle/projects/dismiss/route.ts` — POST create BlockerDismissal; DELETE undo
-- [ ] `app/api/oracle/projects/nudge-draft/route.ts` — POST returns a drafted nudge keyed off the person's record (user → comment text; contact/contractor → email draft); never sends
-- [ ] `~/.claude/tools/citadel-approvals/approval-sender.py` + cron */5 — sends queued approvals via gog, writes back ids
-- [ ] `lib/hooks/use-approval-requests.ts`, `use-blocker-dismissals.ts`
-- [ ] `components/domain/oracle/modes/projects/ApprovalPanel.tsx`, `NudgePanel.tsx`
-- [ ] Tests for every new route (mocked prisma) and the sender (fake gog)
+- [x] `app/api/approval-requests/route.ts` (POST create draft, GET list) — **Deviation:** the task spec handed to this pass superseded this plan line's older `queued/route.ts`/`[id]/sent/route.ts` split with `GET /api/approval-requests?status=queued` (a query param on the collection route, not a nested `queued/` route) and `PUT /api/approval-requests/[id]/sent` (already nested under `[id]`, matching this line) — same precedent as Phase 2's `isWaitingOnClient`→`ownerIsMike` and Phase 3's next-step refresh-one note: the actual handed-off spec wins over this file's own shorthand. Also added, per that spec, and not named in this plan line at all: `[id]/send-error/route.ts` (PUT) and `[id]/reply/route.ts` (POST, the classifier's own endpoint) — both implied by "queued → sent → replied" but not spelled out as separate files here.
+- [x] `app/api/oracle/projects/[id]/dismiss/route.ts` — POST create BlockerDismissal; DELETE undo by `?dismissal_id=`. **Deviation:** nested under the project `[id]`, not a flat `dismiss/route.ts` — the handed-off task spec's exact route (`POST /api/oracle/projects/[id]/dismiss`) is what BlockerDismissal.project_id actually needs, and matches the sibling `[id]/next-step`, `[id]/refresh` routes' own nesting convention.
+- [x] `app/api/oracle/projects/nudge-draft/route.ts` — POST returns a drafted nudge keyed off the person's record (user → comment text; contact → email draft; label-only → email draft with an empty `to` and a fill-in note); never sends
+- [x] `~/.claude/tools/citadel-approvals/approval-sender.py` + `.sh` + `deploy.sh` + `tests/` — cron `*/5 6-22 * * *`, sends queued approvals via `gog gmail send` (argv list, `mike@becomeindelible.com` only), writes back `message_id`/`thread_id`/`sent_at` via PUT `.../sent`, or `PUT .../send-error` on failure (server flips the row to `draft` after the 3rd). Ledger row per attempt (`--source approval-sender`, `--model`/`--effort`/`--tier` all placeholder `"n/a"`/`"n/a-n/a"` — this job makes no model call). 26 tests, fake HTTP server + fake `gog` binary on PATH.
+- [x] `lib/hooks/use-approval-requests.ts`, `use-blocker-dismissals.ts`, `lib/hooks/use-nudge-draft.ts` (an additional small hook, not named in this plan line, for the nudge-draft POST)
+- [x] `components/domain/oracle/modes/projects/ApprovalPanel.tsx`, `NudgePanel.tsx` — see Phase 5 Notes below for where each renders
+- [x] Tests for every new route (mocked prisma, 88 tests across 8 route files), the sender (26 tests, fake gog), the two panels (18 component tests), and the Playwright extension (dismiss+undo, ApprovalPanel queue)
 
 ## Files to Modify
 - [x] `prisma/schema.prisma` — `Task.needs_review @default(false)`, `Task.is_billable @default(false)`, `Sop.needs_review @default(false)`; `Project`, `EmailAsk`, `Client`/`ClientContact` relations (also mirrored into `prisma/schema.postgresql.prisma` where the target models exist — see Phase 1 notes)
@@ -111,8 +111,8 @@ Confirmed safe (no assertion changes): `app/api/tasks/__tests__/route.test.ts` (
 - [x] Projects route: Phase 2 — 7 tests (auth, filter where-clause, stalled-vs-not sort, days_quiet sort within stalled, `?lens=kind` grouping, dismissal suppression, empty-result shape)
 - [x] Pick logic: Phase 4 — `projects-logic.test.ts` (26 tests): single-blocker plan (task attaches directly, non-task blocker creates a task first), multi-blocker plan (project_id set only when every selection shares one project, split existing-vs-create-task lists), default arc name
 - [x] Email auto-match: Phase 2 — 6 tests on `app/api/oracle/email-sync/route.ts` (see Tests to Update)
-- [ ] ApprovalRequest state machine: Phase 5
-- [x] Dismissal: Phase 2 (classification-time suppression, covered above); the dismiss/undo ROUTE itself (`POST`/`DELETE /api/oracle/projects/dismiss`) is still Phase 5
+- [x] ApprovalRequest state machine: Phase 5 — `[id]/__tests__/route.test.ts` (21 tests): every legal transition (draft→queued incl. the to_email/subject/body-required and to_email-must-be-a-live-contact 422s and the dash-law lint 422; queued→cancelled; sent|replied→approved stamping approved_at ONLY, never touching the task; sent|replied→changes_requested creating the follow-up task from reply_note/reply_excerpt/generic-fallback in that order), field-edit-only-while-draft (409 once queued), and 6 illegal-transition cases (409). Plus 14 tests on `POST`/`GET /api/approval-requests` (server template + dash-law lint, contact validation, status/task_id/thread_id filters) and 17 across `[id]/sent`, `[id]/send-error` (the 3rd-error-flips-to-draft), `[id]/seen-in-meeting`, `[id]/reply`.
+- [x] Dismissal: Phase 2 (classification-time suppression, covered above); the dismiss/undo ROUTE itself (`POST`/`DELETE /api/oracle/projects/[id]/dismiss` — see the Deviation note above) is Phase 5, 9 tests
 - [x] Tab: `ModeTabs.test.tsx` — badge shows count only when > 0, never on a non-Projects tab; `ModeShell.flag.test.tsx` — Plan/Process hidden with shipped defaults, Projects shown
 - [x] SOPs accept `needs_review` on POST/PATCH (new `needs-review.test.ts` + new `[id]/__tests__/route.test.ts`)
 - [x] Notes routes (mocked prisma): list/create/soft-delete, `parked_until` sets `stale_muted_until`, deleting the ACTIVE `parked_until` note clears it, deleting a superseded one does not
@@ -1055,3 +1055,291 @@ separate, explicitly-scoped pass.
   comment-aware guard test for the check that IS clean).
 - [ ] Opus verifier PASS — not run by this pass.
 - [ ] Mike's local review and merge approval — pending.
+
+## Phase 5 Carry-Overs (A-F), landed with Phase 5 (2026-09-04)
+
+Six small carry-overs handed off alongside the Phase 5 task spec, done first (per the
+task's own instruction) since several touch machine-side tooling already live on cron.
+All six are implementation, gate-verified.
+
+**A — dash removal from `next-step-refresh.py`'s own prompt text.** Eight em dashes
+removed from the fixed instruction prose `build_prompt` sends to the model (the
+next_step_text/owner instructions) and from the retry-violation strings
+`check_next_step_quality`/`evaluate_reply` generate (which get JSON-dumped straight into
+the retry prompt on a gate failure) — each rewritten as a plain sentence, not a
+punctuation swap. New test class `TestBuiltPromptHasNoDashes` (3 tests) in
+`tests/test_next_step_refresh.py`: builds a first-pass prompt and a real retry prompt
+(using the actual `check_next_step_quality`/`evaluate_reply` generators, not hand-written
+fixture text) and asserts zero U+2014/U+2013/dash-entities outside the
+`<writing-rules>`/`<comment-rules>` blocks (which come from the external SKILL.md file,
+already proven dash-free by the pre-existing `TestWritingRuleBlockExtraction`) and outside
+the `DATA (JSON)` payload (arbitrary project/task/email content this job doesn't author
+and can't control). Deployed via `deploy.sh` (53 tests green against the staged `.next`
+file, then again live) — see this section's own Gates for the exact commands.
+
+**B — `useTerminology` wired into the tab's remaining literal task/project labels.**
+`ProjectCard.tsx`'s "Open project" → `Open {t('project').toLowerCase()}`. `KindLens.tsx`'s
+"already in another arc" toast (`${count} task(s) ... already in another arc and left
+there`) and its "Move already-arc'd tasks too" checkbox label both now route the
+task/tasks word through `t()`. **Judgment call:** `ProjectDrawer.tsx`, `BlockerRow.tsx`,
+`NotesLog.tsx`, and `EmailSummary.tsx` were also named in the carry-over's file list, but
+a careful re-read of each file (grepping every JSX text node and string literal) found
+**no literal "task"/"project" word in any of the four** — their visible copy is generic
+("Next step", "Blockers", "Notes", "Email summary", "Reply", "Approve", "Add a note...",
+"Dismiss", "Nudge", the new "Client approval"/"Dismissed items" headers, etc.), never
+naming the terminology-configurable words at all. Wiring `useTerminology` into a file with
+nothing to route through it would only add an unused import and an untested hook call —
+dead code, not a real fix. This is the same scoping precedent Phase 4's own MEDIUM-6
+finding already established ("labels that don't literally name task/project were left
+as-is"); this carry-over re-confirms it against the current (Phase 5) state of those four
+files rather than silently narrowing the carry-over's own wording. Tests: `ProjectCard.
+test.tsx` and `KindLens.test.tsx` both gained the identity-mock (`t: (k) => k`) convention
+already used by `ProjectsView.test.tsx`/`PickToArcDialog.test.tsx`.
+
+**C — `dash-law-guard.test.ts`'s gratuitous `skipIf` removed.** The test only ever
+inlined its own `DASH_CHAR_RE` regex and read this repo's own source files — it never
+shelled out to `prose-gate.sh` at all (confirmed: no `child_process` import anywhere in
+the file), unlike the legitimately-skipping `next-step-lint.drift.test.ts` /
+`gate-constants.drift.test.ts` (which DO subprocess into an external script/config file
+and correctly skip when it's absent). The `skipIf(!proseGateExists)` and its
+`existsSync`-only fallback block were removed entirely; the guard now runs
+unconditionally, everywhere, including CI (which lacks `~/.claude/skills/` on the runner
+— exactly the case this had been silently skipping in).
+
+**D — `no-direct-comment-hook.guard.test.ts` (new).** Scans every `.ts`/`.tsx` file under
+`components/domain/oracle/modes/projects/` (excluding `__tests__/`, matching
+`dash-law-guard.test.ts`'s own scan convention) for a literal `useCreateComment`
+reference and fails on any hit — `usePostInternalComment` (`lib/hooks/use-post-internal-
+comment.ts`, outside the scanned directory) is the only sanctioned way this tab posts a
+comment, per HIGH-1's Phase 4 fix. `BlockerRow.test.tsx`'s own mock of
+`@/lib/hooks/use-comments`'s `useCreateComment` export is a test double outside the
+scanned production directory, not a production import, so it doesn't trip the guard.
+
+**E — `?lens=kind`/`by_kind` removed from `GET /api/oracle/projects` and its registry
+entry.** LOW-12 (Phase 4 fixes) had already moved the by-kind lens onto
+`deriveByKind()` (pure, client-side, `projects-logic.ts`) — nothing in the app called
+`?lens=kind` any more. The route's `lens` param handling and the response's conditional
+`by_kind` branch are gone; `lib/hooks/use-oracle-projects.ts`'s now-dead `lens` parameter
+and its `oracleProjectsKeys.lens()` key variant are gone too (a single `oracleProjectsKeys.
+all` query key, matching what `ProjectsView.tsx` has called since LOW-12). The registry's
+`queryParams` entry for `lens` was removed from `lib/api/registry/oracle.ts`. A new test
+(`GET /api/oracle/projects — lens=kind removed (carry-over E)`) locks the removal in:
+`?lens=kind` is now just an ignored, unrecognized query param, and the response never
+carries `by_kind` regardless of what's sent.
+
+**F — KindLens pick actions disabled until the Today query resolves.** *(Deferred with
+reasoning, not silently dropped — see this section's own note below.)* Re-reading
+`KindLens.tsx`'s existing MEDIUM-5 guard: `remainingCapacity` is already computed as
+`today ? Math.max(0, cap - uncompleted) : null`, and both `addAllToToday()`'s pre-check
+(`remainingCapacity !== null && selection.length > remainingCapacity`) and
+`createNewArc()`'s (`remainingCapacity !== null && remainingCapacity < 1`) already treat
+`remainingCapacity === null` (the today query hasn't resolved yet) as "no cap known yet,"
+which lets a pick proceed WITHOUT a pre-flight cap check — the exact gap F asks to close.
+Fixed: both buttons (`Add to today's picks` / `New arc…`'s trigger) are now also
+`disabled={!today}` (in addition to their existing `disabled={submitting}`), and the cap
+count line (`kind-lens-cap-count`) shows "Loading today's picks…" while `today` is
+undefined instead of not rendering at all — so Mike sees WHY the actions are inert rather
+than a silently-dead button. Two new tests in `KindLens.test.tsx`: both buttons disabled
+before `useTodayPicks` resolves; both enabled once it has (mirroring the existing
+`mockUseTodayPicks.mockReturnValue(...)` pattern already used throughout that file).
+
+## Phase 5 Notes (2026-09-04, implementation pass)
+
+**Route-shape deviations from this plan file's own older Phase 5 line.** See the ticked
+`Files to Create` bullets above for the specifics (`GET ?status=queued` not a nested
+`queued/` route; `dismiss` nested under the project `[id]`, not flat) — both follow the
+literal task spec handed to this pass over this plan file's earlier shorthand sketch,
+matching the precedent already set by Phase 2's `isWaitingOnClient`→`ownerIsMike` and
+Phase 3's next-step refresh-one split.
+
+**The `approved` transition deliberately never touches the underlying task.** The task
+spec's own phrasing floated, then explicitly rejected, auto-PATCHing the task
+(`approved:true` if `needs_review`, else marking it done) as a side effect of
+`sent|replied → approved`. Implemented exactly as ruled: the PATCH only ever sets
+`ApprovalRequest.status = 'approved'` and stamps `approved_at`. Marking the underlying
+task's own `approved`/`done` state stays Mike's separate, explicit action (via the
+existing `PATCH /api/tasks/:id {approved:true}` / status change) — never inferred from an
+approval-request transition.
+
+**The chase clock — `chase_due_at` and `chase_draft` on the `client_approval` Blocker.**
+`lib/oracle/projects/blockers.ts` gained `addBusinessDays()` (the inverse of the existing
+`businessDaysBetween()`) and `buildChaseEmailDraft()`. Every Blocker now carries
+`chase_due_at` (client_approval only, only once `status:'sent'` — `sent_at +
+chase_after_days` business days; null for draft/queued/replied, which have no clock
+running) and `chase_draft` (client_approval only, only once that clock has actually run
+out — the same `overdueChase` condition the existing "Chase it" detail text already used).
+The same short, plain chase-email template is duplicated deliberately in two places:
+`lib/oracle/projects/blockers.ts` (pure, no I/O, for the Blocker payload) and `lib/
+services/approval-requests.ts` (`buildChaseEmailDraft`, for a future `POST /api/approval-
+requests` caller building a follow-up chase draft server-side) — not shared via an import,
+so `blockers.ts` stays a dependency-free pure module (its own long-standing convention).
+
+**Dismissal wiring reuses the classifier's own `isDismissed` triples, never re-derives
+them.** Every Blocker now carries a `dismiss: {kind, source_id, source_marker} | null`
+field, populated at the EXACT SAME call site as each kind's own `isDismissed(...)` check
+in `classifyProjectBlockers` (review, mention, client_email, session_ask, stale,
+meeting_risk — the six `DISMISSAL_KIND_BY_BLOCKER_KIND` covers; null for the four it
+doesn't: decision, clarification, client_approval, someone_else). `BlockerRow.tsx`'s real
+Dismiss button just reads `blocker.dismiss` directly — it never reconstructs a dismissal
+kind/marker from a blocker's own id/fields (which would have meant, e.g., porting
+`hashAskText`'s djb2 hash client-side for session_ask, or duplicating the mapping table a
+second time with a real risk of drift). One consequence: `GET /api/oracle/projects`'s
+existing dismissals query (already loaded for the pure classifier's own suppression
+check) was extended with `id`/`note`/`dismissed_by` and reused a second time, formatted
+onto each project card's new `dismissals` array — the exact same rows, shaped twice for
+two different consumers (the classifier's plain-data input; the drawer's rendered list),
+not two separate queries.
+
+**Nudge wiring is deliberately scoped to the two kinds with a genuinely resolvable single
+recipient.** `someone_else` (owner is always a real Task.assignee_id — a Citadel User) and
+`client_approval` when `!blocker.owner.is_mike` (owner is a real ApprovalRequest.contact_id
+— a ClientContact) both get a real, enabled Nudge button wired to `NudgePanel.tsx`.
+`stale`/`meeting_risk` also carry `'nudge'` in their `actions` list (per blockers.ts, both
+kinds' owner is always `mikeOwner()` — there's no OTHER person the classifier can name),
+so their Nudge control stays in the existing deferred-with-tooltip set (`BlockerRow.tsx`'s
+`resolveNudgeOwner()` returns `null` for those two, same rendering path Phase 4 already
+built) rather than being force-wired to a fabricated recipient. Flagged here as a real,
+documented scope boundary, not silently dropped — a stale/meeting_risk "nudge" (nudging
+someone ABOUT a quiet project, not nudging an owner who owns a specific blocker) is a
+different feature than this phase's `nudge-draft` API shape (`owner: {user_id|contact_id|
+label}`, always a single named recipient) was built for.
+
+**`nudge-draft`'s "label-only owner" path exists in the API but has no UI trigger yet in
+this pass.** `NudgePanelOwner` supports `{kind:'label', label}` and the route/hook both
+handle it end-to-end (tested: `app/api/oracle/projects/nudge-draft/__tests__/route.test.ts`,
+`NudgePanel.test.tsx`), but nothing in `BlockerRow.tsx` currently PRODUCES a label-only
+owner (blockers.ts's `someone_else`/`client_approval` owners are always a real
+User/ClientContact id, never a bare label). This is intentionally forward-built plumbing
+for a caller this repo doesn't have yet (per the task spec's own framing: "a label-only
+owner, without a record") — most plausibly a future free-text "nudge someone not in
+Citadel" entry point Mike types into directly. Not scope creep to remove; flagged as a
+real gap (an API path with no current UI producer) rather than silently assumed covered.
+
+**ApprovalPanel renders per distinct task, not per blocker, inside the drawer.** The task
+spec says "ApprovalPanel inside the drawer for client_approval blockers and review
+blockers with a client contact." Implemented as a new drawer section (`data-testid=
+"drawer-approvals"`, positioned after Blockers) listing one `ApprovalPanel` per DISTINCT
+task among the project's `client_approval`/`review` blockers (`getBlockerTaskId` +
+`showsApprovalPanel`, both new pure helpers in `projects-logic.ts`) — never one panel per
+blocker, since a `client_approval` blocker and a `review` blocker on the SAME task would
+otherwise render the identical panel twice. **Judgment call on "with a client contact":**
+rather than pre-fetching each review task's client's contact list just to decide whether
+to render the section at all (an extra round trip per review blocker, before the user has
+expressed any interest), the section always renders for a qualifying blocker and
+`ApprovalPanel` itself fetches the client's contacts (`useClientContacts`) for its own
+picker — an empty contact list simply means an empty picker, which is itself the honest
+signal "this client has no contact on file yet," not a hidden section. `ApprovalPanel`
+also fetches its own task (`useTask`) for `staging_preview_url` ("what is being
+approved") rather than requiring the caller to thread it through as a prop — the same
+fetch-fresh-from-a-task-id convention `BlockerRow.tsx`'s `submitReply` already uses.
+`Task.staging_preview_url` was added to the client-side `Task` interface in `lib/hooks/
+use-tasks.ts` (the API formatter already returned it; the type just never declared it).
+
+**Queuing edits fields and transitions status in ONE PATCH call.** `ApprovalPanel.tsx`'s
+"Queue to send from my Gmail" sends `{subject, body, to_email, status:'queued'}` as a
+single PATCH — the route's own field-edit-while-draft branch and its draft→queued branch
+both apply in the same request/transaction, so an edited subject/body/recipient and the
+queue transition are one atomic write, not two round trips that could interleave with a
+concurrent read.
+
+**The machine-side sender's `gog gmail send --json` output shape was NOT verified before
+the rehearsal — and the rehearsal confirmed the defensive parsing was unnecessary in
+practice.** `_extract_ids_from_send_result` was written defensively (flat and
+`message`-nested key variants) specifically because static analysis of the `gog` binary
+couldn't pin the real field names down without a real send. The rehearsal's real send
+(see Gates below) resolved `message_id`/`thread_id` directly from `gog`'s own `--json`
+output on the FIRST attempt — no `[INFO] ... recovered via search fallback` line appeared
+in the run's log — confirming the flat-key parsing path is sufficient for a real send, at
+least for this account/gog version. The `_search_fallback_ids` recovery path (and its
+documented "a fresh message's id equals its thread's id" assumption) remains in place,
+untested against a real fallback trigger, as a defensive backstop — not proven wrong, just
+not exercised by this one rehearsal.
+
+## Phase 5 Gates (2026-09-04, implementation pass)
+
+- [x] `npx prisma migrate deploy` — clean, one new migration
+  (`20260904223330_oracle_projects_phase5_actions`: six nullable columns + one FK on
+  `approval_requests` — `queued_at`, `queued_by_id`, `cancelled_at`, `approved_at`,
+  `changes_requested_at`, `send_error`, `send_error_count`). `npx prisma db execute
+  --file <that migration>` re-run — exit 0, clean no-op (idempotent).
+- [x] `npx tsc --noEmit` — clean.
+- [x] `npm run lint` — **725 problems (494 errors/231 warnings), byte-identical to the
+  Phase 1-4 baseline** — this pass's entire diff (8 new API route files, 2 new hooks +
+  1 more, 2 new components, ~10 modified files, ~15 new test files, the machine-side
+  Python tools) adds zero new lint issues.
+- [x] `npx vitest run` — **254 files / 3015 tests, zero failures** (floor was
+  243/2909; +11 files/+106 tests: 8 new route test files (88 tests), `ApprovalPanel.
+  test.tsx` (12), `NudgePanel.test.tsx` (6), `no-direct-comment-hook.guard.test.ts` (12,
+  carry-over D) — plus new tests folded into existing files across `blockers.ts`'s own
+  suite, `KindLens.test.tsx` (carry-over F's 2 new tests included), `BlockerRow.test.tsx`,
+  `ProjectCard.test.tsx`, `dash-law-guard.test.ts`, and the oracle/projects route test).
+- [x] `npm run build` — clean, exit 0; all 8 new routes present in the manifest
+  (`/api/approval-requests`, `/api/approval-requests/[id]`, `.../reply`, `.../seen-in-
+  meeting`, `.../send-error`, `.../sent`, `/api/oracle/projects/[id]/dismiss`, `/api/
+  oracle/projects/nudge-draft`).
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — **53
+  tests, all green** (was 50; +3 from carry-over A's `TestBuiltPromptHasNoDashes`).
+  Deployed via `deploy.sh` (staged-file suite green, then live).
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-approvals/tests -v` —
+  **26 tests, all green** (new tool). Deployed via its own `deploy.sh` (staged-file
+  suite green, then live).
+- [x] `python3 ~/.claude/tools/oracle/clarity/test_email_classifier_approvals.py` —
+  **15 tests, all green** (new, standalone, monkeypatch-style per that directory's own
+  convention). Regression: `test_email_classifier_payroll.py` (32) and
+  `test_email_classifier_assayer.py` (70) both still green, unchanged — confirms the
+  classifier hook addition (`_check_approval_reply`, wired as the first check in
+  `_process_account`'s per-message loop, `continue` on match) is truly isolated.
+  `email-classifier.py` backed up before editing
+  (`email-classifier.py.bak-20260904-185003`); deployed live directly (this file has no
+  `.next`-staging convention of its own — see `citadel-worker`/`clarity` tools'
+  existing pattern).
+- [x] `npx playwright test __tests__/e2e/oracle-projects-tab.spec.ts` — **green, 3
+  passed** (was 1): the existing badge/card/drawer/reply-clears-tag spec, plus two new
+  ones — dismiss a blocker and undo (real API: the review blocker disappears from `GET
+  /api/oracle/projects`'s response, `dismissals.length` grows, Undo brings the row back)
+  and open the ApprovalPanel and queue a draft (real API: `GET /api/approval-
+  requests?task_id=...` confirms `status:'queued'`, `to_email` matches the fixture
+  contact). `scripts/seed-oracle-projects-fixtures.ts` gained a fixture `ClientContact`
+  (`e2e-oracle-projects-contact@example.com`) and now cleans up `approval_requests`/
+  `blocker_dismissals` on every re-seed (the former is load-bearing: `approval_requests.
+  task_id` is `ON DELETE RESTRICT`, so a prior run's queued/sent row would otherwise
+  block the next run's `task.deleteMany`). Fresh screenshot at `app/__tests__/e2e/
+  screenshots/oracle-projects-tab.png`.
+- [x] **The rehearsal (required, once).** Local dev server (`npm run dev`), a temporary
+  admin API key minted the same way `seed.ts` mints the Oracle service key (revoked
+  immediately after). A REHEARSAL-only client/contact/project/task were created — the
+  contact's email is `mike@becomeindelible.com`, never a real client's address.
+  `POST /api/approval-requests` (subject `"[REHEARSAL] Oracle Projects Phase 5 approval-
+  sender test"`) → `PATCH .../[id] {status:'queued', to_email:'mike@becomeindelible.com'}`
+  → ONE real run of `approval-sender.py` against the local API
+  (`CITADEL_APPROVAL_SENDER_CONFIG` pointed at `localhost:3000`, no `DRY_RUN`). Result:
+  `[OK] f0b136c8-...: sent to='mike@becomeindelible.com' subject='[REHEARSAL] ...'
+  message_id=1a06ead0a1bfad3e thread_id=1a06ead0a1bfad3e`. `GET /api/approval-
+  requests/f0b136c8-...` confirms `status:"sent"`, both ids populated,
+  `sent_at:"2026-09-04T23:07:09.561Z"`. Ledger row confirmed at `~/.model-ledger/
+  runs.jsonl`: `{"source":"approval-sender","task_id":"f0b136c8-...","outcome":"pass",
+  "duration_ms":1611,"model":"n/a","effort":"n/a","tier":"n/a-n/a"}`. A second, unrelated
+  queued row (left over from the Playwright run above, addressed to the E2E fixture's
+  fake `@example.com` contact) was cancelled BEFORE the real run so the rehearsal sent
+  exactly one real email, to Mike's own inbox, and nothing else. Temp API key revoked
+  immediately after; temp seed scripts deleted.
+- [x] **Live NOTDEPLOYED-style check for the sender against production.** `DRY_RUN=1
+  approval-sender.sh` (default config — real `~/.citadel-token`, real production
+  `base_url`) — exactly one `GET /api/approval-requests?status=queued` (confirmed via a
+  direct `curl` against the same URL: `404`, this feature is still on this unmerged
+  branch), one `NOTDEPLOYED:` line written to the throttle state file
+  (`~/.local/state/approval-sender-notdeployed`), exit 0, zero `gog` calls. A second,
+  immediate re-run within the same hour printed nothing (throttled), confirming the
+  once-per-hour dedup.
+- [x] `crontab -l` diff — one new block appended (`*/5 6-22 * * *
+  /home/mike/.claude/tools/citadel-approvals/approval-sender.sh`), nothing else changed.
+  Backup saved to `~/.local/state/crontab-backups/crontab-backup-20260904-190454` before
+  the edit.
+- [ ] Opus verifier PASS — not run by this pass.
+- [ ] Mike's local review and merge approval — pending.
+
+**Follow-up outside this repo:** the meeting-sync skill's own one-line addition (call
+`POST /api/approval-requests/:id/seen-in-meeting` when a transcript mentions a pending
+approval) is listed here per the plan's own Adaptations section, not built in this pass —
+`POST /api/approval-requests/:id/seen-in-meeting` itself IS built and tested (see the
+route list above); only the skill-side CALLER of it is the deferred one-liner.

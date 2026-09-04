@@ -51,6 +51,11 @@ const REVIEW_TASK_TITLE = 'E2E: ship the contact form (needs review)';
 const BAST_COMMENT_TEXT =
   'Bast: two viable domain migration paths, need your call before I proceed — DNS cutover this week, or wait for the SSL renewal window?';
 const PARKED_NOTE_BODY = 'E2E: holding on the CMS migration until the client confirms their new host.';
+// Phase 5 — ApprovalPanel's contact picker needs at least one live ClientContact on the
+// fixture client (never a real client contact — this whole client is an E2E-only demo
+// row, see CLIENT_NAME).
+const CONTACT_EMAIL = 'e2e-oracle-projects-contact@example.com';
+const CONTACT_NAME = 'E2E Fixture Contact';
 
 async function main() {
   const admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
@@ -79,6 +84,16 @@ async function main() {
     client = await prisma.client.create({ data: { name: CLIENT_NAME } });
   }
 
+  console.log('Oracle Projects Tab fixtures: upserting demo client contact...');
+  const existingContact = await prisma.clientContact.findFirst({
+    where: { client_id: client.id, email: CONTACT_EMAIL },
+  });
+  if (!existingContact) {
+    await prisma.clientContact.create({
+      data: { client_id: client.id, email: CONTACT_EMAIL, name: CONTACT_NAME, can_initiate_work: true },
+    });
+  }
+
   let project = await prisma.project.findFirst({ where: { name: PROJECT_NAME, client_id: client.id } });
   if (!project) {
     project = await prisma.project.create({
@@ -102,9 +117,16 @@ async function main() {
   const existingTaskIds = existingTasks.map((t) => t.id);
   if (existingTaskIds.length > 0) {
     await prisma.comment.deleteMany({ where: { task_id: { in: existingTaskIds } } });
+    // Phase 5 — approval_requests.task_id is ON DELETE RESTRICT, so a prior Playwright
+    // run's queued/sent ApprovalRequest (created against last run's now-stale task ids)
+    // would otherwise block this run's task.deleteMany below.
+    await prisma.approvalRequest.deleteMany({ where: { task_id: { in: existingTaskIds } } });
   }
   await prisma.task.deleteMany({ where: { project_id: project.id } });
   await prisma.projectNote.deleteMany({ where: { project_id: project.id } });
+  // Phase 5 — same idempotent-reseed convention as tasks/comments/notes above: a prior
+  // run's dismissal (source_id pointing at a now-deleted task id) never accumulates.
+  await prisma.blockerDismissal.deleteMany({ where: { project_id: project.id } });
 
   const decisionTask = await prisma.task.create({
     data: {

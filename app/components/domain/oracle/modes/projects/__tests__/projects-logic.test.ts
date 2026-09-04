@@ -36,6 +36,7 @@ function card(overrides: Partial<OracleProjectCard> = {}): OracleProjectCard {
     email_summary: null,
     email_summary_at: null,
     linked_emails: [],
+    dismissals: [],
     ...overrides,
   };
 }
@@ -51,6 +52,9 @@ function blocker(overrides: Partial<Blocker> = {}): Blocker {
     since: '2026-08-01T00:00:00Z',
     actions: ['reply', 'open_task'],
     arc: null,
+    chase_due_at: null,
+    chase_draft: null,
+    dismiss: null,
     ...overrides,
   };
 }
