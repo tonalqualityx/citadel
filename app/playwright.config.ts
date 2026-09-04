@@ -33,6 +33,14 @@ export default defineConfig({
     // existing Plan/Process-tab specs (oracle-phase3, oracle-phase4a-email,
     // oracle-phase4b-peek, oracle-phase5-soothsayer, oracle-phase8-composition) stay
     // valid until those panes are retired by forcing the flag off here.
+    //
+    // Phase 2 follow-up (verification) — this only works because `next dev` (below)
+    // reads NEXT_PUBLIC_* env vars per-request at runtime. ORACLE_HIDE_PLAN_PROCESS is a
+    // NEXT_PUBLIC_ var, which Next.js normally BAKES INTO THE CLIENT BUNDLE AT BUILD
+    // TIME (`next build`) — setting it in a webServer env would have zero effect against
+    // a production build/`next start`. If this command ever changes to a build+start
+    // flow, this override needs to move to build time (e.g. as an env var ahead of the
+    // build step) or it will silently stop taking effect.
     env: {
       ...process.env,
       NEXT_PUBLIC_ORACLE_HIDE_PLAN_PROCESS: 'false',

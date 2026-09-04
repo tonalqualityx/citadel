@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logCreate } from '@/lib/services/activity';
+import { recomputeStaleMutedUntil } from '@/lib/services/project-notes';
 
 // Oracle Projects Phase 1 — the project notes log. `note` is a free-form log entry;
 // `parked_until` is a snooze note that ALSO stamps Project.stale_muted_until (Mike's
@@ -77,8 +78,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 }
 
-// POST /api/projects/[id]/notes — create a note (or a parked_until snooze). A
-// parked_until note also sets Project.stale_muted_until = until_date.
+// POST /api/projects/[id]/notes — create a note (or a parked_until snooze).
+// Project.stale_muted_until is recomputed after every create as MAX(until_date) over
+// this project's live parked_until notes (see recomputeStaleMutedUntil) — a plain `note`
+// create is a no-op for the mute; a `parked_until` create can only move it forward or
+// leave it unchanged, never backward.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
@@ -96,23 +100,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json();
     const data = createNoteSchema.parse(body);
 
-    const note = await prisma.projectNote.create({
-      data: {
-        project_id: projectId,
-        user_id: auth.userId,
-        kind: data.kind,
-        body: data.body,
-        until_date: data.until_date ? new Date(data.until_date) : null,
-      },
-      include: { user: { select: { id: true, name: true } } },
-    });
-
-    if (data.kind === 'parked_until') {
-      await prisma.project.update({
-        where: { id: projectId },
-        data: { stale_muted_until: data.until_date ? new Date(data.until_date) : null },
+    // Oracle Projects Phase 1 follow-up (verification) — the note write and the
+    // stale-mute recompute happen inside one transaction: stale_muted_until is always
+    // MAX(until_date) over live parked_until notes, never keyed on this note's own
+    // until_date directly. See lib/services/project-notes.ts for the full rationale.
+    const note = await prisma.$transaction(async (tx) => {
+      const created = await tx.projectNote.create({
+        data: {
+          project_id: projectId,
+          user_id: auth.userId,
+          kind: data.kind,
+          body: data.body,
+          until_date: data.until_date ? new Date(data.until_date) : null,
+        },
+        include: { user: { select: { id: true, name: true } } },
       });
-    }
+
+      await recomputeStaleMutedUntil(tx, projectId);
+
+      return created;
+    });
 
     await logCreate(auth.userId, 'project_note', note.id, project.name);
 

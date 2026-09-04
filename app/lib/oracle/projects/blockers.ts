@@ -1,0 +1,514 @@
+import { BOT_USER_IDS, MIKE_USER_ID } from './gate-constants';
+
+// Oracle Projects Tab Phase 2 — classifyProjectBlockers is a pure function: no Prisma, no
+// React, no clock reads (now is always passed in). Every field it needs is plain data the
+// route (app/api/oracle/projects/route.ts) gathers and shapes beforehand — this module
+// only ever answers "given this project's world as of `now`, what's blocking it and who
+// owns each blocker."
+
+export interface BlockerProject {
+  id: string;
+  name: string;
+  client: { id: string; name: string } | null;
+}
+
+export interface BlockerLastComment {
+  id: string;
+  user_id: string;
+  user_name: string;
+  created_at: string; // ISO
+  content_excerpt: string;
+}
+
+export interface BlockerTask {
+  id: string;
+  title: string;
+  status: string;
+  tags: string[];
+  needs_review: boolean;
+  approved: boolean;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  sop_title: string | null;
+  updated_at: string; // ISO
+  blocked_by_ids: string[];
+  phase_sort: number;
+  sort_order: number;
+  last_comment: BlockerLastComment | null;
+}
+
+export interface BlockerMention {
+  id: string;
+  task_id: string;
+  author: { id: string; name: string };
+  created_at: string; // ISO
+  excerpt: string;
+}
+
+export interface BlockerSessionAsk {
+  session_external_id: string;
+  queue: string | null;
+  text: string | null;
+  severity: string | null;
+  waiting_since: string | null; // ISO
+}
+
+export interface BlockerEmail {
+  id: string;
+  from: string;
+  subject: string;
+  gist: string | null;
+  received_at: string; // ISO
+  // Computed upstream: a later message from Mike exists in the thread, OR state != open.
+  replied: boolean;
+}
+
+export type ApprovalRequestStatus =
+  | 'draft'
+  | 'queued'
+  | 'sent'
+  | 'replied'
+  | 'approved'
+  | 'changes_requested'
+  | 'cancelled';
+
+export interface BlockerApprovalRequest {
+  id: string;
+  task_id: string;
+  status: ApprovalRequestStatus;
+  sent_at: string | null; // ISO
+  chase_after_days: number;
+  replied_at: string | null; // ISO
+  contact: { id: string; name: string } | null;
+}
+
+export interface BlockerCalendarEvent {
+  id: string;
+  title: string;
+  starts_at: string; // ISO
+}
+
+export interface BlockerTimeEntry {
+  started_at: string; // ISO
+}
+
+export interface BlockerDismissal {
+  kind: string;
+  source_id: string;
+  source_marker: string | null;
+  dismissed_at: string; // ISO
+}
+
+// The graph's chosen next-step task, with a best-available "since" proxy for how long its
+// assignee has held it (the caller passes the task's own updated_at — see
+// next-step-candidate.ts and the route's assembly of this input).
+export interface BlockerNextStepCandidate {
+  task_id: string;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  since: string; // ISO
+}
+
+export interface ClassifyProjectBlockersInput {
+  project: BlockerProject;
+  tasks: BlockerTask[];
+  // Pre-filtered upstream: comments mentioning Mike with no LATER reply by Mike.
+  mentions: BlockerMention[];
+  session_asks: BlockerSessionAsk[];
+  // Pre-filtered/shaped upstream: `replied` already accounts for a later Mike message OR
+  // state != open — this module only asks "is replied false."
+  emails: BlockerEmail[];
+  approval_requests: BlockerApprovalRequest[];
+  // Pre-filtered upstream to events with the client in the next 3 days.
+  calendar_events: BlockerCalendarEvent[];
+  time_entries: BlockerTimeEntry[];
+  dismissals: BlockerDismissal[];
+  next_step_candidate: BlockerNextStepCandidate | null;
+  // From movement.ts's lastMovement(...).at, computed upstream — null if there has never
+  // been positive movement on this project.
+  last_movement_at: string | null;
+  stale_muted_until: string | null; // ISO
+}
+
+export type BlockerKind =
+  | 'decision'
+  | 'clarification'
+  | 'review'
+  | 'session_ask'
+  | 'mention'
+  | 'client_email'
+  | 'client_approval'
+  | 'someone_else'
+  | 'stale'
+  | 'meeting_risk';
+
+export interface BlockerOwner {
+  id: string;
+  name: string;
+  is_mike: boolean;
+}
+
+export interface BlockerSource {
+  type: string;
+  id: string;
+  url: string;
+}
+
+export type BlockerAction =
+  | 'reply'
+  | 'approve'
+  | 'request_changes'
+  | 'resolve_ask'
+  | 'dismiss'
+  | 'pick'
+  | 'open_task'
+  | 'open_email'
+  | 'send_approval'
+  | 'mark_approved'
+  | 'nudge'
+  | 'refresh_next_step'
+  | 'suspend';
+
+export interface Blocker {
+  kind: BlockerKind;
+  id: string;
+  title: string;
+  detail: string;
+  owner: BlockerOwner;
+  source: BlockerSource;
+  since: string; // ISO
+  actions: BlockerAction[];
+}
+
+const STALE_DAYS_THRESHOLD = 7;
+const MEETING_RISK_WINDOW_DAYS = 3;
+const MEETING_RISK_STILLNESS_DAYS = 5;
+// Blocker kinds a human can explicitly dismiss (mirrors prisma's BlockerDismissalKind
+// enum, which deliberately excludes decision/clarification/client_approval/someone_else —
+// those resolve only through their own state changes: a tag/comment change, an approval
+// status change, or a reassignment/completion, never a bare "hide this" click).
+const DISMISSAL_KIND_BY_BLOCKER_KIND: Partial<Record<BlockerKind, string>> = {
+  mention: 'mention',
+  client_email: 'email',
+  session_ask: 'session_ask',
+  review: 'task',
+  meeting_risk: 'meeting_risk',
+  stale: 'stale',
+};
+
+// Client emails asking "any update?" get flagged distinctly when there's also been no
+// time logged since they arrived — that combination ("asked, and nothing's moved") is
+// the actually-alarming case, not just any status-shaped subject line.
+const STATUS_ASK_RE = /status|update|where are we|any news/i;
+
+function mikeOwner(): BlockerOwner {
+  return { id: MIKE_USER_ID, name: 'Mike', is_mike: true };
+}
+
+function isDismissed(
+  dismissals: BlockerDismissal[],
+  blockerKind: BlockerKind,
+  sourceId: string,
+  marker: string | null
+): boolean {
+  const dismissalKind = DISMISSAL_KIND_BY_BLOCKER_KIND[blockerKind];
+  if (!dismissalKind) return false; // this kind is never dismissible
+  return dismissals.some(
+    (d) => d.kind === dismissalKind && d.source_id === sourceId && (d.source_marker ?? '') === (marker ?? '')
+  );
+}
+
+function daysBetween(from: Date, to: Date): number {
+  return Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+// Simple deterministic djb2 string hash, hex-encoded — used as a stable "has this ask's
+// text changed" marker for session_ask dismissals. Session asks have no row id of their
+// own that changes when the ask text changes, so the text itself (hashed, to bound
+// length/avoid embedding raw ask content in the dismissal ledger) is the marker.
+function hashAskText(text: string | null): string {
+  const input = text ?? '';
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 33) ^ input.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+// Business-day arithmetic (Mon-Fri only, no holiday calendar — a deliberate simplification
+// documented in the Phase 2 notes) for the approval-chase overdue check.
+function businessDaysBetween(from: Date, to: Date): number {
+  let count = 0;
+  const cur = new Date(from);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(to);
+  end.setHours(0, 0, 0, 0);
+  while (cur < end) {
+    cur.setDate(cur.getDate() + 1);
+    const day = cur.getDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
+function taskSource(taskId: string): BlockerSource {
+  return { type: 'task', id: taskId, url: `/tasks/${taskId}` };
+}
+
+function classifyDecisionAndClarification(input: ClassifyProjectBlockersInput): Blocker[] {
+  const out: Blocker[] = [];
+  for (const task of input.tasks) {
+    if (!task.last_comment) continue;
+    if (!BOT_USER_IDS.includes(task.last_comment.user_id)) continue;
+
+    let kind: BlockerKind | null = null;
+    if (task.tags.includes('needs-mike')) {
+      kind = 'decision';
+    } else if (task.tags.includes('awaiting-clarification')) {
+      kind = 'clarification';
+    }
+    if (!kind) continue;
+
+    out.push({
+      kind,
+      id: `${kind}:${task.id}`,
+      title: task.title,
+      detail: task.last_comment.content_excerpt,
+      owner: mikeOwner(),
+      source: taskSource(task.id),
+      since: task.last_comment.created_at,
+      actions: ['reply', 'open_task'],
+    });
+  }
+  return out;
+}
+
+function classifyReview(input: ClassifyProjectBlockersInput): Blocker[] {
+  const out: Blocker[] = [];
+  for (const task of input.tasks) {
+    if (task.status !== 'done' || !task.needs_review || task.approved) continue;
+    if (isDismissed(input.dismissals, 'review', task.id, task.updated_at)) continue;
+
+    out.push({
+      kind: 'review',
+      id: `review:${task.id}`,
+      title: task.title,
+      detail:
+        task.last_comment?.content_excerpt ??
+        `Marked done — needs your review${task.sop_title ? ` (${task.sop_title})` : ''}`,
+      owner: mikeOwner(),
+      source: taskSource(task.id),
+      since: task.updated_at,
+      actions: ['approve', 'request_changes', 'open_task', 'dismiss'],
+    });
+  }
+  return out;
+}
+
+function classifySessionAsks(input: ClassifyProjectBlockersInput): Blocker[] {
+  const out: Blocker[] = [];
+  for (const ask of input.session_asks) {
+    const marker = hashAskText(ask.text);
+    if (isDismissed(input.dismissals, 'session_ask', ask.session_external_id, marker)) continue;
+
+    out.push({
+      kind: 'session_ask',
+      id: `session_ask:${ask.session_external_id}`,
+      title: ask.text ?? 'A session is waiting on you',
+      detail: ask.text ?? '',
+      owner: mikeOwner(),
+      source: { type: 'session', id: ask.session_external_id, url: `/oracle/sessions/${ask.session_external_id}` },
+      since: ask.waiting_since ?? new Date(0).toISOString(),
+      actions: ['reply', 'resolve_ask', 'dismiss'],
+    });
+  }
+  return out;
+}
+
+function classifyMentions(input: ClassifyProjectBlockersInput): Blocker[] {
+  const out: Blocker[] = [];
+  for (const mention of input.mentions) {
+    if (isDismissed(input.dismissals, 'mention', mention.id, mention.id)) continue;
+
+    out.push({
+      kind: 'mention',
+      id: `mention:${mention.id}`,
+      title: `${mention.author.name} mentioned you`,
+      detail: mention.excerpt,
+      owner: mikeOwner(),
+      source: taskSource(mention.task_id),
+      since: mention.created_at,
+      actions: ['reply', 'open_task', 'dismiss'],
+    });
+  }
+  return out;
+}
+
+function classifyClientEmails(input: ClassifyProjectBlockersInput): Blocker[] {
+  const out: Blocker[] = [];
+  for (const email of input.emails) {
+    if (email.replied) continue;
+    if (isDismissed(input.dismissals, 'client_email', email.id, email.received_at)) continue;
+
+    const askedForStatus = STATUS_ASK_RE.test(`${email.subject} ${email.gist ?? ''}`);
+    const receivedAt = new Date(email.received_at);
+    const noTimeSince = !input.time_entries.some((te) => new Date(te.started_at) > receivedAt);
+    const flag = askedForStatus && noTimeSince;
+
+    out.push({
+      kind: 'client_email',
+      id: `client_email:${email.id}`,
+      title: email.subject,
+      detail: flag
+        ? `${email.gist ?? email.subject} — asks for status, no time logged since`
+        : (email.gist ?? email.subject),
+      owner: mikeOwner(),
+      source: { type: 'email', id: email.id, url: `/email-asks/${email.id}` },
+      since: email.received_at,
+      actions: ['reply', 'open_email', 'dismiss'],
+    });
+  }
+  return out;
+}
+
+function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date): Blocker[] {
+  const out: Blocker[] = [];
+  const openStatuses: ApprovalRequestStatus[] = ['draft', 'queued', 'sent', 'replied'];
+  for (const ar of input.approval_requests) {
+    if (!openStatuses.includes(ar.status)) continue;
+
+    const overdueChase =
+      ar.status === 'sent' && !!ar.sent_at && businessDaysBetween(new Date(ar.sent_at), now) >= ar.chase_after_days;
+    const mikeOwns = ar.status === 'draft' || ar.status === 'queued' || ar.status === 'replied' || overdueChase;
+
+    const owner: BlockerOwner = mikeOwns
+      ? mikeOwner()
+      : ar.contact
+        ? { id: ar.contact.id, name: ar.contact.name, is_mike: false }
+        : mikeOwner();
+
+    const detail = mikeOwns
+      ? ar.status === 'replied'
+        ? 'Client replied — read the reply and mark approved or request changes'
+        : overdueChase
+          ? `Sent, no reply after ${ar.chase_after_days} business day${ar.chase_after_days === 1 ? '' : 's'} — chase it`
+          : 'Draft ready to send for approval'
+      : `Awaiting ${ar.contact?.name ?? 'the client'}'s reply`;
+
+    out.push({
+      kind: 'client_approval',
+      id: `client_approval:${ar.id}`,
+      title: 'Client approval',
+      detail,
+      owner,
+      source: { type: 'approval_request', id: ar.id, url: `/tasks/${ar.task_id}` },
+      since: ar.sent_at ?? ar.replied_at ?? now.toISOString(),
+      actions: mikeOwns ? ['send_approval', 'mark_approved'] : ['nudge'],
+    });
+  }
+  return out;
+}
+
+function classifySomeoneElse(input: ClassifyProjectBlockersInput, now: Date): Blocker[] {
+  const c = input.next_step_candidate;
+  if (!c || !c.assignee_id) return [];
+  if (c.assignee_id === MIKE_USER_ID || BOT_USER_IDS.includes(c.assignee_id)) return [];
+
+  const days = Math.max(0, daysBetween(new Date(c.since), now));
+  return [
+    {
+      kind: 'someone_else',
+      id: `someone_else:${c.task_id}`,
+      title: c.assignee_name ?? 'A teammate',
+      detail: `has had it ${days} day${days === 1 ? '' : 's'}`,
+      owner: { id: c.assignee_id, name: c.assignee_name ?? 'A teammate', is_mike: false },
+      source: taskSource(c.task_id),
+      since: c.since,
+      actions: ['nudge', 'pick'],
+    },
+  ];
+}
+
+function classifyStale(
+  input: ClassifyProjectBlockersInput,
+  now: Date,
+  blockersSoFar: Blocker[]
+): Blocker | null {
+  if (input.stale_muted_until && new Date(input.stale_muted_until) > now) return null;
+
+  const daysSinceMovement = input.last_movement_at ? daysBetween(new Date(input.last_movement_at), now) : Infinity;
+  if (daysSinceMovement < STALE_DAYS_THRESHOLD) return null;
+
+  // Suppressed when the only other live blockers are client-owned client_approval rows —
+  // the project isn't silently stalling, it's just waiting on the client's reply, and
+  // that's already a fully-formed blocker in its own right.
+  const onlyClientOwnedApprovals =
+    blockersSoFar.length > 0 && blockersSoFar.every((b) => b.kind === 'client_approval' && !b.owner.is_mike);
+  if (onlyClientOwnedApprovals) return null;
+
+  const marker = input.last_movement_at ?? '';
+  if (isDismissed(input.dismissals, 'stale', input.project.id, marker)) return null;
+
+  return {
+    kind: 'stale',
+    id: `stale:${input.project.id}`,
+    title: input.project.name,
+    detail:
+      daysSinceMovement === Infinity
+        ? 'No recorded movement on this project'
+        : `No movement in ${daysSinceMovement} days`,
+    owner: mikeOwner(),
+    source: { type: 'project', id: input.project.id, url: `/projects/${input.project.id}` },
+    since: input.last_movement_at ?? now.toISOString(),
+    actions: ['refresh_next_step', 'nudge', 'dismiss', 'suspend'],
+  };
+}
+
+function classifyMeetingRisk(input: ClassifyProjectBlockersInput, now: Date): Blocker[] {
+  const daysSinceMovement = input.last_movement_at ? daysBetween(new Date(input.last_movement_at), now) : Infinity;
+  if (daysSinceMovement < MEETING_RISK_STILLNESS_DAYS) return [];
+
+  const out: Blocker[] = [];
+  for (const event of input.calendar_events) {
+    const daysToMeeting = daysBetween(now, new Date(event.starts_at));
+    if (daysToMeeting < 0 || daysToMeeting > MEETING_RISK_WINDOW_DAYS) continue; // defensive; caller pre-filters
+    if (isDismissed(input.dismissals, 'meeting_risk', event.id, event.starts_at)) continue;
+
+    out.push({
+      kind: 'meeting_risk',
+      id: `meeting_risk:${event.id}`,
+      title: event.title,
+      detail: `Meeting with ${input.project.client?.name ?? 'the client'} in ${daysToMeeting} day${
+        daysToMeeting === 1 ? '' : 's'
+      }, no recent movement`,
+      owner: mikeOwner(),
+      source: { type: 'calendar_event', id: event.id, url: `/projects/${input.project.id}` },
+      since: input.last_movement_at ?? now.toISOString(),
+      actions: ['refresh_next_step', 'nudge', 'dismiss'],
+    });
+  }
+  return out;
+}
+
+export function classifyProjectBlockers(input: ClassifyProjectBlockersInput, now: Date): Blocker[] {
+  const blockers: Blocker[] = [
+    ...classifyDecisionAndClarification(input),
+    ...classifyReview(input),
+    ...classifySessionAsks(input),
+    ...classifyMentions(input),
+    ...classifyClientEmails(input),
+    ...classifyClientApprovals(input, now),
+    ...classifySomeoneElse(input, now),
+  ];
+
+  const stale = classifyStale(input, now, blockers);
+  if (stale) blockers.push(stale);
+
+  blockers.push(...classifyMeetingRisk(input, now));
+
+  return blockers;
+}
+
+export function ownerIsMike(blockers: Blocker[]): boolean {
+  return blockers.some((b) => b.owner.is_mike);
+}

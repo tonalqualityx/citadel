@@ -12,6 +12,12 @@ vi.mock('@/lib/hooks/use-waiting-on-me', () => ({
   useWaitingOnMe: () => ({ data: undefined }),
 }));
 
+// Oracle Projects Tab Phase 2 — mocked for the same reason as use-waiting-on-me above:
+// this file proves flag-driven tab visibility, not data fetching.
+vi.mock('@/lib/hooks/use-oracle-projects', () => ({
+  useOracleProjects: () => ({ data: undefined }),
+}));
+
 vi.mock('../WorkView', () => ({
   WorkView: () => <div data-testid="mock-work-view" />,
 }));

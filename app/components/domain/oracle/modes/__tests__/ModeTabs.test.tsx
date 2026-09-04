@@ -21,10 +21,14 @@ describe('ModeTabs — Projects badge (Mike, 2026-09-04)', () => {
     expect(screen.queryByTestId('mode-tab-projects-badge')).not.toBeInTheDocument();
   });
 
-  it('renders the badge when projectsBadgeCount > 0', () => {
+  it('renders the badge when projectsBadgeCount > 0, with a visually-hidden text node for assistive tech', () => {
     render(<ModeTabs mode="work" onChange={() => {}} projectsBadgeCount={3} />);
     expect(screen.getByTestId('mode-tab-projects-badge')).toBeInTheDocument();
-    expect(screen.getByTestId('mode-tab-projects-badge')).toHaveAttribute('aria-label', '3 stalled on Mike');
+    // The dot itself is aria-hidden (decorative); the announced text lives in a
+    // separate visually-hidden node so screen readers pick it up reliably.
+    expect(screen.getByTestId('mode-tab-projects-badge')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText('3 projects waiting on you')).toBeInTheDocument();
+    expect(screen.getByText('3 projects waiting on you')).toHaveClass('sr-only');
   });
 
   it('the badge is never rendered on the Work tab, even with a count', () => {

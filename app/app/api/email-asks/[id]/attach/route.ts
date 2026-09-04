@@ -58,11 +58,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
     }
 
+    let projectClientId: string | undefined;
     if (data.project_id) {
-      const project = await prisma.project.findUnique({ where: { id: data.project_id, is_deleted: false } });
+      const project = await prisma.project.findUnique({
+        where: { id: data.project_id, is_deleted: false },
+        select: { id: true, client_id: true },
+      });
       if (!project) {
         throw new ApiError('Project not found', 404);
       }
+      // Phase 2 follow-up — attaching to a project also stamps client_id from that
+      // project (previously left null on this branch), so the ask carries the same
+      // client_id shape the auto-matcher writes.
+      projectClientId = project.client_id;
     }
 
     const updated = await prisma.emailAsk.update({
@@ -70,7 +78,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: {
         ...(data.arc_id !== undefined && { arc_id: data.arc_id }),
         ...(data.task_id !== undefined && { task_id: data.task_id }),
-        ...(data.project_id !== undefined && { project_id: data.project_id, match_source: 'mike' }),
+        ...(data.project_id !== undefined && {
+          project_id: data.project_id,
+          client_id: projectClientId,
+          match_source: 'mike',
+        }),
         state: 'handled',
       },
     });

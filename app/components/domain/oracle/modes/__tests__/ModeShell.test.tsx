@@ -7,6 +7,14 @@ vi.mock('@/lib/hooks/use-waiting-on-me', () => ({
   useWaitingOnMe: () => ({ data: undefined }),
 }));
 
+// Oracle Projects Tab Phase 2 — mocked so this shell-logic test never fires a real
+// network request for the projects signals feed (same reasoning as use-waiting-on-me
+// above: this file tests mode switching, not data fetching). A vi.fn() (not a plain
+// arrow) so one test below can override its return value to check the badge wiring.
+vi.mock('@/lib/hooks/use-oracle-projects', () => ({
+  useOracleProjects: vi.fn(() => ({ data: undefined })),
+}));
+
 // Oracle Projects Tab (2026-09-04) — "tabs visible" variant (mirrors CoverBand.test.tsx's
 // pattern of mocking a flag ON to keep exercising this file's own click/switch tests,
 // while ModeShell.flag.test.tsx exercises the REAL shipped defaults, unmocked). Without
@@ -32,6 +40,7 @@ vi.mock('../ProcessView', () => ({ ProcessView: () => <div data-testid="mock-pro
 vi.mock('../projects/ProjectsView', () => ({ ProjectsView: () => <div data-testid="mock-projects-view" /> }));
 
 import { ModeShell } from '../ModeShell';
+import { useOracleProjects } from '@/lib/hooks/use-oracle-projects';
 
 function renderShell() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -101,5 +110,22 @@ describe('ModeShell', () => {
     );
     // Still Plan — nothing about the passage of time or new props flips it back to Work.
     expect(screen.getByTestId('mock-plan-view')).toBeInTheDocument();
+  });
+
+  it('passes the real stalled_count through to the Projects tab badge', () => {
+    vi.mocked(useOracleProjects).mockReturnValueOnce({ data: { stalled_count: 4 } } as ReturnType<
+      typeof useOracleProjects
+    >);
+    renderShell();
+    expect(screen.getByTestId('mode-tab-projects-badge')).toBeInTheDocument();
+    expect(screen.getByText('4 projects waiting on you')).toBeInTheDocument();
+  });
+
+  it('shows no badge when the projects feed reports zero stalled projects', () => {
+    vi.mocked(useOracleProjects).mockReturnValueOnce({ data: { stalled_count: 0 } } as ReturnType<
+      typeof useOracleProjects
+    >);
+    renderShell();
+    expect(screen.queryByTestId('mode-tab-projects-badge')).not.toBeInTheDocument();
   });
 });

@@ -350,4 +350,71 @@ export const oracleEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/oracle/projects',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Oracle Projects Tab Phase 2 — the 4th Oracle mode\'s signals feed: every in-progress contracted project with its blockers, owner, movement, and hybrid next-step line.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          {
+            name: 'lens',
+            type: 'string',
+            required: false,
+            description: 'lens=kind adds `by_kind`: the same blockers grouped by kind across every project, instead of per-project.',
+          },
+        ],
+        responseNotes:
+          'Loads projects with type=project, status=in_progress, is_deleted=false. Each blocker kind ' +
+          '(decision, clarification, review, session_ask, mention, client_email, client_approval, ' +
+          'someone_else, stale, meeting_risk) is classified by lib/oracle/projects/blockers.ts; a ' +
+          'project is "stalled on Mike" when ANY of its non-dismissed blockers is owned by Mike. ' +
+          'Projects sort stalled-on-Mike first, then by days_quiet descending. ' +
+          'Judgment calls: EmailAsk.replied is state !== \'open\' only (this schema tracks no outbound ' +
+          'reply record); a calendar event links to a client by attendee-email match against that ' +
+          'client\'s ClientContact rows (CalendarEvent has no first-class client relation) and, if ' +
+          'matched, is attached to every in-progress project of that client.',
+        responseExample: {
+          projects: [
+            {
+              id: 'uuid',
+              name: 'string',
+              client: { id: 'uuid', name: 'string' },
+              status: 'in_progress',
+              next_step: {
+                text: 'string',
+                owner: { id: 'uuid', name: 'string' },
+                source: 'graph|bast|mike|none',
+                at: 'ISO-8601|null',
+              },
+              last_movement: { at: 'ISO-8601', who: 'string', what: 'string' },
+              days_quiet: 'number|null',
+              stale: 'boolean',
+              stalled_on_mike: 'boolean',
+              blockers: [
+                {
+                  kind: 'decision|clarification|review|session_ask|mention|client_email|client_approval|someone_else|stale|meeting_risk',
+                  id: 'string',
+                  title: 'string',
+                  detail: 'string',
+                  owner: { id: 'string', name: 'string', is_mike: 'boolean' },
+                  source: { type: 'string', id: 'string', url: 'string' },
+                  since: 'ISO-8601',
+                  actions: ['reply'],
+                },
+              ],
+              counts_by_kind: { review: 1 },
+              open_url: '/projects/uuid',
+            },
+          ],
+          stalled_count: 'number',
+          generated_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
 ];

@@ -17,7 +17,13 @@ vi.mock('@/lib/db/prisma', () => ({
     projectNote: {
       findMany: vi.fn(),
       create: vi.fn(),
+      aggregate: vi.fn(),
     },
+    // Oracle Projects Phase 1 follow-up (verification) — the stale-mute recompute runs
+    // inside a transaction; the mock invokes the callback with the SAME mocked prisma
+    // client so tx.projectNote.create / tx.projectNote.aggregate / tx.project.update
+    // assertions read through the plain top-level mocks above.
+    $transaction: vi.fn(),
   },
 }));
 
@@ -35,6 +41,8 @@ const mockProjectFindUnique = prisma.project.findUnique as Mock;
 const mockProjectUpdate = prisma.project.update as Mock;
 const mockNoteFindMany = prisma.projectNote.findMany as Mock;
 const mockNoteCreate = prisma.projectNote.create as Mock;
+const mockNoteAggregate = prisma.projectNote.aggregate as Mock;
+const mockTransaction = prisma.$transaction as Mock;
 const mockLogCreate = logCreate as Mock;
 
 const PROJECT_ID = 'project-1';
@@ -76,6 +84,9 @@ beforeEach(() => {
   mockRequireAuth.mockResolvedValue({ userId: 'user-1', role: 'pm', email: 'pm@example.com' });
   mockRequireRole.mockImplementation(() => {});
   mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID, name: 'Test Project' });
+  // Default: no live parked_until notes at all -> recompute lands on null.
+  mockNoteAggregate.mockResolvedValue({ _max: { until_date: null } });
+  mockTransaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
 });
 
 describe('GET /api/projects/[id]/notes', () => {
@@ -103,7 +114,7 @@ describe('GET /api/projects/[id]/notes', () => {
 });
 
 describe('POST /api/projects/[id]/notes', () => {
-  it('creates a plain note', async () => {
+  it('creates a plain note and leaves the mute at null (no live parks)', async () => {
     mockNoteCreate.mockResolvedValue(note());
 
     const res = await POST(postReq({ body: 'Called the client.' }), ctx());
@@ -111,6 +122,7 @@ describe('POST /api/projects/[id]/notes', () => {
 
     expect(res.status).toBe(201);
     expect(body.kind).toBe('note');
+    expect(mockTransaction).toHaveBeenCalled();
     expect(mockNoteCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -122,8 +134,16 @@ describe('POST /api/projects/[id]/notes', () => {
         }),
       })
     );
-    // A plain note never touches Project.stale_muted_until.
-    expect(mockProjectUpdate).not.toHaveBeenCalled();
+    // Recompute always runs, but with zero live parked_until notes it resolves to null —
+    // a plain note never introduces one, so the aggregate is untouched by this create.
+    expect(mockNoteAggregate).toHaveBeenCalledWith({
+      where: { project_id: PROJECT_ID, kind: 'parked_until', is_deleted: false },
+      _max: { until_date: true },
+    });
+    expect(mockProjectUpdate).toHaveBeenCalledWith({
+      where: { id: PROJECT_ID },
+      data: { stale_muted_until: null },
+    });
     expect(mockLogCreate).toHaveBeenCalledWith('user-1', 'project_note', note().id, 'Test Project');
   });
 
@@ -133,16 +153,40 @@ describe('POST /api/projects/[id]/notes', () => {
     expect(mockNoteCreate).not.toHaveBeenCalled();
   });
 
-  it('creating a parked_until note also sets Project.stale_muted_until', async () => {
+  it('creating the first parked_until note sets Project.stale_muted_until to its date', async () => {
     const untilDate = '2026-09-20T00:00:00.000Z';
     mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: new Date(untilDate) }));
+    mockNoteAggregate.mockResolvedValue({ _max: { until_date: new Date(untilDate) } });
 
-    const res = await POST(postReq({ kind: 'parked_until', body: 'Snoozed pending reply', until_date: untilDate }), ctx());
+    const res = await POST(
+      postReq({ kind: 'parked_until', body: 'Snoozed pending reply', until_date: untilDate }),
+      ctx()
+    );
 
     expect(res.status).toBe(201);
     expect(mockProjectUpdate).toHaveBeenCalledWith({
       where: { id: PROJECT_ID },
       data: { stale_muted_until: new Date(untilDate) },
+    });
+  });
+
+  it('an earlier-dated new park does not move the mute backward — MAX still wins', async () => {
+    // A later park is already live; this create adds an EARLIER one.
+    const laterUntil = new Date('2026-09-20T00:00:00.000Z');
+    const earlierUntil = '2026-09-10T00:00:00.000Z';
+    mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: new Date(earlierUntil) }));
+    // The aggregate reflects the DB state after this create: MAX is still the later date.
+    mockNoteAggregate.mockResolvedValue({ _max: { until_date: laterUntil } });
+
+    const res = await POST(
+      postReq({ kind: 'parked_until', body: 'Snoozed again, earlier date', until_date: earlierUntil }),
+      ctx()
+    );
+
+    expect(res.status).toBe(201);
+    expect(mockProjectUpdate).toHaveBeenCalledWith({
+      where: { id: PROJECT_ID },
+      data: { stale_muted_until: laterUntil },
     });
   });
 

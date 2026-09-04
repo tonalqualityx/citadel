@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { notifyUrgentEmail } from '@/lib/services/notifications';
-import { AskQueue, AskSeverity, EmailAskIntent } from '@prisma/client';
+import { AskQueue, AskSeverity, EmailAskIntent, EmailMatchSource } from '@prisma/client';
 
 // Clarity Phase 4a — email on the Seeing Stone. The staged, not-cron-wired classifier
 // (~/.claude/tools/oracle/clarity/email-classifier.py) POSTs here for both mailboxes
@@ -45,6 +45,80 @@ const emailSyncSchema = z.object({
 });
 
 const DEFAULT_ASSIGNEE_EMAIL = 'mike@becomeindelible.com';
+
+// Projects a client's email can auto-match onto — mirrors the client-facing "in motion"
+// statuses used elsewhere (see app/api/waiting-on-me/route.ts's notOnAQuoteOrQueueProject
+// doc comment): quote/queue/done/suspended/cancelled projects never get an email
+// auto-attached.
+const AUTO_MATCH_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as const;
+
+// Oracle Projects Tab Phase 2 — sender -> ClientContact -> Client -> exactly-one-eligible-
+// project auto-matcher, run after every upsert for any row whose match_source isn't
+// 'mike' (Mike's own explicit ruling via POST /api/email-asks/{id}/attach is never
+// touched by this pass, at any point — checked before doing any other work below).
+//
+// Judgment call: "never downgrade an existing 'auto' match... unless the contact mapping
+// changed" is read as "unless the resolved CLIENT changed" — a project that stops being
+// the client's one eligible in-progress project (it shipped, got cancelled, whatever)
+// does NOT undo a previously-correct auto match; only a genuine change in which client
+// the sender's contact record now belongs to does.
+async function autoMatchEmailAsk(row: {
+  id: string;
+  from_email: string;
+  client_id: string | null;
+  match_source: EmailMatchSource | null;
+}): Promise<void> {
+  if (row.match_source === 'mike') return; // Mike's ruling is never overwritten
+
+  const contacts = await prisma.clientContact.findMany({
+    where: { email: { equals: row.from_email, mode: 'insensitive' }, is_deleted: false },
+    select: { client_id: true },
+  });
+  const distinctClientIds = Array.from(new Set(contacts.map((c) => c.client_id)));
+
+  // No contact resolves for this sender at all — leave client_id/project_id/match_source
+  // exactly as they are (nothing to update).
+  if (distinctClientIds.length === 0) return;
+
+  const resolvedClientId = distinctClientIds.length === 1 ? distinctClientIds[0] : null;
+
+  if (row.match_source === 'auto' && row.client_id === resolvedClientId) {
+    // Same client as the existing auto match — never downgrade on a re-sync just
+    // because the project-eligibility count moved.
+    return;
+  }
+
+  if (distinctClientIds.length !== 1) {
+    // The sender's contact record spans more than one client — ambiguous, can't pick.
+    await prisma.emailAsk.update({
+      where: { id: row.id },
+      data: { client_id: null, project_id: null, match_source: EmailMatchSource.unmatched },
+    });
+    return;
+  }
+
+  const eligibleProjects = await prisma.project.findMany({
+    where: {
+      client_id: resolvedClientId!,
+      type: 'project',
+      status: { in: [...AUTO_MATCH_PROJECT_STATUSES] },
+      is_deleted: false,
+    },
+    select: { id: true },
+  });
+
+  if (eligibleProjects.length === 1) {
+    await prisma.emailAsk.update({
+      where: { id: row.id },
+      data: { client_id: resolvedClientId, project_id: eligibleProjects[0].id, match_source: EmailMatchSource.auto },
+    });
+  } else {
+    await prisma.emailAsk.update({
+      where: { id: row.id },
+      data: { client_id: resolvedClientId, project_id: null, match_source: EmailMatchSource.unmatched },
+    });
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -107,6 +181,16 @@ export async function POST(request: NextRequest) {
         },
       });
       upserted++;
+
+      // Oracle Projects Tab Phase 2 — client/project auto-match. Runs after every
+      // upsert; a no-op for any row Mike has already ruled on by hand (match_source
+      // 'mike', checked first thing inside autoMatchEmailAsk).
+      await autoMatchEmailAsk({
+        id: row.id,
+        from_email: ask.from_email,
+        client_id: row.client_id,
+        match_source: row.match_source,
+      });
 
       // Notification fires only when THIS call is what makes the ask urgent: a brand new
       // is_urgent row, or an existing row transitioning false/unset -> true. A re-sync of

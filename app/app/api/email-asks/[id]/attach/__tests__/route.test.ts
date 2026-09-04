@@ -140,21 +140,24 @@ describe('POST /api/email-asks/[id]/attach', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
-  it('attaches to a project and marks the ask handled, setting match_source to mike', async () => {
+  it('attaches to a project, sets client_id from the project, and marks the ask handled with match_source mike', async () => {
     mockFindUnique.mockResolvedValue(ask());
-    mockProjectFindUnique.mockResolvedValue({ id: PROJECT_UUID });
-    mockUpdate.mockResolvedValue(ask({ project_id: PROJECT_UUID, match_source: 'mike', state: 'handled' }));
+    mockProjectFindUnique.mockResolvedValue({ id: PROJECT_UUID, client_id: 'client-uuid-1' });
+    mockUpdate.mockResolvedValue(
+      ask({ project_id: PROJECT_UUID, client_id: 'client-uuid-1', match_source: 'mike', state: 'handled' })
+    );
 
     const res = await POST(req({ project_id: PROJECT_UUID }), ctx());
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.project_id).toBe(PROJECT_UUID);
+    expect(body.client_id).toBe('client-uuid-1');
     expect(body.match_source).toBe('mike');
     expect(body.state).toBe('handled');
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { project_id: PROJECT_UUID, match_source: 'mike', state: 'handled' },
+      data: { project_id: PROJECT_UUID, client_id: 'client-uuid-1', match_source: 'mike', state: 'handled' },
     });
   });
 

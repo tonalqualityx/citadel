@@ -3,6 +3,7 @@
 import * as React from 'react';
 import type { OracleMachineDTO, OracleSessionWithMachine } from '@/lib/types/oracle';
 import { useWaitingOnMe } from '@/lib/hooks/use-waiting-on-me';
+import { useOracleProjects } from '@/lib/hooks/use-oracle-projects';
 import { DEFAULT_MODE, type OracleMode } from './mode-shell-logic';
 import { ModeTabs, ReturnToWork } from './ModeTabs';
 import { WorkView } from './WorkView';
@@ -28,14 +29,14 @@ export function ModeShell({ machines, liveSessions, legacyAttentionArcIds, nowMs
   // Shared query cache with page.tsx's own useWaitingOnMe() call (same query key) — React
   // Query dedupes this to one network request regardless of how many consumers subscribe.
   const { data: waitingOnMeData } = useWaitingOnMe();
+  // Oracle Projects Tab Phase 2 — the real "projects stalled on Mike" count, replacing
+  // Phase 1's hardcoded 0 now that GET /api/oracle/projects exists.
+  const { data: oracleProjectsData } = useOracleProjects();
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between border-b border-border-warm pb-2">
-        {/* Oracle Projects Tab (2026-09-04) — badge count hardcoded 0 for Phase 1 (no
-            real signals API to count "stalled on Mike" against yet); Phase 2/4 wires a
-            real stalled-count hook here once GET /api/oracle/projects exists. */}
-        <ModeTabs mode={mode} onChange={setMode} projectsBadgeCount={0} />
+        <ModeTabs mode={mode} onChange={setMode} projectsBadgeCount={oracleProjectsData?.stalled_count ?? 0} />
         <ReturnToWork mode={mode} onClick={() => setMode('work')} />
       </div>
 

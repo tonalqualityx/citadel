@@ -53,10 +53,18 @@ export function ModeTabs({ mode, onChange, projectsBadgeCount = 0 }: ModeTabsPro
                 {showBadge && (
                   <span
                     data-testid="mode-tab-projects-badge"
-                    aria-label={`${projectsBadgeCount} stalled on Mike`}
+                    aria-hidden="true"
                     className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full"
                     style={{ backgroundColor: 'var(--error)' }}
                   />
+                )}
+                {showBadge && (
+                  // Phase 2 follow-up (verification) — an aria-label on a bare <span>
+                  // with no role is announced inconsistently across screen readers
+                  // (several ignore it entirely on a plain span). A visually-hidden text
+                  // NODE is read reliably; the dot above is aria-hidden and stays the
+                  // only visible affordance.
+                  <span className="sr-only">{`${projectsBadgeCount} projects waiting on you`}</span>
                 )}
               </button>
             </Tooltip>

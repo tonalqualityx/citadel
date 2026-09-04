@@ -12,9 +12,17 @@ vi.mock('@/lib/db/prisma', () => ({
     emailAsk: {
       findUnique: vi.fn(),
       upsert: vi.fn(),
+      update: vi.fn(),
     },
     user: {
       findUnique: vi.fn(),
+    },
+    // Oracle Projects Tab Phase 2 — the client/project auto-matcher's own queries.
+    clientContact: {
+      findMany: vi.fn(),
+    },
+    project: {
+      findMany: vi.fn(),
     },
   },
 }));
@@ -30,7 +38,10 @@ import { notifyUrgentEmail } from '@/lib/services/notifications';
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockFindUnique = prisma.emailAsk.findUnique as Mock;
 const mockUpsert = prisma.emailAsk.upsert as Mock;
+const mockEmailAskUpdate = prisma.emailAsk.update as Mock;
 const mockUserFindUnique = prisma.user.findUnique as Mock;
+const mockClientContactFindMany = prisma.clientContact.findMany as Mock;
+const mockProjectFindMany = prisma.project.findMany as Mock;
 const mockNotifyUrgentEmail = vi.mocked(notifyUrgentEmail);
 
 function postRequest(body: unknown): NextRequest {
@@ -61,6 +72,12 @@ beforeEach(() => {
     Promise.resolve({ id: 'ask-1', ...create })
   );
   mockUserFindUnique.mockResolvedValue({ id: 'operator-1', email: 'mike@becomeindelible.com' });
+  // Oracle Projects Tab Phase 2 — default: no contact resolves for the sender, so the
+  // auto-matcher is a no-op for every pre-existing test above (it returns immediately
+  // once clientContact.findMany comes back empty, never reaching project.findMany or
+  // emailAsk.update).
+  mockClientContactFindMany.mockResolvedValue([]);
+  mockProjectFindMany.mockResolvedValue([]);
 });
 
 describe('POST /api/oracle/email-sync', () => {
@@ -237,6 +254,103 @@ describe('POST /api/oracle/email-sync', () => {
     it('still rejects an invalid intent value alongside the new admin value', async () => {
       const res = await POST(postRequest({ asks: [baseAsk({ intent: 'invoice' })] }));
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('Oracle Projects Tab Phase 2 — client/project auto-match', () => {
+    it('exactly one client, exactly one eligible project -> match_source auto', async () => {
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([{ id: 'project-1' }]);
+
+      const res = await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-auto' })] }));
+
+      expect(res.status).toBe(200);
+      expect(mockClientContactFindMany).toHaveBeenCalledWith({
+        where: { email: { equals: 'client@herba.com', mode: 'insensitive' }, is_deleted: false },
+        select: { client_id: true },
+      });
+      expect(mockProjectFindMany).toHaveBeenCalledWith({
+        where: {
+          client_id: 'client-1',
+          type: 'project',
+          status: { in: ['ready', 'in_progress', 'review'] },
+          is_deleted: false,
+        },
+        select: { id: true },
+      });
+      expect(mockEmailAskUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { client_id: 'client-1', project_id: 'project-1', match_source: 'auto' },
+      });
+    });
+
+    it('one client but zero eligible projects -> match_source unmatched, project_id null', async () => {
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([]);
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-zero-projects' })] }));
+
+      expect(mockEmailAskUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { client_id: 'client-1', project_id: null, match_source: 'unmatched' },
+      });
+    });
+
+    it('one client but TWO+ eligible projects -> match_source unmatched, project_id null', async () => {
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([{ id: 'project-1' }, { id: 'project-2' }]);
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-two-projects' })] }));
+
+      expect(mockEmailAskUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { client_id: 'client-1', project_id: null, match_source: 'unmatched' },
+      });
+    });
+
+    it('no contact resolves for the sender -> leaves client_id/project_id/match_source untouched', async () => {
+      mockClientContactFindMany.mockResolvedValue([]);
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-no-contact' })] }));
+
+      expect(mockProjectFindMany).not.toHaveBeenCalled();
+      expect(mockEmailAskUpdate).not.toHaveBeenCalled();
+    });
+
+    it('never overwrites an existing match_source=mike row', async () => {
+      mockUpsert.mockResolvedValue({
+        id: 'ask-mike',
+        client_id: 'client-9',
+        project_id: 'project-9',
+        match_source: 'mike',
+      });
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      mockProjectFindMany.mockResolvedValue([{ id: 'project-1' }]);
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-mike-owned' })] }));
+
+      // The auto-matcher must never even query contacts for a Mike-ruled row, let alone
+      // overwrite it.
+      expect(mockClientContactFindMany).not.toHaveBeenCalled();
+      expect(mockEmailAskUpdate).not.toHaveBeenCalled();
+    });
+
+    it('never downgrades an existing auto match when the resolved client is unchanged, even if the eligible-project count has since changed', async () => {
+      mockUpsert.mockResolvedValue({
+        id: 'ask-auto',
+        client_id: 'client-1',
+        project_id: 'project-1',
+        match_source: 'auto',
+      });
+      mockClientContactFindMany.mockResolvedValue([{ client_id: 'client-1' }]);
+      // Even though the live query would now find zero eligible projects...
+      mockProjectFindMany.mockResolvedValue([]);
+
+      await POST(postRequest({ asks: [baseAsk({ message_id: 'msg-stay-auto' })] }));
+
+      // ...the existing auto match is left alone rather than downgraded to unmatched.
+      expect(mockProjectFindMany).not.toHaveBeenCalled();
+      expect(mockEmailAskUpdate).not.toHaveBeenCalled();
     });
   });
 });
