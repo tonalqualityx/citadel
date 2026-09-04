@@ -20,6 +20,9 @@ vi.mock('@/lib/db/prisma', () => ({
     task: {
       findUnique: vi.fn(),
     },
+    project: {
+      findUnique: vi.fn(),
+    },
   },
 }));
 
@@ -32,9 +35,11 @@ const mockFindUnique = prisma.emailAsk.findUnique as Mock;
 const mockUpdate = prisma.emailAsk.update as Mock;
 const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockTaskFindUnique = prisma.task.findUnique as Mock;
+const mockProjectFindUnique = prisma.project.findUnique as Mock;
 
 const ARC_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const TASK_UUID = '550e8400-e29b-41d4-a716-446655440001';
+const PROJECT_UUID = '550e8400-e29b-41d4-a716-446655440002';
 
 function ask(overrides: Record<string, unknown> = {}) {
   return {
@@ -114,7 +119,7 @@ describe('POST /api/email-asks/[id]/attach', () => {
     });
   });
 
-  it('rejects a body with neither arc_id nor task_id', async () => {
+  it('rejects a body with none of arc_id, task_id, or project_id', async () => {
     mockFindUnique.mockResolvedValue(ask());
     const res = await POST(req({}), ctx());
     expect(res.status).toBe(400);
@@ -125,6 +130,40 @@ describe('POST /api/email-asks/[id]/attach', () => {
     mockFindUnique.mockResolvedValue(ask());
     const res = await POST(req({ arc_id: ARC_UUID, task_id: TASK_UUID }), ctx());
     expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a body with all three of arc_id, task_id, and project_id', async () => {
+    mockFindUnique.mockResolvedValue(ask());
+    const res = await POST(req({ arc_id: ARC_UUID, task_id: TASK_UUID, project_id: PROJECT_UUID }), ctx());
+    expect(res.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('attaches to a project and marks the ask handled, setting match_source to mike', async () => {
+    mockFindUnique.mockResolvedValue(ask());
+    mockProjectFindUnique.mockResolvedValue({ id: PROJECT_UUID });
+    mockUpdate.mockResolvedValue(ask({ project_id: PROJECT_UUID, match_source: 'mike', state: 'handled' }));
+
+    const res = await POST(req({ project_id: PROJECT_UUID }), ctx());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.project_id).toBe(PROJECT_UUID);
+    expect(body.match_source).toBe('mike');
+    expect(body.state).toBe('handled');
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: { id: 'ask-1' },
+      data: { project_id: PROJECT_UUID, match_source: 'mike', state: 'handled' },
+    });
+  });
+
+  it('404s when project_id does not reference an existing project', async () => {
+    mockFindUnique.mockResolvedValue(ask());
+    mockProjectFindUnique.mockResolvedValue(null);
+
+    const res = await POST(req({ project_id: PROJECT_UUID }), ctx());
+    expect(res.status).toBe(404);
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 

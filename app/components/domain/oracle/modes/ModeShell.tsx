@@ -8,6 +8,7 @@ import { ModeTabs, ReturnToWork } from './ModeTabs';
 import { WorkView } from './WorkView';
 import { PlanView } from './PlanView';
 import { ProcessView } from './ProcessView';
+import { ProjectsView } from './projects/ProjectsView';
 
 interface ModeShellProps {
   machines: OracleMachineDTO[];
@@ -31,7 +32,10 @@ export function ModeShell({ machines, liveSessions, legacyAttentionArcIds, nowMs
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between border-b border-border-warm pb-2">
-        <ModeTabs mode={mode} onChange={setMode} />
+        {/* Oracle Projects Tab (2026-09-04) — badge count hardcoded 0 for Phase 1 (no
+            real signals API to count "stalled on Mike" against yet); Phase 2/4 wires a
+            real stalled-count hook here once GET /api/oracle/projects exists. */}
+        <ModeTabs mode={mode} onChange={setMode} projectsBadgeCount={0} />
         <ReturnToWork mode={mode} onClick={() => setMode('work')} />
       </div>
 
@@ -48,6 +52,7 @@ export function ModeShell({ machines, liveSessions, legacyAttentionArcIds, nowMs
         <PlanView liveSessions={liveSessions} legacyAttentionArcIds={legacyAttentionArcIds} nowMs={nowMs} />
       )}
       {mode === 'process' && <ProcessView nowMs={nowMs} />}
+      {mode === 'projects' && <ProjectsView />}
     </div>
   );
 }

@@ -68,7 +68,10 @@ export async function POST(
         created_by_id: bastUserId ?? undefined,
         source: 'portal',
         requested_by_contact_id: contact.id,
-        needs_review: true,
+        // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — needs_review default flip
+        // to false applies to portal-filed requests too. This is the line to revert if
+        // Mike later decides portal-originated requests should stay review-gated.
+        needs_review: false,
       },
       select: { id: true, title: true, status: true },
     });

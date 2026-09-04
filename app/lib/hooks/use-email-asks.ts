@@ -56,6 +56,9 @@ export function useUpdateEmailAsk() {
 export interface AttachEmailAskInput {
   arc_id?: string;
   task_id?: string;
+  // Oracle Projects Phase 1 — a third mutually-exclusive attach target: sets
+  // Project.email_asks + match_source: 'mike' server-side.
+  project_id?: string;
 }
 
 // Clarity Phase 3 (Seeing Stone Reckoning, spec Q4/Q11) — the intake drawer's "Attach

@@ -298,6 +298,59 @@ export const projectEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/projects/:id/notes',
+    group: 'projects',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List a project\'s notes log (non-deleted, newest first).',
+        auth: 'required',
+        responseExample: {
+          notes: [{
+            id: 'uuid',
+            project_id: 'uuid',
+            user_id: 'uuid',
+            user: { id: 'uuid', name: 'string' },
+            kind: 'note|parked_until',
+            body: 'string',
+            until_date: 'ISO-8601|null',
+            is_deleted: 'boolean',
+            created_at: 'ISO-8601',
+            updated_at: 'ISO-8601',
+          }],
+          count: 'number',
+        },
+      },
+      {
+        method: 'POST',
+        summary: 'Add a note (or a parked_until snooze) to a project.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'kind', type: 'string', required: false, description: 'note (default) or parked_until' },
+          { name: 'body', type: 'string', required: true, description: '1-10000 chars' },
+          { name: 'until_date', type: 'ISO-8601', required: false, description: 'Required when kind is parked_until; also sets Project.stale_muted_until' },
+        ],
+        responseExample: { id: 'uuid', project_id: 'uuid', kind: 'note|parked_until', body: 'string', created_at: 'ISO-8601' },
+        responseNotes: 'A parked_until note additionally stamps Project.stale_muted_until = until_date.',
+      },
+    ],
+  },
+  {
+    path: '/api/projects/:id/notes/:noteId',
+    group: 'projects',
+    methods: [
+      {
+        method: 'DELETE',
+        summary: 'Soft delete a project note.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { success: true },
+        responseNotes: 'If the deleted note was the ACTIVE parked_until note (its until_date matches the project\'s current stale_muted_until), that mute is cleared too.',
+      },
+    ],
+  },
+  {
     path: '/api/milestones/:id',
     group: 'projects',
     methods: [

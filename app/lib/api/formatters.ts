@@ -216,6 +216,16 @@ export function formatProjectResponse(project: any) {
     is_retainer: project.is_retainer,
     workload_completed_mode: project.workload_completed_mode || 'high',
     dependencies_ordering_only: project.dependencies_ordering_only ?? false,
+    // Oracle Projects Phase 1 — the hybrid next-step line + running email summary +
+    // stale-mute. All nullable; Phase 3's next-step-refresh job and the notes routes
+    // (parked_until) are the only writers besides Mike's own override.
+    next_step_text: project.next_step_text ?? null,
+    next_step_owner_id: project.next_step_owner_id ?? null,
+    next_step_source: project.next_step_source ?? null,
+    next_step_at: project.next_step_at ?? null,
+    email_summary: project.email_summary ?? null,
+    email_summary_at: project.email_summary_at ?? null,
+    stale_muted_until: project.stale_muted_until ?? null,
     // Calculated estimates from tasks
     calculated: {
       estimated_hours_min: estimates.estimatedHoursMin,
@@ -1172,6 +1182,11 @@ export function formatEmailAskResponse(ask: any) {
     // Clarity Phase 7 — email-arc attachment: the ask leaves the intake drawer and
     // attaches directly to the arc it belongs to (as well as, or instead of, a task).
     arc_id: ask.arc_id ?? null,
+    // Oracle Projects Phase 1 — client/project auto-match (see EmailAsk.match_source's
+    // own doc comment in prisma/schema.prisma for the auto/mike/unmatched provenance rule).
+    client_id: ask.client_id ?? null,
+    project_id: ask.project_id ?? null,
+    match_source: ask.match_source ?? null,
     // Heals the account-index-hardcoded (`u/0`) / inbox-only (`#inbox/`) links already
     // sitting in prod on the way out — see normalizeGmailDeepLink's own doc comment.
     deep_link: normalizeGmailDeepLink(ask.deep_link, ask.account ?? null),

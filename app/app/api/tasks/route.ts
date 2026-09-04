@@ -60,6 +60,9 @@ const createTaskSchema = z.object({
   // required client-side choice) — server-side enforcement would 400 the completion-nudge
   // draft path, the intake create+open gesture, and session-task creation.
   promised_to: z.string().max(200).optional().nullable(),
+  // Review workflow (Oracle Projects Phase 1, 2026-09-04) — explicit beats SOP beats
+  // the (now false) schema default.
+  needs_review: z.boolean().optional(),
   // Billing fields
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
@@ -491,7 +494,9 @@ export async function POST(request: NextRequest) {
         sop_id: data.sop_id,
         requirements: sopDefaults.requirements || undefined,
         review_requirements: sopDefaults.review_requirements || undefined,
-        needs_review: sopDefaults.needs_review ?? true,
+        // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — explicit param beats SOP
+        // default beats the (now false) schema default.
+        needs_review: data.needs_review ?? sopDefaults.needs_review ?? false,
         reviewer_id: defaultReviewerId,
         energy_estimate: energyEstimate,
         mystery_factor: mysteryFactor as MysteryFactor,
@@ -501,8 +506,9 @@ export async function POST(request: NextRequest) {
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: serializeRichText(data.notes),
         promised_to: data.promised_to ?? null,
-        // Billing fields - charter tasks are never billable (already invoiced via charter)
-        is_billable: data.charter_id ? false : (data.is_billable ?? true),
+        // Billing fields - charter tasks are never billable (already invoiced via charter).
+        // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false.
+        is_billable: data.charter_id ? false : (data.is_billable ?? false),
         billing_target: data.billing_target,
         billing_amount: data.billing_amount,
         is_retainer_work: data.charter_id ? true : (data.is_retainer_work ?? isRetainerProject),

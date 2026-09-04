@@ -7,6 +7,16 @@ vi.mock('@/lib/hooks/use-waiting-on-me', () => ({
   useWaitingOnMe: () => ({ data: undefined }),
 }));
 
+// Oracle Projects Tab (2026-09-04) — "tabs visible" variant (mirrors CoverBand.test.tsx's
+// pattern of mocking a flag ON to keep exercising this file's own click/switch tests,
+// while ModeShell.flag.test.tsx exercises the REAL shipped defaults, unmocked). Without
+// this, the shipped default (ORACLE_HIDE_PLAN_PROCESS=true) would hide the Plan/Process
+// tabs this file's tests click.
+vi.mock('@/lib/config/feature-flags', () => ({
+  ORACLE_PROJECTS_TAB: true,
+  ORACLE_HIDE_PLAN_PROCESS: false,
+}));
+
 // Shallow-mock every mode view — this test's job is the SHELL's own logic (default mode,
 // tab switching, Return to Work, no auto-switch), not each view's own data-fetching tree
 // (covered by their own logic-module tests + the e2e composition spec).
@@ -19,6 +29,7 @@ vi.mock('../WorkView', () => ({
 }));
 vi.mock('../PlanView', () => ({ PlanView: () => <div data-testid="mock-plan-view" /> }));
 vi.mock('../ProcessView', () => ({ ProcessView: () => <div data-testid="mock-process-view" /> }));
+vi.mock('../projects/ProjectsView', () => ({ ProjectsView: () => <div data-testid="mock-projects-view" /> }));
 
 import { ModeShell } from '../ModeShell';
 
@@ -55,6 +66,13 @@ describe('ModeShell', () => {
     renderShell();
     fireEvent.click(screen.getByTestId('mode-tab-process'));
     expect(screen.getByTestId('mock-process-view')).toBeInTheDocument();
+  });
+
+  it('clicking the Projects tab switches to Projects mode', () => {
+    renderShell();
+    fireEvent.click(screen.getByTestId('mode-tab-projects'));
+    expect(screen.getByTestId('mock-projects-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('mock-work-view')).not.toBeInTheDocument();
   });
 
   it('Return to Work goes back to Work mode', () => {

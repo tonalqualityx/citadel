@@ -7,6 +7,9 @@ import { MODE_TABS, isReturnToWorkVisible, type OracleMode } from './mode-shell-
 interface ModeTabsProps {
   mode: OracleMode;
   onChange: (mode: OracleMode) => void;
+  // Oracle Projects Tab (2026-09-04) — see the law amendment below. Count of projects
+  // stalled on Mike; the dot renders only when > 0.
+  projectsBadgeCount?: number;
 }
 
 // Clarity Phase 8 (composition) — the mode-escort law's wireframe AMENDMENT (orchestrator-
@@ -17,11 +20,19 @@ interface ModeTabsProps {
 // a border, never accent color on the tabs themselves. `Return to Work` is the one
 // exception that KEEPS a bordered, pulling treatment — it's the escape hatch and should
 // pull the eye.
-export function ModeTabs({ mode, onChange }: ModeTabsProps) {
+//
+// Oracle Projects Tab (Mike, 2026-09-04) — the LAW'S ONE PERMITTED PULL: a small red dot
+// on the Projects tab, shown only when count > 0, counting projects stalled on Mike.
+// Mike explicitly asked for it ("I want to see it") — this is a deliberate, named
+// exception to "no visual pull," not a drift back toward the wireframe's forbidden
+// treatment. Every other tab (Work/Plan/Process) stays exactly as amended above: no
+// background, no border, no accent color, no badge.
+export function ModeTabs({ mode, onChange, projectsBadgeCount = 0 }: ModeTabsProps) {
   return (
     <nav className="flex items-center gap-2" aria-label="Seeing Stone modes" data-testid="mode-tabs">
       {MODE_TABS.map((tab, i) => {
         const active = tab.mode === mode;
+        const showBadge = tab.mode === 'projects' && projectsBadgeCount > 0;
         return (
           <div key={tab.mode} className="flex items-center gap-2">
             {i > 0 && <span aria-hidden="true" className="text-text-muted/50">·</span>}
@@ -39,6 +50,14 @@ export function ModeTabs({ mode, onChange }: ModeTabsProps) {
               >
                 <span className="text-[0.7rem] text-text-sub" aria-hidden="true">{tab.glyph}</span>
                 {tab.label}
+                {showBadge && (
+                  <span
+                    data-testid="mode-tab-projects-badge"
+                    aria-label={`${projectsBadgeCount} stalled on Mike`}
+                    className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: 'var(--error)' }}
+                  />
+                )}
               </button>
             </Tooltip>
           </div>

@@ -18,6 +18,8 @@ const createSopSchema = z.object({
   energy_estimate: z.number().int().min(1).max(8).optional().nullable(),
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']).optional().default('none'),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional().default('average_drain'),
+  // Whether tasks created from this SOP need review (Oracle Projects Phase 1, 2026-09-04).
+  needs_review: z.boolean().optional(),
   // Quality Gate (PM/Admin only review checklist)
   review_requirements: z.any().optional().nullable(),
 });
@@ -137,6 +139,7 @@ export async function POST(request: NextRequest) {
         energy_estimate: data.energy_estimate,
         mystery_factor: data.mystery_factor,
         battery_impact: data.battery_impact,
+        ...(data.needs_review !== undefined && { needs_review: data.needs_review }),
         // Quality Gate
         review_requirements: data.review_requirements ?? undefined,
       },

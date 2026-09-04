@@ -28,5 +28,14 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
+    // Oracle Projects Tab (2026-09-04) — Plan/Process are hidden by default in the
+    // shipped app (lib/config/feature-flags.ts's ORACLE_HIDE_PLAN_PROCESS). The 14
+    // existing Plan/Process-tab specs (oracle-phase3, oracle-phase4a-email,
+    // oracle-phase4b-peek, oracle-phase5-soothsayer, oracle-phase8-composition) stay
+    // valid until those panes are retired by forcing the flag off here.
+    env: {
+      ...process.env,
+      NEXT_PUBLIC_ORACLE_HIDE_PLAN_PROCESS: 'false',
+    },
   },
 });
