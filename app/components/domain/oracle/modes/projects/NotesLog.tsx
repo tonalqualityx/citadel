@@ -23,17 +23,29 @@ export function NotesLog({ projectId }: NotesLogProps) {
 
   async function addNote() {
     if (!text.trim()) return;
-    await createNote.mutateAsync({ body: text.trim() });
-    setText('');
+    try {
+      await createNote.mutateAsync({ body: text.trim() });
+      setText('');
+    } catch {
+      // toasted by the hook
+    }
   }
 
   async function parkUntil() {
     if (!text.trim() || !parkDate) return;
-    const untilIso = new Date(`${parkDate}T00:00:00.000Z`).toISOString();
-    await createNote.mutateAsync({ kind: 'parked_until', body: text.trim(), until_date: untilIso });
-    setText('');
-    setParkDate('');
-    setShowPark(false);
+    try {
+      // MEDIUM-2: send the plain YYYY-MM-DD calendar date the input gave us — the API
+      // (POST /api/projects/[id]/notes) resolves it to end-of-day in the REQUESTER's
+      // timezone via resolveUserTimezone, not a literal UTC-midnight instant. Sending
+      // UTC midnight from here was the bug: a Mike-picked Oct 4 rendered as Oct 3 once
+      // read back through his own America/New_York clock.
+      await createNote.mutateAsync({ kind: 'parked_until', body: text.trim(), until_date: parkDate });
+      setText('');
+      setParkDate('');
+      setShowPark(false);
+    } catch {
+      // toasted by the hook
+    }
   }
 
   return (

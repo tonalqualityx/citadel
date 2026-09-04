@@ -23,6 +23,7 @@ import { BlockerRow } from './BlockerRow';
 import { NotesLog } from './NotesLog';
 import { EmailSummary } from './EmailSummary';
 import { PickToArcDialog } from './PickToArcDialog';
+import { nextStepSourceSentence } from './projects-logic';
 import type { Blocker } from '@/lib/oracle/projects/blockers';
 
 interface ProjectDrawerProps {
@@ -62,15 +63,23 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
 
   async function saveOverride() {
     if (!draftText.trim()) return;
-    await overrideNextStep.mutateAsync(
-      draftOwnerId ? { text: draftText.trim(), owner_id: draftOwnerId } : { text: draftText.trim() }
-    );
-    setEditing(false);
+    try {
+      await overrideNextStep.mutateAsync(
+        draftOwnerId ? { text: draftText.trim(), owner_id: draftOwnerId } : { text: draftText.trim() }
+      );
+      setEditing(false);
+    } catch {
+      // toasted by the hook
+    }
   }
 
   async function clear() {
-    await clearOverride.mutateAsync();
-    setEditing(false);
+    try {
+      await clearOverride.mutateAsync();
+      setEditing(false);
+    } catch {
+      // toasted by the hook
+    }
   }
 
   return (
@@ -93,6 +102,11 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
                 {!editing ? (
                   <div className="flex flex-col gap-2">
                     <p className="text-sm text-text-main">{project.next_step.text}</p>
+                    {nextStepSourceSentence(project.next_step) && (
+                      <p data-testid="drawer-next-step-source" className="text-xs text-text-sub">
+                        {nextStepSourceSentence(project.next_step)}
+                      </p>
+                    )}
                     <div className="flex gap-2">
                       <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                         Edit

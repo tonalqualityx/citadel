@@ -5,16 +5,28 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logCreate } from '@/lib/services/activity';
 import { recomputeStaleMutedUntil } from '@/lib/services/project-notes';
+import { resolveUserTimezone } from '@/lib/services/user-timezone';
+import { getDayBoundsForTimezone } from '@/lib/utils/time';
 
 // Oracle Projects Phase 1 — the project notes log. `note` is a free-form log entry;
 // `parked_until` is a snooze note that ALSO stamps Project.stale_muted_until (Mike's
 // "stale" blocker mute) — until_date is required for that kind only. See
 // prisma/schema.prisma's ProjectNote/ProjectNoteKind doc comments for the full contract.
+//
+// MEDIUM-2 — until_date is a plain YYYY-MM-DD calendar date, never a full ISO instant.
+// The route (not the client) resolves it to the actual stored instant: end-of-day in the
+// REQUESTING USER's own timezone (resolveUserTimezone, the same chain /api/today uses),
+// via getDayBoundsForTimezone. The original cut had the client send UTC midnight for the
+// picked date, which read back a day early for anyone west of UTC (a 2026-10-04 pick
+// rendered as 2026-10-03 in America/New_York) — resolving server-side, per-user, is what
+// makes "the mute covers all of 10/4 local" actually true regardless of who's picking.
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 const createNoteSchema = z
   .object({
     kind: z.enum(['note', 'parked_until']).optional().default('note'),
     body: z.string().min(1).max(10000),
-    until_date: z.string().datetime().optional().nullable(),
+    until_date: z.string().regex(DATE_ONLY_RE, 'until_date must be a plain YYYY-MM-DD date').optional().nullable(),
   })
   .refine((data) => data.kind !== 'parked_until' || !!data.until_date, {
     message: 'until_date is required when kind is parked_until',
@@ -100,6 +112,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json();
     const data = createNoteSchema.parse(body);
 
+    // MEDIUM-2 — end of the picked calendar day, in the REQUESTING user's own timezone.
+    const timezone = data.until_date ? await resolveUserTimezone(auth.userId) : null;
+    const untilInstant = data.until_date ? getDayBoundsForTimezone(data.until_date, timezone).end : null;
+
     // Oracle Projects Phase 1 follow-up (verification) — the note write and the
     // stale-mute recompute happen inside one transaction: stale_muted_until is always
     // MAX(until_date) over live parked_until notes, never keyed on this note's own
@@ -111,7 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           user_id: auth.userId,
           kind: data.kind,
           body: data.body,
-          until_date: data.until_date ? new Date(data.until_date) : null,
+          until_date: untilInstant,
         },
         include: { user: { select: { id: true, name: true } } },
       });

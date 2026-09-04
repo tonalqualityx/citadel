@@ -329,7 +329,7 @@ export const projectEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'kind', type: 'string', required: false, description: 'note (default) or parked_until' },
           { name: 'body', type: 'string', required: true, description: '1-10000 chars' },
-          { name: 'until_date', type: 'ISO-8601', required: false, description: 'Required when kind is parked_until; also sets Project.stale_muted_until' },
+          { name: 'until_date', type: 'string', required: false, description: 'Required when kind is parked_until; also sets Project.stale_muted_until. A plain YYYY-MM-DD calendar date, not an ISO instant — the route resolves it to end-of-day in the REQUESTING user\'s own timezone (resolveUserTimezone) before storing.' },
         ],
         responseExample: { id: 'uuid', project_id: 'uuid', kind: 'note|parked_until', body: 'string', created_at: 'ISO-8601' },
         responseNotes: 'A parked_until note additionally recomputes Project.stale_muted_until = MAX(until_date) over the project\'s live parked_until notes (not a direct stamp of this note\'s own until_date).',

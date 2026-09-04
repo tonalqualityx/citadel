@@ -32,6 +32,7 @@ function decisionBlocker(overrides: Partial<Blocker> = {}): Blocker {
     source: { type: 'task', id: 'task-1', url: '/tasks/task-1' },
     since: '2026-08-01T00:00:00Z',
     actions: ['reply', 'open_task'],
+    arc: null,
     ...overrides,
   };
 }
@@ -41,11 +42,12 @@ function reviewBlocker(overrides: Partial<Blocker> = {}): Blocker {
     kind: 'review',
     id: 'review:task-2',
     title: 'Ship the fix',
-    detail: 'Marked done — needs your review',
+    detail: 'Marked done. Needs your review.',
     owner: { id: 'mike-1', name: 'Mike', is_mike: true },
     source: { type: 'task', id: 'task-2', url: '/tasks/task-2' },
     since: '2026-08-01T00:00:00Z',
     actions: ['approve', 'request_changes', 'open_task', 'dismiss'],
+    arc: null,
     ...overrides,
   };
 }
@@ -78,6 +80,7 @@ describe('BlockerRow — reply', () => {
     await waitFor(() => expect(mockCreateCommentMutateAsync).toHaveBeenCalledWith({
       content: 'Yes, go ahead.',
       mentioned_user_ids: [BAST_USER_ID],
+      is_internal: true,
     }));
     await waitFor(() =>
       expect(mockUpdateTaskMutateAsync).toHaveBeenCalledWith({
@@ -101,9 +104,29 @@ describe('BlockerRow — reply', () => {
     fireEvent.click(screen.getByRole('button', { name: /send reply/i }));
 
     await waitFor(() =>
-      expect(mockCreateCommentMutateAsync).toHaveBeenCalledWith({ content: 'Noted.', mentioned_user_ids: [] })
+      expect(mockCreateCommentMutateAsync).toHaveBeenCalledWith({
+        content: 'Noted.',
+        mentioned_user_ids: [],
+        is_internal: true,
+      })
     );
     expect(mockUpdateTaskMutateAsync).not.toHaveBeenCalled();
+  });
+
+  // HIGH-1 guard — every comment the Projects tab posts must be internal-only, or a
+  // reply/request-changes note leaks into the client portal on any task with an active
+  // portal token (lib/services/portal.ts filters is_internal:false). This is a stricter,
+  // dedicated check on top of the toHaveBeenCalledWith assertions above (which already
+  // fail on a missing flag) so a future refactor can't silently drop the flag and pass
+  // an exact-match assertion that happened to stop checking it.
+  it('is_internal is true on the posted comment', async () => {
+    renderRow(decisionBlocker());
+    fireEvent.click(screen.getByRole('button', { name: /reply and clear/i }));
+    fireEvent.change(screen.getByPlaceholderText(/write a reply/i), { target: { value: 'Yes.' } });
+    fireEvent.click(screen.getByRole('button', { name: /reply and clear/i }));
+
+    await waitFor(() => expect(mockCreateCommentMutateAsync).toHaveBeenCalled());
+    expect(mockCreateCommentMutateAsync.mock.calls[0][0].is_internal).toBe(true);
   });
 });
 
@@ -124,11 +147,25 @@ describe('BlockerRow — approve / request changes', () => {
     fireEvent.click(screen.getByRole('button', { name: /request changes/i }));
 
     await waitFor(() =>
-      expect(mockCreateCommentMutateAsync).toHaveBeenCalledWith({ content: 'Fix the CTA color.' })
+      expect(mockCreateCommentMutateAsync).toHaveBeenCalledWith({
+        content: 'Fix the CTA color.',
+        is_internal: true,
+      })
     );
     await waitFor(() =>
       expect(mockUpdateTaskMutateAsync).toHaveBeenCalledWith({ id: 'task-2', data: { approved: false } })
     );
+  });
+
+  // HIGH-1 guard, request-changes path — same rationale as the reply-path check above.
+  it('is_internal is true on the request-changes comment', async () => {
+    renderRow(reviewBlocker());
+    fireEvent.click(screen.getByRole('button', { name: /request changes/i }));
+    fireEvent.change(screen.getByPlaceholderText(/what needs to change/i), { target: { value: 'Fix it.' } });
+    fireEvent.click(screen.getByRole('button', { name: /request changes/i }));
+
+    await waitFor(() => expect(mockCreateCommentMutateAsync).toHaveBeenCalled());
+    expect(mockCreateCommentMutateAsync.mock.calls[0][0].is_internal).toBe(true);
   });
 });
 

@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useOracleProjects } from '@/lib/hooks/use-oracle-projects';
 import { useRefreshAllNextSteps } from '@/lib/hooks/use-next-step';
-import { sortProjectCards, groupByKind } from './projects-logic';
+import { useTerminology } from '@/lib/hooks/use-terminology';
+import { sortProjectCards, groupByKind, deriveByKind } from './projects-logic';
 import { ProjectCard } from './ProjectCard';
 import { KindLens } from './KindLens';
 import { ProjectDrawer } from './ProjectDrawer';
@@ -37,6 +38,7 @@ function storeLens(lens: Lens) {
 // project, persisted in localStorage), Refresh all, a stalled summary line, and the
 // drawer host shared by both lenses.
 export function ProjectsView() {
+  const { t } = useTerminology();
   const [lens, setLens] = React.useState<Lens>('project');
   const [openProjectId, setOpenProjectId] = React.useState<string | null>(null);
 
@@ -44,7 +46,11 @@ export function ProjectsView() {
     setLens(readStoredLens());
   }, []);
 
-  const { data, isLoading, isError, refetch } = useOracleProjects(lens === 'kind' ? 'kind' : undefined);
+  // LOW-12: always the single, lens-agnostic query — the by-kind lens derives its
+  // groups from this same `projects` array (see deriveByKind below) instead of a
+  // second `?lens=kind` fetch under a different query key, so toggling lenses never
+  // blanks the screen behind a fresh loading state.
+  const { data, isLoading, isError, refetch } = useOracleProjects();
   const refreshAll = useRefreshAllNextSteps();
 
   function changeLens(next: Lens) {
@@ -63,8 +69,8 @@ export function ProjectsView() {
   if (isError) {
     return (
       <EmptyState
-        title="Couldn't load projects"
-        description="Something went wrong fetching the Projects tab."
+        title={`Couldn't load ${t('projects').toLowerCase()}`}
+        description={`Something went wrong fetching the ${t('projects')} tab.`}
         action={
           <Button size="sm" variant="secondary" onClick={() => refetch()}>
             Try again
@@ -79,8 +85,8 @@ export function ProjectsView() {
   if (projects.length === 0) {
     return (
       <EmptyState
-        title="No projects in progress"
-        description="Contracted projects show up here once they move to in progress."
+        title={`No ${t('projects').toLowerCase()} in progress`}
+        description={`Contracted ${t('projects').toLowerCase()} show up here once they move to in progress.`}
       />
     );
   }
@@ -88,7 +94,7 @@ export function ProjectsView() {
   const sorted = sortProjectCards(projects);
   const stalled = data?.stalled_count ?? 0;
   const openProject = projects.find((p) => p.id === openProjectId) ?? null;
-  const kindGroups = lens === 'kind' ? groupByKind(data?.by_kind ?? {}) : [];
+  const kindGroups = lens === 'kind' ? groupByKind(deriveByKind(projects)) : [];
 
   return (
     <div className="flex flex-col gap-4">
@@ -97,7 +103,7 @@ export function ProjectsView() {
           className="inline-flex items-center rounded-lg border p-1"
           style={{ borderColor: 'var(--border)' }}
           role="group"
-          aria-label="Projects lens"
+          aria-label={`${t('projects')} lens`}
         >
           <button
             type="button"
@@ -111,7 +117,7 @@ export function ProjectsView() {
                 : { color: 'var(--text-sub)' }
             }
           >
-            By project
+            By {t('project').toLowerCase()}
           </button>
           <button
             type="button"
@@ -141,7 +147,7 @@ export function ProjectsView() {
 
       <div data-testid="stalled-summary" className="text-sm text-text-sub">
         {stalled > 0
-          ? `${stalled} project${stalled === 1 ? '' : 's'} stalled on you`
+          ? `${stalled} ${(stalled === 1 ? t('project') : t('projects')).toLowerCase()} stalled on you`
           : 'Nothing stalled on you right now'}
       </div>
 

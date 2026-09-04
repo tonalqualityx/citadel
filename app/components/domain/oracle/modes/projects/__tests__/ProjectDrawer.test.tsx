@@ -93,6 +93,38 @@ describe('ProjectDrawer — next step override', () => {
   });
 });
 
+// Card anatomy fix — the next-step source stamp moved off the card face and now
+// renders only here, in the drawer's next-step section, as a full sentence (no dash).
+describe('ProjectDrawer — next step source sentence', () => {
+  it('shows a plain sentence for a bast-sourced next step, with the time', () => {
+    renderDrawer(
+      makeProject({
+        next_step: { text: 'x', owner: null, owner_label: null, source: 'bast', at: '2026-09-04T12:00:00Z' },
+      })
+    );
+    const el = screen.getByTestId('drawer-next-step-source');
+    expect(el).toHaveTextContent('Bast suggested this next step');
+    expect(el.textContent).not.toMatch(/[–—]/);
+  });
+
+  it('shows a plain sentence for a mike-sourced override, with no dash', () => {
+    renderDrawer(makeProject({ next_step: { text: 'x', owner: null, owner_label: null, source: 'mike', at: null } }));
+    expect(screen.getByTestId('drawer-next-step-source')).toHaveTextContent('Mike set this next step himself.');
+  });
+
+  it('shows a plain sentence for a graph-sourced candidate', () => {
+    renderDrawer(makeProject({ next_step: { text: 'x', owner: null, owner_label: null, source: 'graph', at: null } }));
+    expect(screen.getByTestId('drawer-next-step-source')).toHaveTextContent(
+      'This next step came from the task graph.'
+    );
+  });
+
+  it('renders nothing when there is no next step at all (source: none)', () => {
+    renderDrawer(makeProject({ next_step: { text: 'x', owner: null, owner_label: null, source: 'none', at: null } }));
+    expect(screen.queryByTestId('drawer-next-step-source')).not.toBeInTheDocument();
+  });
+});
+
 describe('ProjectDrawer — refresh', () => {
   it('clicking Refresh calls the refresh mutation (POST refresh)', () => {
     renderDrawer();
@@ -126,8 +158,11 @@ describe('ProjectDrawer — notes / park until', () => {
         })
       )
     );
+    // MEDIUM-2: the plain YYYY-MM-DD calendar date goes straight to the API — no
+    // client-side UTC-midnight conversion, which is what rendered a day early once the
+    // API read it back in a US Eastern timezone.
     const call = mockCreateNoteMutateAsync.mock.calls[0][0];
-    expect(new Date(call.until_date).toISOString().startsWith('2026-09-15')).toBe(true);
+    expect(call.until_date).toBe('2026-09-15');
   });
 
   it('"Add note" (no park) posts a plain note with no kind override', async () => {

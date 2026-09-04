@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useUpdateTask, type Task } from '@/lib/hooks/use-tasks';
-import { useCreateComment } from '@/lib/hooks/use-comments';
+import { usePostInternalComment } from '@/lib/hooks/use-post-internal-comment';
 import { showToast } from '@/lib/hooks/use-toast';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { apiClient } from '@/lib/api/client';
@@ -44,7 +44,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
   const isTaskSourced = blocker.source.type === 'task';
   const taskId = isTaskSourced ? blocker.source.id : null;
 
-  const createComment = useCreateComment(taskId ?? '');
+  const { postInternalComment, isPending: commentPending } = usePostInternalComment(taskId ?? '');
   const updateTask = useUpdateTask();
 
   function invalidateProjects() {
@@ -55,7 +55,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
     if (!taskId || !replyText.trim()) return;
     const mentionBast = blocker.kind === 'decision' || blocker.kind === 'clarification';
     try {
-      await createComment.mutateAsync({
+      await postInternalComment({
         content: replyText.trim(),
         mentioned_user_ids: mentionBast ? [BAST_USER_ID] : [],
       });
@@ -75,7 +75,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
       setReplyOpen(false);
       invalidateProjects();
     } catch {
-      // useCreateComment/useUpdateTask already toast their own errors.
+      // usePostInternalComment/useUpdateTask already toast their own errors.
     }
   }
 
@@ -92,7 +92,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
   async function submitRequestChanges() {
     if (!taskId || !changesText.trim()) return;
     try {
-      await createComment.mutateAsync({ content: changesText.trim() });
+      await postInternalComment({ content: changesText.trim() });
       await updateTask.mutateAsync({ id: taskId, data: { approved: false } });
       showToast.success('Changes requested');
       setChangesText('');
@@ -184,7 +184,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
               type="button"
               disabled
               title={COMING_NEXT_PASS}
-              aria-label={`${deferredLabel(action)} — ${COMING_NEXT_PASS}`}
+              aria-label={`${deferredLabel(action)}, ${COMING_NEXT_PASS}`}
               className="cursor-not-allowed rounded-lg border px-3 py-1 text-xs font-medium text-text-sub opacity-50"
               style={{ borderColor: 'var(--border)' }}
             >
@@ -203,7 +203,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
             rows={2}
           />
           <div className="flex gap-2">
-            <Button size="sm" variant="primary" onClick={submitReply} disabled={createComment.isPending || !replyText.trim()}>
+            <Button size="sm" variant="primary" onClick={submitReply} disabled={commentPending || !replyText.trim()}>
               {PARKING_TAG_BY_KIND[blocker.kind] ? 'Reply and clear' : 'Send reply'}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setReplyOpen(false)}>
@@ -222,7 +222,7 @@ export function BlockerRow({ blocker, onPick }: BlockerRowProps) {
             rows={2}
           />
           <div className="flex gap-2">
-            <Button size="sm" variant="primary" onClick={submitRequestChanges} disabled={createComment.isPending || !changesText.trim()}>
+            <Button size="sm" variant="primary" onClick={submitRequestChanges} disabled={commentPending || !changesText.trim()}>
               Request changes
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setChangesOpen(false)}>

@@ -6,23 +6,23 @@ import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { lastMovementSentence, KIND_HEADINGS } from './projects-logic';
-import type { OracleProjectCard as OracleProjectCardData, OracleProjectNextStep } from '@/lib/hooks/use-oracle-projects';
+import type { OracleProjectCard as OracleProjectCardData } from '@/lib/hooks/use-oracle-projects';
 
 interface ProjectCardProps {
   project: OracleProjectCardData;
   onOpen: (projectId: string) => void;
 }
 
-// Oracle Projects Tab Phase 4 — the by-project lens's card face. Carries exactly the
-// anatomy the spec calls for: client name, project name, next-step sentence (with its
-// source hint), owner chip, last-movement sentence, and blocker-count chips. Red left
-// edge only when stalled_on_mike. Fixed height so the grid stays even regardless of how
-// long any one project's next-step text runs — overflow is clipped, not wrapped
-// indefinitely; the drawer is where the full text lives.
+// Oracle Projects Tab Phase 4 — the by-project lens's card face. Carries exactly the six
+// anatomy elements the spec calls for: client name, project name, next-step sentence,
+// last-movement sentence, owner chip, and blocker-count chips. Red left edge only when
+// stalled_on_mike. Fixed height so the grid stays even regardless of how long any one
+// project's next-step text runs — overflow is clipped, not wrapped indefinitely; the
+// drawer is where the full text (and the next-step's source stamp — see
+// ProjectDrawer.tsx's nextStepSourceLine) lives.
 export function ProjectCard({ project, onOpen }: ProjectCardProps) {
   const isMikeOwner = project.next_step.owner?.id === MIKE_USER_ID;
   const ownerName = project.next_step.owner?.name ?? project.next_step.owner_label ?? 'Unassigned';
-  const stamp = nextStepStamp(project.next_step);
 
   return (
     <div
@@ -56,7 +56,6 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
 
         <div data-testid="project-card-next-step" className="mt-2 text-sm text-text-main line-clamp-2">
           {project.next_step.text}
-          {stamp && <span className="ml-1 text-xs text-text-sub">— {stamp}</span>}
         </div>
 
         <div data-testid="project-card-movement" className="mt-2 text-xs text-text-sub line-clamp-1">
@@ -96,15 +95,4 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
       </div>
     </div>
   );
-}
-
-function nextStepStamp(nextStep: OracleProjectNextStep): string | null {
-  if (nextStep.source === 'mike') return "Mike's own";
-  if (nextStep.source === 'bast') {
-    if (!nextStep.at) return 'Bast';
-    const time = new Date(nextStep.at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    return `Bast, ${time}`;
-  }
-  if (nextStep.source === 'graph') return 'graph';
-  return null;
 }

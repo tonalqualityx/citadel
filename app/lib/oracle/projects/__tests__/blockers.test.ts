@@ -43,6 +43,7 @@ function task(overrides: Partial<BlockerTask> = {}): BlockerTask {
     phase_sort: 0,
     sort_order: 0,
     last_comment: null,
+    arc: null,
     ...overrides,
   };
 }
@@ -472,7 +473,8 @@ describe('classifyProjectBlockers — client_email', () => {
       time_entries: [],
     });
     const blockers = classifyProjectBlockers(input, NOW);
-    expect(blockers[0].detail).toMatch(/asks for status, no time logged since/);
+    // Dash-law fix: two plain sentences, not a dash-joined fragment.
+    expect(blockers[0].detail).toMatch(/Asks for status\. No time logged since\./);
   });
 
   it('does NOT flag the status pattern when time WAS logged after the email arrived', () => {
@@ -791,5 +793,68 @@ describe('ownerIsMike', () => {
 
   it('is false when there are no blockers at all', () => {
     expect(ownerIsMike(classifyProjectBlockers(baseInput(), NOW))).toBe(false);
+  });
+});
+
+// MEDIUM-3 — re-homing: every task-sourced blocker carries the task's CURRENT arc (if
+// any) so the pick-to-arc dialogs can flag "already in arc X" instead of silently
+// re-homing a task that's already live somewhere else.
+describe('classifyProjectBlockers — arc pass-through', () => {
+  it('a task-sourced blocker (decision) carries the task\'s current arc', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          tags: ['needs-mike'],
+          last_comment: { id: 'c1', user_id: BAST_USER_ID, user_name: 'Bast', created_at: '2026-09-08T00:00:00.000Z', content_excerpt: 'x' },
+          arc: { id: 'arc-1', name: 'Launch prep' },
+        }),
+      ],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers[0].arc).toEqual({ id: 'arc-1', name: 'Launch prep' });
+  });
+
+  it('a task-sourced blocker with no current arc reports arc: null', () => {
+    const input = baseInput({
+      tasks: [
+        task({
+          status: 'done',
+          needs_review: true,
+          approved: false,
+          arc: null,
+        }),
+      ],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers[0].kind).toBe('review');
+    expect(blockers[0].arc).toBeNull();
+  });
+
+  it('a non-task-sourced blocker (client_email) always reports arc: null', () => {
+    const input = baseInput({
+      emails: [
+        {
+          id: 'email-1',
+          from: 'client@example.com',
+          subject: 'Status?',
+          gist: null,
+          received_at: '2026-09-08T00:00:00.000Z',
+          replied: false,
+          deep_link: 'https://mail.google.com/x',
+        },
+      ],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers[0].kind).toBe('client_email');
+    expect(blockers[0].arc).toBeNull();
+  });
+
+  it('someone_else carries the candidate task\'s current arc', () => {
+    const input = baseInput({
+      tasks: [task({ id: 'task-2', arc: { id: 'arc-2', name: 'Q3 cleanup' } })],
+      next_step_candidate: { task_id: 'task-2', assignee_id: 'user-9', assignee_name: 'Jordan', since: '2026-09-05T00:00:00.000Z' },
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers[0]).toMatchObject({ kind: 'someone_else', arc: { id: 'arc-2', name: 'Q3 cleanup' } });
   });
 });

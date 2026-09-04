@@ -14,6 +14,14 @@ vi.mock('@/lib/hooks/use-next-step', () => ({
   useRefreshAllNextSteps: () => ({ mutate: mockRefreshAllMutate, isPending: false }),
 }));
 
+// MEDIUM-6 — same mock pattern as the other Oracle test files (e.g. TodayBoard.test.tsx):
+// the identity function keeps every existing text assertion below valid (t('projects')
+// reads back as 'projects', t('project') as 'project') while proving the tab's labels
+// actually route through the terminology hook.
+vi.mock('@/lib/hooks/use-terminology', () => ({
+  useTerminology: () => ({ t: (k: string) => k }),
+}));
+
 // This file tests ProjectsView's own logic (lens toggle, empty/loading/error states, the
 // stalled summary line) — not the drawer's or KindLens's own behavior, which have their
 // own test files. Shallow-mocked here, same pattern as ModeShell.test.tsx.
@@ -173,6 +181,23 @@ describe('ProjectsView — lens toggle', () => {
     expect(screen.getByTestId('mock-kind-lens')).toBeInTheDocument();
     expect(screen.queryByTestId('projects-grid')).not.toBeInTheDocument();
     expect(window.localStorage.getItem('oracle.projects.lens')).toBe('kind');
+  });
+
+  // LOW-12 — the by-kind lens derives its groups from the SAME `projects` response the
+  // by-project lens already has, rather than a second `?lens=kind` fetch under a
+  // different query key. Toggling lenses must never re-invoke the hook with different
+  // args (which would be a different cache entry, and would blank the screen on the
+  // toggle while it loaded).
+  it('toggling lenses never re-invokes useOracleProjects with different args', () => {
+    renderView();
+    const callsBefore = mockUseOracleProjects.mock.calls.length;
+    fireEvent.click(screen.getByTestId('lens-toggle-kind'));
+    fireEvent.click(screen.getByTestId('lens-toggle-project'));
+
+    for (const call of mockUseOracleProjects.mock.calls) {
+      expect(call).toEqual(mockUseOracleProjects.mock.calls[0]);
+    }
+    expect(mockUseOracleProjects.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
   });
 
   it('a stored "kind" lens is read back on mount', () => {

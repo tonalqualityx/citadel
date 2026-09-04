@@ -31,9 +31,15 @@ vi.mock('@/lib/services/activity', () => ({
   logCreate: vi.fn(),
 }));
 
+// MEDIUM-2 — until_date is now resolved server-side, per-user timezone.
+vi.mock('@/lib/services/user-timezone', () => ({
+  resolveUserTimezone: vi.fn().mockResolvedValue('America/New_York'),
+}));
+
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { logCreate } from '@/lib/services/activity';
+import { getDayBoundsForTimezone } from '@/lib/utils/time';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
@@ -154,9 +160,12 @@ describe('POST /api/projects/[id]/notes', () => {
   });
 
   it('creating the first parked_until note sets Project.stale_muted_until to its date', async () => {
-    const untilDate = '2026-09-20T00:00:00.000Z';
-    mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: new Date(untilDate) }));
-    mockNoteAggregate.mockResolvedValue({ _max: { until_date: new Date(untilDate) } });
+    // MEDIUM-2: the request carries a plain YYYY-MM-DD date; the route resolves it to
+    // end-of-day in the requester's own timezone (mocked above as America/New_York).
+    const untilDate = '2026-09-20';
+    const expectedInstant = getDayBoundsForTimezone(untilDate, 'America/New_York').end;
+    mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: expectedInstant }));
+    mockNoteAggregate.mockResolvedValue({ _max: { until_date: expectedInstant } });
 
     const res = await POST(
       postReq({ kind: 'parked_until', body: 'Snoozed pending reply', until_date: untilDate }),
@@ -164,17 +173,30 @@ describe('POST /api/projects/[id]/notes', () => {
     );
 
     expect(res.status).toBe(201);
+    expect(mockNoteCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ until_date: expectedInstant }) })
+    );
     expect(mockProjectUpdate).toHaveBeenCalledWith({
       where: { id: PROJECT_ID },
-      data: { stale_muted_until: new Date(untilDate) },
+      data: { stale_muted_until: expectedInstant },
     });
   });
 
-  it('an earlier-dated new park does not move the mute backward — MAX still wins', async () => {
+  it('rejects an until_date that is not a plain YYYY-MM-DD string', async () => {
+    const res = await POST(
+      postReq({ kind: 'parked_until', body: 'Snoozed', until_date: '2026-09-20T00:00:00.000Z' }),
+      ctx()
+    );
+    expect(res.status).toBe(400);
+    expect(mockNoteCreate).not.toHaveBeenCalled();
+  });
+
+  it('an earlier-dated new park does not move the mute backward, MAX still wins', async () => {
     // A later park is already live; this create adds an EARLIER one.
-    const laterUntil = new Date('2026-09-20T00:00:00.000Z');
-    const earlierUntil = '2026-09-10T00:00:00.000Z';
-    mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: new Date(earlierUntil) }));
+    const laterUntil = getDayBoundsForTimezone('2026-09-20', 'America/New_York').end;
+    const earlierUntil = '2026-09-10';
+    const earlierInstant = getDayBoundsForTimezone(earlierUntil, 'America/New_York').end;
+    mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: earlierInstant }));
     // The aggregate reflects the DB state after this create: MAX is still the later date.
     mockNoteAggregate.mockResolvedValue({ _max: { until_date: laterUntil } });
 
@@ -188,6 +210,40 @@ describe('POST /api/projects/[id]/notes', () => {
       where: { id: PROJECT_ID },
       data: { stale_muted_until: laterUntil },
     });
+  });
+
+  // MEDIUM-2 acceptance test: picking 2026-10-04 (with TZ=America/New_York) reads back
+  // as 10/4/2026, not 10/3, and the resulting mute instant covers every moment of that
+  // calendar day in that zone — the two things the original UTC-midnight bug broke.
+  it('picking 2026-10-04 in America/New_York resolves to an instant that reads back as 10/4/2026 and covers the whole local day', async () => {
+    const untilInstant = getDayBoundsForTimezone('2026-10-04', 'America/New_York').end;
+    mockNoteCreate.mockResolvedValue(note({ kind: 'parked_until', until_date: untilInstant }));
+    mockNoteAggregate.mockResolvedValue({ _max: { until_date: untilInstant } });
+
+    const res = await POST(
+      postReq({ kind: 'parked_until', body: 'Snoozed pending reply', until_date: '2026-10-04' }),
+      ctx()
+    );
+    expect(res.status).toBe(201);
+
+    // What a browser sitting in America/New_York would render for this instant — the
+    // same call NotesLog.tsx's toLocaleDateString() effectively performs for Mike, whose
+    // browser IS in that zone.
+    const renderedInNY = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      month: 'numeric',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(untilInstant);
+    expect(renderedInNY).toBe('10/4/2026');
+
+    // The mute (Project.stale_muted_until) is compared as `> now` (see
+    // classifyStale in lib/oracle/projects/blockers.ts) — it must still be live at
+    // 11pm ET on the 4th, and no longer live once the 5th begins, in that zone.
+    const stillOct4Evening = new Date('2026-10-05T02:00:00.000Z'); // 10pm ET on the 4th
+    const nowOct5 = new Date('2026-10-05T05:00:00.000Z'); // 1am ET on the 5th
+    expect(untilInstant.getTime() > stillOct4Evening.getTime()).toBe(true);
+    expect(untilInstant.getTime() > nowOct5.getTime()).toBe(false);
   });
 
   it('rejects an empty body', async () => {

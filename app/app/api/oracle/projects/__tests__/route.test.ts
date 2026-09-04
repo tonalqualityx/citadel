@@ -443,6 +443,69 @@ describe('GET /api/oracle/projects — email summary + linked emails (Phase 4)',
   });
 });
 
+// MEDIUM-3 — re-homing needs to know when a task is ALREADY in an arc.
+describe('GET /api/oracle/projects — arc pass-through (MEDIUM-3)', () => {
+  it('a task-sourced blocker carries the task\'s current arc', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([
+      {
+        id: 'task-1',
+        title: 'Needs review',
+        status: 'done',
+        tags: [],
+        needs_review: true,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: new Date('2026-09-09T00:00:00.000Z'),
+        created_at: new Date('2026-09-01T00:00:00.000Z'),
+        project_id: 'proj-1',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+        arc: { id: 'arc-1', name: 'Launch prep' },
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+    const blocker = body.projects[0].blockers.find((b: { kind: string }) => b.kind === 'review');
+
+    expect(blocker.arc).toEqual({ id: 'arc-1', name: 'Launch prep' });
+  });
+
+  it('a task with no arc reports arc: null, not undefined', async () => {
+    mockProjectFindMany.mockResolvedValue([project({ id: 'proj-1' })]);
+    mockTaskFindMany.mockResolvedValue([
+      {
+        id: 'task-1',
+        title: 'Needs review',
+        status: 'done',
+        tags: [],
+        needs_review: true,
+        approved: false,
+        assignee_id: null,
+        assignee: null,
+        sop: null,
+        updated_at: new Date('2026-09-09T00:00:00.000Z'),
+        created_at: new Date('2026-09-01T00:00:00.000Z'),
+        project_id: 'proj-1',
+        sort_order: 0,
+        project_phase: null,
+        blocked_by: [],
+        arc: null,
+      },
+    ]);
+
+    const res = await GET(getReq());
+    const body = await res.json();
+    const blocker = body.projects[0].blockers.find((b: { kind: string }) => b.kind === 'review');
+
+    expect(blocker.arc).toBeNull();
+  });
+});
+
 // LOW-12
 describe('GET /api/oracle/projects — zero-task project', () => {
   it('returns a valid card with no crash for an in-progress project with zero tasks', async () => {

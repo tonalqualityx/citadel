@@ -183,6 +183,9 @@ export async function GET(request: NextRequest) {
         sort_order: true,
         project_phase: { select: { sort_order: true } },
         blocked_by: { select: { id: true } },
+        // MEDIUM-3: re-homing — the pick-to-arc dialogs need to know when a task is
+        // ALREADY in a different arc before offering to attach it to a new/existing one.
+        arc: { select: { id: true, name: true } },
       },
     });
     const taskIds = tasks.map((t) => t.id);
@@ -566,6 +569,7 @@ export async function GET(request: NextRequest) {
           blocked_by_ids: t.blocked_by.map((b) => b.id),
           phase_sort: t.project_phase?.sort_order ?? 0,
           sort_order: t.sort_order,
+          arc: t.arc ? { id: t.arc.id, name: t.arc.name } : null,
           last_comment: lastComment
             ? {
                 id: lastComment.id,

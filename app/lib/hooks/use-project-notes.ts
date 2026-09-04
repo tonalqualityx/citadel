@@ -31,7 +31,11 @@ export interface ProjectNotesResponse {
 export interface CreateProjectNoteInput {
   kind?: ProjectNoteKind;
   body: string;
-  // Required when kind is 'parked_until'.
+  // Required when kind is 'parked_until'. MEDIUM-2: a plain YYYY-MM-DD calendar date —
+  // never a full ISO instant. The API resolves it to end-of-day in the REQUESTING
+  // user's own timezone (see app/api/projects/[id]/notes/route.ts); sending a
+  // client-computed UTC-midnight instant here was the bug that rendered a day early
+  // for anyone west of UTC.
   until_date?: string | null;
 }
 

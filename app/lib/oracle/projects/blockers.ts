@@ -35,6 +35,10 @@ export interface BlockerTask {
   phase_sort: number;
   sort_order: number;
   last_comment: BlockerLastComment | null;
+  // MEDIUM-3: the arc this task is ALREADY attached to, if any — carried through onto
+  // every task-sourced Blocker below so the pick-to-arc dialogs can flag "already in
+  // arc X" instead of silently re-homing a task that's mid-flight in a different arc.
+  arc: { id: string; name: string } | null;
 }
 
 export interface BlockerMention {
@@ -184,6 +188,10 @@ export interface Blocker {
   source: BlockerSource;
   since: string; // ISO
   actions: BlockerAction[];
+  // MEDIUM-3: the arc this blocker's task is already attached to, when source.type is
+  // 'task' and that task has one. Always null for a non-task-sourced blocker (nothing to
+  // re-home yet — a task doesn't exist until the pick creates one).
+  arc: { id: string; name: string } | null;
 }
 
 const STALE_DAYS_THRESHOLD = 7;
@@ -307,6 +315,7 @@ function classifyDecisionAndClarification(
       source: taskSource(task.id),
       since: task.last_comment.created_at,
       actions: ['reply', 'open_task'],
+      arc: task.arc,
     });
   }
   return { blockers: out, consumedCommentIds };
@@ -324,11 +333,12 @@ function classifyReview(input: ClassifyProjectBlockersInput): Blocker[] {
       title: task.title,
       detail:
         task.last_comment?.content_excerpt ??
-        `Marked done — needs your review${task.sop_title ? ` (${task.sop_title})` : ''}`,
+        `Marked done. Needs your review${task.sop_title ? ` (${task.sop_title})` : ''}.`,
       owner: mikeOwner(),
       source: taskSource(task.id),
       since: task.updated_at,
       actions: ['approve', 'request_changes', 'open_task', 'dismiss'],
+      arc: task.arc,
     });
   }
   return out;
@@ -352,6 +362,7 @@ function classifySessionAsks(input: ClassifyProjectBlockersInput): Blocker[] {
       source: { type: 'session', id: ask.session_external_id, url: `/oracle?session=${ask.session_external_id}` },
       since: ask.waiting_since ?? new Date(0).toISOString(),
       actions: ['reply', 'resolve_ask', 'dismiss'],
+      arc: null,
     });
   }
   return out;
@@ -378,6 +389,7 @@ function classifyMentions(input: ClassifyProjectBlockersInput, consumedCommentId
       source: taskSource(mention.task_id),
       since: mention.created_at,
       actions: ['reply', 'open_task', 'dismiss'],
+      arc: task.arc,
     });
   }
   return out;
@@ -399,7 +411,7 @@ function classifyClientEmails(input: ClassifyProjectBlockersInput): Blocker[] {
       id: `client_email:${email.id}`,
       title: email.subject,
       detail: flag
-        ? `${email.gist ?? email.subject} — asks for status, no time logged since`
+        ? `${email.gist ?? email.subject}. Asks for status. No time logged since.`
         : (email.gist ?? email.subject),
       owner: mikeOwner(),
       // LOW-8: /email-asks/{id} is an API-only path — the deep_link is the actual Gmail
@@ -407,6 +419,7 @@ function classifyClientEmails(input: ClassifyProjectBlockersInput): Blocker[] {
       source: { type: 'email', id: email.id, url: email.deep_link },
       since: email.received_at,
       actions: ['reply', 'open_email', 'dismiss'],
+      arc: null,
     });
   }
   return out;
@@ -430,9 +443,9 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
 
     const detail = mikeOwns
       ? ar.status === 'replied'
-        ? 'Client replied — read the reply and mark approved or request changes'
+        ? 'Client replied. Read the reply, then approve or request changes.'
         : overdueChase
-          ? `Sent, no reply after ${ar.chase_after_days} business day${ar.chase_after_days === 1 ? '' : 's'} — chase it`
+          ? `Sent, no reply after ${ar.chase_after_days} business day${ar.chase_after_days === 1 ? '' : 's'}. Chase it.`
           : 'Draft ready to send for approval'
       : `Awaiting ${ar.contact?.name ?? 'the client'}'s reply`;
 
@@ -448,6 +461,7 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
       // back to `now` made it look freshly-minted on every single request forever.
       since: ar.sent_at ?? ar.replied_at ?? ar.created_at,
       actions: mikeOwns ? ['send_approval', 'mark_approved'] : ['nudge'],
+      arc: null,
     });
   }
   return out;
@@ -459,6 +473,7 @@ function classifySomeoneElse(input: ClassifyProjectBlockersInput, now: Date): Bl
   if (c.assignee_id === MIKE_USER_ID || BOT_USER_IDS.includes(c.assignee_id)) return [];
 
   const days = Math.max(0, daysBetween(new Date(c.since), now));
+  const task = input.tasks.find((t) => t.id === c.task_id);
   return [
     {
       kind: 'someone_else',
@@ -469,6 +484,7 @@ function classifySomeoneElse(input: ClassifyProjectBlockersInput, now: Date): Bl
       source: taskSource(c.task_id),
       since: c.since,
       actions: ['nudge', 'pick'],
+      arc: task?.arc ?? null,
     },
   ];
 }
@@ -505,6 +521,7 @@ function classifyStale(
     source: { type: 'project', id: input.project.id, url: `/projects/${input.project.id}` },
     since: input.last_movement_at ?? now.toISOString(),
     actions: ['refresh_next_step', 'nudge', 'dismiss', 'suspend'],
+    arc: null,
   };
 }
 
@@ -529,6 +546,7 @@ function classifyMeetingRisk(input: ClassifyProjectBlockersInput, now: Date): Bl
       source: { type: 'calendar_event', id: event.id, url: `/projects/${input.project.id}` },
       since: input.last_movement_at ?? now.toISOString(),
       actions: ['refresh_next_step', 'nudge', 'dismiss'],
+      arc: null,
     });
   }
   return out;

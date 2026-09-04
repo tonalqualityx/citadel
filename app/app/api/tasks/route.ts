@@ -11,7 +11,7 @@ import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
-import { MysteryFactor, BatteryImpact } from '@prisma/client';
+import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -95,7 +95,11 @@ const VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review', 'done'];
 // bug: the machine-side next-step job was sending `statuses=not_started,ready,...`
 // ('ready' is a PROJECT status, not a task one) and every such call 500'd instead of
 // 400ing with a clear reason.
-const TASK_STATUS_VALUES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'];
+//
+// LOW-10: derived from the Prisma enum itself (Object.values(TaskStatus)) rather than
+// hand-copied — a future schema change to TaskStatus can never silently desync this
+// allowlist from the real enum again.
+const TASK_STATUS_VALUES: string[] = Object.values(TaskStatus);
 
 export async function GET(request: NextRequest) {
   try {

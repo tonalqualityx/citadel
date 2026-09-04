@@ -42,6 +42,15 @@ describe('ProjectCard', () => {
     expect(screen.getByTestId('project-card-movement')).toHaveTextContent('Mike commented yesterday.');
   });
 
+  // Card anatomy fix — the next-step source stamp (e.g. "Bast, 7:00 AM") used to render
+  // dash-joined onto the card face, making a 7th element out of a spec'd six-element
+  // card. It now lives only in the drawer's next-step section.
+  it('never renders the next-step source stamp on the card face', () => {
+    render(<ProjectCard project={makeProject()} onOpen={vi.fn()} />);
+    expect(screen.queryByText(/Bast, /)).not.toBeInTheDocument();
+    expect(screen.getByTestId('project-card-next-step')).not.toHaveTextContent('Bast');
+  });
+
   it('shows blocker-count chips by kind', () => {
     render(<ProjectCard project={makeProject()} onOpen={vi.fn()} />);
     expect(screen.getByText(/Decisions 1/)).toBeInTheDocument();
