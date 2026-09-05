@@ -167,9 +167,48 @@ describe('POST /api/approval-requests', () => {
       expect.objectContaining({ data: expect.objectContaining({ contact_id: '22222222-2222-2222-8222-222222222222' }) })
     );
   });
+
+  // Spec polish (2026-09-04) — 'chase' rows, queued off an overdue client_approval
+  // blocker's chase_draft/chase_target (BlockerRow.tsx's "Queue chase from my Gmail").
+  it('defaults kind to "approval" when omitted', async () => {
+    await POST(postReq({ task_id: '11111111-1111-1111-8111-111111111111' }));
+    expect(mockApprovalRequestCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: 'approval' }) })
+    );
+  });
+
+  it('accepts kind: "chase"', async () => {
+    const res = await POST(
+      postReq({
+        task_id: '11111111-1111-1111-8111-111111111111',
+        subject: 'Following up: Homepage copy',
+        body: 'Checking in on this.',
+        kind: 'chase',
+      })
+    );
+    expect(res.status).toBe(201);
+    expect(mockApprovalRequestCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: 'chase' }) })
+    );
+  });
+
+  it('400s on an invalid kind value', async () => {
+    const res = await POST(postReq({ task_id: '11111111-1111-1111-8111-111111111111', kind: 'bogus' }));
+    expect(res.status).toBe(400);
+    expect(mockApprovalRequestCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET /api/approval-requests', () => {
+  it('requires PM or Admin role (H2 security fix)', async () => {
+    const { AuthError } = await import('@/lib/api/errors');
+    mockRequireRole.mockImplementation(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+    const res = await GET(getReq());
+    expect(res.status).toBe(403);
+  });
+
   it('400s on an invalid status', async () => {
     const res = await GET(getReq('?status=bogus'));
     expect(res.status).toBe(400);

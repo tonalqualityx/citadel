@@ -457,8 +457,11 @@ export const oracleEndpoints: ApiEndpoint[] = [
         method: 'PUT',
         summary: 'Machine-side job only (next-step-refresh.py): writes a freshly-inferred next-step line and/or email summary.',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          "Bearer, any authenticated user — not role-gated (this is a machine endpoint). Mike's override " +
+          "pm/admin only (H2 security fix) — a tech-role key must not be able to write a fabricated " +
+          "next-step or email-summary line. next-step-refresh.py already runs on a key whose user has " +
+          "pm/admin, so this costs it nothing. Mike's override " +
           "always wins: if the project's CURRENT next_step_source is 'mike', next_step_text/owner/source/at " +
           'are left untouched, but email_summary is still written (`applied: false` in the response signals ' +
           'this). Either way, next_step_refresh_requested_at is cleared. next_step_text and email_summary are ' +
@@ -622,18 +625,22 @@ export const oracleEndpoints: ApiEndpoint[] = [
           { name: 'to_email', type: 'string', required: false, description: '' },
           { name: 'subject', type: 'string', required: false, description: '' },
           { name: 'body', type: 'string', required: false, description: '' },
+          { name: 'kind', type: 'string', required: false, description: "approval (default) or chase. A chase row is a follow-up queued off an overdue client_approval blocker's chase_draft/chase_target (BlockerRow.tsx's \"Queue chase from my Gmail\"), linked to the SAME task_id as the original — never produces its own client_approval blocker." },
         ],
-        responseExample: { id: 'uuid', task_id: 'uuid', project_id: 'uuid', status: 'draft', subject: 'string', body: 'string' },
+        responseExample: { id: 'uuid', task_id: 'uuid', project_id: 'uuid', status: 'draft', kind: 'approval|chase', subject: 'string', body: 'string' },
       },
       {
         method: 'GET',
         summary: 'Lists approval requests, filtered by status and/or task_id and/or thread_id.',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          'Bearer, any authenticated user — `?status=queued` is the machine-side sender\'s own poll ' +
+          'pm/admin only (H2 security fix) — response bodies carry full client-email subject/body ' +
+          'text. `?status=queued` is the machine-side sender\'s own poll ' +
           '(~/.claude/tools/citadel-approvals/approval-sender.py, cron every 5 minutes); `?task_id=` is ' +
           "ApprovalPanel's own fetch for one task's approval history; `?thread_id=` is the inbound-email " +
-          'classifier\'s lookup (~/.claude/tools/oracle/clarity/email-classifier.py).',
+          'classifier\'s lookup (~/.claude/tools/oracle/clarity/email-classifier.py). Both machine ' +
+          'callers already run on keys whose user has pm/admin.',
         queryParams: [
           { name: 'status', type: 'string', required: false, description: 'draft|queued|sent|replied|approved|changes_requested|cancelled' },
           { name: 'task_id', type: 'uuid', required: false, description: '' },
@@ -692,8 +699,10 @@ export const oracleEndpoints: ApiEndpoint[] = [
         method: 'PUT',
         summary: 'Machine-side sender only (Phase 5 fixes, HIGH-1/MEDIUM-1): claims a queued row before gog is invoked.',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          "Bearer, any authenticated user. 409 if the row isn't currently 'queued'. Stamps " +
+          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin. 409 if the row isn't currently 'queued'. Stamps " +
           'send_attempt_at. A row not claimed here is never sent; GET ?status=queued naturally excludes ' +
           "a claimed row (a plain status equality filter). A row stuck in 'sending' for more than 30 " +
           'minutes with no PUT .../sent on file surfaces to Mike as a blocker — never auto-resent.',
@@ -710,8 +719,10 @@ export const oracleEndpoints: ApiEndpoint[] = [
         method: 'PUT',
         summary: 'Machine-side sender only: marks a claimed (sending) row sent.',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          "Bearer, any authenticated user. Requires the row be 'sending' (claimed via PUT .../sending " +
+          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin. Requires the row be 'sending' (claimed via PUT .../sending " +
           "before gog was invoked); idempotent (200, no-op) when the row is already 'sent' — the " +
           'sender retries this same call on a later tick after a transport failure that happened AFTER ' +
           'gog already delivered the email, and that retry must never be treated as an error. Any other ' +
@@ -743,8 +754,10 @@ export const oracleEndpoints: ApiEndpoint[] = [
         method: 'PUT',
         summary: 'Machine-side sender only: records one real gog send failure on a claimed (sending) row, or a local-send-ledger refusal on a still-queued one.',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          "Bearer, any authenticated user. Requires the row be 'sending' OR 'queued' (409 for any other " +
+          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin. Requires the row be 'sending' OR 'queued' (409 for any other " +
           "status). From 'sending' (an ordinary gog send failure): releases back to 'queued' (the next " +
           'poll reclaims and retries) unless this is the 3rd recorded error, in which case status falls ' +
           "back to 'draft' with send_error set and send_attempt_at cleared. From 'queued' (Phase 5 TAIL " +
@@ -765,8 +778,10 @@ export const oracleEndpoints: ApiEndpoint[] = [
         method: 'POST',
         summary: 'For the meeting-sync skill (a one-line addition outside this repo, not built here).',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          "Bearer, any authenticated user. Stamps seen_in_meeting_at always; flips 'sent' -> 'replied' " +
+          "pm/admin only (H2 security fix) — a tech-role key must not be able to fabricate a client " +
+          "reply via a fake meeting mention. Stamps seen_in_meeting_at always; flips 'sent' -> 'replied' " +
           '(stamping replied_at/reply_excerpt from the meeting excerpt) — never downgrades a row already ' +
           'past sent.',
         bodySchema: [
@@ -786,8 +801,11 @@ export const oracleEndpoints: ApiEndpoint[] = [
         method: 'POST',
         summary: 'Inbound-email classifier only: records a client reply.',
         auth: 'required',
+        roles: ['pm', 'admin'],
         responseNotes:
-          "Bearer, any authenticated user. Flips 'sent' -> 'replied'; a reply on an already-'replied' " +
+          "pm/admin only (H2 security fix) — a tech-role key must not be able to fabricate a client " +
+          "reply. The classifier already authenticates with a key whose user has pm/admin. Flips " +
+          "'sent' -> 'replied'; a reply on an already-'replied' " +
           'row just refreshes replied_at/reply_excerpt; a reply on a terminal row (approved/' +
           'changes_requested/cancelled) records the excerpt but never changes status.',
         bodySchema: [

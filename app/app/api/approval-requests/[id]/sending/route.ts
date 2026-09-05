@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
 
 // Oracle Projects Tab Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2 — the server claim) —
 // PUT used ONLY by the machine-side sender (approval-sender.py), called BEFORE gog is
-// ever invoked, right after the sender's own local-ledger check clears a row. Bearer,
-// any authenticated user — matches the sibling machine endpoints (.../sent,
-// .../send-error). Requires the row to still be 'queued'; a row not currently 'queued'
+// ever invoked, right after the sender's own local-ledger check clears a row. pm/admin
+// only (H2 security fix) — matches the sibling machine endpoints (.../sent,
+// .../send-error); approval-sender.py already runs on a key whose user has pm/admin, so
+// this costs it nothing. Requires the row to still be 'queued'; a row not currently 'queued'
 // is refused (409), which is exactly what makes "a row not in `sending` is never sent"
 // true: the sender only calls `gog gmail send` after THIS call succeeds.
 //
@@ -23,6 +24,7 @@ import { logUpdate } from '@/lib/services/activity';
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     const existing = await prisma.approvalRequest.findUnique({

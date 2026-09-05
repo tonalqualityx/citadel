@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
 
 // Oracle Projects Tab Phase 5 — PUT used ONLY by the machine-side sender when a real
 // `gog gmail send` invocation itself fails (a transport/subprocess failure BEFORE any
 // delivery — an unresolved-id-after-a-successful-send is a different case entirely, see
-// PUT .../sent's own doc comment). Bearer, any authenticated user.
+// PUT .../sent's own doc comment). pm/admin only (H2 security fix) — approval-sender.py
+// already runs on a key whose user has pm/admin, so this costs it nothing.
 //
 // Phase 5 fixes (HIGH-1/MEDIUM-1). Requires the row to be 'sending' — only a row the
 // sender actually claimed (PUT .../sending, before gog was invoked) can have failed to
@@ -39,6 +40,7 @@ const sendErrorSchema = z.object({
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     const existing = await prisma.approvalRequest.findUnique({

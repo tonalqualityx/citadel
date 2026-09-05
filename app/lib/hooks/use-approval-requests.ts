@@ -35,6 +35,10 @@ export interface ApprovalRequest {
   contact_id: string | null;
   contact: { id: string; name: string | null; email: string } | null;
   status: ApprovalRequestStatus;
+  // Spec polish (2026-09-04) — 'chase' rows are follow-ups queued off an overdue
+  // client_approval blocker's chase_draft/chase_target; see BlockerRow.tsx's "Queue
+  // chase from my Gmail".
+  kind: 'approval' | 'chase';
   subject: string;
   body: string;
   to_email: string | null;
@@ -83,6 +87,7 @@ export interface CreateApprovalRequestInput {
   to_email?: string | null;
   subject?: string;
   body?: string;
+  kind?: 'approval' | 'chase';
 }
 
 /** POST /api/approval-requests — creates a draft. Never sends anything by itself. */

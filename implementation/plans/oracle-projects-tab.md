@@ -25,7 +25,7 @@ A fourth Oracle mode, **Projects**, showing in-progress contracted projects with
 - [x] `app/api/projects/[id]/notes/route.ts` — GET list / POST create (kind, body, until_date)
 - [x] `app/api/projects/[id]/notes/[noteId]/route.ts` — DELETE (soft)
 - [x] `scripts/pending-review-cleanup.ts` — prints the current done+needs_review+!approved list as a table for Mike; `--apply --ids <csv>` flips `needs_review=false` on the approved ids only (reversible, logged via `logUpdate`)
-- [ ] `~/.openclaw/workspace/skills/citadel-worker/SKILL.md` — comment brief already embedded 2026-09-04 (done; out of this repo, not touched here)
+- [x] `~/.openclaw/workspace/skills/citadel-worker/SKILL.md` — comment brief already embedded 2026-09-04 (done; out of this repo, not touched here — verified live: the "How to write the comment" section's `<comment-rules src="writing-standard">` block is the same one `lib/oracle/projects/next-step-lint.ts`'s 4 checks port)
 
 ### Phase 2: signals API
 - [x] `lib/oracle/projects/blockers.ts` — pure classification: `classifyProjectBlockers(input, now) -> Blocker[]` for kinds decision / clarification / review / session_ask / mention / client_email / client_approval / someone_else / stale / meeting_risk; `ownerIsMike(blockers)` for the stalled-on-Mike verdict; shares tag/bot constants with the spawn gate (`lib/oracle/projects/gate-constants.ts`, mirrored from `~/.config/citadel-worker/gate.json` with a drift test)
@@ -127,7 +127,7 @@ Confirmed safe (no assertion changes): `app/api/tasks/__tests__/route.test.ts` (
 - [x] Route registry updated for every new route (`lib/api/registry/projects.ts`, `lib/api/registry/sops.ts`); `registry.test.ts` still green (33 tests), no new group needed (`projects` already existed)
 - [x] Component library and CSS variables used per `instructions/component-library.md` — `ProjectsView.tsx` uses `EmptyState`; the Projects-tab badge uses `var(--error)`, not a raw color
 - [x] Activity logging on notes create/delete (`logCreate`/`logDelete`, entity type `project_note` added to `lib/services/activity.ts`'s `EntityType` union); approve/dismiss/next-step-override logging is Phase 2/3/5 work
-- [ ] Opus verifier PASS on every phase — not run by this pass (see report to Mike)
+- [x] Opus verifier PASS on every phase — see the Phase 1 Follow-Ups (F1-F3, landed with Phase 2), Phase 2 Fixes, Phase 3 Verification Fixes, Phase 4 Fixes, and Phase 5 Fixes / TAIL fixes sections below — each is a verifier findings+fixes record; a Phase 6 adversarial pass is recorded further down this file
 - [ ] Mike's local review and merge approval — pending
 
 ## Phase 2 Verification (2026-09-04, implementation pass, plus 3 Phase 1 follow-ups)
@@ -137,7 +137,7 @@ Confirmed safe (no assertion changes): `app/api/tasks/__tests__/route.test.ts` (
 - [x] `npm run build` clean — `/api/oracle/projects` present in the route manifest
 - [x] Route registry updated (`lib/api/registry/oracle.ts`); `registry.test.ts` still green (33 tests)
 - [x] Live read-only check against local dev + local Postgres — see the session report for the actual response summary
-- [ ] Opus verifier PASS — not run by this pass
+- [x] Opus verifier PASS — see "Phase 2 Fixes — Opus verifier findings" immediately below (HIGH-1/HIGH-2, MEDIUM-3 through MEDIUM-7, LOW-8 through LOW-12, all fixed and re-verified against production)
 - [ ] Mike's local review and merge approval — pending
 
 ## Phase 2 Fixes — Opus verifier findings (2026-09-04, second verification pass)
@@ -805,7 +805,7 @@ real hover.
   edge; card heights are visually even across the grid row (fixed `h-56`); the drawer's
   open state shows Next step / Blockers / Notes / Email summary / Dismissed items in
   order, matching the spec's section list.
-- [ ] Opus verifier PASS — not run by this pass.
+- [x] Opus verifier PASS — see "Phase 4 Fixes — verified findings" immediately below (HIGH-1 comment internal-flag leak, dash-law violations, a card-anatomy overage, and a batch of MEDIUM/LOW findings, all fixed and gate-verified)
 - [ ] Mike's local review and merge approval — pending.
 
 ## Phase 4 Fixes — verified findings (2026-09-04, second pass)
@@ -1053,7 +1053,7 @@ separate, explicitly-scoped pass.
   ~/.claude/tools/citadel-projects/*.sh` — **255 hits, all inside code comments** (not
   clean; see the judgment-call note above for why this wasn't swept, and the
   comment-aware guard test for the check that IS clean).
-- [ ] Opus verifier PASS — not run by this pass.
+- [x] Opus verifier PASS — this IS the re-verification gate run for "Phase 4 Fixes — verified findings" above; all findings fixed, re-verified clean
 - [ ] Mike's local review and merge approval — pending.
 
 ## Phase 5 Carry-Overs (A-F), landed with Phase 5 (2026-09-04)
@@ -1335,7 +1335,7 @@ not exercised by this one rehearsal.
   /home/mike/.claude/tools/citadel-approvals/approval-sender.sh`), nothing else changed.
   Backup saved to `~/.local/state/crontab-backups/crontab-backup-20260904-190454` before
   the edit.
-- [ ] Opus verifier PASS — not run by this pass.
+- [x] Opus verifier PASS — see "Phase 5 Fixes" immediately below (verified-findings pass)
 - [ ] Mike's local review and merge approval — pending.
 
 **Follow-up outside this repo:** the meeting-sync skill's own one-line addition (call
@@ -1638,5 +1638,168 @@ Clean, no conflicts, all 10 phase commits preserved on top (no squash).
 - [x] `email-classifier.py` backed up before editing:
   `email-classifier.py.bak-20260904-204157-phase5tailfixes`, per this pass's own
   instruction (never edit that file without a dated backup first).
-- [ ] Opus verifier PASS - not run by this pass.
+- [x] Opus verifier PASS - this section (Phase 5 TAIL fixes) is itself the record of that pass's findings and fixes
 - [ ] Mike's local review and merge approval - pending.
+
+## Phase 6 — H2 Security Fix + Spec Polish (2026-09-05)
+
+**H2 (security).** The machine write routes previously accepted any authenticated
+bearer — a tech-role key could fabricate a client reply, write a next-step line, or
+read a parked-until note's reasoning. Both cron jobs (next-step-refresh, approval-
+sender) already ran on Mike's own admin key, so gating cost nothing. Added
+`requireRole(auth, ['pm', 'admin'])` to: `GET /api/approval-requests`, `POST .../[id]/
+reply`, `POST .../[id]/seen-in-meeting`, `PUT .../[id]/sending`, `PUT .../[id]/sent`,
+`PUT .../[id]/send-error`, `PUT /api/oracle/projects/[id]/next-step/write`, and
+`GET /api/projects/[id]/notes`. `GET .../refresh-requests` stays plain `requireAuth()`
+per the instruction. All 8 routes' test files updated with a 403-for-tech-role test
+(74 tests total across those 8 files, all green); the registry (`lib/api/registry/
+oracle.ts`, `lib/api/registry/projects.ts`) now documents `roles: ['pm', 'admin']` and
+the reasoning on each.
+
+**Dedicated cron identity.** Verified read-only via `GET /api/auth/me` (never printed
+either key) that `~/.citadel-oracle-key` resolves to `oracle@indelible.bot`, role `pm`
+— the same bot identity `email-classifier.py`/`oracle-heartbeat.py` already use for
+their own bot-gated endpoints — and that `~/.citadel-token` resolves to
+`mike@becomeindelible.com`, role `admin`. Since the oracle key already satisfies
+`requireRole(['pm', 'admin'])`, no new key was minted. Both `next-step-refresh.py` and
+`approval-sender.py` (edited via their `.next` staging files, tested, then deployed
+through their own `deploy.sh`) now default `key_file` to `~/.citadel-oracle-key`
+instead of Mike's personal `~/.citadel-token`, and both read a new `CITADEL_TOKEN_FILE`
+env var that overrides just the key file (precedence: `CITADEL_TOKEN_FILE` env var >
+`key_file` in the job's own `CITADEL_..._CONFIG` override file > the
+`~/.citadel-oracle-key` default) — the lightest-weight way to point either job at a
+different key without a whole config JSON file. No follow-up provisioning step is
+needed for Mike; the oracle key already had the right role. 6 new tests
+(`TestLoadConfigIdentity`, 3 per job) cover the default and both override paths.
+
+**M1 (quiet-404 guard, both jobs).** An unexpected 2xx response body shape (not a JSON
+object, or the expected array-typed key present but wrong-typed) used to fall straight
+through to an uncaught `.get()`/attribute error — a raw crash on EVERY tick, not the
+throttled once-per-hour `NOTDEPLOYED` line every other cron-quiet outcome here gets.
+Both jobs now validate the body shape before touching it and route a mismatch through
+the same `_is_quiet_http_status`/`_fatal_or_quiet` throttle via a `'shape_mismatch'`
+status sentinel — quiet, exit 0, logged at most once/hour. 8 new tests (4 per job:
+non-dict body, wrong-typed expected key, the by-mode variant, and the once-per-hour
+dedup).
+
+**Spec polish.**
+1. The Projects-tab red dot now renders the count as visible text inside the dot
+   itself (`ModeTabs.tsx`), not only in the paired `sr-only` node — per Mike's own
+   words, "a red dot indicator with the number." New test asserts the dot's text
+   content.
+2. `KIND_ORDER` (`projects-logic.ts`) now matches the spec's exact heading sequence —
+   Decisions, Clarifications, Reviews, Client approvals, Client emails, Mentions,
+   Session asks, Nudges, Meeting risk, Stale (previously Reviews sorted first). The
+   existing "full stable heading order matches the spec" test is updated in place.
+3. `chase_draft`/`chase_target` (the latter new) now render on an overdue
+   `client_approval` blocker (`BlockerRow.tsx`'s new "Chase draft" panel) — editable
+   subject/body, "Queue chase from my Gmail" reusing the SAME two existing
+   approval-request endpoints (`POST /api/approval-requests` then `PATCH .../[id]
+   {status:'queued'}`) with a new `kind:'chase'` value linked to the original's task.
+   `ApprovalRequest.kind` (`ApprovalRequestKind` enum: `approval`/`chase`) added via a
+   guarded, idempotent migration (`prisma/migrations/
+   20260905015000_oracle_projects_phase6_approval_kind/`) — re-applied clean via
+   `prisma db execute`. `classifyClientApprovals` skips `kind:'chase'` rows so a queued
+   chase never renders as a second, duplicate blocker for the same task. 9 new
+   `blockers.test.ts` cases, 5 new `BlockerRow.test.tsx` cases, 3 new
+   `app/api/approval-requests` route tests (kind default/pass-through/invalid-value).
+   Known simplification, documented inline: `ApprovalPanel.tsx`'s own `pickActiveRequest`
+   was not taught to distinguish `kind` — once a chase is queued, it (not the original,
+   still-`sent` row) becomes the task drawer's "active" approval row. Left as-is per the
+   "keep it small" instruction for this pass; flagged as a Phase 6 Review follow-up
+   below if it turns out to matter in practice.
+4. The Oracle tab's Projects label/tooltip now route through `useTerminology`
+   (`resolveTabLabel`/`resolveTabTooltip` in `mode-shell-logic.ts`) so the tab and the
+   Sidebar's own `t('projects')` nav item never drift apart. New unit tests plus a
+   `ModeTabs.test.tsx` mock/assertion.
+5. Confirmed via `GET /api/auth/me` and code inspection — no change needed (see the
+   dedicated identity note above).
+6. The `MIKE_USER_ID` drift guard (`gate-constants.drift.test.ts`) already exists per
+   the Phase 2 Fixes above — confirmed still green, skipped as already done.
+7. This section, the ticked "Opus verifier PASS" boxes above, and the "Phase 6 Review"
+   section below.
+8. The committed e2e screenshot (`app/__tests__/e2e/screenshots/oracle-projects-tab.png`)
+   removed from git (`git rm --cached`, kept on disk) and the directory added to
+   `.gitignore` — a routine e2e run no longer dirties the tree.
+
+**Gates (this pass):** `npx tsc --noEmit` clean. `npm run lint` — 725 problems (494
+errors/231 warnings), byte-identical to every prior phase's baseline; this pass adds
+zero. `npx vitest run` — **255 files / 3107 tests, zero failures** (floor was
+255/3075). `npm run build` — clean, exit 0; `/api/approval-requests/[id]/send-error`
+and the rest of the approval-requests tree present in the manifest.
+`npx prisma migrate deploy` on local Postgres, clean; `npx prisma db execute --file`
+re-run of this pass's migration exits 0 (idempotent).
+`python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — **60
+tests, all green** (was 53; +7: 3 shape-mismatch/M1 tests, 1 dedup test, 3
+`TestLoadConfigIdentity` tests), deployed to live via `deploy.sh` (staged `.next` suite
+green first). `python3 -m unittest discover -s ~/.claude/tools/citadel-approvals/tests
+-v` — **44 tests, all green** (was 38; +6: 3 M1 tests, 3 `TestLoadConfigIdentity`
+tests), deployed to live via its own `deploy.sh`. `python3 test_email_classifier_
+approvals.py` — **24 tests, all green**, unchanged by this pass (the classifier's own
+key/role were already compatible with the new gates — no code change needed there).
+`npx playwright test __tests__/e2e/oracle-projects-tab.spec.ts` — **3 passed**.
+`git status` clean after the commit below.
+
+## Phase 6 Review (2026-09-04/05) — spec gaps found, for Mike to pick from
+
+An adversarial review pass over the whole branch (H2 security fix, spec polish items
+1-8, gate re-run) surfaced real spec gaps beyond this pass's own scope — deferred
+`BlockerAction`s and single-purpose flows that exist server-side (or partway
+client-side) but were never wired end to end. None of these block the merge; each is a
+follow-up Mike can pick up independently, roughly in the order a real week of use would
+surface them.
+
+1. **Session ask resolve.** `session_ask` blockers already carry `resolve_ask` in
+   `lib/oracle/projects/blockers.ts`'s `actions` array, but `BlockerRow.tsx` renders it
+   as a permanently-disabled "coming in the next pass" button (its `deferredActions`
+   filter, alongside `send_approval`/`mark_approved`/`suspend`). There is no route yet
+   that marks an `OracleSession` ask resolved from the Projects tab.
+2. **Client email drafted reply.** `client_email` blockers carry a `reply` action, but
+   `BlockerRow`'s `canReply` gate is `isTaskSourced && ...` — a client_email blocker's
+   `source.type` is `'email'`, never `'task'`, so the reply button never renders for
+   one today. Replying to an inbound client email (a real Gmail thread, not an internal
+   task comment) needs its own drafted-reply flow, likely mirroring the client-approval
+   loop's queue-through-Mike's-Gmail shape this pass just built for chases.
+3. **Multi-select in the project lens, and into an existing arc.** `KindLens.tsx`
+   already has real multi-select (checkboxes + `buildMultiPickPlan`) — but only in the
+   BY-KIND lens. The by-project lens (`ProjectCard.tsx`/`ProjectDrawer.tsx`) has no
+   multi-select at all. Separately, `buildMultiPickPlan` only ever CREATES a new arc
+   (`arcName: string`) — there is no path to attach a multi-selection to an EXISTING
+   arc, unlike the single-pick flow's own arc picker.
+4. **Who-last-spoke.** No blocker or card surface currently answers "who spoke last in
+   this thread" (Mike, the client, or Bast) — useful context for a decision/
+   clarification blocker or a client_email blocker before Mike decides whether to
+   reply or wait.
+5. **SOP checklist.** Tasks driven by a `Sop` carry no checklist rendering on the
+   Projects tab — the SOP's own steps aren't surfaced anywhere in a blocker's detail or
+   the project drawer.
+6. **Meeting-sync wiring.** `POST /api/approval-requests/:id/seen-in-meeting` (Phase 5)
+   and the calendar-event → `meeting_risk` blocker (Phase 2) both exist server-side, but
+   the actual meeting-sync skill change that would CALL `seen-in-meeting` on a real
+   transcript is a one-line addition living outside this repo (per the plan's
+   Adaptations section) — never built as part of this feature, and not verified live.
+7. **A parked note as next step.** `ProjectNote` (kind `parked_until`) already logs
+   Mike's own reasoning for snoozing the stale blocker, but that text never feeds
+   `next_step_text` — a parked project still shows whatever the graph/Bast last
+   computed, not "parked: waiting on X until 10/4" in the next-step line itself.
+8. **Suspend action.** The `stale` blocker's `suspend` action (`lib/oracle/projects/
+   blockers.ts`) is server-defined but, like `resolve_ask`, renders as a permanently
+   disabled "coming in the next pass" button in `BlockerRow.tsx` — there is no route
+   that actually suspends/pauses a stale project (distinct from dismissing the blocker
+   or muting it via a `parked_until` note).
+9. **`POST /api/oracle/pick`.** The pick flow today is several separate calls stitched
+   together client-side (`buildSinglePickPlan`/`buildMultiPickPlan` in `projects-
+   logic.ts`, then `PATCH /api/tasks/:id`, `POST /api/arcs`, `POST /api/today`, in that
+   order, each with its own error handling). A single `POST /api/oracle/pick` endpoint
+   taking the same plan shape server-side would collapse that into one atomic call
+   (and one place to fix the 409-at-cap surfacing, rather than three call sites each
+   handling it separately) — not built this pass.
+10. **`ApprovalPanel.tsx`'s "active row" doesn't know about `kind`.** New this pass's
+    own chase feature: once a chase is queued off an overdue `client_approval` blocker,
+    `pickActiveRequest` (which just picks the newest non-terminal row) treats the CHASE
+    as the task drawer's active approval, not the original still-`sent` row it followed
+    up on. The Projects-tab blocker itself is unaffected (`classifyClientApprovals`
+    correctly skips `kind:'chase'` rows), but a Mike opening the task drawer directly
+    would see the chase's own draft/queued/sent timeline rather than the original's.
+    Teaching `pickActiveRequest` to treat an original + its chase as one continuous
+    thread (or rendering both side by side) is deferred.

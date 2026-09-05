@@ -54,6 +54,7 @@ function blocker(overrides: Partial<Blocker> = {}): Blocker {
     arc: null,
     chase_due_at: null,
     chase_draft: null,
+    chase_target: null,
     dismiss: null,
     ...overrides,
   };
@@ -171,10 +172,12 @@ describe('deriveByKind', () => {
   });
 
   it('the full stable heading order matches the spec', () => {
+    // Spec polish (2026-09-04): Decisions, Clarifications, Reviews, Client approvals,
+    // Client emails, Mentions, Session asks, Nudges, Meeting risk, Stale.
     expect(KIND_ORDER.map((k) => KIND_HEADINGS[k])).toEqual([
-      'Reviews',
       'Decisions',
       'Clarifications',
+      'Reviews',
       'Client approvals',
       'Client emails',
       'Mentions',

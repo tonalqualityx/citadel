@@ -5,6 +5,7 @@ import { POST } from '../route';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
+  requireRole: vi.fn(),
 }));
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -17,11 +18,12 @@ vi.mock('@/lib/services/activity', () => ({
   logUpdate: vi.fn(),
 }));
 
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { logUpdate } from '@/lib/services/activity';
 
 const mockRequireAuth = vi.mocked(requireAuth);
+const mockRequireRole = vi.mocked(requireRole);
 const mockFindUnique = prisma.approvalRequest.findUnique as Mock;
 const mockUpdate = prisma.approvalRequest.update as Mock;
 const mockLogUpdate = vi.mocked(logUpdate);
@@ -39,10 +41,20 @@ function req(body: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireAuth.mockResolvedValue({ userId: 'oracle-svc', role: 'admin', email: 'oracle@indelible.bot' });
+  mockRequireRole.mockImplementation(() => {});
   mockUpdate.mockImplementation((args: { data: Record<string, unknown> }) => ({ id: AR_ID, ...args.data }));
 });
 
 describe('POST /api/approval-requests/[id]/seen-in-meeting', () => {
+  it('requires PM or Admin role (H2 security fix)', async () => {
+    const { AuthError } = await import('@/lib/api/errors');
+    mockRequireRole.mockImplementation(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+    const res = await POST(req({ excerpt: 'Mike approved it verbally.', at: '2026-09-04T12:00:00.000Z' }), { params });
+    expect(res.status).toBe(403);
+  });
+
   it('404s when the row does not exist', async () => {
     mockFindUnique.mockResolvedValue(null);
     const res = await POST(req({ excerpt: 'Mike approved it verbally.', at: '2026-09-04T12:00:00.000Z' }), { params });

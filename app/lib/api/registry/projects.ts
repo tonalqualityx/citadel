@@ -305,6 +305,8 @@ export const projectEndpoints: ApiEndpoint[] = [
         method: 'GET',
         summary: 'List a project\'s notes log (non-deleted, newest first).',
         auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes: 'pm/admin only (H2 security fix) — a parked_until note\'s body carries Mike\'s own reasoning for snoozing the stale blocker.',
         responseExample: {
           notes: [{
             id: 'uuid',

@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
 
 // Oracle Projects Tab Phase 5 — PUT used ONLY by the machine-side sender
 // (~/.claude/tools/citadel-approvals/approval-sender.py) right after `gog gmail send`
-// succeeds. Bearer, any authenticated user — a machine endpoint, matching the next-step
-// engine's write route convention.
+// succeeds. pm/admin only (H2 security fix) — approval-sender.py already runs on a key
+// whose user has pm/admin, so this costs it nothing.
 //
 // Phase 5 fixes (HIGH-1/MEDIUM-1). Requires the row to be 'sending' — the sender's own
 // PUT .../sending claim (layer 2 of the guard) is what put it there, BEFORE gog was
@@ -45,6 +45,7 @@ const UNRESOLVED_ID_MARKER = 'message id unresolved';
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     const existing = await prisma.approvalRequest.findUnique({

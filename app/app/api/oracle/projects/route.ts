@@ -406,12 +406,14 @@ export async function GET(request: NextRequest) {
         project_id: true,
         task_id: true,
         status: true,
+        kind: true,
         sent_at: true,
         chase_after_days: true,
         replied_at: true,
         created_at: true,
         send_attempt_at: true,
-        contact: { select: { id: true, name: true } },
+        to_email: true,
+        contact: { select: { id: true, name: true, email: true } },
       },
     });
     const approvalRequestsByProject = new Map<string, BlockerApprovalRequest[]>();
@@ -421,12 +423,14 @@ export async function GET(request: NextRequest) {
         id: ar.id,
         task_id: ar.task_id,
         status: ar.status,
+        kind: ar.kind, // spec polish (2026-09-04) — a 'chase' row never becomes its own blocker
         sent_at: ar.sent_at ? ar.sent_at.toISOString() : null,
         chase_after_days: ar.chase_after_days,
         replied_at: ar.replied_at ? ar.replied_at.toISOString() : null,
         created_at: ar.created_at.toISOString(), // MEDIUM-7: the `since` fallback that actually ages
         send_attempt_at: ar.send_attempt_at ? ar.send_attempt_at.toISOString() : null,
-        contact: ar.contact ? { id: ar.contact.id, name: ar.contact.name ?? 'the client' } : null,
+        to_email: ar.to_email,
+        contact: ar.contact ? { id: ar.contact.id, name: ar.contact.name ?? 'the client', email: ar.contact.email } : null,
       });
       approvalRequestsByProject.set(ar.project_id, list);
     }

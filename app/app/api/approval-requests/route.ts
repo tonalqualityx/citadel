@@ -10,7 +10,7 @@ import {
   formatApprovalRequestResponse,
   type ApprovalRequestWithRelations,
 } from '@/lib/services/approval-requests';
-import type { ApprovalRequestStatus } from '@prisma/client';
+import type { ApprovalRequestStatus, ApprovalRequestKind } from '@prisma/client';
 
 // Oracle Projects Tab Phase 5 — the client-approval loop's request/reply table.
 // POST creates a draft (never sends — see the plan's Adaptations section: gog only runs
@@ -30,6 +30,11 @@ const createSchema = z.object({
   to_email: z.string().email().max(255).optional().nullable(),
   subject: z.string().trim().min(1).max(500).optional(),
   body: z.string().trim().min(1).optional(),
+  // Spec polish (2026-09-04) — a 'chase' row is a follow-up ApprovalRequest queued off a
+  // client_approval blocker's chase_draft/chase_target (lib/oracle/projects/blockers.ts),
+  // linked to the SAME task_id as the original. Defaults to 'approval' (every row before
+  // this field existed). See the ApprovalRequestKind schema doc comment.
+  kind: z.enum(['approval', 'chase']).optional().default('approval'),
 });
 
 export async function POST(request: NextRequest) {
@@ -93,6 +98,7 @@ export async function POST(request: NextRequest) {
         subject,
         body: emailBody,
         draft_source: usingTemplate ? 'graph' : null,
+        kind: data.kind as ApprovalRequestKind,
         created_by_id: auth.userId,
       },
       include: INCLUDE,
@@ -119,15 +125,19 @@ const VALID_STATUSES = new Set<ApprovalRequestStatus>([
   'cancelled',
 ]);
 
-// GET /api/approval-requests — bearer, any authenticated user (matches the next-step
-// engine's machine-endpoint convention: the sender polls `?status=queued` on a plain
-// service bearer token, not a pm/admin cookie session). `?task_id=` is additive, used by
-// ApprovalPanel to load one task's approval history regardless of status. `?thread_id=`
+// GET /api/approval-requests — pm/admin only (H2 security fix). Response bodies carry
+// full client-email subject/body text, so a tech-role key must not be able to read them.
+// `?status=queued` is the machine-side sender's own poll; `?task_id=` is additive, used
+// by ApprovalPanel to load one task's approval history regardless of status; `?thread_id=`
 // is the inbound-email classifier's own lookup (POST .../reply's doc comment) — it
-// matches an inbound message's Gmail thread against a 'sent' ApprovalRequest.
+// matches an inbound message's Gmail thread against a 'sent' ApprovalRequest. Both the
+// sender (approval-sender.py) and the classifier (email-classifier.py) already run on
+// keys whose user has pm/admin (Mike's own key, or the Oracle bot's pm-role key) — this
+// gate costs them nothing.
 export async function GET(request: NextRequest) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
 
     const { searchParams } = new URL(request.url);
     const statusParam = searchParams.get('status');

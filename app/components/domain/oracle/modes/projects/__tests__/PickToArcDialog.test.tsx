@@ -41,6 +41,7 @@ function decisionBlocker(overrides: Partial<Blocker> = {}): Blocker {
     arc: null,
     chase_due_at: null,
     chase_draft: null,
+    chase_target: null,
     dismiss: null,
     ...overrides,
   };

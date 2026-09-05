@@ -4,11 +4,13 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useUpdateTask, type Task } from '@/lib/hooks/use-tasks';
 import { usePostInternalComment } from '@/lib/hooks/use-post-internal-comment';
 import { useCreateBlockerDismissal } from '@/lib/hooks/use-blocker-dismissals';
+import { useCreateApprovalRequest, useUpdateApprovalRequest } from '@/lib/hooks/use-approval-requests';
 import { showToast } from '@/lib/hooks/use-toast';
 import { formatRelativeTime } from '@/lib/utils/time';
 import { apiClient } from '@/lib/api/client';
@@ -59,6 +61,12 @@ export function BlockerRow({ blocker, projectId, onPick }: BlockerRowProps) {
   const [changesOpen, setChangesOpen] = React.useState(false);
   const [changesText, setChangesText] = React.useState('');
   const [nudgeOpen, setNudgeOpen] = React.useState(false);
+  // Spec polish (2026-09-04) — the chase draft is editable before it's queued; seeded
+  // once from blocker.chase_draft (never re-seeded on a later poll tick, same
+  // deliberate-single-render convention as the reply/changes text above).
+  const [chaseSubject, setChaseSubject] = React.useState(blocker.chase_draft?.subject ?? '');
+  const [chaseBody, setChaseBody] = React.useState(blocker.chase_draft?.body ?? '');
+  const [chaseQueuing, setChaseQueuing] = React.useState(false);
 
   const isTaskSourced = blocker.source.type === 'task';
   const taskId = isTaskSourced ? blocker.source.id : null;
@@ -66,6 +74,8 @@ export function BlockerRow({ blocker, projectId, onPick }: BlockerRowProps) {
   const { postInternalComment, isPending: commentPending } = usePostInternalComment(taskId ?? '');
   const updateTask = useUpdateTask();
   const createDismissal = useCreateBlockerDismissal(projectId);
+  const createApprovalRequest = useCreateApprovalRequest();
+  const updateApprovalRequest = useUpdateApprovalRequest(blocker.chase_target?.task_id ?? '');
 
   function invalidateProjects() {
     queryClient.invalidateQueries({ queryKey: oracleProjectsKeys.all });
@@ -120,6 +130,35 @@ export function BlockerRow({ blocker, projectId, onPick }: BlockerRowProps) {
       invalidateProjects();
     } catch {
       // toasted by the hooks
+    }
+  }
+
+  // Spec polish (2026-09-04) — "Queue chase from my Gmail": reuses the SAME two
+  // existing approval-request endpoints any other approval goes through (POST
+  // /api/approval-requests to create a draft, PATCH .../[id] {status:'queued'} to
+  // queue it) — just with kind:'chase' and the ORIGINAL request's own recipient
+  // (chase_target), so the machine-side sender (approval-sender.py) picks it up and
+  // sends it through gog exactly like any other queued row. Never sends anything
+  // itself.
+  async function queueChase() {
+    if (!blocker.chase_target || !chaseSubject.trim() || !chaseBody.trim()) return;
+    setChaseQueuing(true);
+    try {
+      const created = await createApprovalRequest.mutateAsync({
+        task_id: blocker.chase_target.task_id,
+        contact_id: blocker.chase_target.contact_id,
+        to_email: blocker.chase_target.email,
+        subject: chaseSubject.trim(),
+        body: chaseBody.trim(),
+        kind: 'chase',
+      });
+      await updateApprovalRequest.mutateAsync({ id: created.id, data: { status: 'queued' } });
+      showToast.success('Chase queued from your Gmail');
+      invalidateProjects();
+    } catch {
+      // toasted by the hooks
+    } finally {
+      setChaseQueuing(false);
     }
   }
 
@@ -296,6 +335,41 @@ export function BlockerRow({ blocker, projectId, onPick }: BlockerRowProps) {
           taskId={taskId}
           onClose={() => setNudgeOpen(false)}
         />
+      )}
+
+      {/* Spec polish (2026-09-04) — the computed chase_draft, rendered on client_approval
+          blockers past the chase clock: subject + body, editable, queued through the
+          same approval-request path as any other approval. */}
+      {blocker.chase_draft && blocker.chase_target && (
+        <div
+          data-testid="chase-draft-panel"
+          className="flex flex-col gap-2 rounded-lg border p-3"
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
+        >
+          <div className="text-xs font-semibold uppercase tracking-wide text-text-sub">Chase draft</div>
+          <Input
+            data-testid="chase-draft-subject"
+            value={chaseSubject}
+            onChange={(e) => setChaseSubject(e.target.value)}
+            placeholder="Subject"
+          />
+          <Textarea
+            data-testid="chase-draft-body"
+            value={chaseBody}
+            onChange={(e) => setChaseBody(e.target.value)}
+            rows={4}
+          />
+          <div>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={queueChase}
+              disabled={chaseQueuing || !chaseSubject.trim() || !chaseBody.trim()}
+            >
+              Queue chase from my Gmail
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

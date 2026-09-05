@@ -695,6 +695,165 @@ describe('classifyProjectBlockers — client_approval', () => {
     });
     expect(classifyProjectBlockers(input, NOW)[0].since).toBe('2026-09-01T00:00:00.000Z');
   });
+
+  // Spec polish (2026-09-04) — chase_draft/chase_target render on client_approval
+  // blockers past the chase clock, and a 'chase' row never becomes its own blocker.
+  describe('chase_draft / chase_target', () => {
+    it('are both null while still within the chase window', () => {
+      const blocker = classifyProjectBlockers(
+        baseInput({
+          approval_requests: [
+            {
+              id: 'ar-1',
+              task_id: 'task-1',
+              created_at: '2026-09-01T00:00:00.000Z',
+              status: 'sent',
+              sent_at: '2026-09-10T00:00:00.000Z', // sent today, well inside chase_after_days
+              chase_after_days: 3,
+              send_attempt_at: null,
+              replied_at: null,
+              contact: { id: 'contact-1', name: 'Jane Client' },
+            },
+          ],
+        }),
+        NOW
+      )[0];
+      expect(blocker.chase_draft).toBeNull();
+      expect(blocker.chase_target).toBeNull();
+      // chase_due_at is still populated (a future date) even though the clock hasn't
+      // run out — only chase_draft/chase_target wait for the overdue moment.
+      expect(blocker.chase_due_at).not.toBeNull();
+    });
+
+    it('populate once the chase window (business days) has elapsed, using the contact\'s id and email', () => {
+      const blocker = classifyProjectBlockers(
+        baseInput({
+          approval_requests: [
+            {
+              id: 'ar-1',
+              task_id: 'task-1',
+              created_at: '2026-09-01T00:00:00.000Z',
+              status: 'sent',
+              sent_at: '2026-09-01T00:00:00.000Z', // Tuesday; NOW is 2026-09-10 — well over 3 business days
+              chase_after_days: 3,
+              send_attempt_at: null,
+              replied_at: null,
+              contact: { id: 'contact-1', name: 'Jane Client', email: 'jane@client.com' },
+            },
+          ],
+          tasks: [task({ id: 'task-1', title: 'Approve homepage copy' })],
+        }),
+        NOW
+      )[0];
+      expect(blocker.chase_draft).not.toBeNull();
+      expect(blocker.chase_draft?.subject).toContain('Approve homepage copy');
+      expect(blocker.chase_draft?.body).toContain('3 business days');
+      expect(blocker.chase_target).toEqual({ task_id: 'task-1', contact_id: 'contact-1', email: 'jane@client.com' });
+    });
+
+    it('falls back to the row\'s own to_email when no contact email is on file', () => {
+      const blocker = classifyProjectBlockers(
+        baseInput({
+          approval_requests: [
+            {
+              id: 'ar-1',
+              task_id: 'task-1',
+              created_at: '2026-09-01T00:00:00.000Z',
+              status: 'sent',
+              sent_at: '2026-09-01T00:00:00.000Z',
+              chase_after_days: 3,
+              send_attempt_at: null,
+              replied_at: null,
+              contact: null,
+              to_email: 'plain@client.com',
+            },
+          ],
+        }),
+        NOW
+      )[0];
+      expect(blocker.chase_target).toEqual({ task_id: 'task-1', contact_id: null, email: 'plain@client.com' });
+    });
+
+    it('email is null when neither a contact email nor to_email is on file', () => {
+      const blocker = classifyProjectBlockers(
+        baseInput({
+          approval_requests: [
+            {
+              id: 'ar-1',
+              task_id: 'task-1',
+              created_at: '2026-09-01T00:00:00.000Z',
+              status: 'sent',
+              sent_at: '2026-09-01T00:00:00.000Z',
+              chase_after_days: 3,
+              send_attempt_at: null,
+              replied_at: null,
+              contact: null,
+            },
+          ],
+        }),
+        NOW
+      )[0];
+      expect(blocker.chase_target).toEqual({ task_id: 'task-1', contact_id: null, email: null });
+    });
+  });
+
+  // Spec polish (2026-09-04) — a 'chase' row is a follow-up attached to the original
+  // approval, never a blocker of its own (it would otherwise double up on the Projects
+  // tab alongside the original, still-overdue client_approval blocker it was queued for).
+  describe('kind: chase rows never produce their own blocker', () => {
+    it.each(['draft', 'queued', 'sent', 'replied'] as const)('kind:chase, status:%s produces no blocker', (status) => {
+      const input = baseInput({
+        approval_requests: [
+          {
+            id: 'ar-chase-1',
+            task_id: 'task-1',
+            created_at: '2026-09-01T00:00:00.000Z',
+            status,
+            sent_at: status === 'sent' || status === 'replied' ? '2026-09-01T00:00:00.000Z' : null,
+            chase_after_days: 3,
+            send_attempt_at: null,
+            replied_at: null,
+            contact: null,
+            kind: 'chase',
+          },
+        ],
+      });
+      expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+    });
+
+    it('a chase row does not suppress the original approval row\'s own blocker', () => {
+      const input = baseInput({
+        approval_requests: [
+          {
+            id: 'ar-original',
+            task_id: 'task-1',
+            created_at: '2026-09-01T00:00:00.000Z',
+            status: 'sent',
+            sent_at: '2026-09-01T00:00:00.000Z',
+            chase_after_days: 3,
+            send_attempt_at: null,
+            replied_at: null,
+            contact: null,
+          },
+          {
+            id: 'ar-chase-1',
+            task_id: 'task-1',
+            created_at: '2026-09-08T00:00:00.000Z',
+            status: 'queued',
+            sent_at: null,
+            chase_after_days: 3,
+            send_attempt_at: null,
+            replied_at: null,
+            contact: null,
+            kind: 'chase',
+          },
+        ],
+      });
+      const blockers = classifyProjectBlockers(input, NOW);
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0].id).toBe('client_approval:ar-original');
+    });
+  });
 });
 
 describe('classifyProjectBlockers — someone_else', () => {

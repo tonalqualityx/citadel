@@ -54,10 +54,14 @@ export const KIND_HEADINGS: Record<BlockerKind, string> = {
   stale: 'Stale',
 };
 
+// Spec polish (2026-09-04) — heading order per the spec: Decisions, Clarifications,
+// Reviews, Client approvals, Client emails, Mentions, Session asks, Nudges, Meeting
+// risk, Stale. Previously 'review' sorted first (Reviews, Decisions, Clarifications, ...)
+// — fixed to match the spec's exact sequence.
 export const KIND_ORDER: BlockerKind[] = [
-  'review',
   'decision',
   'clarification',
+  'review',
   'client_approval',
   'client_email',
   'mention',

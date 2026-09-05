@@ -96,7 +96,19 @@ export interface BlockerApprovalRequest {
   // Phase 5 fixes (HIGH-1/MEDIUM-1) — stamped only while status is 'sending'; null
   // otherwise. Drives the "stuck in flight" surfacing in classifyClientApprovals.
   send_attempt_at: string | null; // ISO
-  contact: { id: string; name: string } | null;
+  contact: { id: string; name: string; email?: string | null } | null;
+  // Spec polish (2026-09-04) — the recipient email on the row itself, when no
+  // ClientContact was picked (a plain to_email). Feeds a follow-up chase's own
+  // recipient when `contact` is null. Optional (defaults to null) so every pre-existing
+  // test fixture in this module stays valid without a mechanical update.
+  to_email?: string | null;
+  // Spec polish (2026-09-04) — distinguishes an original approval request from a
+  // follow-up chase (see the ApprovalRequestKind schema doc comment). A 'chase' row
+  // never produces its OWN client_approval blocker — classifyClientApprovals below
+  // skips it entirely, so a queued chase never appears as a second, duplicate blocker
+  // for the same task. Optional, defaulting to 'approval' (every row was one before
+  // this field existed).
+  kind?: 'approval' | 'chase';
 }
 
 export interface BlockerCalendarEvent {
@@ -214,6 +226,14 @@ export interface Blocker {
   // plain chase-email draft ApprovalPanel/NudgePanel can offer as a starting point.
   // Never sent from here — this module never performs I/O.
   chase_draft: { subject: string; body: string } | null;
+  // Spec polish (2026-09-04) — populated in lockstep with chase_draft (same overdueChase
+  // gate; null whenever chase_draft is null): what the UI needs to actually queue a
+  // chase without re-deriving it — the task to attach the new ApprovalRequest row to,
+  // and who it goes to (a ClientContact id when one was picked, else a plain email).
+  // BlockerRow's "Queue chase from my Gmail" reuses this to POST /api/approval-requests
+  // {task_id, contact_id, to_email, subject, body, kind:'chase'} then PATCH .../[id]
+  // {status:'queued'} — the same two existing endpoints, just a new kind value.
+  chase_target: { task_id: string; contact_id: string | null; email: string | null } | null;
   // Phase 5 — the EXACT (kind, source_id, source_marker) triple this blocker's own
   // isDismissed(...) call above checks, so BlockerRow's Dismiss control never has to
   // re-derive or duplicate that mapping (and can't drift from it). Null for every kind
@@ -393,6 +413,7 @@ function classifyDecisionAndClarification(
       arc: task.arc,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: null,
     });
   }
@@ -419,6 +440,7 @@ function classifyReview(input: ClassifyProjectBlockersInput): Blocker[] {
       arc: task.arc,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: { kind: 'task', source_id: task.id, source_marker: task.updated_at },
     });
   }
@@ -446,6 +468,7 @@ function classifySessionAsks(input: ClassifyProjectBlockersInput): Blocker[] {
       arc: null,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: { kind: 'session_ask', source_id: ask.session_external_id, source_marker: marker },
     });
   }
@@ -476,6 +499,7 @@ function classifyMentions(input: ClassifyProjectBlockersInput, consumedCommentId
       arc: task.arc,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: { kind: 'mention', source_id: mention.id, source_marker: mention.id },
     });
   }
@@ -509,6 +533,7 @@ function classifyClientEmails(input: ClassifyProjectBlockersInput): Blocker[] {
       arc: null,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: { kind: 'email', source_id: email.id, source_marker: email.received_at },
     });
   }
@@ -519,6 +544,13 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
   const out: Blocker[] = [];
   const openStatuses: ApprovalRequestStatus[] = ['draft', 'queued', 'sent', 'replied'];
   for (const ar of input.approval_requests) {
+    // Spec polish (2026-09-04) — a 'chase' row is a follow-up ATTACHED to the original
+    // approval, never a client_approval blocker in its own right (see the
+    // ApprovalRequestKind schema doc comment and BlockerApprovalRequest.kind above). A
+    // queued chase is sent by the exact same machine-side sender as any other row —
+    // this skip only affects what shows up as a BLOCKER on the Projects tab, never
+    // whether the row actually gets sent.
+    if ((ar.kind ?? 'approval') === 'chase') continue;
     // Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2) — a 'sending' row is the machine-side
     // sender actively mid-flight (or, per its own layer-3 retry-recording, an email it
     // already confirmed delivered but hasn't finished RECORDING as sent yet) — not a
@@ -557,6 +589,7 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
         arc: null,
         chase_due_at: null,
         chase_draft: null,
+        chase_target: null,
         dismiss: null,
       });
       continue;
@@ -603,6 +636,13 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
       arc: null,
       chase_due_at: chaseDueAt ? chaseDueAt.toISOString() : null,
       chase_draft: overdueChase ? buildChaseEmailDraft(taskTitle, ar.chase_after_days) : null,
+      // Spec polish (2026-09-04) — populated in lockstep with chase_draft: the target
+      // (task + recipient) a "Queue chase from my Gmail" click needs. Prefers the
+      // original request's own ClientContact; falls back to its plain to_email when no
+      // contact was picked.
+      chase_target: overdueChase
+        ? { task_id: ar.task_id, contact_id: ar.contact?.id ?? null, email: ar.contact?.email ?? ar.to_email ?? null }
+        : null,
       // client_approval resolves only through its own ApprovalRequest status changes
       // (PATCH /api/approval-requests/[id]) — never a bare dismiss.
       dismiss: null,
@@ -631,6 +671,7 @@ function classifySomeoneElse(input: ClassifyProjectBlockersInput, now: Date): Bl
       arc: task?.arc ?? null,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: null,
     },
   ];
@@ -671,6 +712,7 @@ function classifyStale(
     arc: null,
     chase_due_at: null,
     chase_draft: null,
+    chase_target: null,
     dismiss: { kind: 'stale', source_id: input.project.id, source_marker: marker },
   };
 }
@@ -699,6 +741,7 @@ function classifyMeetingRisk(input: ClassifyProjectBlockersInput, now: Date): Bl
       arc: null,
       chase_due_at: null,
       chase_draft: null,
+      chase_target: null,
       dismiss: { kind: 'meeting_risk', source_id: event.id, source_marker: event.starts_at },
     });
   }

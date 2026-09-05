@@ -61,10 +61,13 @@ function formatProjectNoteResponse(note: ProjectNoteWithUser) {
   };
 }
 
-// GET /api/projects/[id]/notes — list non-deleted notes, newest first.
+// GET /api/projects/[id]/notes — list non-deleted notes, newest first. pm/admin only
+// (H2 security fix) — a parked_until note's body carries Mike's own reasoning for
+// snoozing the stale blocker, which a tech-role key must not be able to read.
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id: projectId } = await params;
 
     const project = await prisma.project.findUnique({

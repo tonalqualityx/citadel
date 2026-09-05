@@ -8,6 +8,18 @@ vi.mock('@/lib/config/feature-flags', () => ({
   ORACLE_HIDE_PLAN_PROCESS: true,
 }));
 
+// Spec polish (2026-09-04) — ModeTabs now calls useTerminology for the Projects tab's
+// label/tooltip. Mocked here (same pattern as MobileNav.test.tsx) so this suite never
+// needs a real QueryClientProvider just to render a nav bar.
+vi.mock('@/lib/hooks/use-terminology', () => ({
+  useTerminology: () => ({
+    t: (key: string) => {
+      const terms: Record<string, string> = { projects: 'Projects', project: 'Project' };
+      return terms[key] ?? key;
+    },
+  }),
+}));
+
 import { ModeTabs } from '../ModeTabs';
 
 describe('ModeTabs — Projects badge (Mike, 2026-09-04)', () => {
@@ -29,6 +41,17 @@ describe('ModeTabs — Projects badge (Mike, 2026-09-04)', () => {
     expect(screen.getByTestId('mode-tab-projects-badge')).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByText('3 projects waiting on you')).toBeInTheDocument();
     expect(screen.getByText('3 projects waiting on you')).toHaveClass('sr-only');
+  });
+
+  it('renders the count as visible text inside the dot itself, not only in the sr-only node (Mike: "a red dot indicator with the number")', () => {
+    render(<ModeTabs mode="work" onChange={() => {}} projectsBadgeCount={7} />);
+    const badge = screen.getByTestId('mode-tab-projects-badge');
+    expect(badge).toHaveTextContent('7');
+  });
+
+  it('the Projects tab label comes from useTerminology, matching the Sidebar\'s own t(\'projects\')', () => {
+    render(<ModeTabs mode="work" onChange={() => {}} />);
+    expect(screen.getByTestId('mode-tab-projects')).toHaveTextContent('Projects');
   });
 
   it('the badge is never rendered on the Work tab, even with a count', () => {

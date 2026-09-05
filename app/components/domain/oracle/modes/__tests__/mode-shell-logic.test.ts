@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { MODE_TABS, DEFAULT_MODE, getModeTabs, isReturnToWorkVisible } from '../mode-shell-logic';
+import {
+  MODE_TABS,
+  DEFAULT_MODE,
+  getModeTabs,
+  isReturnToWorkVisible,
+  resolveTabLabel,
+  resolveTabTooltip,
+} from '../mode-shell-logic';
 
 describe('mode-shell-logic', () => {
   it('defaults to work mode', () => {
@@ -38,5 +45,34 @@ describe('mode-shell-logic', () => {
     expect(isReturnToWorkVisible('work')).toBe(false);
     expect(isReturnToWorkVisible('plan')).toBe(true);
     expect(isReturnToWorkVisible('process')).toBe(true);
+  });
+
+  // Spec polish (2026-09-04) — the Projects tab's label/tooltip route through
+  // useTerminology so the tab and the Sidebar's own t('projects') nav item agree.
+  describe('resolveTabLabel / resolveTabTooltip', () => {
+    const awesomeT = (key: string) => (key === 'projects' ? 'Commissions' : key);
+    const standardT = (key: string) => (key === 'projects' ? 'Projects' : key);
+    const projectsTab = MODE_TABS.find((tab) => tab.mode === 'projects')!;
+    const workTab = MODE_TABS.find((tab) => tab.mode === 'work')!;
+
+    it('the Projects tab label follows t("projects") under the awesome convention', () => {
+      expect(resolveTabLabel(projectsTab, awesomeT)).toBe('Commissions');
+    });
+
+    it('the Projects tab label follows t("projects") under the standard convention', () => {
+      expect(resolveTabLabel(projectsTab, standardT)).toBe('Projects');
+    });
+
+    it('every other tab keeps its fixed English label, untouched by terminology', () => {
+      expect(resolveTabLabel(workTab, awesomeT)).toBe(workTab.label);
+    });
+
+    it('the Projects tab tooltip embeds t("projects") too', () => {
+      expect(resolveTabTooltip(projectsTab, awesomeT)).toContain('Commissions');
+    });
+
+    it('every other tab keeps its fixed tooltip, untouched by terminology', () => {
+      expect(resolveTabTooltip(workTab, awesomeT)).toBe(workTab.tooltip);
+    });
   });
 });

@@ -96,6 +96,16 @@ beforeEach(() => {
 });
 
 describe('GET /api/projects/[id]/notes', () => {
+  it('requires PM/Admin role (H2 security fix)', async () => {
+    const { AuthError } = await import('@/lib/api/errors');
+    mockRequireRole.mockImplementation(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+
+    const res = await GET(getReq(), ctx());
+    expect(res.status).toBe(403);
+  });
+
   it('lists non-deleted notes, newest first', async () => {
     mockNoteFindMany.mockResolvedValue([note(), note({ id: 'note-2' })]);
 

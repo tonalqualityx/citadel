@@ -124,6 +124,7 @@ export function formatApprovalRequestResponse(ar: ApprovalRequestWithRelations) 
     contact_id: ar.contact_id,
     contact: ar.contact ? { id: ar.contact.id, name: ar.contact.name, email: ar.contact.email } : null,
     status: ar.status,
+    kind: ar.kind,
     subject: ar.subject,
     body: ar.body,
     to_email: ar.to_email,

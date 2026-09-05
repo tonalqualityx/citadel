@@ -5,6 +5,7 @@ import { PUT } from '../route';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
+  requireRole: vi.fn(),
 }));
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -17,10 +18,11 @@ vi.mock('@/lib/services/activity', () => ({
   logUpdate: vi.fn(),
 }));
 
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 
 const mockRequireAuth = vi.mocked(requireAuth);
+const mockRequireRole = vi.mocked(requireRole);
 const mockFindUnique = prisma.approvalRequest.findUnique as Mock;
 const mockUpdate = prisma.approvalRequest.update as Mock;
 
@@ -37,6 +39,7 @@ function req(): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireAuth.mockResolvedValue({ userId: 'oracle-svc', role: 'admin', email: 'oracle@indelible.bot' });
+  mockRequireRole.mockImplementation(() => {});
   mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'queued', task_id: 'task-1' });
   mockUpdate.mockImplementation((args: { data: Record<string, unknown> }) => ({
     id: AR_ID,
@@ -47,6 +50,15 @@ beforeEach(() => {
 
 // Oracle Projects Tab Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2 — the server claim).
 describe('PUT /api/approval-requests/[id]/sending', () => {
+  it('requires PM or Admin role (H2 security fix)', async () => {
+    const { AuthError } = await import('@/lib/api/errors');
+    mockRequireRole.mockImplementation(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+    const res = await PUT(req(), { params });
+    expect(res.status).toBe(403);
+  });
+
   it('404s when the row does not exist', async () => {
     mockFindUnique.mockResolvedValue(null);
     const res = await PUT(req(), { params });

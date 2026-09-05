@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
 
 // Oracle Projects Tab Phase 5 — POST for the meeting-sync skill (the skill change
 // itself is a one-line addition, out of this repo — see the plan's Phase 5 notes).
-// Bearer, any authenticated user. Stamps seen_in_meeting_at always; when the row is
+// pm/admin only (H2 security fix) — a tech-role key must not be able to fabricate a
+// client reply via a fake meeting mention. Stamps seen_in_meeting_at always; when the row is
 // still 'sent' (no email reply on file yet), a verbal approval mentioned in a meeting
 // counts as the client's reply — flips status to 'replied' and stamps replied_at/
 // reply_excerpt from the meeting transcript excerpt. Never downgrades a row already
@@ -25,6 +26,7 @@ const seenInMeetingSchema = z.object({
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     const existing = await prisma.approvalRequest.findUnique({

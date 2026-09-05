@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logActivity } from '@/lib/services/activity';
 import { lintNextStepFields } from '@/lib/oracle/projects/next-step-lint';
 
 // Oracle Projects Tab Phase 3 — PUT used ONLY by the machine-side job
 // (~/.claude/tools/citadel-projects/next-step-refresh.py) to write a freshly-inferred
-// next-step line. Bearer auth, any authenticated user — this is a machine endpoint, not
-// a Mike-only action (contrast PATCH/DELETE on the sibling next-step route).
+// next-step line. pm/admin only (H2 security fix) — a tech-role key must not be able to
+// write a fabricated next-step or email-summary line onto a project. next-step-
+// refresh.py already runs on a key whose user has pm/admin, so this costs it nothing.
 //
 // Mike's override always wins: if the project's CURRENT next_step_source is 'mike',
 // next_step_text/owner/source/at are left completely untouched — but email_summary is
@@ -47,6 +48,7 @@ const writeSchema = z
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id: projectId } = await params;
 
     const project = await prisma.project.findUnique({

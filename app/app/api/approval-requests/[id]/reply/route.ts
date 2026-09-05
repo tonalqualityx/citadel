@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
 
 // Oracle Projects Tab Phase 5 — POST for the inbound-email classifier
-// (~/.claude/tools/oracle/clarity/email-classifier.py). Bearer, any authenticated user.
-// The classifier matches an inbound message's thread_id against a 'sent' ApprovalRequest
+// (~/.claude/tools/oracle/clarity/email-classifier.py). pm/admin only (H2 security fix)
+// — this writes a fabricated "client reply" onto the row, so a tech-role key must not be
+// able to call it. The classifier already authenticates with a key whose user has pm/
+// admin (Mike's own key, in practice), so this gate costs it nothing. The classifier
+// matches an inbound message's thread_id against a 'sent' ApprovalRequest
 // (see GET /api/approval-requests?thread_id=... — the classifier's own lookup) and posts
 // here with the first ~300 chars of the plain body. Flips 'sent' -> 'replied' and stamps
 // replied_at/reply_excerpt. A reply landing while the row is already 'replied' just
@@ -24,6 +27,7 @@ const replySchema = z.object({
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
     const existing = await prisma.approvalRequest.findUnique({

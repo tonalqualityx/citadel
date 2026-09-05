@@ -3220,6 +3220,20 @@ enum ApprovalRequestStatus {
   cancelled
 }
 
+// Spec polish (2026-09-04) — distinguishes the original approval request from a
+// follow-up chase drafted off a client_approval blocker's chase_draft once the chase
+// clock has run out (lib/oracle/projects/blockers.ts's classifyClientApprovals). A
+// chase row is created via the SAME POST /api/approval-requests + PATCH .../[id]
+// {status:'queued'} path as any other approval, just with kind:'chase' and the same
+// task_id — the machine-side sender treats it identically (it only ever looks at
+// status), and the projects route excludes kind:'chase' rows from its OWN
+// classifyClientApprovals pass so a queued chase doesn't also render as a second,
+// duplicate client_approval blocker for the same task.
+enum ApprovalRequestKind {
+  approval
+  chase
+}
+
 model ApprovalRequest {
   id         String  @id @default(uuid()) @db.Uuid
   task_id    String  @db.Uuid
@@ -3232,6 +3246,7 @@ model ApprovalRequest {
   contact    ClientContact? @relation(fields: [contact_id], references: [id])
 
   status   ApprovalRequestStatus @default(draft)
+  kind     ApprovalRequestKind   @default(approval)
   subject  String                @db.VarChar(500)
   body     String                @db.Text
   to_email String?               @db.VarChar(255)

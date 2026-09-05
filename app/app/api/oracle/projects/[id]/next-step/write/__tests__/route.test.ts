@@ -5,6 +5,7 @@ import { PUT } from '../route';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
+  requireRole: vi.fn(),
 }));
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -18,11 +19,12 @@ vi.mock('@/lib/services/activity', () => ({
   logActivity: vi.fn(),
 }));
 
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { logActivity } from '@/lib/services/activity';
 
 const mockRequireAuth = vi.mocked(requireAuth);
+const mockRequireRole = vi.mocked(requireRole);
 const mockProjectFindUnique = prisma.project.findUnique as Mock;
 const mockProjectUpdate = prisma.project.update as Mock;
 const mockUserFindUnique = prisma.user.findUnique as Mock;
@@ -52,6 +54,7 @@ function validBody(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockRequireAuth.mockResolvedValue({ userId: 'bot-1', role: 'admin', email: 'oracle@indelible.bot' });
+  mockRequireRole.mockImplementation(() => {});
   mockProjectFindUnique.mockResolvedValue({ id: PROJECT_ID, name: 'Herba rebuild', next_step_source: null });
   mockProjectUpdate.mockResolvedValue({
     next_step_text: 'Mike needs to approve the homepage copy.',
@@ -65,6 +68,15 @@ beforeEach(() => {
 });
 
 describe('PUT /api/oracle/projects/[id]/next-step/write', () => {
+  it('requires PM or Admin role (H2 security fix)', async () => {
+    const { AuthError } = await import('@/lib/api/errors');
+    mockRequireRole.mockImplementation(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+    const res = await PUT(req(validBody()), { params });
+    expect(res.status).toBe(403);
+  });
+
   it('404s when the project does not exist', async () => {
     mockProjectFindUnique.mockResolvedValue(null);
     const res = await PUT(req(validBody()), { params });

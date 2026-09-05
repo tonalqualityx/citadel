@@ -1,4 +1,5 @@
 import { ORACLE_PROJECTS_TAB, ORACLE_HIDE_PLAN_PROCESS } from '@/lib/config/feature-flags';
+import type { TermKey } from '@/lib/hooks/use-terminology';
 
 // Clarity Phase 8 (composition) — the mode-escort law (Mike 07-27 final): "I never will
 // click the other tabs. I'll stay in panicked 'I should be working on client stuff' from
@@ -86,4 +87,19 @@ export const MODE_TABS: ModeTabDef[] = getModeTabs({ ORACLE_PROJECTS_TAB, ORACLE
 
 export function isReturnToWorkVisible(mode: OracleMode): boolean {
   return mode !== 'work';
+}
+
+// Spec polish (2026-09-04) — the Projects tab's label/tooltip route through
+// useTerminology so the tab and the Sidebar's own t('projects') nav item never drift
+// apart (awesome convention: "Commissions"; standard: "Projects"). Every other tab's
+// label/tooltip is fixed English, untouched by terminology. Pure functions (t passed in)
+// so this is unit-testable without rendering the hook.
+export function resolveTabLabel(tab: ModeTabDef, t: (key: TermKey) => string): string {
+  return tab.mode === 'projects' ? t('projects') : tab.label;
+}
+
+export function resolveTabTooltip(tab: ModeTabDef, t: (key: TermKey) => string): string {
+  return tab.mode === 'projects'
+    ? `${t('projects')} — in-progress contracted work, stalled-on-Mike first`
+    : tab.tooltip;
 }

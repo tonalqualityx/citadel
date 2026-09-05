@@ -30,6 +30,16 @@ vi.mock('@/lib/hooks/use-blocker-dismissals', () => ({
   useCreateBlockerDismissal: () => ({ mutateAsync: mockCreateDismissalMutateAsync, isPending: false }),
 }));
 
+// Spec polish (2026-09-04) — "Queue chase from my Gmail". Mocked directly (rather than
+// through apiClient) since these are the two real hooks BlockerRow calls.
+const mockCreateApprovalRequestMutateAsync = vi.fn();
+const mockUpdateApprovalRequestMutateAsync = vi.fn();
+
+vi.mock('@/lib/hooks/use-approval-requests', () => ({
+  useCreateApprovalRequest: () => ({ mutateAsync: mockCreateApprovalRequestMutateAsync }),
+  useUpdateApprovalRequest: () => ({ mutateAsync: mockUpdateApprovalRequestMutateAsync }),
+}));
+
 import { BlockerRow } from '../BlockerRow';
 
 function decisionBlocker(overrides: Partial<Blocker> = {}): Blocker {
@@ -45,6 +55,7 @@ function decisionBlocker(overrides: Partial<Blocker> = {}): Blocker {
     arc: null,
     chase_due_at: null,
     chase_draft: null,
+    chase_target: null,
     dismiss: null,
     ...overrides,
   };
@@ -63,7 +74,27 @@ function reviewBlocker(overrides: Partial<Blocker> = {}): Blocker {
     arc: null,
     chase_due_at: null,
     chase_draft: null,
+    chase_target: null,
     dismiss: { kind: 'task', source_id: 'task-2', source_marker: '2026-08-01T00:00:00Z' },
+    ...overrides,
+  };
+}
+
+function overdueClientApprovalBlocker(overrides: Partial<Blocker> = {}): Blocker {
+  return {
+    kind: 'client_approval',
+    id: 'client_approval:ar-1',
+    title: 'Client approval',
+    detail: 'Sent, no reply after 3 business days. Chase it.',
+    owner: { id: 'mike-1', name: 'Mike', is_mike: true },
+    source: { type: 'approval_request', id: 'ar-1', url: '/tasks/task-1' },
+    since: '2026-08-01T00:00:00Z',
+    actions: ['send_approval', 'mark_approved'],
+    arc: null,
+    chase_due_at: '2026-08-06T00:00:00Z',
+    chase_draft: { subject: 'Following up: Homepage copy', body: 'Hi,\n\nChecking in on Homepage copy.\n\nMike' },
+    chase_target: { task_id: 'task-1', contact_id: 'contact-1', email: 'jane@client.com' },
+    dismiss: null,
     ...overrides,
   };
 }
@@ -82,6 +113,8 @@ beforeEach(() => {
   mockApiClientGet.mockResolvedValue({ id: 'task-1', tags: ['needs-mike', 'stack:eleventy'] });
   mockUpdateTaskMutateAsync.mockResolvedValue({});
   mockCreateCommentMutateAsync.mockResolvedValue({});
+  mockCreateApprovalRequestMutateAsync.mockResolvedValue({ id: 'ar-chase-1' });
+  mockUpdateApprovalRequestMutateAsync.mockResolvedValue({});
 });
 
 describe('BlockerRow — reply', () => {
@@ -245,5 +278,56 @@ describe('BlockerRow — pick', () => {
     renderRow(blocker, onPick);
     fireEvent.click(screen.getByRole('button', { name: /^pick$/i }));
     expect(onPick).toHaveBeenCalledWith(blocker);
+  });
+});
+
+// Spec polish (2026-09-04) — the computed chase_draft renders on client_approval
+// blockers past the chase clock; "Queue chase from my Gmail" reuses the approval-request
+// queue path (create with kind:'chase', then PATCH to queued).
+describe('BlockerRow — chase draft', () => {
+  it('renders no chase panel when chase_draft is null (not yet overdue)', () => {
+    renderRow(overdueClientApprovalBlocker({ chase_draft: null, chase_target: null }));
+    expect(screen.queryByTestId('chase-draft-panel')).not.toBeInTheDocument();
+  });
+
+  it('renders the chase panel, seeded from chase_draft, once overdue', () => {
+    renderRow(overdueClientApprovalBlocker());
+    expect(screen.getByTestId('chase-draft-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('chase-draft-subject')).toHaveValue('Following up: Homepage copy');
+    expect(screen.getByTestId('chase-draft-body')).toHaveValue('Hi,\n\nChecking in on Homepage copy.\n\nMike');
+  });
+
+  it('the draft is editable', () => {
+    renderRow(overdueClientApprovalBlocker());
+    const subjectInput = screen.getByTestId('chase-draft-subject');
+    fireEvent.change(subjectInput, { target: { value: 'A rewritten subject' } });
+    expect(subjectInput).toHaveValue('A rewritten subject');
+  });
+
+  it('"Queue chase from my Gmail" creates a kind:chase row off chase_target, then queues it', async () => {
+    renderRow(overdueClientApprovalBlocker());
+    fireEvent.click(screen.getByRole('button', { name: /queue chase from my gmail/i }));
+
+    await waitFor(() => expect(mockCreateApprovalRequestMutateAsync).toHaveBeenCalledTimes(1));
+    expect(mockCreateApprovalRequestMutateAsync).toHaveBeenCalledWith({
+      task_id: 'task-1',
+      contact_id: 'contact-1',
+      to_email: 'jane@client.com',
+      subject: 'Following up: Homepage copy',
+      body: 'Hi,\n\nChecking in on Homepage copy.\n\nMike',
+      kind: 'chase',
+    });
+    await waitFor(() =>
+      expect(mockUpdateApprovalRequestMutateAsync).toHaveBeenCalledWith({
+        id: 'ar-chase-1',
+        data: { status: 'queued' },
+      })
+    );
+  });
+
+  it('the queue button is disabled once the subject or body is emptied', () => {
+    renderRow(overdueClientApprovalBlocker());
+    fireEvent.change(screen.getByTestId('chase-draft-subject'), { target: { value: '' } });
+    expect(screen.getByRole('button', { name: /queue chase from my gmail/i })).toBeDisabled();
   });
 });
