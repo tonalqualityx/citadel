@@ -3280,6 +3280,17 @@ model ApprovalRequest {
   send_error       String? @db.Text
   send_error_count Int     @default(0)
 
+  // Phase 5 tail fixes (MEDIUM-A) — stamped by PATCH .../[id] {status:'draft',
+  // release_stuck:true}, Mike's own manual "it did not go out, let me requeue it" call
+  // on a 'sending' row stuck past SENDING_STUCK_THRESHOLD_MINUTES with no PUT .../sent
+  // on file. Independent of send_error/send_error_count (which the same PATCH resets to
+  // null/0 — a fresh attempt cycle, same as any other bounce-to-draft) — this timestamp
+  // is purely the historical record of "a human, not the 3-strikes auto-bounce, put this
+  // row back in draft." The local send ledger (approval-sender.py, layer 1) is what
+  // actually stops a resend of an id already handed to gog; this column is not itself a
+  // guard, only a record of when Mike intervened.
+  manual_release_at DateTime?
+
   created_by_id String?  @db.Uuid
   created_by    User?    @relation("ApprovalRequestCreatedBy", fields: [created_by_id], references: [id])
   created_at    DateTime @default(now())

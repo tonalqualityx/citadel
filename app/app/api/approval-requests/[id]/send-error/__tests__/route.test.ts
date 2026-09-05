@@ -59,10 +59,38 @@ describe('PUT /api/approval-requests/[id]/send-error', () => {
     expect(res.status).toBe(409);
   });
 
-  it("409s when the row is still queued (never claimed)", async () => {
-    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'queued', task_id: 'task-1', send_error_count: 0 });
+  it("409s when the row is neither sending nor queued", async () => {
+    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'draft', task_id: 'task-1', send_error_count: 0 });
     const res = await PUT(req({ error: 'gog failed' }), { params });
     expect(res.status).toBe(409);
+  });
+
+  // Phase 5 tail fixes (MEDIUM-A) — the sender's local send ledger (layer 1) can refuse
+  // an id WITHOUT ever claiming it (PUT .../sending) — e.g. Mike released a stuck
+  // 'sending' row to 'draft' and requeued it, but the machine that actually sent it the
+  // first time still remembers. That refusal bounces a still-'queued' row STRAIGHT to
+  // 'draft', bypassing the 3-strikes counter entirely — this is not a transient,
+  // retryable failure.
+  it('bounces a still-queued row straight to draft, bypassing the 3-strikes counter', async () => {
+    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'queued', task_id: 'task-1', send_error_count: 0 });
+    const res = await PUT(req({ error: 'refused: already sent once from this machine' }), { params });
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'draft',
+          send_attempt_at: null,
+          send_error: 'refused: already sent once from this machine',
+          send_error_count: 1,
+        }),
+      })
+    );
+    const body = await res.json();
+    expect(body.status).toBe('draft');
+    expect(mockLogUpdate).toHaveBeenCalledWith(
+      'oracle-svc', 'task', 'task-1', 'Approval request',
+      { approval_status: { from: 'queued', to: 'draft' } }
+    );
   });
 
   it('records the error and releases back to queued on the 1st/2nd failure', async () => {

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { formatRelativeTime } from '@/lib/utils/time';
+import { SENDING_STUCK_THRESHOLD_MINUTES } from '@/lib/oracle/projects/blockers';
 import { useClientContacts } from '@/lib/hooks/use-client-contacts';
 import { useTask } from '@/lib/hooks/use-tasks';
 import {
@@ -183,6 +184,29 @@ export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
     }
   }
 
+  // Phase 5 tail fixes (MEDIUM-A) — the two Mike-gated manual overrides for a
+  // 'sending' row the sender died on (claimed, then never called back with a PUT
+  // .../sent). Mirrors the API's own gate (send_attempt_at older than
+  // SENDING_STUCK_THRESHOLD_MINUTES) so the buttons only appear once the API would
+  // actually accept them — a click before that boundary would just 409.
+  async function markSentManually() {
+    if (!active) return;
+    try {
+      await updateRequest.mutateAsync({ id: active.id, data: { status: 'sent', confirmed_by_mike: true } });
+    } catch {
+      // toasted by the hook
+    }
+  }
+
+  async function releaseStuckToDraft() {
+    if (!active) return;
+    try {
+      await updateRequest.mutateAsync({ id: active.id, data: { status: 'draft', release_stuck: true } });
+    } catch {
+      // toasted by the hook
+    }
+  }
+
   if (isLoading) {
     return (
       <div data-testid="approval-panel-loading" className="flex items-center gap-2 text-sm text-text-sub">
@@ -195,6 +219,16 @@ export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
   const canQueue = canEdit && !!draftSubject.trim() && !!draftBody.trim() && (!!draftContactId || !!active?.to_email);
   const canMarkApprovedOrRequestChanges = !!active && (active.status === 'sent' || active.status === 'replied');
   const canCancel = !!active && active.status === 'queued';
+  // MEDIUM-A — same boundary the API itself gates on (send_attempt_at older than
+  // SENDING_STUCK_THRESHOLD_MINUTES), so these buttons never appear only to 409 on
+  // click. No live-ticking clock here: the next poll/refetch (or simply reopening this
+  // drawer) re-evaluates it — a stuck row is, by definition, not something a few extra
+  // seconds of staleness matters for.
+  const stuckSendingMinutes =
+    active && active.status === 'sending' && active.send_attempt_at
+      ? (Date.now() - new Date(active.send_attempt_at).getTime()) / 60000
+      : null;
+  const canOverrideSending = stuckSendingMinutes !== null && stuckSendingMinutes >= SENDING_STUCK_THRESHOLD_MINUTES;
 
   return (
     <div data-testid="approval-panel" className="flex flex-col gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--border)' }}>
@@ -288,6 +322,27 @@ export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
             <p data-testid="approval-panel-send-error" className="text-xs" style={{ color: 'var(--error)' }}>
               {active.send_error}
             </p>
+          )}
+
+          {canOverrideSending && (
+            <div
+              data-testid="approval-panel-sending-stuck"
+              className="flex flex-col gap-2 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--warning)' }}
+            >
+              <p className="text-text-main">
+                Still showing as sending after {SENDING_STUCK_THRESHOLD_MINUTES} minutes. Check Gmail before choosing
+                below.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="primary" onClick={markSentManually} disabled={updateRequest.isPending}>
+                  It went out, mark it sent
+                </Button>
+                <Button size="sm" variant="secondary" onClick={releaseStuckToDraft} disabled={updateRequest.isPending}>
+                  It did not go out, release to draft
+                </Button>
+              </div>
+            </div>
           )}
 
           <div className="flex flex-wrap items-center gap-2">

@@ -184,7 +184,13 @@ export type BlockerAction =
   | 'mark_approved'
   | 'nudge'
   | 'refresh_next_step'
-  | 'suspend';
+  | 'suspend'
+  // Phase 5 tail fixes (MEDIUM-A) — the two Mike-gated manual overrides for a
+  // 'sending' row stuck past SENDING_STUCK_THRESHOLD_MINUTES. See
+  // classifyClientApprovals below and ApprovalPanel.tsx (which is where these are
+  // actually actioned once Mike opens the task) for the full guard these belong to.
+  | 'mark_sent_manually'
+  | 'release_to_draft';
 
 export interface Blocker {
   kind: BlockerKind;
@@ -222,7 +228,11 @@ const MEETING_RISK_WINDOW_DAYS = 3;
 // Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2) — how long a 'sending' row can sit claimed
 // with no PUT .../sent on file before it stops being "the sender is presumably still
 // mid-flight" and starts being "something went wrong and nobody's looking at it."
-const SENDING_STUCK_THRESHOLD_MINUTES = 30;
+// Exported: PATCH /api/approval-requests/[id] (Phase 5 tail fixes, MEDIUM-A) imports
+// this SAME constant to gate its two Mike-only manual overrides — the blocker's own
+// "past due" line and the route's own "old enough to safely override" line must never
+// drift apart.
+export const SENDING_STUCK_THRESHOLD_MINUTES = 30;
 const MEETING_RISK_STILLNESS_DAYS = 5;
 // HIGH-1: decision/clarification/mention are asks for a LIVE task — a task already
 // done or abandoned can't still be waiting on Mike's word, no matter what its last
@@ -514,9 +524,21 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
     // already confirmed delivered but hasn't finished RECORDING as sent yet) — not a
     // blocker on its own. Only surface it once it's been claimed for longer than the
     // stuck threshold with no PUT .../sent on file: "Approval send unconfirmed," owned
-    // by Mike, with no send/resend action offered — the whole point of this guard is
-    // that nobody, human or machine, blindly resends an id that may already have gone
-    // out. Mike's own remedy here is to check gog/Gmail directly, not click a button.
+    // by Mike.
+    //
+    // Phase 5 TAIL fixes (MEDIUM-A) — this used to carry actions:[] on the theory that
+    // nobody, human or machine, should blindly resend an id that may already have gone
+    // out, and Mike's only remedy was to check gog/Gmail directly with no button at all
+    // — which left a row stuck here with NO human exit whatsoever (PATCH refuses every
+    // transition, no blocker action, no way out short of a raw DB edit). Now carries
+    // ['mark_sent_manually', 'release_to_draft'] — both still require Mike to have
+    // actually checked Gmail first (the actions are a route into
+    // PATCH /api/approval-requests/[id]'s two Mike-gated overrides, never an auto-
+    // resend), and both are additionally gated server-side on send_attempt_at being
+    // older than SENDING_STUCK_THRESHOLD_MINUTES (a live send can't be interrupted by
+    // either). The real UI for these is ApprovalPanel.tsx, once Mike opens the task —
+    // this blocker's own row-level actions are the discovery path, not a second
+    // implementation of the transition itself.
     if (ar.status === 'sending') {
       const attemptAt = ar.send_attempt_at ? new Date(ar.send_attempt_at) : new Date(ar.created_at);
       const stuckMinutes = (now.getTime() - attemptAt.getTime()) / 60000;
@@ -531,7 +553,7 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
         owner: mikeOwner(),
         source: { type: 'approval_request', id: ar.id, url: `/tasks/${ar.task_id}` },
         since: attemptAt.toISOString(),
-        actions: [],
+        actions: ['mark_sent_manually', 'release_to_draft'],
         arc: null,
         chase_due_at: null,
         chase_draft: null,

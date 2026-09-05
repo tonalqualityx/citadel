@@ -650,7 +650,7 @@ describe('classifyProjectBlockers — client_approval', () => {
     expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
   });
 
-  it('a sending row stuck over 30 minutes surfaces as "Approval send unconfirmed", owned by Mike, no actions', () => {
+  it('a sending row stuck over 30 minutes surfaces as "Approval send unconfirmed", owned by Mike, with the two manual-override actions', () => {
     const input = baseInput({
       approval_requests: [
         {
@@ -673,7 +673,7 @@ describe('classifyProjectBlockers — client_approval', () => {
     expect(blocker.owner).toEqual({ id: MIKE_USER_ID, name: 'Mike', is_mike: true });
     expect(blocker.detail).toContain('unconfirmed');
     expect(blocker.detail.toLowerCase()).toContain('do not resend');
-    expect(blocker.actions).toEqual([]);
+    expect(blocker.actions).toEqual(['mark_sent_manually', 'release_to_draft']);
     expect(blocker.since).toBe('2026-09-10T11:00:00.000Z');
   });
 

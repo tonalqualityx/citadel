@@ -259,4 +259,67 @@ describe('ApprovalPanel', () => {
       expect(approvedSpan).not.toHaveStyle({ color: 'var(--text-main)' });
     });
   });
+
+  // Phase 5 tail fixes (MEDIUM-A) — a 'sending' row the sender died on (claimed, then
+  // never PUT .../sent) used to have no human exit at all: PATCH refused every
+  // transition and the panel showed no buttons. Once send_attempt_at is older than 30
+  // minutes, the panel offers the two Mike-gated manual overrides.
+  describe('MEDIUM-A: stuck sending row gets a human exit after 30 minutes', () => {
+    function sendingRow(minutesAgo: number, overrides: Record<string, unknown> = {}) {
+      return draftRow({
+        status: 'sending',
+        to_email: 'andy@acme.com',
+        send_attempt_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+        ...overrides,
+      });
+    }
+
+    it('shows neither override button while under 30 minutes', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({ data: { requests: [sendingRow(10)] }, isLoading: false });
+      render_();
+      expect(screen.queryByRole('button', { name: /it went out, mark it sent/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /it did not go out, release to draft/i })).not.toBeInTheDocument();
+    });
+
+    it('shows both override buttons once past 30 minutes', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({ data: { requests: [sendingRow(45)] }, isLoading: false });
+      render_();
+      expect(screen.getByRole('button', { name: /it went out, mark it sent/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /it did not go out, release to draft/i })).toBeInTheDocument();
+    });
+
+    it('"It went out, mark it sent" PATCHes status:sent with confirmed_by_mike:true', async () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({ data: { requests: [sendingRow(45)] }, isLoading: false });
+      render_();
+      fireEvent.click(screen.getByRole('button', { name: /it went out, mark it sent/i }));
+      await waitFor(() =>
+        expect(mockUpdateMutateAsync).toHaveBeenCalledWith({
+          id: 'ar-1',
+          data: { status: 'sent', confirmed_by_mike: true },
+        })
+      );
+    });
+
+    it('"It did not go out, release to draft" PATCHes status:draft with release_stuck:true', async () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({ data: { requests: [sendingRow(45)] }, isLoading: false });
+      render_();
+      fireEvent.click(screen.getByRole('button', { name: /it did not go out, release to draft/i }));
+      await waitFor(() =>
+        expect(mockUpdateMutateAsync).toHaveBeenCalledWith({
+          id: 'ar-1',
+          data: { status: 'draft', release_stuck: true },
+        })
+      );
+    });
+
+    it('shows no override buttons for a sending row with no send_attempt_at yet', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({
+        data: { requests: [draftRow({ status: 'sending', to_email: 'andy@acme.com', send_attempt_at: null })] },
+        isLoading: false,
+      });
+      render_();
+      expect(screen.queryByRole('button', { name: /it went out, mark it sent/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /it did not go out, release to draft/i })).not.toBeInTheDocument();
+    });
+  });
 });

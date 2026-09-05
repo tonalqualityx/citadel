@@ -1497,8 +1497,10 @@ never got that far. Verified live: `SELECT status FROM approval_requests WHERE t
 - [x] `npx prisma migrate deploy` — clean, one new migration
   (`20260904231500_oracle_projects_phase5_fixes_sending`). Re-run via `npx prisma db
   execute --file <that migration>` — exit 0, clean no-op (idempotent; verified against a
-  freshly recreated local `citadel_dev` database, all 27 migrations applied clean in
-  order, then this one re-applied a second time standalone).
+  freshly recreated local `citadel_dev` database, all 53 migrations applied clean in
+  order, then this one re-applied a second time standalone). LOW-b (Phase 5 tail fixes):
+  corrected from an earlier "27 migrations" typo in this same line — the actual count of
+  migrations in this repo at Phase 5 Fixes time was 53, not 27.
 - [x] `npx tsc --noEmit` — clean.
 - [x] `npm run lint` — **725 problems (494 errors/231 warnings), byte-identical to every
   prior phase's baseline** — this pass's diff adds zero new lint issues.
@@ -1543,5 +1545,98 @@ never got that far. Verified live: `SELECT status FROM approval_requests WHERE t
   followed that same precedent and backed the file up first
   (`email-classifier.py.bak-20260904-195500-phase5fixes`) — flagged here rather than
   silently claiming a deploy.sh that doesn't exist for this file.
-- [ ] Opus verifier PASS — not run by this pass.
-- [ ] Mike's local review and merge approval — pending.
+### Phase 5 TAIL fixes (2026-09-04/05)
+
+Small fixes on top of the Phase 5 Fixes pass above, found in a follow-on review:
+
+- **MEDIUM-A**: a `sending` row had no human exit if the sender died between claiming
+  it and PUT `.../sent`. PATCH refused every transition, the panel showed no buttons,
+  and the blocker carried `actions: []`. Added two Mike-gated (PM/Admin) PATCH
+  transitions on `/api/approval-requests/[id]`: `sending -> sent` with
+  `{status:'sent', confirmed_by_mike:true, message_id?}` ("I checked Gmail, it went
+  out": stamps `sent_at`, `send_error:"confirmed manually"`) and `sending -> draft` with
+  `{status:'draft', release_stuck:true}` ("it did not go out": resets
+  `send_error_count` to 0, stamps the new `manual_release_at` column). Both 409 unless
+  `send_attempt_at` is more than `SENDING_STUCK_THRESHOLD_MINUTES` (30) old, including
+  when `send_attempt_at` is missing entirely (treated as 0 minutes elapsed, not
+  infinite, so a genuinely unknown claim age never qualifies). Neither is listed in
+  `APPROVAL_REQUEST_TRANSITIONS`; the route checks the exact flag/status pairing by
+  hand before falling through to the generic 409. The local send ledger stays
+  authoritative: `approval-sender.py`'s layer 1 still refuses to hand an already
+  ledgered id to gog, and now also PUTs `.../send-error` with
+  `"refused: already sent once from this machine"` on that refusal, so a row Mike
+  released to draft and requeued bounces straight back to draft with a visible reason
+  instead of sitting at `queued` forever. `/send-error` now also accepts a `queued` row
+  for exactly this case, bouncing it to `draft` immediately, bypassing the 3-strikes
+  counter. `ApprovalPanel.tsx` shows both actions with the exact required copy once the
+  gate clears; `classifyClientApprovals`'s "Approval send unconfirmed" blocker now
+  carries `actions: ['mark_sent_manually', 'release_to_draft']` (both still deferred at
+  the `BlockerRow` level, same established pattern as `send_approval`/`mark_approved`
+  for this same blocker kind. The real, working UI is the panel).
+- **LOW-a**: the email classifier's `_check_approval_reply` now takes an optional
+  `reply_post_failures` set; a failed POST to `.../reply` adds the message id to it.
+  `_process_account` still classifies that message normally (labeled/archived, for
+  Mike's own benefit) but skips the seen-ledger append for it, so the next pass sees it
+  again and retries the POST. Proven via a `_process_account`-level test asserting
+  `_append_ledger` was never called for that id, not just the return value.
+- **LOW-c**: `sending` added to the illegal-transition test table in
+  `[id]/__tests__/route.test.ts`, plus dedicated tests for the two new flag-gated
+  transitions (missing flag, under the 30-minute gate, missing `send_attempt_at`,
+  PM/Admin requirement).
+- **LOW-d**: `_retry_unrecorded_deliveries`'s `[RECOVERED]` branch now calls
+  `log_ledger(request_id, "recovered", duration_ms)`, once per id actually recovered.
+- **LOW-b**: this file's own "27 migrations" typo (Phase 5 Fixes Gates, above)
+  corrected to the actual count, 53, at that time.
+
+Also: rebased the branch onto `origin/main` (`git fetch && git rebase origin/main`).
+Clean, no conflicts, all 10 phase commits preserved on top (no squash).
+
+#### Phase 5 TAIL fixes Gates (2026-09-04/05, post-rebase)
+
+- [x] `npx prisma migrate deploy` - 54 migrations found (53 + this pass's own
+  `20260904235900_oracle_projects_phase5_tail_manual_release`, adding only
+  `manual_release_at`), applied clean pre-rebase; `No pending migrations to apply`
+  post-rebase (the rebase brought in zero new migration files. This branch's own
+  history already carried `origin/main`'s only migration-touching commit,
+  `20260826143700_project_record_citadel_changes_ruling33`, from before it branched).
+  `npx prisma db execute --file` re-run of this pass's own migration: exit 0, clean
+  no-op (idempotent).
+- [x] `npx tsc --noEmit` - clean, both pre- and post-rebase.
+- [x] `npm run lint` - **725 problems (494 errors/231 warnings), byte-identical to
+  every prior phase's baseline, both pre- and post-rebase**. Zero new lint issues; no
+  re-baseline needed (the rebase added none).
+- [x] `npx vitest run` - **255 files / 3075 tests, zero failures post-rebase** (255/3070
+  pre-rebase; the rebase itself added 5 tests via `origin/main`'s own commits, none of
+  them failing). This pass's own new/changed coverage: `[id]/route.test.ts` (+13:
+  4 new illegal-transition cases, 2 bare-flag 409s, 6 manual-override cases, 1 role
+  check), `send-error/route.test.ts` (the `queued` 409 replaced with the new
+  queued->draft refusal test), `ApprovalPanel.test.tsx` (+5: the MEDIUM-A describe
+  block), `blockers.test.ts` (actions assertion updated, no new tests).
+- [x] `npm run build` - clean, exit 0, both pre- and post-rebase.
+  `/api/approval-requests/[id]/send-error` and `/api/approval-requests/[id]` present in
+  the route manifest.
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-approvals/tests -v` -
+  **38 tests, all green** (was 37; +1:
+  `TestLocalLedgerRefusal.test_already_ledgered_queued_row_gets_refused_via_send_error`,
+  plus the existing `TestSentRecordingFailureNeverResends` run-4/run-5 assertions
+  extended in place for the new `recovered` ledger row and the new refusal PUT).
+  Deployed via `deploy.sh` (staged `.next` suite green, then live). Backups at
+  `~/.local/state/approval-sender-backups/approval-sender.{py,sh}.20260904-204757`.
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` -
+  **53 tests, all green**, unchanged by this pass.
+- [x] `python3 test_email_classifier_approvals.py` - **24 tests, all green** (was 19;
+  +5: `PostFailureFailsOpen`'s two new `reply_post_failures` cases,
+  `PostSuccessSkipsNormalClassification`'s one new negative case, and the two new
+  `ProcessAccountSuppressesLedgerOnReplyPostFailure` end-to-end tests). Regression:
+  `test_email_classifier_payroll.py` (32) and `test_email_classifier_assayer.py` (70)
+  both unchanged and green.
+- [x] `npx playwright test __tests__/e2e/oracle-projects-tab.spec.ts` - **3 passed**,
+  both pre- and post-rebase.
+- [x] `git log --oneline origin/main..HEAD` - all 10 phase commits present on top of
+  `main`, in order, no squash.
+- [x] `git status` - clean after the commit below.
+- [x] `email-classifier.py` backed up before editing:
+  `email-classifier.py.bak-20260904-204157-phase5tailfixes`, per this pass's own
+  instruction (never edit that file without a dated backup first).
+- [ ] Opus verifier PASS - not run by this pass.
+- [ ] Mike's local review and merge approval - pending.

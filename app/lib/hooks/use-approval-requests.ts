@@ -15,8 +15,11 @@ export type ApprovalRequestStatus =
   | 'draft'
   | 'queued'
   // Phase 5 fixes (HIGH-1/MEDIUM-1) — the machine-side sender's own claim, stamped
-  // right before it invokes gog. Transient and read-only in the UI: ApprovalPanel offers
-  // no action while a row is here (mirrors 'sent' — nothing to edit, nothing to cancel).
+  // right before it invokes gog. Read-only in the UI for the first
+  // SENDING_STUCK_THRESHOLD_MINUTES (nothing to edit, nothing to cancel) — ApprovalPanel
+  // only offers an action here once send_attempt_at is older than that (Phase 5 TAIL
+  // fixes, MEDIUM-A): "it went out, mark it sent" / "it did not go out, release to
+  // draft."
   | 'sending'
   | 'sent'
   | 'replied'
@@ -51,6 +54,9 @@ export interface ApprovalRequest {
   send_attempt_at: string | null;
   send_error: string | null;
   send_error_count: number;
+  // Phase 5 tail fixes (MEDIUM-A) — stamped by PATCH .../[id] {status:'draft',
+  // release_stuck:true}, Mike's own manual release of a stuck 'sending' row.
+  manual_release_at: string | null;
   created_by_id: string | null;
   created_at: string;
   updated_at: string;
@@ -99,8 +105,14 @@ export interface UpdateApprovalRequestInput {
   subject?: string;
   body?: string;
   to_email?: string | null;
-  status?: 'queued' | 'cancelled' | 'approved' | 'changes_requested';
+  status?: 'queued' | 'cancelled' | 'approved' | 'changes_requested' | 'sent' | 'draft';
   reply_note?: string;
+  // Phase 5 tail fixes (MEDIUM-A) — the two Mike-gated manual overrides for a stuck
+  // 'sending' row. See app/api/approval-requests/[id]/route.ts's own doc comment for
+  // the exact flag <-> status pairing this requires.
+  confirmed_by_mike?: boolean;
+  release_stuck?: boolean;
+  message_id?: string;
 }
 
 /** PATCH /api/approval-requests/[id] — the state-machine transitions plus draft edits.

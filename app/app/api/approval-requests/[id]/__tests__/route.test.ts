@@ -224,11 +224,120 @@ describe('PATCH /api/approval-requests/[id]', () => {
       ['approved', 'queued'],
       ['cancelled', 'queued'],
       ['changes_requested', 'approved'],
+      // LOW-c (Phase 5 tail fixes) — a plain PATCH out of 'sending' with no matching
+      // manual-override flag stays illegal, exactly like any other unlisted transition.
+      // 'sending' has no generically-legal PATCH target of its own (see
+      // APPROVAL_REQUEST_TRANSITIONS' own doc comment) — the two exceptions
+      // (sending->sent/confirmed_by_mike, sending->draft/release_stuck) are their own
+      // dedicated describe block below.
+      ['sending', 'queued'],
+      ['sending', 'approved'],
+      ['sending', 'cancelled'],
+      ['sending', 'changes_requested'],
     ])('409s %s -> %s', async (from, to) => {
       mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: from, to_email: 'client@example.com' }));
       const res = await PATCH(req({ status: to }), { params });
       expect(res.status).toBe(409);
       expect(mockTxApprovalRequestUpdate).not.toHaveBeenCalled();
+    });
+
+    it('409s a bare sending -> sent PATCH with no confirmed_by_mike flag', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(
+        existingRow({ status: 'sending', send_attempt_at: new Date(Date.now() - 45 * 60_000) })
+      );
+      const res = await PATCH(req({ status: 'sent' }), { params });
+      expect(res.status).toBe(409);
+      expect(mockTxApprovalRequestUpdate).not.toHaveBeenCalled();
+    });
+
+    it('409s a bare sending -> draft PATCH with no release_stuck flag', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(
+        existingRow({ status: 'sending', send_attempt_at: new Date(Date.now() - 45 * 60_000) })
+      );
+      const res = await PATCH(req({ status: 'draft' }), { params });
+      expect(res.status).toBe(409);
+      expect(mockTxApprovalRequestUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  // Phase 5 tail fixes (MEDIUM-A) — the two Mike-gated manual overrides for a 'sending'
+  // row stuck past the 30-minute mark with no PUT .../sent on file (the sender died
+  // between claiming it and recording delivery). Both require PM/Admin (already
+  // enforced by requireRole at the top of the handler — no separate check needed here)
+  // and both are gated on send_attempt_at being more than 30 minutes old.
+  describe('sending -> sent (confirmed_by_mike) / sending -> draft (release_stuck)', () => {
+    const OLD_ATTEMPT = new Date(Date.now() - 45 * 60_000);
+    const RECENT_ATTEMPT = new Date(Date.now() - 10 * 60_000);
+
+    it('stamps sent_at and a fixed send_error marker on confirmed_by_mike, past the 30-minute gate', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: OLD_ATTEMPT }));
+      const res = await PATCH(req({ status: 'sent', confirmed_by_mike: true }), { params });
+      expect(res.status).toBe(200);
+      expect(mockTxApprovalRequestUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'sent',
+            sent_at: expect.any(Date),
+            send_error: 'confirmed manually',
+          }),
+        })
+      );
+    });
+
+    it('accepts an optional message_id on confirmed_by_mike', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: OLD_ATTEMPT }));
+      const res = await PATCH(req({ status: 'sent', confirmed_by_mike: true, message_id: 'msg-recovered-1' }), { params });
+      expect(res.status).toBe(200);
+      expect(mockTxApprovalRequestUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ message_id: 'msg-recovered-1' }) })
+      );
+    });
+
+    it('resets send_error_count and stamps manual_release_at on release_stuck, past the 30-minute gate', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: OLD_ATTEMPT, send_error_count: 2 }));
+      const res = await PATCH(req({ status: 'draft', release_stuck: true }), { params });
+      expect(res.status).toBe(200);
+      expect(mockTxApprovalRequestUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'draft',
+            send_error_count: 0,
+            manual_release_at: expect.any(Date),
+            send_attempt_at: null,
+          }),
+        })
+      );
+    });
+
+    it('409s confirmed_by_mike when send_attempt_at is under 30 minutes old', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: RECENT_ATTEMPT }));
+      const res = await PATCH(req({ status: 'sent', confirmed_by_mike: true }), { params });
+      expect(res.status).toBe(409);
+      expect(mockTxApprovalRequestUpdate).not.toHaveBeenCalled();
+    });
+
+    it('409s release_stuck when send_attempt_at is under 30 minutes old', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: RECENT_ATTEMPT }));
+      const res = await PATCH(req({ status: 'draft', release_stuck: true }), { params });
+      expect(res.status).toBe(409);
+      expect(mockTxApprovalRequestUpdate).not.toHaveBeenCalled();
+    });
+
+    it('409s confirmed_by_mike when send_attempt_at is missing entirely (no evidence it is actually old)', async () => {
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: null }));
+      const res = await PATCH(req({ status: 'sent', confirmed_by_mike: true }), { params });
+      expect(res.status).toBe(409);
+      expect(mockTxApprovalRequestUpdate).not.toHaveBeenCalled();
+    });
+
+    it('requires PM or Admin, same as every other transition on this route', async () => {
+      const { AuthError } = await import('@/lib/api/errors');
+      mockRequireRole.mockImplementation(() => {
+        throw new AuthError('Insufficient permissions', 403);
+      });
+      mockApprovalRequestFindUnique.mockResolvedValue(existingRow({ status: 'sending', send_attempt_at: OLD_ATTEMPT }));
+      const res = await PATCH(req({ status: 'sent', confirmed_by_mike: true }), { params });
+      expect(res.status).toBe(403);
     });
   });
 });

@@ -649,11 +649,11 @@ export const oracleEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'PATCH',
-        summary: 'The approval-request state machine: draft edits, queue, cancel, mark approved, request changes.',
+        summary: 'The approval-request state machine: draft edits, queue, cancel, mark approved, request changes, manually resolve a stuck send.',
         auth: 'required',
         roles: ['pm', 'admin'],
         responseNotes:
-          'Legal transitions only: draft->queued, queued->cancelled, sent|replied->approved, ' +
+          'Legal transitions: draft->queued, queued->cancelled, sent|replied->approved, ' +
           'sent|replied->changes_requested — anything else 409s. subject/body/to_email are only ' +
           "editable while the row is still 'draft'. draft->queued requires a non-empty to_email/" +
           'subject/body and to_email must match a live ClientContact on the task\'s client (422 ' +
@@ -661,15 +661,26 @@ export const oracleEndpoints: ApiEndpoint[] = [
           '— it never touches the underlying task. sent|replied->changes_requested stamps ' +
           'changes_requested_at and creates a follow-up task ("Changes requested: <task title>") on ' +
           'the same project, assigned to Mike, carrying reply_note (or the existing reply_excerpt, or ' +
-          'a generic fallback) as its description.',
+          'a generic fallback) as its description. Phase 5 TAIL fixes (MEDIUM-A): TWO additional, ' +
+          "Mike-gated overrides for a 'sending' row the machine-side sender died on. " +
+          "sending->sent with confirmed_by_mike:true (\"I checked Gmail, it went out\": stamps sent_at, " +
+          'send_error:"confirmed manually", optionally message_id) and sending->draft with ' +
+          'release_stuck:true ("it did not go out": resets send_error_count to 0, stamps ' +
+          'manual_release_at). Both 409 unless send_attempt_at is more than 30 minutes old (a live ' +
+          'send in flight can never be interrupted); neither is reachable without its exact matching ' +
+          'flag. The local send ledger (approval-sender.py) still independently refuses to resend an ' +
+          'id it already handed to gog, regardless of this row\'s own status.',
         bodySchema: [
           { name: 'subject', type: 'string', required: false, description: '' },
           { name: 'body', type: 'string', required: false, description: '' },
           { name: 'to_email', type: 'string', required: false, description: '' },
-          { name: 'status', type: 'string', required: false, description: 'queued|cancelled|approved|changes_requested' },
+          { name: 'status', type: 'string', required: false, description: 'queued|cancelled|approved|changes_requested|sent|draft' },
           { name: 'reply_note', type: 'string', required: false, description: 'Used only on a changes_requested transition.' },
+          { name: 'confirmed_by_mike', type: 'boolean', required: false, description: "Required (true) alongside status:'sent' to manually confirm a stuck 'sending' row went out." },
+          { name: 'release_stuck', type: 'boolean', required: false, description: "Required (true) alongside status:'draft' to manually release a stuck 'sending' row that did not go out." },
+          { name: 'message_id', type: 'string', required: false, description: 'Optional, only meaningful with confirmed_by_mike.' },
         ],
-        responseExample: { id: 'uuid', status: 'string', queued_at: 'ISO-8601|null', approved_at: 'ISO-8601|null' },
+        responseExample: { id: 'uuid', status: 'string', queued_at: 'ISO-8601|null', approved_at: 'ISO-8601|null', manual_release_at: 'ISO-8601|null' },
       },
     ],
   },
@@ -730,14 +741,17 @@ export const oracleEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'PUT',
-        summary: 'Machine-side sender only: records one real gog send failure on a claimed (sending) row.',
+        summary: 'Machine-side sender only: records one real gog send failure on a claimed (sending) row, or a local-send-ledger refusal on a still-queued one.',
         auth: 'required',
         responseNotes:
-          "Bearer, any authenticated user. Requires the row be 'sending' (409 otherwise, including a " +
-          "still-'queued' row that was never claimed). Releases back to 'queued' (the next poll " +
-          'reclaims and retries) unless this is the 3rd recorded error, in which case status falls back ' +
-          "to 'draft' with send_error set and send_attempt_at cleared. An unresolved message id after a " +
-          'successful send is NOT reported here — see PUT .../sent\'s own delivered_unconfirmed note.',
+          "Bearer, any authenticated user. Requires the row be 'sending' OR 'queued' (409 for any other " +
+          "status). From 'sending' (an ordinary gog send failure): releases back to 'queued' (the next " +
+          'poll reclaims and retries) unless this is the 3rd recorded error, in which case status falls ' +
+          "back to 'draft' with send_error set and send_attempt_at cleared. From 'queued' (Phase 5 TAIL " +
+          "fixes, MEDIUM-A: the sender's local send ledger refusing an id it already handed to gog, " +
+          "without ever claiming the row): bounces STRAIGHT to 'draft' regardless of send_error_count, " +
+          'never treated as a retryable transient failure. An unresolved message id after a successful ' +
+          'send is NOT reported here. See PUT .../sent\'s own delivered_unconfirmed note.',
         bodySchema: [{ name: 'error', type: 'string', required: true, description: '' }],
         responseExample: { id: 'uuid', status: 'queued|draft', send_error: 'string', send_error_count: 'number' },
       },

@@ -14,11 +14,22 @@ import { lintNextStepText } from '@/lib/oracle/projects/next-step-lint';
 //
 // `sending` (Phase 5 fixes, HIGH-1/MEDIUM-1) carries no PATCH-legal outgoing transition
 // here on purpose: it is entered ONLY via PUT /api/approval-requests/[id]/sending (the
-// machine-side sender's own claim, before gog is invoked) and left ONLY via PUT
-// .../sent or PUT .../send-error — both dedicated machine routes with their own status
-// checks, never through this PATCH endpoint or isLegalTransition. A `sending` key is
-// still required here (a Record over every ApprovalRequestStatus) purely so the type
-// stays exhaustive.
+// machine-side sender's own claim, before gog is invoked) and left, in the ORDINARY
+// case, ONLY via PUT .../sent or PUT .../send-error — both dedicated machine routes
+// with their own status checks, never through this PATCH endpoint or isLegalTransition.
+// A `sending` key is still required here (a Record over every ApprovalRequestStatus)
+// purely so the type stays exhaustive.
+//
+// Phase 5 TAIL fixes (MEDIUM-A) added exactly two Mike-gated ESCAPE HATCHES for a
+// 'sending' row the sender died on (claimed, then never called back) — PATCH
+// .../[id] {status:'sent', confirmed_by_mike:true} and {status:'draft',
+// release_stuck:true}. These are deliberately NOT listed in
+// APPROVAL_REQUEST_TRANSITIONS/isLegalTransition below: they are conditionally legal
+// (only with the matching flag, and only once send_attempt_at is more than
+// SENDING_STUCK_THRESHOLD_MINUTES old), not unconditionally legal the way every other
+// entry in this table is. The route (app/api/approval-requests/[id]/route.ts) checks
+// them by hand, before it ever consults this table, and falls through to this table's
+// ordinary 409 for a plain {status:'sent'} or {status:'draft'} PATCH without the flag.
 export const APPROVAL_REQUEST_TRANSITIONS: Record<ApprovalRequestStatus, ApprovalRequestStatus[]> = {
   draft: ['queued'],
   queued: ['cancelled'],
@@ -132,6 +143,7 @@ export function formatApprovalRequestResponse(ar: ApprovalRequestWithRelations) 
     send_attempt_at: ar.send_attempt_at,
     send_error: ar.send_error,
     send_error_count: ar.send_error_count,
+    manual_release_at: ar.manual_release_at,
     created_by_id: ar.created_by_id,
     created_at: ar.created_at,
     updated_at: ar.updated_at,

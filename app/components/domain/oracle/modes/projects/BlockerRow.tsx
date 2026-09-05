@@ -155,7 +155,12 @@ export function BlockerRow({ blocker, projectId, onPick }: BlockerRowProps) {
       a === 'send_approval' ||
       a === 'mark_approved' ||
       a === 'resolve_ask' ||
-      a === 'suspend'
+      a === 'suspend' ||
+      // Phase 5 tail fixes (MEDIUM-A) — the real, working version of these two lives in
+      // ApprovalPanel.tsx (open the task, wait for the 30-minute gate to clear). This
+      // row is the discovery surface, not a second implementation of the transition.
+      a === 'mark_sent_manually' ||
+      a === 'release_to_draft'
   );
 
   return (
@@ -310,6 +315,10 @@ function deferredLabel(action: string): string {
       return 'Resolve';
     case 'suspend':
       return 'Suspend';
+    case 'mark_sent_manually':
+      return 'Mark sent';
+    case 'release_to_draft':
+      return 'Release to draft';
     default:
       return action;
   }

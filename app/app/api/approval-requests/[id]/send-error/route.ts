@@ -18,6 +18,17 @@ import { logUpdate } from '@/lib/services/activity';
 // address, an expired gog token) stops silently retrying forever and surfaces back to
 // Mike as a draft needing attention instead. send_error_count resets to 0 on the next
 // successful PUT .../sent, or the next draft->queued PATCH (a fresh attempt cycle).
+//
+// Phase 5 TAIL fixes (MEDIUM-A) — ALSO accepts a row still 'queued' (never claimed at
+// all): the sender's own local send ledger (layer 1 of its three-layer guard,
+// approval-sender.py) can refuse to hand an id to gog WITHOUT ever calling PUT
+// .../sending first — e.g. Mike releases a stuck 'sending' row to 'draft'
+// (PATCH .../[id] {status:'draft', release_stuck:true}) and requeues it, but the local
+// ledger on the machine that actually sent it the first time still remembers. That
+// refusal bounces the row STRAIGHT to 'draft' regardless of send_error_count — this is
+// not a transient, retryable failure the 3-strikes counter should absorb, it is an
+// authoritative "this id must never reach gog again." A 'queued' row is the ONLY other
+// status this route accepts alongside 'sending'; nothing else calls it from 'queued'.
 const MAX_SEND_ERRORS = 3;
 const MAX_ERROR_LENGTH = 2000;
 
@@ -37,16 +48,21 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!existing) {
       throw new ApiError('Approval request not found', 404);
     }
-    if (existing.status !== 'sending') {
-      throw new ApiError(`Approval request is '${existing.status}', not 'sending'`, 409);
+    if (existing.status !== 'sending' && existing.status !== 'queued') {
+      throw new ApiError(`Approval request is '${existing.status}', not 'sending' or 'queued'`, 409);
     }
 
     const body = await request.json();
     const data = sendErrorSchema.parse(body);
     const errorText = data.error.slice(0, MAX_ERROR_LENGTH);
 
+    // A refusal from 'queued' (the local-send-ledger case above) is never a retryable
+    // transient failure — straight to 'draft', bypassing the 3-strikes counter
+    // entirely, regardless of how many ordinary send-errors this row has recorded
+    // before.
+    const fromQueued = existing.status === 'queued';
     const nextCount = existing.send_error_count + 1;
-    const bounceToDraft = nextCount >= MAX_SEND_ERRORS;
+    const bounceToDraft = fromQueued || nextCount >= MAX_SEND_ERRORS;
     const nextStatus = bounceToDraft ? 'draft' : 'queued';
 
     const updated = await prisma.approvalRequest.update({
@@ -60,7 +76,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     });
 
     await logUpdate(auth.userId, 'task', existing.task_id, 'Approval request', {
-      approval_status: { from: 'sending', to: nextStatus },
+      approval_status: { from: existing.status, to: nextStatus },
     });
 
     return NextResponse.json({
