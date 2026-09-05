@@ -11,9 +11,18 @@ import { lintNextStepText } from '@/lib/oracle/projects/next-step-lint';
 // changes_requested/cancelled are terminal. This is the ONLY place the legal-transition
 // graph is defined — PATCH /api/approval-requests/[id] imports it rather than
 // re-deriving it, so there is exactly one place to audit for "what can follow what."
+//
+// `sending` (Phase 5 fixes, HIGH-1/MEDIUM-1) carries no PATCH-legal outgoing transition
+// here on purpose: it is entered ONLY via PUT /api/approval-requests/[id]/sending (the
+// machine-side sender's own claim, before gog is invoked) and left ONLY via PUT
+// .../sent or PUT .../send-error — both dedicated machine routes with their own status
+// checks, never through this PATCH endpoint or isLegalTransition. A `sending` key is
+// still required here (a Record over every ApprovalRequestStatus) purely so the type
+// stays exhaustive.
 export const APPROVAL_REQUEST_TRANSITIONS: Record<ApprovalRequestStatus, ApprovalRequestStatus[]> = {
   draft: ['queued'],
   queued: ['cancelled'],
+  sending: [],
   sent: ['approved', 'changes_requested'],
   replied: ['approved', 'changes_requested'],
   approved: [],
@@ -120,6 +129,7 @@ export function formatApprovalRequestResponse(ar: ApprovalRequestWithRelations) 
     cancelled_at: ar.cancelled_at,
     approved_at: ar.approved_at,
     changes_requested_at: ar.changes_requested_at,
+    send_attempt_at: ar.send_attempt_at,
     send_error: ar.send_error,
     send_error_count: ar.send_error_count,
     created_by_id: ar.created_by_id,

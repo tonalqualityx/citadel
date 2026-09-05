@@ -13,12 +13,18 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/services/activity', () => ({
+  logUpdate: vi.fn(),
+}));
+
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import { logUpdate } from '@/lib/services/activity';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockFindUnique = prisma.approvalRequest.findUnique as Mock;
 const mockUpdate = prisma.approvalRequest.update as Mock;
+const mockLogUpdate = vi.mocked(logUpdate);
 
 const AR_ID = 'ar-1';
 const params = Promise.resolve({ id: AR_ID });
@@ -47,7 +53,7 @@ describe('POST /api/approval-requests/[id]/reply', () => {
   });
 
   it("flips 'sent' to 'replied'", async () => {
-    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'sent' });
+    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'sent', task_id: 'task-1' });
     const res = await POST(
       req({ message_id: 'm1', received_at: '2026-09-04T12:00:00.000Z', excerpt: 'Looks great!' }),
       { params }
@@ -56,21 +62,29 @@ describe('POST /api/approval-requests/[id]/reply', () => {
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'replied', reply_excerpt: 'Looks great!' }) })
     );
+    // MEDIUM-4: logs the actual transition.
+    expect(mockLogUpdate).toHaveBeenCalledTimes(1);
+    expect(mockLogUpdate).toHaveBeenCalledWith(
+      'oracle-svc', 'task', 'task-1', 'Approval request',
+      { approval_status: { from: 'sent', to: 'replied' } }
+    );
   });
 
-  it("refreshes reply_excerpt on an already-'replied' row without changing status", async () => {
-    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'replied' });
+  it("refreshes reply_excerpt on an already-'replied' row without changing status, and does not log", async () => {
+    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'replied', task_id: 'task-1' });
     await POST(req({ message_id: 'm2', received_at: '2026-09-04T13:00:00.000Z', excerpt: 'One more thing.' }), { params });
     const updateArgs = mockUpdate.mock.calls[0][0];
     expect(updateArgs.data.status).toBeUndefined();
     expect(updateArgs.data.reply_excerpt).toBe('One more thing.');
+    expect(mockLogUpdate).not.toHaveBeenCalled();
   });
 
-  it('never reopens a terminal status (approved)', async () => {
-    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'approved' });
+  it('never reopens a terminal status (approved), and does not log', async () => {
+    mockFindUnique.mockResolvedValue({ id: AR_ID, status: 'approved', task_id: 'task-1' });
     await POST(req({ message_id: 'm3', received_at: '2026-09-04T13:00:00.000Z', excerpt: 'Thanks!' }), { params });
     const updateArgs = mockUpdate.mock.calls[0][0];
     expect(updateArgs.data.status).toBeUndefined();
+    expect(mockLogUpdate).not.toHaveBeenCalled();
   });
 
   it('caps the excerpt at 300 chars', async () => {

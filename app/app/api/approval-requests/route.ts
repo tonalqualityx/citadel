@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       throw new ApiError('Task not found', 404);
     }
     if (!task.project_id) {
-      throw new ApiError('Task has no project — an approval request needs one', 400);
+      throw new ApiError('Task has no project. An approval request needs one.', 400);
     }
 
     if (data.contact_id) {
@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
 const VALID_STATUSES = new Set<ApprovalRequestStatus>([
   'draft',
   'queued',
+  'sending',
   'sent',
   'replied',
   'approved',

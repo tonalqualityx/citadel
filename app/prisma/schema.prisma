@@ -3207,6 +3207,12 @@ model ProjectNote {
 enum ApprovalRequestStatus {
   draft
   queued
+  // Phase 5 fixes (HIGH-1/MEDIUM-1) — the machine-side sender's server claim. A row
+  // moves here via PUT /api/approval-requests/:id/sending, BEFORE gog is ever invoked;
+  // GET ?status=queued naturally excludes it (a plain status equality filter), so a row
+  // in this state is never handed to a second concurrent tick. See approval-sender.py's
+  // module docstring and the plan's Phase 5 fixes notes for the full three-layer guard.
+  sending
   sent
   replied
   approved
@@ -3259,6 +3265,13 @@ model ApprovalRequest {
   cancelled_at           DateTime?
   approved_at            DateTime?
   changes_requested_at   DateTime?
+
+  // Phase 5 fixes (MEDIUM-1, layer 2) — stamped by PUT .../sending the instant the
+  // machine-side sender claims this row (queued -> sending), immediately before it
+  // calls gog. A `sending` row older than 30 minutes with no PUT .../sent on file is
+  // surfaced to Mike as a "Approval send unconfirmed" blocker (owner Mike; never
+  // auto-resent) — see lib/oracle/projects/blockers.ts's classifyClientApprovals.
+  send_attempt_at        DateTime?
 
   // Phase 5 — set by PUT .../send-error when the machine-side sender fails to send a
   // queued row; cleared on a subsequent successful send. After 3 recorded errors the

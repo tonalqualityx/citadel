@@ -19,6 +19,7 @@ import {
   useRefreshNextStep,
 } from '@/lib/hooks/use-next-step';
 import { useUndoBlockerDismissal } from '@/lib/hooks/use-blocker-dismissals';
+import { useTerminology } from '@/lib/hooks/use-terminology';
 import { formatRelativeTime } from '@/lib/utils/time';
 import type { OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 import { BlockerRow } from './BlockerRow';
@@ -39,6 +40,7 @@ interface ProjectDrawerProps {
 // notes log, email summary. Phase 5 adds the Client approval section (ApprovalPanel per
 // client_approval/review blocker) and a real Dismissed items list with Undo.
 export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProps) {
+  const { t } = useTerminology();
   const [editing, setEditing] = React.useState(false);
   const [draftText, setDraftText] = React.useState('');
   const [draftOwnerId, setDraftOwnerId] = React.useState<string | null>(null);
@@ -212,7 +214,7 @@ export function ProjectDrawer({ project, open, onOpenChange }: ProjectDrawerProp
                 trigger={<h3 className="text-sm font-semibold text-text-main">Dismissed items ({project.dismissals.length})</h3>}
               >
                 {project.dismissals.length === 0 ? (
-                  <p className="text-sm text-text-sub">Nothing dismissed on this project.</p>
+                  <p className="text-sm text-text-sub">Nothing dismissed on this {t('project').toLowerCase()}.</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {project.dismissals.map((dismissal) => (

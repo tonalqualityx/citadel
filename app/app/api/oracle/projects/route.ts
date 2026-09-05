@@ -410,6 +410,7 @@ export async function GET(request: NextRequest) {
         chase_after_days: true,
         replied_at: true,
         created_at: true,
+        send_attempt_at: true,
         contact: { select: { id: true, name: true } },
       },
     });
@@ -424,6 +425,7 @@ export async function GET(request: NextRequest) {
         chase_after_days: ar.chase_after_days,
         replied_at: ar.replied_at ? ar.replied_at.toISOString() : null,
         created_at: ar.created_at.toISOString(), // MEDIUM-7: the `since` fallback that actually ages
+        send_attempt_at: ar.send_attempt_at ? ar.send_attempt_at.toISOString() : null,
         contact: ar.contact ? { id: ar.contact.id, name: ar.contact.name ?? 'the client' } : null,
       });
       approvalRequestsByProject.set(ar.project_id, list);

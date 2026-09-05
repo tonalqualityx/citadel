@@ -42,6 +42,31 @@ test.beforeAll(async () => {
   );
 });
 
+// LOW-5: the "queues a draft" test below leaves exactly one ApprovalRequest row in
+// 'queued', addressed to the fixture contact's fake @example.com address — exactly the
+// shape the machine-side sender (approval-sender.py) polls for every 5 minutes. Cancel
+// it here so this spec never leaves a live queued row behind for a real cron tick
+// pointed at the same dev DB to pick up. Runs even if an earlier test in this serial
+// file failed partway through (test.afterAll always runs), and is a no-op (nothing
+// found, nothing to cancel) if the queuing test never got that far.
+test.afterAll(async ({ request }) => {
+  const tasksRes = await request.get(`/api/tasks?search=${encodeURIComponent(REVIEW_TASK_TITLE)}`);
+  if (!tasksRes.ok()) return;
+  const tasksBody = await tasksRes.json();
+  const reviewTask = tasksBody.tasks.find((t: { title: string }) => t.title === REVIEW_TASK_TITLE);
+  if (!reviewTask) return;
+
+  const arRes = await request.get(`/api/approval-requests?task_id=${reviewTask.id}`);
+  if (!arRes.ok()) return;
+  const arBody = await arRes.json();
+  const stillQueued = (arBody.requests ?? []).filter(
+    (r: { status: string; to_email: string | null }) => r.status === 'queued' && r.to_email === CONTACT_EMAIL
+  );
+  for (const row of stillQueued) {
+    await request.patch(`/api/approval-requests/${row.id}`, { data: { status: 'cancelled' } });
+  }
+});
+
 test('Oracle Projects Tab — badge, card, drawer, reply-clears-tag, screenshot', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
 

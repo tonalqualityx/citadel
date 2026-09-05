@@ -31,7 +31,16 @@ interface ApprovalPanelProps {
 // Cancel. Never sends anything itself — "queue" only ever stamps status:'queued'; the
 // machine-side sender (~/.claude/tools/citadel-approvals/approval-sender.py, cron every
 // 5 minutes) is the only thing that ever calls gog.
-const STATUS_STEPS: ApprovalRequestStatus[] = ['draft', 'queued', 'sent', 'replied', 'approved'];
+const STATUS_STEPS: ApprovalRequestStatus[] = ['draft', 'queued', 'sending', 'sent', 'replied', 'approved'];
+
+// MEDIUM-2/MEDIUM-3 fixes. approved/changes_requested/cancelled are TERMINAL — once a
+// row reaches one of these, its own story is over: pickActiveRequest below stops
+// returning it as the row to work with (so "Draft approval request" becomes available
+// again for a fresh round), and it renders in the history list instead of the live
+// timeline (so a cancelled or changes-requested row can never be drawn as if every step
+// up to and including "Approved" had been reached — see the old `reached` formula this
+// replaced, which OR'd in changes_requested/cancelled and lit the whole bar).
+const TERMINAL_STATUSES = new Set<ApprovalRequestStatus>(['approved', 'changes_requested', 'cancelled']);
 
 function statusLabel(status: ApprovalRequestStatus): string {
   switch (status) {
@@ -39,6 +48,8 @@ function statusLabel(status: ApprovalRequestStatus): string {
       return 'Draft';
     case 'queued':
       return 'Queued';
+    case 'sending':
+      return 'Sending';
     case 'sent':
       return 'Sent';
     case 'replied':
@@ -54,13 +65,26 @@ function statusLabel(status: ApprovalRequestStatus): string {
   }
 }
 
-/** The row to work with: the most recently created one that isn't cancelled, so a
- * cancelled draft never blocks starting a fresh one. Cancelled rows still show in the
- * timeline history below, just not as the active row. */
+/** The row to work with: the most recently created one that hasn't reached a terminal
+ * status (draft/queued/sending/sent/replied). A terminal row (approved/
+ * changes_requested/cancelled) is never "active" — its story is over, it moves to the
+ * history list, and a new draft is always startable once nothing is left in flight. */
 function pickActiveRequest(requests: ApprovalRequest[]): ApprovalRequest | null {
-  const live = requests.filter((r) => r.status !== 'cancelled');
+  const live = requests.filter((r) => !TERMINAL_STATUSES.has(r.status));
   if (live.length === 0) return null;
   return live[live.length - 1];
+}
+
+/** Terminal rows, oldest first (matching the API's own created_at asc ordering) — the
+ * history list below the live panel. */
+function pickHistoryRequests(requests: ApprovalRequest[]): ApprovalRequest[] {
+  return requests.filter((r) => TERMINAL_STATUSES.has(r.status));
+}
+
+function historyBadgeColor(status: ApprovalRequestStatus): string {
+  if (status === 'approved') return 'var(--success)';
+  if (status === 'changes_requested') return 'var(--warning)';
+  return 'var(--text-sub)'; // cancelled
 }
 
 export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
@@ -83,6 +107,7 @@ export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
 
   const requests = data?.requests ?? [];
   const active = pickActiveRequest(requests);
+  const history = pickHistoryRequests(requests);
 
   // Re-seed the editable draft only when the ACTIVE row changes identity (a new draft
   // created, or the id we're editing changes) — never on every poll tick, same
@@ -309,12 +334,13 @@ export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
             </div>
           )}
 
+          {/* MEDIUM-3 fix: active.status is never a terminal one here (pickActiveRequest
+              excludes approved/changes_requested/cancelled), so this is always a plain
+              in-flight progress bar now — a simple index comparison, no special-casing
+              needed for a branch that no longer reaches this render path at all. */}
           <div data-testid="approval-panel-timeline" className="flex flex-wrap items-center gap-1 text-xs text-text-sub">
             {STATUS_STEPS.map((step, idx) => {
-              const reached =
-                STATUS_STEPS.indexOf(active.status) >= idx ||
-                active.status === 'changes_requested' ||
-                active.status === 'cancelled';
+              const reached = STATUS_STEPS.indexOf(active.status) >= idx;
               return (
                 <span key={step} style={reached ? { color: 'var(--text-main)' } : undefined}>
                   {statusLabel(step)}
@@ -324,6 +350,24 @@ export function ApprovalPanel({ taskId, clientId }: ApprovalPanelProps) {
             })}
           </div>
         </>
+      )}
+
+      {history.length > 0 && (
+        <div data-testid="approval-panel-history" className="flex flex-col gap-1 border-t pt-2" style={{ borderColor: 'var(--border)' }}>
+          <span className="text-xs font-medium text-text-sub">Past approval requests</span>
+          {history.map((r) => (
+            <div key={r.id} data-testid="approval-panel-history-row" className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate text-text-main">{r.subject}</span>
+              <span
+                data-testid="approval-panel-history-status"
+                className="shrink-0 rounded-full border px-2 py-0.5"
+                style={{ borderColor: 'var(--border)', color: historyBadgeColor(r.status) }}
+              >
+                {statusLabel(r.status)}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

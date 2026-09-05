@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { logUpdate } from '@/lib/services/activity';
 
 // Oracle Projects Tab Phase 5 — POST for the meeting-sync skill (the skill change
 // itself is a one-line addition, out of this repo — see the plan's Phase 5 notes).
@@ -23,12 +24,12 @@ const seenInMeetingSchema = z.object({
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { id } = await params;
 
     const existing = await prisma.approvalRequest.findUnique({
       where: { id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, task_id: true },
     });
     if (!existing) {
       throw new ApiError('Approval request not found', 404);
@@ -37,16 +38,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json();
     const data = seenInMeetingSchema.parse(body);
     const at = new Date(data.at);
+    const willTransition = existing.status === 'sent';
 
     const updated = await prisma.approvalRequest.update({
       where: { id },
       data: {
         seen_in_meeting_at: at,
-        ...(existing.status === 'sent'
+        ...(willTransition
           ? { status: 'replied', replied_at: at, reply_excerpt: data.excerpt }
           : {}),
       },
     });
+
+    // MEDIUM-4: log the actual state-machine transition (sent -> replied), same
+    // convention every other transition on this row already carries. Every OTHER call
+    // here only stamps seen_in_meeting_at — not a transition, nothing to log.
+    if (willTransition) {
+      await logUpdate(auth.userId, 'task', existing.task_id, 'Approval request', {
+        approval_status: { from: 'sent', to: 'replied' },
+      });
+    }
 
     return NextResponse.json({
       id: updated.id,

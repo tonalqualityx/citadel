@@ -14,6 +14,10 @@ import { oracleProjectsKeys } from '@/lib/hooks/use-oracle-projects';
 export type ApprovalRequestStatus =
   | 'draft'
   | 'queued'
+  // Phase 5 fixes (HIGH-1/MEDIUM-1) — the machine-side sender's own claim, stamped
+  // right before it invokes gog. Transient and read-only in the UI: ApprovalPanel offers
+  // no action while a row is here (mirrors 'sent' — nothing to edit, nothing to cancel).
+  | 'sending'
   | 'sent'
   | 'replied'
   | 'approved'
@@ -44,6 +48,7 @@ export interface ApprovalRequest {
   cancelled_at: string | null;
   approved_at: string | null;
   changes_requested_at: string | null;
+  send_attempt_at: string | null;
   send_error: string | null;
   send_error_count: number;
   created_by_id: string | null;

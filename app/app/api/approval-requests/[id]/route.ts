@@ -116,7 +116,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         : null;
       if (!matchingContact) {
         throw new ApiError(
-          `${nextToEmail} is not a contact on this task's client — pick a client contact's email`,
+          `${nextToEmail} is not a contact on this task's client. Pick a client contact's email.`,
           422
         );
       }

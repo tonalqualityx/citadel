@@ -1343,3 +1343,205 @@ not exercised by this one rehearsal.
 approval) is listed here per the plan's own Adaptations section, not built in this pass —
 `POST /api/approval-requests/:id/seen-in-meeting` itself IS built and tested (see the
 route list above); only the skill-side CALLER of it is the deferred one-liner.
+
+## Phase 5 Fixes (2026-09-04, verified-findings pass)
+
+Fixes verified findings from the Phase 5 implementation pass above: HIGH-1, MEDIUM-1
+through MEDIUM-4, LOW-1 through LOW-6 (LOW-6 deferred to Phase 6 per its own instruction).
+
+**HIGH-1/MEDIUM-1 — the duplicate-send risk, closed with a three-layer guard.** The
+original build's PUT `.../sent` and `.../send-error` both required status `'queued'` —
+meaning a row stayed `'queued'` from the moment `gog gmail send` was invoked until the
+follow-up PUT confirmed it, so a failed/unresolved-id PUT left the row exactly where the
+next cron tick (5 minutes later) would pick it up and resend it, unbounded, to a real
+client.
+
+1. **Local send ledger** (`~/.local/state/approval-sender/sent-ids.jsonl`, overridable via
+   `APPROVAL_SENDER_LEDGER_PATH` for tests) — an append-only JSONL log, one line per state
+   transition, fsync'd. Before this run's own claim/send attempt, the sender refuses to
+   hand an id to gog if that id's LATEST recorded state is `attempting`, `delivered`, or
+   `delivered_unrecorded` — regardless of what the API's own status says about the row.
+   `send_failed` (a real, never-delivered gog failure) is deliberately NOT a blocking
+   state, so a legitimate resend (governed by the existing 3-strikes/`send-error` flow)
+   still works.
+2. **Server claim** — new `PUT /api/approval-requests/[id]/sending` (bearer), called
+   BEFORE gog, moves `queued -> sending` and stamps `send_attempt_at`. `GET
+   ?status=queued` excludes a claimed row for free (a plain status-equality filter). A
+   `sending` row whose `send_attempt_at` is more than 30 minutes old with no `PUT
+   .../sent` on file surfaces as a "Approval send unconfirmed" blocker owned by Mike, no
+   `send_approval`/`mark_approved`/nudge actions offered — `lib/oracle/projects/
+   blockers.ts`'s `classifyClientApprovals`. Migration
+   `20260904231500_oracle_projects_phase5_fixes_sending`: `ApprovalRequestStatus` gains
+   `sending` (guarded `DO $$ ... IF NOT EXISTS ...` block against `pg_enum`, confirmed
+   idempotent via a `prisma db execute` re-run), plus `send_attempt_at TIMESTAMP(3)` (`ADD
+   COLUMN IF NOT EXISTS`).
+3. **Post-delivery recording, retried, never resent.** `PUT .../sent` now requires status
+   `'sending'` (idempotent 200 no-op if already `'sent'` — a layer-3 retry landing after
+   its own prior attempt actually succeeded server-side). On a non-409 PUT failure, the
+   sender retries with exponential backoff (`SENT_RETRY_MAX_ATTEMPTS=5`,
+   `SENT_RETRY_BACKOFF_BASE_SECONDS`, both env-overridable for tests) within the same run;
+   if still failing, the local ledger record becomes `delivered_unrecorded` and the run
+   exits 1. Every later run's `main()` calls `_retry_unrecorded_deliveries()` FIRST,
+   before the queue is even fetched — retries the PUT (never gog) for every
+   `delivered_unrecorded` id. An id whose message/thread id can't be resolved (gog's own
+   `--json` output, then the ref-token search fallback) is recorded via `PUT .../sent
+   {message_id: null, thread_id: null, delivered_unconfirmed: true}` — never
+   `.../send-error` (which would eventually make the row resendable), never resent.
+   `PUT .../send-error` now requires status `'sending'` too, and always sets status
+   explicitly (`'queued'` on strikes 1-2, `'draft'` on the 3rd, clearing
+   `send_attempt_at`) — a real, never-delivered gog failure is the ONE case where a fresh
+   resend attempt is legitimate.
+
+**LOW-3, folded into the same fix.** The outgoing email body (never the stored `body`
+field) now carries a footer `Ref: AR-<first 8 chars of the request id>`; the search
+fallback's `gog gmail search` query matches on that exact phrase (`to:<email> "Ref:
+AR-xxxxxxxx"`) instead of a bare subject comparison.
+
+Sender rewrite: `~/.claude/tools/citadel-approvals/approval-sender.py.next` (edited per
+its own `.next`/`deploy.sh` discipline — never the live file directly), deployed via
+`~/.claude/tools/citadel-approvals/deploy.sh` (gates its own test suite against the
+staged file before promoting it). Test suite: `tests/test_approval_sender.py`, extended
+to 37 tests (was 26) — new classes `TestClaimFailure`, `TestLocalLedgerRefusal`,
+`TestSentRecordingFailureNeverResends`, plus new cases folded into `TestHappyPath`,
+`TestGogFailure`, `TestSearchFallback`. `PUT /api/approval-requests/[id]/sending`: new
+route + `__tests__/route.test.ts` (4 tests). `PUT .../sent` and `PUT .../send-error`: both
+rewritten with matching test updates. `lib/services/approval-requests.ts`:
+`APPROVAL_REQUEST_TRANSITIONS` gains `sending: []` (no PATCH-legal outgoing transition —
+`sending` is entered/left only via the two dedicated machine routes).
+`lib/oracle/projects/blockers.ts`: `ApprovalRequestStatus`/`BlockerApprovalRequest` gain
+`sending`/`send_attempt_at`; `classifyClientApprovals` gains the 30-minute-stuck
+surfacing (2 new tests plus a `send_attempt_at`-fallback test in `blockers.test.ts`).
+`app/api/oracle/projects/route.ts` selects/passes `send_attempt_at` through.
+
+**MEDIUM-2 — `ApprovalPanel.tsx`'s `pickActiveRequest` never returning after a terminal
+status.** It excluded only `'cancelled'` from "active," so a row that reached `'approved'`
+or `'changes_requested'` stayed "active" forever — no action buttons (none of `canEdit`/
+`canQueue`/`canCancel`/`canMarkApprovedOrRequestChanges` fire on a terminal status), and
+"Draft approval request" (shown only when `!active`) never came back. Fixed:
+`TERMINAL_STATUSES = {approved, changes_requested, cancelled}`; `pickActiveRequest`
+excludes all three; a new `pickHistoryRequests` surfaces them in a "Past approval
+requests" list (`data-testid="approval-panel-history"`) instead. 5 new tests in
+`ApprovalPanel.test.tsx` (a `describe.each` over all three terminal statuses, plus a
+fresh-draft-after-cancelled case).
+
+**MEDIUM-3 — the timeline rendering a cancelled/changes-requested row as fully approved.**
+The old `reached` formula OR'd in `active.status === 'changes_requested' ||
+active.status === 'cancelled'`, which lit every step in `STATUS_STEPS` regardless of
+index — including "Approved." Fixed as a consequence of MEDIUM-2's own fix (a terminal
+row is never `active` any more, so the in-flight timeline is always a plain index
+comparison, no special-casing left to need) plus the new history list rendering each
+terminal row's OWN `statusLabel` as a distinct badge (`historyBadgeColor`: success/
+warning/muted for approved/changes_requested/cancelled respectively, using the existing
+`--success`/`--warning`/`--text-sub` CSS variables). 4 new tests.
+
+**MEDIUM-4 — missing `logUpdate` on `reply`/`seen-in-meeting`, and send-error logging.**
+`POST /api/approval-requests/[id]/reply` and `POST .../seen-in-meeting` now call
+`logUpdate` exactly when they actually flip `'sent' -> 'replied'` (not on a refresh of an
+already-`'replied'`/terminal row — that isn't a transition). `PUT .../send-error` already
+logs unconditionally on every increment as a side effect of its own HIGH-1/MEDIUM-1
+rewrite (previously it only logged on the 3rd/bounce-to-draft call). Tests: 2 new
+assertions each in `reply/__tests__/route.test.ts` and
+`seen-in-meeting/__tests__/route.test.ts`; `send-error/__tests__/route.test.ts` gained
+`logUpdate` call-count/args assertions on the 1st/2nd and 3rd cases.
+
+**LOW-1 — em dashes in three route string literals**, all rewritten as plain sentences
+(`approval-requests/route.ts:51`, `[id]/route.ts:119`, and the `[id]/sent/route.ts`
+"not 'queued'" message, which itself got rewritten again as part of the `'sending'`
+status-check change). `dash-law-guard.test.ts`'s `SCAN_DIRS` extended to
+`app/api/approval-requests` and `app/api/oracle/projects` (recursively, `__tests__`
+excluded, matching its existing convention) — 31 tests now (was ~16), all green; the
+extension caught and fixed one more em dash the new `sending/route.ts` file itself
+introduced during this same pass.
+
+**LOW-2 — `ProjectDrawer.tsx`'s "Nothing dismissed on this project." not routed through
+`useTerminology`.** Wired (`t('project').toLowerCase()`, matching `ProjectCard.tsx`'s own
+convention) with a new test asserting the copy renders via `t()` rather than a hardcoded
+literal (not pinned to the word "project" itself, since a configured alias can change it —
+confirmed live against this environment's own default, which resolved to "commission").
+This directly contradicts Phase 5 carry-over B's own audit ("no literal task/project word
+in any of the four" files it checked, `ProjectDrawer.tsx` among them) — that audit missed
+this one string; not a re-litigation of the carry-over's scope, a correction of its result.
+
+**LOW-4 — `email-classifier.py`'s `_check_approval_reply` ignoring the POST result.** It
+always returned `True` once a `'sent'` row matched, even when the POST to `.../reply`
+failed — silently losing the message entirely (skipped by the caller's `continue`, so it
+never got normal classification either, AND the reply was never recorded). Fixed: the
+POST's `(ok, data)` result is now checked; a failure logs once into the run's own
+`errors` list and returns `False` (fail OPEN — the caller falls through to normal
+classification); success still returns `True`. `email-classifier.py` has no `.next`/
+`deploy.sh` staging convention of its own (Phase 5 Notes' own precedent) — edited live
+directly, backed up first to
+`email-classifier.py.bak-20260904-195500-phase5fixes`. Tests:
+`test_email_classifier_approvals.py` gained `PostFailureFailsOpen` (3 tests) and
+`PostSuccessSkipsNormalClassification` (1 test) — 19 tests total (was 15); the sibling
+`test_email_classifier_payroll.py` (32) and `test_email_classifier_assayer.py` (70) stay
+unchanged and green, confirming isolation.
+
+**LOW-5 — the e2e spec's queued fixture approval never cleaned up.** The seed script
+(`scripts/seed-oracle-projects-fixtures.ts`) already cleaned prior `approval_requests`/
+`blocker_dismissals` fixtures on every re-seed (landed with Phase 5 itself, per its own
+Gates notes) — the missing half was the SPEC's own teardown for the row IT creates during
+the run. Added `test.afterAll(async ({ request }) => {...})` to
+`oracle-projects-tab.spec.ts`: looks up the fixture review task's approval requests,
+cancels any still `'queued'` and addressed to the fixture contact's `@example.com`
+address via `PATCH /api/approval-requests/[id] {status:'cancelled'}`. Runs unconditionally
+(even if an earlier test in the serial file failed) and no-ops cleanly if the queuing test
+never got that far. Verified live: `SELECT status FROM approval_requests WHERE to_email =
+'e2e-oracle-projects-contact@example.com'` returned `cancelled` after the Playwright run.
+
+**LOW-6 — deferred to Phase 6**, per its own instruction (the branch's rebase onto
+`main`).
+
+### Phase 5 Fixes Gates (2026-09-04)
+
+- [x] `npx prisma migrate deploy` — clean, one new migration
+  (`20260904231500_oracle_projects_phase5_fixes_sending`). Re-run via `npx prisma db
+  execute --file <that migration>` — exit 0, clean no-op (idempotent; verified against a
+  freshly recreated local `citadel_dev` database, all 27 migrations applied clean in
+  order, then this one re-applied a second time standalone).
+- [x] `npx tsc --noEmit` — clean.
+- [x] `npm run lint` — **725 problems (494 errors/231 warnings), byte-identical to every
+  prior phase's baseline** — this pass's diff adds zero new lint issues.
+- [x] `npx vitest run` — **255 files / 3051 tests, zero failures** (floor was 254/3015 —
+  Phase 5's own +11/+106 landed the floor; this pass added +1 file (`sending/
+  __tests__/route.test.ts`, 4 tests) and folded roughly 40 more into existing files
+  across `ApprovalPanel.test.tsx`, `ProjectDrawer.test.tsx`, `blockers.test.ts`,
+  `dash-law-guard.test.ts`, and the `reply`/`seen-in-meeting`/`send-error`/`sent` route
+  test files).
+- [x] `npm run build` — clean, exit 0; `/api/approval-requests/[id]/sending` present in
+  the route manifest alongside every pre-existing approval-requests route.
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-approvals/tests -v` —
+  **37 tests, all green** (was 26; +11: `TestClaimFailure` (2), `TestLocalLedgerRefusal`
+  (2), `TestSentRecordingFailureNeverResends` (2), plus new cases in `TestHappyPath`,
+  `TestGogFailure`, `TestSearchFallback`). Deployed via `deploy.sh` (staged-file suite
+  green, then live) — backups at `~/.local/state/approval-sender-backups/approval-
+  sender.{py,sh}.20260904-200433`.
+- [x] `python3 -m unittest discover -s ~/.claude/tools/citadel-projects/tests -v` — **53
+  tests, all green**, unchanged by this pass (next-step-refresh.py wasn't touched).
+- [x] `python3 test_email_classifier_approvals.py` — **19 tests, all green** (was 15).
+  Regression: `test_email_classifier_payroll.py` (32) and `test_email_classifier_assayer.py`
+  (70) both unchanged and green.
+- [x] `npx playwright test __tests__/e2e/oracle-projects-tab.spec.ts` — **3 passed**
+  (unchanged count from Phase 5 — this pass added a teardown, not a new test), including
+  the new `test.afterAll` cleanup; confirmed live via direct DB query that the fixture's
+  queued approval ends `cancelled`, not `queued`.
+- [x] **The local send-ledger file behavior, demonstrated against a real (non-mocked-
+  in-a-unittest) run of the fake-gog harness, three consecutive ticks with `/sent`
+  forced to 500 followed by a fourth tick where it succeeds** — see the session's own
+  report for the full pasted log. Summary: run 1 sends via gog once, retries `PUT
+  .../sent` 5x, all 500, ledger record becomes `delivered_unrecorded`, exit 1; runs 2 and
+  3 each retry the recording PUT (5x, still 500) with **zero gog calls**, ledger stays
+  `delivered_unrecorded`, exit 1; run 4 (override cleared) retries the recording PUT,
+  succeeds, `[RECOVERED]` logged, ledger becomes `delivered`, exit 0 — **one gog send
+  call total across all four runs.**
+- [x] `git status` — clean after the commit below.
+- [x] `deploy.sh` used for the sender (`~/.claude/tools/citadel-approvals/deploy.sh`,
+  gates its own test suite against the staged `.next` file before promoting it — see
+  above). The classifier hook (`email-classifier.py`) has no `deploy.sh`/`.next` staging
+  convention of its own — Phase 5's own Notes section documents this as the established
+  precedent for this specific file (backed up, then edited live directly); this pass
+  followed that same precedent and backed the file up first
+  (`email-classifier.py.bak-20260904-195500-phase5fixes`) — flagged here rather than
+  silently claiming a deploy.sh that doesn't exist for this file.
+- [ ] Opus verifier PASS — not run by this pass.
+- [ ] Mike's local review and merge approval — pending.

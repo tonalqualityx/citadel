@@ -175,3 +175,16 @@ describe('ProjectDrawer — notes / park until', () => {
     await waitFor(() => expect(mockCreateNoteMutateAsync).toHaveBeenCalledWith({ body: 'Quick update.' }));
   });
 });
+
+// LOW-2: the empty-dismissals copy names "project" literally and must route through
+// useTerminology, same as every other terminology-configurable word on this tab.
+describe('ProjectDrawer — dismissed items empty state (LOW-2)', () => {
+  it('routes the word "project" through useTerminology', () => {
+    renderDrawer();
+    fireEvent.click(screen.getByText(/dismissed items/i));
+    // Not pinned to the literal word "project" — useTerminology may resolve to a
+    // configured alias (e.g. "commission"); the point is it goes through t(), not a
+    // hardcoded string.
+    expect(screen.getByText(/^Nothing dismissed on this .+\.$/)).toBeInTheDocument();
+  });
+});

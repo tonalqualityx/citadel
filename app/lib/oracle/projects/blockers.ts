@@ -73,6 +73,10 @@ export interface BlockerEmail {
 export type ApprovalRequestStatus =
   | 'draft'
   | 'queued'
+  // Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2) — the machine-side sender's own claim,
+  // stamped by PUT /api/approval-requests/:id/sending BEFORE gog is ever invoked. See
+  // classifyClientApprovals below for how a row stuck here surfaces to Mike.
+  | 'sending'
   | 'sent'
   | 'replied'
   | 'approved'
@@ -89,6 +93,9 @@ export interface BlockerApprovalRequest {
   // MEDIUM-7: always present (the row's own creation time) — the final fallback for
   // `since` so a draft/queued approval actually ages instead of reporting "now" forever.
   created_at: string; // ISO
+  // Phase 5 fixes (HIGH-1/MEDIUM-1) — stamped only while status is 'sending'; null
+  // otherwise. Drives the "stuck in flight" surfacing in classifyClientApprovals.
+  send_attempt_at: string | null; // ISO
   contact: { id: string; name: string } | null;
 }
 
@@ -212,6 +219,10 @@ export interface Blocker {
 
 const STALE_DAYS_THRESHOLD = 7;
 const MEETING_RISK_WINDOW_DAYS = 3;
+// Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2) — how long a 'sending' row can sit claimed
+// with no PUT .../sent on file before it stops being "the sender is presumably still
+// mid-flight" and starts being "something went wrong and nobody's looking at it."
+const SENDING_STUCK_THRESHOLD_MINUTES = 30;
 const MEETING_RISK_STILLNESS_DAYS = 5;
 // HIGH-1: decision/clarification/mention are asks for a LIVE task — a task already
 // done or abandoned can't still be waiting on Mike's word, no matter what its last
@@ -498,6 +509,36 @@ function classifyClientApprovals(input: ClassifyProjectBlockersInput, now: Date)
   const out: Blocker[] = [];
   const openStatuses: ApprovalRequestStatus[] = ['draft', 'queued', 'sent', 'replied'];
   for (const ar of input.approval_requests) {
+    // Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2) — a 'sending' row is the machine-side
+    // sender actively mid-flight (or, per its own layer-3 retry-recording, an email it
+    // already confirmed delivered but hasn't finished RECORDING as sent yet) — not a
+    // blocker on its own. Only surface it once it's been claimed for longer than the
+    // stuck threshold with no PUT .../sent on file: "Approval send unconfirmed," owned
+    // by Mike, with no send/resend action offered — the whole point of this guard is
+    // that nobody, human or machine, blindly resends an id that may already have gone
+    // out. Mike's own remedy here is to check gog/Gmail directly, not click a button.
+    if (ar.status === 'sending') {
+      const attemptAt = ar.send_attempt_at ? new Date(ar.send_attempt_at) : new Date(ar.created_at);
+      const stuckMinutes = (now.getTime() - attemptAt.getTime()) / 60000;
+      if (stuckMinutes < SENDING_STUCK_THRESHOLD_MINUTES) continue;
+
+      const taskTitle = input.tasks.find((t) => t.id === ar.task_id)?.title ?? 'this';
+      out.push({
+        kind: 'client_approval',
+        id: `client_approval:${ar.id}`,
+        title: 'Client approval',
+        detail: `Approval send unconfirmed for ${taskTitle}. The sender claimed this row over ${SENDING_STUCK_THRESHOLD_MINUTES} minutes ago with no confirmed delivery. Check gog/Gmail before acting; do not resend.`,
+        owner: mikeOwner(),
+        source: { type: 'approval_request', id: ar.id, url: `/tasks/${ar.task_id}` },
+        since: attemptAt.toISOString(),
+        actions: [],
+        arc: null,
+        chase_due_at: null,
+        chase_draft: null,
+        dismiss: null,
+      });
+      continue;
+    }
     if (!openStatuses.includes(ar.status)) continue;
 
     const overdueChase =

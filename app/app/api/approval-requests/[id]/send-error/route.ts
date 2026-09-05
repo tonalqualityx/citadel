@@ -5,9 +5,15 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
 
-// Oracle Projects Tab Phase 5 — PUT used ONLY by the machine-side sender when a `gog
-// gmail send` attempt fails. Bearer, any authenticated user. Stays 'queued' (the next
-// poll retries) unless this is the THIRD recorded error in a row, in which case the row
+// Oracle Projects Tab Phase 5 — PUT used ONLY by the machine-side sender when a real
+// `gog gmail send` invocation itself fails (a transport/subprocess failure BEFORE any
+// delivery — an unresolved-id-after-a-successful-send is a different case entirely, see
+// PUT .../sent's own doc comment). Bearer, any authenticated user.
+//
+// Phase 5 fixes (HIGH-1/MEDIUM-1). Requires the row to be 'sending' — only a row the
+// sender actually claimed (PUT .../sending, before gog was invoked) can have failed to
+// send. Releases back to 'queued' (the next poll retries the claim + send from
+// scratch) unless this is the THIRD recorded error in a row, in which case the row
 // falls back to 'draft' with send_error set — so a persistently-broken send (a bad
 // address, an expired gog token) stops silently retrying forever and surfaces back to
 // Mike as a draft needing attention instead. send_error_count resets to 0 on the next
@@ -31,8 +37,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!existing) {
       throw new ApiError('Approval request not found', 404);
     }
-    if (existing.status !== 'queued') {
-      throw new ApiError(`Approval request is '${existing.status}', not 'queued'`, 409);
+    if (existing.status !== 'sending') {
+      throw new ApiError(`Approval request is '${existing.status}', not 'sending'`, 409);
     }
 
     const body = await request.json();
@@ -41,21 +47,21 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const nextCount = existing.send_error_count + 1;
     const bounceToDraft = nextCount >= MAX_SEND_ERRORS;
+    const nextStatus = bounceToDraft ? 'draft' : 'queued';
 
     const updated = await prisma.approvalRequest.update({
       where: { id },
       data: {
+        status: nextStatus,
+        send_attempt_at: null,
         send_error: errorText,
         send_error_count: nextCount,
-        ...(bounceToDraft ? { status: 'draft' } : {}),
       },
     });
 
-    if (bounceToDraft) {
-      await logUpdate(auth.userId, 'task', existing.task_id, 'Approval request', {
-        approval_status: { from: 'queued', to: 'draft' },
-      });
-    }
+    await logUpdate(auth.userId, 'task', existing.task_id, 'Approval request', {
+      approval_status: { from: 'sending', to: nextStatus },
+    });
 
     return NextResponse.json({
       id: updated.id,

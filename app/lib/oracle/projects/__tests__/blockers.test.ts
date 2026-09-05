@@ -511,7 +511,7 @@ describe('classifyProjectBlockers — client_approval', () => {
   it('owner is Mike for a draft', () => {
     const input = baseInput({
       approval_requests: [
-        { id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null },
+        { id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, send_attempt_at: null, replied_at: null, contact: null },
       ],
     });
     expect(classifyProjectBlockers(input, NOW)[0].owner.is_mike).toBe(true);
@@ -526,7 +526,7 @@ describe('classifyProjectBlockers — client_approval', () => {
           created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-10T00:00:00.000Z', // sent today, well inside chase_after_days
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: null,
           contact: { id: 'contact-1', name: 'Jane Client' },
         },
@@ -546,7 +546,7 @@ describe('classifyProjectBlockers — client_approval', () => {
           created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-01T00:00:00.000Z', // Tuesday; NOW is 2026-09-10 (Thursday) — well over 3 business days
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: null,
           contact: { id: 'contact-1', name: 'Jane Client' },
         },
@@ -565,7 +565,7 @@ describe('classifyProjectBlockers — client_approval', () => {
           created_at: '2026-09-01T00:00:00.000Z',
           status: 'replied',
           sent_at: '2026-09-09T00:00:00.000Z',
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: '2026-09-10T00:00:00.000Z',
           contact: { id: 'contact-1', name: 'Jane Client' },
         },
@@ -577,7 +577,7 @@ describe('classifyProjectBlockers — client_approval', () => {
   it('does not fire once approved or changes_requested or cancelled', () => {
     for (const status of ['approved', 'changes_requested', 'cancelled'] as const) {
       const input = baseInput({
-        approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status, sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
+        approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status, sent_at: null, chase_after_days: 3, send_attempt_at: null, replied_at: null, contact: null }],
       });
       expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
     }
@@ -585,7 +585,7 @@ describe('classifyProjectBlockers — client_approval', () => {
 
   it('client_approval blockers never carry a dismiss action', () => {
     const input = baseInput({
-      approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
+      approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, send_attempt_at: null, replied_at: null, contact: null }],
     });
     expect(classifyProjectBlockers(input, NOW)[0].actions).not.toContain('dismiss');
   });
@@ -601,7 +601,7 @@ describe('classifyProjectBlockers — client_approval', () => {
           created_at: '2026-08-20T00:00:00.000Z',
           status: 'draft',
           sent_at: null,
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: null,
           contact: null,
         },
@@ -619,13 +619,81 @@ describe('classifyProjectBlockers — client_approval', () => {
           created_at: '2026-08-15T00:00:00.000Z',
           status: 'queued',
           sent_at: null,
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: null,
           contact: null,
         },
       ],
     });
     expect(classifyProjectBlockers(input, NOW)[0].since).toBe('2026-08-15T00:00:00.000Z');
+  });
+
+  // Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2) — a 'sending' row is the sender mid-flight
+  // (or retry-recording a confirmed delivery); it is not a blocker until it's been
+  // claimed for more than 30 minutes with nothing recorded.
+  it('a freshly-claimed sending row is not a blocker at all', () => {
+    const input = baseInput({
+      approval_requests: [
+        {
+          id: 'ar-1',
+          task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
+          status: 'sending',
+          sent_at: null,
+          chase_after_days: 3,
+          send_attempt_at: '2026-09-10T11:45:00.000Z', // 15 minutes before NOW
+          replied_at: null,
+          contact: null,
+        },
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)).toHaveLength(0);
+  });
+
+  it('a sending row stuck over 30 minutes surfaces as "Approval send unconfirmed", owned by Mike, no actions', () => {
+    const input = baseInput({
+      approval_requests: [
+        {
+          id: 'ar-1',
+          task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
+          status: 'sending',
+          sent_at: null,
+          chase_after_days: 3,
+          send_attempt_at: '2026-09-10T11:00:00.000Z', // 60 minutes before NOW
+          replied_at: null,
+          contact: { id: 'contact-1', name: 'Jane Client' },
+        },
+      ],
+    });
+    const blockers = classifyProjectBlockers(input, NOW);
+    expect(blockers).toHaveLength(1);
+    const blocker = blockers[0];
+    expect(blocker.kind).toBe('client_approval');
+    expect(blocker.owner).toEqual({ id: MIKE_USER_ID, name: 'Mike', is_mike: true });
+    expect(blocker.detail).toContain('unconfirmed');
+    expect(blocker.detail.toLowerCase()).toContain('do not resend');
+    expect(blocker.actions).toEqual([]);
+    expect(blocker.since).toBe('2026-09-10T11:00:00.000Z');
+  });
+
+  it('a stuck sending row falls back to created_at for `since` when send_attempt_at is somehow null', () => {
+    const input = baseInput({
+      approval_requests: [
+        {
+          id: 'ar-1',
+          task_id: 'task-1',
+          created_at: '2026-09-01T00:00:00.000Z',
+          status: 'sending',
+          sent_at: null,
+          chase_after_days: 3,
+          send_attempt_at: null,
+          replied_at: null,
+          contact: null,
+        },
+      ],
+    });
+    expect(classifyProjectBlockers(input, NOW)[0].since).toBe('2026-09-01T00:00:00.000Z');
   });
 });
 
@@ -700,7 +768,7 @@ describe('classifyProjectBlockers — stale', () => {
           created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-09T00:00:00.000Z', // recent, still within chase window -> client-owned
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: null,
           contact: { id: 'contact-1', name: 'Jane Client' },
         },
@@ -714,7 +782,7 @@ describe('classifyProjectBlockers — stale', () => {
   it('still fires alongside a MIKE-owned client_approval blocker', () => {
     const input = baseInput({
       last_movement_at: '2026-08-01T00:00:00.000Z',
-      approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, replied_at: null, contact: null }],
+      approval_requests: [{ id: 'ar-1', task_id: 'task-1', created_at: '2026-09-01T00:00:00.000Z', status: 'draft', sent_at: null, chase_after_days: 3, send_attempt_at: null, replied_at: null, contact: null }],
     });
     const kinds = classifyProjectBlockers(input, NOW).map((b) => b.kind);
     expect(kinds).toEqual(expect.arrayContaining(['client_approval', 'stale']));
@@ -781,7 +849,7 @@ describe('ownerIsMike', () => {
           created_at: '2026-09-01T00:00:00.000Z',
           status: 'sent',
           sent_at: '2026-09-09T00:00:00.000Z',
-          chase_after_days: 3,
+          chase_after_days: 3, send_attempt_at: null,
           replied_at: null,
           contact: { id: 'contact-1', name: 'Jane Client' },
         },

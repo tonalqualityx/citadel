@@ -674,20 +674,53 @@ export const oracleEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/approval-requests/{id}/sending',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side sender only (Phase 5 fixes, HIGH-1/MEDIUM-1): claims a queued row before gog is invoked.',
+        auth: 'required',
+        responseNotes:
+          "Bearer, any authenticated user. 409 if the row isn't currently 'queued'. Stamps " +
+          'send_attempt_at. A row not claimed here is never sent; GET ?status=queued naturally excludes ' +
+          "a claimed row (a plain status equality filter). A row stuck in 'sending' for more than 30 " +
+          'minutes with no PUT .../sent on file surfaces to Mike as a blocker — never auto-resent.',
+        bodySchema: [],
+        responseExample: { id: 'uuid', status: 'sending', send_attempt_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
     path: '/api/approval-requests/{id}/sent',
     group: 'oracle',
     methods: [
       {
         method: 'PUT',
-        summary: 'Machine-side sender only: marks a queued row sent.',
+        summary: 'Machine-side sender only: marks a claimed (sending) row sent.',
         auth: 'required',
-        responseNotes: "Bearer, any authenticated user. 409 if the row isn't currently 'queued'.",
+        responseNotes:
+          "Bearer, any authenticated user. Requires the row be 'sending' (claimed via PUT .../sending " +
+          "before gog was invoked); idempotent (200, no-op) when the row is already 'sent' — the " +
+          'sender retries this same call on a later tick after a transport failure that happened AFTER ' +
+          'gog already delivered the email, and that retry must never be treated as an error. Any other ' +
+          'status 409s. message_id/thread_id may be null when delivered_unconfirmed:true — the sender ' +
+          'could not resolve either id after a real, successful send; send_error is set to a fixed ' +
+          'marker string in that case, and this is never followed by a resend.',
         bodySchema: [
-          { name: 'message_id', type: 'string', required: true, description: '' },
-          { name: 'thread_id', type: 'string', required: true, description: '' },
+          { name: 'message_id', type: 'string', required: false, description: 'Nullable. Required (non-null) unless delivered_unconfirmed is true.' },
+          { name: 'thread_id', type: 'string', required: false, description: 'Nullable. Required (non-null) unless delivered_unconfirmed is true.' },
           { name: 'sent_at', type: 'ISO-8601', required: true, description: '' },
+          { name: 'delivered_unconfirmed', type: 'boolean', required: false, description: '' },
         ],
-        responseExample: { id: 'uuid', status: 'sent', message_id: 'string', thread_id: 'string', sent_at: 'ISO-8601' },
+        responseExample: {
+          id: 'uuid',
+          status: 'sent',
+          message_id: 'string|null',
+          thread_id: 'string|null',
+          sent_at: 'ISO-8601',
+          send_error: 'string|null',
+        },
       },
     ],
   },
@@ -697,11 +730,14 @@ export const oracleEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'PUT',
-        summary: 'Machine-side sender only: records one failed send attempt on a queued row.',
+        summary: 'Machine-side sender only: records one real gog send failure on a claimed (sending) row.',
         auth: 'required',
         responseNotes:
-          'Bearer, any authenticated user. Stays queued (the next poll retries) unless this is the ' +
-          "3rd recorded error, in which case status falls back to 'draft' with send_error set.",
+          "Bearer, any authenticated user. Requires the row be 'sending' (409 otherwise, including a " +
+          "still-'queued' row that was never claimed). Releases back to 'queued' (the next poll " +
+          'reclaims and retries) unless this is the 3rd recorded error, in which case status falls back ' +
+          "to 'draft' with send_error set and send_attempt_at cleared. An unresolved message id after a " +
+          'successful send is NOT reported here — see PUT .../sent\'s own delivered_unconfirmed note.',
         bodySchema: [{ name: 'error', type: 'string', required: true, description: '' }],
         responseExample: { id: 'uuid', status: 'queued|draft', send_error: 'string', send_error_count: 'number' },
       },

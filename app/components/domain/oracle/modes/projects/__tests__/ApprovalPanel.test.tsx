@@ -179,4 +179,84 @@ describe('ApprovalPanel', () => {
       'https://staging.example.com/preview'
     );
   });
+
+  // MEDIUM-2: a terminal row (approved/changes_requested/cancelled) must never keep
+  // "Draft approval request" from reappearing — it used to, because pickActiveRequest
+  // only excluded 'cancelled', not 'approved'/'changes_requested'.
+  describe('MEDIUM-2: terminal rows never block a fresh draft', () => {
+    it.each(['approved', 'changes_requested', 'cancelled'] as const)(
+      '"Draft approval request" reappears when the only row is %s',
+      (status) => {
+        mockUseApprovalRequestsForTask.mockReturnValue({
+          data: { requests: [draftRow({ status, to_email: 'andy@acme.com' })] },
+          isLoading: false,
+        });
+        render_();
+        expect(screen.getByRole('button', { name: /draft approval request/i })).toBeInTheDocument();
+        // No live/editable panel — the terminal row isn't "active."
+        expect(screen.queryByLabelText(/^send to$/i)).not.toBeInTheDocument();
+      }
+    );
+
+    it('a fresh draft after a cancelled row starts a new round, not the cancelled one', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({
+        data: {
+          requests: [
+            draftRow({ id: 'ar-old', status: 'cancelled', to_email: 'andy@acme.com' }),
+            draftRow({ id: 'ar-new', status: 'draft' }),
+          ],
+        },
+        isLoading: false,
+      });
+      render_();
+      expect(screen.getByTestId('approval-panel-status')).toHaveTextContent('Draft');
+      expect(screen.queryByRole('button', { name: /draft approval request/i })).not.toBeInTheDocument();
+    });
+  });
+
+  // MEDIUM-3: a terminal row's history entry must show its OWN end state, never render
+  // as if every step up to "Approved" had been reached.
+  describe('MEDIUM-3: terminal rows show a distinct end state, never "fully approved"', () => {
+    it('a cancelled-only history shows "Cancelled", not "Approved"', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({
+        data: { requests: [draftRow({ status: 'cancelled', to_email: 'andy@acme.com' })] },
+        isLoading: false,
+      });
+      render_();
+      const history = screen.getByTestId('approval-panel-history');
+      expect(history).toHaveTextContent('Cancelled');
+      expect(history).not.toHaveTextContent('Approved');
+    });
+
+    it('a changes-requested-only history shows "Changes requested", not "Approved"', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({
+        data: { requests: [draftRow({ status: 'changes_requested', to_email: 'andy@acme.com' })] },
+        isLoading: false,
+      });
+      render_();
+      const history = screen.getByTestId('approval-panel-history');
+      expect(history).toHaveTextContent('Changes requested');
+      expect(history).not.toHaveTextContent('Approved');
+    });
+
+    it('no history section renders when there are no terminal rows yet', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({ data: { requests: [draftRow()] }, isLoading: false });
+      render_();
+      expect(screen.queryByTestId('approval-panel-history')).not.toBeInTheDocument();
+    });
+
+    it('the active (in-flight) timeline never lights up "Approved" for a merely-sent row', () => {
+      mockUseApprovalRequestsForTask.mockReturnValue({
+        data: { requests: [draftRow({ status: 'sent', to_email: 'andy@acme.com' })] },
+        isLoading: false,
+      });
+      render_();
+      const timeline = screen.getByTestId('approval-panel-timeline');
+      const approvedSpan = Array.from(timeline.querySelectorAll('span')).find((el) =>
+        el.textContent?.startsWith('Approved')
+      );
+      expect(approvedSpan).toBeTruthy();
+      expect(approvedSpan).not.toHaveStyle({ color: 'var(--text-main)' });
+    });
+  });
 });

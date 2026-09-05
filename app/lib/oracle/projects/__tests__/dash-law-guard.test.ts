@@ -22,11 +22,21 @@ import * as path from 'path';
 // any machine (including CI) that lacks that machine-local skill file. Runs
 // unconditionally now.
 
+// Phase 5 fixes (LOW-1): extended to the two API route trees the same pass touched
+// (approval-requests, oracle/projects) — the error-message string literals a caller
+// (the client-approval sender, the tab's own fetches) actually surfaces are reader-
+// facing text too, not engineering commentary, even though they live in a route file
+// rather than a component. Comments in these directories are just as dash-heavy as the
+// rest of this codebase's own convention and stay untouched — stripComments() below
+// still strips them first, exactly as it already does for the component/lib trees.
+
 // __dirname here is <repo>/lib/oracle/projects/__tests__ — four levels up is the app root.
 const REPO_ROOT = path.resolve(__dirname, '../../../../');
 const SCAN_DIRS = [
   path.join(REPO_ROOT, 'components', 'domain', 'oracle', 'modes', 'projects'),
   path.join(REPO_ROOT, 'lib', 'oracle', 'projects'),
+  path.join(REPO_ROOT, 'app', 'api', 'approval-requests'),
+  path.join(REPO_ROOT, 'app', 'api', 'oracle', 'projects'),
 ];
 
 // next-step-lint.ts is the dash-law DETECTOR itself — its own regex pattern legitimately
