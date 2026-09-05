@@ -34,6 +34,11 @@ model User {
   email_digest_queue                 EmailDigestQueue[]
   slack_notification_batch           SlackNotificationBatch[]
   projects_created                   Project[]                @relation("ProjectCreatedBy")
+  projects_next_step_owner           Project[]                @relation("ProjectNextStepOwner")
+  project_notes                      ProjectNote[]
+  approval_requests_created          ApprovalRequest[]        @relation("ApprovalRequestCreatedBy")
+  approval_requests_queued           ApprovalRequest[]        @relation("ApprovalRequestQueuedBy")
+  blocker_dismissals                 BlockerDismissal[]
   team_assignments                   ProjectTeamAssignment[]
   user_functions                     UserFunction[]
   tasks_assigned                     Task[]                   @relation("TaskAssignee")
@@ -586,6 +591,7 @@ model Client {
   brand_profile         BrandProfile?
   arcs                  Arc[]
   scheduled_invoices    ScheduledInvoice[]
+  email_asks            EmailAsk[]
 
   @@index([type])
   @@index([status])
@@ -621,6 +627,10 @@ model ClientContact {
 
   // Client-portal login sessions issued to this contact (magic-link → 7-day session)
   portal_sessions PortalSession[]
+
+  // Oracle Projects Phase 1 — the client-approval loop's recipient (nullable: a draft may
+  // not have a contact chosen yet).
+  approval_requests ApprovalRequest[]
 
   @@unique([client_id, email])
   @@index([email])
@@ -854,6 +864,34 @@ model Project {
   // Notes
   notes String? @db.Text
 
+  // Oracle Projects Phase 1 — the hybrid next-step line (task-graph candidate + Bast-
+  // inferred, refreshed nightly / on demand / overridable). source tracks who/what last
+  // wrote it: graph (pure computed candidate), bast (nightly/on-demand inference job), or
+  // mike (explicit override, sticky until Mike or a later graph/bast pass changes it).
+  next_step_text     String?         @db.Text
+  next_step_owner_id String?         @db.Uuid
+  next_step_owner    User?           @relation("ProjectNextStepOwner", fields: [next_step_owner_id], references: [id])
+  // Oracle Projects Tab Phase 3 — an owner who is not a User (e.g. a client contact,
+  // "Andy (client)"). Set only when next_step_owner_id is null; the two are mutually
+  // exclusive by construction (the write routes never set both).
+  next_step_owner_label String?         @db.VarChar(255)
+  next_step_source      NextStepSource?
+  next_step_at          DateTime?
+  // Oracle Projects Tab Phase 3 — stamped by POST /api/oracle/projects/[id]/refresh (or
+  // the refresh-all variant); cleared by the machine-side job once it writes a fresh
+  // next_step. Non-null means "a refresh is queued," read by the nightly/poll job via
+  // GET /api/oracle/projects/refresh-requests.
+  next_step_refresh_requested_at DateTime?
+
+  // Oracle Projects Phase 1 — the running email summary shown on the project card/drawer
+  // (Phase 3's next-step-refresh job writes both fields together).
+  email_summary    String?   @db.Text
+  email_summary_at DateTime?
+
+  // Oracle Projects Phase 1 — Mike's "stale" blocker snooze (a parked_until ProjectNote
+  // also sets this; see app/api/projects/[id]/notes/route.ts). Null = not muted.
+  stale_muted_until DateTime?
+
   // Metadata
   is_deleted    Boolean  @default(false)
   created_at    DateTime @default(now())
@@ -875,6 +913,10 @@ model Project {
   meeting_projects        MeetingProject[]
   arcs                    Arc[]
   scheduled_invoices      ScheduledInvoice[]
+  notes_log               ProjectNote[]
+  approval_requests       ApprovalRequest[]
+  blocker_dismissals      BlockerDismissal[]
+  email_asks              EmailAsk[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -1046,7 +1088,11 @@ model Task {
   review_requirements Json? // PM/Admin-only QA checklist (Quality Gate)
 
   // Review workflow
-  needs_review   Boolean   @default(true) // Whether task requires approval when done
+  // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false. Most
+  // tasks don't need explicit review; needs_review is now an opt-in flag (explicit param,
+  // or an SOP that sets it), not the ambient default. See pending-review-cleanup.ts for
+  // the one-time sweep of already-done tasks created under the old true default.
+  needs_review   Boolean   @default(false) // Whether task requires approval when done
   reviewer_id    String?   @db.Uuid // Who reviews/approves the task
   reviewer       User?     @relation("TaskReviewer", fields: [reviewer_id], references: [id])
   approved       Boolean   @default(false) // Whether task has been approved
@@ -1062,7 +1108,10 @@ model Task {
   invoiced         Boolean   @default(false)
   invoiced_at      DateTime?
   invoiced_by_id   String?   @db.Uuid
-  is_billable      Boolean   @default(true)
+  // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false. Billable
+  // now has to be opted into per-task rather than assumed; charter tasks stay hardcoded
+  // false regardless (see the two creation-path routes).
+  is_billable      Boolean   @default(false)
   billing_target   Decimal?  @db.Decimal(10, 2)
   is_retainer_work Boolean   @default(false)
   is_support       Boolean   @default(false) // Support task (covered by hosting/maintenance)
@@ -1135,6 +1184,7 @@ model Task {
   promoted_from_ideas  Idea[]
   today_picks          TodayPick[]
   email_asks           EmailAsk[]
+  approval_requests    ApprovalRequest[]
 
   @@index([project_id])
   @@index([client_id])
@@ -1326,7 +1376,9 @@ model Sop {
   mystery_factor    MysteryFactor @default(none)
   battery_impact    BatteryImpact @default(average_drain)
   estimated_minutes Int? // Calculated or manual
-  needs_review      Boolean       @default(true) // Whether tasks from this SOP need review
+  // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false, matching
+  // Task.needs_review's own flip. An SOP now has to opt tasks INTO review.
+  needs_review      Boolean       @default(false) // Whether tasks from this SOP need review
 
   // Template requirements (copied to tasks as checklist)
   template_requirements Json? // Visible to all roles - task completion checklist
@@ -2991,6 +3043,18 @@ model EmailAsk {
   arc_id String? @db.Uuid
   arc    Arc?    @relation(fields: [arc_id], references: [id])
 
+  // Oracle Projects Phase 1 — client/project auto-match (sender → ClientContact →
+  // Client → exactly one in-progress type=project project; else left null). match_source
+  // tracks provenance: auto (the sync route's own matcher), mike (Mike explicitly ruled
+  // it via POST /api/email-asks/{id}/attach with project_id), unmatched (matcher ran, no
+  // single project found). A match_source='mike' row is never overwritten by a later auto
+  // pass — see app/api/oracle/email-sync/route.ts.
+  client_id    String?           @db.Uuid
+  client       Client?           @relation(fields: [client_id], references: [id])
+  project_id   String?           @db.Uuid
+  project      Project?          @relation(fields: [project_id], references: [id])
+  match_source EmailMatchSource?
+
   deep_link   String   @db.VarChar(1000)
   received_at DateTime
 
@@ -3001,6 +3065,8 @@ model EmailAsk {
   @@index([is_urgent])
   @@index([received_at])
   @@index([arc_id])
+  @@index([client_id])
+  @@index([project_id])
   @@map("email_asks")
 }
 
@@ -3073,4 +3139,217 @@ model CronChipState {
   updated_at DateTime @updatedAt
 
   @@map("cron_chip_states")
+}
+
+// ============================================
+// ORACLE PROJECTS TAB (Phase 1)
+// ============================================
+// Spec blessed by Mike 2026-09-04 (implementation/plans/oracle-projects-tab.md). A 4th
+// Oracle mode surfacing in-progress contracted projects, stalled-on-Mike ones first.
+// Phase 1 lands schema + creation-path defaults only; Phases 2-5 wire the signals API,
+// next-step engine, the tab itself, and the approval loop on top of these tables.
+
+// Who/what last wrote Project.next_step_text: graph = the pure computed candidate (first
+// ready task in phase/sort order), bast = the nightly/on-demand inference job, mike = an
+// explicit override (sticky until Mike or a later graph/bast pass changes it again).
+enum NextStepSource {
+  graph
+  bast
+  mike
+}
+
+// Oracle Projects Phase 1 — email/project auto-match provenance (EmailAsk.match_source).
+// auto = the sync route's own sender->contact->client->project matcher; mike = Mike
+// explicitly ruled it via POST /api/email-asks/{id}/attach {project_id}; unmatched = the
+// matcher ran and found zero or more-than-one candidate project.
+enum EmailMatchSource {
+  auto
+  mike
+  unmatched
+}
+
+// A project's running notes log. `note` is a free-form log entry; `parked_until` is a
+// snooze note that ALSO stamps Project.stale_muted_until (until_date required for this
+// kind) — deleting the active parked_until note clears stale_muted_until again. See
+// app/api/projects/[id]/notes/route.ts.
+enum ProjectNoteKind {
+  note
+  parked_until
+}
+
+model ProjectNote {
+  id         String  @id @default(uuid()) @db.Uuid
+  project_id String  @db.Uuid
+  project    Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user_id    String  @db.Uuid
+  user       User    @relation(fields: [user_id], references: [id])
+
+  kind       ProjectNoteKind @default(note)
+  body       String          @db.Text
+  until_date DateTime? // required iff kind = parked_until
+
+  is_deleted Boolean  @default(false)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([project_id])
+  @@index([project_id, kind])
+  @@map("project_notes")
+}
+
+// The client-approval loop's state machine. draft (being composed) -> queued (Mike hit
+// send; awaiting the machine-side sender's next */5 pass) -> sent (gog sent it,
+// message_id/thread_id/sent_at stamped) -> replied (classifier matched a reply by
+// thread_id) -> approved | changes_requested (Mike's read of the reply) -> cancelled
+// (withdrawn before sending). The machine-side sender
+// (~/.claude/tools/citadel-approvals/approval-sender.py) only ever sends rows already
+// queued — it never flips draft -> sent directly.
+enum ApprovalRequestStatus {
+  draft
+  queued
+  // Phase 5 fixes (HIGH-1/MEDIUM-1) — the machine-side sender's server claim. A row
+  // moves here via PUT /api/approval-requests/:id/sending, BEFORE gog is ever invoked;
+  // GET ?status=queued naturally excludes it (a plain status equality filter), so a row
+  // in this state is never handed to a second concurrent tick. See approval-sender.py's
+  // module docstring and the plan's Phase 5 fixes notes for the full three-layer guard.
+  sending
+  sent
+  replied
+  approved
+  changes_requested
+  cancelled
+}
+
+// Spec polish (2026-09-04) — distinguishes the original approval request from a
+// follow-up chase drafted off a client_approval blocker's chase_draft once the chase
+// clock has run out (lib/oracle/projects/blockers.ts's classifyClientApprovals). A
+// chase row is created via the SAME POST /api/approval-requests + PATCH .../[id]
+// {status:'queued'} path as any other approval, just with kind:'chase' and the same
+// task_id — the machine-side sender treats it identically (it only ever looks at
+// status), and the projects route excludes kind:'chase' rows from its OWN
+// classifyClientApprovals pass so a queued chase doesn't also render as a second,
+// duplicate client_approval blocker for the same task.
+enum ApprovalRequestKind {
+  approval
+  chase
+}
+
+model ApprovalRequest {
+  id         String  @id @default(uuid()) @db.Uuid
+  task_id    String  @db.Uuid
+  task       Task    @relation(fields: [task_id], references: [id])
+  project_id String  @db.Uuid
+  project    Project @relation(fields: [project_id], references: [id])
+
+  // Nullable: a draft may not have a recipient chosen yet.
+  contact_id String?        @db.Uuid
+  contact    ClientContact? @relation(fields: [contact_id], references: [id])
+
+  status   ApprovalRequestStatus @default(draft)
+  kind     ApprovalRequestKind   @default(approval)
+  subject  String                @db.VarChar(500)
+  body     String                @db.Text
+  to_email String?               @db.VarChar(255)
+
+  // Who/what drafted the body — mirrors Project.next_step_source's provenance convention.
+  draft_source NextStepSource?
+
+  // Stamped by the machine-side sender once gog actually sends it.
+  message_id    String?   @db.VarChar(255)
+  thread_id     String?   @db.VarChar(255)
+  sent_at       DateTime?
+  replied_at    DateTime?
+  reply_excerpt String?   @db.Text
+
+  // How many days of silence before the project surfaces this as a chase-worthy blocker.
+  chase_after_days Int @default(3)
+
+  // Phase 5 — POST /api/approval-requests/:id/seen-in-meeting, for the meeting-sync skill.
+  seen_in_meeting_at DateTime?
+
+  // Phase 5 — state-machine timestamps, one per transition PATCH /api/approval-requests/:id
+  // can make. draft->queued stamps queued_at/queued_by_id; queued->cancelled stamps
+  // cancelled_at; sent|replied->approved stamps approved_at; sent|replied->changes_requested
+  // stamps changes_requested_at. Each is independent of the others — a row can carry at
+  // most one of cancelled_at/approved_at/changes_requested_at, since those three are the
+  // terminal states, but queued_at survives past them as the historical record of when it
+  // was first queued to send.
+  queued_at              DateTime?
+  queued_by_id           String?   @db.Uuid
+  queued_by              User?     @relation("ApprovalRequestQueuedBy", fields: [queued_by_id], references: [id])
+  cancelled_at           DateTime?
+  approved_at            DateTime?
+  changes_requested_at   DateTime?
+
+  // Phase 5 fixes (MEDIUM-1, layer 2) — stamped by PUT .../sending the instant the
+  // machine-side sender claims this row (queued -> sending), immediately before it
+  // calls gog. A `sending` row older than 30 minutes with no PUT .../sent on file is
+  // surfaced to Mike as a "Approval send unconfirmed" blocker (owner Mike; never
+  // auto-resent) — see lib/oracle/projects/blockers.ts's classifyClientApprovals.
+  send_attempt_at        DateTime?
+
+  // Phase 5 — set by PUT .../send-error when the machine-side sender fails to send a
+  // queued row; cleared on a subsequent successful send. After 3 recorded errors the
+  // sender's own PUT flips status back to 'draft' (see approval-sender.py) rather than
+  // retrying forever — send_error stays set on that draft as the reason it bounced back.
+  send_error       String? @db.Text
+  send_error_count Int     @default(0)
+
+  // Phase 5 tail fixes (MEDIUM-A) — stamped by PATCH .../[id] {status:'draft',
+  // release_stuck:true}, Mike's own manual "it did not go out, let me requeue it" call
+  // on a 'sending' row stuck past SENDING_STUCK_THRESHOLD_MINUTES with no PUT .../sent
+  // on file. Independent of send_error/send_error_count (which the same PATCH resets to
+  // null/0 — a fresh attempt cycle, same as any other bounce-to-draft) — this timestamp
+  // is purely the historical record of "a human, not the 3-strikes auto-bounce, put this
+  // row back in draft." The local send ledger (approval-sender.py, layer 1) is what
+  // actually stops a resend of an id already handed to gog; this column is not itself a
+  // guard, only a record of when Mike intervened.
+  manual_release_at DateTime?
+
+  created_by_id String?  @db.Uuid
+  created_by    User?    @relation("ApprovalRequestCreatedBy", fields: [created_by_id], references: [id])
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@index([task_id])
+  @@index([project_id])
+  @@index([status])
+  @@map("approval_requests")
+}
+
+// What kind of blocker a BlockerDismissal is hiding. Mirrors classifyProjectBlockers'
+// (Phase 2) kind set minus decision/clarification/client_approval/someone_else — those
+// resolve through their own state changes rather than a dismiss action.
+enum BlockerDismissalKind {
+  mention
+  email
+  session_ask
+  task
+  meeting_risk
+  stale
+}
+
+// A dismissed blocker stays hidden until NEW activity supersedes source_marker (e.g. a
+// newer comment id, a newer email's received_at) — Phase 2's classifier is the reader;
+// this table is just the dismissal ledger. Never a hard delete of the underlying
+// mention/email/ask/task — this only suppresses it from the Projects tab's blocker list.
+model BlockerDismissal {
+  id         String  @id @default(uuid()) @db.Uuid
+  project_id String  @db.Uuid
+  project    Project @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  kind      BlockerDismissalKind
+  source_id String               @db.VarChar(255) // the comment/email/ask/task id this dismissal targets
+
+  // Last comment id / email received_at / etc. at the moment of dismissal — the
+  // classifier re-surfaces the blocker once the live value moves past this marker.
+  source_marker String? @db.VarChar(255)
+
+  dismissed_by_id String   @db.Uuid
+  dismissed_by    User     @relation(fields: [dismissed_by_id], references: [id])
+  dismissed_at    DateTime @default(now())
+  note            String?  @db.Text
+
+  @@index([project_id, kind, source_id])
+  @@map("blocker_dismissals")
 }

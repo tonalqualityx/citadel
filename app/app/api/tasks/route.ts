@@ -11,7 +11,7 @@ import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
-import { MysteryFactor, BatteryImpact } from '@prisma/client';
+import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -60,6 +60,9 @@ const createTaskSchema = z.object({
   // required client-side choice) — server-side enforcement would 400 the completion-nudge
   // draft path, the intake create+open gesture, and session-task creation.
   promised_to: z.string().max(200).optional().nullable(),
+  // Review workflow (Oracle Projects Phase 1, 2026-09-04) — explicit beats SOP beats
+  // the (now false) schema default.
+  needs_review: z.boolean().optional(),
   // Billing fields
   is_billable: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
@@ -86,6 +89,17 @@ const createTaskSchema = z.object({
 
 // Project statuses where tasks are visible to Tech users
 const VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review', 'done'];
+
+// K5 (Phase 4 carry-over): the Prisma `TaskStatus` enum's actual values (see
+// prisma/schema.prisma) — used to validate `?statuses=` below. This list caught a real
+// bug: the machine-side next-step job was sending `statuses=not_started,ready,...`
+// ('ready' is a PROJECT status, not a task one) and every such call 500'd instead of
+// 400ing with a clear reason.
+//
+// LOW-10: derived from the Prisma enum itself (Object.values(TaskStatus)) rather than
+// hand-copied — a future schema change to TaskStatus can never silently desync this
+// allowlist from the real enum again.
+const TASK_STATUS_VALUES: string[] = Object.values(TaskStatus);
 
 export async function GET(request: NextRequest) {
   try {
@@ -117,6 +131,15 @@ export async function GET(request: NextRequest) {
 
     // Parse multiple statuses if provided
     const statusList = statuses ? statuses.split(',').filter(Boolean) : null;
+    if (statusList) {
+      const unknown = statusList.filter((s) => !TASK_STATUS_VALUES.includes(s));
+      if (unknown.length > 0) {
+        throw new ApiError(
+          `Unknown task status value(s): ${unknown.join(', ')}. Valid values: ${TASK_STATUS_VALUES.join(', ')}`,
+          400
+        );
+      }
+    }
 
     // Build base where clause
     const baseConditions: any = {
@@ -491,7 +514,9 @@ export async function POST(request: NextRequest) {
         sop_id: data.sop_id,
         requirements: sopDefaults.requirements || undefined,
         review_requirements: sopDefaults.review_requirements || undefined,
-        needs_review: sopDefaults.needs_review ?? true,
+        // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — explicit param beats SOP
+        // default beats the (now false) schema default.
+        needs_review: data.needs_review ?? sopDefaults.needs_review ?? false,
         reviewer_id: defaultReviewerId,
         energy_estimate: energyEstimate,
         mystery_factor: mysteryFactor as MysteryFactor,
@@ -501,8 +526,9 @@ export async function POST(request: NextRequest) {
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: serializeRichText(data.notes),
         promised_to: data.promised_to ?? null,
-        // Billing fields - charter tasks are never billable (already invoiced via charter)
-        is_billable: data.charter_id ? false : (data.is_billable ?? true),
+        // Billing fields - charter tasks are never billable (already invoiced via charter).
+        // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false.
+        is_billable: data.charter_id ? false : (data.is_billable ?? false),
         billing_target: data.billing_target,
         billing_amount: data.billing_amount,
         is_retainer_work: data.charter_id ? true : (data.is_retainer_work ?? isRetainerProject),

@@ -2,11 +2,15 @@
 
 import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils/cn';
-import { MODE_TABS, isReturnToWorkVisible, type OracleMode } from './mode-shell-logic';
+import { useTerminology } from '@/lib/hooks/use-terminology';
+import { MODE_TABS, isReturnToWorkVisible, resolveTabLabel, resolveTabTooltip, type OracleMode } from './mode-shell-logic';
 
 interface ModeTabsProps {
   mode: OracleMode;
   onChange: (mode: OracleMode) => void;
+  // Oracle Projects Tab (2026-09-04) — see the law amendment below. Count of projects
+  // stalled on Mike; the dot renders only when > 0.
+  projectsBadgeCount?: number;
 }
 
 // Clarity Phase 8 (composition) — the mode-escort law's wireframe AMENDMENT (orchestrator-
@@ -17,15 +21,34 @@ interface ModeTabsProps {
 // a border, never accent color on the tabs themselves. `Return to Work` is the one
 // exception that KEEPS a bordered, pulling treatment — it's the escape hatch and should
 // pull the eye.
-export function ModeTabs({ mode, onChange }: ModeTabsProps) {
+//
+// Oracle Projects Tab (Mike, 2026-09-04) — the LAW'S ONE PERMITTED PULL: a small red dot
+// on the Projects tab, shown only when count > 0, counting projects stalled on Mike.
+// Mike explicitly asked for it ("a red dot indicator with the number") — this is a
+// deliberate, named exception to "no visual pull," not a drift back toward the
+// wireframe's forbidden treatment. Every other tab (Work/Plan/Process) stays exactly as
+// amended above: no background, no border, no accent color, no badge.
+//
+// Spec polish (2026-09-04): the count renders as VISIBLE TEXT inside the dot itself,
+// not only in the paired sr-only node — Mike asked to see the number, not just a plain
+// dot. The dot stays aria-hidden (decorative, now carrying redundant visible text) since
+// the sr-only text node right after it is what a screen reader actually announces
+// ("N projects waiting on you"), same as before this change.
+export function ModeTabs({ mode, onChange, projectsBadgeCount = 0 }: ModeTabsProps) {
+  const { t } = useTerminology();
   return (
     <nav className="flex items-center gap-2" aria-label="Seeing Stone modes" data-testid="mode-tabs">
       {MODE_TABS.map((tab, i) => {
         const active = tab.mode === mode;
+        const showBadge = tab.mode === 'projects' && projectsBadgeCount > 0;
+        // Spec polish (2026-09-04) — the Projects tab's label/tooltip use
+        // useTerminology so the tab and the Sidebar's own t('projects') nav item agree.
+        const label = resolveTabLabel(tab, t);
+        const tooltip = resolveTabTooltip(tab, t);
         return (
           <div key={tab.mode} className="flex items-center gap-2">
             {i > 0 && <span aria-hidden="true" className="text-text-muted/50">·</span>}
-            <Tooltip content={tab.tooltip}>
+            <Tooltip content={tooltip}>
               <button
                 type="button"
                 onClick={() => onChange(tab.mode)}
@@ -38,7 +61,25 @@ export function ModeTabs({ mode, onChange }: ModeTabsProps) {
                 )}
               >
                 <span className="text-[0.7rem] text-text-sub" aria-hidden="true">{tab.glyph}</span>
-                {tab.label}
+                {label}
+                {showBadge && (
+                  <span
+                    data-testid="mode-tab-projects-badge"
+                    aria-hidden="true"
+                    className="ml-0.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[0.65rem] font-semibold leading-none text-white"
+                    style={{ backgroundColor: 'var(--error)' }}
+                  >
+                    {projectsBadgeCount}
+                  </span>
+                )}
+                {showBadge && (
+                  // Phase 2 follow-up (verification) — an aria-label on a bare <span>
+                  // with no role is announced inconsistently across screen readers
+                  // (several ignore it entirely on a plain span). A visually-hidden text
+                  // NODE is read reliably; the dot above is aria-hidden and stays the
+                  // only visible affordance.
+                  <span className="sr-only">{`${projectsBadgeCount} projects waiting on you`}</span>
+                )}
               </button>
             </Tooltip>
           </div>

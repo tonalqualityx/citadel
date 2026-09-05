@@ -20,6 +20,8 @@ const updateSopSchema = z.object({
   energy_estimate: z.number().int().min(1).max(8).optional().nullable(),
   mystery_factor: z.enum(['none', 'average', 'significant', 'no_idea']).optional(),
   battery_impact: z.enum(['average_drain', 'high_drain', 'energizing']).optional(),
+  // Whether tasks created from this SOP need review (Oracle Projects Phase 1, 2026-09-04).
+  needs_review: z.boolean().optional(),
   // PM/Admin checklists
   setup_requirements: z.any().optional().nullable(),
   review_requirements: z.any().optional().nullable(),
@@ -161,6 +163,7 @@ export async function PATCH(
     if (data.energy_estimate !== undefined) updateData.energy_estimate = data.energy_estimate;
     if (data.mystery_factor !== undefined) updateData.mystery_factor = data.mystery_factor;
     if (data.battery_impact !== undefined) updateData.battery_impact = data.battery_impact;
+    if (data.needs_review !== undefined) updateData.needs_review = data.needs_review;
     // PM/Admin checklists
     if (data.setup_requirements !== undefined) {
       updateData.setup_requirements = data.setup_requirements;

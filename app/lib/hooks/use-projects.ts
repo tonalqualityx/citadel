@@ -50,6 +50,15 @@ export interface Project {
   is_retainer: boolean;
   workload_completed_mode: 'low' | 'medium' | 'high' | 'actual';
   dependencies_ordering_only: boolean;
+  // Oracle Projects Phase 1 — the hybrid next-step line + running email summary +
+  // stale-mute (see Project.next_step_* doc comments in prisma/schema.prisma).
+  next_step_text: string | null;
+  next_step_owner_id: string | null;
+  next_step_source: 'graph' | 'bast' | 'mike' | null;
+  next_step_at: string | null;
+  email_summary: string | null;
+  email_summary_at: string | null;
+  stale_muted_until: string | null;
   // Calculated from tasks
   calculated: ProjectCalculated;
   // Health (only for active projects)

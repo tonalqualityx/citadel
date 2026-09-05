@@ -32,6 +32,9 @@ vi.mock('@/lib/db/prisma', () => ({
     sop: {
       findUnique: vi.fn(),
     },
+    charter: {
+      findUnique: vi.fn(),
+    },
     projectTeamAssignment: {
       findFirst: vi.fn(),
     },
@@ -79,6 +82,7 @@ const mockArcFindUnique = prisma.arc.findUnique as Mock;
 const mockUserFindUnique = prisma.user.findUnique as Mock;
 const mockFunctionFindUnique = prisma.function.findUnique as Mock;
 const mockSopFindUnique = prisma.sop.findUnique as Mock;
+const mockCharterFindUnique = prisma.charter.findUnique as Mock;
 const mockProjectTeamAssignment = prisma.projectTeamAssignment.findFirst as Mock;
 const mockLogCreate = vi.mocked(logCreate);
 const mockNotifyTaskAssigned = vi.mocked(notifyTaskAssigned);
@@ -190,6 +194,51 @@ describe('POST /api/tasks', () => {
         'task',
         'task-123',
         'Test Task'
+      );
+    });
+  });
+
+  describe('Review workflow defaults (Oracle Projects Phase 1, 2026-09-04)', () => {
+    it('a task with no SOP defaults needs_review and is_billable to false', async () => {
+      const request = createPostRequest({ title: 'No-SOP task' });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            needs_review: false,
+            is_billable: false,
+          }),
+        })
+      );
+    });
+
+    it('an explicit needs_review:true is honored even with no SOP', async () => {
+      const request = createPostRequest({ title: 'Explicit review', needs_review: true });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ needs_review: true }) })
+      );
+    });
+
+    it('an explicit is_billable:true is honored even with no SOP', async () => {
+      const request = createPostRequest({ title: 'Explicit billable', is_billable: true });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ is_billable: true }) })
+      );
+    });
+
+    it('a charter task is never billable even with is_billable:true explicitly set', async () => {
+      const charterId = '550e8400-e29b-41d4-a716-446655440009';
+      mockCharterFindUnique.mockResolvedValue({ id: charterId, client_id: 'client-1' });
+      const request = createPostRequest({ title: 'Charter task', charter_id: charterId, is_billable: true });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ is_billable: false }) })
       );
     });
   });
@@ -513,6 +562,36 @@ describe('POST /api/tasks', () => {
             needs_review: true,
           }),
         })
+      );
+    });
+
+    it('an SOP with needs_review:false applies that default (Oracle Projects Phase 1)', async () => {
+      mockSopFindUnique.mockResolvedValue({
+        id: sopId,
+        template_requirements: null,
+        review_requirements: null,
+        energy_estimate: null,
+        mystery_factor: 'none',
+        battery_impact: 'average_drain',
+        default_priority: 3,
+        needs_review: false,
+        function_id: null,
+      });
+
+      const request = createPostRequest({ title: 'SOP task, no review needed', sop_id: sopId });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ needs_review: false }) })
+      );
+    });
+
+    it('an explicit needs_review:false wins over an SOP default of true', async () => {
+      const request = createPostRequest({ title: 'Override SOP', sop_id: sopId, needs_review: false });
+      await POST(request);
+
+      expect(mockTaskCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ needs_review: false }) })
       );
     });
   });
@@ -923,6 +1002,23 @@ describe('GET /api/tasks', () => {
         }),
       })
     );
+  });
+
+  it('rejects an unknown status value in statuses with 400 (K5)', async () => {
+    const request = createGetRequest({ statuses: 'not_started,ready' });
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toContain('ready');
+    expect(mockTaskFindMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a completely bogus statuses value with 400 (K5)', async () => {
+    const request = createGetRequest({ statuses: 'garbage' });
+    const response = await GET(request);
+
+    expect(response.status).toBe(400);
   });
 
   it('supports project_id filter', async () => {

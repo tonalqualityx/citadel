@@ -34,6 +34,7 @@ model User {
   email_digest_queue    EmailDigestQueue[]
   slack_notification_batch SlackNotificationBatch[]
   projects_created      Project[]              @relation("ProjectCreatedBy")
+  projects_next_step_owner Project[]           @relation("ProjectNextStepOwner")
   team_assignments      ProjectTeamAssignment[]
   user_functions        UserFunction[]
   tasks_assigned        Task[]                 @relation("TaskAssignee")
@@ -635,6 +636,25 @@ model Project {
   // Notes
   notes           String?       @db.Text
 
+  // Oracle Projects Phase 1 (2026-09-04) — mirrored from schema.prisma. NOTE: this
+  // duplicate schema is already substantially stale (predates EmailAsk, ClientContact,
+  // Arc, dependencies_ordering_only, and more) and is not referenced by any tooling in
+  // this repo (package.json's prisma config and every npx prisma command point at
+  // schema.prisma). Only the directly-analogous scalar fields and default flips are
+  // mirrored here; ProjectNote/ApprovalRequest/BlockerDismissal and the EmailAsk
+  // columns are NOT added to this file since their related models don't exist in it.
+  next_step_text     String?          @db.Text
+  next_step_owner_id String?          @db.Uuid
+  next_step_owner    User?            @relation("ProjectNextStepOwner", fields: [next_step_owner_id], references: [id])
+  // Oracle Projects Phase 3 (2026-09-04) — mirrored from schema.prisma.
+  next_step_owner_label          String?          @db.VarChar(255)
+  next_step_source               NextStepSource?
+  next_step_at                   DateTime?
+  next_step_refresh_requested_at DateTime?
+  email_summary      String?          @db.Text
+  email_summary_at   DateTime?
+  stale_muted_until  DateTime?
+
   // Metadata
   is_deleted      Boolean       @default(false)
   created_at      DateTime      @default(now())
@@ -681,6 +701,13 @@ model ProjectPhase {
 
   @@index([project_id])
   @@map("project_phases")
+}
+
+// Oracle Projects Phase 1 (2026-09-04, mirrored from schema.prisma)
+enum NextStepSource {
+  graph
+  bast
+  mike
 }
 
 enum ProjectStatus {
@@ -807,7 +834,7 @@ model Task {
   review_requirements Json?         // PM/Admin-only QA checklist (Quality Gate)
 
   // Review workflow
-  needs_review        Boolean       @default(true)  // Whether task requires approval when done
+  needs_review        Boolean       @default(false) // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false
   reviewer_id         String?       @db.Uuid        // Who reviews/approves the task
   reviewer            User?         @relation("TaskReviewer", fields: [reviewer_id], references: [id])
   approved            Boolean       @default(false) // Whether task has been approved
@@ -823,7 +850,7 @@ model Task {
   invoiced          Boolean       @default(false)
   invoiced_at       DateTime?
   invoiced_by_id    String?       @db.Uuid
-  is_billable       Boolean       @default(true)
+  is_billable       Boolean       @default(false) // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false
   billing_target    Decimal?      @db.Decimal(10, 2)
   is_retainer_work  Boolean       @default(false)
   is_support        Boolean       @default(false)  // Support task (covered by hosting/maintenance)
@@ -1020,7 +1047,7 @@ model Sop {
   mystery_factor        MysteryFactor @default(none)
   battery_impact        BatteryImpact @default(average_drain)
   estimated_minutes     Int?                             // Calculated or manual
-  needs_review          Boolean       @default(true)     // Whether tasks from this SOP need review
+  needs_review          Boolean       @default(false)    // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false
 
   // Template requirements (copied to tasks as checklist)
   template_requirements Json?         // Visible to all roles - task completion checklist

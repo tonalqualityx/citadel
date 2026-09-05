@@ -42,6 +42,7 @@ export const sopEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'title', type: 'string', required: true, description: 'SOP title' },
           { name: 'bast_executable', type: 'boolean', required: false, description: 'Capability gate: this KIND of work is automatable by Bast in principle (default false). AND-ed with Site.bast_enabled.' },
+          { name: 'needs_review', type: 'boolean', required: false, description: 'Whether tasks created from this SOP need review (default false).' },
         ],
         responseExample: { id: 'uuid', title: 'string', created_at: 'ISO-8601' },
       },
@@ -91,6 +92,7 @@ export const sopEndpoints: ApiEndpoint[] = [
         roles: ['pm', 'admin'],
         bodySchema: [
           { name: 'bast_executable', type: 'boolean', required: false, description: 'Capability gate: this KIND of work is automatable by Bast in principle. AND-ed with Site.bast_enabled.' },
+          { name: 'needs_review', type: 'boolean', required: false, description: 'Whether tasks created from this SOP need review.' },
         ],
         responseExample: { id: 'uuid', title: 'string', updated_at: 'ISO-8601' },
       },

@@ -4,7 +4,7 @@ import * as React from 'react';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
-interface CheckboxProps {
+interface CheckboxProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onChange' | 'checked' | 'type'> {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -18,6 +18,7 @@ export function Checkbox({
   disabled = false,
   id,
   className,
+  ...rest
 }: CheckboxProps) {
   return (
     <button
@@ -36,6 +37,7 @@ export function Checkbox({
         checked ? 'bg-primary border-primary text-white' : 'bg-surface',
         className
       )}
+      {...rest}
     >
       {checked && <Check className="h-3 w-3" />}
     </button>

@@ -74,6 +74,10 @@ export interface Task {
   approved_at: string | null;
   approved_by_id: string | null;
   approved_by: { id: string; name: string } | null;
+  // Client staging approval (Oracle Projects Tab Phase 5 — ApprovalPanel's "what is
+  // being approved" link). The API has returned this since client staging review
+  // shipped; the type never declared it.
+  staging_preview_url: string | null;
   // Billing
   is_billable: boolean;
   billing_target: number | null;
@@ -159,6 +163,9 @@ export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   approved?: boolean;
   // Billing fields
   is_support?: boolean;
+  // Oracle Projects Tab Phase 4 — full-replace tags PATCH (BlockerRow's "reply and
+  // clear" removes the parking tag that surfaced the blocker in the first place).
+  tags?: string[];
 }
 
 export function useTasks(filters: TaskFilters = {}, options?: { enabled?: boolean }) {

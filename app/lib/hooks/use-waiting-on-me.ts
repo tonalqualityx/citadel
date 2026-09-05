@@ -66,6 +66,11 @@ export interface EmailAsk {
   calendar_requested: boolean;
   calendar_event_id: string | null;
   task_id: string | null;
+  // Oracle Projects Phase 1 — client/project auto-match (see EmailAsk.match_source's
+  // own doc comment in prisma/schema.prisma for the auto/mike/unmatched provenance rule).
+  client_id: string | null;
+  project_id: string | null;
+  match_source: 'auto' | 'mike' | 'unmatched' | null;
   deep_link: string;
   received_at: string;
   created_at: string;

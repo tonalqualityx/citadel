@@ -56,7 +56,7 @@ export function useComments(taskId: string, options?: { enabled?: boolean }) {
 /**
  * Create a new comment on a task
  */
-export function useCreateComment(taskId: string) {
+export function useCreateComment(taskId: string, options?: { silent?: boolean }) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -64,7 +64,10 @@ export function useCreateComment(taskId: string) {
       apiClient.post<Comment>(`/tasks/${taskId}/comments`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: commentKeys.task(taskId) });
-      showToast.success('Comment added');
+      // LOW-9: a caller with its own, more specific success message (e.g. the Oracle
+      // Projects tab's "Reply sent and tag cleared") passes silent:true so the reader
+      // never sees this generic toast land right on top of it.
+      if (!options?.silent) showToast.success('Comment added');
     },
     onError: (error) => {
       showToast.apiError(error, 'Failed to add comment');

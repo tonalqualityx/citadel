@@ -1,0 +1,143 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/db/prisma';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { handleApiError, ApiError } from '@/lib/api/errors';
+import { logActivity } from '@/lib/services/activity';
+import { lintNextStepFields } from '@/lib/oracle/projects/next-step-lint';
+
+// Oracle Projects Tab Phase 3 — PUT used ONLY by the machine-side job
+// (~/.claude/tools/citadel-projects/next-step-refresh.py) to write a freshly-inferred
+// next-step line. pm/admin only (H2 security fix) — a tech-role key must not be able to
+// write a fabricated next-step or email-summary line onto a project. next-step-
+// refresh.py already runs on a key whose user has pm/admin, so this costs it nothing.
+//
+// Mike's override always wins: if the project's CURRENT next_step_source is 'mike',
+// next_step_text/owner/source/at are left completely untouched — but email_summary is
+// still written (Mike overriding the next-step LINE doesn't mean he wants the running
+// email summary frozen too; those are independent pieces of information). Either way,
+// next_step_refresh_requested_at is cleared, since the refresh this call answers is done.
+//
+// HIGH-2 fix (verification pass): email_summary has three distinct caller intents, and
+// this route now tells them apart by checking the RAW request body for the key's
+// presence, not just its parsed value — key absent leaves the stored email_summary
+// completely untouched; key present with `null` clears it; key present with a string
+// replaces it. Previously `data.email_summary ?? null` treated "key omitted" exactly
+// like "key sent as null," silently nulling out a real running summary on any write
+// whose body simply didn't happen to include a fresh one.
+//
+// next_step_text and email_summary are both linted server-side with the same
+// writing-standard gate the machine-side job already ran client-side (belt and
+// suspenders: a job bug or a hand-crafted call must not be able to write bad copy) — a
+// violation on either field 422s the whole call with no write at all.
+const writeSchema = z
+  .object({
+    text: z.string().trim().min(1).max(500),
+    owner_id: z.string().uuid().optional(),
+    owner_label: z.string().trim().min(1).max(255).optional(),
+    email_summary: z.string().trim().max(2000).optional().nullable(),
+    source: z.literal('bast'),
+    generated_at: z.string().datetime(),
+    model: z.string().min(1),
+    cost_usd: z.number().nonnegative().optional(),
+  })
+  .refine((data) => !(data.owner_id && data.owner_label), {
+    message: 'Provide at most one of owner_id or owner_label',
+  });
+
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
+    const { id: projectId } = await params;
+
+    const project = await prisma.project.findUnique({
+      where: { id: projectId, is_deleted: false },
+      select: { id: true, name: true, next_step_source: true },
+    });
+    if (!project) {
+      throw new ApiError('Project not found', 404);
+    }
+
+    const body = await request.json();
+    const data = writeSchema.parse(body);
+    // HIGH-2 fix (verification pass): the caller's intent for email_summary has three
+    // states this route must tell apart — omit the key (leave the stored value
+    // untouched), send it as `null` (clear it), or send it as a string (replace it).
+    // Zod's `.optional()` collapses "key absent" and "key explicitly undefined" into
+    // the same `undefined` on `data.email_summary`, indistinguishable from `?? null`
+    // below — which was unconditionally nulling out email_summary on every write that
+    // didn't happen to include a fresh summary, even when the caller never meant to
+    // touch it. Checked against the RAW parsed body, before Zod's own normalization.
+    const emailSummaryProvided = Object.prototype.hasOwnProperty.call(body, 'email_summary');
+
+    if (data.owner_id) {
+      const owner = await prisma.user.findUnique({ where: { id: data.owner_id }, select: { id: true } });
+      if (!owner) {
+        throw new ApiError('Owner not found', 404);
+      }
+    }
+
+    const violations = lintNextStepFields({ next_step_text: data.text, email_summary: data.email_summary });
+    if (violations.length > 0) {
+      return NextResponse.json(
+        { error: 'next_step_text or email_summary failed the writing-standard lint', violations },
+        { status: 422 }
+      );
+    }
+
+    const mikeOwns = project.next_step_source === 'mike';
+    const now = new Date();
+
+    const updated = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        ...(mikeOwns
+          ? {}
+          : {
+              next_step_text: data.text,
+              next_step_owner_id: data.owner_id ?? null,
+              next_step_owner_label: data.owner_label ?? null,
+              next_step_source: 'bast' as const,
+              next_step_at: new Date(data.generated_at),
+            }),
+        ...(emailSummaryProvided
+          ? {
+              email_summary: data.email_summary ?? null,
+              email_summary_at: data.email_summary ? now : null,
+            }
+          : {}),
+        next_step_refresh_requested_at: null,
+      },
+      include: { next_step_owner: { select: { id: true, name: true } } },
+    });
+
+    await logActivity({
+      userId: auth.userId,
+      action: 'updated',
+      entityType: 'project',
+      entityId: projectId,
+      entityName: project.name,
+      changes: {
+        next_step_refresh: {
+          from: null,
+          to: { applied: !mikeOwns, model: data.model, cost_usd: data.cost_usd ?? null },
+        },
+      },
+    });
+
+    return NextResponse.json({
+      applied: !mikeOwns,
+      next_step: {
+        text: updated.next_step_text,
+        owner: updated.next_step_owner ? { id: updated.next_step_owner.id, name: updated.next_step_owner.name } : null,
+        owner_label: updated.next_step_owner_label,
+        source: updated.next_step_source,
+        at: updated.next_step_at?.toISOString() ?? null,
+      },
+      email_summary: updated.email_summary,
+    });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}

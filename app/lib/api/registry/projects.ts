@@ -298,6 +298,61 @@ export const projectEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/projects/:id/notes',
+    group: 'projects',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List a project\'s notes log (non-deleted, newest first).',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes: 'pm/admin only (H2 security fix) — a parked_until note\'s body carries Mike\'s own reasoning for snoozing the stale blocker.',
+        responseExample: {
+          notes: [{
+            id: 'uuid',
+            project_id: 'uuid',
+            user_id: 'uuid',
+            user: { id: 'uuid', name: 'string' },
+            kind: 'note|parked_until',
+            body: 'string',
+            until_date: 'ISO-8601|null',
+            is_deleted: 'boolean',
+            created_at: 'ISO-8601',
+            updated_at: 'ISO-8601',
+          }],
+          count: 'number',
+        },
+      },
+      {
+        method: 'POST',
+        summary: 'Add a note (or a parked_until snooze) to a project.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'kind', type: 'string', required: false, description: 'note (default) or parked_until' },
+          { name: 'body', type: 'string', required: true, description: '1-10000 chars' },
+          { name: 'until_date', type: 'string', required: false, description: 'Required when kind is parked_until; also sets Project.stale_muted_until. A plain YYYY-MM-DD calendar date, not an ISO instant — the route resolves it to end-of-day in the REQUESTING user\'s own timezone (resolveUserTimezone) before storing.' },
+        ],
+        responseExample: { id: 'uuid', project_id: 'uuid', kind: 'note|parked_until', body: 'string', created_at: 'ISO-8601' },
+        responseNotes: 'A parked_until note additionally recomputes Project.stale_muted_until = MAX(until_date) over the project\'s live parked_until notes (not a direct stamp of this note\'s own until_date).',
+      },
+    ],
+  },
+  {
+    path: '/api/projects/:id/notes/:noteId',
+    group: 'projects',
+    methods: [
+      {
+        method: 'DELETE',
+        summary: 'Soft delete a project note.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { success: true },
+        responseNotes: 'Project.stale_muted_until is recomputed as MAX(until_date) over the project\'s remaining live parked_until notes after the delete — it clears only when no live parked_until note remains, and falls back to an older still-live park\'s date otherwise.',
+      },
+    ],
+  },
+  {
     path: '/api/milestones/:id',
     group: 'projects',
     methods: [

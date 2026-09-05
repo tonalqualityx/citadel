@@ -350,4 +350,471 @@ export const oracleEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/oracle/projects',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Oracle Projects Tab Phase 2 — the 4th Oracle mode\'s signals feed: every in-progress contracted project with its blockers, owner, movement, and hybrid next-step line.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Loads projects with type=project, status=in_progress, is_deleted=false. Each blocker kind ' +
+          '(decision, clarification, review, session_ask, mention, client_email, client_approval, ' +
+          'someone_else, stale, meeting_risk) is classified by lib/oracle/projects/blockers.ts; a ' +
+          'project is "stalled on Mike" when ANY of its non-dismissed blockers is owned by Mike. ' +
+          'Projects sort stalled-on-Mike first, then by days_quiet descending. ' +
+          'Judgment calls: EmailAsk.replied is state !== \'open\' only (this schema tracks no outbound ' +
+          'reply record); a calendar event links to a client by attendee-email match against that ' +
+          'client\'s ClientContact rows (CalendarEvent has no first-class client relation) and, if ' +
+          'matched, is attached only to a client\'s SOLE in-progress project (ambiguous with 0 or 2+ ' +
+          'never guesses). A session ask (Needs Reshi) surfaces here ONLY when its OracleSession ' +
+          'declared an arc — OracleSession has no client/project column of its own, so an arc-less ' +
+          'ask can never be attributed to a project and stays visible only in /api/waiting-on-me. ' +
+          'The mention scan and the movement comment feed both share the SAME 90-day lookback window ' +
+          '(comments older than 90 days never produce a mention blocker and are never read for ' +
+          'movement either) — this is a fixed window, not configurable per project.',
+        responseExample: {
+          projects: [
+            {
+              id: 'uuid',
+              name: 'string',
+              client: { id: 'uuid', name: 'string' },
+              status: 'in_progress',
+              next_step: {
+                text: 'string',
+                owner: { id: 'uuid', name: 'string' },
+                owner_label: 'string|null',
+                source: 'graph|bast|mike|none',
+                at: 'ISO-8601|null',
+              },
+              last_movement: { at: 'ISO-8601', who: 'string', what: 'string' },
+              days_quiet: 'number|null',
+              stale: 'boolean',
+              stalled_on_mike: 'boolean',
+              blockers: [
+                {
+                  kind: 'decision|clarification|review|session_ask|mention|client_email|client_approval|someone_else|stale|meeting_risk',
+                  id: 'string',
+                  title: 'string',
+                  detail: 'string',
+                  owner: { id: 'string', name: 'string', is_mike: 'boolean' },
+                  source: { type: 'string', id: 'string', url: 'string' },
+                  since: 'ISO-8601',
+                  actions: ['reply'],
+                },
+              ],
+              counts_by_kind: { review: 1 },
+              refresh_requested_at: 'ISO-8601|null',
+              open_url: '/projects/uuid',
+            },
+          ],
+          stalled_count: 'number',
+          generated_at: 'ISO-8601',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/next-step',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: "Oracle Projects Tab Phase 3 — Mike's manual next-step override (sticky until changed or cleared).",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Sets next_step_source=mike, which wins over both the nightly/on-demand Bast line and the live ' +
+          'task-graph candidate (see mergeNextStep). owner_id and owner_label are mutually exclusive; ' +
+          'a PATCH always sets both owner fields, clearing whichever one was not sent.',
+        bodySchema: [
+          { name: 'text', type: 'string', required: true, description: '1-500 chars' },
+          { name: 'owner_id', type: 'uuid', required: false, description: 'A User. Mutually exclusive with owner_label.' },
+          { name: 'owner_label', type: 'string', required: false, description: 'Free text for a non-User owner, e.g. "Andy (client)". 1-255 chars.' },
+        ],
+        responseExample: {
+          next_step: { text: 'string', owner: { id: 'uuid', name: 'string' }, owner_label: 'string|null', source: 'mike', at: 'ISO-8601' },
+        },
+      },
+      {
+        method: 'DELETE',
+        summary: "Clears Mike's next-step override — source reverts to null so the next bast refresh or the live graph candidate applies again.",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes: 'Does not itself trigger a refresh; pair with POST .../refresh for an immediate fresh line.',
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/next-step/write',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side job only (next-step-refresh.py): writes a freshly-inferred next-step line and/or email summary.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          "pm/admin only (H2 security fix) — a tech-role key must not be able to write a fabricated " +
+          "next-step or email-summary line. next-step-refresh.py already runs on a key whose user has " +
+          "pm/admin, so this costs it nothing. Mike's override " +
+          "always wins: if the project's CURRENT next_step_source is 'mike', next_step_text/owner/source/at " +
+          'are left untouched, but email_summary is still written (`applied: false` in the response signals ' +
+          'this). Either way, next_step_refresh_requested_at is cleared. next_step_text and email_summary are ' +
+          'both linted server-side against the writing-standard comment-gate patterns ' +
+          '(lib/oracle/projects/next-step-lint.ts) — a violation on either field 422s with no write at all.',
+        bodySchema: [
+          { name: 'text', type: 'string', required: true, description: '1-500 chars' },
+          { name: 'owner_id', type: 'uuid', required: false, description: 'Mutually exclusive with owner_label' },
+          { name: 'owner_label', type: 'string', required: false, description: 'Mutually exclusive with owner_id' },
+          { name: 'email_summary', type: 'string', required: false, description: 'Up to 2000 chars, or null/absent when there are no linked emails' },
+          { name: 'source', type: 'string', required: true, description: "Must be the literal 'bast'" },
+          { name: 'generated_at', type: 'ISO-8601', required: true, description: '' },
+          { name: 'model', type: 'string', required: true, description: 'e.g. "sonnet" — recorded in the activity log' },
+          { name: 'cost_usd', type: 'number', required: false, description: '' },
+        ],
+        responseExample: {
+          applied: 'boolean',
+          next_step: { text: 'string', owner: { id: 'uuid', name: 'string' }, owner_label: 'string|null', source: 'bast', at: 'ISO-8601' },
+          email_summary: 'string|null',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/refresh',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Queues an on-demand next-step refresh for one project.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Stamps next_step_refresh_requested_at; the machine-side job\'s --requested poll (every 2 minutes ' +
+          'during business hours) picks it up and clears the stamp via PUT .../next-step/write. 202 means ' +
+          'queued, not done.',
+        responseExample: { requested_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/refresh',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Queues an on-demand next-step refresh for EVERY in-progress, type=project project at once.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { requested_at: 'ISO-8601', count: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/refresh-requests',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'GET',
+        summary: "Machine-side job only: projects with a queued on-demand refresh, oldest first.",
+        auth: 'required',
+        responseNotes: 'Bearer, any authenticated user — a cheap GET, not a Mike-only action.',
+        responseExample: {
+          ids: ['uuid'],
+          requests: [{ id: 'uuid', requested_at: 'ISO-8601' }],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/{id}/dismiss',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Oracle Projects Tab Phase 5 — dismisses one blocker on a project.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Creates a BlockerDismissal row. The classifier (lib/oracle/projects/blockers.ts) hides ' +
+          'exactly that blocker until NEW activity supersedes source_marker (a newer comment id, a ' +
+          'newer email received_at, etc.) — the underlying mention/email/ask/task is never touched. ' +
+          'Every dismissible Blocker carries the exact {kind, source_id, source_marker} triple to send ' +
+          'on its own `dismiss` field (null for the four kinds that resolve only through their own ' +
+          'state changes: decision, clarification, client_approval, someone_else).',
+        bodySchema: [
+          { name: 'kind', type: 'string', required: true, description: 'mention|email|session_ask|task|meeting_risk|stale' },
+          { name: 'source_id', type: 'string', required: true, description: '' },
+          { name: 'source_marker', type: 'string', required: false, description: '' },
+          { name: 'note', type: 'string', required: false, description: '' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          project_id: 'uuid',
+          kind: 'string',
+          source_id: 'string',
+          source_marker: 'string|null',
+          note: 'string|null',
+          dismissed_at: 'ISO-8601',
+          dismissed_by: { id: 'uuid', name: 'string' },
+        },
+      },
+      {
+        method: 'DELETE',
+        summary: 'Undoes one dismissal by its own id.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          { name: 'dismissal_id', type: 'uuid', required: true, description: "The dismissal's own id, distinct from the project id in the URL." },
+        ],
+        responseExample: { success: true },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/projects/nudge-draft',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Oracle Projects Tab Phase 5 — drafts a nudge, keyed off who owns the blocker. Never sends anything.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'owner.user_id -> a Citadel user, channel:"comment" (post through the internal-comment ' +
+          'helper, is_internal:true, @-mentioning the owner). owner.contact_id -> a ClientContact, ' +
+          "channel:\"email\" (Mike opens Gmail himself via mailto:, nothing is sent or queued here). " +
+          'owner.label -> no record at all (e.g. a contractor), channel:"email" with an empty `to` and ' +
+          'a note at the top of the body to fill one in.',
+        bodySchema: [
+          { name: 'blocker_id', type: 'string', required: true, description: '' },
+          { name: 'project_id', type: 'uuid', required: true, description: '' },
+          { name: 'owner', type: 'object', required: true, description: 'Exactly one of {user_id}, {contact_id}, or {label}' },
+        ],
+        responseExample: {
+          channel: 'comment|email',
+          to: 'string',
+          subject: 'string',
+          body: 'string',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Oracle Projects Tab Phase 5 — creates a draft approval request. Never sends anything.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'If subject/body are omitted, a server-side plain-text template is built from the task title ' +
+          "and its staging_preview_url when present (draft_source:'graph'). Both the caller-supplied and " +
+          'the templated subject/body are run through the writing-standard lint (lib/oracle/projects/' +
+          'next-step-lint.ts) — a violation 422s the whole call with no row created.',
+        bodySchema: [
+          { name: 'task_id', type: 'uuid', required: true, description: 'Must belong to a project.' },
+          { name: 'contact_id', type: 'uuid', required: false, description: "Must be a live ClientContact on the task's client." },
+          { name: 'to_email', type: 'string', required: false, description: '' },
+          { name: 'subject', type: 'string', required: false, description: '' },
+          { name: 'body', type: 'string', required: false, description: '' },
+          { name: 'kind', type: 'string', required: false, description: "approval (default) or chase. A chase row is a follow-up queued off an overdue client_approval blocker's chase_draft/chase_target (BlockerRow.tsx's \"Queue chase from my Gmail\"), linked to the SAME task_id as the original — never produces its own client_approval blocker." },
+        ],
+        responseExample: { id: 'uuid', task_id: 'uuid', project_id: 'uuid', status: 'draft', kind: 'approval|chase', subject: 'string', body: 'string' },
+      },
+      {
+        method: 'GET',
+        summary: 'Lists approval requests, filtered by status and/or task_id and/or thread_id.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'pm/admin only (H2 security fix) — response bodies carry full client-email subject/body ' +
+          'text. `?status=queued` is the machine-side sender\'s own poll ' +
+          '(~/.claude/tools/citadel-approvals/approval-sender.py, cron every 5 minutes); `?task_id=` is ' +
+          "ApprovalPanel's own fetch for one task's approval history; `?thread_id=` is the inbound-email " +
+          'classifier\'s lookup (~/.claude/tools/oracle/clarity/email-classifier.py). Both machine ' +
+          'callers already run on keys whose user has pm/admin.',
+        queryParams: [
+          { name: 'status', type: 'string', required: false, description: 'draft|queued|sent|replied|approved|changes_requested|cancelled' },
+          { name: 'task_id', type: 'uuid', required: false, description: '' },
+          { name: 'thread_id', type: 'string', required: false, description: '' },
+        ],
+        responseExample: { requests: [{ id: 'uuid', status: 'string', subject: 'string', to_email: 'string|null' }] },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'The approval-request state machine: draft edits, queue, cancel, mark approved, request changes, manually resolve a stuck send.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          'Legal transitions: draft->queued, queued->cancelled, sent|replied->approved, ' +
+          'sent|replied->changes_requested — anything else 409s. subject/body/to_email are only ' +
+          "editable while the row is still 'draft'. draft->queued requires a non-empty to_email/" +
+          'subject/body and to_email must match a live ClientContact on the task\'s client (422 ' +
+          'otherwise); stamps queued_at/queued_by_id. sent|replied->approved stamps approved_at ONLY ' +
+          '— it never touches the underlying task. sent|replied->changes_requested stamps ' +
+          'changes_requested_at and creates a follow-up task ("Changes requested: <task title>") on ' +
+          'the same project, assigned to Mike, carrying reply_note (or the existing reply_excerpt, or ' +
+          'a generic fallback) as its description. Phase 5 TAIL fixes (MEDIUM-A): TWO additional, ' +
+          "Mike-gated overrides for a 'sending' row the machine-side sender died on. " +
+          "sending->sent with confirmed_by_mike:true (\"I checked Gmail, it went out\": stamps sent_at, " +
+          'send_error:"confirmed manually", optionally message_id) and sending->draft with ' +
+          'release_stuck:true ("it did not go out": resets send_error_count to 0, stamps ' +
+          'manual_release_at). Both 409 unless send_attempt_at is more than 30 minutes old (a live ' +
+          'send in flight can never be interrupted); neither is reachable without its exact matching ' +
+          'flag. The local send ledger (approval-sender.py) still independently refuses to resend an ' +
+          'id it already handed to gog, regardless of this row\'s own status.',
+        bodySchema: [
+          { name: 'subject', type: 'string', required: false, description: '' },
+          { name: 'body', type: 'string', required: false, description: '' },
+          { name: 'to_email', type: 'string', required: false, description: '' },
+          { name: 'status', type: 'string', required: false, description: 'queued|cancelled|approved|changes_requested|sent|draft' },
+          { name: 'reply_note', type: 'string', required: false, description: 'Used only on a changes_requested transition.' },
+          { name: 'confirmed_by_mike', type: 'boolean', required: false, description: "Required (true) alongside status:'sent' to manually confirm a stuck 'sending' row went out." },
+          { name: 'release_stuck', type: 'boolean', required: false, description: "Required (true) alongside status:'draft' to manually release a stuck 'sending' row that did not go out." },
+          { name: 'message_id', type: 'string', required: false, description: 'Optional, only meaningful with confirmed_by_mike.' },
+        ],
+        responseExample: { id: 'uuid', status: 'string', queued_at: 'ISO-8601|null', approved_at: 'ISO-8601|null', manual_release_at: 'ISO-8601|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/sending',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side sender only (Phase 5 fixes, HIGH-1/MEDIUM-1): claims a queued row before gog is invoked.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin. 409 if the row isn't currently 'queued'. Stamps " +
+          'send_attempt_at. A row not claimed here is never sent; GET ?status=queued naturally excludes ' +
+          "a claimed row (a plain status equality filter). A row stuck in 'sending' for more than 30 " +
+          'minutes with no PUT .../sent on file surfaces to Mike as a blocker — never auto-resent.',
+        bodySchema: [],
+        responseExample: { id: 'uuid', status: 'sending', send_attempt_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/sent',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side sender only: marks a claimed (sending) row sent.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin. Requires the row be 'sending' (claimed via PUT .../sending " +
+          "before gog was invoked); idempotent (200, no-op) when the row is already 'sent' — the " +
+          'sender retries this same call on a later tick after a transport failure that happened AFTER ' +
+          'gog already delivered the email, and that retry must never be treated as an error. Any other ' +
+          'status 409s. message_id/thread_id may be null when delivered_unconfirmed:true — the sender ' +
+          'could not resolve either id after a real, successful send; send_error is set to a fixed ' +
+          'marker string in that case, and this is never followed by a resend.',
+        bodySchema: [
+          { name: 'message_id', type: 'string', required: false, description: 'Nullable. Required (non-null) unless delivered_unconfirmed is true.' },
+          { name: 'thread_id', type: 'string', required: false, description: 'Nullable. Required (non-null) unless delivered_unconfirmed is true.' },
+          { name: 'sent_at', type: 'ISO-8601', required: true, description: '' },
+          { name: 'delivered_unconfirmed', type: 'boolean', required: false, description: '' },
+        ],
+        responseExample: {
+          id: 'uuid',
+          status: 'sent',
+          message_id: 'string|null',
+          thread_id: 'string|null',
+          sent_at: 'ISO-8601',
+          send_error: 'string|null',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/send-error',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'PUT',
+        summary: 'Machine-side sender only: records one real gog send failure on a claimed (sending) row, or a local-send-ledger refusal on a still-queued one.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin. Requires the row be 'sending' OR 'queued' (409 for any other " +
+          "status). From 'sending' (an ordinary gog send failure): releases back to 'queued' (the next " +
+          'poll reclaims and retries) unless this is the 3rd recorded error, in which case status falls ' +
+          "back to 'draft' with send_error set and send_attempt_at cleared. From 'queued' (Phase 5 TAIL " +
+          "fixes, MEDIUM-A: the sender's local send ledger refusing an id it already handed to gog, " +
+          "without ever claiming the row): bounces STRAIGHT to 'draft' regardless of send_error_count, " +
+          'never treated as a retryable transient failure. An unresolved message id after a successful ' +
+          'send is NOT reported here. See PUT .../sent\'s own delivered_unconfirmed note.',
+        bodySchema: [{ name: 'error', type: 'string', required: true, description: '' }],
+        responseExample: { id: 'uuid', status: 'queued|draft', send_error: 'string', send_error_count: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/seen-in-meeting',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'For the meeting-sync skill (a one-line addition outside this repo, not built here).',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          "pm/admin only (H2 security fix) — a tech-role key must not be able to fabricate a client " +
+          "reply via a fake meeting mention. Stamps seen_in_meeting_at always; flips 'sent' -> 'replied' " +
+          '(stamping replied_at/reply_excerpt from the meeting excerpt) — never downgrades a row already ' +
+          'past sent.',
+        bodySchema: [
+          { name: 'meeting_id', type: 'uuid', required: false, description: 'Accepted but not persisted in this phase.' },
+          { name: 'excerpt', type: 'string', required: true, description: '' },
+          { name: 'at', type: 'ISO-8601', required: true, description: '' },
+        ],
+        responseExample: { id: 'uuid', status: 'string', seen_in_meeting_at: 'ISO-8601', replied_at: 'ISO-8601|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/approval-requests/{id}/reply',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Inbound-email classifier only: records a client reply.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseNotes:
+          "pm/admin only (H2 security fix) — a tech-role key must not be able to fabricate a client " +
+          "reply. The classifier already authenticates with a key whose user has pm/admin. Flips " +
+          "'sent' -> 'replied'; a reply on an already-'replied' " +
+          'row just refreshes replied_at/reply_excerpt; a reply on a terminal row (approved/' +
+          'changes_requested/cancelled) records the excerpt but never changes status.',
+        bodySchema: [
+          { name: 'message_id', type: 'string', required: true, description: '' },
+          { name: 'received_at', type: 'ISO-8601', required: true, description: '' },
+          { name: 'excerpt', type: 'string', required: true, description: 'First ~300 chars of the plain body.' },
+        ],
+        responseExample: { id: 'uuid', status: 'replied', replied_at: 'ISO-8601', reply_excerpt: 'string' },
+      },
+    ],
+  },
 ];
