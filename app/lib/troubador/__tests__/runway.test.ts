@@ -174,9 +174,20 @@ describe('renderMeetingRequestDraft', () => {
 
   it('admits the gap instead of promising the schedule stays intact when it cannot', () => {
     const draft = renderMeetingRequestDraft(dry, { now: NOW });
-    // The body is hard-wrapped, so match a phrase that sits inside one line.
-    expect(draft.to_client.body).toContain('will be a gap');
+    expect(draft.to_client.body).toContain('There will be a gap.');
     expect(draft.to_client.body).not.toContain('keeps the publishing schedule intact');
+  });
+
+  it('never breaks a sentence across two lines', () => {
+    // Mike pastes this into an email. A hard wrap mid-clause reads as a formatting error.
+    for (const r of [dry, compute([{ status: 'approved', published_url: null }], { publish_per_week: 0.5, lead_time_days: 7 })]) {
+      const lines = renderMeetingRequestDraft(r, { now: NOW }).to_client.body.split('\n');
+      for (const [i, line] of lines.entries()) {
+        const next = lines[i + 1];
+        if (!line.trim() || !next?.trim()) continue;
+        expect(line.trimEnd().endsWith('.') || line.trimEnd().endsWith(',')).toBe(true);
+      }
+    }
   });
 
   it('addresses the client neutrally when no contact name is known', () => {

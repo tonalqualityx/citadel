@@ -204,16 +204,16 @@ export function renderMeetingRequestDraft(
   const alreadyLate = idealBookBy < today;
   const bookBy = alreadyLate ? today : idealBookBy;
 
+  // One sentence per line. Mail clients soft-wrap, and a hard wrap mid-clause reads as a
+  // formatting error to whoever opens it.
   const timing = alreadyLate
     ? [
-        `The schedule for ${runway.site_name} runs out on ${runway.runway_end}, and articles need`,
-        `about ${runway.lead_time_days} days to go from conversation to published post, so there`,
-        'will be a gap. Booking this week keeps it short.',
+        `The schedule for ${runway.site_name} runs out on ${runway.runway_end}, and new articles need about ${runway.lead_time_days} days to go from conversation to published post.`,
+        'There will be a gap. Booking this week keeps it as short as possible.',
       ]
     : [
-        `Booking by ${bookBy} keeps the publishing schedule intact. Articles from that call need`,
-        `about ${runway.lead_time_days} days to move from conversation to published post, and the`,
-        `current schedule for ${runway.site_name} runs out on ${runway.runway_end}.`,
+        `Booking by ${bookBy} keeps the publishing schedule intact.`,
+        `Articles from that call need about ${runway.lead_time_days} days to move from conversation to published post, and the current schedule for ${runway.site_name} runs out on ${runway.runway_end}.`,
       ];
 
   const body = [
