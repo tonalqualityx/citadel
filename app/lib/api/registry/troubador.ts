@@ -14,13 +14,13 @@ export const troubadorEndpoints: ApiEndpoint[] = [
         summary: 'Worker entry point: actionable items across all runs, ordered by urgency.',
         auth: 'required',
         responseNotes:
-          'Returns one entry per unit of machine work the worker should do next. action ∈ generate_proposals | create_articles | research_article | post_interview_questions | draft_article | rewrite_article | publish_article. Scans runs in planning|topic_selection|researching|in_production|publishing. publish_article is surfaced for approved articles (publish now), for scheduled articles whose date has arrived, and for scheduled articles whose date has been cleared (nothing left to wait for), across both in_production and publishing runs. Respects human gates and leases.',
+          'Returns one entry per unit of machine work the worker should do next. action ∈ generate_proposals | create_articles | research_article | post_interview_questions | draft_article | rewrite_article | publish_article | reevaluate_topics. Scans runs in planning|topic_selection|researching|in_production|publishing. publish_article is surfaced for approved articles (publish now), for scheduled articles whose date has arrived, and for scheduled articles whose date has been cleared (nothing left to wait for), across both in_production and publishing runs. Respects human gates and leases. reevaluate_topics is the content-runway alarm: it is site-driven rather than run-driven (a site whose runs have all finished contributes nothing to the run scan, which is exactly what an exhausted site looks like), carries the site runway figures and a drafted meeting request, and is suppressed while the site already has a run in a live stage or an open task tagged content-runway (the follow-up the alarm itself files: once it exists the ask has been raised, so the queue stops re-emitting it). Its run_id, run_stage, article_id and article_slug are always null and its urgency_date is the day the site runs out of content. The top-level runway block reports every watched site, low runway or not.',
         responseExample: {
           items: [
             {
               action: 'string',
-              run_id: 'uuid',
-              run_stage: 'string',
+              run_id: 'uuid|null',
+              run_stage: 'string|null',
               client: { id: 'uuid', name: 'string' },
               site: { id: 'uuid', name: 'string', site_type: 'eleventy|wordpress|null' },
               article_id: 'uuid|null',
@@ -29,6 +29,59 @@ export const troubadorEndpoints: ApiEndpoint[] = [
             },
           ],
           count: 'number',
+          runway: {
+            low_runway_count: 'number',
+            sites: [{ site_id: 'uuid', site_name: 'string', runway_days: 'number', low_runway: 'boolean' }],
+          },
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/troubador/runway',
+    group: 'troubador',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Content runway per site, plus a drafted meeting request for sites about to run dry.',
+        auth: 'required',
+        responseNotes:
+          'Read-only; sends nothing. A site is watched when it has an active schedule, a run in a live stage, or an article published in the last 90 days (the last clause both catches a site that just ran dry and ages a finished engagement off the alarm). shelf_count counts approved|scheduled articles with no published_url; postponed and dropped are parked, not runway. runway_days = floor(shelf_count / publish_per_week * 7); cadence_source says whether publish_per_week came from the site schedule or the default. low_runway is runway_days <= lead_time_days + 7. unscheduled_count is reported separately because the publish driver only dispatches articles that carry a date, so a stocked shelf can still be unpublishable. has_open_alarm_task is true when an open task tagged content-runway already names the site. alarms carries one entry per low-runway site with the drafted client note and the internal summary for Mike; the draft is fixed wording, never model-composed, and always awaits human approval.',
+        responseExample: {
+          generated_at: 'ISO-8601',
+          sites: [
+            {
+              site_id: 'uuid',
+              site_name: 'string',
+              client_id: 'uuid',
+              client_name: 'string',
+              shelf_count: 'number',
+              unscheduled_count: 'number',
+              postponed_count: 'number',
+              publish_per_week: 'number',
+              cadence_source: 'schedule|default',
+              lead_time_days: 'number',
+              runway_days: 'number',
+              runway_end: 'YYYY-MM-DD',
+              scheduled_through: 'YYYY-MM-DD|null',
+              trigger_days: 'number',
+              low_runway: 'boolean',
+              has_live_run: 'boolean',
+              has_open_alarm_task: 'boolean',
+            },
+          ],
+          alarms: [
+            {
+              runway: { site_id: 'uuid', runway_days: 'number' },
+              meeting_request_draft: {
+                to_client: { subject: 'string', body: 'string' },
+                to_mike: 'string',
+                booking_url: 'string',
+                book_by_date: 'YYYY-MM-DD',
+              },
+            },
+          ],
+          low_runway_count: 'number',
         },
       },
     ],

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { isLeaseActive } from '@/lib/troubador/helpers';
+import { getRunwayReport } from '@/lib/services/troubador-runway';
 
 // Stages beyond research where an article is considered "researched or beyond".
 const RESEARCHED_OR_BEYOND = new Set([
@@ -128,6 +129,31 @@ export async function GET() {
       }
     }
 
+    // Content runway. The scan above is run-driven, so a site whose every run has reached
+    // `done` contributes nothing to it — which is exactly what an exhausted site looks like.
+    // The runway report is site-driven and catches that case. Two suppressions keep this from
+    // becoming a standing item the worker refiles every tick: a site already running a live cycle
+    // is being re-evaluated already, and a site whose alarm task is still open has had its ask
+    // raised. Both clear on their own — the run finishes, or a human closes the task.
+    const runwayReport = await getRunwayReport(now);
+    for (const alarm of runwayReport.alarms) {
+      if (alarm.runway.has_live_run || alarm.runway.has_open_alarm_task) continue;
+      items.push({
+        action: 'reevaluate_topics',
+        run_id: null,
+        run_stage: null,
+        client: { id: alarm.runway.client_id, name: alarm.runway.client_name },
+        site: { id: alarm.runway.site_id, name: alarm.runway.site_name },
+        article_id: null,
+        article_slug: null,
+        runway: alarm.runway,
+        meeting_request_draft: alarm.meeting_request_draft,
+        // Sorted by the day the shelf empties: the closer a site is to running dry, the
+        // higher it climbs.
+        urgency_date: new Date(`${alarm.runway.runway_end}T00:00:00Z`),
+      });
+    }
+
     items.sort((x, y) => {
       if (!x.urgency_date && !y.urgency_date) return 0;
       if (!x.urgency_date) return 1;
@@ -135,7 +161,14 @@ export async function GET() {
       return new Date(x.urgency_date).getTime() - new Date(y.urgency_date).getTime();
     });
 
-    return NextResponse.json({ items, count: items.length });
+    return NextResponse.json({
+      items,
+      count: items.length,
+      runway: {
+        low_runway_count: runwayReport.alarms.length,
+        sites: runwayReport.sites,
+      },
+    });
   } catch (error) {
     return handleApiError(error);
   }
