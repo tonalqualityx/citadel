@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { GET } from '../route';
+import { BAST_USER_ID, BOT_USER_IDS, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
@@ -18,6 +19,9 @@ vi.mock('@/lib/db/prisma', () => ({
     emailAsk: {
       findMany: vi.fn(),
     },
+    comment: {
+      findMany: vi.fn(),
+    },
   },
 }));
 
@@ -28,6 +32,7 @@ const mockRequireAuth = vi.mocked(requireAuth);
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockSessionFindMany = prisma.oracleSession.findMany as Mock;
 const mockEmailAskFindMany = prisma.emailAsk.findMany as Mock;
+const mockCommentFindMany = prisma.comment.findMany as Mock;
 
 function emailAsk(overrides: Record<string, unknown> = {}) {
   return {
@@ -113,6 +118,9 @@ beforeEach(() => {
   // Once-values on top of this, consumed first for that request's 5 calls.
   mockTaskFindMany.mockResolvedValue([]);
   mockEmailAskFindMany.mockResolvedValue([]);
+  // Single batched query across every surfaced task id, so a plain (non-Once) default is
+  // enough — tests that care override it wholesale.
+  mockCommentFindMany.mockResolvedValue([]);
 });
 
 describe('GET /api/waiting-on-me — Clarity Phase 4a crisis/intake', () => {
@@ -533,5 +541,120 @@ describe('GET /api/waiting-on-me — cross-query dedup', () => {
 
     expect(body.do.filter((c: { id: string }) => c.id === 'shared-task-2')).toHaveLength(1);
     expect(body.review.filter((c: { id: string }) => c.id === 'shared-task-2')).toHaveLength(0);
+  });
+});
+
+describe('GET /api/waiting-on-me — waiting_since is anchored on created_at', () => {
+  const BORN = new Date('2026-06-01T00:00:00.000Z');
+  // What the old updated_at-based clock would have reported: an automated touch from
+  // yesterday, which is exactly the reset this change exists to stop.
+  const TOUCHED = new Date('2026-09-13T00:00:00.000Z');
+
+  function comment(overrides: Record<string, unknown> = {}) {
+    return {
+      task_id: 'task-1',
+      user_id: MIKE_USER_ID,
+      created_at: new Date('2026-07-01T00:00:00.000Z'),
+      ...overrides,
+    };
+  }
+
+  // Stands in for the database: applies the route's own where-clause to the given rows,
+  // so a comment the route asked Postgres to exclude is genuinely excluded here too
+  // (rather than the test quietly asserting against an unfiltered fixture).
+  function mockComments(rows: ReturnType<typeof comment>[]) {
+    mockCommentFindMany.mockImplementation(
+      async (args: { where: { task_id: { in: string[] }; user_id: { notIn: string[] } } }) =>
+        rows
+          .filter((r) => args.where.task_id.in.includes(r.task_id))
+          .filter((r) => !args.where.user_id.notIn.includes(r.user_id))
+          .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+          .map((r) => ({ task_id: r.task_id, created_at: r.created_at }))
+    );
+  }
+
+  it('uses created_at, not updated_at, when the task has no comments', async () => {
+    mockTaskSweep({ focus: [task({ created_at: BORN, updated_at: TOUCHED })] });
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do[0].waiting_since).toBe(BORN.toISOString());
+  });
+
+  it('a Bast comment does not change waiting_since', async () => {
+    mockTaskSweep({ focus: [task({ created_at: BORN, updated_at: TOUCHED })] });
+    mockComments([comment({ user_id: BAST_USER_ID, created_at: TOUCHED })]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do[0].waiting_since).toBe(BORN.toISOString());
+    expect(mockCommentFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          is_deleted: false,
+          user_id: { notIn: expect.arrayContaining([BAST_USER_ID]) },
+        }),
+      })
+    );
+  });
+
+  it('excludes every bot, not just Bast', async () => {
+    mockTaskSweep({ focus: [task({ created_at: BORN })] });
+    mockComments(BOT_USER_IDS.map((id) => comment({ user_id: id, created_at: TOUCHED })));
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do[0].waiting_since).toBe(BORN.toISOString());
+  });
+
+  it('a human comment newer than created_at moves waiting_since forward', async () => {
+    const replied = new Date('2026-08-15T00:00:00.000Z');
+    mockTaskSweep({ focus: [task({ created_at: BORN, updated_at: TOUCHED })] });
+    mockComments([
+      comment({ created_at: replied }),
+      comment({ created_at: new Date('2026-07-04T00:00:00.000Z') }),
+      comment({ user_id: BAST_USER_ID, created_at: TOUCHED }),
+    ]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    // The newest HUMAN comment wins; the newer Bast comment is ignored entirely.
+    expect(body.do[0].waiting_since).toBe(replied.toISOString());
+  });
+
+  it('a human comment older than created_at leaves waiting_since at created_at', async () => {
+    mockTaskSweep({ focus: [task({ created_at: BORN })] });
+    mockComments([comment({ created_at: new Date('2026-05-01T00:00:00.000Z') })]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do[0].waiting_since).toBe(BORN.toISOString());
+  });
+
+  it('applies per task, and to review-lane cards too', async () => {
+    const replied = new Date('2026-08-15T00:00:00.000Z');
+    mockTaskSweep({
+      focus: [task({ id: 'quiet', created_at: BORN })],
+      awaitingReview: [task({ id: 'answered', created_at: BORN, updated_at: TOUCHED })],
+    });
+    mockComments([comment({ task_id: 'answered', created_at: replied })]);
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.do[0].waiting_since).toBe(BORN.toISOString());
+    expect(body.review[0].waiting_since).toBe(replied.toISOString());
+  });
+
+  it('skips the comment query entirely when no task surfaced', async () => {
+    const res = await GET(getRequest());
+    await res.json();
+
+    expect(mockCommentFindMany).not.toHaveBeenCalled();
   });
 });

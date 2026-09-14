@@ -305,8 +305,10 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'decide first then answer — `decide`/`answer` stay in the response, unchanged, for ' +
           'API back-compat for one release. Every card also carries `client` (task cards only; ' +
           'session_ask cards are always null, fall back to arc/"Other" client-side for the ' +
-          'Review column\'s grouping) and `waiting_since` (best-available "when this started ' +
-          'waiting" proxy: a task\'s updated_at, a session\'s last_event_at). ' +
+          'Review column\'s grouping) and `waiting_since` ("when this started waiting": for a ' +
+          'task, the later of its created_at and its newest comment from a human — comments ' +
+          'from Bast and the other service accounts are excluded, so an automated touch never ' +
+          'resets the visible age; for a session, its last_event_at). ' +
           'Clarity Phase 6: intake email asks carry `intent` (general|meeting|sales, null=' +
           'general) and the proposed_event_* trio (null=no parsed meeting time, no ' +
           'Add-to-calendar affordance); `intake` additionally carries `lanes` — per-lane ' +

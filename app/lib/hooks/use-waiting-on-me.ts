@@ -21,8 +21,10 @@ export interface WaitingOnMeCard {
   // session_ask cards never do (they fall back to arc, then "Other").
   client: { id: string; name: string } | null;
   due_date: string | null;
-  // Clarity Phase 5 — the Review grouping's "oldest-wait age" (best-available proxy per
-  // card kind — see app/api/waiting-on-me/route.ts's taskToCard/sessionToCard).
+  // The "oldest-wait age" the Review grouping renders. For a task, the later of its
+  // created_at and its newest comment from a human — comments from Bast and the other
+  // service accounts never move it. For a session, its last_event_at. See
+  // app/api/waiting-on-me/route.ts's taskToCard/sessionToCard.
   waiting_since: string | null;
 }
 

@@ -5,6 +5,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { TaskStatus, AskQueue, EmailAskIntent, ProjectStatus } from '@prisma/client';
 import { floatHighPriority } from '@/lib/waiting-on-me-priority';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 
 // The merged "everything waiting on Mike" feed. Task side is a 5-query sweep — focus,
 // overdue, awaiting-review, blocked, open-within-14d — each excluding IDs already emitted
@@ -36,8 +37,8 @@ type TaskCard = {
   arc: { id: string; name: string } | null;
   client: { id: string; name: string } | null;
   due_date: Date | null;
-  // Clarity Phase 5 — the Review grouping's "oldest-wait age": when this item actually
-  // started waiting. Best-available proxy per card kind (see taskToCard/sessionToCard).
+  // The "oldest-wait age" the Review grouping and the weekly aging lists both read: when
+  // this item actually started waiting. Task cards anchor on created_at; see taskToCard.
   waiting_since: Date | null;
 };
 
@@ -57,17 +58,37 @@ type SessionCard = {
   waiting_since: Date | null;
 };
 
-function taskToCard(t: {
-  id: string;
-  title: string;
-  status: string;
-  priority: number;
-  source_session_external_id: string | null;
-  arc: { id: string; name: string } | null;
-  client?: { id: string; name: string } | null;
-  due_date: Date | null;
-  updated_at?: Date | null;
-}): TaskCard {
+// waiting_since used to be the task's `updated_at`. That made the queue-age clock a lie:
+// ANY automated touch — a Bast comment, a status flip, a tag edit — bumps updated_at and
+// resets the visible age, so the number always understated how long something had really
+// been waiting (Weekly capture audit, Leak 17, reported seven consecutive weeks: 29 of 83
+// do-lane items understated by more than a week; 37 items breached 30 days by that clock
+// against 62 by created_at). The Monday keep/kill rulings are computed from this field, so
+// the understatement was corrupting the input to the ritual.
+//
+// The clock is now anchored on when the task was BORN, moved forward only by a real human
+// touch: the newest non-deleted comment from a user outside BOT_USER_IDS. Bot comments —
+// Bast's close-out summaries above all — no longer move it at all.
+function waitingSince(created_at: Date | null | undefined, lastHumanCommentAt: Date | null): Date | null {
+  if (!created_at) return lastHumanCommentAt;
+  if (lastHumanCommentAt && lastHumanCommentAt.getTime() > created_at.getTime()) return lastHumanCommentAt;
+  return created_at;
+}
+
+function taskToCard(
+  t: {
+    id: string;
+    title: string;
+    status: string;
+    priority: number;
+    source_session_external_id: string | null;
+    arc: { id: string; name: string } | null;
+    client?: { id: string; name: string } | null;
+    due_date: Date | null;
+    created_at?: Date | null;
+  },
+  lastHumanCommentAt: Date | null
+): TaskCard {
   return {
     type: 'task',
     id: t.id,
@@ -80,11 +101,7 @@ function taskToCard(t: {
     arc: t.arc,
     client: t.client ?? null,
     due_date: t.due_date,
-    // updated_at is the best-available proxy for "when this entered its current
-    // waiting state" (e.g. when it flipped to done+needs_review) — every task-sweep
-    // query already returns it via Prisma's `include` (full scalar row), just not
-    // previously threaded through this card shape.
-    waiting_since: t.updated_at ?? null,
+    waiting_since: waitingSince(t.created_at, lastHumanCommentAt),
   };
 }
 
@@ -226,15 +243,46 @@ export async function GET(request: NextRequest) {
     const dedupedBlocked = dedupe(blockedTasks);
     const dedupedOpenWithin14d = dedupe(openWithin14dTasks);
 
+    // The human half of the waiting_since clock (see taskToCard's doc comment). One
+    // indexed query over exactly the task ids that actually surfaced, skipped entirely
+    // when none did. Ordered newest-first, so the first row seen for a task id is that
+    // task's latest human comment.
+    const surfacedTaskIds = [
+      ...dedupedFocus,
+      ...dedupedOverdue,
+      ...dedupedAwaitingReview,
+      ...dedupedBlocked,
+      ...dedupedOpenWithin14d,
+    ].map((t) => t.id);
+
+    const lastHumanCommentAt = new Map<string, Date>();
+    if (surfacedTaskIds.length > 0) {
+      const humanComments = await prisma.comment.findMany({
+        where: {
+          task_id: { in: surfacedTaskIds },
+          is_deleted: false,
+          user_id: { notIn: [...BOT_USER_IDS] },
+        },
+        select: { task_id: true, created_at: true },
+        orderBy: { created_at: 'desc' },
+      });
+      for (const c of humanComments) {
+        if (!lastHumanCommentAt.has(c.task_id)) lastHumanCommentAt.set(c.task_id, c.created_at);
+      }
+    }
+
+    const toCard = (t: Parameters<typeof taskToCard>[0]) =>
+      taskToCard(t, lastHumanCommentAt.get(t.id) ?? null);
+
     const decide: (TaskCard | SessionCard)[] = [];
     const answer: (TaskCard | SessionCard)[] = [];
-    const review: (TaskCard | SessionCard)[] = dedupedAwaitingReview.map(taskToCard);
+    const review: (TaskCard | SessionCard)[] = dedupedAwaitingReview.map(toCard);
     const doGroup: (TaskCard | SessionCard)[] = [
       ...dedupedFocus,
       ...dedupedOverdue,
       ...dedupedBlocked,
       ...dedupedOpenWithin14d,
-    ].map(taskToCard);
+    ].map(toCard);
 
     // Session side: live sessions with a real ask parked, not archived, not ended/stale.
     // Not scoped by targetUserId — Oracle sessions have no per-Citadel-user ownership in

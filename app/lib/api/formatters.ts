@@ -1221,8 +1221,9 @@ export function formatTodayPickResponse(
       // Clarity Phase 4c — parity fix: a session-type Today pick's card renders the same
       // quiet "waiting since <time>" line the arc board's session panel does, when this
       // session is flagged needs_attention. last_event_at is the "when did this start
-      // waiting" proxy (best-available, same convention /api/waiting-on-me's waiting_since
-      // already uses).
+      // waiting" proxy, the same one /api/waiting-on-me's waiting_since uses for SESSION
+      // cards (its task cards anchor on created_at instead — sessions have no equivalent
+      // birth-vs-touch distinction).
       needs_attention?: boolean;
       last_event_at?: Date | string | null;
     } | null;
