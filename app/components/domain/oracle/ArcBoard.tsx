@@ -303,7 +303,11 @@ export function ArcBoard({ arcId }: ArcBoardProps) {
 
 function ArcColumn({ id, title, tasks }: { id: ColumnId; title: string; tasks: ArcTask[] }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  // The cap is a COLLAPSE, not a wall (Mike, 2026-10-12): "+ N more" expands the column so
+  // every quest on the arc is reachable — he couldn't reach the quests blocking Bast's work.
+  const [expanded, setExpanded] = React.useState(false);
   const { visible, overflowCount } = capColumnCards(tasks);
+  const shown = expanded ? tasks : visible;
 
   return (
     <div
@@ -322,12 +326,20 @@ function ArcColumn({ id, title, tasks }: { id: ColumnId; title: string; tasks: A
         </span>
       </div>
       <div className="flex flex-col gap-2">
-        {visible.map((task) => (
+        {shown.map((task) => (
           <ArcTaskCard key={task.id} task={task} />
         ))}
       </div>
       {overflowCount > 0 && (
-        <div className="px-1 text-center text-xs text-text-sub">+ {overflowCount} more</div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="rounded px-1 text-center text-xs text-text-sub underline-offset-4 hover:text-text-main hover:underline"
+          data-testid={`arc-column-${id}-overflow-toggle`}
+        >
+          {expanded ? 'Show fewer' : `+ ${overflowCount} more`}
+        </button>
       )}
     </div>
   );

@@ -227,3 +227,37 @@ describe('ArcBoard — next-touch panel (Clarity Phase 3 Reckoning)', () => {
     );
   });
 });
+
+describe('ArcBoard — column overflow expands (Mike, 2026-10-12)', () => {
+  function task(i: number) {
+    return {
+      id: `t-${i}`,
+      title: `Quest ${i}`,
+      status: 'not_started',
+      priority: null,
+      due_date: null,
+      needs_review: false,
+      approved: false,
+      cover_url: null,
+      assignee: null,
+      estimated_minutes: null,
+      promised_to: null,
+    };
+  }
+
+  it('"+ N more" reveals every quest in the column, and folds back', async () => {
+    mockGet.mockResolvedValue(arcFixture({ tasks: Array.from({ length: 9 }, (_, i) => task(i)), task_count: 9 }));
+    renderWithClient(<ArcBoard arcId="arc-1" />);
+
+    const toggle = await screen.findByTestId('arc-column-not_started-overflow-toggle');
+    expect(toggle).toHaveTextContent('+ 3 more');
+    expect(screen.queryByText('Quest 8')).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(screen.getByText('Quest 8')).toBeInTheDocument();
+    expect(toggle).toHaveTextContent('Show fewer');
+
+    fireEvent.click(toggle);
+    expect(screen.queryByText('Quest 8')).not.toBeInTheDocument();
+  });
+});
