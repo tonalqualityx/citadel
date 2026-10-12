@@ -10,11 +10,8 @@ import { SHARED_AUTH_STATE_PATH } from './global-setup';
 // session + its session-type pick, 2 review items sharing a client, an admin-soon task,
 // and a calendar event carrying description/meet_url/location/attendees).
 //
-// Gate note: global-setup.ts already POSTs ritual-runs {action:'ran'} for the shared auth
-// state, so every test here lands past the cover with no further action — the RitualGate
-// cover itself (including the Quick-start door) is covered by RitualGate.test.tsx (unit),
-// not here; a real gate-cover e2e would need to clear the shared ritual_runs row, which
-// would race every OTHER parallel Oracle e2e file relying on it staying satisfied.
+// Gate note: the RitualGate cover was retired 2026-10-12; /oracle renders the mode shell
+// directly. global-setup.ts still POSTs ritual-runs {action:'ran'}, which is now harmless.
 const SCREENSHOT_DIR = path.join(__dirname, '..', '..', 'test-results', 'clarity-phase8');
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 

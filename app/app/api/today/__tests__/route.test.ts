@@ -8,6 +8,10 @@ vi.mock('@/lib/auth/middleware', () => ({
   requireRole: vi.fn(),
 }));
 
+vi.mock('@/lib/services/today-rollover', () => ({
+  rolloverTodayPicksIfNeeded: vi.fn().mockResolvedValue(0),
+}));
+
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     todayPick: {
@@ -39,6 +43,9 @@ vi.mock('@/lib/db/prisma', () => ({
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { AuthError } from '@/lib/api/errors';
+import { rolloverTodayPicksIfNeeded } from '@/lib/services/today-rollover';
+
+const mockRollover = vi.mocked(rolloverTodayPicksIfNeeded);
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockRequireRole = vi.mocked(requireRole);
@@ -131,6 +138,21 @@ describe('GET /api/today', () => {
     const res = await GET(createGetRequest());
     expect(res.status).toBe(200);
     expect(mockFindMany).toHaveBeenCalled();
+  });
+
+  it('carries yesterday forward on a load of the user\'s actual today', async () => {
+    mockRollover.mockClear();
+    mockFindMany.mockResolvedValue([]);
+    await GET(createGetRequest());
+    expect(mockRollover).toHaveBeenCalledTimes(1);
+  });
+
+  it('never rolls over when reading a past or future day', async () => {
+    mockRollover.mockClear();
+    mockFindMany.mockResolvedValue([]);
+    await GET(createGetRequest({ date: '2020-01-01' }));
+    await GET(createGetRequest({ date: '2099-01-01' }));
+    expect(mockRollover).not.toHaveBeenCalled();
   });
 
   it('derives respond vs resume for session picks based on remote_url', async () => {

@@ -7,6 +7,7 @@ import { getZonedDateString } from '@/lib/utils/time';
 import { resolveUserTimezone } from '@/lib/services/user-timezone';
 import { validateTodayPickRef, isAtWipCap } from '@/lib/today-picks';
 import { PICK_INCLUDE, fetchTodayPicksForDate, shapeTodayPicks } from '@/lib/services/today-picks-shape';
+import { rolloverTodayPicksIfNeeded } from '@/lib/services/today-rollover';
 
 // Clarity Phase 3 — The Oracle Face: Today picks (the day's chosen commitments). Admin-only,
 // same as the rest of the Oracle surface (fleet, waiting-on-me).
@@ -62,6 +63,14 @@ export async function GET(request: NextRequest) {
     // `where: { date: targetDate }` — per-day, not "today-relative". This is the
     // Soothsayer's data source; no new planning model was needed or added.
     const targetDate = parseDateParam(searchParams.get('date'), timezone);
+
+    // Seeing Stone auto-rollover (Mike, 2026-10-12): the first load of the user's actual
+    // today carries the last working day's unfinished picks forward, once. Past and future
+    // dates (Soothsayer, ritual rollover queries) are read-only and never trigger it.
+    const zonedToday = parseDateParam(null, timezone);
+    if (targetDate.getTime() === zonedToday.getTime()) {
+      await rolloverTodayPicksIfNeeded(targetDate);
+    }
 
     const picks = await fetchTodayPicksForDate(targetDate);
     const shaped = await shapeTodayPicks(picks);

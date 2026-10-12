@@ -9,8 +9,6 @@ import { useNow } from '@/lib/hooks/use-now';
 import { Spinner } from '@/components/ui/spinner';
 import { OracleHeader } from '@/components/domain/oracle/OracleHeader';
 import { CrisisStrip } from '@/components/domain/oracle/crisis/CrisisStrip';
-import { RitualGate } from '@/components/domain/oracle/RitualGate';
-import { hasCrisis } from '@/components/domain/oracle/crisis/crisis-strip-logic';
 import { ModeShell } from '@/components/domain/oracle/modes/ModeShell';
 import { TaskPeekProvider } from '@/lib/contexts/task-peek-context';
 import { FocusModeProvider } from '@/lib/contexts/focus-mode-context';
@@ -23,8 +21,8 @@ import {
 // Clarity Phase 8 (composition) — the three-mode rebuild (Work/Plan/Process; see
 // components/domain/oracle/modes/ModeShell.tsx and the mode-escort law in
 // mode-shell-logic.ts). This page now only ever mounts: the slimmed header, the crisis
-// strip (a SIBLING of the ritual gate — must render through the cover, always), the
-// ritual gate, and the mode shell — every other surface Phase 1-7 built (Today, Needs
+// strip (renders above everything, always), and the mode shell. The ritual gate that once
+// covered the shell was retired 2026-10-12. Every other surface Phase 1-7 built (Today, Needs
 // Reshi, Pipeline, the week strip, the cron health line) now lives INSIDE one of the three
 // modes, reused as-is (see WorkView/PlanView/ProcessView).
 //
@@ -101,17 +99,15 @@ export default function OraclePage() {
 
           {waitingOnMeData && <CrisisStrip crisis={waitingOnMeData.crisis} />}
 
-          {/* Clarity Phase 7 (P2) — the ritual gate (spec Q7). CrisisStrip above stays a
-              sibling, never a child, of the gate — it must render THROUGH the cover,
-              always. */}
-          <RitualGate hasCrisis={hasCrisis(waitingOnMeData?.crisis ?? [])}>
-            <ModeShell
-              machines={data.machines}
-              liveSessions={liveSessions}
-              legacyAttentionArcIds={legacyAttentionArcIds}
-              nowMs={now}
-            />
-          </RitualGate>
+          {/* The ritual gate's hard cover was retired 2026-10-12 (Mike): the Stone opens
+              straight to work, and /api/today carries yesterday's unfinished picks forward
+              on the first load of the day. The morning ritual is now optional, not a lock. */}
+          <ModeShell
+            machines={data.machines}
+            liveSessions={liveSessions}
+            legacyAttentionArcIds={legacyAttentionArcIds}
+            nowMs={now}
+          />
         </div>
       </FocusModeProvider>
     </TaskPeekProvider>
