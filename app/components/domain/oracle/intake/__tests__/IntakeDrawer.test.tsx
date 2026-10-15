@@ -44,6 +44,8 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
     proposed_event_minutes: null,
     calendar_requested: false,
     calendar_event_id: null,
+    draft_started_at: null,
+    draft_url: null,
     task_id: null,
     client_id: null,
     project_id: null,
@@ -668,5 +670,49 @@ describe('IntakeDrawer collapse', () => {
     expect(screen.getAllByTestId('intake-card')).toHaveLength(1);
     expect(screen.queryByTestId('intake-collapse')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Archive' })).toHaveTextContent('Archive');
+  });
+});
+
+// Draft-started marker (Mike 2026-10-15): a draft is not a reply, but it is surfaced.
+describe('IntakeDrawer draft-started badge', () => {
+  const DRAFT_URL = 'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/thread-1';
+  const recent = new Date(Date.now() - 60_000).toISOString();
+
+  function open(items: EmailAsk[]) {
+    renderWithClient(
+      <IntakeDrawer
+        intake={{ count: items.length, newest_at: items[0].received_at, lanes: { admin: 0, general: items.length, meeting: 0, sales: 0 }, items }}
+        timezone="America/New_York"
+      />
+    );
+    fireEvent.click(screen.getByTestId('intake-drawer-trigger'));
+  }
+
+  it('shows a link badge to the draft when the ask carries the marker', () => {
+    open([ask({ draft_started_at: recent, draft_url: DRAFT_URL })]);
+    const badge = screen.getByTestId('draft-badge');
+    expect(badge).toHaveTextContent('You started a draft');
+    expect(badge).toHaveAttribute('href', DRAFT_URL);
+    expect(badge).toHaveAttribute('target', '_blank');
+    expect(badge).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('shows no badge when the marker is null', () => {
+    open([ask()]);
+    expect(screen.queryByTestId('draft-badge')).not.toBeInTheDocument();
+  });
+
+  it('does not render an href that is not a Gmail link', () => {
+    open([ask({ draft_started_at: recent, draft_url: 'https://evil.example.com/x' })]);
+    expect(screen.queryByTestId('draft-badge')).not.toBeInTheDocument();
+  });
+
+  it('still shows when the marker is on a non-anchor member of a collapsed thread', () => {
+    open([
+      ask({ id: 't-0', thread_id: 'th', subject: 'Opening', received_at: '2026-08-02T13:00:00.000Z' }),
+      ask({ id: 't-1', thread_id: 'th', subject: 'Re: Opening', received_at: '2026-08-02T14:00:00.000Z', draft_started_at: recent, draft_url: DRAFT_URL }),
+    ]);
+    expect(screen.getAllByTestId('intake-card')).toHaveLength(1);
+    expect(screen.getByTestId('draft-badge')).toHaveAttribute('href', DRAFT_URL);
   });
 });

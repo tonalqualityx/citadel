@@ -11,6 +11,8 @@ import {
   collapseAsks,
   collapseSummaryLine,
   seriesStem,
+  draftMarker,
+  draftBadgeLabel,
   type EmailAskLane,
   type CollapsibleAsk,
 } from '../intake-drawer-logic';
@@ -352,5 +354,76 @@ describe('collapseSummaryLine', () => {
   it('reports a single as just its time', () => {
     const groups = collapseAsks([ask({ id: 'z1', thread_id: 'solo', subject: 'A one-off note', received_at: '2026-08-03T18:41:00.000Z' })]);
     expect(collapseSummaryLine(groups[0], tz)).toBe('newest 2:41 PM');
+  });
+});
+
+describe('draftMarker', () => {
+  const URL_A = 'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/a';
+  const URL_B = 'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/b';
+
+  it('returns null for no items or no marked items', () => {
+    expect(draftMarker([])).toBeNull();
+    expect(draftMarker([{ draft_started_at: null, draft_url: null }, {}])).toBeNull();
+  });
+
+  it('returns the marker of a single marked item', () => {
+    expect(draftMarker([{ draft_started_at: '2026-10-14T15:30:00.000Z', draft_url: URL_A }])).toEqual({
+      at: '2026-10-14T15:30:00.000Z',
+      url: URL_A,
+    });
+  });
+
+  it('picks the newest marked item across a collapsed group, wherever it sits', () => {
+    const items = [
+      { draft_started_at: null, draft_url: null },
+      { draft_started_at: '2026-10-10T10:00:00.000Z', draft_url: URL_A },
+      { draft_started_at: '2026-10-12T10:00:00.000Z', draft_url: URL_B },
+      { draft_started_at: null, draft_url: null },
+    ];
+    expect(draftMarker(items)).toEqual({ at: '2026-10-12T10:00:00.000Z', url: URL_B });
+  });
+
+  it('ignores half-set, unparseable, and non-Gmail markers', () => {
+    expect(draftMarker([{ draft_started_at: '2026-10-14T15:30:00.000Z', draft_url: null }])).toBeNull();
+    expect(draftMarker([{ draft_started_at: null, draft_url: URL_A }])).toBeNull();
+    expect(draftMarker([{ draft_started_at: 'not-a-date', draft_url: URL_A }])).toBeNull();
+    expect(draftMarker([{ draft_started_at: '2026-10-14T15:30:00.000Z', draft_url: 'https://evil.example.com/x' }])).toBeNull();
+    expect(draftMarker([{ draft_started_at: '2026-10-14T15:30:00.000Z', draft_url: 'javascript:alert(1)' }])).toBeNull();
+  });
+});
+
+describe('draftBadgeLabel', () => {
+  // Wed 2026-10-14 16:00 UTC = noon EDT
+  const now = new Date('2026-10-14T16:00:00.000Z');
+  const NY = 'America/New_York';
+
+  it('says today for the same local day', () => {
+    expect(draftBadgeLabel('2026-10-14T13:00:00.000Z', NY, now)).toBe('You started a draft today');
+  });
+
+  it('treats a future timestamp (clock skew) as today', () => {
+    expect(draftBadgeLabel('2026-10-14T23:00:00.000Z', NY, now)).toBe('You started a draft today');
+  });
+
+  it('uses the weekday within 6 days', () => {
+    // Tue Oct 13 (1 day), Thu Oct 8 (6 days)
+    expect(draftBadgeLabel('2026-10-13T15:00:00.000Z', NY, now)).toBe('You started a draft Tue');
+    expect(draftBadgeLabel('2026-10-08T15:00:00.000Z', NY, now)).toBe('You started a draft Thu');
+  });
+
+  it('uses month and day at 7+ days', () => {
+    expect(draftBadgeLabel('2026-10-07T15:00:00.000Z', NY, now)).toBe('You started a draft Oct 7');
+    expect(draftBadgeLabel('2026-10-03T15:00:00.000Z', NY, now)).toBe('You started a draft Oct 3');
+  });
+
+  it('computes day boundaries in the given zone, not UTC', () => {
+    // 02:00 UTC Oct 14 = 10pm EDT Oct 13: "Tue" in New York, "today" in UTC.
+    const iso = '2026-10-14T02:00:00.000Z';
+    expect(draftBadgeLabel(iso, NY, now)).toBe('You started a draft Tue');
+    expect(draftBadgeLabel(iso, 'UTC', now)).toBe('You started a draft today');
+    // And the weekday label itself is zone-local: 03:00 UTC Oct 13 is Mon evening in NY.
+    expect(draftBadgeLabel('2026-10-13T03:00:00.000Z', NY, now)).toBe('You started a draft Mon');
+    // Karachi (UTC+5) is already on Oct 14 evening when now is 16:00 UTC; Oct 13 21:00 UTC is Oct 14 02:00 there.
+    expect(draftBadgeLabel('2026-10-13T21:00:00.000Z', 'Asia/Karachi', now)).toBe('You started a draft today');
   });
 });

@@ -340,3 +340,52 @@ export function attachPickerResults(
     .map((t) => ({ kind: 'task' as const, id: t.id, label: t.title }));
   return [...arcResults, ...taskResults].slice(0, ATTACH_PICKER_RESULT_LIMIT);
 }
+
+// Draft-started marker (Mike 2026-10-15): a draft is NOT a reply, but it is a half-done
+// ball worth highlighting. The classifier sets draft_started_at + draft_url on the ask
+// (see EmailAsk in prisma/schema.prisma); these helpers keep the render components dumb.
+
+export interface DraftMarkable {
+  draft_started_at?: string | null;
+  draft_url?: string | null;
+}
+
+/** Defence in depth: draft_url ends up in an href, and the PATCH API already enforces this
+ *  prefix, so a value that somehow got past it (or was written another way) never renders. */
+const GMAIL_LINK_PREFIX = 'https://mail.google.com/';
+
+/** The newest marked item's `{at, url}`, or null. Takes every message in a collapsed group
+ *  (not just the anchor) so a draft on any member of a collapsed thread still shows. Items
+ *  with a missing date, a missing URL, or a non-Gmail URL are ignored. */
+export function draftMarker(items: DraftMarkable[]): { at: string; url: string } | null {
+  let best: { at: string; url: string; ms: number } | null = null;
+  for (const item of items) {
+    const at = item.draft_started_at;
+    const url = item.draft_url;
+    if (!at || !url || !url.startsWith(GMAIL_LINK_PREFIX)) continue;
+    const ms = new Date(at).getTime();
+    if (Number.isNaN(ms)) continue;
+    if (!best || ms > best.ms) best = { at, url, ms };
+  }
+  return best ? { at: best.at, url: best.url } : null;
+}
+
+function dayKey(d: Date, timezone: string): string {
+  // en-CA formats as YYYY-MM-DD.
+  return d.toLocaleDateString('en-CA', { timeZone: timezone });
+}
+
+/** "You started a draft today" / "… Tue" (within the last 6 days) / "… Oct 3". Day
+ *  boundaries are computed in the given IANA zone, never the browser's. A date in the
+ *  future (clock skew) reads as today. */
+export function draftBadgeLabel(iso: string, timezone: string, now: Date): string {
+  const then = new Date(iso);
+  const thenKey = dayKey(then, timezone);
+  const nowKey = dayKey(now, timezone);
+  const days = Math.round((Date.parse(nowKey) - Date.parse(thenKey)) / 86_400_000);
+  if (days <= 0) return 'You started a draft today';
+  if (days <= 6) {
+    return `You started a draft ${then.toLocaleDateString('en-US', { weekday: 'short', timeZone: timezone })}`;
+  }
+  return `You started a draft ${then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: timezone })}`;
+}

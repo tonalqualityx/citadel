@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatTaskResponse, formatSiteResponse } from '../formatters';
+import { formatTaskResponse, formatSiteResponse, formatEmailAskResponse } from '../formatters';
 
 describe('formatTaskResponse — Bast triage fields', () => {
   it('surfaces tags, source, provenance, and staging-approval fields', () => {
@@ -54,5 +54,35 @@ describe('formatSiteResponse — staging + Bast config', () => {
   it('defaults bast_enabled to false when absent', () => {
     const out = formatSiteResponse({ id: 's2', name: 'x' });
     expect(out.bast_enabled).toBe(false);
+  });
+});
+
+describe('formatEmailAskResponse — draft-started marker', () => {
+  const base = {
+    id: 'a1',
+    account: 'mike@becomeindelible.com',
+    deep_link: 'https://mail.google.com/mail/u/0/#inbox/msg-1',
+  };
+
+  it('passes both fields through untouched', () => {
+    const at = new Date('2026-10-14T15:30:00.000Z');
+    // Deliberately not the shape normalizeGmailDeepLink would emit.
+    const url = 'https://mail.google.com/mail/u/?authuser=whoismikedion%40gmail.com#all/thread-1';
+    const out = formatEmailAskResponse({ ...base, draft_started_at: at, draft_url: url });
+    expect(out.draft_started_at).toBe(at);
+    expect(out.draft_url).toBe(url);
+  });
+
+  it('defaults both to null when absent or undefined', () => {
+    const out = formatEmailAskResponse({ ...base });
+    expect(out.draft_started_at).toBeNull();
+    expect(out.draft_url).toBeNull();
+  });
+
+  it('does not rewrite draft_url the way deep_link is rewritten', () => {
+    const url = 'https://mail.google.com/mail/u/0/#inbox/thread-9';
+    const out = formatEmailAskResponse({ ...base, draft_started_at: new Date(), draft_url: url });
+    expect(out.draft_url).toBe(url);
+    expect(out.deep_link).not.toBe(base.deep_link);
   });
 });

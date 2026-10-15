@@ -153,6 +153,24 @@ describe('GET /api/waiting-on-me — Clarity Phase 4a crisis/intake', () => {
     });
   });
 
+  it('carries the draft-started marker on crisis and intake items (default null)', async () => {
+    const at = new Date('2026-10-14T15:30:00.000Z');
+    const url = 'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/t1';
+    mockEmailAskFindMany
+      .mockResolvedValueOnce([emailAsk({ id: 'c1', draft_started_at: at, draft_url: url })]) // crisis query
+      .mockResolvedValueOnce([
+        emailAsk({ id: 'i1', is_urgent: false, draft_started_at: at, draft_url: url }),
+        emailAsk({ id: 'i2', is_urgent: false }),
+      ]); // intake query
+
+    const res = await GET(getRequest());
+    const body = await res.json();
+
+    expect(body.crisis[0]).toMatchObject({ draft_started_at: at.toISOString(), draft_url: url });
+    expect(body.intake.items[0]).toMatchObject({ draft_started_at: at.toISOString(), draft_url: url });
+    expect(body.intake.items[1]).toMatchObject({ draft_started_at: null, draft_url: null });
+  });
+
   it('shapes open+non-urgent asks into intake with count and newest_at', async () => {
     const newer = emailAsk({
       id: 'intake-newer',

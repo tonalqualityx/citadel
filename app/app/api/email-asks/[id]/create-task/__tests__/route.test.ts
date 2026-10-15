@@ -120,7 +120,7 @@ describe('POST /api/email-asks/[id]/create-task', () => {
     );
     expect(mockAskUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { task_id: 'task-1', state: 'handled' },
+      data: { task_id: 'task-1', state: 'handled', draft_started_at: null, draft_url: null },
     });
   });
 
@@ -183,7 +183,7 @@ describe('POST /api/email-asks/[id]/create-task', () => {
 
     expect(mockAskUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { task_id: 'task-4', state: 'handled', arc_id: 'arc-new' },
+      data: { task_id: 'task-4', state: 'handled', arc_id: 'arc-new', draft_started_at: null, draft_url: null },
     });
   });
 

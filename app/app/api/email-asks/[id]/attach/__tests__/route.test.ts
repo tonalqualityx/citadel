@@ -98,7 +98,7 @@ describe('POST /api/email-asks/[id]/attach', () => {
     expect(body.state).toBe('handled');
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { arc_id: ARC_UUID, state: 'handled' },
+      data: { arc_id: ARC_UUID, state: 'handled', draft_started_at: null, draft_url: null },
     });
   });
 
@@ -115,7 +115,7 @@ describe('POST /api/email-asks/[id]/attach', () => {
     expect(body.state).toBe('handled');
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { task_id: TASK_UUID, state: 'handled' },
+      data: { task_id: TASK_UUID, state: 'handled', draft_started_at: null, draft_url: null },
     });
   });
 
@@ -157,7 +157,7 @@ describe('POST /api/email-asks/[id]/attach', () => {
     expect(body.state).toBe('handled');
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { project_id: PROJECT_UUID, client_id: 'client-uuid-1', match_source: 'mike', state: 'handled' },
+      data: { project_id: PROJECT_UUID, client_id: 'client-uuid-1', match_source: 'mike', state: 'handled', draft_started_at: null, draft_url: null },
     });
   });
 
@@ -203,7 +203,7 @@ describe('POST /api/email-asks/[id]/attach', () => {
     expect(res.status).toBe(200);
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { arc_id: ARC_UUID, state: 'handled' },
+      data: { arc_id: ARC_UUID, state: 'handled', draft_started_at: null, draft_url: null },
     });
   });
 

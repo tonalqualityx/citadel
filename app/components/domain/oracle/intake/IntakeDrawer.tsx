@@ -26,10 +26,12 @@ import {
   calendarButtonState,
   collapseAsks,
   collapseSummaryLine,
+  draftMarker,
   type LaneGroup,
   type CollapsedGroup,
 } from './intake-drawer-logic';
 import { IntakeAttachPicker } from './IntakeAttachPicker';
+import { DraftBadge } from './DraftBadge';
 
 interface IntakeDrawerProps {
   intake: WaitingOnMeResponse['intake'];
@@ -251,11 +253,14 @@ function IntakeLaneSection({ group, timezone }: { group: LaneGroup<EmailAsk>; ti
             // affordance below acts on it; the resolve actions act on the
             // whole group.
             const ask = collapsed.anchor;
+            // Any message in the collapsed group can carry the draft marker, not just the anchor.
+            const draft = draftMarker(collapsed.items);
             return (
               <Card key={collapsed.key} className="flex flex-col gap-1.5 p-3" data-testid="intake-card">
                 <span className="truncate text-xs text-text-sub">{crisisFromLabel(ask)}</span>
                 <p className="truncate text-sm font-medium text-text-main">{ask.subject}</p>
                 {ask.gist && <p className="truncate text-xs text-text-sub">{ask.gist}</p>}
+                {draft && <DraftBadge marker={draft} timezone={timezone} />}
                 {collapsed.total > 1 && <CollapsedMembers group={collapsed} timezone={timezone} />}
 
                 {group.lane === 'meeting' && <MeetingEventBlock ask={ask} timezone={timezone} />}

@@ -3031,6 +3031,12 @@ model EmailAsk {
   calendar_requested     Boolean         @default(false)
   calendar_event_id      String?         @db.VarChar(255)
 
+  // Draft-started marker (Mike 2026-10-15): a Mike draft in this ask's thread, dated after the ask.
+  // Not a reply (sent-only rule). Machine-set by the classifier; cleared when no draft is found
+  // or when the ask leaves `open` (see PATCH).
+  draft_started_at DateTime?
+  draft_url        String?   @db.VarChar(1000)
+
   task_id String? @db.Uuid
   task    Task?   @relation(fields: [task_id], references: [id])
 

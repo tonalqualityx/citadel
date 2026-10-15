@@ -31,6 +31,8 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
     proposed_event_minutes: null,
     calendar_requested: false,
     calendar_event_id: null,
+    draft_started_at: null,
+    draft_url: null,
     task_id: null,
     client_id: null,
     project_id: null,
@@ -81,5 +83,29 @@ describe('CrisisStrip', () => {
     renderWithClient(<CrisisStrip crisis={[ask({ id: 'a1' }), ask({ id: 'a2', subject: 'Second' })]} />);
     expect(screen.getAllByTestId('crisis-card')).toHaveLength(2);
     expect(screen.getByText('Crisis · 2')).toBeVisible();
+  });
+
+  describe('draft-started badge', () => {
+    const DRAFT_URL = 'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/thread-1';
+    const recent = new Date(Date.now() - 60_000).toISOString();
+
+    it('links to the draft when the crisis ask carries the marker', () => {
+      renderWithClient(<CrisisStrip crisis={[ask({ draft_started_at: recent, draft_url: DRAFT_URL })]} />);
+      const badge = screen.getByTestId('draft-badge');
+      expect(badge).toHaveTextContent('You started a draft');
+      expect(badge).toHaveAttribute('href', DRAFT_URL);
+      expect(badge).toHaveAttribute('target', '_blank');
+      expect(badge).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    });
+
+    it('shows no badge when the marker is null', () => {
+      renderWithClient(<CrisisStrip crisis={[ask()]} />);
+      expect(screen.queryByTestId('draft-badge')).not.toBeInTheDocument();
+    });
+
+    it('does not render a non-Gmail href', () => {
+      renderWithClient(<CrisisStrip crisis={[ask({ draft_started_at: recent, draft_url: 'javascript:alert(1)' })]} />);
+      expect(screen.queryByTestId('draft-badge')).not.toBeInTheDocument();
+    });
   });
 });

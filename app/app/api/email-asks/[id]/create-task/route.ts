@@ -117,6 +117,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: {
         task_id: task.id,
         state: 'handled',
+        // Leaving `open` clears the draft-started marker (Mike 2026-10-15).
+        draft_started_at: null,
+        draft_url: null,
         // Clarity Phase 7 — when the created task resolves to an arc, stamp the ask's
         // own arc_id too (not just the task's) — the ask now shows up directly on the
         // arc workspace, same as if it had been attached via POST .../attach.

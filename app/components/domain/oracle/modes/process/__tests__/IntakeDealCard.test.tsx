@@ -32,7 +32,7 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
     from_email: 'x@y.com', subject: 'Subject one', gist: null, queue: null, severity: null,
     is_urgent: false, state: 'open', training_note: null, intent: 'general',
     proposed_event_at: null, proposed_event_title: null, proposed_event_minutes: null,
-    calendar_requested: false, calendar_event_id: null, task_id: null,
+    calendar_requested: false, calendar_event_id: null, draft_started_at: null, draft_url: null, task_id: null,
     client_id: null, project_id: null, match_source: null,
     deep_link: 'https://mail.google.com', received_at: '2026-07-27T09:00:00.000Z',
     created_at: '2026-07-27T09:00:00.000Z', updated_at: '2026-07-27T09:00:00.000Z',

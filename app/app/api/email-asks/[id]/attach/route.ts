@@ -84,6 +84,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           match_source: 'mike',
         }),
         state: 'handled',
+        // Leaving `open` clears the draft-started marker (Mike 2026-10-15).
+        draft_started_at: null,
+        draft_url: null,
       },
     });
 

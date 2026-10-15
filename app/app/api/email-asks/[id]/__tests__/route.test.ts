@@ -83,7 +83,7 @@ describe('PATCH /api/email-asks/[id]', () => {
     expect(body.state).toBe('handled');
     expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'ask-1' },
-      data: { state: 'handled' },
+      data: { state: 'handled', draft_url: null, draft_started_at: null },
     });
   });
 
@@ -152,7 +152,7 @@ describe('PATCH /api/email-asks/[id]', () => {
       expect(body.state).toBe('archive_requested');
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: 'ask-1' },
-        data: { state: 'archive_requested' },
+        data: { state: 'archive_requested', draft_url: null, draft_started_at: null },
       });
     });
 
@@ -222,7 +222,7 @@ describe('PATCH /api/email-asks/[id]', () => {
 
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: 'ask-1' },
-        data: { state: 'handled' },
+        data: { state: 'handled', draft_url: null, draft_started_at: null },
       });
     });
   });
@@ -304,7 +304,7 @@ describe('PATCH /api/email-asks/[id]', () => {
       expect(body.state).toBe('handled');
       expect(mockUpdate).toHaveBeenCalledWith({
         where: { id: 'ask-1' },
-        data: { state: 'handled' },
+        data: { state: 'handled', draft_url: null, draft_started_at: null },
       });
     });
 
@@ -317,6 +317,128 @@ describe('PATCH /api/email-asks/[id]', () => {
 
       expect(res.status).toBe(200);
       expect(body.calendar_requested).toBe(true);
+    });
+  });
+
+  describe('Draft-started marker (Mike 2026-10-15)', () => {
+    const URL_OK = 'https://mail.google.com/mail/u/?authuser=mike%40becomeindelible.com#all/thread-1';
+    const AT = '2026-10-14T15:30:00.000Z';
+
+    it('accepts the pair and stores both (date as a Date)', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ draft_started_at: new Date(AT), draft_url: URL_OK }));
+
+      const res = await PATCH(req({ draft_started_at: AT, draft_url: URL_OK }), ctx());
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { draft_url: URL_OK, draft_started_at: new Date(AT) },
+      });
+      expect(body.draft_url).toBe(URL_OK);
+    });
+
+    it('accepts an offset timestamp', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask());
+      const res = await PATCH(req({ draft_started_at: '2026-10-14T11:30:00-04:00', draft_url: URL_OK }), ctx());
+      expect(res.status).toBe(200);
+    });
+
+    it('400s for a non-Gmail draft_url', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      for (const bad of ['https://evil.example.com/x', 'javascript:alert(1)', 'http://mail.google.com/x', 'https://mail.google.com.evil.com/x']) {
+        const res = await PATCH(req({ draft_started_at: AT, draft_url: bad }), ctx());
+        expect(res.status).toBe(400);
+      }
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('400s for a null half-pair and an https half-pair; 200s for the pair and null/null', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask());
+      const nullAlone = await PATCH(req({ draft_started_at: null }), ctx());
+      const urlAlone = await PATCH(req({ draft_url: 'https://mail.google.com/mail/u/0/#all/T1' }), ctx());
+      const urlNullNull = await PATCH(req({ draft_url: null }), ctx());
+      expect(nullAlone.status).toBe(400);
+      expect(urlAlone.status).toBe(400);
+      expect(urlNullNull.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      const pair = await PATCH(req({ draft_started_at: AT, draft_url: URL_OK }), ctx());
+      const nulls = await PATCH(req({ draft_started_at: null, draft_url: null }), ctx());
+      expect(pair.status).toBe(200);
+      expect(nulls.status).toBe(200);
+    });
+
+    it('400s when only one of the pair is sent', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      const onlyUrl = await PATCH(req({ draft_url: URL_OK }), ctx());
+      const onlyAt = await PATCH(req({ draft_started_at: AT }), ctx());
+      const urlWithNullAt = await PATCH(req({ draft_url: URL_OK, draft_started_at: null }), ctx());
+      expect(onlyUrl.status).toBe(400);
+      expect(onlyAt.status).toBe(400);
+      expect(urlWithNullAt.status).toBe(400);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('null/null clears both', async () => {
+      mockFindUnique.mockResolvedValue(ask({ draft_started_at: new Date(AT), draft_url: URL_OK }));
+      mockUpdate.mockResolvedValue(ask());
+
+      const res = await PATCH(req({ draft_started_at: null, draft_url: null }), ctx());
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { draft_url: null, draft_started_at: null },
+      });
+    });
+
+    it.each(['handled', 'dismissed', 'archive_requested'])(
+      'state: %s clears both, even if the same body sends them',
+      async (state) => {
+        mockFindUnique.mockResolvedValue(ask());
+        mockUpdate.mockResolvedValue(ask({ state }));
+
+        await PATCH(req({ state, draft_started_at: AT, draft_url: URL_OK }), ctx());
+
+        expect(mockUpdate).toHaveBeenCalledWith({
+          where: { id: 'ask-1' },
+          data: { state, draft_url: null, draft_started_at: null },
+        });
+      },
+    );
+
+    it('state: handled alone also clears the stored marker', async () => {
+      mockFindUnique.mockResolvedValue(ask({ draft_started_at: new Date(AT), draft_url: URL_OK }));
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+      await PATCH(req({ state: 'handled' }), ctx());
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'ask-1' },
+        data: { state: 'handled', draft_url: null, draft_started_at: null },
+      });
+    });
+
+    it('state: open leaves the marker alone (and does not block setting it)', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask());
+
+      await PATCH(req({ state: 'open' }), ctx());
+      expect(mockUpdate).toHaveBeenLastCalledWith({ where: { id: 'ask-1' }, data: { state: 'open' } });
+
+      await PATCH(req({ state: 'open', draft_started_at: AT, draft_url: URL_OK }), ctx());
+      expect(mockUpdate).toHaveBeenLastCalledWith({
+        where: { id: 'ask-1' },
+        data: { state: 'open', draft_url: URL_OK, draft_started_at: new Date(AT) },
+      });
+    });
+
+    it('omitting both leaves the marker untouched', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask());
+      await PATCH(req({ training_note: 'x' }), ctx());
+      expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 'ask-1' }, data: { training_note: 'x' } });
     });
   });
 });

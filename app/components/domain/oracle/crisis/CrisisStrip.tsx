@@ -5,10 +5,15 @@ import { AlertTriangle, ExternalLink, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { EmailAsk } from '@/lib/hooks/use-waiting-on-me';
 import { useUpdateEmailAsk } from '@/lib/hooks/use-email-asks';
+import { DraftBadge } from '@/components/domain/oracle/intake/DraftBadge';
+import { draftMarker } from '@/components/domain/oracle/intake/intake-drawer-logic';
+import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import { crisisFromLabel, hasCrisis, SEVERITY_LABEL } from './crisis-strip-logic';
 
 interface CrisisStripProps {
   crisis: EmailAsk[];
+  /** IANA zone for the draft badge's day label; defaults to the app's display zone. */
+  timezone?: string;
 }
 
 // Clarity Phase 4a — the crisis strip. Renders ONLY when there's an open+urgent email ask
@@ -17,7 +22,7 @@ interface CrisisStripProps {
 // research "no red" rule targets overdue/aging displays, not an active crisis, which Mike
 // explicitly wants loud). Mobile: full-width, never collapsed — this is not a queue that
 // gets tucked away.
-export function CrisisStrip({ crisis }: CrisisStripProps) {
+export function CrisisStrip({ crisis, timezone = DEFAULT_DISPLAY_TIMEZONE }: CrisisStripProps) {
   const updateAsk = useUpdateEmailAsk();
 
   if (!hasCrisis(crisis)) return null;
@@ -38,7 +43,9 @@ export function CrisisStrip({ crisis }: CrisisStripProps) {
       </h2>
 
       <div className="flex flex-col gap-2">
-        {crisis.map((ask) => (
+        {crisis.map((ask) => {
+          const draft = draftMarker([ask]);
+          return (
           <div
             key={ask.id}
             className="flex flex-col gap-1 rounded-md border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -59,6 +66,7 @@ export function CrisisStrip({ crisis }: CrisisStripProps) {
               </div>
               <p className="truncate text-sm font-semibold text-text-main">{ask.subject}</p>
               {ask.gist && <p className="truncate text-sm text-text-sub">{ask.gist}</p>}
+              {draft && <DraftBadge marker={draft} timezone={timezone} />}
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
@@ -79,7 +87,8 @@ export function CrisisStrip({ crisis }: CrisisStripProps) {
               </Button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

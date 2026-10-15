@@ -27,7 +27,24 @@ const patchSchema = z.object({
   // one write path in this API for a field the schema doc comment otherwise calls
   // "entirely machine-set".
   calendar_event_id: z.string().max(255).optional().nullable(),
-});
+  // Draft-started marker (Mike 2026-10-15) — machine-set by the classifier: a Mike draft
+  // exists in this ask's thread. NOT a reply (sent-only rule). The two fields are set or
+  // cleared together; draft_url must be a Gmail link (defence in depth — it is rendered
+  // as an href).
+  draft_started_at: z.string().datetime({ offset: true }).optional().nullable(),
+  draft_url: z
+    .string()
+    .max(1000)
+    .url()
+    .refine((u) => u.startsWith('https://mail.google.com/'), 'draft_url must be a Gmail link')
+    .optional()
+    .nullable(),
+}).refine(
+  (d) =>
+    (d.draft_started_at === undefined) === (d.draft_url === undefined) &&
+    (d.draft_started_at == null) === (d.draft_url == null),
+  { message: 'draft_started_at and draft_url are set or cleared together' },
+);
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -64,6 +81,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           calendar_event_id: data.calendar_event_id,
           calendar_requested: false,
         }),
+        // Draft marker: set/cleared as a pair (the schema refine guarantees both or neither).
+        ...(data.draft_url !== undefined && {
+          draft_url: data.draft_url,
+          draft_started_at: data.draft_started_at ? new Date(data.draft_started_at) : null,
+        }),
+        // Leaving `open` (any path: classifier sent-reply, Handled, Dismiss, Archive, attach, create-task) always
+        // clears the marker, even if the same body tried to set it.
+        ...(data.state !== undefined && data.state !== 'open' && { draft_started_at: null, draft_url: null }),
       },
     });
 

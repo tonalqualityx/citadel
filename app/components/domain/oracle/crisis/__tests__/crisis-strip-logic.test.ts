@@ -24,6 +24,8 @@ function ask(overrides: Partial<EmailAsk> = {}): EmailAsk {
     proposed_event_minutes: null,
     calendar_requested: false,
     calendar_event_id: null,
+    draft_started_at: null,
+    draft_url: null,
     task_id: null,
     client_id: null,
     project_id: null,

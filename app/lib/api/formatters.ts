@@ -1178,6 +1178,10 @@ export function formatEmailAskResponse(ask: any) {
     proposed_event_minutes: ask.proposed_event_minutes ?? null,
     calendar_requested: ask.calendar_requested ?? false,
     calendar_event_id: ask.calendar_event_id ?? null,
+    // Draft-started marker — passed through as stored; draft_url is a Gmail #all/<threadId>
+    // link built machine-side and deliberately NOT run through normalizeGmailDeepLink.
+    draft_started_at: ask.draft_started_at ?? null,
+    draft_url: ask.draft_url ?? null,
     task_id: ask.task_id ?? null,
     // Clarity Phase 7 — email-arc attachment: the ask leaves the intake drawer and
     // attaches directly to the arc it belongs to (as well as, or instead of, a task).

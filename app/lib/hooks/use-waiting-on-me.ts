@@ -67,6 +67,9 @@ export interface EmailAsk {
   proposed_event_minutes: number | null;
   calendar_requested: boolean;
   calendar_event_id: string | null;
+  // Draft-started marker (Mike 2026-10-15): a draft (not a reply) exists in this thread.
+  draft_started_at: string | null;
+  draft_url: string | null;
   task_id: string | null;
   // Oracle Projects Phase 1 — client/project auto-match (see EmailAsk.match_source's
   // own doc comment in prisma/schema.prisma for the auto/mike/unmatched provenance rule).
