@@ -362,7 +362,9 @@ export async function recordArticleClientApproval(
 /**
  * Record client approval on a task (idempotent). Sets client_approved_at + approved_by_contact_id
  * and, for staged client sites (site.auto_deploy === false), flags the staging→prod promotion as
- * pending via an internal note (never an in-app deploy — that's still a deliberate operator step).
+ * pending via an internal note. The publish is Bast's: the citadel-worker's client_approved wake
+ * deploys on its next pass and sets `approved` once live (Mike, 2026-10-15: the client's yes is the
+ * approval; Mike is never the deploy or approve step). Never an operator step.
  *
  * Shared mutation core for BOTH the token-gated flow (POST /api/portal/tasks/:token/approve) and
  * the session-scoped flow (POST /api/portal/tasks/:id/approve, Portal v2 phase 1) — one source of
@@ -394,7 +396,7 @@ export async function recordTaskClientApproval(
           task_id: task.id,
           user_id: bastUserId,
           content:
-            '~ Bast: Client approved the staged work via the portal. Staging→prod promotion is pending an operator (no auto-deploy on this site).',
+            '~ Bast: Client approved the staged work via the portal. Bast publishes it to production on its next pass and marks this card approved once it is live (staged site, no direct deploy).',
           is_internal: true,
         },
       });
