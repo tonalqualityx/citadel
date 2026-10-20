@@ -21,6 +21,12 @@ const createProjectSchema = z.object({
   is_retainer: z.boolean().optional(),
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  plan_folder: z
+    .string()
+    .max(500)
+    .optional()
+    .nullable()
+    .transform((v) => (v == null ? v : v.trim() || null)),
 });
 
 export async function GET(request: NextRequest) {
@@ -139,6 +145,7 @@ export async function POST(request: NextRequest) {
         is_retainer: data.is_retainer || false,
         dependencies_ordering_only: data.dependencies_ordering_only || false,
         notes: data.notes,
+        plan_folder: data.plan_folder,
         created_by_id: auth.userId,
       },
       include: {

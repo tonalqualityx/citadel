@@ -183,6 +183,43 @@ describe('PATCH /api/projects/[id]', () => {
     });
   });
 
+  describe('plan_folder field', () => {
+    it('passes plan_folder to the update call', async () => {
+      const request = createPatchRequest({ plan_folder: '/home/mike/Documents/projects/acme' });
+      const response = await PATCH(request, { params: mockParams });
+
+      expect(response.status).toBe(200);
+      const updateCall = mockProjectUpdate.mock.calls[0][0];
+      expect(updateCall.data.plan_folder).toBe('/home/mike/Documents/projects/acme');
+    });
+
+    it('clears plan_folder when null is provided', async () => {
+      const request = createPatchRequest({ plan_folder: null });
+      const response = await PATCH(request, { params: mockParams });
+
+      expect(response.status).toBe(200);
+      const updateCall = mockProjectUpdate.mock.calls[0][0];
+      expect(updateCall.data.plan_folder).toBeNull();
+    });
+
+    it('treats empty or whitespace-only plan_folder as null', async () => {
+      for (const value of ['', '   ']) {
+        mockProjectUpdate.mockClear();
+        const response = await PATCH(createPatchRequest({ plan_folder: value }), { params: mockParams });
+
+        expect(response.status).toBe(200);
+        expect(mockProjectUpdate.mock.calls[0][0].data.plan_folder).toBeNull();
+      }
+    });
+
+    it('does not touch plan_folder when omitted', async () => {
+      const response = await PATCH(createPatchRequest({ name: 'X' }), { params: mockParams });
+
+      expect(response.status).toBe(200);
+      expect(mockProjectUpdate.mock.calls[0][0].data).not.toHaveProperty('plan_folder');
+    });
+  });
+
   describe('Authorization', () => {
     it('requires PM or Admin role', async () => {
       const request = createPatchRequest({ name: 'Updated' });

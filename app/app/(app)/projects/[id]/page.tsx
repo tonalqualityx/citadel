@@ -1236,6 +1236,12 @@ export default function ProjectDetailPage() {
                     <dd className="text-text-main whitespace-pre-wrap">{project.notes}</dd>
                   </div>
                 )}
+                {project.plan_folder && (
+                  <div className="md:col-span-2">
+                    <dt className="text-sm text-text-sub">Plan folder</dt>
+                    <dd className="text-text-main font-mono text-sm break-all">{project.plan_folder}</dd>
+                  </div>
+                )}
               </dl>
             </CardContent>
           </Card>

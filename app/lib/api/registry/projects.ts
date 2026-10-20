@@ -67,12 +67,14 @@ export const projectEndpoints: ApiEndpoint[] = [
           { name: 'target_date', type: 'ISO-8601', required: false, description: 'Target completion date' },
           { name: 'billing_type', type: 'string', required: false, description: 'fixed, hourly, retainer, none' },
           { name: 'hourly_rate', type: 'number', required: false, description: 'Hourly rate for billing' },
+          { name: 'plan_folder', type: 'string', required: false, description: 'Local plan folder path (max 500 chars), e.g. /home/mike/Documents/projects/<slug>. Empty string saves as null.' },
         ],
         responseExample: {
           id: 'uuid',
           name: 'string',
           status: 'string',
           client_id: 'uuid',
+          plan_folder: 'string|null',
           created_at: 'ISO-8601',
         },
       },
@@ -105,6 +107,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           budget_locked: 'boolean',
           budget_locked_at: 'ISO-8601|null',
           is_retainer: 'boolean',
+          plan_folder: 'string|null',
           calculated: {
             estimated_hours_min: 'number',
             estimated_hours_max: 'number',
@@ -132,10 +135,14 @@ export const projectEndpoints: ApiEndpoint[] = [
         summary: 'Update project fields or lock budget.',
         auth: 'required',
         roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'plan_folder', type: 'string', required: false, description: 'Local plan folder path (max 500 chars); null or empty string clears it. Other project fields are also accepted.' },
+        ],
         responseExample: {
           id: 'uuid',
           name: 'string',
           status: 'string',
+          plan_folder: 'string|null',
           updated_at: 'ISO-8601',
         },
       },

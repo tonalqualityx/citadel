@@ -67,6 +67,7 @@ export interface Project {
   estimated_hours: number | null;
   completed_hours: number | null;
   notes: string | null;
+  plan_folder: string | null;
   created_by_id: string | null;
   created_by: { id: string; name: string } | null;
   tasks_count: number;
@@ -103,6 +104,7 @@ export interface CreateProjectInput {
   is_retainer?: boolean;
   dependencies_ordering_only?: boolean;
   notes?: string | null;
+  plan_folder?: string | null;
 }
 
 export interface UpdateProjectInput extends Partial<CreateProjectInput> {

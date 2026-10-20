@@ -27,6 +27,7 @@ const projectSchema = z.object({
   is_retainer: z.boolean().optional(),
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional(),
+  plan_folder: z.string().max(500).optional(),
 });
 
 type ProjectFormData = z.infer<typeof projectSchema>;
@@ -89,6 +90,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
       is_retainer: project?.is_retainer || false,
       dependencies_ordering_only: project?.dependencies_ordering_only || false,
       notes: project?.notes || '',
+      plan_folder: project?.plan_folder || '',
     },
   });
 
@@ -132,6 +134,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
         is_retainer: data.is_retainer,
         dependencies_ordering_only: data.dependencies_ordering_only,
         notes: data.notes || null,
+        plan_folder: data.plan_folder?.trim() || null,
       };
 
       if (isEdit) {
@@ -294,6 +297,18 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
             className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm text-text-main placeholder:text-text-sub focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             rows={2}
             placeholder="Internal notes..."
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-text-main mb-1">
+            Local plan folder
+          </label>
+          <input
+            type="text"
+            {...register('plan_folder')}
+            className="w-full rounded-md border border-border bg-surface-1 px-3 py-2 text-sm font-mono text-text-main placeholder:text-text-sub focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            placeholder="/home/mike/Documents/projects/<slug>"
           />
         </div>
 

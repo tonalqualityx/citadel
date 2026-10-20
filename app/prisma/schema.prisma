@@ -863,6 +863,8 @@ model Project {
 
   // Notes
   notes String? @db.Text
+  // Local plan folder path, e.g. /home/mike/Documents/projects/<slug>
+  plan_folder String?
 
   // Oracle Projects Phase 1 — the hybrid next-step line (task-graph candidate + Bast-
   // inferred, refreshed nightly / on demand / overridable). source tracks who/what last

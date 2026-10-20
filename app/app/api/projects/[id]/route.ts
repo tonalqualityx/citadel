@@ -24,6 +24,12 @@ const updateProjectSchema = z.object({
   workload_completed_mode: z.enum(['low', 'medium', 'high', 'actual']).optional(),
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  plan_folder: z
+    .string()
+    .max(500)
+    .optional()
+    .nullable()
+    .transform((v) => (v == null ? v : v.trim() || null)),
 });
 
 const lockBudgetSchema = z.object({
@@ -254,6 +260,7 @@ export async function PATCH(
     if (data.workload_completed_mode !== undefined) updateData.workload_completed_mode = data.workload_completed_mode;
     if (data.dependencies_ordering_only !== undefined) updateData.dependencies_ordering_only = data.dependencies_ordering_only;
     if (data.notes !== undefined) updateData.notes = data.notes;
+    if (data.plan_folder !== undefined) updateData.plan_folder = data.plan_folder;
 
     const project = await prisma.project.update({
       where: { id },

@@ -242,6 +242,7 @@ export function formatProjectResponse(project: any) {
     estimated_hours: estimates.estimatedHoursMax || null,
     completed_hours: null, // Deprecated - use calculated.time_spent_minutes
     notes: project.notes,
+    plan_folder: project.plan_folder ?? null,
     created_by_id: project.created_by_id,
     created_by: project.created_by
       ? { id: project.created_by.id, name: project.created_by.name }
