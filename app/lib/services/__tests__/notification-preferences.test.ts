@@ -116,11 +116,11 @@ describe('notification-preferences service', () => {
 
       const result = await getAllPreferencesForUser(TEST_USER_ID);
 
-      // Should have all 17 notification types (incl. Troubador: article_needs_review,
+      // Should have all 18 notification types (incl. Troubador: article_needs_review,
       // troubador_run_created, troubador_run_review_ready, article_client_approved,
       // article_client_changes_requested, interview_answers_submitted; and Clarity
-      // Phase 4a's oracle_urgent_email)
-      expect(result.preferences).toHaveLength(17);
+      // Phase 4a's oracle_urgent_email; and portal phase B's portal_emergency)
+      expect(result.preferences).toHaveLength(18);
       expect(result.slackConnected).toBe(false);
 
       // Verify it includes all types
