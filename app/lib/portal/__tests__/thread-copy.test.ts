@@ -16,11 +16,15 @@ const FILES = [
   'components/portal/thread.tsx',
   'app/(portal)/portal/retainer/page.tsx',
   'app/(portal)/portal/projects/page.tsx',
+  'app/(portal)/portal/projects/[id]/page.tsx',
+  'components/portal/retainer-card.tsx',
+  'components/portal/plan-approval-block.tsx',
+  'components/portal/report-link.tsx',
   'lib/portal/retainer.ts',
   'lib/portal/thread.ts',
   'lib/portal/notices.ts',
 ];
-const ALLOWANCE = /Your plan includes up to/;
+const ALLOWANCE = /Your plan (includes|covers) up to/;
 
 function stripComments(src: string): string {
   return src
@@ -52,9 +56,9 @@ describe('thread, retainer and projects copy', () => {
     for (const known of [
       'Your message goes to the team working on this.',
       'No messages yet. Add details, links or questions here and the team will see them on this request.',
-      'No retainer on your account. When you have one, your monthly plan, reports and the work in progress show here.',
-      'Approving here or by email both count.',
-      'No projects right now. When we build something for you, its progress, approvals and history show here.',
+      'When you have one, your monthly plan, reports and the work in progress show here.',
+      'Read it, then approve it or book a call to talk it through. Approving here or by email both count.',
+      'When we build something for you, its progress, approvals and history show here.',
     ]) {
       expect(all, known).toContain(known);
     }

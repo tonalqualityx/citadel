@@ -1,14 +1,28 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { Check, FileCheck, Flag, History, Link2, ListChecks, MessageSquareText, SearchCheck, TriangleAlert } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Section } from '@/components/portal/ui/section';
+import { Callout } from '@/components/portal/ui/callout';
+import { NeedsYouItem } from '@/components/portal/ui/needs-you-item';
+import { RailCard } from '@/components/portal/ui/rail-card';
+import { PhaseTrack } from '@/components/portal/ui/phase-track';
+import { ProgressBar } from '@/components/portal/ui/progress-bar';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+import { ActionLink } from '@/components/portal/ui/action-link';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Timeline, type TimelineItem } from '@/components/portal/ui/timeline';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { RequestWorkButton } from '@/components/portal/request-work-button';
-import { activityLabel, phaseStateLabel, type ActivityType, type PhaseState } from '@/lib/portal/status-labels';
+import { projectTone } from '@/components/portal/project-tone';
+import { activityLabel, type ActivityType, type ChipTone, type PhaseState } from '@/lib/portal/status-labels';
 
-// Client project page (portal MVP A5). Backed by GET /api/portal/projects/:id, which answers 404
-// for anything the signed-in person may not see. Shows status in plain words, phases, tasks,
-// what we need from you, links and history for this project.
+// Client project page (portal MVP A5, redesign 7.3). Backed by GET /api/portal/projects/:id, which
+// answers 404 for anything the signed-in person may not see. Shows status in plain words, phases,
+// tasks, what we need from you, links and history for this project.
 
 interface ProjectPayload {
   project: {
@@ -31,11 +45,40 @@ interface ProjectPayload {
   history: { type: ActivityType; id: string; title: string; at: string }[];
 }
 
+const DONE_VISIBLE = 5;
+
 function formatDate(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function shortDate(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function taskTone(t: ProjectPayload['tasks'][number]): ChipTone {
+  if (t.is_done) return 'done';
+  if (t.awaiting_you) return 'attention';
+  if (t.status_label === 'Starting soon' || t.status_label === 'Closed') return 'quiet';
+  return 'moving';
+}
+
+function TaskRows({ tasks }: { tasks: ProjectPayload['tasks'] }) {
+  return (
+    <ul className="rows">
+      {tasks.map((t) => (
+        <li key={t.id}>
+          <span className="t">{t.title}</span>
+          <StatusChip label={t.status_label} tone={taskTone(t)} />
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export default function ClientProjectPage() {
@@ -96,186 +139,191 @@ export default function ClientProjectPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-text-secondary">Loading…</div>
-      </div>
+      <SkeletonRegion label="Project">
+        <div className="ph no-motif">
+          <Skeleton lines={3} />
+        </div>
+        <Skeleton lines={3} block />
+        <Skeleton lines={4} block />
+      </SkeletonRegion>
     );
   }
 
   if (notFound) {
     return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">We could not find that project</h2>
-        <p className="text-text-secondary mb-4">It may not be shared with you. Your other projects are on the home page.</p>
-        <Link href="/portal/home" className="text-brand-primary hover:underline">
-          Back to home
-        </Link>
-      </div>
+      <EmptyState
+        art="meadow"
+        title="We could not find that project"
+        body="It may not be shared with you. Your other projects are on the home page."
+        action={
+          <PortalButton variant="primary" href="/portal/home">
+            Back to Home
+          </PortalButton>
+        }
+      />
     );
   }
 
   if (error || !data) {
     return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Unable to load this project</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
+      <Callout tone="urgent" icon={TriangleAlert} title="Unable to load this project" note={`${error ?? 'Something went wrong'}. Refresh the page, and if it keeps happening, let us know.`} />
     );
   }
 
   const { project, phases, tasks, needs_from_you, links, history } = data;
-  const hasNeeds = needs_from_you.approvals.length > 0 || needs_from_you.requests.length > 0 || Boolean(needs_from_you.review_link);
-  const pct = project.progress.total > 0 ? Math.round((project.progress.done / project.progress.total) * 100) : 0;
+  const needCount = needs_from_you.approvals.length + needs_from_you.requests.length + (needs_from_you.review_link ? 1 : 0);
+  const moving = tasks.filter((t) => !t.is_done);
+  const doneTasks = tasks.filter((t) => t.is_done);
+  const doneShown = doneTasks.slice(0, DONE_VISIBLE);
+  const doneFolded = doneTasks.slice(DONE_VISIBLE);
+
+  const lede = project.completed_date
+    ? `Finished ${formatDate(project.completed_date)}`
+    : project.target_date
+      ? `Target ${formatDate(project.target_date)}`
+      : undefined;
+
+  const timeline: TimelineItem[] = history.map((h) => ({
+    id: `${h.type}-${h.id}`,
+    kind: 'project',
+    type: h.type === 'task_approved' ? 'approved' : h.type === 'article_published' ? 'published' : 'completed',
+    title: h.title,
+    what: activityLabel(h.type),
+    at: shortDate(h.at),
+  }));
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm">
-        <Link href="/portal/home" className="text-brand-primary hover:underline">
-          Back to home
-        </Link>
-      </p>
+    <>
+      <PageHeader
+        eyebrow={['Project', <StatusChip key="c" label={project.status_label} tone={projectTone(project.status_label)} />]}
+        title={project.name}
+        lede={lede}
+        motif="spruce"
+        actions={<RequestWorkButton variant="secondary" prefill={{ project_id: project.id }} />}
+      />
 
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="text-2xl font-bold text-text-main">{project.name}</h2>
-          <span className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-text-secondary">{project.status_label}</span>
-        </div>
-        <div className="mt-3">
-          <RequestWorkButton variant="secondary" prefill={{ project_id: project.id }} />
-        </div>
-        <p className="mt-2 text-sm text-text-secondary">
-          {project.progress.total > 0
-            ? `${project.progress.done} of ${project.progress.total} tasks complete`
-            : 'No tasks to show yet'}
-          {project.current_phase ? ` · ${project.current_phase}` : ''}
-          {project.target_date ? ` · Target ${formatDate(project.target_date)}` : ''}
-          {project.completed_date ? ` · Finished ${formatDate(project.completed_date)}` : ''}
-        </p>
-        {project.progress.total > 0 && (
-          <div
-            className="mt-3 h-2 w-full overflow-hidden rounded-full bg-surface-secondary"
-            role="progressbar"
-            aria-valuenow={pct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-label="Tasks complete"
-          >
-            <div className="h-full bg-brand-primary" style={{ width: `${pct}%` }} />
-          </div>
-        )}
-      </div>
-
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">What we need from you</h3>
-        {!hasNeeds ? (
-          <p className="text-sm text-text-tertiary">Nothing is waiting on you for this project.</p>
-        ) : (
-          <div className="space-y-3">
+      {needCount > 0 ? (
+        <Callout id="needs" icon={MessageSquareText} title="What we need from you" count={needCount}>
+          <ul className="ny">
             {needs_from_you.approvals.map((a) => (
-              <div key={a.id} className="rounded-lg border border-border p-4">
-                <span className="font-medium text-text-main">{a.title}</span>
-                <p className="text-xs text-text-tertiary">Ready for your approval</p>
-                {a.staging_preview_url && (
-                  <a href={a.staging_preview_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm text-brand-primary hover:underline">
-                    View preview
-                  </a>
-                )}
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    disabled={busyId === a.id}
-                    onClick={() => approve(a.id)}
-                    className="px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
-                  >
-                    {busyId === a.id ? 'Approving…' : 'Approve'}
-                  </button>
-                </div>
-              </div>
+              <NeedsYouItem
+                key={a.id}
+                icon={FileCheck}
+                title={a.title}
+                chip={{ label: 'Ready for your review', tone: 'attention' }}
+                actions={
+                  <>
+                    {a.staging_preview_url ? (
+                      <ActionLink href={a.staging_preview_url} external>
+                        View preview
+                      </ActionLink>
+                    ) : null}
+                    <PortalButton variant="primary" icon={Check} busy={busyId === a.id} busyLabel="Approving…" onClick={() => approve(a.id)}>
+                      Approve
+                    </PortalButton>
+                  </>
+                }
+              />
             ))}
             {needs_from_you.requests.map((r) => (
-              <div key={r.task_id} className="rounded-lg border border-border p-4">
-                <span className="font-medium text-text-main">{r.title}</span>
-                {r.question && <p className="mt-1 text-sm text-text-secondary">{r.question}</p>}
-                <Link
-                  href={`/portal/work/${r.task_id}`}
-                  className="mt-2 inline-flex min-h-[44px] items-center rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90"
-                >
-                  Answer
-                </Link>
-              </div>
+              <NeedsYouItem
+                key={r.task_id}
+                icon={MessageSquareText}
+                title={r.title}
+                detail={r.question}
+                chip={{ label: 'Needs your answer', tone: 'attention' }}
+                actions={
+                  <PortalButton variant="primary" href={`/portal/work/${r.task_id}`}>
+                    Answer
+                  </PortalButton>
+                }
+              />
             ))}
-            {needs_from_you.review_link && (
-              <a href={needs_from_you.review_link} target="_blank" rel="noopener noreferrer" className="block rounded-lg border border-border p-4 hover:border-text-tertiary">
-                <span className="font-medium text-text-main">Review and answer open questions</span>
-              </a>
-            )}
-            {actionError && <p className="text-sm text-status-error">{actionError}</p>}
+            {needs_from_you.review_link ? (
+              <NeedsYouItem
+                icon={SearchCheck}
+                title="Review and answer open questions"
+                chip={{ label: 'Needs your answer', tone: 'attention' }}
+                actions={
+                  <ActionLink href={needs_from_you.review_link} external>
+                    Open the review
+                  </ActionLink>
+                }
+              />
+            ) : null}
+          </ul>
+          {actionError ? (
+            <p role="alert" className="note">
+              {actionError}
+            </p>
+          ) : null}
+        </Callout>
+      ) : null}
+
+      {phases.length > 0 || project.progress.total > 0 ? (
+        <RailCard kind="project" icon={Flag} title={phases.length > 0 ? 'Phases' : 'Progress'} as="section">
+          {phases.length > 0 ? <PhaseTrack phases={phases.map((p) => ({ name: p.name, state: p.state }))} kind="project" /> : null}
+          <ProgressBar done={project.progress.done} total={project.progress.total} kind="project" />
+        </RailCard>
+      ) : null}
+
+      <Section id="tasks" title="Tasks" icon={ListChecks} kind="project">
+        <div className="rcard" data-kind="project">
+          {tasks.length === 0 ? (
+            <p className="empty-line">No tasks to show yet.</p>
+          ) : (
+            <>
+              {moving.length > 0 ? (
+                <>
+                  <p className="groupname">Moving ({moving.length})</p>
+                  <TaskRows tasks={moving} />
+                </>
+              ) : null}
+              {doneTasks.length > 0 ? (
+                <>
+                  <p className="groupname">Done ({doneTasks.length})</p>
+                  <TaskRows tasks={doneShown} />
+                  {doneFolded.length > 0 ? (
+                    <details className="fold">
+                      <summary>
+                        <span className="close-t">Show {doneFolded.length} more</span>
+                        <span className="open-t">Hide the rest</span>
+                      </summary>
+                      <TaskRows tasks={doneFolded} />
+                    </details>
+                  ) : null}
+                </>
+              ) : null}
+            </>
+          )}
+        </div>
+      </Section>
+
+      {links.length > 0 ? (
+        <Section id="links" title="Links" icon={Link2} kind="project">
+          <div className="rcard" data-kind="project">
+            <ul className="links-list">
+              {links.map((l) => (
+                <li key={`${l.kind}-${l.url}`}>
+                  <ActionLink href={l.url} external>
+                    {l.name}
+                  </ActionLink>
+                </li>
+              ))}
+            </ul>
           </div>
-        )}
-      </div>
+        </Section>
+      ) : null}
 
-      {phases.length > 0 && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Phases</h3>
-          <ol className="space-y-2">
-            {phases.map((ph) => (
-              <li key={ph.id} className="flex items-center justify-between gap-4 text-sm">
-                <span className={ph.state === 'upcoming' ? 'text-text-tertiary' : 'text-text-main'}>{ph.name}</span>
-                <span className="shrink-0 text-xs text-text-tertiary">{phaseStateLabel(ph.state)}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">Tasks</h3>
-        {tasks.length === 0 ? (
-          <p className="text-sm text-text-tertiary">No tasks to show yet.</p>
+      <Section id="history" title="History" icon={History} kind="project">
+        {timeline.length === 0 ? (
+          <div className="rcard" data-kind="project">
+            <p className="empty-line">Nothing finished yet.</p>
+          </div>
         ) : (
-          <ul className="space-y-2">
-            {tasks.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-4 text-sm">
-                <span className={t.is_done ? 'text-text-tertiary' : 'text-text-main'}>{t.title}</span>
-                <span className="shrink-0 text-xs text-text-tertiary">{t.status_label}</span>
-              </li>
-            ))}
-          </ul>
+          <Timeline items={timeline} dated />
         )}
-      </div>
-
-      {links.length > 0 && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Links</h3>
-          <ul className="space-y-2 text-sm">
-            {links.map((l) => (
-              <li key={`${l.kind}-${l.url}`}>
-                <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:underline">
-                  {l.name}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">History</h3>
-        {history.length === 0 ? (
-          <p className="text-sm text-text-tertiary">Nothing finished yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {history.map((item) => (
-              <li key={`${item.type}-${item.id}`} className="flex items-center justify-between gap-4 text-sm">
-                <span className="text-text-main">
-                  {activityLabel(item.type)}: {item.title}
-                </span>
-                <span className="shrink-0 text-xs text-text-tertiary">{formatDate(item.at)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+      </Section>
+    </>
   );
 }

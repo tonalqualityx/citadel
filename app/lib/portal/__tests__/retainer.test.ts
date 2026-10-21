@@ -6,12 +6,12 @@ vi.mock('@/lib/db/prisma', () => ({
     charter: { findMany: vi.fn() },
     site: { findMany: vi.fn() },
     task: { findFirst: vi.fn(), findMany: vi.fn() },
-    clientReport: { findFirst: vi.fn() },
+    clientReport: { findFirst: vi.fn(), findMany: vi.fn() },
   },
 }));
 
 import { prisma } from '@/lib/db/prisma';
-import { allowanceText, loadRetainers, periodOf, retainerHeading, safeHttpUrl } from '../retainer';
+import { allowanceText, buildYearMonths, loadRetainers, periodOf, retainerHeading, safeHttpUrl } from '../retainer';
 import type { PortalAccess } from '../access';
 
 const p = prisma as unknown as Record<string, Record<string, Mock>>;
@@ -40,10 +40,10 @@ describe('periodOf', () => {
 });
 
 describe('allowanceText: the plan allowance, never hours used', () => {
-  it('states what the plan includes', () => {
-    expect(allowanceText(10, 'monthly')).toBe('Your plan includes up to 10 hours of work a month.');
-    expect(allowanceText('2.50', 'annually')).toBe('Your plan includes up to 2.5 hours of work a year.');
-    expect(allowanceText(1, 'monthly')).toBe('Your plan includes up to 1 hour of work a month.');
+  it('states what the plan covers', () => {
+    expect(allowanceText(10, 'monthly')).toBe('Your plan covers up to 10 hours of work a month.');
+    expect(allowanceText('2.50', 'annually')).toBe('Your plan covers up to 2.5 hours of work a year.');
+    expect(allowanceText(1, 'monthly')).toBe('Your plan covers up to 1 hour of work a month.');
   });
   it('says nothing without an allowance', () => {
     expect(allowanceText(null, 'monthly')).toBeNull();
@@ -87,6 +87,7 @@ describe('loadRetainers', () => {
     p.task.findFirst.mockResolvedValue(null);
     p.task.findMany.mockResolvedValue([]);
     p.clientReport.findFirst.mockResolvedValue(null);
+    p.clientReport.findMany.mockResolvedValue([]);
   });
 
   it('a grant-only contact and a revoked contact get nothing, and nothing is queried', async () => {
@@ -106,7 +107,7 @@ describe('loadRetainers', () => {
       heading: 'SEO',
       period: 'October 2026',
       covers: ['example.com', 'other.org'],
-      allowance: 'Your plan includes up to 10 hours of work a month.',
+      allowance: 'Your plan covers up to 10 hours of work a month.',
       status: { label: 'Active' },
       plan_ready: null,
       latest_report: null,
@@ -183,5 +184,70 @@ describe('loadRetainers', () => {
 
     p.clientReport.findFirst.mockResolvedValue({ title: 'x', headline: null, period: '2026-10', url: 'javascript:alert(1)' });
     expect((await loadRetainers(owner, { now: NOW }))[0].latest_report).toBeNull();
+  });
+});
+
+describe('buildYearMonths: the plan year ribbon', () => {
+  const NOW = new Date('2026-10-21T15:00:00Z');
+  const states = (r: { months: { state: string }[] }) => r.months.map((m) => m.state);
+
+  it('runs twelve months from the start month, labelled', () => {
+    const r = buildYearMonths('2026-04-01', NOW, [], false);
+    expect(r.months).toHaveLength(12);
+    expect(r.months[0].label).toBe('Apr');
+    expect(r.months[11].label).toBe('Mar');
+    expect(r.label).toBe('April 2026 to March 2027');
+  });
+  it('marks delivered, current, ready, upcoming and plain past (never missed)', () => {
+    const r = buildYearMonths('2026-04-01', NOW, ['2026-04', '2026-05', '2026-07', '2026-09'], true);
+    expect(states(r)).toEqual([
+      'delivered', 'delivered', 'past', 'delivered', 'past', 'delivered', 'current', 'ready', 'upcoming', 'upcoming', 'upcoming', 'upcoming',
+    ]);
+    expect(states(r)).not.toContain('missed');
+  });
+  it('next month is upcoming when no plan is staged', () => {
+    expect(states(buildYearMonths('2026-04-01', NOW, [], false))[7]).toBe('upcoming');
+  });
+  it('picks the contract year that holds now when the start was years ago', () => {
+    const r = buildYearMonths('2024-11-01', NOW, [], false);
+    expect(r.label).toBe('November 2025 to October 2026');
+    expect(r.months[11]).toEqual({ label: 'Oct', state: 'current' });
+  });
+  it('no usable start date gives no months', () => {
+    expect(buildYearMonths(null, NOW, [], false)).toEqual({ label: null, months: [] });
+    expect(buildYearMonths('nope', NOW, [], false).months).toEqual([]);
+  });
+});
+
+describe('loadRetainers: months on the payload', () => {
+  const NOW = new Date('2026-10-21T15:00:00Z');
+  beforeEach(() => {
+    vi.clearAllMocks();
+    p.site.findMany.mockResolvedValue([{ id: 's1', name: 'example.com' }]);
+    p.task.findFirst.mockResolvedValue(null);
+    p.task.findMany.mockResolvedValue([]);
+    p.clientReport.findFirst.mockResolvedValue(null);
+    p.clientReport.findMany.mockResolvedValue([{ period: '2026-08' }, { period: '2026-09' }]);
+  });
+  const base = { id: 'ch1', status: 'active', billing_period: 'monthly', budget_hours: 10, start_date: new Date('2026-04-01'), site_id: null, client_label: null, site: null, charter_wares: [] };
+
+  it('delivered, current and upcoming come from report periods and the clock', async () => {
+    p.charter.findMany.mockResolvedValue([base]);
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.year_label).toBe('April 2026 to March 2027');
+    const by = Object.fromEntries(card.months.map((m) => [m.label, m.state]));
+    expect(by).toMatchObject({ Apr: 'past', Aug: 'delivered', Sep: 'delivered', Oct: 'current', Nov: 'upcoming', Mar: 'upcoming' });
+  });
+  it('a staged plan makes next month ready', async () => {
+    p.charter.findMany.mockResolvedValue([base]);
+    p.task.findFirst.mockResolvedValue({ id: 't1', title: 'Plan', client_title: null, staging_preview_url: 'https://preview.example.com/p' });
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.months.find((m) => m.label === 'Nov')?.state).toBe('ready');
+  });
+  it('a paused charter still gets its ribbon', async () => {
+    p.charter.findMany.mockResolvedValue([{ ...base, status: 'paused' }]);
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.status.label).toBe('Paused');
+    expect(card.months).toHaveLength(12);
   });
 });
