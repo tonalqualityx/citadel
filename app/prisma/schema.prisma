@@ -69,6 +69,13 @@ model User {
   troubador_article_comments         ArticleComment[]
   oracle_commands_created            OracleCommand[]          @relation("OracleCommandCreatedBy")
 
+  // Wait record phase 1 (back-relations)
+  waits_owned        Wait[] @relation("WaitOwnerUser")
+  waits_standing_in  Wait[] @relation("WaitStandInUser")
+  waits_escalated_to Wait[] @relation("WaitEscalatedTo")
+  waits_created      Wait[] @relation("WaitCreatedBy")
+  waits_resolved     Wait[] @relation("WaitResolvedBy")
+
   @@map("users")
 }
 
@@ -432,6 +439,9 @@ model Function {
   tasks            Task[]
   sops             Sop[]
 
+  // Wait record phase 1 (back-relations)
+  waits_owned_by_role Wait[] @relation("WaitOwnerFunction")
+
   @@map("functions")
 }
 
@@ -593,6 +603,9 @@ model Client {
   scheduled_invoices    ScheduledInvoice[]
   email_asks            EmailAsk[]
 
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
+
   @@index([type])
   @@index([status])
   @@index([parent_agency_id])
@@ -636,6 +649,9 @@ model ClientContact {
   // Oracle Projects Phase 1 — the client-approval loop's recipient (nullable: a draft may
   // not have a contact chosen yet).
   approval_requests ApprovalRequest[]
+
+  // Wait record phase 1 (back-relations)
+  waits_owned Wait[] @relation("WaitOwnerContact")
 
   @@unique([client_id, email])
   @@index([email])
@@ -729,6 +745,9 @@ model Site {
   articles                    Article[]
   brand_profile               BrandProfile?
   stats_snapshots             SiteStatsSnapshot[]
+
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
@@ -928,6 +947,9 @@ model Project {
   approval_requests       ApprovalRequest[]
   blocker_dismissals      BlockerDismissal[]
   email_asks              EmailAsk[]
+
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -1199,6 +1221,9 @@ model Task {
   today_picks          TodayPick[]
   email_asks           EmailAsk[]
   approval_requests    ApprovalRequest[]
+
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
 
   @@index([project_id])
   @@index([client_id])
@@ -1705,6 +1730,9 @@ model Accord {
   // triggers (deposits, milestones, renewals). See ScheduledInvoice's own doc comment.
   scheduled_invoices   ScheduledInvoice[]
 
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
+
   @@index([client_id])
   @@index([owner_id])
   @@index([status])
@@ -2146,6 +2174,9 @@ model Charter {
   meeting_charters    MeetingCharter[]
   today_picks         TodayPick[]
   scheduled_invoices  ScheduledInvoice[]
+
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
 
   @@index([client_id])
   @@index([accord_id])
@@ -2842,6 +2873,9 @@ model Arc {
   today_picks TodayPick[]
   email_asks  EmailAsk[]
 
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
+
   @@index([project_id])
   @@index([client_id])
   @@index([accord_id])
@@ -3337,6 +3371,9 @@ model ApprovalRequest {
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
+  // Wait record phase 1 (back-relations)
+  waits Wait[]
+
   @@index([task_id])
   @@index([project_id])
   @@index([status])
@@ -3408,4 +3445,160 @@ model ProjectContact {
   @@unique([project_id, contact_id])
   @@index([contact_id])
   @@map("project_contacts")
+}
+
+// ============================================
+// WAIT RECORD (phase 1: specs/citadel-shape-SPEC.md section 2)
+// ============================================
+// Anything Indelible is waiting on, with a date when something happens if nobody acts.
+// Owner columns left empty resolve to Mike (lib/waits/owner.ts). Waits are never deleted;
+// a cancelled wait is `done` with resolution = cancelled. Phase 1 sends nothing: every
+// template that sends is registered disabled in lib/waits/templates.ts.
+
+enum WaitKind {
+  approval
+  clock
+  handoff
+  meeting
+  external
+  switch
+}
+
+enum WaitState {
+  waiting
+  needs_human
+  paused
+  blocked_by_switch
+  done
+  expired
+}
+
+enum WaitAction {
+  proceed
+  send
+  escalate
+  task
+}
+
+enum WaitUnit {
+  hours
+  calendar_days
+  business_days
+}
+
+model Wait {
+  id           String   @id @default(uuid()) @db.Uuid
+  kind         WaitKind
+  template_key String   @db.VarChar(80)
+  step         Int      @default(1)
+  title        String   @db.VarChar(300)
+  detail       String?  @db.Text
+
+  // Owner. Empty function and empty user resolve to Mike.
+  owner_function_id    String?        @db.Uuid
+  owner_function       Function?      @relation("WaitOwnerFunction", fields: [owner_function_id], references: [id])
+  owner_user_id        String?        @db.Uuid
+  owner_user           User?          @relation("WaitOwnerUser", fields: [owner_user_id], references: [id])
+  owner_contact_id     String?        @db.Uuid
+  owner_contact        ClientContact? @relation("WaitOwnerContact", fields: [owner_contact_id], references: [id])
+  stand_in_user_id     String?        @db.Uuid
+  stand_in_user        User?          @relation("WaitStandInUser", fields: [stand_in_user_id], references: [id])
+  escalated_to_user_id String?        @db.Uuid
+  escalated_to_user    User?          @relation("WaitEscalatedTo", fields: [escalated_to_user_id], references: [id])
+
+  // Links, any mix
+  client_id           String?          @db.Uuid
+  client              Client?          @relation(fields: [client_id], references: [id])
+  accord_id           String?          @db.Uuid
+  accord              Accord?          @relation(fields: [accord_id], references: [id])
+  project_id          String?          @db.Uuid
+  project             Project?         @relation(fields: [project_id], references: [id])
+  charter_id          String?          @db.Uuid
+  charter             Charter?         @relation(fields: [charter_id], references: [id])
+  site_id             String?          @db.Uuid
+  site                Site?            @relation(fields: [site_id], references: [id])
+  task_id             String?          @db.Uuid
+  task                Task?            @relation(fields: [task_id], references: [id])
+  arc_id              String?          @db.Uuid
+  arc                 Arc?             @relation(fields: [arc_id], references: [id])
+  approval_request_id String?          @db.Uuid
+  approval_request    ApprovalRequest? @relation(fields: [approval_request_id], references: [id])
+  email_thread_id     String?          @db.VarChar(255)
+  email_account       String?          @db.VarChar(255)
+
+  // Clock
+  started_at           DateTime  @default(now())
+  duration_value       Int
+  duration_unit        WaitUnit  @default(business_days)
+  due_at               DateTime
+  extended_bd_total    Int       @default(0)
+  extension_count      Int       @default(0)
+  blocks_client        Boolean   @default(false)
+  client_waiting_since DateTime?
+
+  // State
+  state               WaitState @default(waiting)
+  paused_until        DateTime?
+  paused_remaining_ms BigInt?
+  switch_key          String?   @db.VarChar(80)
+
+  // Terminal action
+  terminal_action  WaitAction
+  action_payload   Json?
+  claimed_at       DateTime?
+  fired_at         DateTime?
+  sent_at          DateTime?
+  sent_message_id  String?    @db.VarChar(255)
+  fire_error       String?    @db.Text
+  fire_error_count Int        @default(0)
+
+  // Visibility ladder for waits on Mike: 0 due list, 1 blocking, 2 Slack DM sent, 3 countdown
+  nag_level   Int       @default(0)
+  last_nag_at DateTime?
+
+  // Provenance and close
+  created_by_id         String?   @db.Uuid
+  created_by            User?     @relation("WaitCreatedBy", fields: [created_by_id], references: [id])
+  created_by_automation String?   @db.VarChar(80)
+  idempotency_key       String?   @unique @db.VarChar(255)
+  resolved_at           DateTime?
+  resolved_by_id        String?   @db.Uuid
+  resolved_by           User?     @relation("WaitResolvedBy", fields: [resolved_by_id], references: [id])
+  resolution            String?   @db.VarChar(80)
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  events WaitEvent[]
+
+  @@index([state, due_at])
+  @@index([owner_user_id, state])
+  @@index([owner_function_id, state])
+  @@index([client_id, state])
+  @@index([project_id])
+  @@index([charter_id])
+  @@index([task_id])
+  @@index([email_thread_id])
+  @@index([switch_key, state])
+  @@map("waits")
+}
+
+// The pause and extend log. Every state change, extension, reassignment and firing writes a row.
+model WaitEvent {
+  id               String    @id @default(uuid()) @db.Uuid
+  wait_id          String    @db.Uuid
+  wait             Wait      @relation(fields: [wait_id], references: [id], onDelete: Cascade)
+  kind             String    @db.VarChar(30)
+  from_due_at      DateTime?
+  to_due_at        DateTime?
+  from_state       String?   @db.VarChar(30)
+  to_state         String?   @db.VarChar(30)
+  reason           String?   @db.Text
+  source           String    @db.VarChar(30)
+  actor_user_id    String?   @db.Uuid
+  email_message_id String?   @db.VarChar(255)
+  event_id         String?   @unique @db.VarChar(255)
+  created_at       DateTime  @default(now())
+
+  @@index([wait_id, created_at])
+  @@map("wait_events")
 }
