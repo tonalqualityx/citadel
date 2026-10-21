@@ -231,6 +231,28 @@ describe('POST /api/clients/:id/view-as', () => {
     expect(res.cookies.get('access_token')).toBeUndefined();
   });
 
+  it('sets the admin\'s own live portal login aside (httpOnly, only sent to the exit route) when a view starts', async () => {
+    cookieJar({ access_token: 'jwt', client_session: 'own-login' });
+    m(prisma.portalSession.findFirst).mockResolvedValue({ expires_at: new Date(Date.now() + 86400000) });
+    const res = await startRoute(req(), ctx);
+    expect(res.status).toBe(200);
+    const stash = res.cookies.get('client_session_stash');
+    expect(stash?.value).toBe('own-login');
+    expect(stash?.path).toBe('/api/portal-view-as');
+    expect(stash?.httpOnly).toBe(true);
+    expect(stash?.maxAge).toBeLessThanOrEqual(1800);
+    // The lookup only counts an ordinary live session, never another view.
+    expect(m(prisma.portalSession.findFirst).mock.calls[0][0].where).toMatchObject({ session_token: 'own-login', action: { not: 'view_as' }, revoked_at: null });
+    expect(res.cookies.get('client_session')?.value).not.toBe('own-login');
+  });
+
+  it('stashes nothing when there is no live portal login of its own', async () => {
+    cookieJar({ access_token: 'jwt', client_session: 'stale' });
+    m(prisma.portalSession.findFirst).mockResolvedValue(null);
+    const res = await startRoute(req(), ctx);
+    expect(res.cookies.get('client_session_stash')).toBeUndefined();
+  });
+
   it('rejects an unknown role and a cross-site call', async () => {
     expect((await startRoute(req({ role: 'none' }), ctx)).status).toBe(400);
     const cross = new NextRequest(`http://localhost:3000/api/clients/${CLIENT}/view-as`, {
@@ -263,6 +285,35 @@ describe('POST /api/portal-view-as/exit', () => {
     expect(m(prisma.portalSession.updateMany).mock.calls[0][0].data.revoked_at).toBeInstanceOf(Date);
     expect((await res.json()).return_to).toBe(`/clients/${CLIENT}`);
     expect(res.cookies.get('client_session')?.maxAge).toBe(0);
+  });
+
+  it('puts the admin\'s own portal login back on exit and clears the stash', async () => {
+    m(prisma.portalSession.findFirst).mockImplementation(async (a: { where: { action?: unknown } }) =>
+      a.where.action === 'view_as' ? { id: 'row', entity_id: CLIENT } : { expires_at: new Date(Date.now() + 3600 * 1000) }
+    );
+    const r = new NextRequest('http://localhost:3000/api/portal-view-as/exit', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'Content-Type': 'application/json', Cookie: 'client_session=tok; client_session_stash=own-login' },
+    });
+    const res = await exitRoute(r);
+    expect(res.cookies.get('client_session')?.value).toBe('own-login');
+    expect(res.cookies.get('client_session')?.maxAge).toBeGreaterThan(3500);
+    expect(res.cookies.get('client_session_stash')?.maxAge).toBe(0);
+  });
+
+  it('does not restore a stashed login that has since died', async () => {
+    m(prisma.portalSession.findFirst).mockImplementation(async (a: { where: { action?: unknown } }) =>
+      a.where.action === 'view_as' ? { id: 'row', entity_id: CLIENT } : null
+    );
+    const r = new NextRequest('http://localhost:3000/api/portal-view-as/exit', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'Content-Type': 'application/json', Cookie: 'client_session=tok; client_session_stash=dead' },
+    });
+    const res = await exitRoute(r);
+    expect(res.cookies.get('client_session')?.maxAge).toBe(0);
+    expect(res.cookies.get('client_session_stash')?.maxAge).toBe(0);
   });
 
   it('leaves a real client session alone', async () => {

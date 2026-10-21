@@ -5,7 +5,6 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { getChatSettings, updateChatSettings } from '@/lib/portal/chat/switches';
-import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z
   .object({
@@ -19,8 +18,6 @@ const bodySchema = z
 // Admin sets the mode, the pilot contacts and the daily spend cap. The Bast token may set the mode
 // to `off` and nothing else: it can stop the chat, never start it.
 export async function PUT(request: NextRequest) {
-  const viewAsRefusal = await refuseIfViewAs();
-  if (viewAsRefusal) return viewAsRefusal;
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);

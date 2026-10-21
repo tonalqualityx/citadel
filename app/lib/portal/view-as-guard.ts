@@ -23,15 +23,20 @@ export function viewAsRefusedResponse(): NextResponse {
   return NextResponse.json({ error: VIEW_AS_READ_ONLY_LINE, code: 'view_as_read_only' }, { status: 403 });
 }
 
+/** True when this token belongs to a view-as session row (live or not). */
+export async function isViewAsToken(token: string | undefined): Promise<boolean> {
+  if (!token) return false;
+  const row = await prisma.portalSession.findFirst({
+    where: { session_token: token, action: VIEW_AS_ACTION },
+    select: { id: true },
+  });
+  return !!row;
+}
+
 export async function refuseIfViewAs(): Promise<NextResponse | null> {
   try {
     const token = (await cookies()).get(CLIENT_SESSION_COOKIE_NAME)?.value;
-    if (!token) return null;
-    const row = await prisma.portalSession.findFirst({
-      where: { session_token: token, action: VIEW_AS_ACTION },
-      select: { id: true },
-    });
-    return row ? viewAsRefusedResponse() : null;
+    return (await isViewAsToken(token)) ? viewAsRefusedResponse() : null;
   } catch (error) {
     console.error('view-as guard lookup failed, refusing the write:', error);
     return viewAsRefusedResponse();

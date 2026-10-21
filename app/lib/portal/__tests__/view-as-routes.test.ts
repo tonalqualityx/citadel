@@ -10,8 +10,22 @@ import { VIEW_AS_READ_ONLY_LINE } from '../view-as-copy';
 // without the guard fails here.
 
 const APP = path.resolve(__dirname, '..', '..', '..');
-const ROOTS = ['app/api/portal', 'app/api/portal-chat'].map((r) => path.join(APP, r));
+const API = path.join(APP, 'app/api');
+const TREES = ['app/api/portal', 'app/api/portal-chat'].map((r) => path.join(APP, r));
 const WRITE = ['POST', 'PATCH', 'PUT', 'DELETE'] as const;
+const SESSION_SYMBOLS = /requireClientAuth|validateClientSession|CLIENT_SESSION_COOKIE/;
+
+// Staff-only routes under /api/portal-chat: they check a Citadel staff login (requireAuth + requireRole),
+// never the portal cookie, so a view-as session means nothing to them and they are not guarded.
+const STAFF_ONLY = [
+  'app/api/portal-chat/settings/route.ts',
+  'app/api/portal-chat/sweep/route.ts',
+  'app/api/portal-chat/inbound/route.ts',
+  'app/api/portal-chat/inbound/attachments/route.ts',
+];
+// The two routes that mint or end a view. They handle the portal cookie on purpose and must stay reachable
+// from a view (exit) or run from the admin side (start); both have their own tests in view-as.test.ts.
+const COOKIE_HANDLERS = ['app/api/clients/[id]/view-as/route.ts', 'app/api/portal-view-as/exit/route.ts'];
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({ get: (name: string) => (name === 'client_session' ? { value: 'view-as-token' } : undefined) })),
@@ -56,25 +70,30 @@ interface WriteRoute {
   source: string;
 }
 
-function writeRoutes(): WriteRoute[] {
-  const out: WriteRoute[] = [];
-  for (const root of ROOTS) {
-    for (const file of walk(root)) {
-      const source = readFileSync(file, 'utf8');
-      // A re-export or an unusual declaration could hide a write handler from this scan: fail loudly.
-      expect(source, `${file} uses an export form this test cannot scan`).not.toMatch(/export\s*\{[^}]*\b(POST|PATCH|PUT|DELETE)\b/);
-      expect(source, `${file} declares a write handler as a const`).not.toMatch(/export\s+const\s+(POST|PATCH|PUT|DELETE)\b/);
-      for (const method of WRITE) {
-        if (new RegExp(`export\\s+(async\\s+)?function\\s+${method}\\b`).test(source)) {
-          out.push({ file, rel: path.relative(APP, file), method, source });
-        }
-      }
-    }
-  }
-  return out;
+function declaredWriteMethods(source: string): Array<(typeof WRITE)[number]> {
+  // A re-export or an unusual declaration could hide a write handler from this scan: fail loudly.
+  expect(source).not.toMatch(/export\s*\{[^}]*\b(POST|PATCH|PUT|DELETE)\b/);
+  expect(source).not.toMatch(/export\s+const\s+(POST|PATCH|PUT|DELETE)\b/);
+  return WRITE.filter((m) => new RegExp(`export\\s+(async\\s+)?function\\s+${m}\\b`).test(source));
 }
 
-const ROUTES = writeRoutes();
+/** Every route that must refuse a view-as session: all write routes in the two portal trees, plus any other
+ *  app/api route that reads the portal session, minus the staff-only and cookie-handling allowlists. */
+function writeRoutes(): { routes: WriteRoute[]; scanned: string[] } {
+  const out: WriteRoute[] = [];
+  const treeFiles = TREES.flatMap(walk);
+  const sessionFiles = walk(API).filter((f) => SESSION_SYMBOLS.test(readFileSync(f, 'utf8')));
+  const scanned = [...new Set([...treeFiles, ...sessionFiles])];
+  for (const file of scanned) {
+    const rel = path.relative(APP, file);
+    if (STAFF_ONLY.includes(rel) || COOKIE_HANDLERS.includes(rel)) continue;
+    const source = readFileSync(file, 'utf8');
+    for (const method of declaredWriteMethods(source)) out.push({ file, rel, method, source });
+  }
+  return { routes: out, scanned };
+}
+
+const { routes: ROUTES, scanned: SCANNED } = writeRoutes();
 
 function sampleParams(): Promise<Record<string, string>> {
   return Promise.resolve({ id: '00000000-0000-4000-8000-000000000001', token: 'tok', clientId: '00000000-0000-4000-8000-000000000002' });
@@ -85,10 +104,25 @@ describe('view-as: every write route refuses a view-as session', () => {
     lookups.length = 0;
   });
 
+  it('the staff-only and cookie-handling allowlists are real routes that behave as described', () => {
+    for (const rel of STAFF_ONLY) {
+      const src = readFileSync(path.join(APP, rel), 'utf8');
+      expect(src, `${rel} must check a staff login`).toMatch(/requireAuth\(/);
+      expect(src, `${rel} reads the portal session, so it is not staff-only`).not.toMatch(SESSION_SYMBOLS);
+      expect(src, `${rel} is allowlisted, so it must not carry the guard`).not.toContain('refuseIfViewAs');
+    }
+    for (const rel of COOKIE_HANDLERS) expect(readFileSync(path.join(APP, rel), 'utf8')).toMatch(/CLIENT_SESSION_COOKIE/);
+  });
+
+  it('scans every route that reads the portal session, wherever it lives', () => {
+    for (const rel of COOKIE_HANDLERS) expect(SCANNED.map((f) => path.relative(APP, f))).toContain(rel);
+    expect(SCANNED.length).toBeGreaterThan(40);
+  });
+
   it('finds the write routes on disk (guards against an empty scan)', () => {
-    expect(ROUTES.length).toBeGreaterThanOrEqual(28);
+    expect(ROUTES.length).toBeGreaterThanOrEqual(24);
     expect(ROUTES.some((r) => r.rel.includes('portal/tasks/mine/[id]/approve'))).toBe(true);
-    expect(ROUTES.some((r) => r.rel.includes('portal-chat/settings'))).toBe(true);
+    expect(ROUTES.some((r) => r.rel.includes('portal-chat'))).toBe(false);
   });
 
   it.each(ROUTES.map((r) => [`${r.method} ${r.rel}`, r] as const))('%s calls refuseIfViewAs() as its first statement', (_name, route) => {

@@ -6,7 +6,7 @@ import { handleApiError, ApiError, AuthError } from '@/lib/api/errors';
 import { rejectCrossSiteRequest } from '@/lib/api/same-origin-guard';
 import { getClientIp } from '@/lib/services/portal';
 import { CLIENT_SESSION_COOKIE } from '@/lib/services/client-auth';
-import { startViewAsSession, VIEW_AS_ROLES } from '@/lib/portal/view-as';
+import { startViewAsSession, findLiveOwnSession, VIEW_AS_ROLES, VIEW_AS_STASH_COOKIE, VIEW_AS_STASH_PATH } from '@/lib/portal/view-as';
 import { VIEW_AS_NO_CONTACT_LINE } from '@/lib/portal/view-as-copy';
 
 const bodySchema = z.object({ role: z.enum(VIEW_AS_ROLES).optional() }).strict();
@@ -25,6 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // A browser session only: an API key must not be able to mint a portal cookie.
     if (!(await cookies()).get('access_token')?.value) throw new AuthError('Forbidden', 403);
 
+    const jar = await cookies();
     const { id } = await params;
     if (!z.string().uuid().safeParse(id).success) throw new ApiError('Client not found', 404);
     const { role } = bodySchema.parse(await request.json().catch(() => ({})));
@@ -47,6 +48,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       role: result.role,
       expires_at: result.expiresAt.toISOString(),
     });
+    // The view takes over the client_session cookie. If this browser already held a live portal login of its
+    // own, keep it aside (httpOnly, only sent to the exit route, 30 minutes) so Exit view can put it back.
+    const own = jar.get(CLIENT_SESSION_COOKIE)?.value;
+    if (own && (await findLiveOwnSession(own))) {
+      response.cookies.set(VIEW_AS_STASH_COOKIE, own, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: Math.floor((result.expiresAt.getTime() - Date.now()) / 1000),
+        path: VIEW_AS_STASH_PATH,
+      });
+    }
     response.cookies.set(CLIENT_SESSION_COOKIE, result.sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

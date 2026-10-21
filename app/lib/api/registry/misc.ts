@@ -75,6 +75,7 @@ export const miscEndpoints: ApiEndpoint[] = [
           { name: 'entity_type', type: 'string', required: false, description: 'Filter by entity type' },
           { name: 'entity_id', type: 'uuid', required: false, description: 'Filter by entity ID' },
           { name: 'user_id', type: 'uuid', required: false, description: 'Filter by user' },
+          { name: 'action', type: 'string', required: false, description: 'Filter by action (e.g. view_as_started)' },
         ],
         responseExample: {
           activities: [{

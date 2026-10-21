@@ -31,6 +31,11 @@ Mike, 2026-10-21: "as a logged in admin, I'd love to be able to see any client's
 - Existing route tests stub the guard as a pass-through; copy scan covers `view-as-copy.ts` and the new components.
 - Playwright `__tests__/e2e/portal-view-as.spec.ts`.
 
-## Known limits
-- Token pages (proposal, contract, MSA, addendum, onboarding, task-approval) are public documents; their POST
-  routes refuse a view-as cookie server side, but their buttons are not individually greyed out.
+## Review follow-ups (auth review, 2026-10-21)
+- Staff-only `/api/portal-chat` routes (settings, sweep, inbound, inbound/attachments) are not guarded; an allowlist in
+  `view-as-routes.test.ts` pins them and fails if one reads the portal session.
+- The admin's own live portal login is set aside in `client_session_stash` (httpOnly, path /api/portal-view-as, 30 min)
+  and restored on exit.
+- Last five views (who, role, when) show under the button via `/api/activities?entity_type=client&action=view_as_started`.
+- Token-page sign/respond buttons use `writes`; the book page shows the read-only line instead of the widget.
+- The route test also scans every `app/api/**/route.ts` that reads the portal session.

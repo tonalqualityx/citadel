@@ -7,14 +7,11 @@ import { effectiveClientRole } from '@/lib/portal/access';
 import { MAX_FILE_BYTES } from '@/lib/services/uploads';
 import { stageUpload } from '@/lib/portal/chat/upload-service';
 import { findConversation, senderContact } from '@/lib/portal/chat/inbound';
-import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal-chat/inbound/attachments (portal phase C, slice C4; bot)
 // multipart: file, from_email, token | task_id. Stages one email attachment under the verified
 // sender with the portal's own allowlist (magic bytes, no SVG, HTML, archives or macro Office).
 export async function POST(request: NextRequest) {
-  const viewAsRefusal = await refuseIfViewAs();
-  if (viewAsRefusal) return viewAsRefusal;
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);

@@ -29,6 +29,7 @@ export interface ActivityFilters {
   entity_type?: string;
   entity_id?: string;
   user_id?: string;
+  action?: string;
   limit?: number;
   offset?: number;
 }
@@ -52,6 +53,7 @@ export function useActivities(filters: ActivityFilters = {}) {
       if (filters.entity_type) params.set('entity_type', filters.entity_type);
       if (filters.entity_id) params.set('entity_id', filters.entity_id);
       if (filters.user_id) params.set('user_id', filters.user_id);
+      if (filters.action) params.set('action', filters.action);
       if (filters.limit) params.set('limit', filters.limit.toString());
       if (filters.offset) params.set('offset', filters.offset.toString());
 

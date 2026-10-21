@@ -5,6 +5,7 @@ import { Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { apiClient } from '@/lib/api/client';
+import { useActivities } from '@/lib/hooks/use-activities';
 
 const ROLE_OPTIONS = [
   { value: 'owner', label: 'Owner' },
@@ -20,6 +21,7 @@ export function ViewAsPortalButton({ clientId, clientName }: { clientId: string;
   const [role, setRole] = useState('owner');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { data: recent } = useActivities({ entity_type: 'client', entity_id: clientId, action: 'view_as_started', limit: 5 });
 
   async function start() {
     setBusy(true);
@@ -43,6 +45,18 @@ export function ViewAsPortalButton({ clientId, clientName }: { clientId: string;
         </Button>
       </div>
       {error ? <p className="text-xs text-error" role="alert">{error}</p> : null}
+      {recent && recent.activities.length > 0 ? (
+        <ul className="text-xs text-text-sub text-right" aria-label="Recent portal views">
+          {recent.activities.map((a) => {
+            const role = (a.changes as { role?: { to?: string } } | null)?.role?.to ?? 'owner';
+            return (
+              <li key={a.id}>
+                {a.user?.name ?? 'Someone'} as {role}, {new Date(a.created_at).toLocaleString()}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }

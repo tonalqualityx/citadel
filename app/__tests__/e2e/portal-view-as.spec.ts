@@ -72,6 +72,11 @@ test.describe('Portal: view as client', () => {
       await expect(page.getByRole('heading', { name: heading }).first()).toBeVisible();
     }
 
+    // Booking a time is a real action: the widget is replaced by the read-only line.
+    await page.goto('/portal/book');
+    await banner(page, bannerText);
+    await expect(page.getByText(READ_ONLY_LINE).first()).toBeVisible();
+
     // A work page: Send is off, the box is read-only, nothing is posted.
     await page.goto(`/portal/work/${taskId}`);
     await banner(page, bannerText);
@@ -96,6 +101,8 @@ test.describe('Portal: view as client', () => {
     await page.getByRole('button', { name: 'Exit view' }).click();
     await page.waitForURL(new RegExp(`/clients/${clientId}`));
     await expect(page.getByRole('heading', { name: CLIENT_NAME })).toBeVisible();
+    // The record lists who looked, as which role, and when.
+    await expect(page.getByRole('list', { name: 'Recent portal views' }).getByRole('listitem').first()).toContainText('as owner');
     // The view session is gone: the portal asks for a sign-in.
     await page.goto('/portal/home');
     await expect(page.locator('[data-view-as-banner]')).toHaveCount(0);

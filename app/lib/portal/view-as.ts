@@ -114,6 +114,23 @@ export async function startViewAsSession(input: {
   return { ok: true, sessionToken, expiresAt, clientName: client.name, role: input.role };
 }
 
+/** Name and scope of the cookie that holds an admin's own live portal session while a view is open. */
+export const VIEW_AS_STASH_COOKIE = 'client_session_stash';
+export const VIEW_AS_STASH_PATH = '/api/portal-view-as';
+
+/**
+ * A live, ordinary (not view-as) client session for this token, or null. Used to stash the admin's own
+ * portal login when a view starts and to restore it on exit, only if it is still live.
+ */
+export async function findLiveOwnSession(token: string | undefined): Promise<{ expiresAt: Date } | null> {
+  if (!token) return null;
+  const row = await prisma.portalSession.findFirst({
+    where: { session_token: token, token_type: 'client_session', action: { not: VIEW_AS_ACTION }, revoked_at: null, expires_at: { gt: new Date() } },
+    select: { expires_at: true },
+  });
+  return row?.expires_at ? { expiresAt: row.expires_at } : null;
+}
+
 /** End a view by its cookie token. Idempotent. Returns the client the view was on, if any. */
 export async function endViewAsSession(sessionToken: string): Promise<{ clientId: string } | null> {
   if (!sessionToken) return null;
