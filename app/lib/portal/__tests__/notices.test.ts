@@ -7,8 +7,9 @@ vi.mock('@/lib/db/prisma', () => ({
     clientContact: { findMany: vi.fn(), findUnique: vi.fn() },
     client: { findUnique: vi.fn() },
     task: { count: vi.fn(), findUnique: vi.fn() },
-    portalNotice: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    portalNotice: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }));
 
@@ -123,7 +124,7 @@ describe('queuePortalNotices', () => {
     p.clientContact.findMany.mockResolvedValue([{ id: 'c1', name: 'Dana Client', email: 'dana@x.com', client_id: 'cl1', portal_role: 'member', is_deleted: false }]);
     tx = {
       $executeRaw: vi.fn(),
-      portalNotice: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn(), update: vi.fn() },
+      portalNotice: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       comment: { findMany: vi.fn().mockResolvedValue([{ id: 'r1', content: 'First reply', created_at: new Date() }]) },
     };
     p.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx));
@@ -150,9 +151,24 @@ describe('queuePortalNotices', () => {
     const r = await queuePortalNotices(TASK, { id: 'r1' });
     expect(r).toEqual({ queued: 0, absorbed: 1 });
     expect(tx.portalNotice.create).not.toHaveBeenCalled();
-    const data = tx.portalNotice.update.mock.calls[0][0].data;
-    expect(data.comment_ids).toEqual(['r0', 'r1']);
-    expect(data.body).toContain('Earlier reply\n\nLater reply');
+    const call = tx.portalNotice.updateMany.mock.calls[0][0];
+    // Conditional on still being queued: a notice the sender claimed meanwhile is not touched.
+    expect(call.where).toEqual({ id: 'n1', status: 'queued' });
+    expect(call.data.comment_ids).toEqual(['r0', 'r1']);
+    expect(call.data.body).toContain('Earlier reply\n\nLater reply');
+  });
+
+  it('if the sender claimed the notice between the read and the write, the reply gets a NEW notice', async () => {
+    tx.portalNotice.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'n1', comment_ids: ['r0'], status: 'queued' });
+    tx.portalNotice.updateMany.mockResolvedValue({ count: 0 }); // already 'sending'
+    tx.comment.findMany.mockResolvedValue([{ id: 'r1', content: 'Late reply', created_at: new Date() }]);
+    const r = await queuePortalNotices(TASK, { id: 'r1' });
+    expect(r).toEqual({ queued: 1, absorbed: 0 });
+    const data = tx.portalNotice.create.mock.calls[0][0].data;
+    expect(data.comment_ids).toEqual(['r1']);
+    expect(data.id).not.toBe('n1');
   });
 
   it('a reply already carried by a notice is not added twice', async () => {
@@ -176,14 +192,25 @@ describe('queuePortalNotices', () => {
 describe('cancelStaleNotices (the two-minute hold)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The per-notice work runs in a transaction; the mocked client doubles as the transaction.
+    p.$transaction.mockImplementation(async (fn: (t: unknown) => unknown) => fn(prisma));
     p.portalNotice.updateMany.mockResolvedValue({ count: 1 });
-    p.task.findUnique.mockResolvedValue({ title: 'T', client_title: 'Site change: hours' });
-    p.clientContact.findUnique.mockResolvedValue({ name: 'Dana' });
+    p.task.findUnique.mockResolvedValue({ id: 't', title: 'T', client_title: 'Site change: hours', client_id: 'cl1', is_deleted: false, site: null });
+    p.task.count.mockResolvedValue(1);
+    p.clientContact.findUnique.mockResolvedValue({ id: 'c1', name: 'Dana', email: 'dana@x.com', client_id: 'cl1', portal_role: 'member', is_deleted: false });
+    p.client.findUnique.mockResolvedValue({ id: 'cl1', parent_agency_id: null, is_deleted: false });
   });
-  const queued = (over: Record<string, unknown> = {}) => ({ id: 'n1', task_id: 't', contact_id: 'c1', comment_ids: ['r1', 'r2'], body: 'old', status: 'queued', ...over });
+  const queued = (over: Record<string, unknown> = {}) => ({
+    id: 'n1', task_id: 't', contact_id: 'c1', comment_ids: ['r1', 'r2'], to_email: 'dana@x.com',
+    subject: 'New reply on your request: Site change: hours', body: 'old', status: 'queued', ...over,
+  });
+  const list = (n: Record<string, unknown>) => {
+    p.portalNotice.findMany.mockResolvedValue([n]);
+    p.portalNotice.findUnique.mockResolvedValue(n);
+  };
 
   it('cancels a notice whose replies were all unflagged or deleted', async () => {
-    p.portalNotice.findMany.mockResolvedValue([queued()]);
+    list(queued());
     p.comment.findMany.mockResolvedValue([]);
     expect(await cancelStaleNotices(new Date('2026-10-21T12:00:00Z'))).toBe(1);
     expect(p.portalNotice.updateMany).toHaveBeenCalledWith({ where: { id: 'n1', status: 'queued' }, data: { status: 'cancelled', cancelled_at: new Date('2026-10-21T12:00:00Z') } });
@@ -191,7 +218,7 @@ describe('cancelStaleNotices (the two-minute hold)', () => {
   });
 
   it('drops one withdrawn reply from a burst and rebuilds the body', async () => {
-    p.portalNotice.findMany.mockResolvedValue([queued()]);
+    list(queued());
     p.comment.findMany.mockResolvedValue([{ id: 'r2', content: 'Still shared', created_at: new Date() }]);
     expect(await cancelStaleNotices()).toBe(0);
     const data = p.portalNotice.updateMany.mock.calls[0][0].data;
@@ -200,15 +227,37 @@ describe('cancelStaleNotices (the two-minute hold)', () => {
   });
 
   it('rewrites the body when a reply was edited, and leaves an unchanged notice alone', async () => {
-    p.portalNotice.findMany.mockResolvedValue([queued({ comment_ids: ['r1'] })]);
+    list(queued({ comment_ids: ['r1'] }));
     p.comment.findMany.mockResolvedValue([{ id: 'r1', content: 'Edited wording', created_at: new Date() }]);
     await cancelStaleNotices();
     expect(p.portalNotice.updateMany.mock.calls[0][0].data.body).toContain('Edited wording');
 
     p.portalNotice.updateMany.mockClear();
     const same = buildNoticeBody({ noticeId: 'n1', taskId: 't', contactName: 'Dana', clientTitle: 'Site change: hours', replies: ['Edited wording'] });
-    p.portalNotice.findMany.mockResolvedValue([queued({ comment_ids: ['r1'], body: same })]);
+    list(queued({ comment_ids: ['r1'], body: same }));
     await cancelStaleNotices();
     expect(p.portalNotice.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('cancels, and marks why, when the recipient no longer has access (revoked, deleted, project hidden)', async () => {
+    list(queued({ comment_ids: ['r1'] }));
+    p.comment.findMany.mockResolvedValue([{ id: 'r1', content: 'Reply', created_at: new Date() }]);
+    p.task.count.mockResolvedValue(0);
+    expect(await cancelStaleNotices()).toBe(1);
+    expect(p.portalNotice.updateMany.mock.calls[0][0].data).toMatchObject({ status: 'cancelled', send_error: expect.stringContaining('no longer has access') });
+  });
+
+  it('picks up an address change before the send', async () => {
+    list(queued({ comment_ids: ['r1'], to_email: 'old@x.com' }));
+    p.comment.findMany.mockResolvedValue([{ id: 'r1', content: 'Reply', created_at: new Date() }]);
+    await cancelStaleNotices();
+    expect(p.portalNotice.updateMany.mock.calls[0][0].data.to_email).toBe('dana@x.com');
+  });
+
+  it('works under the same advisory lock the queue uses', async () => {
+    list(queued());
+    p.comment.findMany.mockResolvedValue([]);
+    await cancelStaleNotices();
+    expect(p.$executeRaw).toHaveBeenCalled();
   });
 });

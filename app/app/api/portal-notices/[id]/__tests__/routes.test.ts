@@ -11,7 +11,7 @@ vi.mock('@/lib/db/prisma', () => ({
 }));
 vi.mock('@/lib/portal/notices', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/portal/notices')>();
-  return { ...actual, cancelStaleNotices: vi.fn(async () => 0) };
+  return { ...actual, cancelStaleNotices: vi.fn(async () => 0), claimNotice: vi.fn() };
 });
 
 import { PUT as sending } from '../sending/route';
@@ -19,7 +19,7 @@ import { PUT as sent } from '../sent/route';
 import { PUT as sendError } from '../send-error/route';
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
-import { cancelStaleNotices } from '@/lib/portal/notices';
+import { claimNotice } from '@/lib/portal/notices';
 
 const n = prisma.portalNotice as unknown as Record<string, Mock>;
 const ctx = { params: Promise.resolve({ id: 'n1' }) };
@@ -32,24 +32,25 @@ beforeEach(() => {
 });
 
 describe('PUT /api/portal-notices/:id/sending (the claim)', () => {
-  it('claims a queued notice and stamps send_attempt_at', async () => {
-    n.findUnique.mockResolvedValue({ id: 'n1', status: 'queued' });
-    n.updateMany.mockResolvedValue({ count: 1 });
-    n.findUniqueOrThrow.mockResolvedValue({ id: 'n1', status: 'sending', send_attempt_at: new Date() });
+  it('claims and answers with the notice as it stands now: to_email, subject and body', async () => {
+    (claimNotice as Mock).mockResolvedValue({
+      ok: true,
+      notice: { id: 'n1', status: 'sending', send_attempt_at: new Date('2026-10-21T12:00:00Z'), to_email: 'dana@x.com', subject: 'New reply on your request: T', body: 'fresh body' },
+    });
     const res = await put(sending);
     expect(res.status).toBe(200);
-    expect(cancelStaleNotices).toHaveBeenCalled(); // re-checks the hold before claiming
-    expect(n.updateMany).toHaveBeenCalledWith({ where: { id: 'n1', status: 'queued' }, data: { status: 'sending', send_attempt_at: expect.any(Date) } });
+    expect(await res.json()).toMatchObject({ id: 'n1', status: 'sending', to_email: 'dana@x.com', subject: 'New reply on your request: T', body: 'fresh body' });
   });
-  it('409s a notice that is not queued, or that was cancelled in the hold, without sending', async () => {
-    n.findUnique.mockResolvedValue({ id: 'n1', status: 'sending' });
-    expect((await put(sending)).status).toBe(409);
-    n.findUnique.mockResolvedValue({ id: 'n1', status: 'queued' });
-    n.updateMany.mockResolvedValue({ count: 0 });
-    expect((await put(sending)).status).toBe(409);
+  it('409s with a reason when the replies were withdrawn, the recipient lost access, or it is not queued', async () => {
+    for (const reason of ['withdrawn', 'no_access', 'not_queued']) {
+      (claimNotice as Mock).mockResolvedValue({ ok: false, reason });
+      const res = await put(sending);
+      expect(res.status, reason).toBe(409);
+      expect((await res.json()).code).toBe(reason);
+    }
   });
   it('404s an unknown notice and 403s a tech user', async () => {
-    n.findUnique.mockResolvedValue(null);
+    (claimNotice as Mock).mockResolvedValue({ ok: false, reason: 'not_found' });
     expect((await put(sending)).status).toBe(404);
     (requireAuth as Mock).mockResolvedValue({ userId: 'u', role: 'tech' });
     expect((await put(sending)).status).toBe(403);
