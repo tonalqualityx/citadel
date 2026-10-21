@@ -139,8 +139,21 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await expect(page.getByTestId('chat-sent')).toContainText('You can keep adding details here.');
     await expect(page.getByTestId('chat-summary')).toHaveCount(0);
 
+    // Request work again starts a fresh request: a new, empty chat with no memory of the filed one.
+    const workHref = await page.getByRole('link', { name: 'View your request' }).getAttribute('href');
+    const filedConversation = await page.evaluate(() => window.sessionStorage.getItem('portal-chat-resume'));
+    expect(filedConversation, 'the saved chat is forgotten once the request is filed').toBeNull();
+    await page.getByRole('link', { name: /^Request work$/ }).filter({ visible: true }).first().click();
+    await expect(page.getByTestId('chat-sent')).toHaveCount(0);
+    await expect(log(page)).not.toContainText('Can you add this picture to the website?');
+    await expect(page.getByLabel('What do you need?')).toHaveValue('');
+    // Leave it empty (no second conversation is created until a message is sent), then reload: still fresh.
+    await page.reload();
+    await expect(log(page)).not.toContainText('Can you add this picture to the website?');
+    await expect(page.getByTestId('chat-sent')).toHaveCount(0);
+
     // The work page: its Conversation section is the same chat, with the earlier turns.
-    await page.getByRole('link', { name: 'View your request' }).click();
+    await page.goto(workHref!);
     await expect(page.getByRole('heading', { name: 'Conversation' })).toBeVisible();
     await expect(page.getByTestId('chat-disclosure')).toHaveCount(1);
     await expect(log(page)).toContainText('Can you add this picture to the website?');
@@ -150,6 +163,58 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await engineAnswers({ reply: 'The team will review this.', actions: [], sources: [] });
     await expect(page.getByTestId('chat-writing')).toHaveCount(0);
     await expect(log(page)).toContainText('The team will review this.');
+    // Later messages exist now, so the filed notice is a one-line chip, not the full card.
+    await expect(page.getByTestId('chat-sent')).toHaveCount(0);
+    await expect(page.getByTestId('chat-sent-chip')).toBeVisible();
+    await context.close();
+  });
+
+  test('a photo with no words, sent with Enter, files the request; Shift plus Enter is a new line', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    await ids(context);
+    await page.goto('/portal/requests/new');
+    await expect(page.getByText('Press Enter to send')).toBeVisible();
+    const upload = page.waitForResponse((r) => r.url().includes('/api/portal/uploads') && r.status() === 201);
+    await page.getByTestId('chat-file-input').setInputFiles({ name: 'menu-photo.png', mimeType: 'image/png', buffer: PNG });
+    const att = (await (await upload).json()).attachment as { id: string };
+    // Shift plus Enter is a new line and sends nothing.
+    const box = page.getByLabel('What do you need?');
+    await box.fill('first line');
+    await box.press('Shift+Enter');
+    await box.type('second line');
+    await expect(box).toHaveValue('first line\nsecond line');
+    await box.fill('');
+    // Enter with only a photo sends it.
+    await box.press('Enter');
+    await expect(page.getByTestId('chat-writing')).toBeVisible();
+    await engineAnswers({
+      reply: "I'm Indelible's AI assistant. Which page should this photo go on?",
+      actions: [
+        { type: 'record', site_id: siteId, attachment_ids: [att.id], request_type: 'site_change' },
+        { type: 'ask', slot: 'page', question: 'Which page should this photo go on?', choice_ids: [pages.Menu, pages.Home], allow_free_text: true, allow_upload: false },
+      ],
+      sources: [],
+    });
+    await expect(log(page).locator('img[alt="menu-photo.png"]')).toBeVisible();
+    await expect(log(page)).not.toContainText('(attachment)');
+    await expect(log(page)).toContainText('Which page should this photo go on?');
+    await context.close();
+  });
+
+  test('on a work page with no conversation yet, a photo can be attached and sent with no words', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    const lazy = JSON.parse(run(`${CHAT} --lazy-task`).trim().split('\n').filter((l) => l.startsWith('{')).pop()!) as { task_id: string };
+    await page.goto(`/portal/work/${lazy.task_id}`);
+    await expect(page.getByRole('heading', { name: 'Conversation' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Attach a file' })).toBeVisible();
+    const upload = page.waitForResponse((r) => r.url().includes('/api/portal/uploads') && r.status() === 201);
+    await page.getByTestId('chat-file-input').setInputFiles({ name: 'lazy-photo.png', mimeType: 'image/png', buffer: PNG });
+    await upload;
+    await sendButton(page).click();
+    await expect(page.getByTestId('chat-writing')).toBeVisible();
+    await engineAnswers({ reply: 'Which page should this photo go on?', actions: [], sources: [] });
+    await expect(log(page).locator('img[alt="lazy-photo.png"]')).toBeVisible();
+    await expect(log(page)).toContainText('Which page should this photo go on?');
     await context.close();
   });
 
@@ -163,6 +228,9 @@ test.describe('Portal chat (phase C slice 3)', () => {
       actions: [{ type: 'hand_to_person', reason: 'asked_for_person', draft_reply: 'Thanks for writing in. The team will review this.' }],
       sources: [],
     });
+    // The drafted reply is for the team only: it never appears in the client's chat.
+    await expect(log(page)).toContainText('A person on the team will read this and reply here.');
+    await expect(page.locator('body')).not.toContainText('Thanks for writing in. The team will review this.');
     const banner = page.getByTestId('chat-handoff');
     await expect(banner).toContainText('A person on the team will reply here. You can keep adding details while you wait.');
     await expect(page.getByLabel('What do you need?')).toBeEnabled();
@@ -181,6 +249,8 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await sendButton(page).click();
     await expect(page.getByRole('group', { name: 'What do you need?' })).toBeVisible();
     await expect(page.getByText('Nothing reaches the team until you press Send request.')).toBeVisible();
+    // What was typed survives the fallback.
+    await expect(page.getByTestId('intake-carried')).toContainText('Please change my opening hours.');
     await context.close();
   });
 

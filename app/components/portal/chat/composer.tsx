@@ -10,8 +10,13 @@ import type { Draft } from './types';
 // The message box: a Field and textarea, the attach button, Send, and the line that says the words
 // are kept the moment they are sent. Files can be chosen or dropped on the box. When the assistant
 // asks for a file (`wantsFile`) the drop area opens by itself.
+/** True on a phone or tablet: Enter there is a new line, as on every phone keyboard. */
+export function isCoarsePointer(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
 export function Composer({
-  label, hint, value, onChange, onTyping, onSend, sending, error, drafts, onFiles, onRemoveFile, filesProblem, wantsFile, disabled, noFiles, textareaRef,
+  label, hint, value, onChange, onTyping, onSend, sending, error, drafts, onFiles, onRemoveFile, filesProblem, wantsFile, disabled, textareaRef,
 }: {
   label: string;
   hint: string;
@@ -27,7 +32,6 @@ export function Composer({
   filesProblem: string | null;
   wantsFile: boolean;
   disabled?: boolean;
-  noFiles?: boolean;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -88,13 +92,17 @@ export function Composer({
             onTyping();
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canSend) {
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return;
+            // Desktop: Enter sends, Shift plus Enter adds a line. Phones (a coarse pointer) keep Enter as a new line.
+            const send = e.metaKey || e.ctrlKey || (!e.shiftKey && !isCoarsePointer());
+            if (send) {
               e.preventDefault();
-              onSend();
+              if (canSend) onSend();
             }
           }}
         />
       </Field>
+      <p className="hint kbd-hint">Press Enter to send, or Shift and Enter for a new line.</p>
       <div className="actions chat-actions">
         <input
           ref={fileInput}
@@ -109,9 +117,9 @@ export function Composer({
             e.target.value = '';
           }}
         />
-        {!noFiles && <PortalButton variant="quiet" icon={Paperclip} onClick={() => fileInput.current?.click()} disabled={disabled}>
+        <PortalButton variant="quiet" icon={Paperclip} onClick={() => fileInput.current?.click()} disabled={disabled}>
           Attach a file
-        </PortalButton>}
+        </PortalButton>
         <PortalButton type="submit" icon={SendIcon} busy={sending} busyLabel="Sending…" disabled={!canSend}>
           Send
         </PortalButton>

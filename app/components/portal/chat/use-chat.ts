@@ -20,8 +20,11 @@ export interface ChatSource {
   /** Messages shown before a conversation exists (the work page's phase B thread). */
   history?: () => Promise<ChatMessage[]>;
   onAuthLost?: () => void;
-  onUnavailable?: () => void;
+  /** The first message came back 409 chat_unavailable; the typed text and staged file ids come with it. */
+  onUnavailable?: (input: { text: string; attachmentIds: string[] }) => void;
   onOpened?: (conversationId: string) => void;
+  /** The conversation reached filed or closed. */
+  onFiled?: () => void;
 }
 
 export function mergeMessages(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
@@ -31,9 +34,17 @@ export function mergeMessages(prev: ChatMessage[], incoming: ChatMessage[]): Cha
   return [...byId.values()].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
 
-async function errorText(res: Response, fallback: string): Promise<{ code: string | null; text: string }> {
+/** A start() failure whose text is the rate-limit line written for clients. */
+export class RateLimited extends Error {}
+
+export const GENERIC_ERROR = 'Something went wrong. Try again.';
+
+// Only the rate-limit line is written for clients; every other server message is logged and replaced
+// with the fixed line, so a raw error string never reaches the page.
+export async function errorText(res: Response): Promise<{ code: string | null; text: string }> {
   const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
-  return { code: body.code ?? null, text: res.status === 429 && body.error ? body.error : fallback };
+  if (body.code !== 'rate_limited') console.error('portal chat request failed', res.status, body.code ?? '', body.error ?? '');
+  return { code: body.code ?? null, text: body.code === 'rate_limited' && body.error ? body.error : GENERIC_ERROR };
 }
 
 export function useChat(src: ChatSource) {
@@ -47,12 +58,17 @@ export function useChat(src: ChatSource) {
   const [localWriting, setLocalWriting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirmedVersion, setConfirmedVersion] = useState<number | null>(null);
+  const [filedAtCount, setFiledAtCount] = useState<number | null>(null);
   const [alreadyFiled, setAlreadyFiled] = useState<{ line: string; taskId: string | null } | null>(null);
 
   const srcRef = useRef(src);
   srcRef.current = src;
   const lastId = useRef<string | null>(null);
   const writingRef = useRef(false);
+  const stateRef = useRef<string | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const gen = useRef(0);
   const fastUntil = useRef(0);
   const wake = useRef<() => void>(() => {});
   // One client_ref per attempt: a retry after a failed send reuses it, so a double send is a no-op.
@@ -70,13 +86,14 @@ export function useChat(src: ChatSource) {
       setPayload(body);
       writingRef.current = body.writing;
       setLocalWriting(false);
-      if (body.messages.length) {
-        setMessages((prev) => {
-          const next = mergeMessages(prev, body.messages);
-          lastId.current = next[next.length - 1]?.id ?? lastId.current;
-          return next;
-        });
-      }
+      const next = mergeMessages(messagesRef.current, body.messages);
+      messagesRef.current = next;
+      lastId.current = next[next.length - 1]?.id ?? lastId.current;
+      if (body.messages.length) setMessages(next);
+      // The request was filed while this page was open: remember how many messages it had, so the
+      // full "Request sent." card gives way to a one-line chip once anything newer arrives.
+      if (body.state === 'filed' && stateRef.current && stateRef.current !== 'filed') setFiledAtCount(next.length);
+      stateRef.current = body.state;
     } catch {
       // A missed poll is fine; the next one catches up.
     } finally {
@@ -94,6 +111,7 @@ export function useChat(src: ChatSource) {
     src.history().then(
       (m) => {
         if (!cancelled) {
+          messagesRef.current = m;
           setMessages(m);
           setLoaded(true);
         }
@@ -111,11 +129,16 @@ export function useChat(src: ChatSource) {
     if (!convId) return;
     let stop = false;
     let timer: number | undefined;
+    // One loop per conversation: every tick takes a new generation number, and a tick that finds a
+    // newer one when its poll returns stops, so a wake during an in-flight poll cannot add a second loop.
     const tick = async () => {
       if (stop) return;
+      const mine = ++gen.current;
+      window.clearTimeout(timer);
       if (document.visibilityState === 'visible') await refresh();
-      if (stop) return;
+      if (stop || mine !== gen.current) return;
       const fast = writingRef.current || Date.now() < fastUntil.current;
+      window.clearTimeout(timer);
       timer = window.setTimeout(tick, fast ? FAST_MS : SLOW_MS);
     };
     wake.current = () => {
@@ -129,6 +152,8 @@ export function useChat(src: ChatSource) {
     document.addEventListener('visibilitychange', vis);
     return () => {
       stop = true;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      gen.current++;
       window.clearTimeout(timer);
       document.removeEventListener('visibilitychange', vis);
     };
@@ -154,7 +179,7 @@ export function useChat(src: ChatSource) {
           if (!start) return false;
           const r = await start({ text, attachmentIds, clientRef: ref });
           if ('unavailable' in r) {
-            srcRef.current.onUnavailable?.();
+            srcRef.current.onUnavailable?.({ text, attachmentIds });
             return false;
           }
           setConvId(r.conversation_id);
@@ -177,7 +202,7 @@ export function useChat(src: ChatSource) {
           return false;
         }
         if (!res.ok) {
-          const e = await errorText(res, 'Your message was not sent. Please try again.');
+          const e = await errorText(res);
           setSendError(e.code === 'bad_choice' ? 'That choice is no longer available. Please pick again.' : e.text);
           if (e.code === 'bad_choice') wake.current();
           return false;
@@ -186,7 +211,10 @@ export function useChat(src: ChatSource) {
         afterSend(body.route);
         return true;
       } catch (e) {
-        if (!(e instanceof Error && e.message === 'auth')) setSendError(e instanceof Error && e.message ? e.message : 'Your message was not sent. Please try again.');
+        if (!(e instanceof Error && e.message === 'auth')) {
+          if (e instanceof Error && e.message) console.error('portal chat send failed', e.message);
+          setSendError(e instanceof RateLimited ? e.message : GENERIC_ERROR);
+        }
         return false;
       } finally {
         setSending(false);
@@ -208,7 +236,7 @@ export function useChat(src: ChatSource) {
         });
         if (res.status === 401) return srcRef.current.onAuthLost?.();
         if (!res.ok) {
-          const e = await errorText(res, 'Something went wrong. Please try again.');
+          const e = await errorText(res);
           setConfirmError(
             res.status === 409
               ? 'This summary changed. Please check the new one.'
@@ -219,11 +247,12 @@ export function useChat(src: ChatSource) {
           wake.current();
           return;
         }
+        setConfirmedVersion(version);
         const done = (await res.json().catch(() => ({}))) as { already?: boolean; lines?: string[]; task_id?: string | null };
         if (done.already && done.lines?.[0] && done.task_id) setAlreadyFiled({ line: done.lines[0], taskId: done.task_id });
         wake.current();
       } catch {
-        setConfirmError('Something went wrong. Please try again.');
+        setConfirmError(GENERIC_ERROR);
       } finally {
         setConfirming(false);
       }
@@ -233,7 +262,7 @@ export function useChat(src: ChatSource) {
 
   const writing = (payload?.writing ?? false) || localWriting;
   return {
-    convId, payload, messages, loaded, gone, sending, sendError, setSendError, writing, confirming, confirmError, alreadyFiled, send, confirm,
+    convId, payload, messages, loaded, gone, sending, sendError, setSendError, writing, confirming, confirmError, confirmedVersion, filedAtCount, alreadyFiled, send, confirm,
     refresh: () => wake.current(),
     label: payload?.writing_label ?? 'Writing',
   };

@@ -12,6 +12,8 @@
  *   --screens       (after the default setup) two conversations with fixed timestamps for the
  *                   screenshot pass: a request chat waiting on a page choice, and a filed request with
  *                   a numbers reply (with its source line) and a team reply. Prints their ids as JSON.
+ *   --lazy-task     a filed portal request with NO conversation yet (a work page whose chat opens on the
+ *                   first message); prints its id as JSON.
  *   --cleanup       removes the chat rows, pages and key this seed made, and sets mode off.
  *
  * Refuses to run unless the database name contains "scratch" or "dev".
@@ -156,6 +158,19 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--off')) return setMode('off');
   if (args.includes('--cleanup')) return cleanup();
+  if (args.includes('--lazy-task')) {
+    const client = await fixtureClient();
+    const owner = await prisma.clientContact.findFirstOrThrow({ where: { client_id: client.id, email: 'contact@e2e-portal-fixture.example' } });
+    const site = await prisma.site.findFirstOrThrow({ where: { client_id: client.id, is_deleted: false }, orderBy: { name: 'asc' } });
+    const task = await prisma.task.create({
+      data: {
+        title: 'Site change: lazy chat', client_title: 'Lazy chat request', client_id: client.id, site_id: site.id, requested_by_contact_id: owner.id,
+        source: 'portal', source_ref: 'portal-chat:e2e-lazy', status: 'not_started', tags: ['portal-chat'], assignee_id: BAST_USER_ID,
+      },
+    });
+    console.log(JSON.stringify({ task_id: task.id }));
+    return;
+  }
   if (args.includes('--screens')) return screens();
   if (args.includes('--age-jobs')) {
     const client = await fixtureClient();

@@ -17,7 +17,7 @@ import { composeTitle, TITLE_MAX, CLIENT_INPUT_HEADER } from '@/lib/portal/intak
 import { LIMITS, WORDPRESS_ASSIGNEE_EMAIL } from '@/lib/portal/intake/file-request';
 import { NO_PERMISSION_MESSAGE, RATE_LIMIT_MESSAGE } from '@/lib/portal/intake/tree';
 import { MESSAGE_LIMITS, MESSAGE_MAX_CHARS, MESSAGE_RATE_LIMIT_MESSAGE } from '@/lib/portal/thread';
-import { bindAttachments } from '@/lib/portal/chat/attachments';
+import { bindAttachments, FILES_ONLY_TEXT } from '@/lib/portal/chat/attachments';
 import { isUrgentText } from '@/lib/portal/chat/urgent';
 import { refreshTaskDescription } from '@/lib/portal/chat/description';
 import { clientSites, type Slots } from '@/lib/portal/chat/slots';
@@ -73,8 +73,11 @@ export async function startChat(
 ): Promise<Started> {
   const now = opts.now ?? new Date();
   if (access.revoked || access.role === 'none') throw new ApiError(NO_PERMISSION_MESSAGE, 403, 'no_permission');
-  const text = body.text;
-  if (text.trim().length === 0 || text.length > MESSAGE_MAX_CHARS) {
+  const said = body.text.trim().length > 0;
+  const hasFiles = (body.attachment_ids?.length ?? 0) > 0;
+  // A photo with no words is a real first message (phase C: photos first); it is saved as the files-only text.
+  const text = said ? body.text : FILES_ONLY_TEXT;
+  if ((!said && !hasFiles) || text.length > MESSAGE_MAX_CHARS) {
     throw new ApiError(`Messages are 1 to ${MESSAGE_MAX_CHARS} characters.`, 400, 'bad_message');
   }
   const sourceRef = `portal-chat:${body.intake_id}`;
@@ -118,12 +121,16 @@ export async function startChat(
     if (placed.isWordpress) assignee = sabeen?.id ?? MIKE_USER_ID;
     if (placement.owner_mike) assignee = MIKE_USER_ID;
 
-    const title = provisionalTitle(text);
+    const title = said ? provisionalTitle(text) : 'Request: a photo or file';
     const task = await tx.task.create({
       data: {
         title,
         client_title: title,
-        description: serializeRichText(`Requested in the portal chat by ${contact.name?.trim() || 'a client contact'}.\n\n**${CLIENT_INPUT_HEADER}:**\n\n${text.split(/\r?\n/).map((l) => `> ${l}`).join('\n')}`),
+        description: serializeRichText(
+          said
+            ? `Requested in the portal chat by ${contact.name?.trim() || 'a client contact'}.\n\n**${CLIENT_INPUT_HEADER}:**\n\n${text.split(/\r?\n/).map((l) => `> ${l}`).join('\n')}`
+            : `Requested in the portal chat by ${contact.name?.trim() || 'a client contact'}, who sent files and no words yet.`
+        ),
         priority: 3,
         tags: ['portal-chat', 'chat-clarifying'],
         assignee_id: assignee,
@@ -146,7 +153,7 @@ export async function startChat(
       select: { id: true },
     });
 
-    const slots: Slots = { site_id: siteId, attachment_ids: [], urgent_offered: isUrgentText(text) };
+    const slots: Slots = { site_id: siteId, attachment_ids: [], urgent_offered: said && isUrgentText(text) };
     const convo = await tx.chatConversation.create({
       data: {
         task_id: task.id,

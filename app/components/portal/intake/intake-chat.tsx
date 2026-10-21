@@ -14,6 +14,7 @@ import { IntakeStep, type StepAnswer, type StepSpec } from './intake-step';
 import { IntakeSummary } from './intake-summary';
 import {
   ALL_SITES_LABEL,
+  ANSWER_MAX,
   BUTTONS,
   NO_PERMISSION_MESSAGE,
   OPENING_CHOICES,
@@ -95,7 +96,7 @@ function answerText(a: StepAnswer | undefined, choices?: StepSpec['choices']): s
   return a.detail ? `${c.label}: ${a.detail}` : c.label;
 }
 
-export function IntakeChat() {
+export function IntakeChat({ initialText, carriedFiles }: { initialText?: string; carriedFiles?: number } = {}) {
   const router = useRouter();
   const [ctx, setCtx] = useState<ContextPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -437,6 +438,13 @@ export function IntakeChat() {
   return (
     <>
       {meter}
+      {initialText ? (
+        <div className="card carried" data-testid="intake-carried">
+          <p className="strong">What you wrote is kept:</p>
+          <p className="pre">{initialText}</p>
+          {carriedFiles ? <p className="meta">Your files were not sent. You can attach them in the conversation once the request is sent.</p> : null}
+        </div>
+      ) : null}
       <div className="chatwrap">
         <section className="chatcard" aria-label="Request chat">
           {/* The summary repeats every answer, so the log and the side panel step aside for it. */}
@@ -499,7 +507,11 @@ export function IntakeChat() {
             <IntakeStep
               key={`${type}-${stepSpecs[qIndex].id}-${qIndex}`}
               step={stepSpecs[qIndex]}
-              initial={answers[stepSpecs[qIndex].id]}
+              initial={
+                answers[stepSpecs[qIndex].id] ??
+                // Words typed in the chat before it fell back to these steps go into the first free-text answer.
+                (initialText && !stepSpecs[qIndex].choices && !stepSpecs.slice(0, qIndex).some((s) => !s.choices) ? { value: initialText.slice(0, ANSWER_MAX) } : undefined)
+              }
               canGoBack
               onBack={goBack}
               onSubmit={(a) => submitQuestion(qIndex, a)}

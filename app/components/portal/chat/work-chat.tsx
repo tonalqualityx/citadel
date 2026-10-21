@@ -2,7 +2,7 @@
 
 import { ChatView } from './chat-view';
 import type { ChatMessage } from './types';
-import type { ChatSource, StartResult } from './use-chat';
+import { RateLimited, type ChatSource, type StartResult } from './use-chat';
 
 // The Conversation section of a work page when chat is available: the earlier thread (if the
 // conversation is not open yet), then the same chat as the request page. Sending the first message
@@ -36,22 +36,24 @@ export function WorkChat({
         attachments: [],
       }));
     },
-    start: async ({ text, clientRef }): Promise<StartResult> => {
+    start: async ({ text, attachmentIds, clientRef }): Promise<StartResult> => {
       const res = await fetch(`/api/portal/work/${taskId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_ref: clientRef, text }),
+        body: JSON.stringify({ client_ref: clientRef, text, attachment_ids: attachmentIds }),
       });
       if (res.status === 401) {
         onAuthLost();
         throw new Error('auth');
       }
       if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(res.status === 429 && b.error ? b.error : 'Your message was not sent. Please try again.');
+        const b = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+        if (b.code === 'rate_limited' && b.error) throw new RateLimited(b.error);
+        console.error('portal work message failed', res.status, b.code ?? '', b.error ?? '');
+        throw new Error('start failed');
       }
       const id = await reloadConversationId();
-      if (!id) throw new Error('Your message was sent. Refresh the page to see the reply.');
+      if (!id) throw new Error('conversation not found after opening');
       return { conversation_id: id, route: 'queued' };
     },
   };
@@ -65,7 +67,7 @@ export function WorkChat({
         composerLabel="Add a message"
         hint="Your message goes to the team working on this. It is saved as soon as you send it."
         emptyLine="No messages yet. Add details, links or questions here and the team will see them on this request."
-        noFiles={!conversationId}
+        taskId={taskId}
       />
     </section>
   );

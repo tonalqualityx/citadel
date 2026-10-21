@@ -6,7 +6,7 @@ import { canPreview, MAX_FILES, MAX_FILE_BYTES, type Draft } from './types';
 // Files in the composer. Each is uploaded as soon as it is chosen (POST /api/portal/uploads, one
 // file per request) so the client sees progress, and is bound to the message when it is sent.
 // XMLHttpRequest, not fetch, because only XHR reports upload progress.
-export function useUploads(scope: { intakeId?: string | null; conversationId?: string | null }, onAuthLost?: () => void) {
+export function useUploads(scope: { intakeId?: string | null; conversationId?: string | null; taskId?: string | null }, onAuthLost?: () => void) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const scopeRef = useRef(scope);
@@ -55,9 +55,10 @@ export function useUploads(scope: { intakeId?: string | null; conversationId?: s
   function upload(key: string, file: File) {
     const form = new FormData();
     form.append('file', file);
-    const { intakeId, conversationId } = scopeRef.current;
+    const { intakeId, conversationId, taskId } = scopeRef.current;
     if (conversationId) form.append('conversation_id', conversationId);
     else if (intakeId) form.append('intake_id', intakeId);
+    else if (taskId) form.append('task_id', taskId);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/portal/uploads');
     xhr.upload.onprogress = (e) => {
@@ -69,14 +70,19 @@ export function useUploads(scope: { intakeId?: string | null; conversationId?: s
         onAuthLost?.();
         return;
       }
-      let body: { attachment?: { id: string }; error?: string } = {};
+      let body: { attachment?: { id: string }; error?: string; code?: string } = {};
       try {
         body = JSON.parse(xhr.responseText);
       } catch {
         /* a non-JSON failure falls through to the generic line */
       }
       if (xhr.status === 201 && body.attachment) patch(key, { id: body.attachment.id, progress: 100 });
-      else patch(key, { error: body.error || 'That file did not upload. Try again.' });
+      // File refusals (type, size, limits) are written for clients; anything else gets the fixed line.
+      else {
+        const known = ['bad_file', 'file_too_large', 'conversation_files_full', 'rate_limited', 'too_many_files'];
+        if (!known.includes(body.code ?? '')) console.error('portal upload failed', xhr.status, body.code ?? '', body.error ?? '');
+        patch(key, { error: known.includes(body.code ?? '') && body.error ? body.error : 'That file did not upload. Try again.' });
+      }
     };
     xhr.send(form);
   }

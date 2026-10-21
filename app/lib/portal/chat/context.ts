@@ -141,7 +141,8 @@ export function renderThread(rows: ThreadRow[], attachments: AttachmentRow[]): s
       // A choice saves its label as the comment text: render it once, as the choice.
       const sameAsChoice = Boolean(meta.choice?.id) && r.content.trim() === String(meta.choice?.label ?? '').trim();
       if ((r.content.trim() && !sameAsChoice) || !meta.choice) {
-        lines.push(`<client_message from="${attr(who)}" via="${via}" at="${at}">${escapeXml(r.content)}</client_message>`);
+        const words = r.content.trim() === '(attachment)' && files ? 'The client sent the files below and no words.' : r.content;
+        lines.push(`<client_message from="${attr(who)}" via="${via}" at="${at}">${escapeXml(words)}</client_message>`);
       }
       if (files) lines.push(files);
     } else if (r.source === 'assistant') {

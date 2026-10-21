@@ -202,7 +202,7 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
               Assistant
             </span>
           )}
-          {comment.chat_meta?.handoff && (
+          {comment.is_internal && comment.chat_meta?.handoff && (
             <span
               data-testid="draft-badge"
               className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded"

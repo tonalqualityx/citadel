@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { Check, FileText } from 'lucide-react';
 import { ChatBubble } from '@/components/portal/intake/chat-bubble';
 import { Skeleton } from '@/components/portal/ui/skeleton';
 import { PortalButton } from '@/components/portal/ui/button';
@@ -79,7 +79,7 @@ function MessageFiles({ files }: { files: ChatMessage['attachments'] }) {
 }
 
 export function ChatView({
-  source, intakeId, composerLabel, hint, emptyLine, viewRequestHref, showDisclosure = true, noFiles,
+  source, intakeId, composerLabel, hint, emptyLine, viewRequestHref, showDisclosure = true, taskId, onStartAnother,
 }: {
   source: ChatSource;
   intakeId?: string | null;
@@ -90,12 +90,14 @@ export function ChatView({
   /** On the request page, where "View your request" goes once filed. */
   viewRequestHref?: (taskId: string) => string;
   showDisclosure?: boolean;
-  /** No file upload (a work page whose conversation is not open yet). */
-  noFiles?: boolean;
+  /** The work page's task: files staged before its conversation exists are scoped to it. */
+  taskId?: string | null;
+  /** On the request page: start a fresh request once this one is filed. */
+  onStartAnother?: () => void;
 }) {
   const chat = useChat(source);
   const ping = usePresence(chat.convId);
-  const uploads = useUploads({ intakeId: chat.convId ? null : intakeId, conversationId: chat.convId }, source.onAuthLost);
+  const uploads = useUploads({ intakeId: chat.convId ? null : intakeId, conversationId: chat.convId, taskId: chat.convId ? null : taskId }, source.onAuthLost);
   const [text, setText] = useState('');
   const [searching, setSearching] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -135,6 +137,15 @@ export function ChatView({
     return out;
   }, [chat.messages]);
 
+  // The request page forgets its saved chat once the request is filed or closed.
+  const onFiled = source.onFiled;
+  const finished = state === 'filed' || state === 'closed';
+  useEffect(() => {
+    if (finished) onFiled?.();
+    // onFiled changes identity every render; the transition is what matters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished]);
+
   async function submit() {
     const ok = await chat.send({ text, attachmentIds: uploads.ready });
     if (ok) {
@@ -158,6 +169,8 @@ export function ChatView({
   }
 
   const filed = state === 'filed';
+  // The full card shows only for the moment a request is filed on this page, until anything newer arrives.
+  const fullCard = filed && chat.filedAtCount !== null && chat.messages.length <= chat.filedAtCount;
   const withPerson = state === 'with_person';
   const closed = state === 'closed';
   const empty = chat.loaded && chat.messages.length === 0 && !chat.writing;
@@ -192,7 +205,7 @@ export function ChatView({
                       when={formatTime(r.m.created_at)}
                       author={r.m.who}
                     >
-                      <Linked text={r.m.text} />
+                      {r.m.text === '(attachment)' && r.m.attachments.length > 0 ? null : <Linked text={r.m.text} />}
                       <MessageFiles files={r.m.attachments} />
                     </ChatBubble>
                     {r.m.sources.map((s, i) => (
@@ -229,7 +242,7 @@ export function ChatView({
         {!chat.writing && summary && (
           <SummaryCard
             summary={summary}
-            busy={chat.confirming}
+            busy={chat.confirming || chat.confirmedVersion === summary.version}
             error={chat.confirmError}
             onSend={(projectId) => chat.confirm(summary.version, projectId)}
             onChange={() => choose('summary', 'change', summary.buttons.change)}
@@ -243,13 +256,26 @@ export function ChatView({
           </p>
         )}
         {withPerson && p?.banner ? <HandoffBanner text={p.banner} /> : null}
-        {filed && (
+        {filed && !fullCard && (
+          <p className="sent-chip" data-testid="chat-sent-chip">
+            <Check className="i" aria-hidden="true" focusable="false" />
+            <span>
+              {SENT_HEADING} {SENT_LINES.more}
+            </span>
+          </p>
+        )}
+        {filed && fullCard && (
           <section className="summary-card sent" aria-labelledby="chat-sent-h" data-testid="chat-sent">
             <h2 id="chat-sent-h">{SENT_HEADING}</h2>
             <p>{SENT_LINES.more}</p>
             {viewRequestHref && p ? (
               <div className="actions">
                 <PortalButton href={viewRequestHref(p.task_id)}>View your request</PortalButton>
+                {onStartAnother ? (
+                  <PortalButton variant="secondary" onClick={onStartAnother}>
+                    Start another request
+                  </PortalButton>
+                ) : null}
               </div>
             ) : null}
           </section>
@@ -270,7 +296,6 @@ export function ChatView({
             onRemoveFile={uploads.remove}
             filesProblem={uploads.problem}
             wantsFile={Boolean(ask?.allow_upload)}
-            noFiles={noFiles}
             textareaRef={textareaRef}
           />
         )}
