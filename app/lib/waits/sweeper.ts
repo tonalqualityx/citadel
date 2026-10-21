@@ -328,10 +328,15 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     // Only a wait that blocks a client climbs past level 1; Mike's time is the constraint.
     const target = !w.blocks_client ? 1 : late >= 5 ? 3 : late >= 3 ? 2 : 1;
     if (target <= w.nag_level) continue;
-    let level = target;
-    if (target === 2) {
-      if (!deps.notifyMike) level = 1;
-      else if (!dryRun) level = (await deps.notifyMike(w, resolved).catch(() => false)) ? 2 : 1;
+    // Climb one rung at a time so Mike gets the one DM before the countdown shows. A DM that
+    // cannot be sent (no notifier, or it failed) skips that rung; the countdown never waits on it.
+    let level = w.nag_level;
+    for (let rung = w.nag_level + 1; rung <= target; rung++) {
+      if (rung === 2) {
+        if (!deps.notifyMike) continue;
+        if (!dryRun && !(await deps.notifyMike(w, resolved).catch(() => false))) continue;
+      }
+      level = rung;
     }
     if (level <= w.nag_level) continue;
     report.nagged.push({ id: w.id, level });
