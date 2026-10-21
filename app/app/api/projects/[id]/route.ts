@@ -24,6 +24,7 @@ const updateProjectSchema = z.object({
   workload_completed_mode: z.enum(['low', 'medium', 'high', 'actual']).optional(),
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  portal_visibility: z.enum(['inherit', 'restricted', 'hidden']).optional(),
   plan_folder: z
     .string()
     .max(500)
@@ -261,6 +262,7 @@ export async function PATCH(
     if (data.dependencies_ordering_only !== undefined) updateData.dependencies_ordering_only = data.dependencies_ordering_only;
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.plan_folder !== undefined) updateData.plan_folder = data.plan_folder;
+    if (data.portal_visibility !== undefined) updateData.portal_visibility = data.portal_visibility;
 
     const project = await prisma.project.update({
       where: { id },

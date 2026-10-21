@@ -68,6 +68,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           { name: 'billing_type', type: 'string', required: false, description: 'fixed, hourly, retainer, none' },
           { name: 'hourly_rate', type: 'number', required: false, description: 'Hourly rate for billing' },
           { name: 'plan_folder', type: 'string', required: false, description: 'Local plan folder path (max 500 chars), e.g. /home/mike/Documents/projects/<slug>. Empty string saves as null.' },
+          { name: 'portal_visibility', type: 'string', required: false, description: 'Client portal visibility: inherit (default, client role applies), restricted (owners only, plus per-project grants), hidden (nobody).' },
         ],
         responseExample: {
           id: 'uuid',
@@ -75,6 +76,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           status: 'string',
           client_id: 'uuid',
           plan_folder: 'string|null',
+          portal_visibility: 'inherit|restricted|hidden',
           created_at: 'ISO-8601',
         },
       },
@@ -108,6 +110,7 @@ export const projectEndpoints: ApiEndpoint[] = [
           budget_locked_at: 'ISO-8601|null',
           is_retainer: 'boolean',
           plan_folder: 'string|null',
+          portal_visibility: 'inherit|restricted|hidden',
           calculated: {
             estimated_hours_min: 'number',
             estimated_hours_max: 'number',
@@ -137,12 +140,14 @@ export const projectEndpoints: ApiEndpoint[] = [
         roles: ['pm', 'admin'],
         bodySchema: [
           { name: 'plan_folder', type: 'string', required: false, description: 'Local plan folder path (max 500 chars); null or empty string clears it. Other project fields are also accepted.' },
+          { name: 'portal_visibility', type: 'string', required: false, description: 'Client portal visibility: inherit | restricted | hidden.' },
         ],
         responseExample: {
           id: 'uuid',
           name: 'string',
           status: 'string',
           plan_folder: 'string|null',
+          portal_visibility: 'inherit|restricted|hidden',
           updated_at: 'ISO-8601',
         },
       },

@@ -13,10 +13,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { showToast } from '@/lib/hooks/use-toast';
-import type { ClientContact } from '@/types/entities';
+import type { ClientContact, PortalRole } from '@/types/entities';
+
+// Role is the source of truth; the API derives can_initiate_work from it (owner and member = true).
+const PORTAL_ROLE_OPTIONS: { value: PortalRole; label: string }[] = [
+  { value: 'owner', label: 'Owner (billing, team, approvals)' },
+  { value: 'member', label: 'Member (requests, approvals)' },
+  { value: 'viewer', label: 'Viewer (read only)' },
+  { value: 'none', label: 'None (no portal access)' },
+];
 
 interface ClientContactsTabProps {
   clientId: string;
@@ -26,7 +35,7 @@ interface FormState {
   name: string;
   email: string;
   role: string;
-  can_initiate_work: boolean;
+  portal_role: PortalRole;
   is_primary: boolean;
 }
 
@@ -34,7 +43,7 @@ const emptyForm: FormState = {
   name: '',
   email: '',
   role: '',
-  can_initiate_work: false,
+  portal_role: 'viewer',
   is_primary: false,
 };
 
@@ -65,7 +74,7 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
       name: c.name ?? '',
       email: c.email,
       role: c.role ?? '',
-      can_initiate_work: c.can_initiate_work,
+      portal_role: c.portal_role ?? 'viewer',
       is_primary: c.is_primary,
     });
     setShowForm(true);
@@ -87,7 +96,7 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
       name: form.name.trim() || null,
       email,
       role: form.role.trim() || null,
-      can_initiate_work: form.can_initiate_work,
+      portal_role: form.portal_role,
       is_primary: form.is_primary,
     };
     try {
@@ -104,12 +113,12 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
     }
   };
 
-  const handleToggleAuthorized = async (c: ClientContact) => {
+  const handleRoleChange = async (c: ClientContact, portal_role: PortalRole) => {
     try {
       await updateContact.mutateAsync({
         id: c.id,
         clientId,
-        data: { can_initiate_work: !c.can_initiate_work },
+        data: { portal_role },
       });
     } catch (error) {
       showToast.apiError(error, 'Failed to update contact');
@@ -168,8 +177,9 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
         <div>
           <h3 className="text-lg font-medium text-text-main">Authorized Contacts</h3>
           <p className="text-sm text-text-sub">
-            Only contacts marked <span className="font-medium">Can initiate work</span> may trigger
-            work via email. The same person can be a contact on more than one client.
+            The portal role sets what a contact can do. Owners and members may trigger work via
+            email (Can initiate work follows the role). The same person can be a contact on more
+            than one client.
           </p>
         </div>
         {!showForm && (
@@ -204,13 +214,14 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
               />
             </div>
             <div className="flex flex-wrap items-center gap-6">
-              <label className="flex items-center gap-2 text-sm text-text-main">
-                <Switch
-                  checked={form.can_initiate_work}
-                  onCheckedChange={(v) => setForm((f) => ({ ...f, can_initiate_work: v }))}
+              <div className="w-64">
+                <Select
+                  label="Portal role"
+                  options={PORTAL_ROLE_OPTIONS}
+                  value={form.portal_role}
+                  onChange={(v) => setForm((f) => ({ ...f, portal_role: v as PortalRole }))}
                 />
-                Can initiate work
-              </label>
+              </div>
               <label className="flex items-center gap-2 text-sm text-text-main">
                 <Switch
                   checked={form.is_primary}
@@ -270,13 +281,14 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                     {c.role || 'No role set'}
                   </div>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-text-sub shrink-0">
-                  <Switch
-                    checked={c.can_initiate_work}
-                    onCheckedChange={() => handleToggleAuthorized(c)}
+                <div className="w-44 shrink-0">
+                  <Select
+                    aria-label="Portal role"
+                    options={PORTAL_ROLE_OPTIONS}
+                    value={c.portal_role ?? 'viewer'}
+                    onChange={(v) => handleRoleChange(c, v as PortalRole)}
                   />
-                  Can initiate work
-                </label>
+                </div>
                 <button
                   type="button"
                   onClick={() => handleCopyLoginLink(c)}

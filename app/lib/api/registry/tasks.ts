@@ -178,6 +178,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           requirements: 'string|null',
           review_requirements: 'string|null',
           needs_review: 'boolean',
+          client_visible: 'boolean',
           reviewer_id: 'uuid|null',
           reviewer: { id: 'uuid', name: 'string', email: 'string', avatar_url: 'string|null' },
           approved: 'boolean',
@@ -212,6 +213,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 4b — attach to an arc (404 if the arc does not exist); pass null to explicitly detach; omit to leave untouched. PM/Admin only.' },
           { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — omit to leave untouched, null to clear back to internal/target, a name to set promised-to.' },
+          { name: 'client_visible', type: 'boolean', required: false, description: 'Client portal A3 — share this task in the client portal task lists (default false = private). Does not make it approvable: approve/request-changes still need a staged preview. PM/Admin only.' },
         ],
         responseNotes:
           'Clarity Phase 7 — the completion-nudge hook: a status-only PATCH ({ status: ' +

@@ -21,6 +21,7 @@ const createProjectSchema = z.object({
   is_retainer: z.boolean().optional(),
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional().nullable(),
+  portal_visibility: z.enum(['inherit', 'restricted', 'hidden']).optional(),
   plan_folder: z
     .string()
     .max(500)
@@ -146,6 +147,7 @@ export async function POST(request: NextRequest) {
         dependencies_ordering_only: data.dependencies_ordering_only || false,
         notes: data.notes,
         plan_folder: data.plan_folder,
+        ...(data.portal_visibility ? { portal_visibility: data.portal_visibility } : {}),
         created_by_id: auth.userId,
       },
       include: {

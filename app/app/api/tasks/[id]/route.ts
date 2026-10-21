@@ -75,6 +75,8 @@ const updateTaskSchema = z.object({
   approved: z.boolean().optional(),
   // Billing fields (PM/Admin only)
   is_billable: z.boolean().optional(),
+  // Client portal (A3): share this task with the client's portal lists. PM/Admin only.
+  client_visible: z.boolean().optional(),
   billing_target: z.number().min(1).optional().nullable(),
   billing_amount: z.number().min(0).optional().nullable(),
   is_retainer_work: z.boolean().optional(),
@@ -552,6 +554,7 @@ export async function PATCH(
       if (data.billing_amount !== undefined) updateData.billing_amount = data.billing_amount;
       if (data.is_retainer_work !== undefined) updateData.is_retainer_work = data.is_retainer_work;
       if (data.is_support !== undefined) updateData.is_support = data.is_support;
+      if (data.client_visible !== undefined) updateData.client_visible = data.client_visible;
     }
 
     // Time tracking fields

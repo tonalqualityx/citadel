@@ -244,6 +244,7 @@ export function formatProjectResponse(project: any) {
     completed_hours: null, // Deprecated - use calculated.time_spent_minutes
     notes: project.notes,
     plan_folder: project.plan_folder ?? null,
+    portal_visibility: project.portal_visibility ?? 'inherit',
     created_by_id: project.created_by_id,
     created_by: project.created_by
       ? { id: project.created_by.id, name: project.created_by.name }
@@ -993,6 +994,7 @@ export function formatTaskResponse(task: any) {
     review_requirements: task.review_requirements, // PM/Admin-only, filtered by API
     // Review workflow
     needs_review: task.needs_review,
+    client_visible: task.client_visible ?? false,
     reviewer_id: task.reviewer_id,
     reviewer: task.reviewer
       ? { id: task.reviewer.id, name: task.reviewer.name, email: task.reviewer.email, avatar_url: task.reviewer.avatar_url }

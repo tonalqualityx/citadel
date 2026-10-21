@@ -68,6 +68,7 @@ export interface Project {
   completed_hours: number | null;
   notes: string | null;
   plan_folder: string | null;
+  portal_visibility: 'inherit' | 'restricted' | 'hidden';
   created_by_id: string | null;
   created_by: { id: string; name: string } | null;
   tasks_count: number;
@@ -105,6 +106,7 @@ export interface CreateProjectInput {
   dependencies_ordering_only?: boolean;
   notes?: string | null;
   plan_folder?: string | null;
+  portal_visibility?: 'inherit' | 'restricted' | 'hidden';
 }
 
 export interface UpdateProjectInput extends Partial<CreateProjectInput> {

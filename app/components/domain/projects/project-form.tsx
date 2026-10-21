@@ -28,6 +28,7 @@ const projectSchema = z.object({
   dependencies_ordering_only: z.boolean().optional(),
   notes: z.string().optional(),
   plan_folder: z.string().max(500).optional(),
+  portal_visibility: z.enum(['inherit', 'restricted', 'hidden']).optional(),
 });
 
 type ProjectFormData = z.infer<typeof projectSchema>;
@@ -47,6 +48,12 @@ const statusOptions = [
   { value: 'done', label: 'Done' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'cancelled', label: 'Cancelled' },
+];
+
+const portalVisibilityOptions = [
+  { value: 'inherit', label: 'Inherit (client role applies)' },
+  { value: 'restricted', label: 'Restricted (owners + granted contacts)' },
+  { value: 'hidden', label: 'Hidden (not shown in portal)' },
 ];
 
 const typeOptions = [
@@ -91,6 +98,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
       dependencies_ordering_only: project?.dependencies_ordering_only || false,
       notes: project?.notes || '',
       plan_folder: project?.plan_folder || '',
+      portal_visibility: project?.portal_visibility || 'inherit',
     },
   });
 
@@ -135,6 +143,7 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
         dependencies_ordering_only: data.dependencies_ordering_only,
         notes: data.notes || null,
         plan_folder: data.plan_folder?.trim() || null,
+        portal_visibility: data.portal_visibility || 'inherit',
       };
 
       if (isEdit) {
@@ -246,6 +255,20 @@ export function ProjectForm({ project, onSuccess, onCancel }: ProjectFormProps) 
             onChange={(value) => {
               const event = { target: { value, name: 'billing_type' } };
               register('billing_type').onChange(event as any);
+            }}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-text-main mb-1">
+            Client portal visibility
+          </label>
+          <Select
+            options={portalVisibilityOptions}
+            value={watch('portal_visibility') || 'inherit'}
+            onChange={(value) => {
+              const event = { target: { value, name: 'portal_visibility' } };
+              register('portal_visibility').onChange(event as any);
             }}
           />
         </div>

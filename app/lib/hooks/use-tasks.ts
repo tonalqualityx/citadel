@@ -68,6 +68,7 @@ export interface Task {
   review_requirements: Requirement[] | null; // PM/Admin-only Quality Gate
   // Review workflow
   needs_review: boolean;
+  client_visible: boolean;
   reviewer_id: string | null;
   reviewer: { id: string; name: string; email: string; avatar_url: string | null } | null;
   approved: boolean;
@@ -159,6 +160,7 @@ export interface UpdateTaskInput extends Partial<CreateTaskInput> {
   arc_id?: string | null;
   // Review workflow fields
   needs_review?: boolean;
+  client_visible?: boolean;
   reviewer_id?: string | null;
   approved?: boolean;
   // Billing fields

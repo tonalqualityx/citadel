@@ -50,6 +50,20 @@ export function ReviewSection({ task }: ReviewSectionProps) {
     );
   };
 
+  const handleClientVisibleChange = (checked: boolean) => {
+    updateTask.mutate(
+      { id: task.id, data: { client_visible: checked } },
+      {
+        onSuccess: () => {
+          showToast.success(checked ? 'Shared with client portal' : 'Hidden from client portal');
+        },
+        onError: (error) => {
+          showToast.apiError(error, 'Failed to update client portal visibility');
+        },
+      }
+    );
+  };
+
   const handleReviewerChange = (reviewerId: string | null) => {
     updateTask.mutate(
       { id: task.id, data: { reviewer_id: reviewerId } },
@@ -111,6 +125,21 @@ export function ReviewSection({ task }: ReviewSectionProps) {
             disabled={updateTask.isPending}
           />
         </div>
+
+        {/* Client portal visibility (PM/Admin only; the API ignores it for tech users) */}
+        {isPmOrAdmin && (
+          <div className="flex items-center justify-between">
+            <label htmlFor="client-visible" className="text-sm text-text-main">
+              Show in client portal
+            </label>
+            <Switch
+              id="client-visible"
+              checked={task.client_visible ?? false}
+              onCheckedChange={handleClientVisibleChange}
+              disabled={updateTask.isPending}
+            />
+          </div>
+        )}
 
         {task.needs_review && (
           <>
