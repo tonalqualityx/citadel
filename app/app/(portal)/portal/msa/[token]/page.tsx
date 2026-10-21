@@ -11,6 +11,7 @@ import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 
 const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface MsaData {
   id: string;
@@ -29,6 +30,7 @@ export default function MsaPortalPage() {
   const [msa, setMsa] = useState<MsaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
   const [signerName, setSignerName] = useState('');
@@ -39,6 +41,7 @@ export default function MsaPortalPage() {
       try {
         const res = await fetch(`/api/portal/msa/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'MSA not found');
           return;
@@ -85,7 +88,10 @@ export default function MsaPortalPage() {
   }
 
   if (!msa) {
-    return <EmptyState art="meadow" title="This link has expired" body={EXPIRED_BODY} />;
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
 
   const open = !msa.already_signed && !signed;

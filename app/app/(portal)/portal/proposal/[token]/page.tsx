@@ -11,6 +11,7 @@ import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 
 const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface ProposalData {
   id: string;
@@ -51,6 +52,7 @@ export default function ProposalPortalPage() {
   const [proposal, setProposal] = useState<ProposalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [responding, setResponding] = useState(false);
   const [responseNote, setResponseNote] = useState('');
   const [responded, setResponded] = useState(false);
@@ -60,6 +62,7 @@ export default function ProposalPortalPage() {
       try {
         const res = await fetch(`/api/portal/proposals/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'Proposal not found');
           return;
@@ -111,7 +114,10 @@ export default function ProposalPortalPage() {
   }
 
   if (!proposal) {
-    return <EmptyState art="meadow" title="This link has expired" body={EXPIRED_BODY} />;
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
 
   const charterItems = proposal.accord.charter_items || [];
@@ -277,7 +283,7 @@ export default function ProposalPortalPage() {
       ) : null}
 
       {responded ? (
-        <EmptyState art="meadow" title="Response submitted" body="Thank you for your response. We'll be in touch shortly." />
+        <EmptyState art="meadow" title="Response submitted" body="Thank you for your response. A person at Indelible reads every reply." />
       ) : null}
 
       {!open && !responded ? (

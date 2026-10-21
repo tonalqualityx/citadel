@@ -11,6 +11,7 @@ import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 
 const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface OnboardData {
   accord_name: string;
@@ -26,6 +27,7 @@ export default function OnboardPortalPage() {
   const [data, setData] = useState<OnboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
 
@@ -40,6 +42,7 @@ export default function OnboardPortalPage() {
       try {
         const res = await fetch(`/api/portal/onboard/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const d = await res.json();
           setError(d.error || 'Onboarding not available');
           return;
@@ -97,7 +100,10 @@ export default function OnboardPortalPage() {
   }
 
   if (!data) {
-    return <EmptyState art="meadow" title="This link has expired" body={EXPIRED_BODY} />;
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
 
   if (data.already_onboarded || completed) {

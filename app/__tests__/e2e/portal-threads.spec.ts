@@ -300,14 +300,17 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
 test.describe('Portal navigation after sign-in', () => {
   const NAV_LABELS = ['Home', 'Projects', 'Retainer', 'Requests', 'History', 'Book a meeting'];
 
-  test('the approval page (token link) is the bare frame even when signed in: no nav, help line present', async ({ browser }) => {
-    // Redesign spec section 4: token pages use the bare variant (top bar only).
+  test('the approval page (token link) carries the nav with Home first when signed in', async ({ browser }) => {
     const context = await clientContext(browser, OWNER_TOKEN);
     const page = await context.newPage();
     await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
     await expect(page.getByText('E2E: Homepage refresh (portal fixture)').first()).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
-    await expect(page.getByText('support@becomeindelible.com')).toBeVisible();
+    const nav = page.getByRole('navigation', { name: 'Main' });
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole('link').first()).toHaveText('Home');
+    for (const label of NAV_LABELS) await expect(nav.getByRole('link', { name: label })).toBeVisible();
+    await nav.getByRole('link', { name: 'Home' }).click();
+    await expect(page).toHaveURL(/\/portal\/home$/);
     await context.close();
   });
 

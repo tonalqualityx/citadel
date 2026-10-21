@@ -52,7 +52,7 @@ export function IntakeSummary(p: SummaryProps) {
         {p.answers.map((a) => (
           <div key={a.prompt}>
             <dt>{a.prompt}</dt>
-            <dd style={{ whiteSpace: 'pre-wrap' }}>{a.value}</dd>
+            <dd className="pre">{a.value}</dd>
           </div>
         ))}
       </dl>
@@ -75,7 +75,7 @@ export function IntakeSummary(p: SummaryProps) {
         </p>
       ) : null}
       {p.quote && <p className="meta">{QUOTE_LINE}</p>}
-      {p.urgent && <p style={{ fontWeight: 700 }}>{EMERGENCY_LINE}</p>}
+      {p.urgent && <p className="strong">{EMERGENCY_LINE}</p>}
       {p.dateWords && <p className="meta">{dateEcho(p.dateWords)}</p>}
       <div className="composer">
         {p.error && (

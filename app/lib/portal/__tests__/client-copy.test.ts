@@ -24,7 +24,7 @@ function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
     const p = path.join(dir, f);
     if (statSync(p).isDirectory()) return f === '__tests__' ? [] : walk(p);
-    return p.endsWith('.tsx') ? [p] : [];
+    return /\.tsx?$/.test(p) && !/\.d\.ts$/.test(p) ? [p] : [];
   });
 }
 
@@ -36,7 +36,20 @@ const PAGES = [
   'articles/[id]', 'login', 'login/verify', 'select', 'task-approval/[token]',
 ].map((p) => path.join(APP, 'app/(portal)/portal', p, 'page.tsx'));
 
-const FILES = [...walk(path.join(APP, 'components/portal')), ...PAGES];
+const LIB_FILES = ['headline.ts', 'history-group.ts'].map((f) => path.join(APP, 'lib/portal', f));
+
+const FILES = [...walk(path.join(APP, 'components/portal')), ...LIB_FILES, ...PAGES];
+
+/** One scan for a source file: the list of problems, empty when it is clean. */
+export function copyProblems(src: string, allowed: string[] = [], file = 'x.tsx'): string[] {
+  const out: string[] = [];
+  if (/[—–]/.test(stripComments(src))) out.push('em or en dash');
+  for (const s of clientStrings(src, file.endsWith('.tsx'))) {
+    if (!ALLOWED_DURATIONS.includes(s) && !allowed.includes(s)) for (const [name, re] of PROMISES) if (re.test(s)) out.push(`${name} in "${s}"`);
+    if (/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i.test(s)) out.push(`staff or tooling name in "${s}"`);
+  }
+  return out;
+}
 
 const DOCUMENT_PAGES = ['proposal', 'contract', 'msa', 'addendum', 'onboard'].map((p) =>
   path.join(APP, 'app/(portal)/portal', p, '[token]/page.tsx'),
@@ -47,10 +60,10 @@ function stripComments(src: string): string {
 }
 
 /** JSX text and capitalised string literals: the words a person reads. Class names are skipped. */
-export function clientStrings(src: string): string[] {
+export function clientStrings(src: string, jsx = true): string[] {
   const code = stripComments(src);
   const out: string[] = [];
-  for (const m of code.matchAll(/>([^<>{}]+)</g)) out.push(m[1]);
+  if (jsx) for (const m of code.matchAll(/>([^<>{}]+)</g)) out.push(m[1]);
   for (const m of code.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
     const text = m[2].replace(/\$\{[^}]*\}/g, 'x');
     if (/^[A-Z][^\n]*$/.test(text) && /[a-z]/.test(text) && !text.includes('/api/')) out.push(text);
@@ -61,6 +74,13 @@ export function clientStrings(src: string): string[] {
 }
 
 describe('the scanner itself', () => {
+  it('fails on a known-bad string (the gate can go red)', () => {
+    expect(copyProblems(`export const A = () => <p>Your site will be done by Friday</p>;`).join('|')).toMatch(/will be done/);
+    expect(copyProblems(`const x = 'Updated in 2 days';`).join('|')).toMatch(/duration/);
+    expect(copyProblems(`const y = 'Ready — see you soon';`).join('|')).toMatch(/dash/);
+    expect(copyProblems(`export const B = () => <p>We will be in touch tomorrow</p>;`).join('|')).toMatch(/same-day or next-day/);
+    expect(copyProblems(`export const B = () => <p>Hello there</p>;`)).toEqual([]);
+  });
   it('finds JSX text and capitalised literals, skips class names and comments', () => {
     const found = clientStrings(`
       // A comment — with a dash
@@ -87,24 +107,25 @@ describe('every client-facing string in the portal', () => {
       expect(stripComments(src)).not.toMatch(/[—–]/);
     });
     it(`${rel}: no promises (money, dates, durations, free, guarantee)`, () => {
-      for (const s of clientStrings(src)) {
+      for (const s of clientStrings(src, file.endsWith('.tsx'))) {
         if (ALLOWED_DURATIONS.includes(s)) continue;
         for (const [name, re] of PROMISES) expect(s, `${name} in "${s}"`).not.toMatch(re);
       }
     });
     it(`${rel}: never names staff or tooling`, () => {
-      for (const s of clientStrings(src)) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
+      for (const s of clientStrings(src, file.endsWith('.tsx'))) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
     });
   }
 });
 
 describe('document pages', () => {
+  // The five token pages carry real prices and dates as data, never as literals, so the same scan
+  // (promises, dashes, staff names) applies to the words we wrote.
   for (const file of DOCUMENT_PAGES) {
     const rel = path.relative(APP, file);
-    it(`${rel}: no em or en dashes, no staff or tooling names`, () => {
-      const src = readFileSync(file, 'utf8');
-      expect(stripComments(src)).not.toMatch(/[—–]/);
-      for (const s of clientStrings(src)) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
+    it(`${rel}: copy scan is clean`, () => {
+      // "Price" is a table header of the document itself, not a promise.
+      expect(copyProblems(readFileSync(file, 'utf8'), ['Price'])).toEqual([]);
     });
   }
 });

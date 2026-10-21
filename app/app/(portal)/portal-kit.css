@@ -135,7 +135,8 @@
 .callout .sec-h h2 { color: var(--p-ink); }
 .callout .tile-ic { --rail: var(--p-attention-rail); background: var(--p-chip-attention-bg); color: var(--p-chip-attention-fg); }
 .count { min-width: 28px; height: 28px; padding: 0 8px; border-radius: 14px; background: var(--p-attention-rail); color: #1F1400; font-family: var(--p-font-head); font-weight: 900; font-size: .875rem; display: inline-grid; place-items: center; }
-.callout .note { font-size: var(--pk-fs-meta); color: var(--p-ink-2); margin: 4px 0 6px 48px; }
+.callout .note { font-size: var(--pk-fs-meta); color: var(--p-ink-2); margin: 4px 0 6px 0; }
+@media (min-width: 700px) { .callout .note { margin-left: 48px; } }
 .ny { display: grid; }
 .ny li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 4px 12px; padding: 16px 0; border-top: 1px solid var(--p-callout-line); }
 .ny .ic { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--p-surface); color: var(--p-chip-attention-fg); border: 1px solid var(--p-callout-line); }
@@ -397,7 +398,8 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .main-inner > * { min-width: 0; }
 
 /* ---------- Retainer, Projects, Project detail (step 6) ---------- */
-[data-portal] .callout .plan-actions { margin: 6px 0 0 48px; }
+[data-portal] .callout .plan-actions { margin: 6px 0 0 0; }
+@media (min-width: 700px) { [data-portal] .callout .plan-actions { margin-left: 48px; } }
 [data-portal] .callout .plan-err { color: var(--p-chip-urgent-fg); font-weight: 700; }
 [data-portal] .empty-line { color: var(--p-ink-2); max-width: 60ch; }
 [data-portal] .report .report-body { display: grid; gap: 8px; min-width: 0; }
@@ -448,3 +450,8 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .review-actions .actions { margin-top: 2px; }
 [data-portal] .review-actions .err { font-size: var(--pk-fs-meta); color: var(--p-chip-urgent-fg); background: var(--p-chip-urgent-bg); padding: 8px 10px; border-radius: var(--p-radius); display: flex; gap: 8px; align-items: center; }
 [data-portal] .shell-bare .topbar { display: flex; }
+
+[data-portal] .pre { white-space: pre-wrap; }
+[data-portal] .strong { font-weight: 700; }
+[data-portal] .legend .sw-ring { border: 3px solid var(--p-kind-retainer); }
+[data-portal] .legend .sw-ready { background: var(--p-chip-attention-bg); border: 2px solid var(--p-attention-rail); }

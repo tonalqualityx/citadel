@@ -149,6 +149,7 @@ test.describe('Portal MVP A5 - project page, history, booking', () => {
     await page.goto('/portal/home');
     await page.waitForLoadState('networkidle');
     await expect(page.getByRole('heading', { name: 'Needs you', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Needs you' }).getByRole('listitem').first()).toBeVisible();
 
     // The project title is a card heading now; the card's link reads "Open the project".
     await page
@@ -157,8 +158,10 @@ test.describe('Portal MVP A5 - project page, history, booking', () => {
       .click();
     await page.waitForURL(/\/portal\/projects\//);
     await expect(page.getByRole('heading', { name: 'E2E: Site relaunch (portal fixture)' })).toBeVisible();
-    // "What we need from you" only shows when something on the project is open; the phase card always does.
-    await expect(page.locator('.rcard[data-kind="project"]').first()).toBeVisible();
+    // The Tasks section is always there; "What we need from you" appears only when something on
+    // the project waits on the client, and this fixture project has nothing open.
+    await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'What we need from you' })).toHaveCount(0);
 
     await context.close();
   });

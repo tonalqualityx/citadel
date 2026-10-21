@@ -22,7 +22,7 @@ export const MOTIFS: Record<MotifName, React.ReactNode> = {
   contours: (
     <>
       <path className={M.l1} d="M0 120 V92 C120 78 220 96 330 86 C440 76 520 92 600 84 V120Z" />
-      <g transform="translate(470 112) scale(.8)">
+      <g transform="translate(470 119) scale(.4)">
         <path className={M.line} d="M-40 0 C-40 -22 -12 -34 16 -28 C44 -22 52 4 34 18 C14 32 -20 28 -32 16 C-38 10 -40 6 -40 0Z" />
         <path className={M.line} d="M-70 0 C-70 -40 -20 -58 26 -48 C72 -38 86 6 58 30 C26 54 -36 48 -58 26 C-66 18 -70 10 -70 0Z" />
         <path className={M.line} d="M-100 2 C-100 -58 -28 -84 38 -70 C104 -56 122 8 82 42 C38 78 -52 70 -84 38 C-96 26 -100 14 -100 2Z" />

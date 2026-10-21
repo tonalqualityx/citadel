@@ -20,6 +20,8 @@ let taskId = '';
 
 test.beforeAll(() => {
   execSync(`${TS} scripts/seed-portal-v2-phase1-fixtures.ts`, { cwd: APP_ROOT, stdio: 'inherit' });
+  execSync(`${TS} scripts/seed-contract-sign-kickoff-e2e-fixtures.ts`, { cwd: APP_ROOT, stdio: 'inherit' });
+  execSync(`${TS} scripts/seed-portal-b3-fixtures.ts`, { cwd: APP_ROOT, stdio: 'inherit' });
   const out = execSync(`${TS} scripts/seed-portal-b2-fixtures.ts`, { cwd: APP_ROOT, encoding: 'utf8' });
   const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop() ?? '{}';
   taskId = JSON.parse(line).thread_task_id;
@@ -27,6 +29,7 @@ test.beforeAll(() => {
 });
 
 test.afterAll(() => {
+  execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
   execSync(`${TS} scripts/seed-portal-b2-fixtures.ts --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
 });
 
@@ -45,6 +48,12 @@ const SCREENS: Array<{ name: string; url: () => string; signedIn: boolean; ready
   { name: 'work', url: () => `/portal/work/${taskId}`, signedIn: true, ready: /Update the opening hours/ },
   { name: 'retainer', url: () => '/portal/retainer', signedIn: true, ready: /E2E Growth plan/ },
   { name: 'history', url: () => '/portal/history', signedIn: true, ready: 'What we have finished together' },
+  { name: 'projects', url: () => '/portal/projects', signedIn: true, ready: /active projects?|No active projects/i },
+  { name: 'book', url: () => '/portal/book', signedIn: true, ready: 'Book a meeting' },
+  { name: 'select', url: () => '/portal/select', signedIn: true, ready: 'Choose an account' },
+  { name: 'task-approval', url: () => '/portal/task-approval/e2e-b2-approval-page-token', signedIn: true, ready: /Homepage refresh/ },
+  { name: 'proposal', url: () => `/portal/proposal/${'e2e-b3-proposal-fixture-token-'.padEnd(128, 'p')}`, signedIn: true, ready: /\S/ },
+  { name: 'contract', url: () => `/portal/contract/${'e2e-kickoff-contract-fixture-token-'.padEnd(128, 'a')}`, signedIn: true, ready: /\S/ },
   { name: 'login', url: () => '/portal/login', signedIn: false, ready: 'Sign in to your Indelible portal' },
 ];
 
@@ -60,6 +69,9 @@ for (const size of SIZES) {
     test.describe(`${size.tag} ${scheme}`, () => {
       for (const screen of SCREENS) {
         test(screen.name, async ({ browser }) => {
+          // The account picker only shows with two accounts; give the owner one for this screen only.
+          if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --second-account`, { cwd: APP_ROOT, stdio: 'inherit' });
+          try {
           const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, colorScheme: scheme, reducedMotion: 'reduce' });
           if (screen.signedIn) {
             await context.addCookies([{ name: 'client_session', value: OWNER_TOKEN, domain: 'localhost', path: '/', httpOnly: true, secure: false, sameSite: 'Lax' }]);
@@ -115,6 +127,9 @@ for (const size of SIZES) {
           await page.mouse.move(0, 0);
           await expect(page).toHaveScreenshot(`${screen.name}-${size.tag}-${scheme}.png`, { fullPage: true, maxDiffPixelRatio: 0.01 });
           await context.close();
+          } finally {
+            if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
+          }
         });
       }
     });

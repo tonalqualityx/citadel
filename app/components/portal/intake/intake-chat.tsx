@@ -418,7 +418,7 @@ export function IntakeChat() {
         {meter}
         <section className="summary-card" aria-live="polite">
           <h2 id="intake-sent-heading">{SENT_HEADING}</h2>
-          {sent.urgent && <p style={{ fontWeight: 700 }}>{SENT_URGENT}</p>}
+          {sent.urgent && <p className="strong">{SENT_URGENT}</p>}
           {/* They asked for urgent but the daily limit meant no alert: do not say the team was alerted. */}
           {!sent.urgent && urgent && <p>{SENT_DOWNGRADED}</p>}
           <div className="actions">
@@ -449,7 +449,7 @@ export function IntakeChat() {
                     {t.prompt}
                   </ChatBubble>
                   <ChatBubble side="you" who="You" onChange={t.change} changeLabel={t.prompt}>
-                    <span style={{ whiteSpace: 'pre-wrap' }}>{t.answer}</span>
+                    <span className="pre">{t.answer}</span>
                   </ChatBubble>
                 </Fragment>
               ))}

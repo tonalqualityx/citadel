@@ -74,11 +74,11 @@ const LEGEND = [
   { swatch: 'kind' as const, value: 'var(--p-kind-retainer)', label: 'Report delivered' },
   {
     swatch: 'icon' as const, value: '', label: 'This month',
-    icon: <i aria-hidden="true" style={{ border: '3px solid var(--p-kind-retainer)' }} />,
+    icon: <i aria-hidden="true" className="sw-ring" />,
   },
   {
     swatch: 'icon' as const, value: '', label: 'Plan ready for you',
-    icon: <i aria-hidden="true" style={{ background: 'var(--p-chip-attention-bg)', border: '2px solid var(--p-attention-rail)' }} />,
+    icon: <i aria-hidden="true" className="sw-ready" />,
   },
   { swatch: 'state' as const, value: 'var(--p-sunk)', label: 'Still to come' },
 ];
@@ -101,7 +101,7 @@ export function RetainerCard({ card, primary, onChanged }: { card: RetainerCardV
           eyebrow={['Retainer', <StatusChip key="s" label={card.status.label} tone={card.status.tone} />]}
           title={card.heading}
           lede={lede}
-          motif="contours"
+          motif="field"
           actions={<PortalButton variant="secondary" href="/portal/requests/new?type=marketing_question">Ask about your plan</PortalButton>}
         />
       ) : (

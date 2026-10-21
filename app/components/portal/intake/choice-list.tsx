@@ -1,6 +1,6 @@
 'use client';
 
-import { Circle, CircleCheck } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 // A group of full-width choice buttons (.choices). One is pressed at a time; every choice is a
 // 48px target. `line` is the small text under a choice label. `label` names the group for
@@ -28,10 +28,9 @@ export function ChoiceList({
     <div className="choices" role="group" aria-label={label} data-name={name}>
       {options.map((o) => {
         const selected = value === o.key;
-        const Icon = selected ? CircleCheck : Circle;
         return (
           <button key={o.key} type="button" aria-pressed={selected} onClick={() => onChange(o.key)}>
-            <Icon className="i" aria-hidden="true" focusable="false" />
+            <ArrowRight className="i" aria-hidden="true" focusable="false" />
             <b>{o.label}</b>
             {o.line ? <small>{o.line}</small> : null}
           </button>

@@ -62,7 +62,7 @@ export default function PortalRetainerPage() {
   if (cards.length === 0) {
     return (
       <>
-        <PageHeader title="Retainer" motif="contours" lede="Your monthly plan, reports and the work in progress." />
+        <PageHeader title="Retainer" motif="field" lede="Your monthly plan, reports and the work in progress." />
         <EmptyState
           art="field"
           title="No retainer on your account"

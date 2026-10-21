@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Monitor, Moon, Sun } from 'lucide-react';
 
 type Theme = 'system' | 'light' | 'dark';
@@ -28,16 +28,26 @@ const OPTIONS: Array<{ value: Theme; label: string; icon: typeof Sun }> = [
   { value: 'dark', label: 'Dark', icon: Moon },
 ];
 
+const listeners = new Set<() => void>();
+const subscribe = (cb: () => void) => {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+};
+const snapshot = (): Theme => read();
+
 /** System, Light or Dark. Remembered in localStorage when it works; the page is fine without it. */
 export function ThemeControl() {
-  const [theme, setTheme] = useState<Theme>('system');
+  const stored = useSyncExternalStore(subscribe, snapshot, () => 'system' as Theme);
+  // Where storage is blocked the choice still applies to this page: keep it in state too.
+  const [override, setOverride] = useState<Theme | null>(null);
+  const theme = override ?? stored;
   useEffect(() => {
-    const t = read();
-    setTheme(t);
-    apply(t);
-  }, []);
+    apply(theme);
+  }, [theme]);
   function choose(t: Theme) {
-    setTheme(t);
+    setOverride(t);
     apply(t);
     try {
       if (t === 'system') window.localStorage.removeItem(KEY);
@@ -45,6 +55,7 @@ export function ThemeControl() {
     } catch {
       // Private window or blocked storage: the choice still applies to this page.
     }
+    listeners.forEach((cb) => cb());
   }
   return (
     <div className="seg" role="group" aria-label="Theme">

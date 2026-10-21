@@ -11,6 +11,7 @@ import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 
 const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface AddendumData {
   id: string;
@@ -39,6 +40,7 @@ export default function AddendumPortalPage() {
   const [addendum, setAddendum] = useState<AddendumData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [responseAction, setResponseAction] = useState<ResponseAction | null>(null);
@@ -51,6 +53,7 @@ export default function AddendumPortalPage() {
       try {
         const res = await fetch(`/api/portal/addendums/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'Addendum not found');
           return;
@@ -109,7 +112,10 @@ export default function AddendumPortalPage() {
   }
 
   if (!addendum) {
-    return <EmptyState art="meadow" title="This link has expired" body={EXPIRED_BODY} />;
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
 
   const alreadyResponded = addendum.status !== 'sent';
@@ -117,7 +123,7 @@ export default function AddendumPortalPage() {
   const pricing = addendum.pricing_snapshot;
   const changes = addendum.changes;
   const pricingTotal = Array.isArray(pricing)
-    ? pricing.reduce((sum: number, item: any) => sum + Number(item.total || item.price || 0), 0)
+    ? pricing.reduce((sum: number, item: { total?: number | string; price?: number | string }) => sum + Number(item.total || item.price || 0), 0)
     : 0;
   const chipStatus = submitted && responseAction ? responseAction : addendum.status;
   const chip =

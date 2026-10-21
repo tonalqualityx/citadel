@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Menu, LogOut, Plus } from 'lucide-react';
 import { AccountBlock, usePortalSession } from '@/components/portal/client-switcher';
-import { activeKey, isBarePath, NAV, type NavKey } from './nav-items';
+import { activeKey, isBarePath, isSignInPath, NAV, type NavKey } from './nav-items';
 import { HelpLine } from './help-line';
 import { MoreSheet } from './more-sheet';
 import { ThemeControl } from './theme-control';
@@ -20,8 +20,10 @@ const PHONE_SLOTS = new Set<NavKey>(['home', 'projects', 'retainer', 'requests']
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '';
   const router = useRouter();
-  const bare = isBarePath(pathname);
-  const session = usePortalSession(!bare, pathname);
+  const signIn = isSignInPath(pathname);
+  // Token pages open for people with no session too, so they ask once and show the nav on a 200.
+  const session = usePortalSession(!signIn, pathname);
+  const bare = isBarePath(pathname, session.loaded);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtn = useRef<HTMLButtonElement>(null);
   const active = activeKey(pathname);

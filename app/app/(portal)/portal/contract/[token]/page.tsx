@@ -11,6 +11,7 @@ import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 
 const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface ContractData {
   id: string;
@@ -51,6 +52,7 @@ export default function ContractPortalPage() {
   const [contract, setContract] = useState<ContractData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
   const [signerName, setSignerName] = useState('');
@@ -61,6 +63,7 @@ export default function ContractPortalPage() {
       try {
         const res = await fetch(`/api/portal/contracts/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'Contract not found');
           return;
@@ -113,7 +116,10 @@ export default function ContractPortalPage() {
   }
 
   if (!contract) {
-    return <EmptyState art="meadow" title="This link has expired" body={EXPIRED_BODY} />;
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
 
   const charterItems = contract.accord.charter_items || [];
@@ -287,7 +293,7 @@ export default function ContractPortalPage() {
       ) : null}
 
       {signed ? (
-        <EmptyState art="meadow" title="Contract signed" body={`Signed. A copy is on its way to ${signerEmail}.`} />
+        <EmptyState art="meadow" title="Contract signed" body="Signed. Thank you." />
       ) : null}
 
       {alreadySigned && !signed ? (

@@ -63,7 +63,7 @@ describe('PortalShell', () => {
     expect(within(sidebar()).getByRole('link', { name: 'Switch account' })).toHaveAttribute('href', '/portal/select');
   });
 
-  for (const p of ['/portal/login', '/portal/login/verify', '/portal/select', '/portal/proposal/x', '/portal/contract/x', '/portal/msa/x', '/portal/addendum/x', '/portal/onboard/x', '/portal/task-approval/x']) {
+  for (const p of ['/portal/login', '/portal/login/verify', '/portal']) {
     it(`${p} is the bare variant: no nav, no session fetch, help line present`, () => {
       pathname = p;
       render(<PortalShell>page</PortalShell>);
@@ -74,8 +74,24 @@ describe('PortalShell', () => {
     });
   }
 
+  it('the account picker carries the full shell at once', () => {
+    pathname = '/portal/select';
+    render(<PortalShell>page</PortalShell>);
+    expect(sidebar()).toBeInTheDocument();
+  });
+
+  it('a token page is bare until the session answers 200, then carries the nav', async () => {
+    pathname = '/portal/proposal/abc';
+    render(<PortalShell>page</PortalShell>);
+    expect(screen.queryByRole('complementary')).toBeNull();
+    await waitFor(() => expect(sidebar()).toBeInTheDocument());
+  });
+
   it('isBarePath and activeKey agree on the edges', () => {
     expect(isBarePath('/portal/articles/1')).toBe(false);
+    expect(isBarePath('/portal/select')).toBe(false);
+    expect(isBarePath('/portal/contract/x')).toBe(true);
+    expect(isBarePath('/portal/contract/x', true)).toBe(false);
     expect(isBarePath('/portal/work/1')).toBe(false);
     expect(activeKey('/portal/articles/1')).toBeNull();
   });
