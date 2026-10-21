@@ -19,7 +19,7 @@ const blocks = {
   summary: '',
   generated_at: '',
 };
-const useMyWaitBlocks = vi.fn((_enabled?: boolean) => ({ data: blocks }));
+const useMyWaitBlocks = vi.fn((enabled?: boolean) => ({ data: enabled === false ? undefined : blocks }));
 vi.mock('@/lib/hooks/use-waits', () => ({ useMyWaitBlocks: (e?: boolean) => useMyWaitBlocks(e), useUpdateWait: () => ({ mutate: vi.fn(), isPending: false }) }));
 vi.mock('@/lib/hooks/use-today', () => ({
   useTodayPicks: () => ({ data: { picks: [] } }),

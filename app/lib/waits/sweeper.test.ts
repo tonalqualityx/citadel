@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { runSweep, resolveWait, effectiveAction, type WaitRow } from './sweeper';
-import { addBusinessDays, zonedTimeToUtc } from './business-days';
+import { zonedTimeToUtc } from './business-days';
 import { buildWaitData, getTemplate, type WaitInput } from './templates';
 import { MIKE_USER_ID, type OwnerLookups } from './owner';
 
@@ -41,7 +41,6 @@ afterEach(() => {
   for (const k of enabled.splice(0)) getTemplate(k)!.enabled = false;
 });
 
-const pastDue = (days = 1) => addBusinessDays(NOW, 0).getTime() - days * 86_400_000;
 
 describe('dry run', () => {
   it('reports and writes nothing', async () => {

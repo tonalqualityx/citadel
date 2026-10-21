@@ -34,7 +34,7 @@ async function assertNoHorizontalOverflow(page: import('@playwright/test').Page)
   expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
 }
 
-test('Clarity Phase 8 — Work mode is the landing surface: signals, hero, doors, screenshot', async ({ page }) => {
+test('Clarity Phase 8 — Work mode is the landing surface: signals, hero, no doors, screenshot', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
@@ -59,17 +59,14 @@ test('Clarity Phase 8 — Work mode is the landing surface: signals, hero, doors
   // design — the WIP cap is exact-full already without them).
   await expect(page.getByTestId('todays-picks-hero')).toBeVisible();
 
-  // Four doors, always present.
-  await expect(page.getByTestId('door-reviews')).toBeVisible();
-  await expect(page.getByTestId('door-intake')).toBeVisible();
-  await expect(page.getByTestId('door-pipeline')).toBeVisible();
-  await expect(page.getByTestId('door-due_soon')).toBeVisible();
-  // The door's count is the TRUE total across every intake source in the shared dev DB
-  // (other Oracle e2e specs seed their own intake fixtures too) — assert it's truthfully
-  // at least our 12, not an exact match.
-  const intakeText = await page.getByTestId('door-intake').innerText();
-  const intakeCount = Number.parseInt(intakeText.match(/\d+/)?.[0] ?? '0', 10);
-  expect(intakeCount).toBeGreaterThanOrEqual(12);
+  // The four doors (Reviews, Intake, Pipeline, Due soon) are hidden by default since the wait
+  // record phase 1: ORACLE_WORK_DOORS is off (lib/config/feature-flags.ts). Mike called the row
+  // noise on 2026-09-04. The code is hidden, not deleted, so the row is asserted ABSENT here and
+  // the Process and Plan modes below are reached through their tabs instead of through a door.
+  await expect(page.getByTestId('doors-row')).toHaveCount(0);
+  for (const door of ['door-reviews', 'door-intake', 'door-pipeline', 'door-due_soon']) {
+    await expect(page.getByTestId(door)).toHaveCount(0);
+  }
 
   await assertNoHorizontalOverflow(page);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/work-mode.png`, fullPage: true });
@@ -132,7 +129,9 @@ test('Clarity Phase 8 — Process mode: exactly one card at a time, screenshot',
   await page.goto('/oracle');
   await page.waitForLoadState('networkidle');
 
-  await page.getByTestId('door-intake').click();
+  // The intake door is hidden now; the Process tab is the way in (Plan/Process tabs are forced
+  // visible for this suite by playwright.config.ts).
+  await page.getByTestId('mode-tab-process').click();
   await expect(page.getByTestId('mode-tab-process')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByTestId('process-view')).toBeVisible();
 
