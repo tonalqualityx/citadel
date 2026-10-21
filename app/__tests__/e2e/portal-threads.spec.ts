@@ -204,7 +204,7 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     const context = await clientContext(browser, OWNER_TOKEN);
     const page = await context.newPage();
     await page.goto('/portal/retainer');
-    await expect(page.getByRole('heading', { name: 'Retainer', level: 1 })).toBeVisible();
+    await expect(page.locator('.eyebrow').getByText('Retainer', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'E2E Growth plan' })).toBeVisible();
     // The internal charter name is never shown.
     await expect(page.getByText('E2E: Marketing retainer')).toHaveCount(0);
@@ -213,13 +213,13 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     await expect(page.getByText('Active', { exact: true })).toBeVisible();
 
     // Plan ready: open, approve and book are all there.
-    await expect(page.getByRole('heading', { name: 'Plan ready for you' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /plan is ready/ })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open the plan' })).toHaveAttribute('href', 'https://staging.e2e-portal-fixture.example/plan');
     const approve = page.getByRole('button', { name: 'Approve the plan' });
     await expect(approve).toBeVisible();
     const bg = await approve.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg).not.toBe('rgba(0, 0, 0, 0)'); // the button is not transparent
-    await expect(page.getByRole('article').getByRole('link', { name: 'Book a meeting' })).toHaveAttribute('href', '/portal/book?type=marketing');
+    await expect(page.locator('.callout').getByRole('link', { name: 'Book a meeting' })).toHaveAttribute('href', '/portal/book?type=marketing');
     await expect(page.getByText('Approving here or by email both count.')).toBeVisible();
 
     await expect(page.getByRole('heading', { name: 'This month' })).toBeVisible();
@@ -227,7 +227,7 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     await expect(page.getByRole('link', { name: 'Read the report' })).toHaveAttribute('href', 'https://reports.e2e-portal-fixture.example/october');
     await expect(page.getByText('Calls from the site went up this month.')).toBeVisible();
     // The allowance, and nothing about hours used.
-    await expect(page.getByText('Your plan includes up to 10 hours of work a month.')).toBeVisible();
+    await expect(page.getByText('Your plan covers up to 10 hours of work a month.')).toBeVisible();
     await expect(page.getByText(/hours used|hours left|used so far/i)).toHaveCount(0);
 
     // Request work is prefilled for the retainer.
@@ -247,7 +247,7 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     await expect(page).toHaveURL(/\/portal\/work\//);
     const chip = page.getByRole('link', { name: /^Retainer:/ });
     await expect(chip).toHaveAttribute('href', '/portal/retainer');
-    const nav = page.getByRole('navigation', { name: 'Portal' });
+    const nav = page.getByRole('navigation', { name: 'Main' });
     for (const label of ['Home', 'Projects', 'Retainer', 'Requests', 'History', 'Book a meeting']) {
       await expect(nav.getByRole('link', { name: label })).toBeVisible();
     }
@@ -258,9 +258,9 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     const context = await clientContext(browser, OWNER_TOKEN);
     const page = await context.newPage();
     await page.goto('/portal/projects');
-    await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Active' })).toBeVisible();
-    const card = page.getByRole('link', { name: 'E2E: Site relaunch (portal fixture)' });
+    await expect(page.getByRole('heading', { level: 1, name: /active projects?/ })).toBeVisible();
+    // The title is the card heading; the card's link reads "Open the project".
+    const card = page.locator('article.rcard', { hasText: 'E2E: Site relaunch (portal fixture)' }).getByRole('link', { name: 'Open the project' });
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute('href', /\/portal\/projects\/[0-9a-f-]{36}/);
     await expect(page.getByText('In progress').first()).toBeVisible();
@@ -275,10 +275,12 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     const context = await clientContext(browser, EMPTY_TOKEN);
     const page = await context.newPage();
     await page.goto('/portal/retainer');
-    await expect(page.getByText('No retainer on your account. When you have one, your monthly plan, reports and the work in progress show here.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No retainer on your account' })).toBeVisible();
+    await expect(page.getByText('When you have one, your monthly plan, reports and the work in progress show here.')).toBeVisible();
     await expect(page.locator('main a[href="/portal/book?type=marketing"], a[href="/portal/book?type=marketing"]').first()).toBeVisible();
     await page.goto('/portal/projects');
-    await expect(page.getByText('No projects right now. When we build something for you, its progress, approvals and history show here.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No projects right now' })).toBeVisible();
+    await expect(page.getByText('When we build something for you, its progress, approvals and history show here.')).toBeVisible();
     await context.close();
   });
 
@@ -287,7 +289,7 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     const page = await context.newPage();
     await page.goto('/portal/home');
     await expect(page.getByRole('heading', { name: 'Retainer', level: 3 })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'E2E Growth plan' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'E2E Growth plan', exact: true })).toBeVisible();
     await context.close();
   });
 });
@@ -298,17 +300,14 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
 test.describe('Portal navigation after sign-in', () => {
   const NAV_LABELS = ['Home', 'Projects', 'Retainer', 'Requests', 'History', 'Book a meeting'];
 
-  test('the approval page (token link) carries the nav with Home first when signed in', async ({ browser }) => {
+  test('the approval page (token link) is the bare frame even when signed in: no nav, help line present', async ({ browser }) => {
+    // Redesign spec section 4: token pages use the bare variant (top bar only).
     const context = await clientContext(browser, OWNER_TOKEN);
     const page = await context.newPage();
     await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
     await expect(page.getByText('E2E: Homepage refresh (portal fixture)').first()).toBeVisible();
-    const nav = page.getByRole('navigation', { name: 'Portal' });
-    await expect(nav).toBeVisible();
-    await expect(nav.getByRole('link').first()).toHaveText('Home');
-    for (const label of NAV_LABELS) await expect(nav.getByRole('link', { name: label })).toBeVisible();
-    await nav.getByRole('link', { name: 'Home' }).click();
-    await expect(page).toHaveURL(/\/portal\/home$/);
+    await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
+    await expect(page.getByText('support@becomeindelible.com')).toBeVisible();
     await context.close();
   });
 
@@ -317,7 +316,7 @@ test.describe('Portal navigation after sign-in', () => {
     const page = await context.newPage();
     await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
     await expect(page.getByText('E2E: Homepage refresh (portal fixture)').first()).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Portal' })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
     await context.close();
   });
 
@@ -326,7 +325,7 @@ test.describe('Portal navigation after sign-in', () => {
     const page = await context.newPage();
     await page.goto('/portal');
     await expect(page).toHaveURL(/\/portal\/home$/);
-    await expect(page.getByRole('navigation', { name: 'Portal' }).getByRole('link').first()).toHaveText('Home');
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link').first()).toHaveText('Home');
     await context.close();
   });
 
@@ -349,8 +348,8 @@ test.describe('Portal navigation after sign-in', () => {
       }
     }
     await expect(page).toHaveURL(/\/portal\/home$/);
-    await expect(page.getByRole('navigation', { name: 'Portal' }).getByRole('link').first()).toHaveText('Home');
-    await expect(page.getByRole('heading', { name: 'Needs from you' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link').first()).toHaveText('Home');
+    await expect(page.getByRole('heading', { name: 'Needs you', exact: true })).toBeVisible();
     await context.close();
   });
 
@@ -378,7 +377,7 @@ test.describe('Approval link with no contact', () => {
     await page.goto('/portal/task-approval/e2e-b2-approval-nocontact-token');
     await expect(page.getByText('E2E: Unattributed approval link (portal fixture)').first()).toBeVisible();
     await expect(page.getByText('To ask for changes, sign in to the portal or reply to the email.')).toBeVisible();
-    await expect(page.getByRole('button', { name: "Something's not right" })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Something is not right' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Approve' })).toBeVisible();
     await context.close();
   });
@@ -401,7 +400,7 @@ test.describe('Approval link with no contact', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
-    await expect(page.getByRole('button', { name: "Something's not right" })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Something is not right' })).toBeVisible();
     await context.close();
   });
 });

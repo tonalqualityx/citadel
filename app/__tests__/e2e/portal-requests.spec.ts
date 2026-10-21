@@ -236,7 +236,7 @@ test.describe('Portal phase B slice 1: requests', () => {
     await expect(page.getByRole('link', { name: 'Site change: Change the phone number in the footer' })).toBeVisible();
 
     await page.goto('/portal/home');
-    await expect(page.getByRole('heading', { name: 'Requests' })).toBeVisible();
+    await expect(page.locator('.rcard[data-kind="request"]')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Request work' }).first()).toBeVisible();
     await context.close();
   });

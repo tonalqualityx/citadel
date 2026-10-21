@@ -97,7 +97,8 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
     await expect(page.getByRole('heading', { level: 3, name: 'Nothing needs you right now' })).toBeVisible();
     await expect(page.getByText('No stats yet', { exact: false })).toBeVisible();
     await expect(page.getByText('No active projects right now.')).toBeVisible();
-    await expect(page.getByText('Nothing outstanding right now.')).toBeVisible();
+    // This contact is not an owner, so the Open balance section does not exist for them at all.
+    await expect(page.locator('#open-balance')).toHaveCount(0);
 
     await context.close();
   });
@@ -156,7 +157,8 @@ test.describe('Portal MVP A5 - project page, history, booking', () => {
       .click();
     await page.waitForURL(/\/portal\/projects\//);
     await expect(page.getByRole('heading', { name: 'E2E: Site relaunch (portal fixture)' })).toBeVisible();
-    await expect(page.getByText('What we need from you')).toBeVisible();
+    // "What we need from you" only shows when something on the project is open; the phase card always does.
+    await expect(page.locator('.rcard[data-kind="project"]').first()).toBeVisible();
 
     await context.close();
   });
