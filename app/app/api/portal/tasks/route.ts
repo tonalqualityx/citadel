@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { formatTaskForClient } from '@/lib/api/client-projections';
+import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 
 // GET /api/portal/tasks (Portal v2 phase 1)
 // The logged-in client's tasks: those awaiting THEIR approval, plus recently-approved ones —
@@ -11,7 +12,8 @@ import { formatTaskForClient } from '@/lib/api/client-projections';
 // client_id-OR-site.client_id resolution used by the token flow (lib/services/portal.ts's
 // resolveTaskContact), since not every task has client_id set directly.
 //
-// "Awaiting approval" = the client hasn't approved it yet (client_approved_at is null). This is
+// "Awaiting approval" = the client hasn't approved it yet (client_approved_at is null) AND the task
+// is client-visible and staged (lib/portal/visibility.ts; internal tasks never appear). This is
 // intentionally NOT gated on a minted portal_token — a client_session can review/approve any of
 // its own tasks, independent of whether a one-off email link was ever sent for it. Per-item
 // approve/request-changes actions live at POST /api/portal/tasks/mine/:id/{approve,request-changes}
@@ -30,13 +32,12 @@ export async function GET(_request: NextRequest) {
 
     const [pending, recentlyApproved] = await Promise.all([
       prisma.task.findMany({
-        where: { ...scope, client_approved_at: null },
+        where: { ...scope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere()] },
         select: {
           id: true,
           title: true,
           description: true,
           status: true,
-          estimated_minutes: true,
           staging_preview_url: true,
           staging_deployed_at: true,
           created_at: true,
@@ -46,13 +47,12 @@ export async function GET(_request: NextRequest) {
         take: 50,
       }),
       prisma.task.findMany({
-        where: { ...scope, client_approved_at: { not: null } },
+        where: { ...scope, client_approved_at: { not: null }, AND: [clientVisibleTaskWhere()] },
         select: {
           id: true,
           title: true,
           description: true,
           status: true,
-          estimated_minutes: true,
           client_approved_at: true,
           created_at: true,
           updated_at: true,

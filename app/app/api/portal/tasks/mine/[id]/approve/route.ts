@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import {
+  clientVisibleTaskWhere,
+  stagedTaskWhere,
+  isClientVisibleTask,
+  isStagedForApproval,
+  VISIBILITY_SELECT,
+} from '@/lib/portal/visibility';
 import { recordTaskClientApproval, logPortalSession, getClientIp } from '@/lib/services/portal';
 
 // POST /api/portal/tasks/mine/:id/approve (Portal v2 phase 1)
@@ -23,17 +30,20 @@ export async function POST(
         id,
         is_deleted: false,
         OR: [{ client_id: session.clientId }, { site: { client_id: session.clientId } }],
+        // Leak 2: act only on client-visible tasks that are staged for approval.
+        AND: [clientVisibleTaskWhere(), stagedTaskWhere()],
       },
       select: {
         id: true,
         client_approved_at: true,
         site: { select: { auto_deploy: true } },
+        ...VISIBILITY_SELECT,
       },
     });
 
     // 404 rather than 403 for both "not found" and "belongs to another client" — existence of
     // another client's task is never leaked, matching the articles session-route convention.
-    if (!task) {
+    if (!task || !isClientVisibleTask(task) || !isStagedForApproval(task)) {
       throw new ApiError('Task not found', 404);
     }
 

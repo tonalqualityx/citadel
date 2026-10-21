@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import {
   formatArticleForClient,
   formatTaskForClient,
@@ -72,13 +73,13 @@ export async function GET(_request: NextRequest) {
       }),
       // Pending approvals — tasks awaiting the client's own approval, with staging preview.
       prisma.task.findMany({
-        where: { ...taskScope, client_approved_at: null },
+        // Leak 1: only client-visible AND staged work is "waiting on your review".
+        where: { ...taskScope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere()] },
         select: {
           id: true,
           title: true,
           description: true,
           status: true,
-          estimated_minutes: true,
           staging_preview_url: true,
           staging_deployed_at: true,
           created_at: true,
@@ -116,6 +117,7 @@ export async function GET(_request: NextRequest) {
           is_deleted: false,
           AND: [
             { OR: taskScope.OR },
+            clientVisibleTaskWhere(),
             { OR: [{ status: 'done' }, { client_approved_at: { not: null } }] },
           ],
         },

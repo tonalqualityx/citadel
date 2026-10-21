@@ -3,6 +3,13 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import {
+  clientVisibleTaskWhere,
+  stagedTaskWhere,
+  isClientVisibleTask,
+  isStagedForApproval,
+  VISIBILITY_SELECT,
+} from '@/lib/portal/visibility';
 import { recordTaskClientRequestChanges, logPortalSession, getClientIp } from '@/lib/services/portal';
 
 const requestChangesSchema = z.object({
@@ -26,11 +33,13 @@ export async function POST(
         id,
         is_deleted: false,
         OR: [{ client_id: session.clientId }, { site: { client_id: session.clientId } }],
+        // Leak 2: act only on client-visible tasks that are staged for approval.
+        AND: [clientVisibleTaskWhere(), stagedTaskWhere()],
       },
-      select: { id: true, client_approved_at: true },
+      select: { id: true, client_approved_at: true, ...VISIBILITY_SELECT },
     });
 
-    if (!task) {
+    if (!task || !isClientVisibleTask(task) || !isStagedForApproval(task)) {
       throw new ApiError('Task not found', 404);
     }
 

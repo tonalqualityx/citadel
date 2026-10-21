@@ -56,7 +56,7 @@ const fullInternalTask = {
 };
 
 const ALLOWED_TASK_KEYS = [
-  'id', 'title', 'description', 'status', 'estimated_minutes', 'comments', 'created_at', 'updated_at',
+  'id', 'title', 'description', 'status', 'comments', 'created_at', 'updated_at',
 ].sort();
 
 describe('formatTaskForClient', () => {
@@ -70,7 +70,7 @@ describe('formatTaskForClient', () => {
     expect(out.id).toBe('t1');
     expect(out.title).toBe('Redesign the homepage hero');
     expect(out.status).toBe('in_progress');
-    expect(out.estimated_minutes).toBe(120);
+    expect(out).not.toHaveProperty('estimated_minutes');
     expect(out.description).toEqual(fullInternalTask.description);
     expect(out.created_at).toBe('2026-06-20T10:00:00Z');
   });
@@ -107,9 +107,9 @@ describe('formatTaskForClient', () => {
     expect(serialized).not.toContain('is_internal');
   });
 
-  it('defaults estimated_minutes and comments when absent', () => {
+  it('defaults comments when absent', () => {
     const out = formatTaskForClient({ id: 't2', title: 'x', status: 'not_started' });
-    expect(out.estimated_minutes).toBeNull();
+    expect(out).not.toHaveProperty('estimated_minutes');
     expect(out.comments).toEqual([]);
   });
 });

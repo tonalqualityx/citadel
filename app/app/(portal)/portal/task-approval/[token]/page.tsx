@@ -8,7 +8,6 @@ interface ClientTask {
   title: string;
   description: unknown;
   status: string;
-  estimated_minutes: number | null;
   comments: Array<{ id: string; content: string; author_name: string | null; created_at: string }>;
   created_at: string;
   updated_at: string;

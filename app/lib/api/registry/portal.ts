@@ -70,7 +70,7 @@ export const portalEndpoints: ApiEndpoint[] = [
             tasks: [
               {
                 id: 'uuid', title: 'string', description: 'object|null', status: 'review',
-                estimated_minutes: 'number|null', comments: [], staging_preview_url: 'string|null',
+                comments: [], staging_preview_url: 'string|null',
                 staging_deployed_at: 'ISO-8601|null', created_at: 'ISO-8601', updated_at: 'ISO-8601',
               },
             ],
@@ -104,14 +104,14 @@ export const portalEndpoints: ApiEndpoint[] = [
           pending: [
             {
               id: 'uuid', title: 'string', description: 'object|null', status: 'review',
-              estimated_minutes: 'number|null', comments: [], staging_preview_url: 'string|null',
+              comments: [], staging_preview_url: 'string|null',
               staging_deployed_at: 'ISO-8601|null', created_at: 'ISO-8601', updated_at: 'ISO-8601',
             },
           ],
           recently_approved: [
             {
               id: 'uuid', title: 'string', description: 'object|null', status: 'done',
-              estimated_minutes: 'number|null', comments: [], client_approved_at: 'ISO-8601',
+              comments: [], client_approved_at: 'ISO-8601',
               created_at: 'ISO-8601', updated_at: 'ISO-8601',
             },
           ],
@@ -298,7 +298,6 @@ export const portalEndpoints: ApiEndpoint[] = [
             title: 'string',
             description: 'object|null',
             status: 'not_started|in_progress|review|done|blocked|abandoned',
-            estimated_minutes: 'number|null',
             comments: [{ id: 'uuid', content: 'string', author_name: 'string|null', created_at: 'ISO-8601' }],
             created_at: 'ISO-8601',
             updated_at: 'ISO-8601',

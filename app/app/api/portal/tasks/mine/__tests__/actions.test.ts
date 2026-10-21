@@ -27,6 +27,16 @@ import { requireClientAuth } from '@/lib/services/client-auth';
 import { recordTaskClientApproval, recordTaskClientRequestChanges, logPortalSession } from '@/lib/services/portal';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
+import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+
+// A task a contact requested and that is staged for approval — the only kind a session may act on.
+const STAGED = {
+  requested_by_contact_id: 'contact-9',
+  staging_preview_url: 'https://staging.example.com/p',
+  status: 'review',
+};
+// Internal work: no requesting contact, nothing staged.
+const INTERNAL = { requested_by_contact_id: null, staging_preview_url: null, status: 'in_progress' };
 
 const mockRequireClientAuth = requireClientAuth as Mock;
 const mockRecordApproval = recordTaskClientApproval as Mock;
@@ -61,7 +71,7 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
 
   it('scopes the lookup to the session client (client_id OR site.client_id)', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, site: { auto_deploy: true } });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, site: { auto_deploy: true }, ...STAGED });
     mockRecordApproval.mockResolvedValue({ already_approved: false, approved_at: new Date(), promotion_pending: false });
 
     await APPROVE(postReq('task-1'), makeParams('task-1'));
@@ -69,6 +79,37 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
     const where = mockTaskFindFirst.mock.calls[0][0].where;
     expect(where.id).toBe('task-1');
     expect(where.OR).toEqual([{ client_id: 'client-acme' }, { site: { client_id: 'client-acme' } }]);
+  });
+
+  it('requires the visibility rule AND staged in the lookup (Leak 2)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, site: null, ...STAGED });
+    mockRecordApproval.mockResolvedValue({ already_approved: false, approved_at: new Date(), promotion_pending: false });
+
+    await APPROVE(postReq('task-1'), makeParams('task-1'));
+
+    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+  });
+
+  it('returns 404 and never approves an unstaged internal task, even if the lookup returns it (Leak 2)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-int', client_approved_at: null, site: null, ...INTERNAL });
+
+    const res = await APPROVE(postReq('task-int'), makeParams('task-int'));
+    expect(res.status).toBe(404);
+    expect(mockRecordApproval).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a contact-requested task that is not staged yet', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindFirst.mockResolvedValue({
+      id: 'task-2', client_approved_at: null, site: null,
+      requested_by_contact_id: 'contact-9', staging_preview_url: null, status: 'not_started',
+    });
+
+    const res = await APPROVE(postReq('task-2'), makeParams('task-2'));
+    expect(res.status).toBe(404);
+    expect(mockRecordApproval).not.toHaveBeenCalled();
   });
 
   it('returns 404 (not 403) when the task does not belong to this client — no existence leak', async () => {
@@ -82,7 +123,7 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
 
   it('delegates to the shared approval function with the session contact id', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    const task = { id: 'task-1', client_approved_at: null, site: { auto_deploy: true } };
+    const task = { id: 'task-1', client_approved_at: null, site: { auto_deploy: true }, ...STAGED };
     mockTaskFindFirst.mockResolvedValue(task);
     mockRecordApproval.mockResolvedValue({
       already_approved: false,
@@ -101,7 +142,7 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
 
   it('is idempotent when already approved', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: new Date(), site: null });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: new Date(), site: null, ...STAGED });
     mockRecordApproval.mockResolvedValue({
       already_approved: true,
       approved_at: new Date('2026-06-20T09:00:00Z'),
@@ -132,9 +173,19 @@ describe('POST /api/portal/tasks/mine/:id/request-changes', () => {
     expect(mockRecordRequestChanges).not.toHaveBeenCalled();
   });
 
+  it('returns 404 and records nothing for an unstaged internal task (Leak 2)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-int', client_approved_at: null, ...INTERNAL });
+
+    const res = await REQUEST_CHANGES(postReq('task-int', { note: 'x' }), makeParams('task-int'));
+    expect(res.status).toBe(404);
+    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+    expect(mockRecordRequestChanges).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty note before touching the DB', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, ...STAGED });
 
     const res = await REQUEST_CHANGES(postReq('task-1', { note: '' }), makeParams('task-1'));
     expect(res.status).toBe(400);
@@ -143,7 +194,7 @@ describe('POST /api/portal/tasks/mine/:id/request-changes', () => {
 
   it('resolves the acting contact from the session (not a guess) and delegates to the shared function', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, ...STAGED });
     mockContactFindUnique.mockResolvedValue({ name: 'Jane' });
     mockRecordRequestChanges.mockResolvedValue(undefined);
 
@@ -154,7 +205,7 @@ describe('POST /api/portal/tasks/mine/:id/request-changes', () => {
     expect(body.status).toBe('not_started');
     expect(mockContactFindUnique).toHaveBeenCalledWith({ where: { id: 'contact-1' }, select: { name: true } });
     expect(mockRecordRequestChanges).toHaveBeenCalledWith(
-      { id: 'task-1', client_approved_at: null },
+      { id: 'task-1', client_approved_at: null, ...STAGED },
       'too small',
       'Jane'
     );
@@ -162,7 +213,7 @@ describe('POST /api/portal/tasks/mine/:id/request-changes', () => {
 
   it('propagates a 400 from the shared function (already approved)', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: new Date() });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: new Date(), ...STAGED });
     mockContactFindUnique.mockResolvedValue({ name: 'Jane' });
     mockRecordRequestChanges.mockRejectedValue(new ApiError('This work has already been approved', 400));
 

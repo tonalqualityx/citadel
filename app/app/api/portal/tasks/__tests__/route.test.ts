@@ -113,7 +113,7 @@ describe('GET /api/portal/tasks/:token', () => {
     expect(data.task.id).toBe('task-123');
     expect(data.task.title).toBe('Homepage refresh');
     expect(data.task.status).toBe('review');
-    expect(data.task.estimated_minutes).toBe(90);
+    expect(data.task).not.toHaveProperty('estimated_minutes');
     expect(data.task.comments).toHaveLength(1);
     expect(data.task.comments[0].content).toBe('Ready for your review.');
     expect(data.task.comments[0].author_name).toBe('Bast');

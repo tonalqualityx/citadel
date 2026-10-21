@@ -32,7 +32,6 @@ interface ClientTask {
   title: string;
   description: unknown;
   status: string;
-  estimated_minutes: number | null;
   comments: ClientComment[];
   staging_preview_url: string | null;
   staging_deployed_at: string | null;

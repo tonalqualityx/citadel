@@ -11,7 +11,7 @@
  * `filterClientVisible` (drops `is_internal === true`; article comments have no such
  * flag yet, so all pass — forward-compatible once one is added).
  *
- * Hidden by omission (task): energy_estimate, mystery_factor, battery_impact, all
+ * Hidden by omission (task): estimated_minutes, energy_estimate, mystery_factor, battery_impact, all
  * billing fields, review_requirements, requirements, priority, source/provenance,
  * assignee/reviewer/created_by/approved_by internals, sop/function, notes,
  * blocked_by/blocking, time_entries, sort_order, internal IDs.
@@ -47,7 +47,7 @@ function clientComments(comments: any[] | undefined): ClientComment[] {
 
 /**
  * Project a Task down to the client-safe view.
- * Exposes ONLY: id, title, description, status, time estimate, client-visible comments, timestamps.
+ * Exposes ONLY: id, title, description, status, client-visible comments, timestamps.
  */
 export function formatTaskForClient(task: any) {
   return {
@@ -55,7 +55,6 @@ export function formatTaskForClient(task: any) {
     title: task.title,
     description: parseJsonField(task.description),
     status: task.status,
-    estimated_minutes: task.estimated_minutes ?? null,
     comments: clientComments(task.comments),
     created_at: task.created_at,
     updated_at: task.updated_at,

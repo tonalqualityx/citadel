@@ -18,6 +18,7 @@ vi.mock('@/lib/db/prisma', () => ({
 import { GET } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
+import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import type { Mock } from 'vitest';
 
 const mockRequireClientAuth = requireClientAuth as Mock;
@@ -85,6 +86,32 @@ describe('GET /api/portal/tasks', () => {
     // First call = pending (client_approved_at: null), second = recently approved (not null).
     expect(mockTaskFindMany.mock.calls[0][0].where.client_approved_at).toBeNull();
     expect(mockTaskFindMany.mock.calls[1][0].where.client_approved_at).toEqual({ not: null });
+  });
+
+  it('applies the visibility rule so internal tasks never reach the list (Leak 1)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindMany.mockResolvedValue([]);
+
+    await GET(makeRequest());
+
+    const [pendingCall, approvedCall] = mockTaskFindMany.mock.calls;
+    // pending = visible AND staged; recently approved = visible. The client-scope OR is intact.
+    expect(pendingCall[0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+    expect(approvedCall[0].where.AND).toEqual([clientVisibleTaskWhere()]);
+    expect(pendingCall[0].where.OR).toHaveLength(2);
+  });
+
+  it('never selects or returns estimated_minutes', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindMany.mockResolvedValueOnce([internalPendingRow]).mockResolvedValueOnce([approvedRow]);
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    for (const call of mockTaskFindMany.mock.calls) {
+      expect(call[0].select).not.toHaveProperty('estimated_minutes');
+    }
+    expect(JSON.stringify(body)).not.toContain('estimated_minutes');
   });
 
   it('projects pending + recently-approved tasks client-safe, with staging fields on pending', async () => {

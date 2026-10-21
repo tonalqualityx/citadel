@@ -22,6 +22,7 @@ vi.mock('@/lib/db/prisma', () => ({
 import { GET } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
+import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import type { Mock } from 'vitest';
 
 const mockRequireClientAuth = requireClientAuth as Mock;
@@ -178,6 +179,35 @@ describe('GET /api/portal/home', () => {
       staging_preview_url: 'https://staging.example.com',
     });
     expect(body.pending_approvals.tasks[0]).not.toHaveProperty('billing_amount');
+  });
+
+  it('applies the visibility rule to pending approvals and the activity feed (Leak 1)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+
+    await GET(makeRequest());
+
+    const calls = mockTaskFindMany.mock.calls.map((c) => c[0]);
+    const pending = calls.find((a) => a.where.client_approved_at === null);
+    expect(pending.where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+    expect(pending.select).not.toHaveProperty('estimated_minutes');
+    // The activity query ANDs the visibility fragment next to the client scope.
+    const activity = calls.find((a) => a !== pending);
+    expect(activity.where.AND).toContainEqual(clientVisibleTaskWhere());
+  });
+
+  it('home payload carries no estimated_minutes', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    mockTaskFindMany
+      .mockResolvedValueOnce([
+        { id: 't', title: 'x', description: null, status: 'review', estimated_minutes: 90,
+          staging_preview_url: 'https://s.example', staging_deployed_at: null, created_at: new Date(), updated_at: new Date() },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = await GET(makeRequest());
+    expect(JSON.stringify(await res.json())).not.toContain('estimated_minutes');
   });
 
   it('merges recent tasks + published articles into one timestamp-sorted activity feed', async () => {
