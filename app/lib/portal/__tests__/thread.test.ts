@@ -74,6 +74,12 @@ describe('bastWordError', () => {
     expect(bastWordError('BAST')).toBeTruthy();
     expect(bastWordError('bastion')).toBeNull();
   });
+  it('folds look-alikes before looking: fullwidth, zero-width, soft hyphen, word joiner, bidi marks', () => {
+    for (const t of ['\uFF22\uFF41\uFF53\uFF54', 'B\u200Bast', 'B\u200Dast', 'Ba\u00ADst', 'B\u2060ast', '\uFEFFBast', 'Ba\u202Est', 'B\u034Fast']) {
+      expect(bastWordError(`Thanks, ${t}.`), JSON.stringify(t)).toBeTruthy();
+    }
+    expect(bastWordError('Bas\u200Btion')).toBeNull(); // folds to "Bastion", still not the name
+  });
 });
 
 describe('threadTaskWhere', () => {
@@ -131,7 +137,7 @@ describe('postClientMessage', () => {
     expect(r.created).toBe(true);
     expect(comment.create.mock.calls[0][0].data).toEqual({
       task_id: TASK,
-      user_id: BAST_USER_ID,
+      user_id: null, // the client is the author; no staff or bot user is attached
       content: ' Please use  this photo\n https://example.com/a.jpg ',
       is_internal: false,
       client_visible: true,

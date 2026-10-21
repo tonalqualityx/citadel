@@ -55,9 +55,21 @@ export function threadCommentWhere(): Prisma.CommentWhereInput {
 /** Bast is the machine behind the support desk and never named to a client. */
 const BAST_WORD = /\bbast\b/i;
 
-/** The reason a comment may not be made client-visible, or null. Whole word, any case. */
+/**
+ * Characters that render as nothing (or reorder text) and so could hide a name from a plain
+ * search: zero-width spaces and joiners, word joiner, the BOM, soft hyphen, the combining grapheme
+ * joiner, and the bidi controls.
+ */
+const INVISIBLE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0]/g;
+
+/** Fold a text to the form a reader sees: compatibility-normalised (fullwidth to ASCII) and with invisible characters removed. */
+export function foldForNameCheck(text: string): string {
+  return text.normalize('NFKC').replace(INVISIBLE, '');
+}
+
+/** The reason a comment may not be made client-visible, or null. Whole word, any case, after folding. */
 export function bastWordError(text: string): string | null {
-  return BAST_WORD.test(text)
+  return BAST_WORD.test(foldForNameCheck(text))
     ? 'This reply names Bast, so it cannot be shown to the client. Reword it, or keep it as an internal note.'
     : null;
 }
@@ -203,8 +215,8 @@ export async function postClientMessage(
     const row = await tx.comment.create({
       data: {
         task_id: taskId,
-        // The column stays required: Bast is the stand-in author, author_contact_id is the person.
-        user_id: BAST_USER_ID,
+        // No staff or bot author: the client is the author (author_contact_id), user_id stays null.
+        user_id: null,
         content: input.text,
         is_internal: false,
         client_visible: true,

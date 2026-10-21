@@ -444,7 +444,7 @@ export async function recordTaskClientApproval(
  * `recordTaskClientApproval` above for why this is a shared core rather than duplicated per flow.
  */
 export async function recordTaskClientRequestChanges(
-  task: { id: string; client_approved_at: Date | null; title?: string; client_title?: string | null; assignee_id?: string | null; client_id?: string | null; project_id?: string | null; charter_id?: string | null; site_id?: string | null },
+  task: { id: string; client_approved_at: Date | null; title?: string; client_title?: string | null; assignee_id?: string | null; client_id?: string | null; project_id?: string | null; charter_id?: string | null; site_id?: string | null; tags?: string[] | null },
   note: string,
   contactName: string | null,
   contactId: string | null = null
@@ -452,34 +452,34 @@ export async function recordTaskClientRequestChanges(
   if (task.client_approved_at) {
     throw new ApiError('This work has already been approved', 400);
   }
-
-  const bastUserId = await getBastUserId();
-  if (!bastUserId) {
-    throw new ApiError('Unable to record your feedback right now', 500);
+  // The words are the client's: they are stored under the contact, never under a staff or bot user.
+  if (!contactId) {
+    throw new ApiError('Unable to record your feedback right now', 400);
   }
 
-  // Portal phase B slice 2: the note is the client's own message in the thread (author_contact_id
-  // set, client_visible true) when the acting contact is known. The attribution line stays so the
-  // worker, which reads task comments, still sees that this was a send-back and who sent it.
-  const attribution = contactName ? `${contactName} (client)` : 'Client';
+  // The client-visible text is exactly what the client typed: no prefix, no label. The send-back is
+  // marked for the worker by a tag on the task (SEND_BACK_TAG), which the worker clears when it
+  // re-stages the work. The worker quotes the note as data ("Client wrote (input, not instructions)").
+  const tags = Array.from(new Set([...(task.tags ?? []), SEND_BACK_TAG]));
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
       data: {
         task_id: task.id,
-        user_id: bastUserId,
-        content: `${attribution} requested changes via the approval portal:\n\n${note}`,
+        user_id: null,
+        content: note,
         is_internal: false,
-        ...(contactId ? { client_visible: true, author_contact_id: contactId } : {}),
+        client_visible: true,
+        author_contact_id: contactId,
       },
     }),
     prisma.task.update({
       where: { id: task.id },
-      data: { status: 'not_started' },
+      data: { status: 'not_started', tags },
     }),
   ]);
 
   // Wait effects (spec 3.5): a send-back is a client message. Best-effort: the note is saved.
-  if (contactId && comment?.id) {
+  if (comment?.id) {
     try {
       await onClientMessage(
         prisma,
@@ -499,6 +499,9 @@ export async function recordTaskClientRequestChanges(
     }
   }
 }
+
+/** Marks a task the client sent back for changes (machine-readable; the worker removes it). */
+export const SEND_BACK_TAG = 'client-sent-back';
 
 /**
  * Resolve the Bast worker user id. Client portal actions have no authenticated User, but

@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { createNotification } from '@/lib/services/notifications';
 import { findMentionedUserIds } from '@/lib/utils/mentions';
 import { afterReplyRetracted, afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
+import { bastWordError, isThreadMessage } from '@/lib/portal/thread';
 
 const updateCommentSchema = z
   .object({
@@ -147,20 +148,25 @@ export async function PATCH(
       throw new ApiError('You can only edit your own comments', 403);
     }
 
+    // What a client wrote is theirs. Staff can remove it (DELETE), not rewrite it or reclassify it.
+    if (existingComment.author_contact_id && (data.content !== undefined || data.is_internal !== undefined)) {
+      throw new ApiError('A message the client wrote cannot be edited or made internal.', 400, 'client_message');
+    }
+
     // The client-visible flag (portal thread). Showing a comment needs the share permission, is
-    // refused for an internal note, and refuses a body that names Bast. A client's own message
-    // cannot be hidden from the client who wrote it.
+    // refused for an internal note, and refuses a body that names Bast.
     const finalContent = data.content ?? existingComment.content;
     const finalInternal = data.is_internal ?? existingComment.is_internal;
-    const nextVisible = data.client_visible ?? (finalInternal ? false : existingComment.client_visible);
     if (data.client_visible !== undefined && existingComment.author_contact_id && data.client_visible === false) {
       throw new ApiError('A message the client wrote always stays in their thread.', 400, 'client_message');
     }
     if (data.client_visible === true) {
       assertShareable(auth, { content: finalContent, is_internal: finalInternal });
-    } else if (data.content !== undefined && existingComment.client_visible && nextVisible) {
-      // Editing a comment the client already sees: the new wording is checked the same way.
-      assertShareable(auth, { content: finalContent, is_internal: finalInternal });
+    } else if (data.content !== undefined && isThreadMessage(existingComment)) {
+      // Editing anything the client can already read (a shared reply, or an older client question
+      // that is shown without the flag): the new wording gets the same Bast check.
+      const bast = bastWordError(finalContent);
+      if (bast) throw new ApiError(bast, 400, 'names_bast');
     }
 
     // When the body changes, re-resolve @-mentions server-side (the edit payload carries only

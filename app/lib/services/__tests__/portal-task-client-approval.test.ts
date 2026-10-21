@@ -11,7 +11,7 @@ vi.mock('@/lib/db/prisma', () => ({
 }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 
-import { recordTaskClientApproval, recordTaskClientRequestChanges } from '../portal';
+import { recordTaskClientApproval, recordTaskClientRequestChanges, SEND_BACK_TAG } from '../portal';
 import { prisma } from '@/lib/db/prisma';
 import { onClientMessage } from '@/lib/portal/waits';
 import type { Mock } from 'vitest';
@@ -82,87 +82,36 @@ describe('recordTaskClientApproval', () => {
 });
 
 describe('recordTaskClientRequestChanges', () => {
-  const baseTask = { id: 'task-1', client_approved_at: null };
-
-  it('records a client-visible comment and re-opens the task', async () => {
-    await recordTaskClientRequestChanges(baseTask, 'The logo is too small', 'Jane');
-
-    expect(mockCommentCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          task_id: 'task-1',
-          is_internal: false,
-          content: expect.stringContaining('The logo is too small'),
-        }),
-      })
-    );
-    expect(mockCommentCreate.mock.calls[0][0].data.content).toContain('Jane (client)');
-    expect(mockTaskUpdate).toHaveBeenCalledWith({
-      where: { id: 'task-1' },
-      data: { status: 'not_started' },
-    });
-  });
-
-  it('attributes to "Client" when no contact name is known', async () => {
-    await recordTaskClientRequestChanges(baseTask, 'note', null);
-
-    expect(mockCommentCreate.mock.calls[0][0].data.content).toContain('Client requested changes');
-  });
-
-  it('throws ApiError(400) when already approved, without writing anything', async () => {
-    await expect(
-      recordTaskClientRequestChanges(
-        { ...baseTask, client_approved_at: new Date() },
-        'note',
-        'Jane'
-      )
-    ).rejects.toMatchObject({ statusCode: 400 });
-
-    expect(mockCommentCreate).not.toHaveBeenCalled();
-    expect(mockTaskUpdate).not.toHaveBeenCalled();
-  });
-
-  it('throws ApiError(500) when no Bast user exists to attribute the comment to', async () => {
-    mockUserFindFirst.mockResolvedValue(null);
-
-    await expect(
-      recordTaskClientRequestChanges(baseTask, 'note', 'Jane')
-    ).rejects.toMatchObject({ statusCode: 500 });
-
-    expect(mockCommentCreate).not.toHaveBeenCalled();
-  });
-
-  it('throws a real ApiError instance (handleApiError can classify it)', async () => {
-    try {
-      await recordTaskClientRequestChanges(
-        { ...baseTask, client_approved_at: new Date() },
-        'note',
-        'Jane'
-      );
-      throw new Error('should have thrown');
-    } catch (error) {
-      expect(error).toBeInstanceOf(ApiError);
-    }
-  });
-});
-
-describe('recordTaskClientRequestChanges: the note is a thread message (portal phase B slice 2)', () => {
-  const baseTask = { id: 'task-1', client_approved_at: null, title: 'Homepage', client_title: 'Homepage refresh', assignee_id: 'staff-1', client_id: 'cl1', project_id: null, charter_id: null, site_id: 's1' };
+  const baseTask = { id: 'task-1', client_approved_at: null, title: 'Homepage', client_title: 'Homepage refresh', assignee_id: 'staff-1', client_id: 'cl1', project_id: null, charter_id: null, site_id: 's1', tags: ['portal-chat'] };
 
   beforeEach(() => {
     mockCommentCreate.mockResolvedValue({ id: 'cm1' });
   });
 
-  it('with a known contact: authored by the contact, client-visible, still not internal', async () => {
+  it('stores the client words verbatim under the contact: no prefix, no staff or bot author, client-visible, not internal', async () => {
     await recordTaskClientRequestChanges(baseTask, 'The logo is too small', 'Jane', 'contact-1');
-    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({
+    expect(mockCommentCreate.mock.calls[0][0].data).toEqual({
       task_id: 'task-1',
-      user_id: 'bast-user',
+      user_id: null,
+      content: 'The logo is too small',
       is_internal: false,
       client_visible: true,
       author_contact_id: 'contact-1',
     });
-    expect(mockCommentCreate.mock.calls[0][0].data.content).toContain('The logo is too small');
+  });
+
+  it('re-opens the task and marks the send-back with the machine-readable tag, keeping its other tags', async () => {
+    await recordTaskClientRequestChanges(baseTask, 'note', 'Jane', 'contact-1');
+    expect(mockTaskUpdate).toHaveBeenCalledWith({
+      where: { id: 'task-1' },
+      data: { status: 'not_started', tags: ['portal-chat', SEND_BACK_TAG] },
+    });
+    expect(SEND_BACK_TAG).toBe('client-sent-back');
+  });
+
+  it('does not duplicate the tag on a second send-back', async () => {
+    await recordTaskClientRequestChanges({ ...baseTask, tags: [SEND_BACK_TAG] }, 'again', 'Jane', 'contact-1');
+    expect(mockTaskUpdate.mock.calls[0][0].data.tags).toEqual([SEND_BACK_TAG]);
   });
 
   it('runs the client-message wait effects with the contact and the new comment', async () => {
@@ -174,17 +123,32 @@ describe('recordTaskClientRequestChanges: the note is a thread message (portal p
     );
   });
 
-  it('without a contact (an unresolvable token link) keeps the old shape and runs no wait effects', async () => {
-    await recordTaskClientRequestChanges(baseTask, 'note', null);
-    const data = mockCommentCreate.mock.calls[0][0].data;
-    expect(data.author_contact_id).toBeUndefined();
-    expect(data.client_visible).toBeUndefined();
-    expect(onClientMessage).not.toHaveBeenCalled();
+  it('refuses without a contact: the words are never written under anyone else', async () => {
+    await expect(recordTaskClientRequestChanges(baseTask, 'note', null, null)).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockCommentCreate).not.toHaveBeenCalled();
+    expect(mockTaskUpdate).not.toHaveBeenCalled();
+  });
+
+  it('throws ApiError(400) when already approved, without writing anything', async () => {
+    await expect(
+      recordTaskClientRequestChanges({ ...baseTask, client_approved_at: new Date() }, 'note', 'Jane', 'contact-1')
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockCommentCreate).not.toHaveBeenCalled();
+    expect(mockTaskUpdate).not.toHaveBeenCalled();
+  });
+
+  it('throws a real ApiError instance (handleApiError can classify it)', async () => {
+    try {
+      await recordTaskClientRequestChanges({ ...baseTask, client_approved_at: new Date() }, 'note', 'Jane', 'contact-1');
+      throw new Error('should have thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+    }
   });
 
   it('a failure in the wait effects never loses the note', async () => {
     (onClientMessage as Mock).mockRejectedValueOnce(new Error('wait store down'));
     await expect(recordTaskClientRequestChanges(baseTask, 'note', 'Jane', 'contact-1')).resolves.toBeUndefined();
-    expect(mockTaskUpdate).toHaveBeenCalledWith({ where: { id: 'task-1' }, data: { status: 'not_started' } });
+    expect(mockTaskUpdate).toHaveBeenCalled();
   });
 });

@@ -46,6 +46,7 @@ export async function POST(
         id: true,
         title: true,
         client_title: true,
+        tags: true,
         assignee_id: true,
         client_id: true,
         project_id: true,

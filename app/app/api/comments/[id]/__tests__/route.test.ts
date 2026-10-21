@@ -256,4 +256,39 @@ describe('PATCH /api/comments/[id] client_visible (portal phase B slice 2)', () 
     expect(ok.status).toBe(200);
     expect(afterReplyRetracted).toHaveBeenCalled();
   });
+
+  it('editing an older client question (shown without the flag) is Bast-checked too', async () => {
+    existing({ client_visible: false, client_question: true });
+    echo();
+    const bad = await PATCH(patchRequest({ content: 'Ask Bast about it.' }), ctx);
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/names Bast/);
+    const ok = await PATCH(patchRequest({ content: 'Which page?' }), ctx);
+    expect(ok.status).toBe(200);
+  });
+
+  it('the Bast check folds look-alikes: fullwidth letters and zero-width characters do not slip through', async () => {
+    existing({ client_visible: true });
+    echo();
+    for (const text of ['\uFF22\uFF41\uFF53\uFF54 did it', 'B\u200Bast did it', 'Ba\u00ADst did it', 'B\u2060a\uFEFFst', 'BAST']) {
+      const res = await PATCH(patchRequest({ content: text }), ctx);
+      expect(res.status, JSON.stringify(text)).toBe(400);
+    }
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('an internal comment that was never shown can be edited freely, even with the name in it', async () => {
+    existing({ is_internal: true, client_visible: false });
+    echo();
+    const res = await PATCH(patchRequest({ content: 'Bast note for us.' }), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it('what the client wrote is immutable to staff: text and is_internal are refused', async () => {
+    existing({ client_visible: true, author_contact_id: 'ct1' });
+    echo();
+    expect((await PATCH(patchRequest({ content: 'rewritten' }), ctx)).status).toBe(400);
+    expect((await PATCH(patchRequest({ is_internal: true }), ctx)).status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });

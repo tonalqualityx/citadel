@@ -331,6 +331,14 @@ describe('no role gate on the token routes (Mike ruling overrides spec decision 
 });
 
 describe('POST /api/portal/tasks/:token/request-changes', () => {
+  it('writes under the link\'s own contact and never falls back to the primary contact', async () => {
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, requested_by_contact: null });
+    mockResolveTaskContact.mockResolvedValue({ id: 'primary', name: 'Pat Primary', email: 'p@a.com', client_id: 'client-1' });
+    const response = await REQUEST_CHANGES(postReq('valid-token', { note: 'x' }), makeParams('valid-token'));
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
+  });
+
   it('resolves the contact and delegates to the shared request-changes function', async () => {
     mockValidateTaskToken.mockResolvedValue(mockPortalTask);
     mockRecordTaskClientRequestChanges.mockResolvedValue(undefined);
@@ -347,7 +355,7 @@ describe('POST /api/portal/tasks/:token/request-changes', () => {
       mockPortalTask,
       'The logo is too small',
       'Jane',
-      expect.anything()
+      'contact-1'
     );
     expect(mockLogPortalSession).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'changes_requested' })

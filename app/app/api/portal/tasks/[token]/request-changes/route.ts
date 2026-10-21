@@ -42,8 +42,14 @@ export async function POST(
     const { note } = requestChangesSchema.parse(body);
 
     // Mike's ruling (overrides spec decision 11): no role gate on approval links for now.
-    const contact = await resolveTaskContact(task);
-    await recordTaskClientRequestChanges(task, note, contact?.name ?? null, contact?.id ?? null);
+    // The note is written under the link's own contact (the requester), and only theirs. A link with
+    // no requester never falls back to the client's primary contact: attributing words to someone
+    // who did not write them is worse than refusing. Same answer as an expired link.
+    const contact = task.requested_by_contact;
+    if (!contact) {
+      return NextResponse.json({ error: 'Approval link not found or has expired' }, { status: 404 });
+    }
+    await recordTaskClientRequestChanges(task, note, contact.name ?? null, contact.id);
 
     await logPortalSession({
       tokenType: 'task_approval',
@@ -51,7 +57,7 @@ export async function POST(
       ipAddress: getClientIp(request),
       userAgent: request.headers.get('user-agent'),
       action: 'changes_requested',
-      metadata: { contact_id: contact?.id ?? null },
+      metadata: { contact_id: contact.id },
     });
 
     return NextResponse.json({ message: 'Thanks — sent back for changes', status: 'not_started' });

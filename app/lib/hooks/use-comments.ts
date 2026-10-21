@@ -5,7 +5,8 @@ import { showToast } from '@/lib/hooks/use-toast';
 export interface Comment {
   id: string;
   task_id: string;
-  user_id: string;
+  /** Null when a client wrote it in the portal (see author_contact_id). */
+  user_id: string | null;
   user: {
     id: string;
     name: string;
