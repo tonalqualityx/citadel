@@ -76,10 +76,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         approved: true,
         client_approved_at: true,
         comments: {
-          where: { is_deleted: false, ...CLIENT_VISIBLE_COMMENT_WHERE },
+          where: { is_deleted: false, ...CLIENT_VISIBLE_COMMENT_WHERE, client_question: true },
           orderBy: { created_at: 'desc' },
-          take: 3,
-          select: { content: true, created_at: true, is_internal: true },
+          take: 5,
+          select: {
+            content: true,
+            created_at: true,
+            is_internal: true,
+            client_question: true,
+            user: { select: { name: true, email: true } },
+          },
         },
       },
       orderBy: [{ sort_order: 'asc' }, { created_at: 'asc' }],
@@ -105,7 +111,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     }
 
     const history = rows
-      .filter((t) => isTaskDone(t))
+      .filter((t) => isTaskDone(t) || (t.client_approved_at && t.status !== 'abandoned'))
       .sort(
         (a, b) =>
           new Date(b.client_approved_at ?? b.completed_at ?? b.updated_at).getTime() -

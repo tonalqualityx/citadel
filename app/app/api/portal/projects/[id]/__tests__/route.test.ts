@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { AuthError } from '@/lib/api/errors';
+import { projectAccessWhere, taskAccessWhere } from '@/lib/portal/access';
+import { clientHistoryTaskWhere } from '@/lib/portal/visibility';
 import { FakePortalDb } from '@/lib/portal/__tests__/fake-portal-db';
 
 vi.mock('@/lib/services/client-auth', async (importOriginal) => {
@@ -155,9 +157,19 @@ describe('GET /api/portal/projects/:id access', () => {
     session('member');
     await GET(req(), params('p-open'));
     const where = (prisma.task.findMany as Mock).mock.calls[0][0].where;
-    expect(where.project_id).toBe('p-open');
-    expect(where.is_deleted).toBe(false);
-    expect(where.AND).toHaveLength(2);
+    const access = { contactId: 'contact-1', clientId: 'client-acme', role: 'member' as const };
+    expect(where).toEqual({
+      is_deleted: false,
+      project_id: 'p-open',
+      AND: [clientHistoryTaskWhere(), taskAccessWhere(access)],
+    });
+    // The project lookup uses exactly the shared access fragment, and the comment query only
+    // asks for flagged, client-visible comments.
+    expect((prisma.project.findFirst as Mock).mock.calls[0][0].where).toEqual({
+      AND: [{ id: 'p-open' }, projectAccessWhere(access)],
+    });
+    const commentWhere = (prisma.task.findMany as Mock).mock.calls[0][0].select.comments.where;
+    expect(commentWhere).toEqual({ is_deleted: false, is_internal: false, client_question: true });
   });
 });
 
@@ -178,8 +190,9 @@ describe('GET /api/portal/projects/:id payload', () => {
         title: 'Pick a logo',
         tags: ['awaiting-clarification', 'bast-doable'],
         comments: [
-          { content: 'Internal: Bast tried twice', created_at: new Date('2026-10-12'), is_internal: true },
-          { content: 'Which logo do you prefer?', created_at: new Date('2026-10-11'), is_internal: false },
+          { content: 'Internal: Bast tried twice', created_at: new Date('2026-10-12'), is_internal: true, client_question: true, user: { name: 'Bast', email: 'bast@x.example' } },
+          { content: 'Which logo do you prefer?', created_at: new Date('2026-10-11'), is_internal: false, client_question: true, user: { name: 'Sabeen Khan', email: 's@x.example' } },
+          { content: 'Unflagged chatter', created_at: new Date('2026-10-13'), is_internal: false, client_question: false, user: { name: 'Sabeen Khan', email: 's@x.example' } },
         ],
       }),
     ];
@@ -240,6 +253,31 @@ describe('GET /api/portal/projects/:id payload', () => {
     const select = (prisma.task.findMany as Mock).mock.calls[0][0].select;
     expect(Object.keys(select)).not.toContain('estimated_minutes');
     expect(Object.keys(select)).not.toContain('assignee_id');
+  });
+
+  it('a project-only contact queries tasks with the grant-scoped fragment', async () => {
+    db.addGrant({ project_id: 'p-open', contact_id: 'contact-1', role: 'viewer' });
+    session('none');
+    await GET(req(), params('p-open'));
+    const access = { contactId: 'contact-1', clientId: 'client-acme', role: 'none' as const };
+    const where = (prisma.task.findMany as Mock).mock.calls[0][0].where;
+    expect(where.AND).toContainEqual(taskAccessWhere(access));
+    expect(JSON.stringify(where)).toContain('contact_grants');
+  });
+
+  it('shows an approved-then-abandoned task as Closed and not done', async () => {
+    tasks = [
+      T({ id: 't1', title: 'Dropped after approval', status: 'abandoned', client_approved_at: new Date('2026-10-02') }),
+      T({ id: 't2', title: 'Dropped never approved', status: 'abandoned' }),
+      T({ id: 't3', status: 'done', completed_at: new Date() }),
+    ];
+    session('owner');
+    const body = await (await GET(req(), params('p-open'))).json();
+    const byId = Object.fromEntries(body.tasks.map((t: { id: string }) => [t.id, t]));
+    expect(byId.t1).toMatchObject({ status_label: 'Closed', is_done: false });
+    expect(byId.t2).toBeUndefined();
+    expect(body.project.progress).toEqual({ done: 1, total: 1 });
+    expect(body.history.map((h: { id: string }) => h.id)).toEqual(['t3']);
   });
 
   it('does not list a phase that holds no client-visible task', async () => {

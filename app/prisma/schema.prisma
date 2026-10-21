@@ -1557,6 +1557,9 @@ model Comment {
   // to clients. Defaults false so new comments are client-visible. Client questions
   // must stay false; only team/Bast technical notes are flagged true.
   is_internal        Boolean  @default(false)
+  // Portal MVP A5: staff mark a comment as a question for the client. Only comments with this flag
+  // are shown to the client as "the question". Additive, default false.
+  client_question    Boolean  @default(false)
   created_at         DateTime @default(now())
   updated_at         DateTime @updatedAt
 

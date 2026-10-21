@@ -390,8 +390,9 @@ describe('GET /api/portal/home (portal MVP A5 sections)', () => {
               id: 'q1',
               title: 'Pick a logo',
               comments: [
-                { content: 'Internal: Bast tried twice', created_at: new Date('2026-10-12'), is_internal: true },
-                { content: 'Which logo do you prefer?', created_at: new Date('2026-10-11'), is_internal: false },
+                { content: 'Internal: Bast tried twice', created_at: new Date('2026-10-12'), is_internal: true, client_question: true, user: { name: 'Bast', email: 'bast@x.example' } },
+                { content: 'Which logo do you prefer?', created_at: new Date('2026-10-11'), is_internal: false, client_question: true, user: { name: 'Sabeen Khan', email: 's@x.example' } },
+                { content: 'Unflagged chatter', created_at: new Date('2026-10-13'), is_internal: false, client_question: false, user: { name: 'Sabeen Khan', email: 's@x.example' } },
               ],
             },
           ]
@@ -403,6 +404,7 @@ describe('GET /api/portal/home (portal MVP A5 sections)', () => {
     ]);
     const questionCall = mockTaskFindMany.mock.calls.find((c) => c[0].where.tags)![0];
     expect(questionCall.where.tags).toEqual({ has: 'awaiting-clarification' });
+    expect(questionCall.select.comments.where).toEqual({ is_deleted: false, is_internal: false, client_question: true });
     expect(questionCall.where.AND).toContainEqual(clientVisibleTaskWhere());
     expect(JSON.stringify(body)).not.toContain('Bast');
   });
@@ -436,5 +438,14 @@ describe('GET /api/portal/home (portal MVP A5 sections)', () => {
     expect(scoped.length).toBe(4);
     for (const call of scoped) expect(JSON.stringify(call[0].where)).toContain(JSON.stringify(taskAccess));
   });
-});
 
+  it('recent activity leaves out staged-but-unapproved done work', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    await GET(makeRequest());
+    const activityWhere = mockTaskFindMany.mock.calls[1][0].where;
+    expect(activityWhere.AND).toContainEqual({
+      OR: [{ status: 'done', NOT: stagedTaskWhere() }, { client_approved_at: { not: null } }],
+    });
+  });
+});

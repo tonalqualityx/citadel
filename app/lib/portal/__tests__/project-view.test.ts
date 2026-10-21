@@ -5,6 +5,7 @@ import {
   computeProgress,
   currentPhaseName,
   isAwaitingClient,
+  isTaskDone,
   latestClientComment,
   reviewLink,
   toClientLinks,
@@ -35,6 +36,13 @@ describe('computeProgress', () => {
     const staged = task({ id: '1', status: 'done', staging_preview_url: 'https://p.example', approved: false });
     expect(isAwaitingClient(staged)).toBe(true);
     expect(computeProgress([staged])).toEqual({ done: 0, total: 1 });
+  });
+
+  it('shows an approved-then-abandoned task as Closed, not done, and leaves it out of the counts', () => {
+    const t = task({ id: '1', status: 'abandoned', client_approved_at: new Date() });
+    expect(isTaskDone(t)).toBe(false);
+    expect(toClientTask(t)).toMatchObject({ status_label: 'Closed', is_done: false });
+    expect(computeProgress([t])).toEqual({ done: 0, total: 0 });
   });
 
   it('counts a client-approved task as done', () => {
@@ -88,18 +96,43 @@ describe('toClientTask', () => {
 });
 
 describe('client comments and requests', () => {
-  it('never returns an internal comment', () => {
-    const comments = [
-      { content: 'Internal: Bast ran the thing', created_at: '2026-10-21T10:00:00Z', is_internal: true },
-      { content: 'Which logo should we use?', created_at: '2026-10-20T10:00:00Z', is_internal: false },
-    ];
-    expect(latestClientComment(comments)?.content).toBe('Which logo should we use?');
-    expect(toClientRequest({ id: 't', title: 'Logo', comments }).question).toBe('Which logo should we use?');
+  const staff = { name: 'Sabeen Khan', email: 'sabeen@becomeindelible.com' };
+  const q = (over: Partial<Parameters<typeof latestClientComment>[0] extends (infer C)[] | undefined ? C : never> = {}) => ({
+    content: 'Which logo do you prefer?',
+    created_at: '2026-10-20T10:00:00Z',
+    is_internal: false,
+    client_question: true,
+    user: staff,
+    ...over,
   });
 
-  it('returns a null question when only internal comments exist', () => {
-    const out = toClientRequest({ id: 't', title: 'Logo', comments: [{ content: 'x', created_at: '2026-10-21T10:00:00Z', is_internal: true }] });
-    expect(out).toEqual({ task_id: 't', title: 'Logo', question: null, asked_at: null });
+  it('shows only a flagged, client-visible question from a team member', () => {
+    expect(latestClientComment([q()])?.content).toBe('Which logo do you prefer?');
+    expect(toClientRequest({ id: 't', title: 'Logo', comments: [q()] }).question).toBe('Which logo do you prefer?');
+  });
+
+  it('never returns an internal note, an unflagged comment, or a worker comment', () => {
+    expect(latestClientComment([q({ is_internal: true })])).toBeNull();
+    expect(latestClientComment([q({ client_question: false })])).toBeNull();
+    expect(latestClientComment([q({ client_question: undefined })])).toBeNull();
+    expect(latestClientComment([q({ user: { name: 'Bast', email: 'bast@becomeindelible.com' } })])).toBeNull();
+    expect(latestClientComment([q({ user: { name: 'Worker', email: 'bast-worker@becomeindelible.com' } })])).toBeNull();
+  });
+
+  it('hides a comment that names Bast or its own author', () => {
+    expect(latestClientComment([q({ content: 'Bast could not decide, which logo?' })])).toBeNull();
+    expect(latestClientComment([q({ content: 'Which logo? Thanks, Sabeen' })])).toBeNull();
+    expect(latestClientComment([q({ content: 'Sabeen Khan asks which logo' })])).toBeNull();
+    // A different word that merely contains the name letters is fine.
+    expect(latestClientComment([q({ content: 'Which logo works for the Sabeenish look?' })])?.content).toBeTruthy();
+  });
+
+  it('takes the newest qualifying comment and falls back to null', () => {
+    const older = q({ content: 'Older question?', created_at: '2026-10-10T10:00:00Z' });
+    const newest = q({ content: 'Newest question?', created_at: '2026-10-21T10:00:00Z' });
+    const hidden = q({ content: 'Bast note', created_at: '2026-10-22T10:00:00Z' });
+    expect(latestClientComment([older, hidden, newest])?.content).toBe('Newest question?');
+    expect(toClientRequest({ id: 't', title: 'Logo', comments: [hidden] })).toEqual({ task_id: 't', title: 'Logo', question: null, asked_at: null });
   });
 });
 
@@ -117,5 +150,14 @@ describe('links', () => {
     ]);
     expect(reviewLink(links)).toBe('https://review.example/p');
     expect(classifyResourceLink({ name: 'GitHub', url: 'https://github.com/x', icon: 'github' })).toBeNull();
+  });
+
+  it('matches the whole first word, never a prefix', () => {
+    for (const name of ['Reviews scraper (GitHub)', 'Uploads (Drive working)', 'Reviewer notes', 'Uploader tool', 'Preview site']) {
+      expect(classifyResourceLink({ name, url: 'https://x.example/a', icon: null })).toBeNull();
+    }
+    expect(classifyResourceLink({ name: 'Review: site copy', url: 'https://x.example/a', icon: null })).toBe('review');
+    expect(classifyResourceLink({ name: 'upload your files', url: 'https://x.example/a', icon: null })).toBe('upload');
+    expect(classifyResourceLink({ name: 'Anything', url: 'https://x.example/a', icon: 'Review' })).toBe('review');
   });
 });

@@ -9,7 +9,7 @@
  */
 import { prisma } from '@/lib/db/prisma';
 import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
-import { clientHistoryTaskWhere } from '@/lib/portal/visibility';
+import { clientHistoryTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import type { ActivityType } from '@/lib/portal/status-labels';
 
 export const HISTORY_DEFAULT_PAGE_SIZE = 20;
@@ -38,83 +38,116 @@ export function parsePagination(params: URLSearchParams): { page: number; pageSi
   return { page, pageSize };
 }
 
+export interface Sortable {
+  /** Sort key, newest first. Null sorts last. */
+  sortAt: Date | string | null;
+  /** Tie-break, descending. */
+  id: string;
+}
+
+const keyMs = (v: Date | string | null): number => (v === null ? Number.NEGATIVE_INFINITY : new Date(v).getTime());
+
+/** Newest first by key, then id descending. Every source query uses the same two keys. */
+export function compareNewest(a: Sortable, b: Sortable): number {
+  const ka = keyMs(a.sortAt);
+  const kb = keyMs(b.sortAt);
+  if (ka !== kb) return kb > ka ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
 /**
- * Merge two newest-first lists and cut one page. Each source must already be sorted by `sortAt`
- * descending and hold at least page * pageSize + 1 rows when more exist (the loader guarantees it).
+ * Merge newest-first lists and cut one page. Each source must already be sorted by compareNewest
+ * and hold at least page * pageSize + 1 rows when more exist (the loader guarantees it), so the
+ * merged window is exact. hasMore is false once page reaches HISTORY_MAX_PAGE: nothing past it is
+ * reachable, so no "Show more" is offered.
  */
-export function pageMerged<T extends { sortAt: Date | string }>(
+export function pageMerged<T extends Sortable>(
   lists: T[][],
   page: number,
   pageSize: number
 ): { items: T[]; hasMore: boolean } {
-  const merged = lists.flat().sort((a, b) => new Date(b.sortAt).getTime() - new Date(a.sortAt).getTime());
+  const merged = lists.flat().sort(compareNewest);
   const start = (page - 1) * pageSize;
-  return { items: merged.slice(start, start + pageSize), hasMore: merged.length > start + pageSize };
+  return {
+    items: merged.slice(start, start + pageSize),
+    hasMore: page < HISTORY_MAX_PAGE && merged.length > start + pageSize,
+  };
 }
 
 export async function loadHistory(
   access: PortalAccess,
   opts: { page: number; pageSize: number }
 ): Promise<{ items: HistoryItem[]; hasMore: boolean }> {
-  const { page, pageSize } = opts;
+  const page = Math.min(Math.max(opts.page, 1), HISTORY_MAX_PAGE);
+  const pageSize = opts.pageSize;
   const clientLevel = access.role !== 'none';
   const take = page * pageSize + 1;
 
-  const [tasks, articles] = await Promise.all([
+  const base = [
+    { OR: [{ client_id: access.clientId }, { site: { client_id: access.clientId } }] },
+    clientHistoryTaskWhere(),
+    taskAccessWhere(access),
+  ];
+  const select = {
+    id: true,
+    title: true,
+    client_approved_at: true,
+    completed_at: true,
+    updated_at: true,
+    project: { select: { id: true, name: true } },
+  } as const;
+
+  // Sort key is COALESCE(client_approved_at, completed_at), then id. Prisma cannot order by a
+  // coalesce, so the two halves are queried apart (each ordered by its own column) and merged
+  // with the same key. The merge is exact because each half is a sorted prefix.
+  const [approved, completed, articles] = await Promise.all([
+    prisma.task.findMany({
+      where: { is_deleted: false, AND: [...base, { client_approved_at: { not: null } }] },
+      select,
+      orderBy: [{ client_approved_at: 'desc' }, { id: 'desc' }],
+      take,
+    }),
     prisma.task.findMany({
       where: {
         is_deleted: false,
-        AND: [
-          { OR: [{ client_id: access.clientId }, { site: { client_id: access.clientId } }] },
-          clientHistoryTaskWhere(),
-          taskAccessWhere(access),
-          { OR: [{ status: 'done' }, { client_approved_at: { not: null } }] },
-        ],
+        // Finished on our side AND not waiting on the client: staged-but-unapproved work is out.
+        AND: [...base, { client_approved_at: null }, { status: 'done', NOT: stagedTaskWhere() }],
       },
-      select: {
-        id: true,
-        title: true,
-        client_approved_at: true,
-        completed_at: true,
-        updated_at: true,
-        project: { select: { id: true, name: true } },
-      },
-      orderBy: { updated_at: 'desc' },
+      select,
+      orderBy: [{ completed_at: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
       take,
     }),
     clientLevel
       ? prisma.article.findMany({
           where: { client_id: access.clientId, status: 'published', is_deleted: false },
           select: { id: true, title: true, published_url: true, updated_at: true },
-          orderBy: { updated_at: 'desc' },
+          orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
           take,
         })
       : Promise.resolve([] as { id: string; title: string; published_url: string | null; updated_at: Date }[]),
   ]);
 
-  const taskItems = tasks.map((t): { sortAt: Date; item: HistoryItem } => ({
-    sortAt: t.updated_at,
+  type Row = Sortable & { item: HistoryItem };
+  const taskRow = (t: (typeof approved)[number]): Row => ({
+    sortAt: t.client_approved_at ?? t.completed_at,
+    id: t.id,
     item: {
-      type: (t.client_approved_at ? 'task_approved' : 'task_completed') as ActivityType,
+      type: t.client_approved_at ? 'task_approved' : 'task_completed',
       id: t.id,
       title: t.title,
       url: null,
       project: t.project ? { id: t.project.id, name: t.project.name } : null,
       at: t.client_approved_at ?? t.completed_at ?? t.updated_at,
     },
-  }));
-  const articleItems = articles.map((a): { sortAt: Date; item: HistoryItem } => ({
-    sortAt: a.updated_at,
-    item: {
-      type: 'article_published' as ActivityType,
+  });
+  const articleRows = articles.map(
+    (a): Row => ({
+      sortAt: a.updated_at,
       id: a.id,
-      title: a.title,
-      url: a.published_url ?? null,
-      project: null,
-      at: a.updated_at,
-    },
-  }));
+      item: { type: 'article_published', id: a.id, title: a.title, url: a.published_url ?? null, project: null, at: a.updated_at },
+    })
+  );
 
-  const { items, hasMore } = pageMerged([taskItems, articleItems], page, pageSize);
+  const { items, hasMore } = pageMerged([approved.map(taskRow), completed.map(taskRow), articleRows], page, pageSize);
   return { items: items.map((i) => i.item), hasMore };
 }
