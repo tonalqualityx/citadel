@@ -17,6 +17,13 @@
   --color-warning: var(--warning);
   --color-error: var(--error);
 
+  /* Portal aliases: pages use these names; without them Tailwind emits nothing */
+  --color-brand-primary: var(--accent);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-muted);
+  --color-surface-secondary: var(--bg-secondary);
+  --color-status-error: var(--error);
+
   /* Fonts */
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Inter", system-ui, sans-serif;
