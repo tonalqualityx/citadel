@@ -24,6 +24,15 @@ import { CANNED_LINE } from '@/lib/portal/chat/copy';
 import { emailFixedLine } from '@/lib/portal/chat/mailer';
 import { readSlots } from '@/lib/portal/chat/slots';
 
+/** Google delivers mail inside the Workspace domain without Authentication-Results (spec 7.4, C4 ruling). */
+export const INTERNAL_DOMAIN = 'becomeindelible.com';
+export function senderVerified(input: { auth_pass: boolean; auth_basis?: string; from_email: string }): boolean {
+  if (!input.auth_pass) return false;
+  if (input.auth_basis !== 'google_internal') return true;
+  // The internal path is only ever valid for our own domain, whatever the machine says.
+  return input.from_email.trim().toLowerCase().endsWith(`@${INTERNAL_DOMAIN}`);
+}
+
 export const REPLY_MAX_CHARS = 4000;
 export const RAW_MAX_CHARS = 20000;
 
@@ -38,6 +47,8 @@ export const inboundSchema = z
     rfc_message_id: z.string().min(1).max(255),
     gmail_thread_id: z.string().max(64).nullish(),
     auth_pass: z.boolean(),
+    /** How the machine verified the sender: the receiving server's Authentication-Results, or Google's own same-domain delivery. */
+    auth_basis: z.enum(['authentication_results', 'google_internal']).optional(),
     attachment_ids: z.array(z.string().uuid()).max(10).default([]),
   })
   .refine((v) => v.token || v.task_id, { message: 'token or task_id required' });
@@ -82,10 +93,11 @@ export async function ingestEmailReply(raw: InboundInput, opts: { now?: Date } =
   if (seen && seen.task_id === convo.task_id) return { status: 'repeat', conversation_id: convo.id, comment_id: seen.id };
 
   const text = input.text.trim().slice(0, REPLY_MAX_CHARS);
-  const contact = input.auth_pass ? await senderContact(convo, input.from_email) : null;
+  const verified = senderVerified(input);
+  const contact = verified ? await senderContact(convo, input.from_email) : null;
 
   if (!contact) {
-    const reason = input.auth_pass ? 'sender' : 'auth';
+    const reason = verified ? 'sender' : 'auth';
     const note = await prisma.$transaction(async (tx) => {
       const task = await tx.task.findUniqueOrThrow({ where: { id: convo.task_id }, select: { tags: true } });
       const created = await tx.comment.create({

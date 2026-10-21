@@ -5,7 +5,7 @@ import { MIKE_USER_ID } from '@/lib/waits/owner';
 import { cleanup, SCRATCH, seedClient, type Seeded } from '@/lib/engine/__tests__/seed';
 import { getChatSettings, updateChatSettings } from '../switches';
 import { runSweep } from '../sweep';
-import { ingestEmailReply, emailRef } from '../inbound';
+import { ingestEmailReply, emailRef, senderVerified } from '../inbound';
 import { chatRecipientAllowed, recordChatSend } from '../outbox-guard';
 import { chatReplyTo, chatRef, buildAwayBody, buildReplyBody, buildStaffBody } from '../mailer';
 import { allChatStrings } from '../copy';
@@ -215,6 +215,28 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
       expect((await ingestEmailReply({ ...base(), from_email: `OLIVE-${tag}@Example.Test`, rfc_message_id: `<m-${tag}-4@x>` }, { now: at(12) })).status).toBe('ingested');
       const out = await ingestEmailReply({ ...base(), from_email: `vera-${tag}@example.test`, rfc_message_id: `<m-${tag}-5@x>` }, { now: at(12) });
       expect(out.status).toBe('quarantined');
+    });
+
+    it('same-domain mail verified by Google delivery is accepted; the same claim from an outside address is quarantined', async () => {
+      const pilot = await prisma.clientContact.create({ data: { client_id: a.clientId, name: 'Pilot Person', email: `pilot-${tag}@becomeindelible.com`, portal_role: 'owner', can_initiate_work: true } });
+      await prisma.task.update({ where: { id: a.taskId }, data: { requested_by_contact_id: pilot.id } });
+      const internal = { ...base(), from_email: pilot.email!, auth_pass: true, auth_basis: 'google_internal' as const, rfc_message_id: `<m-${tag}-7@x>` };
+      expect((await ingestEmailReply(internal, { now: at(12) })).status).toBe('ingested');
+      // external address claiming the internal path
+      const spoof = { ...base(), from_email: `olive-${tag}@example.test`, auth_pass: true, auth_basis: 'google_internal' as const, rfc_message_id: `<m-${tag}-8@x>` };
+      expect(await ingestEmailReply(spoof, { now: at(12) })).toMatchObject({ status: 'quarantined', reason: 'auth' });
+      // external without any verification
+      expect(await ingestEmailReply({ ...base(), auth_pass: false, rfc_message_id: `<m-${tag}-9@x>` }, { now: at(12) })).toMatchObject({ status: 'quarantined', reason: 'auth' });
+      await prisma.task.update({ where: { id: a.taskId }, data: { requested_by_contact_id: a.ownerId } });
+      await prisma.comment.deleteMany({ where: { task_id: a.taskId } });
+      await prisma.clientContact.delete({ where: { id: pilot.id } });
+    });
+
+    it('senderVerified: the internal basis needs our domain', () => {
+      expect(senderVerified({ auth_pass: true, auth_basis: 'google_internal', from_email: 'Mike@BecomeIndelible.com' })).toBe(true);
+      expect(senderVerified({ auth_pass: true, auth_basis: 'google_internal', from_email: 'mike@becomeindelible.com.evil.test' })).toBe(false);
+      expect(senderVerified({ auth_pass: true, auth_basis: 'authentication_results', from_email: 'pat@client.com' })).toBe(true);
+      expect(senderVerified({ auth_pass: false, from_email: 'mike@becomeindelible.com' })).toBe(false);
     });
 
     it('an unknown token and no task id finds no conversation', async () => {
