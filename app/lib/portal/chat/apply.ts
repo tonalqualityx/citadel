@@ -103,12 +103,26 @@ export const INTERNAL_ONLY_FIELDS: string[] = [
   'sources.label', // replaced by the tool result's own label from the database
 ];
 
-const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').replace(/[.?!\s]+$/, '').trim();
 
-/** A field that is the client's own words, verbatim, is theirs to say: it is not gated as our copy. */
-function isClientVerbatim(text: string, clientTexts: string[]): boolean {
+/** A client message split into its sentences (on . ? ! followed by a space, and on line breaks). */
+export function sentencesOfClientText(text: string): string[] {
+  return text
+    .split(/(?<=[.?!])\s+|\r?\n+/)
+    .map((x) => norm(x))
+    .filter(Boolean);
+}
+
+/**
+ * A short field that is the client's own words is theirs to say, so it is not gated as our copy. That
+ * holds for a WHOLE client sentence, or a whole client message, exactly (case, spacing and the closing
+ * punctuation aside). A fragment of a sentence, or two sentences glued together, is model text: it goes
+ * through the gate like any other (the fragment "the price on the menu to $20" is how a number slips in).
+ */
+export function isClientVerbatim(text: string, clientTexts: string[]): boolean {
   const t = norm(text);
-  return t.length > 0 && clientTexts.some((c) => norm(c).includes(t));
+  if (!t) return false;
+  return clientTexts.some((c) => norm(c) === t || sentencesOfClientText(c).includes(t));
 }
 
 function gateAll(result: ChatResult, ctx: Parameters<typeof gateReply>[1], clientTexts: string[], jobType?: string): { rejected: GateResult | null; draftOk: boolean } {

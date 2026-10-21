@@ -33,6 +33,11 @@ export interface Slots {
   asked?: string[];
   summary?: SummarySnap | null;
   question_closed_at?: string | null;
+  /** The sweep filed this request after the client walked away (never confirmed by them). */
+  unconfirmed_filed?: boolean;
+  /** Consecutive sweep failures on this conversation; after three it is tagged needs-mike and skipped. */
+  sweep_failures?: number;
+  sweep_skip?: boolean;
 }
 
 export type AskSlot = 'site' | 'page' | 'section' | 'change' | 'asset' | 'other';

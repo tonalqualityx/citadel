@@ -19,7 +19,8 @@ import { notifyNewPortalRequest } from '@/lib/portal/staff-notify';
 import { refreshTaskDescription } from '@/lib/portal/chat/description';
 import { postAssistantComment } from '@/lib/portal/chat/assistant-comment';
 import { placeFor } from '@/lib/portal/chat/place';
-import { SENT_LINES } from '@/lib/portal/chat/copy';
+import { ALREADY_FILED_LINE, SENT_LINES } from '@/lib/portal/chat/copy';
+import { workPageUrl } from '@/lib/portal/notices';
 import { readSlots, type SummarySnap } from '@/lib/portal/chat/slots';
 import { accessForJob } from '@/lib/engine/reads';
 import { postInternalNote } from '@/lib/portal/chat/assistant-comment';
@@ -30,6 +31,9 @@ export interface Confirmed {
   quote: boolean;
   urgent: boolean;
   lines: string[];
+  task_id?: string;
+  /** Where the request now lives, when the Send was stale because the sweep filed it. */
+  link?: string;
 }
 
 type Tx = Prisma.TransactionClient;
@@ -108,7 +112,12 @@ async function fileFromSnapshot(
   }
   await tx.chatConversation.update({
     where: { id: convo.id },
-    data: { state: 'filed', open_ask: Prisma.DbNull, site_id: placement.site_id ?? convo.site_id, ...(opts.unconfirmed ? {} : { confirmed_at: now }) },
+    data: {
+      state: 'filed',
+      open_ask: Prisma.DbNull,
+      site_id: placement.site_id ?? convo.site_id,
+      ...(opts.unconfirmed ? { slots: { ...readSlots(convo.slots), unconfirmed_filed: true } as Prisma.InputJsonValue } : { confirmed_at: now }),
+    },
   });
   if (!opts.unconfirmed) await postAssistantComment(tx, task.id, `${SENT_LINES.heading} ${SENT_LINES.more}`, { fixed: true, confirmed: true });
   await refreshTaskDescription(tx, convo.id);
@@ -147,17 +156,22 @@ export async function confirmConversation(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-chat-convo:${conversationId}`}))`;
     const convo = await tx.chatConversation.findUnique({ where: { id: conversationId }, include: { task: true } });
     if (!convo || convo.client_id !== access.clientId) throw new ApiError('Not found', 404);
-    if (convo.state === 'filed' && convo.confirmed_at) return { already: true as const, quote: convo.task.tags.includes('quote'), urgent: convo.task.tags.includes('emergency'), task: convo.task, notify: false };
+    // A Send that arrives after the sweep filed the request (the client had walked away): say so plainly.
+    if (convo.state === 'filed' && !convo.confirmed_at && readSlots(convo.slots).unconfirmed_filed) {
+      return { already: true as const, stale: true as const, quote: convo.task.tags.includes('quote'), urgent: convo.task.tags.includes('emergency'), task: convo.task, notify: false };
+    }
+    if (convo.state === 'filed' && convo.confirmed_at) return { already: true as const, stale: false as const, quote: convo.task.tags.includes('quote'), urgent: convo.task.tags.includes('emergency'), task: convo.task, notify: false };
     if (convo.state !== 'confirming') throw new ApiError('There is nothing to send yet.', 409, 'not_confirming');
     if (convo.summary_version !== input.summary_version) throw new ApiError('That summary changed. Please check it again.', 409, 'stale_summary');
     const snap = readSlots(convo.slots).summary;
     if (!snap) throw new ApiError('There is nothing to send yet.', 409, 'not_confirming');
     const filed = await fileFromSnapshot(tx, access, convo, snap, { projectId: input.project_id, now, unconfirmed: false });
-    return { already: false as const, ...filed, notify: true };
+    return { already: false as const, stale: false as const, ...filed, notify: true };
   });
 
   if (out.notify) await notifyNewPortalRequest(out.task.id);
-  return { already: out.already, quote: out.quote, urgent: out.urgent, lines: [SENT_LINES.heading, SENT_LINES.more] };
+  if (out.stale) return { already: true, quote: out.quote, urgent: out.urgent, lines: [ALREADY_FILED_LINE], task_id: out.task.id, link: workPageUrl(out.task.id) };
+  return { already: out.already, quote: out.quote, urgent: out.urgent, lines: [SENT_LINES.heading, SENT_LINES.more], task_id: out.task.id };
 }
 
 // ---- Walk-away: what the sweep (slice C4) calls --------------------------------------------------
@@ -251,21 +265,107 @@ export async function closeUnconfirmed(conversationId: string, opts: { now?: Dat
   return out.outcome;
 }
 
-/** Conversations that might be due, oldest first. C4's sweep calls this, then closeUnconfirmed for each. */
-export async function listUnconfirmedCandidates(now: Date = new Date(), limit = 50): Promise<string[]> {
-  const before = new Date(now.getTime() - Math.min(QUESTION_CLOSE_HOURS, UNCONFIRMED_FILE_HOURS) * HOUR);
-  const rows = await prisma.chatConversation.findMany({
-    where: { state: { in: ['clarifying', 'confirming'] }, updated_at: { lt: before } },
-    orderBy: { updated_at: 'asc' },
-    take: limit,
-    select: { id: true },
-  });
-  return rows.map((r) => r.id);
+export interface Candidate {
+  id: string;
+  /** The quiet clock: the latest client or assistant message, or the conversation's creation. */
+  quiet: Date;
 }
 
-/** The whole sweep step: returns what it did, per outcome. */
-export async function sweepUnconfirmed(now: Date = new Date()): Promise<Record<UnconfirmedOutcome, number>> {
-  const counts: Record<UnconfirmedOutcome, number> = { skipped: 0, closed_question: 0, filed_unconfirmed: 0, handed_off: 0 };
-  for (const id of await listUnconfirmedCandidates(now)) counts[await closeUnconfirmed(id, { now })]++;
+/**
+ * Conversations that might be due, ordered by the quiet clock (the last client or assistant message,
+ * NOT `updated_at`, which any bookkeeping write moves), one batch at a time. Pass the last row as
+ * `after` for the next batch: the cursor is (quiet, id), so a conversation that stays not-yet-due is
+ * not read again within one sweep and the sweep pages past any number of rows.
+ */
+export async function listUnconfirmedCandidates(
+  now: Date = new Date(),
+  opts: { limit?: number; after?: Candidate | null } = {}
+): Promise<Candidate[]> {
+  const limit = opts.limit ?? 50;
+  // ISO strings cast to timestamp: the columns are timestamp without time zone, holding UTC.
+  const before = new Date(now.getTime() - Math.min(QUESTION_CLOSE_HOURS, UNCONFIRMED_FILE_HOURS) * HOUR).toISOString();
+  const afterQuiet = opts.after?.quiet ? opts.after.quiet.toISOString() : null;
+  const afterId = opts.after?.id ?? null;
+  const rows = await prisma.$queryRaw<Array<{ id: string; quiet: Date }>>`
+    SELECT id, quiet FROM (
+      SELECT c.id,
+             COALESCE((
+               SELECT max(m.created_at) FROM comments m
+               WHERE m.task_id = c.task_id AND m.is_deleted = false AND m.is_internal = false
+                 AND (m.author_contact_id IS NOT NULL OR m.source = 'assistant')
+             ), c.created_at) AS quiet
+      FROM portal_chat_conversations c
+      WHERE c.state IN ('clarifying', 'confirming')
+        AND COALESCE((c.slots ->> 'sweep_skip')::boolean, false) = false
+    ) q
+    WHERE q.quiet < ${before}::timestamp
+      AND (${afterQuiet}::timestamp IS NULL OR (q.quiet, q.id) > (${afterQuiet}::timestamp, ${afterId}::uuid))
+    ORDER BY q.quiet ASC, q.id ASC
+    LIMIT ${limit}`;
+  return rows;
+}
+
+export const SWEEP_MAX_FAILURES = 3;
+
+/** One conversation failed in the sweep: count it; at three in a row, tag it needs-mike and skip it from now on. */
+async function recordSweepFailure(conversationId: string, error: unknown): Promise<'counted' | 'parked'> {
+  const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  console.error(`portal chat sweep: conversation ${conversationId} failed: ${detail}`);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-chat-convo:${conversationId}`}))`;
+    const convo = await tx.chatConversation.findUnique({ where: { id: conversationId }, include: { task: { select: { tags: true } } } });
+    if (!convo) return 'counted' as const;
+    const slots = readSlots(convo.slots);
+    const failures = (slots.sweep_failures ?? 0) + 1;
+    if (failures >= SWEEP_MAX_FAILURES) {
+      const tags = new Set([...convo.task.tags, 'needs-mike']);
+      tags.delete('chat-clarifying'); // parked for a person; chat-clarifying would hide it from the gate
+      await tx.task.update({ where: { id: convo.task_id }, data: { tags: [...tags] } });
+      await tx.chatConversation.update({ where: { id: conversationId }, data: { slots: { ...slots, sweep_failures: failures, sweep_skip: true } as Prisma.InputJsonValue } });
+      await postInternalNote(tx, convo.task_id, `The walk-away sweep failed ${failures} times on this chat and has stopped trying. A person should read the thread and file or close it. Last error: ${detail.slice(0, 300)}`, { sweep: 'parked' });
+      return 'parked' as const;
+    }
+    await tx.chatConversation.update({ where: { id: conversationId }, data: { slots: { ...slots, sweep_failures: failures } as Prisma.InputJsonValue } });
+    return 'counted' as const;
+  });
+}
+
+async function clearSweepFailures(conversationId: string): Promise<void> {
+  const convo = await prisma.chatConversation.findUnique({ where: { id: conversationId }, select: { slots: true } });
+  const slots = readSlots(convo?.slots);
+  if (slots.sweep_failures) await prisma.chatConversation.update({ where: { id: conversationId }, data: { slots: { ...slots, sweep_failures: 0 } as Prisma.InputJsonValue } });
+}
+
+export type SweepCounts = Record<UnconfirmedOutcome, number> & { failed: number; parked: number };
+
+/**
+ * The whole sweep step, for C4: pages through every due candidate (batches of `batch`), calls
+ * `closeUnconfirmed` for each inside its own try/catch so one bad conversation never stops the rest,
+ * and counts what happened.
+ */
+export async function sweepUnconfirmed(now: Date = new Date(), opts: { batch?: number } = {}): Promise<SweepCounts> {
+  const counts: SweepCounts = { skipped: 0, closed_question: 0, filed_unconfirmed: 0, handed_off: 0, failed: 0, parked: 0 };
+  const batch = opts.batch ?? 50;
+  let after: Candidate | null = null;
+  for (;;) {
+    const rows = await listUnconfirmedCandidates(now, { limit: batch, after });
+    if (rows.length === 0) break;
+    for (const row of rows) {
+      try {
+        const outcome = await closeUnconfirmed(row.id, { now });
+        counts[outcome]++;
+        if (outcome !== 'skipped') await clearSweepFailures(row.id);
+      } catch (error) {
+        counts.failed++;
+        try {
+          if ((await recordSweepFailure(row.id, error)) === 'parked') counts.parked++;
+        } catch (inner) {
+          console.error('portal chat sweep: could not record a failure', inner);
+        }
+      }
+    }
+    after = rows[rows.length - 1];
+    if (rows.length < batch) break;
+  }
   return counts;
 }

@@ -7,6 +7,7 @@ import { isUrgentText } from '@/lib/portal/chat/urgent';
 import { foldAnswer, nextTreeStep } from '@/lib/portal/chat/tree-mode';
 import { provisionalTitle } from '@/lib/portal/chat/file-early';
 import { rankPages } from '@/lib/portal/chat/slots';
+import { isClientVerbatim, sentencesOfClientText } from '@/lib/portal/chat/apply';
 
 describe('chat copy', () => {
   const strings = allChatStrings();
@@ -99,5 +100,27 @@ describe('small helpers', () => {
   it('ranks pages by words in the message', () => {
     const r = rankPages([{ title: 'Home', path: '/', depth: 0 }, { title: 'Catering', path: '/catering/', depth: 1 }], 'a catering menu photo');
     expect(r[0].title).toBe('Catering');
+  });
+});
+
+describe('the verbatim exemption is a whole client sentence', () => {
+  const said = ['The menu is out of date. Please change the price on the menu to $20.\nThanks so much', 'Is this free?'];
+  it('exempts the whole message, a whole sentence, and a whole line', () => {
+    expect(isClientVerbatim('The menu is out of date. Please change the price on the menu to $20. Thanks so much', said)).toBe(true);
+    expect(isClientVerbatim('Please change the price on the menu to $20.', said)).toBe(true);
+    expect(isClientVerbatim('please change the  price on the menu to $20', said)).toBe(true); // case, spacing, closing punctuation
+    expect(isClientVerbatim('Thanks so much', said)).toBe(true);
+    expect(isClientVerbatim('Is this free?', said)).toBe(true);
+  });
+  it('gates a fragment, a joined pair of sentences, a paraphrase and an empty field', () => {
+    expect(isClientVerbatim('the price on the menu to $20', said)).toBe(false);
+    expect(isClientVerbatim('Please change the price', said)).toBe(false);
+    expect(isClientVerbatim('The menu is out of date. Thanks so much', said)).toBe(false);
+    expect(isClientVerbatim('Update the menu price to $20 as asked.', said)).toBe(false);
+    expect(isClientVerbatim('', said)).toBe(false);
+    expect(isClientVerbatim('anything', [])).toBe(false);
+  });
+  it('splits on . ? ! followed by a space, and on line breaks, but not inside a price', () => {
+    expect(sentencesOfClientText('It costs $20.50 today! Really? Yes.\nOk')).toEqual(['it costs $20.50 today', 'really', 'yes', 'ok']);
   });
 });
