@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import type { Notification } from '@/lib/hooks/use-notifications';
+import { notificationTarget } from './notification-target';
 
 interface NotificationItemProps {
   notification: Notification;
@@ -62,19 +63,10 @@ export function NotificationItem({
       onMarkAsRead(notification.id);
     }
 
-    // Navigate to the entity if available
-    if (notification.entity_type && notification.entity_id) {
-      const routes: Record<string, string> = {
-        task: `/tasks/${notification.entity_id}`,
-        project: `/projects/${notification.entity_id}`,
-        sop: `/grimoire/runes/${notification.entity_id}`,
-        recipe: `/grimoire/rituals/${notification.entity_id}`,
-      };
-      const route = routes[notification.entity_type];
-      if (route) {
-        router.push(route);
-        onClose();
-      }
+    const target = notificationTarget(notification);
+    if (target) {
+      router.push(target);
+      onClose();
     }
   }
 
