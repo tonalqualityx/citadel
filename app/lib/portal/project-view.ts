@@ -130,12 +130,19 @@ export function isClientQuestion(c: AskComment): boolean {
   if (c.is_internal === true || c.client_question !== true) return false;
   const name = (c.user?.name ?? '').trim();
   const email = (c.user?.email ?? '').trim();
-  if (/bast/i.test(name) || /bast/i.test(email)) return false;
-  if (/bast/i.test(c.content)) return false;
+  // "Bast" as a word (so "Sebastian" passes); the email keeps the plain substring check.
+  const bast = /\bbast\b/i;
+  if (bast.test(name) || /bast/i.test(email) || bast.test(c.content)) return false;
   const lower = c.content.toLowerCase();
   if (name.length >= 3 && lower.includes(name.toLowerCase())) return false;
+  // Bare first name: only as a capitalised proper noun (case-sensitive, whole word), and not as the
+  // first word of a sentence. "Thanks, Sabeen" is a signature and is hidden; "Will you ..." is not.
   const first = name.split(/\s+/)[0] ?? '';
-  if (first.length >= 3 && new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(c.content)) return false;
+  if (first.length >= 3 && /^[A-Z]/.test(first)) {
+    const escaped = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mid = new RegExp(`(?<![.!?]\\s)(?<!^)\\b${escaped}\\b`);
+    if (mid.test(c.content)) return false;
+  }
   return true;
 }
 

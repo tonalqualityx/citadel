@@ -123,6 +123,17 @@ describe('client comments and requests', () => {
     expect(latestClientComment([q({ content: 'Bast could not decide, which logo?' })])).toBeNull();
     expect(latestClientComment([q({ content: 'Which logo? Thanks, Sabeen' })])).toBeNull();
     expect(latestClientComment([q({ content: 'Sabeen Khan asks which logo' })])).toBeNull();
+    // "Bast" is matched as a word; Sebastian passes, as an author name or in the text.
+    expect(latestClientComment([q({ content: 'Sebastian asked which logo you prefer?' })])?.content).toBeTruthy();
+    expect(latestClientComment([q({ user: { name: 'Sebastian Cruz', email: 'sc@x.example' }, content: 'Which logo?' })])?.content).toBe('Which logo?');
+    expect(latestClientComment([q({ user: { name: 'Sebastian Cruz', email: 'bast@x.example' } })])).toBeNull();
+    // Bare first name: capitalised and mid-sentence is hidden, sentence-start is not.
+    const will = { name: 'Will Parker', email: 'w@x.example' };
+    expect(latestClientComment([q({ user: will, content: 'Will you send the logo files?' })])?.content).toBeTruthy();
+    expect(latestClientComment([q({ user: will, content: 'We need them soon. Will you send the logo files?' })])?.content).toBeTruthy();
+    expect(latestClientComment([q({ user: will, content: 'Which logo? Thanks, Will' })])).toBeNull();
+    expect(latestClientComment([q({ content: 'Which logo? Thanks, Sabeen' })])).toBeNull();
+    expect(latestClientComment([q({ content: 'Which logo? thanks, sabeen' })])?.content).toBeTruthy();
     // A different word that merely contains the name letters is fine.
     expect(latestClientComment([q({ content: 'Which logo works for the Sabeenish look?' })])?.content).toBeTruthy();
   });
