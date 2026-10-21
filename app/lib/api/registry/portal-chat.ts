@@ -48,4 +48,39 @@ export const portalChatEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/tasks/{id}/chat',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Portal phase C: the chat on a task for staff. State, slots, the drafted handoff note, attachments, jobs, runs, tool calls (arguments and totals) and cost.',
+        auth: 'required',
+        responseExample: { state: 'string', mode: 'string', jobs: 'object[]', tool_calls: 'object[]', cost_usd: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/{id}/chat/hand-back',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Portal phase C: hand a conversation back to the assistant. 409 when it is not with a person.',
+        auth: 'required',
+        responseExample: { ok: true },
+      },
+    ],
+  },
+  {
+    path: '/api/attachments/{id}',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Portal phase C: a client attachment for staff. nosniff; images inline, the rest a download.',
+        auth: 'required',
+      },
+    ],
+  },
 ];

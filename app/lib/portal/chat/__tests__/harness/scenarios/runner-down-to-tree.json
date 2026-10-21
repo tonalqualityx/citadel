@@ -1,0 +1,94 @@
+{
+ "name": "runner down (expiry to the question tree, then confirm)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Please update our hours."
+   },
+   "engine": "down",
+   "expect": {
+    "mode": "tree",
+    "pending_kind": "ask",
+    "pending_slot": "other",
+    "reply": "What do you need?",
+    "writing": false,
+    "tags_include": [
+     "awaiting-clarification"
+    ]
+   }
+  },
+  {
+   "client": {
+    "choice": {
+     "slot": "other",
+     "label": "Change something on my site"
+    }
+   },
+   "expect": {
+    "mode": "tree",
+    "pending_slot": "page",
+    "slots": {
+     "request_type": "site_change"
+    }
+   }
+  },
+  {
+   "client": {
+    "choice": {
+     "slot": "page",
+     "label": "Not sure"
+    }
+   },
+   "expect": {
+    "state": "confirming",
+    "pending_kind": "summary",
+    "tags_exclude": [
+     "awaiting-clarification"
+    ]
+   }
+  },
+  {
+   "client": {
+    "confirm": true
+   },
+   "expect": {
+    "state": "filed",
+    "tags_include": [
+     "kind:site-change"
+    ]
+   }
+  }
+ ]
+}

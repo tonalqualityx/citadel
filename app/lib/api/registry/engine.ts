@@ -85,4 +85,37 @@ export const engineEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/engine/jobs/{id}/complete',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Post the finished result. apply.ts is the only writer: copy gate, then provenance, then actions. 422 { rule, match } when the gate refuses (regenerate once, then post canned:true); 409 when the job is not live.',
+        ...authFields,
+        bodySchema: [
+          { name: 'result', type: 'object', required: false, description: 'The structured result { reply, actions[], sources[] }' },
+          { name: 'runs', type: 'object', required: false, description: 'One entry per Claude run: attempt, model, prompt_hash, token counts, cost_usd, duration_ms, num_turns, is_error, rejected_text' },
+          { name: 'canned', type: 'boolean', required: false, description: 'True after two gate refusals: the fixed line and a handoff' },
+        ],
+        responseExample: { applied: true, gate_result: 'pass|regenerated|canned', comment_id: 'uuid|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/engine/jobs/{id}/fail',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The runner could not produce a result. The job is requeued once; the second failure marks it failed and the conversation runs the question tree. 409 when the job is not live.',
+        ...authFields,
+        bodySchema: [
+          { name: 'error', type: 'string', required: true, description: 'What went wrong' },
+          { name: 'runs', type: 'object', required: false, description: 'Runs made before the failure' },
+        ],
+        responseExample: { outcome: 'requeued|failed' },
+      },
+    ],
+  },
 ];

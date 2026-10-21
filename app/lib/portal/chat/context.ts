@@ -138,7 +138,9 @@ export function renderThread(rows: ThreadRow[], attachments: AttachmentRow[]): s
       if (meta.choice && meta.choice.id) {
         lines.push(`<client_choice slot="${attr(String(meta.choice.slot ?? ''))}" id="${attr(String(meta.choice.id))}" label="${attr(String(meta.choice.label ?? ''))}"/>`);
       }
-      if (r.content.trim() || !meta.choice) {
+      // A choice saves its label as the comment text: render it once, as the choice.
+      const sameAsChoice = Boolean(meta.choice?.id) && r.content.trim() === String(meta.choice?.label ?? '').trim();
+      if ((r.content.trim() && !sameAsChoice) || !meta.choice) {
         lines.push(`<client_message from="${attr(who)}" via="${via}" at="${at}">${escapeXml(r.content)}</client_message>`);
       }
       if (files) lines.push(files);
