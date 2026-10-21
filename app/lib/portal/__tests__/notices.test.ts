@@ -8,6 +8,7 @@ vi.mock('@/lib/db/prisma', () => ({
     comment: { findMany: vi.fn() },
     clientContact: { findMany: vi.fn(), findUnique: vi.fn() },
     client: { findUnique: vi.fn() },
+    chatConversation: { findUnique: vi.fn().mockResolvedValue(null) },
     task: { count: vi.fn(), findUnique: vi.fn() },
     portalNotice: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     $transaction: vi.fn(),

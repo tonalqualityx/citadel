@@ -97,6 +97,7 @@ async function cleanupClients(clientIds: string[]): Promise<void> {
   await prisma.waitEvent.deleteMany({ where: { wait: { task_id: { in: taskIds } } } });
   await prisma.wait.deleteMany({ where: { task_id: { in: taskIds } } });
   await prisma.notification.deleteMany({ where: { entity_id: { in: taskIds } } });
+  await prisma.emailOutbox.deleteMany({ where: { task_id: { in: taskIds } } });
   await prisma.portalAttachment.deleteMany({ where: { client_id: { in: clientIds } } });
   await prisma.chatConversation.deleteMany({ where: { client_id: { in: clientIds } } });
   await prisma.comment.deleteMany({ where: { task_id: { in: taskIds } } });

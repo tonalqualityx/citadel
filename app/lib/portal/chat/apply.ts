@@ -23,6 +23,7 @@ import { refreshTaskDescription } from '@/lib/portal/chat/description';
 import { handOff } from '@/lib/portal/chat/handoff';
 import { confirmConversation } from '@/lib/portal/chat/confirm';
 import { CANNED_LINE, NOTE } from '@/lib/portal/chat/copy';
+import { emailAssistantReply, emailFixedLine } from '@/lib/portal/chat/mailer';
 import { syncProvisionalPlacement } from '@/lib/portal/chat/place';
 import { clientSites, conversationPages, rankPages, readAsk, readSlots, resolveChoices, sectionsOf, type OpenAsk, type Slots, type SummarySnap } from '@/lib/portal/chat/slots';
 import { z } from 'zod';
@@ -172,6 +173,8 @@ export async function applyResult(
       throw e;
     }
     await handOff(convo.id, { reason: 'unclear', draft: '', say: CANNED_LINE, now });
+    // The client wrote by email, so the fixed line goes back by email too (spec 7.4).
+    if (job.type === 'chat_email_reply') await emailFixedLine({ conversationId: convo.id, contactId: job.contact_id, text: CANNED_LINE, key: `job:${job.id}`, now });
     return { status: 'applied', gate_result: 'canned', comment_id: null };
   }
 
@@ -381,6 +384,14 @@ export async function applyResult(
     throw e;
   }
 
+  // An answer to an email goes back by email, in the thread, unless the client is in the portal now.
+  if (job.type === 'chat_email_reply' && commentId) {
+    try {
+      await emailAssistantReply({ conversationId: convo.id, commentId, contactId: job.contact_id, now });
+    } catch (error) {
+      console.error('chat email reply failed to queue', error);
+    }
+  }
   if (handoffAction) {
     await handOff(convo.id, { reason: handoffAction.reason, draft: handoffAction.draft_reply, draftOk: gated.draftOk, say: null, now });
   }

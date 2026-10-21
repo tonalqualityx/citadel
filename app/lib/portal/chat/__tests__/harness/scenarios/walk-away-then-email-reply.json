@@ -1,0 +1,156 @@
+{
+ "name": "walk away, then answer by email",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Can you add this picture to the website?"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "I'm Indelible's AI assistant. Which page should this photo go on?",
+      "actions": [
+       {
+        "type": "record",
+     "attachment_ids": [],
+        "site_id": "{{site:0}}",
+        "request_type": "site_change"
+       },
+       {
+        "type": "ask",
+        "slot": "page",
+        "question": "Which page should this photo go on?",
+        "choice_ids": [
+         "{{page:About}}",
+         "{{page:Home}}",
+         "{{page:Menu}}"
+        ],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "route": "queued",
+    "pending_slot": "page",
+    "assistant_comments": 1,
+    "outbox_count": 0,
+    "state": "clarifying"
+   }
+  },
+  {
+   "sweep": {
+    "after_minutes": 9
+   },
+   "expect": {
+    "outbox_count": 0
+   }
+  },
+  {
+   "sweep": {
+    "after_minutes": 10
+   },
+   "expect": {
+    "outbox_count": 1,
+    "outbox_contains": [
+     "Which page should this photo go on?",
+     "1. About",
+     "Reply to this email with your answer",
+     "Indelible support"
+    ],
+    "outbox_reply_to": true,
+    "waits_include": [
+     "portal.awaiting_client"
+    ]
+   }
+  },
+  {
+   "sweep": {
+    "after_minutes": 600
+   },
+   "expect": {
+    "outbox_count": 1
+   }
+  },
+  {
+   "email": {
+    "text": "1"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Thanks. Where on the About page should the photo go: the team section or our story?",
+      "actions": [
+       {
+        "type": "record",
+     "attachment_ids": [],
+        "page_id": "{{page:About}}"
+       },
+       {
+        "type": "ask",
+        "slot": "section",
+        "question": "Where on the About page should the photo go?",
+        "choice_ids": [
+         "team",
+         "story"
+        ],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "email_status": "ingested",
+    "job_type": "chat_email_reply",
+    "client_messages_via_email": 1,
+    "slots": {
+     "page_id": "{{page:About}}"
+    },
+    "pending_slot": "section",
+    "outbox_count": 2,
+    "outbox_contains": [
+     "Where on the About page",
+     "1. The team",
+     "2. Our story"
+    ],
+    "outbox_reply_to": true,
+    "gate_result": "pass",
+    "assistant_comments": 2
+   }
+  }
+ ]
+}

@@ -26,6 +26,8 @@ export async function GET() {
         claimed_at: true,
         created_at: true,
         last_error: true,
+        reply_to: true,
+        task_id: true,
       },
     });
 
