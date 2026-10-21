@@ -35,6 +35,8 @@ export interface Recording {
 }
 
 export interface Step {
+  /** Set the runner's heartbeat before this step: dead = silent for 4 minutes, alive = just now. */
+  runner?: 'dead' | 'alive';
   client?: { text?: string; choice?: { slot: string; label: string }; attach?: number; confirm?: boolean; project_label?: string };
   /** Recordings for the job this step queues, in order (a 422 takes the next one). Omit for no job. */
   engine?: Recording[] | 'down' | 'canned';
@@ -133,6 +135,9 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
         email: world.email, sessionId: 's', moved: false,
       };
       auth.bearer = null;
+      if (step.runner) {
+        await prisma.appSettings.update({ where: { id: 'singleton' }, data: { portal_chat_runner_seen_at: step.runner === 'dead' ? new Date(Date.now() - 4 * 60_000) : new Date() } });
+      }
       let http = 200;
       let errorCode: string | undefined;
       let route: string | undefined;

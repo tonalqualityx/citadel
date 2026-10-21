@@ -133,4 +133,16 @@ export const engineEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/engine/runner/heartbeat',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The chat runner is alive. Posted every 60 s from the poll loop, idle or busy; stores the time in the settings row. The runner counts as dead after 3 minutes without one, independent of claims.',
+        ...authFields,
+        responseExample: { seen_at: 'ISO-8601' },
+      },
+    ],
+  },
 ];

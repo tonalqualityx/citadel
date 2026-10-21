@@ -15,7 +15,7 @@ export const portalChatEndpoints: ApiEndpoint[] = [
         responseExample: {
           mode: 'off|pilot|on',
           pilot_contact_count: 'number',
-          runner: { last_claim_at: 'ISO-8601|null', dead: 'boolean' },
+          runner: { last_seen_at: 'ISO-8601|null', last_claim_at: 'ISO-8601|null', dead: 'boolean (no runner heartbeat for 3 minutes)' },
           today: {
             jobs: { queued: 'number', claimed: 'number', done: 'number', failed: 'number', expired: 'number' },
             spend_usd: 'number',

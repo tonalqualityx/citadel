@@ -25,7 +25,7 @@ export async function GET() {
     return NextResponse.json({
       mode: settings.mode,
       pilot_contact_count: settings.pilot_contact_ids.length,
-      runner: { last_claim_at: runner.last_claim_at, dead: runner.dead },
+      runner: { last_seen_at: runner.last_seen_at, last_claim_at: runner.last_claim_at, dead: runner.dead },
       today: { jobs, spend_usd: Math.round(spend * 1e6) / 1e6 },
       caps: { daily_cap_usd: settings.daily_cap_usd, ...CAPS },
     });
