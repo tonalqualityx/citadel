@@ -279,6 +279,7 @@ export async function GET(request: NextRequest) {
     for (const c of mentionWindowComments) {
       if (!c.mentioned_user_ids.includes(MIKE_USER_ID)) continue;
       if (c.user_id === MIKE_USER_ID) continue;
+      if (!c.user) continue; // a client's portal message (no staff author) is not a team mention
       const latestReply = latestMikeReplyAtByTask.get(c.task_id);
       if (latestReply && latestReply > c.created_at) continue;
       const projectId = taskProjectId.get(c.task_id);
@@ -639,8 +640,11 @@ export async function GET(request: NextRequest) {
         comments: projectComments.map((c) => ({
           id: c.id,
           task_id: c.task_id,
+          // Client messages have no user_id and are filtered out above (NOT IN ignores NULL); the
+          // guard keeps the type honest and movement.ts skips them as well.
           user_id: c.user_id,
-          user_name: c.user.name,
+          user_name: c.user?.name ?? 'Client',
+          author_contact_id: null,
           content: c.content,
           created_at: c.created_at.toISOString(),
         })),

@@ -1594,8 +1594,10 @@ model Comment {
   id                 String         @id @default(uuid()) @db.Uuid
   task_id            String         @db.Uuid
   task               Task           @relation(fields: [task_id], references: [id], onDelete: Cascade)
-  user_id            String         @db.Uuid
-  user               User           @relation(fields: [user_id], references: [id])
+  // Null when a client contact wrote it (author_contact_id set): the portal never writes as a staff
+  // or bot user. Every staff and bot comment still has a user.
+  user_id            String?        @db.Uuid
+  user               User?          @relation(fields: [user_id], references: [id], onDelete: Restrict)
   content            String         @db.Text
   mentioned_user_ids String[]       @default([]) @db.Uuid
   is_deleted         Boolean        @default(false)
@@ -1611,7 +1613,7 @@ model Comment {
   client_visible     Boolean        @default(false)
   // Set when the client wrote it (user_id is then the Bast user; the column stays required).
   author_contact_id  String?        @db.Uuid
-  author_contact     ClientContact? @relation("CommentAuthorContact", fields: [author_contact_id], references: [id])
+  author_contact     ClientContact? @relation("CommentAuthorContact", fields: [author_contact_id], references: [id], onDelete: Restrict)
   // The client's own message uuid. Unique, so a double send is a no-op.
   client_ref         String?        @unique @db.VarChar(64)
   created_at         DateTime       @default(now())
@@ -3750,5 +3752,4 @@ model ClientInvoice {
 
   @@index([client_id, status])
   @@map("client_invoices")
-
 }

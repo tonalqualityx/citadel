@@ -454,3 +454,35 @@ describe('isStale', () => {
     expect(isStale(atThreshold, now)).toBe(true);
   });
 });
+
+describe('client portal messages are not team movement (portal phase B slice 2)', () => {
+  const clientMsg = (over: Record<string, unknown> = {}) => ({
+    id: 'c1', task_id: 'task-1', user_id: null, user_name: 'Dana', author_contact_id: 'contact-1',
+    content: 'Any news?', created_at: '2026-09-07T10:00:00.000Z', ...over,
+  });
+
+  it('a client message with no author is no movement at all', () => {
+    expect(lastMovement(input({ comments: [clientMsg()] }))).toBeNull();
+  });
+
+  it('a client message never counts as Bast progress, even when stored under the Bast user and next to a Bast status change', () => {
+    const m = lastMovement(
+      input({
+        comments: [clientMsg({ user_id: BAST_USER_ID })],
+        activity_log: [
+          { id: 'l1', user_id: BAST_USER_ID, user_name: 'Bast', action: 'status_changed', entity_type: 'task', entity_id: 'task-1', created_at: '2026-09-07T10:00:00.000Z', status_to: 'done' },
+        ],
+      })
+    );
+    expect(m?.what).not.toBe('made progress');
+  });
+
+  it('does not reset staleness', () => {
+    const now = new Date('2026-09-08T00:00:00.000Z');
+    const stale = input({
+      time_entries: [{ user_id: 'u1', user_name: 'Alex', started_at: '2026-08-01T00:00:00.000Z' }],
+      comments: [clientMsg()],
+    });
+    expect(isStale(stale, now)).toBe(true);
+  });
+});

@@ -94,7 +94,10 @@ describe.skipIf(!DATABASE_URL)('last-comment DISTINCT ON query — MEDIUM-2 inde
       ORDER BY c.task_id, c.created_at DESC
     `);
     const planText = plan.map((row) => Object.values(row)[0]).join('\n');
-    expect(planText).toContain('comments_task_id_idx');
+    // Portal phase B slice 2 added a (task_id, client_visible) index; either btree on task_id proves
+    // the parameter cast still lets Postgres use an index.
+    expect(planText).toMatch(/comments_task_id(_client_visible)?_idx/);
+    expect(planText).not.toMatch(/Seq Scan/);
   });
 });
 

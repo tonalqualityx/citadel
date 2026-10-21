@@ -45,8 +45,11 @@ export interface MovementActivityLogEntry {
 export interface MovementComment {
   id: string;
   task_id: string;
-  user_id: string;
+  /** Null for a client's portal message (it has no staff or bot author). */
+  user_id: string | null;
   user_name: string;
+  /** Set when a client contact wrote it. A client message is not team movement. */
+  author_contact_id?: string | null;
   content: string;
   created_at: string; // ISO
 }
@@ -145,6 +148,9 @@ export function lastMovement(input: LastMovementInput): Movement | null {
   }
 
   for (const comment of input.comments) {
+    // A client's portal message is the client moving, not the team. It never counts as team
+    // movement and never as Bast progress, whoever the row is attached to.
+    if (comment.author_contact_id || !comment.user_id) continue;
     if (!BOT_USER_IDS.includes(comment.user_id)) {
       candidates.push({ at: comment.created_at, who: comment.user_name, what: 'commented' });
       continue;

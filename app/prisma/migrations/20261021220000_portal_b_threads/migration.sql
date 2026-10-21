@@ -4,6 +4,9 @@ CREATE TYPE "PortalNoticeStatus" AS ENUM ('queued', 'sending', 'sent', 'failed',
 -- AlterTable
 ALTER TABLE "charters" ADD COLUMN     "client_label" VARCHAR(255);
 
+-- A client's message has no staff or bot author: user_id becomes nullable (author_contact_id is the author).
+ALTER TABLE "comments" ALTER COLUMN "user_id" DROP NOT NULL;
+
 -- AlterTable
 ALTER TABLE "comments" ADD COLUMN     "author_contact_id" UUID,
 ADD COLUMN     "client_ref" VARCHAR(64),
@@ -74,7 +77,7 @@ CREATE INDEX "comments_task_id_client_visible_idx" ON "comments"("task_id", "cli
 CREATE INDEX "comments_author_contact_id_idx" ON "comments"("author_contact_id");
 
 -- AddForeignKey
-ALTER TABLE "comments" ADD CONSTRAINT "comments_author_contact_id_fkey" FOREIGN KEY ("author_contact_id") REFERENCES "client_contacts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "comments" ADD CONSTRAINT "comments_author_contact_id_fkey" FOREIGN KEY ("author_contact_id") REFERENCES "client_contacts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "portal_notices" ADD CONSTRAINT "portal_notices_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "tasks"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
