@@ -98,6 +98,10 @@ export async function ingestEmailReply(raw: InboundInput, opts: { now?: Date } =
 
   if (!contact) {
     const reason = verified ? 'sender' : 'auth';
+    // Files staged for a message that is not shown are withdrawn with it (soft delete; nothing is ever removed from disk by code).
+    if (input.attachment_ids.length > 0) {
+      await prisma.portalAttachment.updateMany({ where: { id: { in: input.attachment_ids }, client_id: convo.client_id, comment_id: null }, data: { is_deleted: true } });
+    }
     const note = await prisma.$transaction(async (tx) => {
       const task = await tx.task.findUniqueOrThrow({ where: { id: convo.task_id }, select: { tags: true } });
       const created = await tx.comment.create({

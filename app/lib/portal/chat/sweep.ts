@@ -31,7 +31,8 @@ import { OPEN_STATES } from '@/lib/waits/sweeper';
 
 const STALL_MS = 3 * 60_000;
 const QUESTION_CLOSE_MS = 24 * 60 * 60_000;
-const STAFF_WINDOW_MS = 60 * 60_000;
+// A staff reply is looked at once (chat_meta marks it); the window only bounds the query and survives a long outage of the sweep.
+const STAFF_WINDOW_MS = 7 * 24 * 60 * 60_000;
 const EMAIL_JOB_WINDOW_MS = 60 * 60_000;
 
 export interface SweepResult {
@@ -77,11 +78,39 @@ async function contactFor(convo: ConvoFull) {
 
 const visibleCommentWhere = { is_deleted: false, is_internal: false, OR: [{ author_contact_id: { not: null } }, { client_visible: true }] } satisfies Prisma.CommentWhereInput;
 
+/**
+ * Conversations whose latest client-visible message is Bast's own open question, oldest first, leaving out
+ * the ones already emailed for that very message. Done in the query so a long list of already-emailed
+ * conversations can never crowd out a due one.
+ */
+async function awayCandidates(ids: string[] | null): Promise<ConvoFull[]> {
+  const scope = ids ? Prisma.sql`AND c.id = ANY(${ids}::uuid[])` : Prisma.empty;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT c.id
+    FROM portal_chat_conversations c
+    JOIN LATERAL (
+      SELECT m.id, m.created_at, m.source, m.author_contact_id
+      FROM comments m
+      WHERE m.task_id = c.task_id AND m.is_deleted = false AND m.is_internal = false
+        AND (m.author_contact_id IS NOT NULL OR m.client_visible = true)
+      ORDER BY m.created_at DESC
+      LIMIT 1
+    ) l ON true
+    WHERE c.state IN ('clarifying', 'confirming')
+      AND (c.open_ask IS NOT NULL OR c.state = 'confirming')
+      AND l.author_contact_id IS NULL AND l.source = 'assistant'
+      AND c.away_sent_for_comment_id IS DISTINCT FROM l.id
+      ${scope}
+    ORDER BY l.created_at ASC
+    LIMIT 200`;
+  if (rows.length === 0) return [];
+  const full = await prisma.chatConversation.findMany({ where: { id: { in: rows.map((r) => r.id) } } });
+  const order = new Map(rows.map((r, i) => [r.id, i]));
+  return full.sort((x, y) => (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0));
+}
+
 async function awayPass(now: Date, ids: string[] | null): Promise<number> {
-  const candidates = await prisma.chatConversation.findMany({
-    where: { state: { in: ['clarifying', 'confirming'] }, ...inScope(ids) },
-    take: 200,
-  });
+  const candidates = await awayCandidates(ids);
   let sent = 0;
   for (const c of candidates) {
     if (!c.open_ask && c.state !== 'confirming') continue;
@@ -153,11 +182,16 @@ async function staffPass(now: Date, ids: string[] | null): Promise<number> {
   const byTask = new Map<string, typeof pending>();
   for (const p of pending) byTask.set(p.task_id, [...(byTask.get(p.task_id) ?? []), p]);
   let sent = 0;
-  for (const [taskId, rows] of byTask) {
-    const newest = rows[rows.length - 1];
-    if (now.getTime() - newest.created_at.getTime() < STAFF_HOLD_MS) continue; // the hold: a newer reply restarts it
+  for (const [taskId, allRows] of byTask) {
     const convo = await prisma.chatConversation.findUnique({ where: { task_id: taskId } });
     if (!convo) continue;
+    // Replies from before the conversation existed were already carried by the notice lane.
+    const early = allRows.filter((r) => r.created_at < convo.created_at);
+    for (const r of early) await prisma.comment.updateMany({ where: { id: r.id, chat_meta: { equals: Prisma.DbNull } }, data: { chat_meta: { email_notice: 'before_chat' } } });
+    const rows = allRows.filter((r) => r.created_at >= convo.created_at);
+    if (rows.length === 0) continue;
+    const newest = rows[rows.length - 1];
+    if (now.getTime() - newest.created_at.getTime() < STAFF_HOLD_MS) continue; // the hold: a newer reply restarts it
 
     const mark = async (status: string) => {
       for (const r of rows) await prisma.comment.updateMany({ where: { id: r.id, chat_meta: { equals: Prisma.DbNull } }, data: { chat_meta: { email_notice: status } } });

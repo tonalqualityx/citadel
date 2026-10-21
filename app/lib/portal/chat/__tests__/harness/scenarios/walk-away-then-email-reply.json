@@ -87,7 +87,7 @@
      "Which page should this photo go on?",
      "1. About",
      "Reply to this email with your answer",
-     "Indelible support"
+     "Indelible Support"
     ],
     "outbox_reply_to": true,
     "waits_include": [

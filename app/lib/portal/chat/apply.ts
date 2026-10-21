@@ -24,6 +24,7 @@ import { handOff } from '@/lib/portal/chat/handoff';
 import { confirmConversation } from '@/lib/portal/chat/confirm';
 import { CANNED_LINE, NOTE } from '@/lib/portal/chat/copy';
 import { emailAssistantReply, emailFixedLine } from '@/lib/portal/chat/mailer';
+import { looksLikeYes } from '@/lib/portal/chat/confirm-text';
 import { syncProvisionalPlacement } from '@/lib/portal/chat/place';
 import { clientSites, conversationPages, rankPages, readAsk, readSlots, resolveChoices, sectionsOf, type OpenAsk, type Slots, type SummarySnap } from '@/lib/portal/chat/slots';
 import { z } from 'zod';
@@ -212,6 +213,16 @@ async function attachmentIdsFor(clientId: string, conversationId: string, ids: s
   });
   const have = new Set(rows.map((r) => r.id));
   return { ok: ids.filter((i) => have.has(i)), bad: ids.filter((i) => !have.has(i)) };
+}
+
+/** The client's newest email message on the task: what a "send it" has to be read from. */
+async function latestClientEmailText(taskId: string): Promise<string | null> {
+  const c = await prisma.comment.findFirst({
+    where: { task_id: taskId, source: 'email', author_contact_id: { not: null }, is_deleted: false, is_internal: false },
+    orderBy: { created_at: 'desc' },
+    select: { content: true },
+  });
+  return c?.content ?? null;
 }
 
 export async function applyResult(
@@ -406,6 +417,7 @@ export async function applyResult(
         break;
       case 'confirm_from_email':
         if (job.type !== 'chat_email_reply') errors.push({ action: 'confirm_from_email', error: 'not_an_email_job' });
+        else if (!looksLikeYes(await latestClientEmailText(convo.task_id))) errors.push({ action: 'confirm_from_email', error: 'confirm_text_not_a_yes' });
         else confirmFromEmail = a;
         break;
       case 'close_question':

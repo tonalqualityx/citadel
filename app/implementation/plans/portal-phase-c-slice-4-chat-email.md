@@ -25,3 +25,8 @@ Cron install, rollout (C5); C2 review fixes (merged later, `closeUnconfirmed` re
 - [ ] prisma validate; tsc --noEmit; vitest (portal, api, services, email-outbox); next build
 - [ ] unittest: citadel-mail, portal-chat, inbound, classifier
 - [ ] live check: one test mail mike@ to bast+c-{token}@ ingested by ingest_replies.py --once into a scratch conversation
+
+## Review fixes (Opus review, 2026-10-22)
+Sender parsing (single From, angle address), whole-label DKIM/DMARC alignment, a dedicated `sweep_call.py` cron line, the runner no longer ingests, staff-reply window 7 days with `chat_meta` marking, quoted-history cuts (own frame, five more languages, attached messages), a fixed yes check before `confirm_from_email`, unmatched `bast+c-*` mail (label, inbox, one task a day), chat mail recognised only through the drain's outbound file (ids and tokens) and only on bast@, quarantined posts withdraw their staged files, the away query ordered and filtered in SQL, "Indelible Support" everywhere.
+
+Item 10 (engine route tests sharing a database): one scratch database per worktree. `lib/engine/__tests__/seed.ts` now throws at import when a `citadel-<slug>-wt` worktree runs against a database whose name lacks `<slug>` (c4 uses `citadel_c4_scratch`).

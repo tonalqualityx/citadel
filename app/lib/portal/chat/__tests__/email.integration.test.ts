@@ -9,6 +9,7 @@ import { ingestEmailReply, emailRef, senderVerified } from '../inbound';
 import { chatRecipientAllowed, recordChatSend } from '../outbox-guard';
 import { chatReplyTo, chatRef, buildAwayBody, buildReplyBody, buildStaffBody } from '../mailer';
 import { allChatStrings } from '../copy';
+import { looksLikeYes } from '../confirm-text';
 import { queuePortalNotices } from '@/lib/portal/notices';
 
 // Phase C slice C4: the email leg against a real scratch Postgres (spec 7.2 to 7.4).
@@ -78,7 +79,7 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     expect(r.text).toContain('Hi Olive');
     expect(r.text).toContain('Which page should it go on?');
     expect(r.text).toContain(`Ref: ${chatRef(token)}`);
-    expect(r.text).toContain('Indelible support');
+    expect(r.text).toContain('Indelible Support');
     expect(r.text).not.toMatch(/[–—]/);
     const waits = await prisma.wait.findMany({ where: { task_id: a.taskId } });
     expect(waits.map((w) => w.template_key)).toContain('portal.awaiting_client');
@@ -298,6 +299,56 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
       const staff = rows.find((r) => r.dedupe_key?.startsWith('chatstaff:'))!;
       expect(staff.reply_to_gmail_id).toBe('gmail-msg-1');
       expect(staff.subject).toBe(`Re: ${first.subject}`);
+    });
+  });
+
+  describe('hardening', () => {
+    it('looksLikeYes: short and a whole word send or yes', () => {
+      for (const ok of ['Yes', 'yes, send it', 'Send.', 'Yes please send it as written', 'SEND IT!']) expect(looksLikeYes(ok), ok).toBe(true);
+      for (const no of ['', 'Yesterday I called', 'resend', 'sending', 'ok', 'What does send mean for the other page and who does it go to and when and how long will it take please']) expect(looksLikeYes(no), no).toBe(false);
+    });
+
+    it('the away query is oldest first and leaves out conversations already emailed for the current question', async () => {
+      const o = await seedClient(`${tag}q`);
+      try {
+        const mk = async (s: Seeded, minutesAgo: number) => {
+          const q = await prisma.comment.create({ data: { task_id: s.taskId, user_id: BAST_USER_ID, content: 'Which page?', client_visible: true, source: 'assistant', created_at: at(-minutesAgo) } });
+          await prisma.chatConversation.update({ where: { id: s.conversationId }, data: { open_ask: { slot: 'change', question: 'Which page?', choice_ids: [], allow_free_text: true, allow_upload: false, comment_id: q.id } } });
+          return q.id;
+        };
+        await mk(o, 30);
+        // the main conversation's question is newer (T0) and already emailed
+        await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { away_sent_for_comment_id: askCommentId } });
+        const res = await runSweep(at(40), { conversationIds: [a.conversationId, o.conversationId] });
+        expect(res.away).toBe(1);
+        expect(await prisma.emailOutbox.count({ where: { task_id: o.taskId } })).toBe(1);
+        expect(await prisma.emailOutbox.count({ where: { task_id: a.taskId } })).toBe(0);
+      } finally {
+        await prisma.emailOutbox.deleteMany({ where: { task_id: o.taskId } });
+        await prisma.waitEvent.deleteMany({ where: { wait: { task_id: o.taskId } } });
+        await prisma.wait.deleteMany({ where: { task_id: o.taskId } });
+        await cleanup([o]);
+      }
+    });
+
+    it('a staff reply two days old is still emailed once; one from before the chat existed is not', async () => {
+      const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } });
+      await prisma.comment.create({ data: { task_id: a.taskId, user_id: MIKE_USER_ID, content: 'Old note before the chat.', client_visible: true, created_at: new Date(convo.created_at.getTime() - 3600_000) } });
+      await prisma.comment.create({ data: { task_id: a.taskId, user_id: MIKE_USER_ID, content: 'We fixed it.', client_visible: true, created_at: at(0, 1) } });
+      expect((await runSweep(at(60 * 48), scope())).staff).toBe(1);
+      const rows = (await outbox()).filter((r) => r.dedupe_key?.startsWith('chatstaff:'));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].text).toContain('We fixed it.');
+      expect(rows[0].text).not.toContain('Old note');
+      expect((await runSweep(at(60 * 49), scope())).staff).toBe(0);
+    });
+
+    it('files staged for a quarantined message are withdrawn', async () => {
+      const att = await prisma.portalAttachment.create({ data: { client_id: a.clientId, conversation_id: a.conversationId, uploaded_by_contact_id: a.ownerId, source: 'email', storage_key: `portal-private/${a.clientId}/x-${tag}`, filename: 'p.png', content_type: 'image/png', size_bytes: 10, sha256: 'a'.repeat(64) } });
+      const out = await ingestEmailReply({ token, from_email: 'stranger@evil.test', text: 'hi', raw: '', gmail_id: 'ga', rfc_message_id: `<att-${tag}@x>`, auth_pass: true, attachment_ids: [att.id] }, { now: at(12) });
+      expect(out.status).toBe('quarantined');
+      expect((await prisma.portalAttachment.findUniqueOrThrow({ where: { id: att.id } })).is_deleted).toBe(true);
+      await prisma.portalAttachment.delete({ where: { id: att.id } });
     });
   });
 

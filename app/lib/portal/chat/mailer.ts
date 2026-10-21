@@ -2,7 +2,7 @@
  * The chat's email leg (phase C spec 7.2, 7.3; slice C4).
  *
  * Every message here is an `EmailOutbox` row of kind `portal_chat`, sent by the bast@ drain as
- * "Indelible support", with `Reply-To: bast+c-{token}@becomeindelible.com` so the client's answer
+ * "Indelible Support", with `Reply-To: bast+c-{token}@becomeindelible.com` so the client's answer
  * comes back to the chat. Three kinds of email:
  *
  *  - the away email: Bast's own open question (or the summary awaiting a yes), one per question,
@@ -49,7 +49,7 @@ export interface FrameInput {
 }
 
 const youAsked = (f: FrameInput) => `You asked us for this in your Indelible portal: "${f.clientTitle}"${f.domain ? ` (${f.domain})` : ''}.`;
-const signature = (f: FrameInput) => ['Indelible support', `Ref: ${chatRef(f.token)}`];
+const signature = (f: FrameInput) => ['Indelible Support', `Ref: ${chatRef(f.token)}`];
 
 /** Choices as a numbered list. "Another page" cannot be answered by email, so it is left out. */
 export function numberedChoices(choices: Array<Pick<Choice, 'label'>>): string[] {
