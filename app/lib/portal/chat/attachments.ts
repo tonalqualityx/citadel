@@ -18,6 +18,8 @@ export async function bindAttachments(
     commentId: string;
     conversationId: string;
     intakeId?: string | null;
+    /** The person's contact ids: only files THEY staged can be bound to their message. */
+    contactIds: string[];
     now: Date;
   }
 ): Promise<string[]> {
@@ -26,11 +28,13 @@ export async function bindAttachments(
   if (ids.length > MAX_FILES_PER_MESSAGE) throw new ApiError(`At most ${MAX_FILES_PER_MESSAGE} files a message.`, 400, 'too_many_files');
   const rows = await tx.portalAttachment.findMany({
     where: { id: { in: ids }, client_id: input.clientId, is_deleted: false },
-    select: { id: true, comment_id: true, conversation_id: true, intake_id: true, created_at: true },
+    select: { id: true, comment_id: true, conversation_id: true, intake_id: true, created_at: true, uploaded_by_contact_id: true },
   });
   const ok = rows.filter(
     (r) =>
       r.comment_id === null &&
+      r.uploaded_by_contact_id !== null &&
+      input.contactIds.includes(r.uploaded_by_contact_id) &&
       r.created_at.getTime() > input.now.getTime() - DAY &&
       (r.conversation_id === input.conversationId || (r.conversation_id === null && input.intakeId && r.intake_id === input.intakeId))
   );

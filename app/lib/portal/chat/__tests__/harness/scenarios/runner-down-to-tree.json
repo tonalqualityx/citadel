@@ -1,5 +1,5 @@
 {
- "name": "runner down (expiry to the question tree, then confirm)",
+ "name": "runner down (a stuck job expires to the question tree; a silent runner means the tree at once; then confirm)",
  "world": {
   "sites": 1,
   "role": "owner",
@@ -62,7 +62,8 @@
     "slots": {
      "request_type": "site_change"
     }
-   }
+   },
+   "runner": "dead"
   },
   {
    "client": {

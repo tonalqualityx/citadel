@@ -15,7 +15,7 @@ export const portalChatEndpoints: ApiEndpoint[] = [
         responseExample: {
           mode: 'off|pilot|on',
           pilot_contact_count: 'number',
-          runner: { last_claim_at: 'ISO-8601|null', dead: 'boolean' },
+          runner: { last_seen_at: 'ISO-8601|null', last_claim_at: 'ISO-8601|null', dead: 'boolean (no runner heartbeat for 3 minutes)' },
           today: {
             jobs: { queued: 'number', claimed: 'number', done: 'number', failed: 'number', expired: 'number' },
             spend_usd: 'number',
@@ -39,7 +39,11 @@ export const portalChatEndpoints: ApiEndpoint[] = [
         method: 'POST',
         summary: 'Portal phase C: the walk-away sweep (runner, every 60 seconds). Queues the away email once per open question after 10 minutes of silence (3 once the tab is closed), the staff-reply email when the client is away, catches stalls, closes answered question chats. Idempotent; never a reminder.',
         ...authFields,
-        responseExample: { away: 'number', staff: 'number', stalled: 'number', email_failed: 'number', closed: 'number', waits_closed: 'number' },
+        bodySchema: [
+          { name: 'conversation_ids', type: 'string[]', required: false, description: 'Limit the pass to these conversations (tests). Omit to sweep everything (cron).' },
+          { name: 'created_after', type: 'string', required: false, description: 'ISO-8601; limit the pass to conversations created at or after this time (tests).' },
+        ],
+        responseExample: { away: 'number', staff: 'number', stalled: 'number', email_failed: 'number', closed: 'number', filed_unconfirmed: 'number', waits_closed: 'number' },
       },
     ],
   },

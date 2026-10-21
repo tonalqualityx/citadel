@@ -32,9 +32,13 @@ export interface Recording {
   /** The status this post must get: 200 (default), 422, 409. */
   expect_status?: number;
   expect_rule?: string;
+  /** After this refusal, stop: no regeneration and no canned fallback (the job stays claimed). */
+  hold_after_reject?: boolean;
 }
 
 export interface Step {
+  /** Set the runner's heartbeat before this step: dead = silent for 4 minutes, alive = just now. */
+  runner?: 'dead' | 'alive';
   client?: { text?: string; choice?: { slot: string; label: string }; attach?: number; confirm?: boolean; project_label?: string };
   /** Recordings for the job this step queues, in order (a 422 takes the next one). Omit for no job. */
   engine?: Recording[] | 'down' | 'canned';
@@ -69,6 +73,14 @@ export interface Expect {
   action_errors?: string[];
   title_starts?: string;
   waits_include?: string[];
+  /** Keys that must not be in the slots at all. */
+  slots_absent?: string[];
+  /** No wait of any kind on the task. */
+  waits_none?: boolean;
+  /** Status of the conversation's newest job. */
+  job_status?: string;
+  /** The task's tag list, exactly. */
+  tags_exactly?: string[];
   http?: number;
   error_code?: string;
   /** Slice C4 */
@@ -137,6 +149,9 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
         email: world.email, sessionId: 's', moved: false,
       };
       auth.bearer = null;
+      if (step.runner) {
+        await prisma.appSettings.update({ where: { id: 'singleton' }, data: { portal_chat_runner_seen_at: step.runner === 'dead' ? new Date(Date.now() - 4 * 60_000) : new Date() } });
+      }
       let http = 200;
       let errorCode: string | undefined;
       let route: string | undefined;
@@ -190,7 +205,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
       let emailStatus: string | undefined;
       if (step.sweep && played.conversationId) {
         const lastAssistant = await prisma.comment.findFirst({ where: { task_id: played.taskId!, source: 'assistant', is_internal: false }, orderBy: { created_at: 'desc' } });
-        await runSweep(new Date((lastAssistant?.created_at ?? new Date()).getTime() + step.sweep.after_minutes * 60_000));
+        await runSweep(new Date((lastAssistant?.created_at ?? new Date()).getTime() + step.sweep.after_minutes * 60_000), { conversationIds: [played.conversationId] });
       }
       if (step.email && played.conversationId) {
         const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: played.conversationId } });
@@ -222,6 +237,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
         const runs: Array<Record<string, unknown>> = [];
         extra.tc = [];
         let done = false;
+        let held = false;
         let attempt = 0;
         for (const rec of list) {
           attempt++;
@@ -242,6 +258,10 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
           const resBody = await res.json();
           assertions(`${label}: complete status ${JSON.stringify(resBody).slice(0, 200)}`, res.status, rec.expect_status ?? 200);
           if (rec.expect_rule) assertions(`${label}: rule`, resBody.rule, rec.expect_rule);
+          if (res.status === 422 && rec.hold_after_reject) {
+            held = true;
+            break;
+          }
           if (res.status === 422) {
             runs.push({ ...run, rejected_text: result.reply ?? '' });
             continue;
@@ -249,7 +269,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
           done = true;
           break;
         }
-        if (!done) {
+        if (!done && !held) {
           // Two refusals (or an explicit canned step): the fixed line and a handoff.
           const res = await completeRoute(req('/x', { method: 'POST', body: JSON.stringify({ canned: true, runs: runs.length ? runs : [{ attempt: 1, model: 'recorded', prompt_hash: 'h'.repeat(64), cost_usd: 0.01, is_error: false }] }) }), ctx(jobId));
           assertions(`${label}: canned status`, res.status, 200);
@@ -332,6 +352,13 @@ async function check(
       assertions(`${label}: reply-to`, rows.length > 0 && rows.every((r) => r.reply_to === `bast+c-${convo2.email_token}@becomeindelible.com` && r.from_account === 'bast@becomeindelible.com'), e.outbox_reply_to);
     }
   }
+  if (e.slots_absent) for (const k of e.slots_absent) assertions(`${label}: slot ${k} absent`, k in (convo.slots as Record<string, unknown>), false);
+  if (e.waits_none) assertions(`${label}: no waits`, await prisma.wait.count({ where: { task_id: played.taskId! } }), 0);
+  if (e.job_status) {
+    const newest = await prisma.engineJob.findFirst({ where: { conversation_id: played.conversationId }, orderBy: { queued_at: 'desc' } });
+    assertions(`${label}: newest job status`, newest?.status, e.job_status);
+  }
+  if (e.tags_exactly) assertions(`${label}: tags`, [...task.tags].sort(), [...e.tags_exactly].sort());
   if (e.waits_include) {
     const waits = await prisma.wait.findMany({ where: { task_id: played.taskId! }, select: { template_key: true } });
     for (const w of e.waits_include) assertions(`${label}: wait ${w}`, waits.some((x) => x.template_key === w), true);

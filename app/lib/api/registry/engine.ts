@@ -120,4 +120,29 @@ export const engineEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/engine/jobs/{id}/tool-quota',
+    group: 'engine',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Preflight for a tool call: 200 { allowed: true } when the job has calls left and (for analytics tools) the client is under 40 a day; 429 otherwise; 409 when the job is not live. The tool server asks before it spends a Google call.',
+        ...authFields,
+        queryParams: [{ name: 'tool', type: 'string', required: true, description: 'ga4_report | search_console | citadel_read | site_pages' }],
+        responseExample: { allowed: true },
+      },
+    ],
+  },
+  {
+    path: '/api/engine/runner/heartbeat',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The chat runner is alive. Posted every 60 s from the poll loop, idle or busy; stores the time in the settings row. The runner counts as dead after 3 minutes without one, independent of claims.',
+        ...authFields,
+        responseExample: { seen_at: 'ISO-8601' },
+      },
+    ],
+  },
 ];

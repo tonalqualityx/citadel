@@ -140,7 +140,7 @@ export async function resolveChoices(
     }
   } else if (slot === 'asset') {
     const atts = await prisma.portalAttachment.findMany({
-      where: { client_id: conv.client_id, is_deleted: false, OR: [{ conversation_id: conv.id }, { conversation_id: null }] },
+      where: { client_id: conv.client_id, is_deleted: false, conversation_id: conv.id },
       select: { id: true, filename: true },
     });
     for (const id of ids) {

@@ -12,7 +12,8 @@ import type { PortalChatSwitch } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { checkCaps, type CapReason } from '@/lib/portal/chat/caps';
 
-export const RUNNER_ALIVE_MS = 10 * 60_000;
+/** The runner posts a heartbeat every 60 s; no heartbeat for 3 minutes is a real outage (cron restarts it every minute). */
+export const RUNNER_ALIVE_MS = 3 * 60_000;
 
 export interface ChatSettings {
   mode: PortalChatSwitch;
@@ -44,21 +45,35 @@ export async function updateChatSettings(patch: Partial<{ mode: PortalChatSwitch
 
 export interface RunnerState {
   last_claim_at: Date | null;
-  /** No claim in the last 10 minutes while a job is waiting or went unclaimed. */
+  /** The runner's own last heartbeat (idle or busy). */
+  last_seen_at: Date | null;
+  /** No runner heartbeat for 3 minutes, whatever the queue looks like. */
   dead: boolean;
 }
 
-export async function runnerState(now: Date = new Date()): Promise<RunnerState> {
-  const since = new Date(now.getTime() - RUNNER_ALIVE_MS);
-  const last = await prisma.engineJob.findFirst({ where: { claimed_at: { not: null } }, orderBy: { claimed_at: 'desc' }, select: { claimed_at: true } });
-  const lastClaim = last?.claimed_at ?? null;
-  if (lastClaim && lastClaim >= since) return { last_claim_at: lastClaim, dead: false };
-  // No recent claim: dead only if work is stuck. A queued job, or one that expired unclaimed
-  // within the window, means nobody is picking up. An empty queue is a quiet runner, not a dead one.
-  const stuck = await prisma.engineJob.count({
-    where: { OR: [{ status: 'queued' }, { status: 'expired', claimed_at: null, expired_at: { gte: since } }] },
+/** Record that the runner is alive. Called by POST /api/engine/runner/heartbeat. */
+export async function recordRunnerHeartbeat(now: Date = new Date()): Promise<Date> {
+  await prisma.appSettings.upsert({
+    where: { id: 'singleton' },
+    create: { id: 'singleton', portal_chat_runner_seen_at: now },
+    update: { portal_chat_runner_seen_at: now },
   });
-  return { last_claim_at: lastClaim, dead: stuck > 0 };
+  return now;
+}
+
+/**
+ * Liveness is the runner's heartbeat, independent of claims: an idle runner with an empty queue is
+ * alive, and the first message after a quiet night stays in model mode. Claims are reported for
+ * information only.
+ */
+export async function runnerState(now: Date = new Date()): Promise<RunnerState> {
+  const [settings, last] = await Promise.all([
+    prisma.appSettings.findUnique({ where: { id: 'singleton' }, select: { portal_chat_runner_seen_at: true } }),
+    prisma.engineJob.findFirst({ where: { claimed_at: { not: null } }, orderBy: { claimed_at: 'desc' }, select: { claimed_at: true } }),
+  ]);
+  const seen = settings?.portal_chat_runner_seen_at ?? null;
+  const dead = !seen || now.getTime() - seen.getTime() > RUNNER_ALIVE_MS;
+  return { last_claim_at: last?.claimed_at ?? null, last_seen_at: seen, dead };
 }
 
 export type Unavailable = 'mode_off' | 'not_pilot' | 'site_off' | 'runner_down' | CapReason;

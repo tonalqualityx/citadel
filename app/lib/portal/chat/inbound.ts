@@ -143,7 +143,7 @@ export async function ingestEmailReply(raw: InboundInput, opts: { now?: Date } =
       },
       select: { id: true },
     });
-    await bindAttachments(tx, { clientId: fresh.client_id, ids: input.attachment_ids, taskId: convo.task_id, commentId: comment.id, conversationId: convo.id, now });
+    await bindAttachments(tx, { clientId: fresh.client_id, ids: input.attachment_ids, taskId: convo.task_id, commentId: comment.id, conversationId: convo.id, contactIds: [contact.id], now });
     const tags = task.tags.filter((t) => t !== 'awaiting-clarification' && t !== 'chat-question');
     await tx.task.update({ where: { id: task.id }, data: { tags } });
     // State, slots and the open ask stay: the reply job reads them (a "send" answers the summary).

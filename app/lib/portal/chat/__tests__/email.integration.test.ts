@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { MIKE_USER_ID } from '@/lib/waits/owner';
 import { cleanup, SCRATCH, seedClient, type Seeded } from '@/lib/engine/__tests__/seed';
-import { getChatSettings, updateChatSettings } from '../switches';
+import { getChatSettings, recordRunnerHeartbeat, updateChatSettings } from '../switches';
 import { runSweep } from '../sweep';
 import { ingestEmailReply, emailRef, senderVerified } from '../inbound';
 import { chatRecipientAllowed, recordChatSend } from '../outbox-guard';
@@ -22,6 +22,7 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
   const at = (min: number, sec = 0) => new Date(T0.getTime() + min * MIN + sec * 1000);
   let askCommentId = '';
 
+  const scope = () => ({ conversationIds: [a.conversationId] });
   const outbox = () => prisma.emailOutbox.findMany({ where: { task_id: a.taskId }, orderBy: { created_at: 'asc' } });
 
   beforeAll(async () => {
@@ -39,6 +40,7 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
 
   beforeEach(async () => {
     await updateChatSettings({ mode: 'on', pilot_contact_ids: [], daily_cap_usd: 30 });
+    await recordRunnerHeartbeat(at(11)); // a live runner at the test's clock
     await prisma.emailOutbox.deleteMany({ where: { task_id: a.taskId } });
     await prisma.waitEvent.deleteMany({ where: { wait: { task_id: a.taskId } } });
     await prisma.wait.deleteMany({ where: { task_id: a.taskId } });
@@ -60,9 +62,9 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
   });
 
   it('9:59 of silence: no email; 10:00: exactly one, from bast@, with the reply-to and the frame', async () => {
-    expect((await runSweep(at(9, 59))).away).toBe(0);
+    expect((await runSweep(at(9, 59), scope())).away).toBe(0);
     expect((await outbox()).length).toBe(0);
-    expect((await runSweep(at(10))).away).toBe(1);
+    expect((await runSweep(at(10), scope())).away).toBe(1);
     const rows = await outbox();
     expect(rows).toHaveLength(1);
     const r = rows[0];
@@ -83,43 +85,66 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
   });
 
   it('no reminders ever: later sweeps, an hour and a day on, send nothing more', async () => {
-    await runSweep(at(10));
-    await runSweep(at(11));
-    await runSweep(at(70));
-    await runSweep(at(60 * 24));
+    await runSweep(at(10), scope());
+    await runSweep(at(11), scope());
+    await runSweep(at(70), scope());
+    await runSweep(at(60 * 24), scope());
     expect((await outbox()).filter((r) => r.dedupe_key?.startsWith('chat:'))).toHaveLength(1);
+  });
+
+  it('a scoped sweep leaves every other conversation alone; no scope sweeps it', async () => {
+    const other = await seedClient(`${tag}o`);
+    try {
+      await prisma.comment.create({ data: { task_id: other.taskId, content: 'Hello?', author_contact_id: other.ownerId, client_visible: true, source: 'portal', created_at: at(0) } });
+      await runSweep(at(30), scope());
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: other.conversationId } })).state).toBe('clarifying');
+      await runSweep(at(30), { createdAfter: new Date(Date.now() - 60_000), conversationIds: [a.conversationId] });
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: other.conversationId } })).state).toBe('clarifying');
+      await runSweep(at(30)); // the cron call: everything
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: other.conversationId } })).state).toBe('with_person');
+    } finally {
+      await cleanup([other]);
+    }
+  });
+
+  it('an unconfirmed request is filed with what is known after 48 hours, by C2\'s step', async () => {
+    expect((await runSweep(at(47 * 60), scope())).filed_unconfirmed).toBe(0);
+    expect((await runSweep(at(49 * 60), scope())).filed_unconfirmed).toBe(1);
+    const t = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
+    expect(t.tags).toEqual(expect.arrayContaining(['unconfirmed-chat', 'needs-mike']));
+    expect(t.tags).not.toContain('chat-clarifying');
   });
 
   it('typing keeps the clock: a typing signal 5 minutes ago holds the email back', async () => {
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { last_typing_at: at(5) } });
-    expect((await runSweep(at(10))).away).toBe(0);
-    expect((await runSweep(at(15))).away).toBe(1);
+    expect((await runSweep(at(10), scope())).away).toBe(0);
+    expect((await runSweep(at(15), scope())).away).toBe(1);
   });
 
   it('a closed tab: 2:59 no, 3:00 yes', async () => {
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { page_hidden_at: at(1) } });
-    expect((await runSweep(at(3, 59))).away).toBe(0);
-    expect((await runSweep(at(4))).away).toBe(1);
+    expect((await runSweep(at(3, 59), scope())).away).toBe(0);
+    expect((await runSweep(at(4), scope())).away).toBe(1);
   });
 
   it('the client answered first: nothing is sent', async () => {
     await prisma.comment.create({ data: { task_id: a.taskId, content: 'The about page', author_contact_id: a.ownerId, client_visible: true, source: 'portal', created_at: at(5) } });
-    expect((await runSweep(at(30))).away).toBe(0);
+    expect((await runSweep(at(30), scope())).away).toBe(0);
   });
 
   it('a with_person conversation and a switched-off chat get no away email', async () => {
     await updateChatSettings({ mode: 'off' });
-    expect((await runSweep(at(30))).away).toBe(0);
+    expect((await runSweep(at(30), scope())).away).toBe(0);
     await updateChatSettings({ mode: 'on' });
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { state: 'with_person' } });
-    expect((await runSweep(at(30))).away).toBe(0);
+    expect((await runSweep(at(30), scope())).away).toBe(0);
   });
 
   it('a summary waiting for a yes goes as the summary with the send line', async () => {
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { state: 'confirming', open_ask: { set: null } as never, summary_text: 'Add the photo to the About page, team section.' } }).catch(async () => {
       await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { state: 'confirming', summary_text: 'Add the photo to the About page, team section.' } });
     });
-    await runSweep(at(10));
+    await runSweep(at(10), scope());
     const [r] = await outbox();
     expect(r.text).toContain('Add the photo to the About page, team section.');
     expect(r.text).toContain("Reply 'send'");
@@ -130,9 +155,9 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     const task = { id: a.taskId, client_title: 'Request', client_id: a.clientId, requested_by_contact_id: a.ownerId };
     expect(await queuePortalNotices(task, { id: staff.id })).toEqual({ queued: 0, absorbed: 0 });
     expect(await prisma.portalNotice.count({ where: { task_id: a.taskId } })).toBe(0);
-    expect((await runSweep(at(21, 59))).staff).toBe(0);
-    expect((await runSweep(at(22))).staff).toBe(1);
-    expect((await runSweep(at(23))).staff).toBe(0);
+    expect((await runSweep(at(21, 59), scope())).staff).toBe(0);
+    expect((await runSweep(at(22), scope())).staff).toBe(1);
+    expect((await runSweep(at(23), scope())).staff).toBe(0);
     const rows = (await outbox()).filter((r) => r.dedupe_key?.startsWith('chatstaff:'));
     expect(rows).toHaveLength(1);
     expect(rows[0].text).toContain('We added the photo to the About page.');
@@ -142,20 +167,20 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
   it('a staff reply while the client is watching sends nothing', async () => {
     await prisma.comment.create({ data: { task_id: a.taskId, user_id: MIKE_USER_ID, content: 'Done.', client_visible: true, created_at: at(20) } });
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { last_seen_at: at(21) } });
-    expect((await runSweep(at(22, 30))).staff).toBe(0);
+    expect((await runSweep(at(22, 30), scope())).staff).toBe(0);
     expect((await outbox()).filter((r) => r.dedupe_key?.startsWith('chatstaff:'))).toHaveLength(0);
   });
 
   it('a staff reply made internal during the hold never goes', async () => {
     const c = await prisma.comment.create({ data: { task_id: a.taskId, user_id: MIKE_USER_ID, content: 'Oops.', client_visible: true, created_at: at(20) } });
     await prisma.comment.update({ where: { id: c.id }, data: { is_internal: true } });
-    expect((await runSweep(at(23))).staff).toBe(0);
+    expect((await runSweep(at(23), scope())).staff).toBe(0);
   });
 
   it('a stall: a client message with no reply after 3 minutes goes to a person with the fixed line', async () => {
     await prisma.comment.create({ data: { task_id: a.taskId, content: 'Hello?', author_contact_id: a.ownerId, client_visible: true, source: 'portal', created_at: at(30) } });
-    expect((await runSweep(at(32, 59))).stalled).toBe(0);
-    expect((await runSweep(at(33))).stalled).toBe(1);
+    expect((await runSweep(at(32, 59), scope())).stalled).toBe(0);
+    expect((await runSweep(at(33), scope())).stalled).toBe(1);
     const c = await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } });
     expect(c.state).toBe('with_person');
   });
@@ -165,8 +190,8 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { open_ask: { set: null } as never, slots: { question_closed_at: at(0).toISOString() } } }).catch(async () => {
       await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { slots: { question_closed_at: at(0).toISOString() } } });
     });
-    expect((await runSweep(at(23 * 60))).closed).toBe(0);
-    expect((await runSweep(at(24 * 60 + 1))).closed).toBe(1);
+    expect((await runSweep(at(23 * 60), scope())).closed).toBe(0);
+    expect((await runSweep(at(24 * 60 + 1), scope())).closed).toBe(1);
     const t = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
     expect(t.status).toBe('done');
   });
@@ -175,7 +200,7 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     const base = () => ({ token, from_email: `olive-${tag}@example.test`, text: 'The about page, please.', raw: 'raw body', gmail_id: 'g1', rfc_message_id: `<m-${tag}-1@mail.test>`, gmail_thread_id: 't1', auth_pass: true, attachment_ids: [] as string[] });
 
     it('stores the client message, closes the awaiting clock, queues one chat_email_reply job, and is idempotent', async () => {
-      await runSweep(at(10));
+      await runSweep(at(10), scope());
       const out = await ingestEmailReply(base(), { now: at(12) });
       expect(out.status).toBe('ingested');
       const again = await ingestEmailReply(base(), { now: at(12) });
@@ -264,11 +289,11 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     });
 
     it('after a send, the next email replies to the newest message and keeps the thread subject', async () => {
-      await runSweep(at(10));
+      await runSweep(at(10), scope());
       const [first] = await outbox();
       await recordChatSend(a.taskId, 'gmail-msg-1', 'gmail-thread-1');
       await prisma.comment.create({ data: { task_id: a.taskId, user_id: MIKE_USER_ID, content: 'Fixed.', client_visible: true, created_at: at(20) } });
-      await runSweep(at(23));
+      await runSweep(at(23), scope());
       const rows = await outbox();
       const staff = rows.find((r) => r.dedupe_key?.startsWith('chatstaff:'))!;
       expect(staff.reply_to_gmail_id).toBe('gmail-msg-1');

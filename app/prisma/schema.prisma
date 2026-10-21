@@ -1684,6 +1684,8 @@ model AppSettings {
   portal_chat_mode              PortalChatSwitch @default(off)
   portal_chat_pilot_contact_ids String[]         @default([]) @db.Uuid
   portal_chat_daily_cap_usd     Decimal          @default(30) @db.Decimal(8, 2)
+  // The chat runner posts a heartbeat every 60 s while it is alive, idle or not (POST /api/engine/runner/heartbeat).
+  portal_chat_runner_seen_at    DateTime?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt

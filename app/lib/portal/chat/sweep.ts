@@ -21,6 +21,7 @@ import { postInternalNote } from '@/lib/portal/chat/assistant-comment';
 import { handOff } from '@/lib/portal/chat/handoff';
 import { CANNED_LINE } from '@/lib/portal/chat/copy';
 import { chatSwitchesOn } from '@/lib/portal/chat/switches';
+import { closeUnconfirmed, listUnconfirmedCandidates, type UnconfirmedOutcome } from '@/lib/portal/chat/confirm';
 import { readSlots } from '@/lib/portal/chat/slots';
 import {
   AWAY_HIDDEN_MS, AWAY_SILENCE_MS, STAFF_HOLD_MS, awayKey, buildAwayBody, buildStaffBody, clientIsWatching, emailFixedLine, frameFor,
@@ -39,8 +40,28 @@ export interface SweepResult {
   stalled: number;
   email_failed: number;
   closed: number;
+  filed_unconfirmed: number;
   waits_closed: number;
 }
+
+/**
+ * Limits a sweep to some conversations. The cron call passes none and sweeps everything; a test run passes
+ * the ids it created (or a created-after bound) so it can never touch another conversation in a shared database.
+ */
+export interface SweepScope {
+  conversationIds?: string[];
+  createdAfter?: Date;
+}
+
+async function scopeIds(scope?: SweepScope): Promise<string[] | null> {
+  if (!scope || (!scope.conversationIds && !scope.createdAfter)) return null;
+  const rows = await prisma.chatConversation.findMany({
+    where: { ...(scope.conversationIds ? { id: { in: scope.conversationIds } } : {}), ...(scope.createdAfter ? { created_at: { gte: scope.createdAfter } } : {}) },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+const inScope = (ids: string[] | null) => (ids ? { id: { in: ids } } : {});
 
 type ConvoFull = Prisma.ChatConversationGetPayload<object>;
 
@@ -56,9 +77,9 @@ async function contactFor(convo: ConvoFull) {
 
 const visibleCommentWhere = { is_deleted: false, is_internal: false, OR: [{ author_contact_id: { not: null } }, { client_visible: true }] } satisfies Prisma.CommentWhereInput;
 
-async function awayPass(now: Date): Promise<number> {
+async function awayPass(now: Date, ids: string[] | null): Promise<number> {
   const candidates = await prisma.chatConversation.findMany({
-    where: { state: { in: ['clarifying', 'confirming'] } },
+    where: { state: { in: ['clarifying', 'confirming'] }, ...inScope(ids) },
     take: 200,
   });
   let sent = 0;
@@ -113,7 +134,7 @@ async function awayPass(now: Date): Promise<number> {
   return sent;
 }
 
-async function staffPass(now: Date): Promise<number> {
+async function staffPass(now: Date, ids: string[] | null): Promise<number> {
   const since = new Date(now.getTime() - STAFF_WINDOW_MS);
   const pending = await prisma.comment.findMany({
     where: {
@@ -124,7 +145,7 @@ async function staffPass(now: Date): Promise<number> {
       client_visible: true,
       OR: [{ source: null }, { source: { notIn: ['assistant'] } }],
       chat_meta: { equals: Prisma.DbNull },
-      task: { chat_conversation: { isNot: null } },
+      task: { chat_conversation: ids ? { is: { id: { in: ids } } } : { isNot: null } },
     },
     orderBy: { created_at: 'asc' },
     select: { id: true, task_id: true, content: true, created_at: true, user_id: true },
@@ -174,12 +195,13 @@ async function staffPass(now: Date): Promise<number> {
   return sent;
 }
 
-async function stallPass(now: Date): Promise<{ stalled: number; email_failed: number }> {
+async function stallPass(now: Date, ids: string[] | null): Promise<{ stalled: number; email_failed: number }> {
   let stalled = 0;
   let emailFailed = 0;
-  await expireStaleJobs(now);
+  if (ids) for (const id of ids) await expireStaleJobs(now, { conversationId: id });
+  else await expireStaleJobs(now);
   const cutoff = new Date(now.getTime() - STALL_MS);
-  const open = await prisma.chatConversation.findMany({ where: { state: { in: ['clarifying', 'confirming'] }, mode: 'model' }, take: 200 });
+  const open = await prisma.chatConversation.findMany({ where: { state: { in: ['clarifying', 'confirming'] }, mode: 'model', ...inScope(ids) }, take: 200 });
   for (const c of open) {
     const jobs = await prisma.engineJob.count({ where: { conversation_id: c.id, status: { in: ['queued', 'claimed'] } } });
     if (jobs > 0) continue;
@@ -192,7 +214,7 @@ async function stallPass(now: Date): Promise<{ stalled: number; email_failed: nu
   // A client's email must never be dropped: its job expired or failed, so a person reads it.
   const since = new Date(now.getTime() - EMAIL_JOB_WINDOW_MS);
   const dead = await prisma.engineJob.findMany({
-    where: { type: 'chat_email_reply', status: { in: ['expired', 'failed'] }, queued_at: { gte: since }, conversation_id: { not: null } },
+    where: { type: 'chat_email_reply', status: { in: ['expired', 'failed'] }, queued_at: { gte: since }, conversation_id: ids ? { in: ids } : { not: null } },
     select: { id: true, conversation_id: true, contact_id: true, queued_at: true },
   });
   for (const j of dead) {
@@ -209,33 +231,20 @@ async function stallPass(now: Date): Promise<{ stalled: number; email_failed: nu
   return { stalled, email_failed: emailFailed };
 }
 
-async function closeQuestionChats(now: Date): Promise<number> {
-  const rows = await prisma.chatConversation.findMany({
-    where: { state: { in: ['clarifying', 'filed'] }, task: { tags: { has: 'chat-question' } } },
-    include: { task: { select: { id: true, tags: true, status: true } } },
-    take: 200,
-  });
-  let closed = 0;
-  for (const c of rows) {
-    const at = readSlots(c.slots).question_closed_at;
-    if (!at || now.getTime() - new Date(at).getTime() < QUESTION_CLOSE_MS) continue;
-    const newer = await prisma.comment.count({ where: { task_id: c.task_id, author_contact_id: { not: null }, created_at: { gt: new Date(at) }, is_deleted: false } });
-    if (newer > 0) continue;
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-chat-convo:${c.id}`}))`;
-      const tags = c.task.tags.filter((t) => !['chat-clarifying', 'awaiting-clarification'].includes(t));
-      await tx.task.update({ where: { id: c.task_id }, data: { status: 'done', completed_at: now, tags } });
-      await tx.chatConversation.update({ where: { id: c.id }, data: { state: 'closed', open_ask: Prisma.DbNull } });
-    });
-    closed++;
-  }
-  return closed;
+/** C2's walk-away step: question chats close at 24 hours, unconfirmed requests are filed with what is known at 48 (spec 2.5, 7.2). */
+async function unconfirmedPass(now: Date, ids: string[] | null): Promise<Record<UnconfirmedOutcome, number>> {
+  const counts: Record<UnconfirmedOutcome, number> = { skipped: 0, closed_question: 0, filed_unconfirmed: 0, handed_off: 0 };
+  const candidates = ids
+    ? (await prisma.chatConversation.findMany({ where: { id: { in: ids }, state: { in: ['clarifying', 'confirming'] } }, select: { id: true } })).map((r) => r.id)
+    : await listUnconfirmedCandidates(now, 500);
+  for (const id of candidates) counts[await closeUnconfirmed(id, { now })]++;
+  return counts;
 }
 
 /** Close the "awaiting the client" clock where the client has written since it opened. */
-async function reconcileWaits(now: Date): Promise<number> {
+async function reconcileWaits(now: Date, ids: string[] | null): Promise<number> {
   const waits = await prisma.wait.findMany({
-    where: { template_key: 'portal.awaiting_client', state: { in: [...OPEN_STATES] }, task: { chat_conversation: { isNot: null } } },
+    where: { template_key: 'portal.awaiting_client', state: { in: [...OPEN_STATES] }, task: { chat_conversation: ids ? { is: { id: { in: ids } } } : { isNot: null } } },
     select: { id: true, task_id: true, created_at: true },
     take: 200,
   });
@@ -248,11 +257,12 @@ async function reconcileWaits(now: Date): Promise<number> {
   return n;
 }
 
-export async function runSweep(now: Date = new Date()): Promise<SweepResult> {
-  const stalls = await stallPass(now);
-  const waits_closed = await reconcileWaits(now);
-  const away = await awayPass(now);
-  const staff = await staffPass(now);
-  const closed = await closeQuestionChats(now);
-  return { away, staff, stalled: stalls.stalled, email_failed: stalls.email_failed, closed, waits_closed };
+export async function runSweep(now: Date = new Date(), scope?: SweepScope): Promise<SweepResult> {
+  const ids = await scopeIds(scope);
+  const stalls = await stallPass(now, ids);
+  const waits_closed = await reconcileWaits(now, ids);
+  const away = await awayPass(now, ids);
+  const staff = await staffPass(now, ids);
+  const un = await unconfirmedPass(now, ids);
+  return { away, staff, stalled: stalls.stalled, email_failed: stalls.email_failed, closed: un.closed_question, filed_unconfirmed: un.filed_unconfirmed, waits_closed };
 }
