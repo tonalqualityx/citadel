@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key } from 'lucide-react';
+import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key, MessageSquare } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -10,6 +10,7 @@ import { apiClient } from '@/lib/api/client';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PortalChatSettings } from '@/components/domain/settings/portal-chat-settings';
 
 export default function GuildPage() {
   const { data, isLoading } = usePreferences();
@@ -230,6 +231,17 @@ export default function GuildPage() {
             Manage API keys →
           </a>
         </SettingsCard>
+
+        {/* Portal chat (admin) */}
+        {user?.role === 'admin' && (
+          <SettingsCard
+            icon={MessageSquare}
+            title="Portal chat"
+            description="The client chat with the assistant: mode, spend cap, pilot contacts and which sites have it."
+          >
+            <PortalChatSettings />
+          </SettingsCard>
+        )}
 
         {/* Notification Preferences */}
         <SettingsCard

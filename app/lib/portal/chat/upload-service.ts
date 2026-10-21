@@ -14,11 +14,11 @@ const DAY = 24 * 60 * 60 * 1000;
 
 export async function stageUpload(
   access: PortalAccess,
-  input: { buffer: Buffer; name: string; intake_id?: string | null; conversation_id?: string | null },
+  input: { buffer: Buffer; name: string; intake_id?: string | null; conversation_id?: string | null; task_id?: string | null },
   now: Date = new Date()
 ) {
   if (access.revoked || access.role === 'none') throw new ApiError('Not found', 404);
-  if (!input.intake_id && !input.conversation_id) throw new ApiError('Missing conversation', 400, 'bad_upload');
+  if (!input.intake_id && !input.conversation_id && !input.task_id) throw new ApiError('Missing conversation', 400, 'bad_upload');
   const checked = validateUpload(input.buffer, input.name);
   if (!checked.ok) throw new ApiError(checked.reason, checked.status, 'bad_file');
 
@@ -30,12 +30,23 @@ export async function stageUpload(
     if (!ok) throw new ApiError('Not found', 404);
     conversationId = convo.id;
   }
+  // A work page whose conversation is not open yet: files are scoped to the task and bind when it opens.
+  let taskId: string | null = null;
+  if (!conversationId && !input.intake_id && input.task_id) {
+    const ok = await prisma.task.findFirst({ where: threadTaskWhere(access, input.task_id), select: { id: true } });
+    if (!ok) throw new ApiError('Not found', 404);
+    taskId = ok.id;
+  }
   const ids = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
   const since = new Date(now.getTime() - DAY);
   const [today, used] = await Promise.all([
     prisma.portalAttachment.count({ where: { uploaded_by_contact_id: { in: ids }, created_at: { gte: since } } }),
     prisma.portalAttachment.aggregate({
-      where: conversationId ? { conversation_id: conversationId, is_deleted: false } : { intake_id: input.intake_id!, client_id: access.clientId, is_deleted: false },
+      where: conversationId
+        ? { conversation_id: conversationId, is_deleted: false }
+        : taskId
+          ? { task_id: taskId, client_id: access.clientId, is_deleted: false }
+          : { intake_id: input.intake_id!, client_id: access.clientId, is_deleted: false },
       _sum: { size_bytes: true },
     }),
   ]);
@@ -50,7 +61,8 @@ export async function stageUpload(
       id,
       client_id: access.clientId,
       conversation_id: conversationId,
-      intake_id: conversationId ? null : input.intake_id ?? null,
+      task_id: taskId,
+      intake_id: conversationId || taskId ? null : input.intake_id ?? null,
       uploaded_by_contact_id: access.contactId,
       source: 'portal',
       storage_key: key,

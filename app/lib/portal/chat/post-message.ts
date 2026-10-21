@@ -14,7 +14,7 @@ import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { createNotification } from '@/lib/services/notifications';
 import { MESSAGE_LIMITS, MESSAGE_MAX_CHARS, MESSAGE_RATE_LIMIT_MESSAGE, threadTaskWhere } from '@/lib/portal/thread';
 import { onClientMessage } from '@/lib/portal/waits';
-import { bindAttachments } from '@/lib/portal/chat/attachments';
+import { bindAttachments, FILES_ONLY_TEXT } from '@/lib/portal/chat/attachments';
 import { applyUrgentChoice, isUrgentText, type UrgentChoice, type UrgentOutcome } from '@/lib/portal/chat/urgent';
 import { refreshTaskDescription } from '@/lib/portal/chat/description';
 import { postAssistantComment } from '@/lib/portal/chat/assistant-comment';
@@ -147,7 +147,7 @@ export async function postChatMessage(
       if (slot === 'urgent') urgentChoice = id as UrgentChoice;
     }
 
-    const content = rawText || label || '(attachment)';
+    const content = rawText || label || FILES_ONLY_TEXT;
     const comment = await tx.comment.create({
       data: {
         task_id: convo.task_id,

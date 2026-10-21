@@ -10,8 +10,10 @@ import { ensureConversation, postChatMessage } from '@/lib/portal/chat/post-mess
 
 const bodySchema = z.object({
   client_ref: z.string().uuid(),
-  text: z.string().min(1).max(MESSAGE_MAX_CHARS),
-});
+  text: z.string().max(MESSAGE_MAX_CHARS).default(''),
+  // Files staged on this task before the conversation existed (POST /api/portal/uploads with task_id).
+  attachment_ids: z.array(z.string().uuid()).max(10).default([]),
+}).refine((b) => b.text.trim().length > 0 || b.attachment_ids.length > 0, { message: 'A message needs words or a file.', path: ['text'] });
 
 const idOr404 = (id: string) => {
   if (!z.string().uuid().safeParse(id).success) throw new ApiError('Not found', 404);
@@ -60,7 +62,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // which opens the conversation lazily on the first client message and queues the reply job.
     const conversationId = await ensureConversation(access, id);
     if (conversationId) {
-      const chat = await postChatMessage(access, contact, conversationId, { client_ref: body.client_ref, text: body.text });
+      const chat = await postChatMessage(access, contact, conversationId, { client_ref: body.client_ref, text: body.text, attachment_ids: body.attachment_ids });
       const row = await prisma.comment.findUnique({
         where: { id: chat.comment_id },
         select: { id: true, content: true, created_at: true, author_contact_id: true, author_contact: { select: { name: true } } },
@@ -69,7 +71,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const ids = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
       return NextResponse.json({ message: toThreadMessage(row, ids) }, { status: chat.created ? 201 : 200 });
     }
-    const posted = await postClientMessage(access, contact, id, body);
+    // The phase B thread (no chat) takes words only.
+    if (body.text.trim().length === 0) throw new ApiError('Messages are 1 to 4000 characters.', 400, 'bad_message');
+    const posted = await postClientMessage(access, contact, id, { client_ref: body.client_ref, text: body.text });
     return NextResponse.json({ message: posted.message }, { status: posted.created ? 201 : 200 });
   } catch (error) {
     return handleApiError(error);

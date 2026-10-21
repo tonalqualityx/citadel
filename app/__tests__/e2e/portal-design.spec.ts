@@ -17,6 +17,9 @@ const TS = 'npx ts-node --compiler-options \'{"module":"CommonJS"}\'';
 const OWNER_TOKEN = 'e2e-portal-v2-phase1-fixture-session-token-'.padEnd(128, 'a');
 
 let taskId = '';
+let chatIds: { request_intake: string; request_conversation_id: string; work_task_id: string } | null = null;
+const CHAT_SEED = `${TS} scripts/seed-portal-chat-fixtures.ts`;
+const CHAT_SCREENS = ['request-new-chat', 'work-chat'];
 
 test.beforeAll(() => {
   execSync(`${TS} scripts/seed-portal-v2-phase1-fixtures.ts`, { cwd: APP_ROOT, stdio: 'inherit' });
@@ -29,6 +32,7 @@ test.beforeAll(() => {
 });
 
 test.afterAll(() => {
+  execSync(`${CHAT_SEED} --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
   execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
   execSync(`${TS} scripts/seed-portal-b2-fixtures.ts --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
 });
@@ -45,6 +49,8 @@ const SCREENS: Array<{ name: string; url: () => string; signedIn: boolean; ready
   { name: 'home', url: () => '/portal/home', signedIn: true, ready: /need|Nothing needs you/i },
   { name: 'requests', url: () => '/portal/requests', signedIn: true, ready: /open request|No open requests/i },
   { name: 'request-new', url: () => '/portal/requests/new', signedIn: true, ready: 'Ask us for something' },
+  { name: 'request-new-chat', url: () => '/portal/requests/new', signedIn: true, ready: 'Ask us for something' },
+  { name: 'work-chat', url: () => `/portal/work/${chatIds?.work_task_id}`, signedIn: true, ready: /Update the team photo/ },
   { name: 'work', url: () => `/portal/work/${taskId}`, signedIn: true, ready: /Update the opening hours/ },
   { name: 'retainer', url: () => '/portal/retainer', signedIn: true, ready: /E2E Growth plan/ },
   { name: 'history', url: () => '/portal/history', signedIn: true, ready: 'What we have finished together' },
@@ -71,8 +77,18 @@ for (const size of SIZES) {
         test(screen.name, async ({ browser }) => {
           // The account picker only shows with two accounts; give the owner one for this screen only.
           if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --second-account`, { cwd: APP_ROOT, stdio: 'inherit' });
+          const isChat = CHAT_SCREENS.includes(screen.name);
+          if (isChat) {
+            const out = execSync(`${CHAT_SEED} --screens`, { cwd: APP_ROOT, encoding: 'utf8' });
+            chatIds = JSON.parse(out.trim().split('\n').filter((l) => l.startsWith('{')).pop() ?? '{}');
+          }
           try {
-          const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, colorScheme: scheme, reducedMotion: 'reduce' });
+          const context = await browser.newContext({ viewport: { width: size.width, height: size.height }, colorScheme: scheme, reducedMotion: 'reduce', ...(isChat ? { timezoneId: 'America/New_York' } : {}) });
+          if (screen.name === 'request-new-chat') {
+            await context.addInitScript(([intake, convo]) => {
+              window.sessionStorage.setItem('portal-chat-resume', JSON.stringify({ intakeId: intake, conversationId: convo }));
+            }, [chatIds!.request_intake, chatIds!.request_conversation_id]);
+          }
           if (screen.signedIn) {
             await context.addCookies([{ name: 'client_session', value: OWNER_TOKEN, domain: 'localhost', path: '/', httpOnly: true, secure: false, sameSite: 'Lax' }]);
           }
@@ -80,6 +96,7 @@ for (const size of SIZES) {
           await page.clock.setFixedTime('2026-10-21T14:00:00-04:00');
           await page.goto(screen.url());
           await settle(page, screen.ready);
+          if (isChat) await expect(page.getByRole('log', { name: 'Conversation' })).toContainText(/photo|Google Analytics/);
 
           // No horizontal scroll.
           const widths = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
@@ -123,12 +140,16 @@ for (const size of SIZES) {
             expect(bg).not.toBe('transparent');
           }
 
+          // A full-page capture pins a sticky composer to the first viewport; release it so the shot
+          // shows the page in reading order (the sticky behavior itself is checked by hand on a phone).
+          if (isChat) await page.addStyleTag({ content: '[data-portal] .chat-composer { position: static !important; }' });
           await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
           await page.mouse.move(0, 0);
           await expect(page).toHaveScreenshot(`${screen.name}-${size.tag}-${scheme}.png`, { fullPage: true, maxDiffPixelRatio: 0.01 });
           await context.close();
           } finally {
             if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup-second-account`, { cwd: APP_ROOT, stdio: 'inherit' });
+            if (CHAT_SCREENS.includes(screen.name)) execSync(`${CHAT_SEED} --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
           }
         });
       }

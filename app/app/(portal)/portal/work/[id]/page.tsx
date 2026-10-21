@@ -13,6 +13,7 @@ import { PortalButton } from '@/components/portal/ui/button';
 import { ActionLink } from '@/components/portal/ui/action-link';
 import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { Thread } from '@/components/portal/thread';
+import { WorkChat } from '@/components/portal/chat/work-chat';
 import type { Engagement } from '@/lib/portal/engagement';
 import type { ChipTone } from '@/lib/portal/status-labels';
 
@@ -41,6 +42,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const { id } = use(params);
   const router = useRouter();
   const [work, setWork] = useState<Work | null>(null);
+  const [chat, setChat] = useState<{ conversation_id: string | null; available: boolean }>({ conversation_id: null, available: false });
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,19 +56,23 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       const res = await fetch(`/api/portal/work/${id}`);
       if (res.status === 401) {
         router.replace('/portal/login');
-        return;
+        return null;
       }
       if (res.status === 404) {
         setNotFound(true);
-        return;
+        return null;
       }
       if (!res.ok) {
         setError('Failed to load this request');
-        return;
+        return null;
       }
-      setWork((await res.json()).work);
+      const body = await res.json();
+      setWork(body.work);
+      setChat(body.chat ?? { conversation_id: null, available: false });
+      return (body.chat?.conversation_id as string | null | undefined) ?? null;
     } catch {
       setError('Failed to load this request');
+      return null;
     } finally {
       setLoading(false);
     }
@@ -213,7 +219,16 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         </details>
       )}
 
-      <Thread taskId={work.id} onAuthLost={() => router.replace('/portal/login')} />
+      {chat.available ? (
+        <WorkChat
+          taskId={work.id}
+          conversationId={chat.conversation_id}
+          onAuthLost={() => router.replace('/portal/login')}
+          reloadConversationId={load}
+        />
+      ) : (
+        <Thread taskId={work.id} onAuthLost={() => router.replace('/portal/login')} />
+      )}
     </>
   );
 }

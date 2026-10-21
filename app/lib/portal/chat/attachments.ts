@@ -9,6 +9,9 @@ import { MAX_BYTES_PER_CONVERSATION, MAX_FILES_PER_MESSAGE } from '@/lib/service
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** The saved text of a message that is only files. The UI hides it; the model's bundle says it in words. */
+export const FILES_ONLY_TEXT = '(attachment)';
+
 export async function bindAttachments(
   tx: Prisma.TransactionClient,
   input: {
@@ -28,7 +31,7 @@ export async function bindAttachments(
   if (ids.length > MAX_FILES_PER_MESSAGE) throw new ApiError(`At most ${MAX_FILES_PER_MESSAGE} files a message.`, 400, 'too_many_files');
   const rows = await tx.portalAttachment.findMany({
     where: { id: { in: ids }, client_id: input.clientId, is_deleted: false },
-    select: { id: true, comment_id: true, conversation_id: true, intake_id: true, created_at: true, uploaded_by_contact_id: true },
+    select: { id: true, comment_id: true, conversation_id: true, intake_id: true, task_id: true, created_at: true, uploaded_by_contact_id: true },
   });
   const ok = rows.filter(
     (r) =>
@@ -36,7 +39,10 @@ export async function bindAttachments(
       r.uploaded_by_contact_id !== null &&
       input.contactIds.includes(r.uploaded_by_contact_id) &&
       r.created_at.getTime() > input.now.getTime() - DAY &&
-      (r.conversation_id === input.conversationId || (r.conversation_id === null && input.intakeId && r.intake_id === input.intakeId))
+      (r.conversation_id === input.conversationId ||
+        (r.conversation_id === null && input.intakeId && r.intake_id === input.intakeId) ||
+        // Staged on a work page before its conversation existed: scoped to the task.
+        (r.conversation_id === null && r.intake_id === null && r.task_id === input.taskId))
   );
   if (ok.length !== ids.length) throw new ApiError('One of those files is not available any more. Please attach it again.', 400, 'bad_attachment');
   const total = await tx.portalAttachment.aggregate({ where: { conversation_id: input.conversationId, is_deleted: false }, _sum: { size_bytes: true } });

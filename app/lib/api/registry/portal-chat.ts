@@ -89,6 +89,19 @@ export const portalChatEndpoints: ApiEndpoint[] = [
     group: 'portal-chat',
     methods: [
       {
+        method: 'GET',
+        summary: 'Admin: the chat settings page data. Mode, daily cap, pilot contact ids, every site with its chat switch, and the contacts that can join the pilot.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: {
+          mode: 'off|pilot|on',
+          daily_cap_usd: 'number',
+          pilot_contact_ids: 'string[]',
+          sites: [{ id: 'uuid', name: 'string', url: 'string|null', client: 'string|null', portal_chat_enabled: 'boolean' }],
+          contacts: [{ id: 'uuid', name: 'string', email: 'string|null', role: 'owner|member|viewer', client: 'string' }],
+        },
+      },
+      {
         method: 'PUT',
         summary: 'Admin sets mode, pilot contacts and daily cap. The Bast token may only set mode to off.',
         ...authFields,

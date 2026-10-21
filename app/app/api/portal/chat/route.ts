@@ -12,10 +12,10 @@ import { chatAvailability } from '@/lib/portal/chat/switches';
 const bodySchema = z.object({
   intake_id: z.string().uuid(),
   client_ref: z.string().uuid(),
-  text: z.string().min(1).max(MESSAGE_MAX_CHARS),
+  text: z.string().max(MESSAGE_MAX_CHARS).default(''),
   site_id: z.string().uuid().nullish(),
   attachment_ids: z.array(z.string().uuid()).max(10).default([]),
-});
+}).refine((b) => b.text.trim().length > 0 || b.attachment_ids.length > 0, { message: 'A message needs words or a file.', path: ['text'] });
 
 // Reasons that mean "this contact does not get the chat at all" (the page shows the stepper).
 // A dead runner or a spend cap still opens the chat, in tree mode.

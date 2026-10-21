@@ -43,9 +43,24 @@ function formatComment(comment: any) {
     // Set when the client wrote it (portal thread); the badge in the Citadel UI reads this.
     author_contact_id: comment.author_contact_id ?? null,
     author_contact: comment.author_contact ? { name: comment.author_contact.name } : null,
+    // Portal phase C: `assistant` for the chat assistant's messages and notes, `portal`/`email` for the client's.
+    source: comment.source ?? null,
+    chat_meta: staffChatMeta(comment.chat_meta),
     created_at: comment.created_at,
     updated_at: comment.updated_at,
   };
+}
+
+// The few chat_meta flags staff see on a comment (never raw_email or job internals).
+function staffChatMeta(meta: unknown): { handoff?: boolean; handback?: boolean; injection?: boolean; fixed?: boolean } | null {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return null;
+  const m = meta as Record<string, unknown>;
+  const out: { handoff?: boolean; handback?: boolean; injection?: boolean; fixed?: boolean } = {};
+  if (m.handoff === true) out.handoff = true;
+  if (m.handback === true) out.handback = true;
+  if (m.injection === true) out.injection = true;
+  if (m.fixed === true) out.fixed = true;
+  return Object.keys(out).length ? out : null;
 }
 
 // GET /api/tasks/[id]/comments - List comments for a task
