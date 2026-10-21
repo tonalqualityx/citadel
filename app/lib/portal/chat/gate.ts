@@ -38,7 +38,8 @@ export type GateRule =
 export type GateResult = { ok: true } | { ok: false; rule: GateRule; match: string };
 
 /** What the text is. Length applies to replies and questions; a summary has its own cap. */
-export type GateKind = 'reply' | 'ask' | 'summary' | 'draft' | 'email';
+/** `field` is a short model-written value the client sees on the summary card or in a title (no length rule). */
+export type GateKind = 'reply' | 'ask' | 'summary' | 'draft' | 'email' | 'field';
 
 export interface GateContext {
   provenance: Provenance;

@@ -5,7 +5,8 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { rateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
-import { loadThread, MESSAGE_MAX_CHARS, postClientMessage } from '@/lib/portal/thread';
+import { loadThread, MESSAGE_MAX_CHARS, postClientMessage, toThreadMessage } from '@/lib/portal/thread';
+import { ensureConversation, postChatMessage } from '@/lib/portal/chat/post-message';
 
 const bodySchema = z.object({
   client_ref: z.string().uuid(),
@@ -55,6 +56,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       select: { id: true, name: true },
     });
     if (!contact) throw new ApiError('Not found', 404);
+    // Portal phase C: a task with a conversation (or one chat is available for) goes through the chat,
+    // which opens the conversation lazily on the first client message and queues the reply job.
+    const conversationId = await ensureConversation(access, id);
+    if (conversationId) {
+      const chat = await postChatMessage(access, contact, conversationId, { client_ref: body.client_ref, text: body.text });
+      const row = await prisma.comment.findUnique({
+        where: { id: chat.comment_id },
+        select: { id: true, content: true, created_at: true, author_contact_id: true, author_contact: { select: { name: true } } },
+      });
+      if (!row) throw new ApiError('Not found', 404);
+      const ids = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
+      return NextResponse.json({ message: toThreadMessage(row, ids) }, { status: chat.created ? 201 : 200 });
+    }
     const posted = await postClientMessage(access, contact, id, body);
     return NextResponse.json({ message: posted.message }, { status: posted.created ? 201 : 200 });
   } catch (error) {

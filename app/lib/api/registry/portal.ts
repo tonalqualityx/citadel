@@ -870,4 +870,114 @@ export const portalEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/portal/chat',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase C: the first chat message. Saves the words verbatim and files the task in one transaction (type other, tags portal-chat and chat-clarifying), then queues a reply job or runs the question tree. 201 when new, 200 on a repeat of intake_id. 409 chat_unavailable when the switches are off for this contact (the page shows the stepper).',
+        auth: 'session',
+        bodySchema: [
+          { name: 'intake_id', type: 'uuid', required: true, description: 'Idempotency key for the conversation' },
+          { name: 'client_ref', type: 'uuid', required: true, description: 'Idempotency key for the message' },
+          { name: 'text', type: 'string', required: true, description: 'The client words, verbatim (4000 characters at most)' },
+          { name: 'site_id', type: 'uuid', required: false, description: 'The site, when chosen' },
+          { name: 'attachment_ids', type: 'string[]', required: false, description: 'Staged uploads (10 at most)' },
+        ],
+        responseExample: { conversation_id: 'uuid', task_id: 'uuid', mode: 'model|tree' },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/chat/{id}',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase C: poll the chat. Query after=<comment id>. Returns state, mode, messages, writing and the writing note, the one pending thing to answer (ask, summary card, or urgent choices), the banner. Expires a stale job first (queued over 60 s or claimed over 120 s) and answers the turn from the tree. 404 for anything not theirs.',
+        auth: 'session',
+        responseExample: { conversation_id: 'uuid', state: 'clarifying|confirming|filed|with_person|closed', mode: 'model|tree', messages: 'object', writing: 'boolean', writing_note: 'writing|still_writing|checking_numbers|null', pending: 'object|null', urgent: 'object|null', banner: 'string|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/chat/{id}/messages',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase C: the client writes or presses a choice. Saved first, verbatim (client_ref dedupe); a choice is validated against the real options and labelled from the database. 201 when new, 200 on a repeat.',
+        auth: 'session',
+        bodySchema: [
+          { name: 'client_ref', type: 'uuid', required: true, description: 'Idempotency key for the message' },
+          { name: 'text', type: 'string', required: false, description: 'Free text' },
+          { name: 'choice', type: 'object', required: false, description: '{ slot, id } of a button pressed' },
+          { name: 'attachment_ids', type: 'string[]', required: false, description: 'Staged uploads' },
+        ],
+        responseExample: { comment_id: 'uuid', route: 'queued|tree|person|none|repeat', urgent: 'object|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/chat/{id}/confirm',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase C: Send to the team. Re-runs placement, applies the scope gate and tags, retitles, links files and runs the phase B first-response or quote or emergency wait. 409 when the summary changed; 422 choose_project when two builds are open.',
+        auth: 'session',
+        bodySchema: [
+          { name: 'summary_version', type: 'number', required: true, description: 'The version on the card the client pressed' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'The build chosen when two are open' },
+        ],
+        responseExample: { state: 'filed', quote: 'boolean', urgent: 'boolean', lines: 'string[]' },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/chat/{id}/presence',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase C: presence for the walk-away sweep (slice C4).',
+        auth: 'session',
+        bodySchema: [
+          { name: 'state', type: 'string', required: true, description: 'visible | typing | hidden' },
+        ],
+        responseExample: { ok: true },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/uploads',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase C: stage one file (multipart: file, intake_id or conversation_id). Type by magic bytes; SVG, HTML, executables, archives and macro Office are refused; 20 MB a file, 150 MB a conversation, 60 uploads a contact a day. Stored privately.',
+        auth: 'session',
+        responseExample: { attachment: { id: 'uuid', name: 'string', type: 'string', size: 'number', url: 'string' } },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/attachments/{id}',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase C: the file, to the client that owns it only. nosniff; images inline, the rest a download.',
+        auth: 'session',
+      },
+    ],
+  },
 ];

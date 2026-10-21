@@ -6,6 +6,7 @@ import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess, projectAccessWhere } from '@/lib/portal/access';
 import { OPEN_BUILD_STATUSES } from '@/lib/portal/intake/placement';
 import { planLabel } from '@/lib/portal/engagement';
+import { chatAvailability } from '@/lib/portal/chat/switches';
 
 // GET /api/portal/intake/context (portal phase B slice 1)
 // What the request chat needs to ask "Which site is this about?" and to preview where a request
@@ -48,8 +49,13 @@ export async function GET(request: NextRequest) {
       }),
     ]);
 
+    // Portal phase C: whether the request page is the chat (true) or the stepper (false).
+    const avail = await chatAvailability({ contactId: access.contactId, clientId: access.clientId });
+    const chatOn = avail.available || avail.reason === 'runner_down' || avail.reason.endsWith('_jobs') || avail.reason.endsWith('_spend');
+
     return NextResponse.json({
       can_request: true,
+      chat: { available: chatOn },
       sites: sites.map((s) => ({ id: s.id, name: s.name, has_plan: Boolean(s.maintenance_plan_id || s.hosting_plan_id) })),
       open_builds: projects,
       charters: charters.map((c) => ({

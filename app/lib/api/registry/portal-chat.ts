@@ -15,7 +15,7 @@ export const portalChatEndpoints: ApiEndpoint[] = [
         responseExample: {
           mode: 'off|pilot|on',
           pilot_contact_count: 'number',
-          runner: { last_claim_at: 'ISO-8601|null', dead: 'boolean' },
+          runner: { last_seen_at: 'ISO-8601|null', last_claim_at: 'ISO-8601|null', dead: 'boolean (no runner heartbeat for 3 minutes)' },
           today: {
             jobs: { queued: 'number', claimed: 'number', done: 'number', failed: 'number', expired: 'number' },
             spend_usd: 'number',
@@ -45,6 +45,41 @@ export const portalChatEndpoints: ApiEndpoint[] = [
           { name: 'daily_cap_usd', type: 'number', required: false, description: 'Daily spend cap in USD' },
         ],
         responseExample: { mode: 'off|pilot|on', pilot_contact_ids: 'string[]', daily_cap_usd: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/{id}/chat',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Portal phase C: the chat on a task for staff. State, slots, the drafted handoff note, attachments, jobs, runs, tool calls (arguments and totals) and cost.',
+        auth: 'required',
+        responseExample: { state: 'string', mode: 'string', jobs: 'object[]', tool_calls: 'object[]', cost_usd: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/{id}/chat/hand-back',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Portal phase C: hand a conversation back to the assistant. 409 when it is not with a person.',
+        auth: 'required',
+        responseExample: { ok: true },
+      },
+    ],
+  },
+  {
+    path: '/api/attachments/{id}',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Portal phase C: a client attachment for staff. nosniff; images inline, the rest a download.',
+        auth: 'required',
       },
     ],
   },

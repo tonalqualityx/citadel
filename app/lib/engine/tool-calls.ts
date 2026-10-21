@@ -35,23 +35,35 @@ export function capResult(result: unknown): Prisma.InputJsonValue | typeof Prism
   return { truncated: true, bytes: text.length, ...(label ? { label } : {}), preview: text.slice(0, 2000) };
 }
 
+type Db = Pick<Prisma.TransactionClient, 'engineToolCall'>;
+
+/**
+ * The caps, in one place: 6 calls a job, 40 analytics calls a client a day (spec 9.3). Throws a 429
+ * ApiError when a cap is hit. `logToolCall` runs it under the lock when it writes; the preflight route
+ * runs it BEFORE the tool server spends a Google call, so the daily cap stops the call, not just the log.
+ */
+export async function assertToolQuota(db: Db, job: Pick<EngineJob, 'id' | 'client_id'>, tool: string, now: Date = new Date()) {
+  if (!job.client_id) throw new ApiError('Job has no client', 409);
+  const used = await db.engineToolCall.count({ where: { job_id: job.id } });
+  if (used >= MAX_CALLS_PER_JOB) throw new ApiError(`At most ${MAX_CALLS_PER_JOB} tool calls a job`, 429);
+  if (ANALYTICS_TOOLS.includes(tool)) {
+    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const today = await db.engineToolCall.count({
+      where: { client_id: job.client_id, tool: { in: [...ANALYTICS_TOOLS] }, created_at: { gte: since } },
+    });
+    if (today >= MAX_ANALYTICS_PER_CLIENT_DAY) {
+      throw new ApiError(`At most ${MAX_ANALYTICS_PER_CLIENT_DAY} analytics calls a client a day`, 429);
+    }
+  }
+}
+
 export async function logToolCall(job: EngineJob, input: ToolCallInput, now: Date = new Date()) {
   if (!job.client_id) throw new ApiError('Job has no client', 409);
   const clientId = job.client_id;
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`engine-tools:${job.id}`}))`;
-    const used = await tx.engineToolCall.count({ where: { job_id: job.id } });
-    if (used >= MAX_CALLS_PER_JOB) throw new ApiError(`At most ${MAX_CALLS_PER_JOB} tool calls a job`, 429);
-    if (ANALYTICS_TOOLS.includes(input.tool)) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`engine-analytics:${clientId}`}))`;
-      const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const today = await tx.engineToolCall.count({
-        where: { client_id: clientId, tool: { in: [...ANALYTICS_TOOLS] }, created_at: { gte: since } },
-      });
-      if (today >= MAX_ANALYTICS_PER_CLIENT_DAY) {
-        throw new ApiError(`At most ${MAX_ANALYTICS_PER_CLIENT_DAY} analytics calls a client a day`, 429);
-      }
-    }
+    if (ANALYTICS_TOOLS.includes(input.tool)) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`engine-analytics:${clientId}`}))`;
+    await assertToolQuota(tx, job, input.tool, now);
     return tx.engineToolCall.create({
       data: {
         job_id: job.id,
@@ -72,7 +84,7 @@ export async function logToolCall(job: EngineJob, input: ToolCallInput, now: Dat
 }
 
 /** The provenance for one job: what its logged tool calls (and the context bundle) can back. */
-export async function loadJobProvenance(jobId: string, contextNumbers: string[] = []): Promise<Provenance> {
+export async function loadJobProvenance(jobId: string, contextNumbers: string[] = [], clientTexts: string[] = []): Promise<Provenance> {
   const rows = await prisma.engineToolCall.findMany({
     where: { job_id: jobId, error: null },
     select: { tool: true, args: true, result: true, result_numbers: true },
@@ -84,5 +96,5 @@ export async function loadJobProvenance(jobId: string, contextNumbers: string[] 
     result_numbers: r.result_numbers,
     label: typeof (r.result as { label?: unknown } | null)?.label === 'string' ? ((r.result as { label: string }).label) : null,
   }));
-  return buildProvenance(calls, contextNumbers);
+  return buildProvenance(calls, contextNumbers, clientTexts);
 }

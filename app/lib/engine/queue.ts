@@ -72,35 +72,25 @@ export async function enqueueJob(input: EnqueueInput): Promise<{ job: EngineJob;
  */
 export async function expireStaleJobs(now: Date = new Date(), opts: { conversationId?: string } = {}): Promise<string[]> {
   const queuedBefore = new Date(now.getTime() - QUEUE_EXPIRY_MS);
-  const scope: Prisma.EngineJobWhereInput = opts.conversationId ? { conversation_id: opts.conversationId } : {};
-  const stale = await prisma.engineJob.findMany({
-    where: {
-      AND: [
-        scope,
-        {
-          OR: [
-            { status: 'queued', queued_at: { lt: queuedBefore } },
-            { status: 'claimed', lease_until: { lt: now } },
-          ],
-        },
-      ],
-    },
-    select: { id: true, conversation_id: true },
-  });
-  if (stale.length === 0) return [];
-  const ids = stale.map((s) => s.id);
-  await prisma.$transaction([
-    // Re-check the status in the write so a result that landed in between is not overwritten.
-    prisma.engineJob.updateMany({
-      where: { id: { in: ids }, status: { in: ['queued', 'claimed'] } },
-      data: { status: 'expired', expired_at: now },
-    }),
-    prisma.chatConversation.updateMany({
-      where: { id: { in: stale.map((s) => s.conversation_id).filter((c): c is string => Boolean(c)) } },
-      data: { mode: 'tree' },
-    }),
-  ]);
-  return ids;
+  const conversationId = opts.conversationId ?? null;
+  // One statement: the conditions are checked IN the write, so a heartbeat that extended the lease, a
+  // claim, or a result that landed after any earlier read cannot be overwritten. Only the rows this
+  // statement actually changed come back (RETURNING), and only their conversations are touched.
+  const expired = await prisma.$queryRaw<Array<{ id: string; conversation_id: string | null }>>`
+    UPDATE engine_jobs
+    SET status = 'expired', expired_at = ${now}
+    WHERE (${conversationId}::uuid IS NULL OR conversation_id = ${conversationId}::uuid)
+      AND (
+        (status = 'queued' AND queued_at < ${queuedBefore})
+        OR (status = 'claimed' AND lease_until < ${now})
+      )
+    RETURNING id, conversation_id`;
+  if (expired.length === 0) return [];
+  const conversations = [...new Set(expired.map((r) => r.conversation_id).filter((c): c is string => Boolean(c)))];
+  if (conversations.length > 0) {
+    await prisma.chatConversation.updateMany({ where: { id: { in: conversations } }, data: { mode: 'tree' } });
+  }
+  return expired.map((r) => r.id);
 }
 
 /**

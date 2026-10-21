@@ -1,0 +1,230 @@
+{
+ "name": "photo with no page (the ruling's example)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Can you add this picture to the website?",
+    "attach": 1
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "I'm Indelible's AI assistant. Which page should this photo go on?",
+      "actions": [
+       {
+        "type": "record",
+        "site_id": "{{site:0}}",
+        "attachment_ids": [
+         "{{att:0}}"
+        ],
+        "request_type": "site_change"
+       },
+       {
+        "type": "ask",
+        "slot": "page",
+        "question": "Which page should this photo go on?",
+        "choice_ids": [
+         "{{page:About}}",
+         "{{page:Home}}",
+         "{{page:Menu}}"
+        ],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "route": "queued",
+    "pending_kind": "ask",
+    "pending_slot": "page",
+    "pending_labels": [
+     "About",
+     "Home",
+     "Menu",
+     "Another page",
+     "Not sure"
+    ],
+    "tags_include": [
+     "portal-chat",
+     "chat-clarifying",
+     "awaiting-clarification"
+    ],
+    "title_starts": "Site change:",
+    "slots": {
+     "request_type": "site_change"
+    },
+    "assistant_comments": 1,
+    "gate_result": "pass",
+    "tool_calls": 0,
+    "state": "clarifying"
+   }
+  },
+  {
+   "client": {
+    "choice": {
+     "slot": "page",
+     "label": "About"
+    }
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Where on the About page should it go?",
+      "actions": [
+       {
+        "type": "ask",
+        "slot": "section",
+        "question": "Where on the About page should it go?",
+        "choice_ids": [
+         "team",
+         "story"
+        ],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "pending_slot": "section",
+    "pending_labels": [
+     "The team",
+     "Our story",
+     "Not sure"
+    ]
+   }
+  },
+  {
+   "client": {
+    "choice": {
+     "slot": "section",
+     "label": "The team"
+    }
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "What should change in the team section?",
+      "actions": [
+       {
+        "type": "ask",
+        "slot": "change",
+        "question": "What should change in the team section?",
+        "choice_ids": [],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "pending_slot": "change",
+    "pending_labels": []
+   }
+  },
+  {
+   "client": {
+    "text": "Swap my headshot for this new one."
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Here's your request as I have it. Check it before it goes to the team.",
+      "actions": [
+       {
+        "type": "record",
+        "change": "Replace Dana's current headshot with the attached photo.",
+        "attachment_ids": [
+         "{{att:0}}"
+        ]
+       },
+       {
+        "type": "propose_summary",
+        "summary": "On the About page, in the team section, replace Dana's current headshot with the attached photo.",
+        "request_type": "site_change",
+        "site_id": "{{site:0}}",
+        "page_id": "{{page:About}}",
+        "section": "team",
+        "change": "Replace Dana's current headshot with the attached photo.",
+        "attachment_ids": [
+         "{{att:0}}"
+        ]
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "state": "confirming",
+    "pending_kind": "summary",
+    "tags_exclude": [
+     "awaiting-clarification"
+    ]
+   }
+  },
+  {
+   "client": {
+    "confirm": true
+   },
+   "expect": {
+    "http": 200,
+    "state": "filed",
+    "tags_include": [
+     "kind:site-change",
+     "quote",
+     "needs-mike"
+    ],
+    "tags_exclude": [
+     "chat-clarifying",
+     "awaiting-clarification"
+    ],
+    "waits_include": [
+     "build.gate_mike"
+    ],
+    "reply_contains": [
+     "Request sent."
+    ]
+   }
+  }
+ ]
+}

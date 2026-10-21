@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { cleanup, SCRATCH, seedClient, type Seeded } from '@/lib/engine/__tests__/seed';
 import { enqueueJob, claimNextJob } from '@/lib/engine/queue';
 import { CAPS, checkCaps, daySince } from '../caps';
-import { chatAvailability, getChatSettings, runnerState, updateChatSettings } from '../switches';
+import { chatAvailability, getChatSettings, recordRunnerHeartbeat, runnerState, updateChatSettings, RUNNER_ALIVE_MS } from '../switches';
 
 // Phase C slice C1: the switches (9.1) and caps (9.3), counted in the database.
 describe.skipIf(!SCRATCH)('chat switches and caps (real database)', () => {
@@ -28,6 +28,7 @@ describe.skipIf(!SCRATCH)('chat switches and caps (real database)', () => {
     await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { jobs_count: 0 } });
     await prisma.site.update({ where: { id: a.siteId }, data: { portal_chat_enabled: true } });
     await updateChatSettings({ mode: 'on', pilot_contact_ids: [], daily_cap_usd: 30 });
+    await recordRunnerHeartbeat(); // a live runner is the default; the liveness tests set their own
   });
 
   const ask = (now?: Date) => chatAvailability({ contactId: a.ownerId, clientId: a.clientId, siteId: a.siteId, conversationId: a.conversationId, now });
@@ -63,19 +64,47 @@ describe.skipIf(!SCRATCH)('chat switches and caps (real database)', () => {
     await prisma.client.delete({ where: { id: stranger.id } });
   });
 
-  it('a dead runner turns new conversations to tree mode at once; a quiet runner does not', async () => {
-    // Quiet: no jobs at all.
-    expect((await runnerState()).dead).toBe(false);
-    // A job waited unclaimed and expired inside the last ten minutes, and nothing was ever claimed.
-    await prisma.engineJob.updateMany({ where: {}, data: { claimed_at: null } });
-    await prisma.engineJob.create({ data: { type: 'chat_reply', status: 'expired', client_id: a.clientId, conversation_id: a.conversationId, expired_at: new Date(), queued_at: new Date(Date.now() - 70_000) } });
-    const state = await runnerState();
-    expect(state.dead).toBe(true);
-    expect(await ask()).toEqual({ available: false, reason: 'runner_down' });
-    // A claim in the last ten minutes means the runner is alive.
-    await prisma.engineJob.create({ data: { type: 'chat_reply', status: 'done', client_id: a.clientId, conversation_id: a.conversationId, claimed_at: new Date(), queued_at: new Date() } });
-    expect((await runnerState()).dead).toBe(false);
-    expect(await ask()).toEqual({ available: true });
+  describe('runner liveness is the runner\'s own heartbeat, independent of claims', () => {
+    const seenAgo = async (ms: number) => recordRunnerHeartbeat(new Date(Date.now() - ms));
+
+    it('an idle runner with an empty queue is alive', async () => {
+      await seenAgo(30_000);
+      const st = await runnerState();
+      expect(st.dead).toBe(false);
+      expect(st.last_claim_at).toBeNull();
+      expect(await ask()).toEqual({ available: true });
+    });
+
+    it('the first message after hours of idle stays in model mode, even with a fresh job already queued', async () => {
+      // The last claim was five hours ago, another conversation has a job waiting, and the runner has just checked in.
+      await prisma.engineJob.create({ data: { type: 'chat_reply', status: 'done', client_id: a.clientId, conversation_id: a.conversationId, claimed_at: new Date(Date.now() - 5 * 3600_000), queued_at: new Date(Date.now() - 5 * 3600_000) } });
+      await prisma.engineJob.create({ data: { type: 'chat_reply', status: 'queued', client_id: a.clientId, conversation_id: a.conversationId, queued_at: new Date() } });
+      await seenAgo(10_000);
+      expect((await runnerState()).dead).toBe(false);
+      expect(await ask()).toEqual({ available: true });
+    });
+
+    it('no heartbeat for three minutes is dead, whatever the queue holds, and new conversations run the tree at once', async () => {
+      await seenAgo(RUNNER_ALIVE_MS + 1000);
+      expect((await runnerState()).dead).toBe(true);
+      expect(await ask()).toEqual({ available: false, reason: 'runner_down' });
+      // A recent claim does not make a silent runner alive.
+      await prisma.engineJob.create({ data: { type: 'chat_reply', status: 'done', client_id: a.clientId, conversation_id: a.conversationId, claimed_at: new Date(), queued_at: new Date() } });
+      expect((await runnerState()).dead).toBe(true);
+      // The next heartbeat brings it back.
+      await recordRunnerHeartbeat();
+      expect(await ask()).toEqual({ available: true });
+    });
+
+    it('three minutes exactly is still alive; a runner never heard from is dead', async () => {
+      const now = new Date();
+      await recordRunnerHeartbeat(new Date(now.getTime() - RUNNER_ALIVE_MS));
+      expect((await runnerState(now)).dead).toBe(false);
+      await prisma.appSettings.update({ where: { id: 'singleton' }, data: { portal_chat_runner_seen_at: null } });
+      const never = await runnerState();
+      expect(never.dead).toBe(true);
+      expect(never.last_seen_at).toBeNull();
+    });
   });
 
   it('caps: conversation, contact and client job counts', async () => {

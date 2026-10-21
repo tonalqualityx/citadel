@@ -7,6 +7,8 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/services/client-auth')>();
   return { ...actual, requireClientAuth: vi.fn() };
 });
+// Portal phase C: the chat opens lazily; with chat off for the contact the phase B path runs unchanged.
+vi.mock('@/lib/portal/chat/post-message', () => ({ ensureConversation: vi.fn().mockResolvedValue(null), postChatMessage: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({ prisma: { clientContact: { findFirst: vi.fn() } } }));
 vi.mock('@/lib/portal/thread', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/portal/thread')>();

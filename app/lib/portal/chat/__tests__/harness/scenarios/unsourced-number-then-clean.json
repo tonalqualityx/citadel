@@ -1,0 +1,75 @@
+{
+ "name": "a reply with an unsourced number (422, then a clean retry)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ],
+  "analytics": true
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "How many people visited last month?"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Google Analytics counted 2,000 people on the site. Anything else?",
+      "actions": [
+       {
+        "type": "close_question"
+       }
+      ],
+      "sources": []
+     },
+     "expect_status": 422,
+     "expect_rule": "unsourced_number"
+    },
+    {
+     "result": {
+      "reply": "I do not have that number. Would you like me to pass the question to the team?",
+      "actions": [],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "gate_result": "regenerated",
+    "runs": 2,
+    "reply_contains": [
+     "I do not have that number"
+    ],
+    "reply_excludes": [
+     "2,000"
+    ]
+   }
+  }
+ ]
+}

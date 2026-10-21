@@ -1,0 +1,85 @@
+{
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Can you build a new page and have it done by Friday?"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Timing questions go to the team, so I've passed this one along. A person on the team will read this and reply here.",
+      "actions": [
+       {
+        "type": "record",
+        "request_type": "new_page_feature",
+        "attachment_ids": []
+       },
+       {
+        "type": "hand_to_person",
+        "reason": "date",
+        "draft_reply": "[TEAM NOTE: new page requested with a Friday deadline]\nHi Dana, thanks for the note. [TEAM: your answer on timing.]"
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "state": "with_person",
+    "tags_include": [
+     "needs-mike",
+     "chat-handoff"
+    ],
+    "internal_note": "handed this to a person: date",
+    "waits_include": [
+     "portal.client_reply"
+    ],
+    "pending_kind": null,
+    "reply": "Timing questions go to the team, so I've passed this one along. A person on the team will read this and reply here."
+   }
+  },
+  {
+   "client": {
+    "text": "Thanks, I will wait."
+   },
+   "expect": {
+    "state": "with_person",
+    "route": "none",
+    "assistant_comments": 1
+   }
+  }
+ ],
+ "name": "date question"
+}

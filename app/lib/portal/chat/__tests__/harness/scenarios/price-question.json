@@ -1,0 +1,85 @@
+{
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "How much would it cost to add a gallery page with our cake photos?"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Pricing questions go to the team, so I've passed this one along. A person on the team will read this and reply here.",
+      "actions": [
+       {
+        "type": "record",
+        "request_type": "new_page_feature",
+        "attachment_ids": []
+       },
+       {
+        "type": "hand_to_person",
+        "reason": "money",
+        "draft_reply": "[TEAM NOTE: new gallery page for cake photos; no photos attached yet]\nHi Dana, thanks for asking about a gallery page. [TEAM: your answer on pricing and what it would involve.]"
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "state": "with_person",
+    "tags_include": [
+     "needs-mike",
+     "chat-handoff"
+    ],
+    "internal_note": "handed this to a person: money",
+    "waits_include": [
+     "portal.client_reply"
+    ],
+    "pending_kind": null,
+    "reply": "Pricing questions go to the team, so I've passed this one along. A person on the team will read this and reply here."
+   }
+  },
+  {
+   "client": {
+    "text": "Thanks, I will wait."
+   },
+   "expect": {
+    "state": "with_person",
+    "route": "none",
+    "assistant_comments": 1
+   }
+  }
+ ],
+ "name": "price question"
+}

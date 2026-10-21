@@ -87,4 +87,62 @@ export const engineEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/engine/jobs/{id}/complete',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Post the finished result. apply.ts is the only writer: copy gate, then provenance, then actions. 422 { rule, match } when the gate refuses (regenerate once, then post canned:true); 409 when the job is not live.',
+        ...authFields,
+        bodySchema: [
+          { name: 'result', type: 'object', required: false, description: 'The structured result { reply, actions[], sources[] }' },
+          { name: 'runs', type: 'object', required: false, description: 'One entry per Claude run: attempt, model, prompt_hash, token counts, cost_usd, duration_ms, num_turns, is_error, rejected_text' },
+          { name: 'canned', type: 'boolean', required: false, description: 'True after two gate refusals: the fixed line and a handoff' },
+        ],
+        responseExample: { applied: true, gate_result: 'pass|regenerated|canned', comment_id: 'uuid|null' },
+      },
+    ],
+  },
+  {
+    path: '/api/engine/jobs/{id}/fail',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The runner could not produce a result. The job is requeued once; the second failure marks it failed and the conversation runs the question tree. 409 when the job is not live.',
+        ...authFields,
+        bodySchema: [
+          { name: 'error', type: 'string', required: true, description: 'What went wrong' },
+          { name: 'runs', type: 'object', required: false, description: 'Runs made before the failure' },
+        ],
+        responseExample: { outcome: 'requeued|failed' },
+      },
+    ],
+  },
+  {
+    path: '/api/engine/jobs/{id}/tool-quota',
+    group: 'engine',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Preflight for a tool call: 200 { allowed: true } when the job has calls left and (for analytics tools) the client is under 40 a day; 429 otherwise; 409 when the job is not live. The tool server asks before it spends a Google call.',
+        ...authFields,
+        queryParams: [{ name: 'tool', type: 'string', required: true, description: 'ga4_report | search_console | citadel_read | site_pages' }],
+        responseExample: { allowed: true },
+      },
+    ],
+  },
+  {
+    path: '/api/engine/runner/heartbeat',
+    group: 'engine',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The chat runner is alive. Posted every 60 s from the poll loop, idle or busy; stores the time in the settings row. The runner counts as dead after 3 minutes without one, independent of claims.',
+        ...authFields,
+        responseExample: { seen_at: 'ISO-8601' },
+      },
+    ],
+  },
 ];

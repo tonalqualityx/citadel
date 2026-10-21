@@ -1,0 +1,94 @@
+{
+ "name": "is my invoice paid (owner)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ],
+  "invoices": [
+   {
+    "doc": "1042",
+    "total": 1500,
+    "balance": 750.5,
+    "status": "open"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Is my invoice paid?"
+   },
+   "engine": [
+    {
+     "tool_calls": [
+      {
+       "tool": "citadel_read",
+       "args": {
+        "kind": "invoices"
+       },
+       "result": {
+        "kind": "invoices",
+        "data": {
+         "invoices": [
+          {
+           "doc_number": "1042",
+           "txn_date": "2026-09-30",
+           "due_date": null,
+           "total": 1500,
+           "balance": 750.5,
+           "status": "open"
+          }
+         ]
+        }
+       },
+       "row_count": 1
+      }
+     ],
+     "result": {
+      "reply": "Your latest invoice still has a balance of $750.50. Anything else?",
+      "actions": [
+       {
+        "type": "close_question"
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "tool_calls": 1,
+    "gate_result": "pass",
+    "reply_contains": [
+     "$750.50"
+    ]
+   }
+  }
+ ]
+}

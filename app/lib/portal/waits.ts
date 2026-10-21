@@ -285,3 +285,35 @@ export async function onStaffReply(
   }
   return { resolved: open.length, awaiting };
 }
+
+// ---- Phase C: the chat handed a conversation to a person --------------------------------------
+
+/**
+ * The assistant handed a conversation to a person (spec 8): open `portal.client_reply` (assignee
+ * or liaison, 1 business day, escalates). Keyed on the handoff note so a repeat is a no-op.
+ */
+export async function onChatHandoff(
+  db: Db,
+  task: FiledTask,
+  ref: string,
+  now: Date = new Date()
+): Promise<{ id: string; created: boolean }> {
+  const store = prismaSweepStore(db as PrismaClient);
+  const owner = task.assignee_id && task.assignee_id !== BAST_USER_ID ? task.assignee_id : null;
+  const made = await openWait(
+    store,
+    {
+      template_key: 'portal.client_reply',
+      subject: task.client_title,
+      owner_user_id: owner,
+      idempotency_key: waitKey('client_reply', task.id, ref),
+      task_id: task.id,
+      client_id: task.client_id,
+      project_id: task.project_id,
+      charter_id: task.charter_id,
+      site_id: task.site_id,
+    },
+    now
+  );
+  return { id: made.id, created: made.created };
+}

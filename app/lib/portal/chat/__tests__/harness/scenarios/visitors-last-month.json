@@ -1,0 +1,96 @@
+{
+ "name": "visitors last month (GA4 read, sourced reply)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ],
+  "analytics": true
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "How many people visited the site last month?"
+   },
+   "engine": [
+    {
+     "tool_calls": [
+      {
+       "tool": "ga4_report",
+       "args": {
+        "site_id": "{{site:0}}",
+        "metrics": [
+         "totalUsers",
+         "sessions"
+        ],
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-30"
+       },
+       "result": {
+        "label": "Google Analytics, Sep 1 to Sep 30, 2026 (data through Sep 30)",
+        "totals": {
+         "totalUsers": 1002,
+         "sessions": 1425
+        },
+        "rows": []
+       },
+       "row_count": 1
+      }
+     ],
+     "result": {
+      "reply": "Google Analytics counted 1,002 people on the site from Sep 1 to Sep 30, 2026. Anything else?",
+      "actions": [
+       {
+        "type": "close_question"
+       }
+      ],
+      "sources": [
+       {
+        "tool_call_id": "{{tc:0}}",
+        "label": "Google Analytics, Sep 1 to Sep 30, 2026 (data through Sep 30)",
+        "range": "2026-09-01 to 2026-09-30"
+       }
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "tool_calls": 1,
+    "gate_result": "pass",
+    "tags_include": [
+     "chat-question"
+    ],
+    "source_label": "Google Analytics, Sep 1 to Sep 30, 2026 (data through Sep 30)",
+    "reply_contains": [
+     "1,002"
+    ]
+   }
+  }
+ ]
+}

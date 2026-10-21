@@ -7,6 +7,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/services/client-auth')>();
   return { ...actual, requireClientAuth: vi.fn() };
 });
+vi.mock('@/lib/portal/chat/switches', () => ({ chatAvailability: vi.fn().mockResolvedValue({ available: false, reason: 'mode_off' }) }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: { site: { findMany: vi.fn() }, project: { findMany: vi.fn() }, charter: { findMany: vi.fn() } },
 }));
