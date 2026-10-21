@@ -8,11 +8,13 @@
  *    client-visible charter task, a staged unapproved marketing-plan task, and a published
  *    ClientReport;
  *  - `--inspect-thread <task_id>` prints the task's comments, notices and waits as one JSON line
- *    (Playwright has no database access); `--reset-thread` clears the thread task's comments,
+ *    (Playwright has no database access); `--mint-link` prints a fresh single-use sign-in token for the fixture owner; `--cleanup` retires the fixture tasks (the staged plan would
+ *    otherwise show up as a second "View preview" on the slice 1 home spec); `--reset-thread` clears the thread task's comments,
  *    notices and waits so the spec starts clean.
  *
  * Idempotent. Local dev only: this writes to whatever DATABASE_URL points at.
  */
+import { createHash, randomBytes } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
@@ -23,6 +25,8 @@ export const CHARTER_NAME = 'E2E: Marketing retainer (portal fixture)';
 export const CHARTER_CLIENT_LABEL = 'E2E Growth plan';
 export const CHARTER_OPEN_TASK = 'E2E: Retainer open item (portal fixture)';
 export const CHARTER_PLAN_TASK = 'E2E: November marketing plan (portal fixture)';
+export const APPROVAL_TOKEN = 'e2e-b2-approval-page-token';
+export const APPROVAL_TASK_TITLE = 'E2E: Homepage refresh (portal fixture)';
 export const REPORT_URL = 'https://reports.e2e-portal-fixture.example/october';
 
 async function seed() {
@@ -75,7 +79,40 @@ async function seed() {
     },
     update: { published_at: new Date(Date.now() - 24 * 60 * 60 * 1000), charter_id: charter.id },
   });
+  // The staged homepage task gets an approval-page token, so the spec can open the token page.
+  await prisma.task.updateMany({
+    where: { title: APPROVAL_TASK_TITLE, client_id: client.id },
+    data: { portal_token: APPROVAL_TOKEN, portal_token_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), requested_by_contact_id: owner.id },
+  });
   console.log(JSON.stringify({ thread_task_id: thread.id, client_id: client.id }));
+}
+
+/** Retire this slice's fixture tasks so the slice 1 specs see the same client they always did. */
+/** A single-use sign-in link for the fixture owner, as the emailed one would be (no mail is sent). */
+async function mintLink() {
+  const client = await prisma.client.findFirstOrThrow({ where: { name: 'E2E Portal Client (fixture)' } });
+  const owner = await prisma.clientContact.findFirstOrThrow({ where: { client_id: client.id, email: 'contact@e2e-portal-fixture.example' } });
+  const token = randomBytes(64).toString('hex');
+  await prisma.portalSession.create({
+    data: {
+      token_type: 'client_session',
+      entity_id: client.id,
+      contact_id: owner.id,
+      magic_token_hash: createHash('sha256').update(token).digest('hex'),
+      magic_token_expires_at: new Date(Date.now() + 15 * 60 * 1000),
+      ip_address: '127.0.0.1',
+      action: 'request',
+    },
+  });
+  console.log(JSON.stringify({ token }));
+}
+
+async function cleanup() {
+  await prisma.task.updateMany({ where: { title: APPROVAL_TASK_TITLE }, data: { portal_token: null, portal_token_expires_at: null } });
+  await prisma.task.updateMany({
+    where: { title: { in: [THREAD_TASK_TITLE, CHARTER_OPEN_TASK, CHARTER_PLAN_TASK] } },
+    data: { is_deleted: true },
+  });
 }
 
 async function resetThread(taskId: string) {
@@ -103,6 +140,8 @@ async function main() {
     const i = process.argv.indexOf(name);
     return i === -1 ? null : process.argv[i + 1];
   };
+  if (process.argv.includes('--cleanup')) return cleanup();
+  if (process.argv.includes('--mint-link')) return mintLink();
   if (flag('--inspect-thread')) return inspectThread(flag('--inspect-thread')!);
   if (flag('--reset-thread')) return resetThread(flag('--reset-thread')!);
   await seed();

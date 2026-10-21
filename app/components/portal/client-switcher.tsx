@@ -71,7 +71,7 @@ export function ClientSwitcher() {
         body: JSON.stringify({ client_id: clientId }),
       });
       if (res.ok) {
-        window.location.assign('/portal');
+        window.location.assign('/portal/home');
         return;
       }
     } catch {

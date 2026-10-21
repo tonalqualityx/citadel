@@ -31,7 +31,7 @@ function VerifyCard() {
       });
       if (res.ok) {
         const body: { redirect?: string } = await res.json();
-        window.location.assign(body.redirect || '/portal');
+        window.location.assign(body.redirect || '/portal/home');
         return;
       }
       setError(

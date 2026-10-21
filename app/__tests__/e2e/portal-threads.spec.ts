@@ -37,6 +37,11 @@ test.beforeAll(() => {
   execSync(`${B2} --reset-thread ${taskId}`, { cwd: APP_ROOT, stdio: 'inherit' });
 });
 
+test.afterAll(() => {
+  // Leave the shared fixture client as the slice 1 specs expect it (no staged plan, no thread task).
+  execSync(`${B2} --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
+});
+
 test.describe.configure({ mode: 'serial', timeout: 120_000 });
 
 async function clientContext(browser: Browser, token: string): Promise<BrowserContext> {
@@ -279,6 +284,83 @@ test.describe('Portal phase B slice 2: Retainer and Projects', () => {
     await page.goto('/portal/home');
     await expect(page.getByRole('heading', { name: 'Retainer', level: 3 })).toBeVisible();
     await expect(page.getByRole('link', { name: 'E2E Growth plan' })).toBeVisible();
+    await context.close();
+  });
+});
+
+
+// Mike, 2026-10-21: after sign-in he landed on a "waiting on you" page with no nav. Every portal page
+// a signed-in person can reach carries the nav with Home first, and signing in lands on Home.
+test.describe('Portal navigation after sign-in', () => {
+  const NAV_LABELS = ['Home', 'Projects', 'Retainer', 'Requests', 'History', 'Book a meeting'];
+
+  test('the approval page (token link) carries the nav with Home first when signed in', async ({ browser }) => {
+    const context = await clientContext(browser, OWNER_TOKEN);
+    const page = await context.newPage();
+    await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
+    await expect(page.getByText('E2E: Homepage refresh (portal fixture)').first()).toBeVisible();
+    const nav = page.getByRole('navigation', { name: 'Portal' });
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole('link').first()).toHaveText('Home');
+    for (const label of NAV_LABELS) await expect(nav.getByRole('link', { name: label })).toBeVisible();
+    await nav.getByRole('link', { name: 'Home' }).click();
+    await expect(page).toHaveURL(/\/portal\/home$/);
+    await context.close();
+  });
+
+  test('the same approval page for someone with no session shows no nav', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
+    await expect(page.getByText('E2E: Homepage refresh (portal fixture)').first()).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Portal' })).toHaveCount(0);
+    await context.close();
+  });
+
+  test('the account picker and the old /portal address carry or lead to the nav', async ({ browser }) => {
+    const context = await clientContext(browser, OWNER_TOKEN);
+    const page = await context.newPage();
+    await page.goto('/portal');
+    await expect(page).toHaveURL(/\/portal\/home$/);
+    await expect(page.getByRole('navigation', { name: 'Portal' }).getByRole('link').first()).toHaveText('Home');
+    await context.close();
+  });
+
+  test('pressing the sign-in button lands on Home, not on the first pending item', async ({ browser }) => {
+    const token = run(`${B2} --mint-link`).token as string;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(`/portal/login/verify#token=${token}`);
+    // The sign-in endpoint shares one in-memory 10-a-minute bucket with every other rate-limited
+    // route (lib/api/rate-limit.ts keys on IP only), so a busy suite can hit it. A 429 leaves the
+    // link unspent: wait out the window and press the button again.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await page.getByRole('button', { name: 'Sign in to the portal' }).click();
+      try {
+        await expect(page).toHaveURL(/\/portal\/home$/, { timeout: 8000 });
+        break;
+      } catch (error) {
+        if (attempt === 1) throw error;
+        await page.waitForTimeout(61_000);
+      }
+    }
+    await expect(page).toHaveURL(/\/portal\/home$/);
+    await expect(page.getByRole('navigation', { name: 'Portal' }).getByRole('link').first()).toHaveText('Home');
+    await expect(page.getByRole('heading', { name: 'Needs from you' })).toBeVisible();
+    await context.close();
+  });
+
+  test('the consume endpoint answers with the Home address', async ({ browser }) => {
+    const token = run(`${B2} --mint-link`).token as string;
+    const context = await browser.newContext();
+    let res = await context.request.post('/api/portal/login/consume', { data: { token } });
+    if (res.status() === 429) {
+      // The shared per-minute bucket (see above); the link was not spent.
+      await new Promise((r) => setTimeout(r, 61_000));
+      res = await context.request.post('/api/portal/login/consume', { data: { token } });
+    }
+    expect(res.status()).toBe(200);
+    expect((await res.json()).redirect).toBe('/portal/home');
     await context.close();
   });
 });

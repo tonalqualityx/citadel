@@ -40,7 +40,7 @@ describe('POST /api/portal/login/consume', () => {
     });
     const res = await consumePOST(post({ token: 'tok' }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ redirect: '/portal' });
+    expect(await res.json()).toEqual({ redirect: '/portal/home' });
     const cookie = res.cookies.get('client_session');
     expect(cookie?.value).toBe('sess-xyz');
     expect(res.headers.get('set-cookie')).toMatch(/HttpOnly/i);

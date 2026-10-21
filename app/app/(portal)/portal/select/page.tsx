@@ -32,7 +32,7 @@ export default function PortalSelectClientPage() {
         }
         const body: { clients: PickerClient[] } = await res.json();
         if (body.clients.length < 2) {
-          router.replace('/portal');
+          router.replace('/portal/home');
           return;
         }
         setClients(body.clients);
@@ -52,7 +52,7 @@ export default function PortalSelectClientPage() {
         body: JSON.stringify({ client_id: clientId }),
       });
       if (res.ok) {
-        window.location.assign('/portal');
+        window.location.assign('/portal/home');
         return;
       }
       setError(

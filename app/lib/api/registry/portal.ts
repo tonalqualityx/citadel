@@ -44,7 +44,7 @@ export const portalEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'token', type: 'string', required: true, description: 'The raw token from the emailed link' },
         ],
-        responseExample: { redirect: '/portal' },
+        responseExample: { redirect: '/portal/home' },
         responseNotes: '401 for an unknown, already-used or expired token (no cookie set).',
       },
     ],

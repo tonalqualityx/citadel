@@ -19,7 +19,7 @@ const consumeSchema = z.object({
 
 // POST /api/portal/login/consume
 // The ONLY place a magic link is consumed. Called by the button on /portal/login/verify.
-// Valid -> sets the httpOnly client_session cookie and returns { redirect: '/portal' }.
+// Valid -> sets the httpOnly client_session cookie and returns { redirect: '/portal/home' }, or '/portal/select' for two or more clients.
 // Unknown, used, or expired -> 401 { error } and no cookie.
 export async function POST(request: NextRequest) {
   const rateLimitResponse = authRateLimit(request);
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     // Two or more reachable clients: show the picker first.
     const response = NextResponse.json({
-      redirect: session.accessibleClientCount >= 2 ? '/portal/select' : '/portal',
+      redirect: session.accessibleClientCount >= 2 ? '/portal/select' : '/portal/home',
     });
     response.cookies.set(CLIENT_SESSION_COOKIE, session.sessionToken, {
       httpOnly: true,
