@@ -31,12 +31,12 @@ const mockAuth = requireClientAuth as Mock;
 const mockSessionUpdate = prisma.portalSession.update as Mock;
 
 const session = (clientId: string, contactId: string, role = 'member') => ({
-  clientId, contactId, role, email: 'pat@nerdherd.com', sessionId: 'sess-1',
+  clientId, contactId, contactIds: [contactId], role, email: 'pat@nerdherd.com', sessionId: 'sess-1', moved: false,
 });
-const post = (client_id: unknown) =>
+const post = (client_id: unknown, headers: Record<string, string> = {}) =>
   POST(new NextRequest('http://localhost/api/portal/session/client', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ client_id }),
   }));
 
@@ -64,6 +64,26 @@ describe('POST /api/portal/session/client', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ active_client_id: 'sub-a', client: { role: 'member' } });
     expect(mockSessionUpdate).toHaveBeenCalledWith({ where: { id: 'sess-1' }, data: { entity_id: 'sub-a' } });
+  });
+
+  it('logs every switch with the session and both client ids, never the email', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await post('sub-a');
+    expect(info).toHaveBeenCalledTimes(1);
+    const line = String(info.mock.calls[0][0]);
+    expect(line).toContain('sess-1');
+    expect(line).toContain('nh -> sub-a');
+    expect(line).not.toContain('pat@nerdherd.com');
+    info.mockRestore();
+  });
+
+  it('rejects cross-site and non-JSON posts before touching the session', async () => {
+    expect((await post('sub-a', { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await post('sub-a', { origin: 'https://evil.example' })).status).toBe(403);
+    expect((await post('sub-a', { 'content-type': 'text/plain' })).status).toBe(415);
+    expect(mockAuth).not.toHaveBeenCalled();
+    expect(mockSessionUpdate).not.toHaveBeenCalled();
+    expect((await post('sub-a', { 'sec-fetch-site': 'same-origin' })).status).toBe(200);
   });
 
   it('revoked access blocks the switch: after the contact is deleted the sub-client is 403', async () => {

@@ -139,14 +139,32 @@ describe('requestClientMagicLink', () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
+  it('matches the email case-insensitively and trimmed', async () => {
+    mockFindManyContacts.mockResolvedValue([]);
+    await requestClientMagicLink({ email: '  Ann@ACME.com ', ...reqInput });
+    expect(mockFindManyContacts.mock.calls[0][0].where.email).toEqual({ equals: 'Ann@ACME.com', mode: 'insensitive' });
+  });
+
   it('looks up only sign-in-eligible contacts: live, and a role other than none OR a project grant', async () => {
     mockFindManyContacts.mockResolvedValue([]);
     await requestClientMagicLink({ email: 'ann@acme.com', ...reqInput });
     const where = mockFindManyContacts.mock.calls[0][0].where;
-    expect(where).toMatchObject({ is_deleted: false, email: 'ann@acme.com', client: { is_deleted: false } });
+    expect(where).toMatchObject({ is_deleted: false, client: { is_deleted: false } });
     expect(where.OR).toEqual([
       { portal_role: { not: 'none' } },
-      { project_grants: { some: { role: { in: ['member', 'viewer'] }, project: { is_deleted: false } } } },
+      {
+        project_grants: {
+          some: {
+            role: { in: ['member', 'viewer'] },
+            project: {
+              is_deleted: false,
+              status: { notIn: ['quote', 'queue', 'suspended', 'cancelled'] },
+              portal_visibility: { not: 'hidden' },
+              client: { is_deleted: false },
+            },
+          },
+        },
+      },
     ]);
   });
 });
@@ -375,7 +393,19 @@ describe('session revocation (deleted contact or role none)', () => {
     expect(where).toMatchObject({ id: 'contact-1', is_deleted: false, client: { is_deleted: false } });
     expect(where.OR).toEqual([
       { portal_role: { not: 'none' } },
-      { project_grants: { some: { role: { in: ['member', 'viewer'] }, project: { is_deleted: false } } } },
+      {
+        project_grants: {
+          some: {
+            role: { in: ['member', 'viewer'] },
+            project: {
+              is_deleted: false,
+              status: { notIn: ['quote', 'queue', 'suspended', 'cancelled'] },
+              portal_visibility: { not: 'hidden' },
+              client: { is_deleted: false },
+            },
+          },
+        },
+      },
     ]);
   });
 
@@ -556,7 +586,10 @@ describe('requireClientAuth: active client, role and email (A4)', () => {
     cookie();
     mockFindFirst.mockResolvedValue(liveRow('client-acme'));
     const s = await requireClientAuth();
-    expect(s).toEqual({ clientId: 'client-acme', contactId: 'contact-1', role: 'member', email: 'ann@acme.com', sessionId: 'sess-1' });
+    expect(s).toEqual({
+      clientId: 'client-acme', contactId: 'contact-1', contactIds: ['contact-1'], role: 'member',
+      email: 'ann@acme.com', sessionId: 'sess-1', moved: false,
+    });
   });
 
   it('a person with two contact rows gets the right role on each client', async () => {
@@ -579,18 +612,35 @@ describe('requireClientAuth: active client, role and email (A4)', () => {
     const s = await requireClientAuth();
     expect(s.clientId).toBe('client-acme');
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 'sess-1' }, data: { entity_id: 'client-acme' } });
+    expect(s.moved).toBe(true);
   });
 
-  it('no accessible client left: 401', async () => {
+  it('revoked move also sets the one-shot notice cookie', async () => {
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }), set });
+    mockFindFirst.mockResolvedValue(liveRow('client-gone'));
+    mockUpdate.mockResolvedValue({});
+    await requireClientAuth();
+    expect(set).toHaveBeenCalledWith('portal_client_moved', '1', expect.objectContaining({ maxAge: 60 }));
+  });
+
+  it('no accessible client left: 401, and the dead session is NOT slid or re-cookied', async () => {
+    const set = vi.fn();
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }), set });
     mockFindManyContacts.mockResolvedValue([]);
-    cookie();
-    mockFindFirst.mockResolvedValue(liveRow('client-acme'));
+    // Expiry within the refresh threshold, so a slide WOULD write if it ran.
+    mockFindFirst.mockResolvedValue({ ...liveRow('client-acme'), expires_at: new Date(Date.now() + 60_000) });
     await expect(requireClientAuth()).rejects.toMatchObject({ statusCode: 401 });
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
   });
 });
 
 describe('switchActiveClient', () => {
-  const session = { clientId: 'client-acme', contactId: 'contact-1', role: 'member' as const, email: 'ann@acme.com', sessionId: 'sess-1' };
+  const session = {
+    clientId: 'client-acme', contactId: 'contact-1', contactIds: ['contact-1'], role: 'member' as const,
+    email: 'ann@acme.com', sessionId: 'sess-1', moved: false,
+  };
 
   it('switches to an accessible client and writes it to the session row', async () => {
     mockFindManyContacts.mockResolvedValue([

@@ -4,8 +4,8 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatClientContactResponse } from '@/lib/api/formatters';
-import { deriveContactPortalFields } from '@/lib/portal/access';
 import { revokeContactAccess } from '@/lib/services/client-auth';
+import { deriveContactPortalFields, GRANTABLE_ROLES, PORTAL_GRANTABLE_PROJECT_WHERE } from '@/lib/portal/access';
 import { logUpdate, logDelete, detectChanges } from '@/lib/services/activity';
 
 const updateContactSchema = z.object({
@@ -67,8 +67,20 @@ export async function PATCH(
     // Portal role none ends portal access now: kill live sessions and unused login links.
     // Exception (spec: project-only contacts): a contact that still holds a project grant keeps
     // signing in and sees only the granted projects.
-    if (contact.portal_role === 'none') {
-      const grants = await prisma.projectContact.count({ where: { contact_id: contact.id } });
+    // An email change also ends access: sessions and unused links are bound to the contact row
+    // but resolve the person by email, so they would otherwise follow the new address to every
+    // client it reaches. The person signs in again at the new address.
+    const emailChanged = existing.email.trim().toLowerCase() !== contact.email.trim().toLowerCase();
+    if (emailChanged) {
+      await revokeContactAccess(contact.id);
+    } else if (contact.portal_role === 'none') {
+      const grants = await prisma.projectContact.count({
+        where: {
+          contact_id: contact.id,
+          role: { in: [...GRANTABLE_ROLES] },
+          project: PORTAL_GRANTABLE_PROJECT_WHERE,
+        },
+      });
       if (grants === 0) await revokeContactAccess(contact.id);
     }
 
