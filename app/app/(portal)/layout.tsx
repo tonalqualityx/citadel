@@ -2,8 +2,7 @@ import '@/app/globals.css';
 import './portal-tokens.css';
 import './portal-kit.css';
 import { Atkinson_Hyperlegible, Lato } from 'next/font/google';
-import { ClientSwitcher } from '@/components/portal/client-switcher';
-import { PortalNav } from '@/components/portal/portal-nav';
+import { PortalShell } from '@/components/portal/shell/portal-shell';
 
 export const metadata = {
   title: 'Indelible Portal',
@@ -19,6 +18,9 @@ const atkinson = Atkinson_Hyperlegible({
   display: 'swap',
 });
 
+// Applies a saved Light or Dark choice before first paint, so a dark reader never sees a white flash.
+const THEME_SCRIPT = `try{var t=localStorage.getItem('portal-theme');if(t==='light'||t==='dark'){document.currentScript.parentElement.setAttribute('data-theme',t)}}catch(e){}`;
+
 export default function PortalLayout({
   children,
 }: {
@@ -26,16 +28,8 @@ export default function PortalLayout({
 }) {
   return (
     <div data-portal className={`${lato.variable} ${atkinson.variable} min-h-screen`} suppressHydrationWarning>
-      <header className="border-b border-p-line bg-p-surface px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          <h1 className="text-lg font-semibold">Indelible</h1>
-          <ClientSwitcher />
-        </div>
-      </header>
-      <PortalNav />
-      <main className="max-w-4xl mx-auto px-6 py-8">
-        {children}
-      </main>
+      <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      <PortalShell>{children}</PortalShell>
     </div>
   );
 }

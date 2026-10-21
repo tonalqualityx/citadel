@@ -371,3 +371,26 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .cardlink b { font-weight: 700; }
 [data-portal] .cardlink small { grid-column: 2; color: var(--p-ink-3); font-size: var(--pk-fs-tiny); }
 [data-portal] .frame { background: var(--p-sunk); border: 1px solid var(--p-line); border-radius: var(--p-radius); padding: 16px; display: grid; gap: 8px; }
+
+/* Shell additions */
+[data-portal] .col { display: flex; flex-direction: column; min-height: 100vh; min-width: 0; }
+[data-portal] .col > .main { flex: 1; }
+[data-portal] .moved { margin-bottom: 16px; padding: 10px 12px; border-radius: var(--p-radius); background: var(--p-chip-attention-bg); color: var(--p-chip-attention-fg); font-size: var(--pk-fs-meta); }
+[data-portal] .sheet .row-theme { padding: 6px 8px; }
+[data-portal] .sheet .help { display: grid; }
+[data-portal] .sheet .help b, [data-portal] .sidebar .help b { display: block; }
+[data-portal] .help a { color: inherit; }
+[data-portal] .shell-bare .main-bare { display: grid; gap: 20px; justify-items: center; align-content: start; padding-top: 32px; }
+[data-portal] .bare-inner { width: 100%; max-width: 640px; display: grid; gap: 24px; }
+[data-portal] .main-bare > .help { max-width: 640px; width: 100%; font-size: var(--pk-fs-meta); color: var(--p-ink-2); }
+[data-portal] .main-bare > .help b { display: inline; margin-right: 6px; }
+[data-portal] .sidebar .seg button { min-height: 44px; background: transparent; color: var(--p-nav-ink-2); }
+[data-portal] .sidebar .seg { border-color: rgba(255,255,255,.3); }
+[data-portal] .sidebar .seg button[aria-pressed="true"] { background: var(--p-nav-active); color: var(--p-nav-ink); }
+[data-portal] .sidebar .seg button + button { border-left-color: rgba(255,255,255,.2); }
+[data-portal] .btn-nav { min-height: 44px; }
+[data-portal] .sheet button.row, [data-portal] .sheet a { font-size: var(--pk-fs-body); }
+[data-portal] .snav a, [data-portal] .sidebar a { color: var(--p-nav-ink-2); }
+[data-portal] .sidebar .btn-nav { color: var(--p-nav-bg); }
+[data-portal] .sidebar .snav a[aria-current="page"], [data-portal] .sidebar .snav a:hover { color: var(--p-nav-ink); }
+[data-portal] .main-inner > * { min-width: 0; }
