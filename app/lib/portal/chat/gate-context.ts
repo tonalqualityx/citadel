@@ -6,7 +6,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { loadJobProvenance } from '@/lib/engine/tool-calls';
 import { portalBaseUrl } from '@/lib/portal/notices';
-import { contextNumbers, type ChatContext } from '@/lib/portal/chat/context';
+import { contextClientTexts, contextNumbers, loadPageNames, type ChatContext } from '@/lib/portal/chat/context';
 import type { GateContext } from '@/lib/portal/chat/gate';
 
 /** First names that are also plain English words: staff with these names are not matched as names. */
@@ -49,9 +49,9 @@ export async function loadGateContext(input: {
   const now = (input.now ?? new Date()).getTime();
   const [l, sites, contact, provenance, reportCalls] = await Promise.all([
     lists(now),
-    prisma.site.findMany({ where: { client_id: input.clientId, is_deleted: false }, select: { url: true } }),
+    prisma.site.findMany({ where: { client_id: input.clientId, is_deleted: false }, select: { id: true, url: true } }),
     prisma.clientContact.findFirst({ where: { id: input.contactId }, select: { email: true, name: true } }),
-    loadJobProvenance(input.jobId, contextNumbers(input.context)),
+    loadJobProvenance(input.jobId, contextNumbers(input.context), contextClientTexts(input.context)),
     prisma.engineToolCall.findMany({ where: { job_id: input.jobId, tool: 'citadel_read', error: null }, select: { args: true, result: true } }),
   ]);
   const own = (contact?.name ?? '').trim().split(/\s+/)[0].toLowerCase();
@@ -65,6 +65,7 @@ export async function loadGateContext(input: {
     provenance,
     staffNames: l.staff.filter((n) => n.toLowerCase() !== own),
     otherClientNames: l.clients.filter((c) => c.id !== input.clientId && c.name.trim().length >= 4).map((c) => c.name.trim()),
+    pageNames: await loadPageNames(sites.map((s) => s.id)),
     clientDomains: sites.map((s) => domainOf(s.url)).filter((d): d is string => Boolean(d)),
     portalOrigins: [portalBaseUrl()],
     reportUrls,

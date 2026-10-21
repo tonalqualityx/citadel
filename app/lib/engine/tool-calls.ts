@@ -72,7 +72,7 @@ export async function logToolCall(job: EngineJob, input: ToolCallInput, now: Dat
 }
 
 /** The provenance for one job: what its logged tool calls (and the context bundle) can back. */
-export async function loadJobProvenance(jobId: string, contextNumbers: string[] = []): Promise<Provenance> {
+export async function loadJobProvenance(jobId: string, contextNumbers: string[] = [], clientTexts: string[] = []): Promise<Provenance> {
   const rows = await prisma.engineToolCall.findMany({
     where: { job_id: jobId, error: null },
     select: { tool: true, args: true, result: true, result_numbers: true },
@@ -84,5 +84,5 @@ export async function loadJobProvenance(jobId: string, contextNumbers: string[] 
     result_numbers: r.result_numbers,
     label: typeof (r.result as { label?: unknown } | null)?.label === 'string' ? ((r.result as { label: string }).label) : null,
   }));
-  return buildProvenance(calls, contextNumbers);
+  return buildProvenance(calls, contextNumbers, clientTexts);
 }
