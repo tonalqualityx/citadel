@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Building2, FolderKanban, TriangleAlert } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Callout } from '@/components/portal/ui/callout';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 
 interface PickerClient {
   id: string;
@@ -66,36 +70,63 @@ export default function PortalSelectClientPage() {
     setBusyId(null);
   }
 
+  const full = (clients ?? []).filter((c) => !c.project_only);
+  const shared = (clients ?? []).filter((c) => c.project_only);
+
+  function choiceCards(list: PickerClient[], Icon: typeof Building2) {
+    return (
+      <ul className="choices-list" style={{ display: 'grid', gap: 10, listStyle: 'none', padding: 0, margin: 0 }}>
+        {list.map((c) => (
+          <li key={c.id}>
+            <button
+              type="button"
+              onClick={() => choose(c.id)}
+              disabled={busyId !== null}
+              className="cardlink"
+              style={{ width: '100%', textAlign: 'left', font: 'inherit', cursor: 'pointer', minHeight: 44 }}
+            >
+              <Icon className="i" aria-hidden="true" focusable="false" />
+              <b>{c.name}</b>
+              <small>{c.project_only ? 'Shared projects' : c.role}</small>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
-    <div className="max-w-md mx-auto bg-surface border border-border rounded-lg p-6">
-      <h2 className="text-xl font-semibold text-text-main mb-2">Choose an account</h2>
-      <p className="text-sm text-text-sub mb-4">
-        You have access to more than one account. Pick the one to open. You can switch at any time
-        from the header.
-      </p>
+    <>
+      <PageHeader
+        motif="meadow"
+        title="Choose an account"
+        lede="You have access to more than one account. Pick the one to open. You can switch at any time."
+      />
       {error && (
-        <p role="alert" className="mb-4 text-sm text-red-600">
-          {error}
-        </p>
+        <Callout tone="urgent" icon={TriangleAlert} title="We could not finish that">
+          <p role="alert">{error}</p>
+        </Callout>
       )}
-      {clients === null && !error && <p className="text-sm text-text-sub">Loading...</p>}
-      {clients && (
-        <ul className="space-y-2">
-          {clients.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                onClick={() => choose(c.id)}
-                disabled={busyId !== null}
-                className="w-full rounded-md border border-border bg-surface px-4 py-3 text-left text-sm font-medium text-text-main hover:bg-surface-secondary disabled:opacity-50"
-              >
-                {c.name}
-                {c.project_only && <span className="ml-2 text-xs text-text-tertiary">Shared projects</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
+      {clients === null && !error && (
+        <SkeletonRegion label="Loading your accounts">
+          <div className="card">
+            <Skeleton lines={2} block />
+            <Skeleton lines={2} block />
+          </div>
+        </SkeletonRegion>
       )}
-    </div>
+      {clients && full.length > 0 && (
+        <section className="card" aria-labelledby="sel-accounts">
+          <h2 id="sel-accounts">Your accounts</h2>
+          {choiceCards(full, Building2)}
+        </section>
+      )}
+      {clients && shared.length > 0 && (
+        <section className="card" aria-labelledby="sel-shared">
+          <h2 id="sel-shared">Shared projects</h2>
+          {choiceCards(shared, FolderKanban)}
+        </section>
+      )}
+    </>
   );
 }

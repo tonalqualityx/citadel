@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { ExternalLink, MessageSquareMore, TriangleAlert } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Field } from '@/components/portal/ui/field';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
+import { StatusChip } from '@/components/portal/ui/status-chip';
 
 interface ClientTask {
   id: string;
@@ -112,7 +120,7 @@ export default function TaskApprovalPortalPage() {
 
   async function handleApprove() {
     if (await postAction('approve')) {
-      setDone('Thank you — your approval has been recorded.');
+      setDone('Thank you, your approval has been recorded.');
       setPendingAction(null);
     }
   }
@@ -123,7 +131,7 @@ export default function TaskApprovalPortalPage() {
       return;
     }
     if (await postAction('request-changes', { note: changesNote.trim() })) {
-      setDone("Thanks — we've sent this back for changes and we'll be in touch.");
+      setDone("Thanks, we have sent this back for changes and will be in touch.");
       setPendingAction(null);
     }
   }
@@ -144,25 +152,27 @@ export default function TaskApprovalPortalPage() {
         site_id: newSiteId,
       })
     ) {
-      setDone('Thanks — your request has been received and will be reviewed.');
+      setDone('Thanks, your request has been received and will be reviewed.');
       setPendingAction(null);
     }
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-text-secondary">Loading…</div>
-      </div>
+      <SkeletonRegion label="Loading this review">
+        <div className="card">
+          <Skeleton lines={2} block />
+        </div>
+      </SkeletonRegion>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Unable to load this page</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
+      <Callout tone="urgent" icon={TriangleAlert} title="We could not load this page">
+        <p>{error}</p>
+        <p>Check that you opened the full link from your email, or reply to that email and we will help.</p>
+      </Callout>
     );
   }
 
@@ -171,227 +181,180 @@ export default function TaskApprovalPortalPage() {
   const { task, staging_preview_url, already_approved } = data;
   const summary = describe(task.description);
 
+  if (done || already_approved) {
+    return (
+      <>
+        <EmptyState
+          art="meadow"
+          title={done ? 'All set' : 'Already approved'}
+          body={done ?? 'Thanks, this has been approved.'}
+          action={<StatusChip label="Done" tone="done" />}
+        />
+      </>
+    );
+  }
+
+  const cancel = (
+    <PortalButton variant="quiet" disabled={submitting} onClick={() => setPendingAction(null)}>
+      Cancel
+    </PortalButton>
+  );
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h2 className="text-2xl font-bold text-text-main mb-1">{task.title}</h2>
-        {summary && <p className="text-text-secondary mt-2 whitespace-pre-line">{summary}</p>}
-      </div>
+    <>
+      <PageHeader eyebrow={['Ready for your review']} title={task.title} motif="meadow" />
 
-      {/* Staging preview */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">Preview</h3>
+      <section className="card" aria-labelledby="ta-preview">
+        <h2 id="ta-preview">Preview</h2>
         {staging_preview_url ? (
-          <div className="rounded-md border border-border overflow-hidden bg-surface-secondary">
-            <iframe
-              src={staging_preview_url}
-              title="Staging preview"
-              className="w-full"
-              style={{ height: '600px', border: 'none' }}
-            />
-          </div>
+          <a
+            className="frame cardlink"
+            href={staging_preview_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ExternalLink className="i" aria-hidden="true" focusable="false" />
+            <b>Open the preview</b>
+            <small>Opens in a new tab</small>
+          </a>
         ) : (
-          <p className="text-text-secondary">A preview will appear here once the work is staged.</p>
+          <p>A preview will appear here once the work is staged.</p>
         )}
-        {staging_preview_url && (
-          <p className="text-sm text-text-tertiary mt-3">
-            Trouble viewing?{' '}
-            <a
-              href={staging_preview_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-brand-primary hover:underline"
-            >
-              Open the preview in a new tab
-            </a>
-            .
-          </p>
-        )}
-      </div>
+      </section>
 
-      {/* Actions */}
-      {done ? (
-        <div className="bg-status-success/10 rounded-lg border border-status-success/30 p-6 text-center">
-          <h3 className="text-lg font-semibold text-text-main">All set</h3>
-          <p className="text-text-secondary mt-1">{done}</p>
-        </div>
-      ) : already_approved ? (
-        <div className="bg-status-success/10 rounded-lg border border-status-success/30 p-6 text-center">
-          <h3 className="text-lg font-semibold text-text-main">Already approved</h3>
-          <p className="text-text-secondary mt-1">Thanks — this has been approved.</p>
-        </div>
-      ) : (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">What would you like to do?</h3>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setPendingAction('approve');
-                setActionError(null);
-              }}
-              className={`px-4 py-2 rounded-md transition-colors ${
-                pendingAction === 'approve'
-                  ? 'bg-brand-primary text-white'
-                  : 'bg-brand-primary text-white hover:bg-brand-primary/90'
-              }`}
-            >
-              Approve
-            </button>
-            {data.can_request_changes === false ? (
-              <p data-testid="no-changes-form" className="text-sm text-text-secondary self-center">
-                To ask for changes, sign in to the portal or reply to the email.
-              </p>
-            ) : (
-            <button
-              type="button"
+      {(summary || data.contact?.name) && (
+        <section className="card" aria-labelledby="ta-details">
+          <h2 id="ta-details">Details</h2>
+          <dl className="kv">
+            {summary && (
+              <div>
+                <dt>Summary</dt>
+                <dd style={{ whiteSpace: 'pre-line' }}>{summary}</dd>
+              </div>
+            )}
+            {data.contact?.name && (
+              <div>
+                <dt>Sent to</dt>
+                <dd>{data.contact.name}</dd>
+              </div>
+            )}
+          </dl>
+        </section>
+      )}
+
+      <Callout id="ta-actions" tone="attention" icon={MessageSquareMore} title="What would you like to do?">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          <PortalButton
+            onClick={() => {
+              setPendingAction('approve');
+              setActionError(null);
+            }}
+          >
+            Approve
+          </PortalButton>
+          {data.can_request_changes === false ? (
+            <p data-testid="no-changes-form">
+              To ask for changes, sign in to the portal or reply to the email.
+            </p>
+          ) : (
+            <PortalButton
+              variant="secondary"
               onClick={() => {
                 setPendingAction('changes');
                 setActionError(null);
               }}
-              className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors"
             >
-              Something&apos;s not right
-            </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setPendingAction('new_task');
-                setActionError(null);
-              }}
-              className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors"
-            >
-              Add a new task
-            </button>
-          </div>
-
-          {/* Approve confirmation */}
-          {pendingAction === 'approve' && (
-            <div className="mt-5 border-t border-border pt-5">
-              <p className="text-text-secondary mb-4">
-                Approve this work? This confirms you&apos;re happy with it and lets us finalise.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={handleApprove}
-                  className="px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
-                >
-                  {submitting ? 'Approving…' : 'Confirm approval'}
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => setPendingAction(null)}
-                  className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+              Something is not right
+            </PortalButton>
           )}
+          <PortalButton
+            variant="secondary"
+            onClick={() => {
+              setPendingAction('new_task');
+              setActionError(null);
+            }}
+          >
+            Add a new task
+          </PortalButton>
+        </div>
 
-          {/* Request changes */}
-          {pendingAction === 'changes' && (
-            <div className="mt-5 border-t border-border pt-5">
-              <label className="block text-sm font-medium text-text-main mb-2">
-                What needs changing?
-              </label>
+        {pendingAction === 'approve' && (
+          <div className="card">
+            <p>Approve this work? This confirms you are happy with it and lets us finalise.</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              <PortalButton onClick={handleApprove} busy={submitting} busyLabel="Approving">
+                Confirm approval
+              </PortalButton>
+              {cancel}
+            </div>
+          </div>
+        )}
+
+        {pendingAction === 'changes' && (
+          <div className="card">
+            <Field id="ta-changes" label="What needs changing?">
               <textarea
                 value={changesNote}
                 onChange={(e) => setChangesNote(e.target.value)}
                 rows={4}
-                placeholder="Tell us what's not right and we'll take another pass."
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
+                placeholder="Tell us what is not right and we will take another pass."
               />
-              <div className="flex gap-3 mt-3">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={handleRequestChanges}
-                  className="px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
-                >
-                  {submitting ? 'Sending…' : 'Send back for changes'}
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => setPendingAction(null)}
-                  className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
+            </Field>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              <PortalButton onClick={handleRequestChanges} busy={submitting} busyLabel="Sending">
+                Send back for changes
+              </PortalButton>
+              {cancel}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Add a new task */}
-          {pendingAction === 'new_task' && (
-            <div className="mt-5 border-t border-border pt-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-text-main mb-2">Title</label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="A short summary of what you need"
-                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-text-main mb-2">Details</label>
-                <textarea
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  rows={4}
-                  placeholder="Describe the request in as much detail as you can."
-                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                />
-              </div>
-              {data.available_sites.length > 1 && (
-                <div>
-                  <label className="block text-sm font-medium text-text-main mb-2">Site</label>
-                  <select
-                    value={newSiteId}
-                    onChange={(e) => setNewSiteId(e.target.value)}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                  >
-                    <option value="">Choose a site…</option>
-                    {data.available_sites.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name ?? s.id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={handleNewTask}
-                  className="px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
-                >
-                  {submitting ? 'Sending…' : 'Submit request'}
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => setPendingAction(null)}
-                  className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
+        {pendingAction === 'new_task' && (
+          <div className="card">
+            <Field id="ta-new-title" label="Title">
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="A short summary of what you need"
+              />
+            </Field>
+            <Field id="ta-new-details" label="Details">
+              <textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                rows={4}
+                placeholder="Describe the request in as much detail as you can."
+              />
+            </Field>
+            {data.available_sites.length > 1 && (
+              <Field id="ta-new-site" label="Site">
+                <select value={newSiteId} onChange={(e) => setNewSiteId(e.target.value)}>
+                  <option value="">Choose a site</option>
+                  {data.available_sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name ?? s.id}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              <PortalButton onClick={handleNewTask} busy={submitting} busyLabel="Sending">
+                Submit request
+              </PortalButton>
+              {cancel}
             </div>
-          )}
+          </div>
+        )}
 
-          {actionError && <p className="text-sm text-status-error mt-4">{actionError}</p>}
-        </div>
-      )}
-    </div>
+        {actionError && (
+          <p role="alert" className="err">
+            <TriangleAlert className="i" aria-hidden="true" focusable="false" />
+            {actionError}
+          </p>
+        )}
+      </Callout>
+    </>
   );
 }
