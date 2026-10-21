@@ -80,6 +80,27 @@ describe.skipIf(!SCRATCH)('engine routes (real database)', () => {
     }
   });
 
+  it('an admin mints an engine key through POST /api/api-keys and the claim route accepts it; a pm cannot', async () => {
+    const { POST: mintRoute } = await import('../../api-keys/route');
+    const admin = await prisma.user.create({ data: { email: `admin-${tag}@example.test`, password_hash: 'x', name: 'Admin', role: 'admin' } });
+    try {
+      bearer = await mk(admin.id, []);
+      const res = await mintRoute(req('/api/api-keys', { method: 'POST', body: JSON.stringify({ name: `minted-${tag}`, scopes: ['engine'] }) }));
+      expect(res.status).toBe(201);
+      const minted = await res.json();
+      keyIds.push(minted.id);
+      expect(minted.scopes).toEqual(['engine']);
+      bearer = minted.key;
+      expect([200, 204]).toContain((await claim(req('/api/engine/claim', { method: 'POST' }))).status);
+      bearer = plainKey;
+      expect((await mintRoute(req('/api/api-keys', { method: 'POST', body: JSON.stringify({ name: 'x', scopes: ['engine'] }) }))).status).toBe(403);
+    } finally {
+      await prisma.activityLog.deleteMany({ where: { user_id: admin.id } });
+      await prisma.apiKey.deleteMany({ where: { user_id: admin.id } });
+      await prisma.user.delete({ where: { id: admin.id } });
+    }
+  });
+
   it('claim: 204 with the active header when empty; a job comes with context and a tool scope', async () => {
     const empty = await claim(req('/api/engine/claim', { method: 'POST' }));
     expect(empty.status).toBe(204);

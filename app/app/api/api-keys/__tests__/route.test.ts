@@ -3,7 +3,8 @@ import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
 
 // Mock auth middleware
-vi.mock('@/lib/auth/middleware', () => ({
+vi.mock('@/lib/auth/middleware', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/auth/middleware')>()),
   requireAuth: vi.fn(),
 }));
 
@@ -203,6 +204,29 @@ describe('POST /api/api-keys', () => {
     const response = await POST(request);
 
     expect(response.status).toBe(400);
+  });
+
+  it('lets an admin mint an engine-scoped key and returns the scopes', async () => {
+    mockRequireAuth.mockResolvedValue({ ...authPayload, role: 'admin' });
+    mockCreate.mockResolvedValue({ id: 'key-new', name: 'E', key_prefix: 'citadel_abc123de', expires_at: null, scopes: ['engine'], created_at: new Date() });
+    const response = await POST(createPostRequest({ name: 'E', scopes: ['engine'] }));
+    const data = await response.json();
+    expect(response.status).toBe(201);
+    expect(data.scopes).toEqual(['engine']);
+    expect(mockCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ scopes: ['engine'] }) });
+  });
+
+  it('refuses scopes from a pm with 403 and creates nothing', async () => {
+    const response = await POST(createPostRequest({ name: 'E', scopes: ['engine'] }));
+    expect(response.status).toBe(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown scopes with 400 and stores empty scopes by default', async () => {
+    mockRequireAuth.mockResolvedValue({ ...authPayload, role: 'admin' });
+    expect((await POST(createPostRequest({ name: 'E', scopes: ['root'] }))).status).toBe(400);
+    await POST(createPostRequest({ name: 'Plain' }));
+    expect(mockCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ scopes: [] }) });
   });
 
   it('returns 401 when not authenticated', async () => {

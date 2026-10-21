@@ -100,7 +100,7 @@ export const authEndpoints: ApiEndpoint[] = [
         summary: 'List current user\'s API keys (excludes revoked).',
         auth: 'required',
         responseExample: {
-          api_keys: [{ id: 'uuid', name: 'string', key_prefix: 'citadel_abcd1234', last_used_at: 'ISO-8601|null', expires_at: 'ISO-8601|null', created_at: 'ISO-8601' }],
+          api_keys: [{ id: 'uuid', name: 'string', key_prefix: 'citadel_abcd1234', last_used_at: 'ISO-8601|null', expires_at: 'ISO-8601|null', scopes: ['engine'], created_at: 'ISO-8601' }],
         },
       },
       {
@@ -110,6 +110,7 @@ export const authEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'name', type: 'string', required: true, description: 'Descriptive name for the key (max 100 chars)' },
           { name: 'expires_at', type: 'ISO-8601', required: false, description: 'Optional expiration date' },
+          { name: 'scopes', type: 'string[]', required: false, description: "Optional, max 1. Only value: 'engine' (lets the key use /api/engine/*). Admin only; a pm gets 403." },
         ],
         responseExample: {
           id: 'uuid',
@@ -117,6 +118,7 @@ export const authEndpoints: ApiEndpoint[] = [
           key: 'citadel_<full-key-shown-once>',
           key_prefix: 'citadel_abcd1234',
           expires_at: 'ISO-8601|null',
+          scopes: ['engine'],
           created_at: 'ISO-8601',
         },
       },
