@@ -460,3 +460,56 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .main-inner.col-narrow, [data-portal] .bare-inner.col-narrow { max-width: 640px; width: 100%; }
 [data-portal] .shell-pending .sidebar, [data-portal] .shell-pending .bottombar,
 [data-portal] .shell-pending .topbar .who, [data-portal] .shell-pending .topbar .btn-nav { visibility: hidden; }
+
+/* ---------- The chat with the assistant (phase C, slice C3) ---------- */
+[data-portal] .chat-disclosure { display: flex; gap: 8px; align-items: flex-start; font-size: var(--pk-fs-meta); color: var(--p-ink-2); margin: 0 0 14px; max-width: 60ch; }
+[data-portal] .chat-disclosure svg.i { color: var(--p-kind-request); margin-top: 2px; width: 18px; height: 18px; }
+[data-portal] .chat .log { min-width: 0; }
+[data-portal] .chat .thread-log > li { gap: 4px; }
+[data-portal] .msg .bub { min-width: 0; }
+[data-portal] .msg.us .bub { white-space: pre-wrap; }
+[data-portal] .src { font-size: var(--pk-fs-tiny); color: var(--p-ink-3); margin: 2px 0 0 40px; overflow-wrap: anywhere; }
+[data-portal] .msg-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+[data-portal] .msg-files .thumb, [data-portal] .sum-files .thumb, [data-portal] .att-chip .thumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--p-radius); border: 1px solid var(--p-line); background: var(--p-sunk); }
+[data-portal] .sum-files .thumb, [data-portal] .att-chip .thumb { width: 44px; height: 44px; }
+[data-portal] .thumb.file { display: grid; place-items: center; color: var(--p-ink-3); }
+[data-portal] .file-link { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
+[data-portal] .file-link small { color: var(--p-ink-3); }
+[data-portal] .sum-files { display: grid; gap: 8px; }
+[data-portal] .sum-files li { display: flex; gap: 10px; align-items: center; }
+[data-portal] .writing .bub { display: inline-flex; gap: 10px; align-items: center; color: var(--p-ink-2); }
+[data-portal] .dots { display: inline-flex; gap: 4px; }
+[data-portal] .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--p-ink-3); animation: chat-dot 1.2s infinite ease-in-out; }
+[data-portal] .dots i:nth-child(2) { animation-delay: .15s; }
+[data-portal] .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes chat-dot { 0%, 80%, 100% { opacity: .35; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { [data-portal] .dots i { animation: none; opacity: .7; } }
+[data-portal] .chat-choices[aria-disabled="true"] { opacity: .6; pointer-events: none; }
+[data-portal] .chat-banner .callout { margin: 0; }
+[data-portal] .chat-composer { position: sticky; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); background: var(--p-surface); z-index: 3; margin: 0 -4px; padding: 12px 4px 4px; }
+@media (min-width: 960px) { [data-portal] .chat-composer { bottom: 0; } }
+[data-portal] .chat-composer[data-dragging] { outline: 2px dashed var(--p-focus); outline-offset: 2px; }
+[data-portal] .chat-composer textarea { width: 100%; resize: vertical; }
+[data-portal] .chat-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+[data-portal] .drop { display: flex; gap: 10px; align-items: center; padding: 12px; border: 2px dashed var(--p-line-strong); border-radius: var(--p-radius); color: var(--p-ink-2); background: var(--p-bg); }
+[data-portal] .att-list { display: grid; gap: 8px; }
+[data-portal] .att-chip { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 10px; align-items: center; border: 1px solid var(--p-line); border-radius: var(--p-radius); padding: 6px; background: var(--p-bg); }
+[data-portal] .att-chip[data-state="error"] { border-color: var(--p-urgent-rail); }
+[data-portal] .att-body { display: grid; min-width: 0; }
+[data-portal] .att-body b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-portal] .att-body small { color: var(--p-ink-3); }
+[data-portal] .att-body progress { width: 100%; height: 6px; accent-color: var(--p-primary); }
+[data-portal] .att-x { min-width: 44px; min-height: 44px; display: grid; place-items: center; background: none; border: 0; cursor: pointer; color: var(--p-ink-2); border-radius: var(--p-radius); }
+[data-portal] .chat-pagesearch { display: grid; gap: 8px; position: relative; }
+[data-portal] .ps-label { font-weight: 700; }
+[data-portal] .ps-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--p-line-strong); border-radius: var(--p-radius); padding: 0 12px; background: var(--p-surface); min-height: 48px; }
+[data-portal] .ps-box input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; color: var(--p-ink); min-height: 44px; }
+[data-portal] .ps-box:focus-within { outline: 2px solid var(--p-focus); outline-offset: 2px; }
+[data-portal] .ps-box input:focus { outline: none; }
+[data-portal] .ps-list { border: 1px solid var(--p-line); border-radius: var(--p-radius); background: var(--p-surface); max-height: 260px; overflow-y: auto; }
+[data-portal] .ps-list li { display: grid; padding: 10px 14px; min-height: 48px; cursor: pointer; border-top: 1px solid var(--p-line); }
+[data-portal] .ps-list li:first-child { border-top: 0; }
+[data-portal] .ps-list li[data-active], [data-portal] .ps-list li:hover { background: var(--p-tint); }
+[data-portal] .ps-list small { color: var(--p-ink-3); overflow-wrap: anywhere; }
+[data-portal] .summary-card.sent { margin-top: 4px; }
+[data-portal] .chat .err { font-size: var(--pk-fs-meta); color: var(--p-chip-urgent-fg); background: var(--p-chip-urgent-bg); padding: 8px 10px; border-radius: var(--p-radius); display: flex; gap: 8px; align-items: center; }

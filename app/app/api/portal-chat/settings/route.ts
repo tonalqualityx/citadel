@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
-import { updateChatSettings } from '@/lib/portal/chat/switches';
+import { getChatSettings, updateChatSettings } from '@/lib/portal/chat/switches';
 
 const bodySchema = z
   .object({
@@ -40,6 +40,40 @@ export async function PUT(request: NextRequest) {
       daily_cap_usd: body.daily_cap_usd,
     });
     return NextResponse.json(settings);
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
+// GET /api/portal-chat/settings (portal phase C; admin)
+// What the settings page shows: the mode and daily cap, the pilot contacts by name, every site with its
+// chat switch, and the contacts that can be added to the pilot.
+export async function GET() {
+  try {
+    const auth = await requireAuth();
+    requireRole(auth, ['admin']);
+    const settings = await getChatSettings();
+    const [sites, contacts] = await Promise.all([
+      prisma.site.findMany({
+        where: { is_deleted: false },
+        select: { id: true, name: true, url: true, portal_chat_enabled: true, client: { select: { id: true, name: true } } },
+        orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
+        take: 500,
+      }),
+      prisma.clientContact.findMany({
+        where: { is_deleted: false, portal_role: { not: 'none' }, client: { is_deleted: false } },
+        select: { id: true, name: true, email: true, portal_role: true, client: { select: { id: true, name: true } } },
+        orderBy: [{ client: { name: 'asc' } }, { name: 'asc' }],
+        take: 1000,
+      }),
+    ]);
+    return NextResponse.json({
+      mode: settings.mode,
+      daily_cap_usd: settings.daily_cap_usd,
+      pilot_contact_ids: settings.pilot_contact_ids,
+      sites: sites.map((s) => ({ id: s.id, name: s.name, url: s.url, client: s.client?.name ?? null, portal_chat_enabled: s.portal_chat_enabled })),
+      contacts: contacts.map((c) => ({ id: c.id, name: c.name, email: c.email, role: c.portal_role, client: c.client.name })),
+    });
   } catch (error) {
     return handleApiError(error);
   }

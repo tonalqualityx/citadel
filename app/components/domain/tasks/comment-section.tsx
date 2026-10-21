@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { MentionInput, MentionCandidate } from '@/components/ui/mention-input';
 import { useMentionSuggestions } from '@/lib/hooks/use-mention-suggestions';
+import { ChatStaffPanel } from './chat-staff-panel';
 import { findMentionedUserIds, renderMentionSegments } from '@/lib/utils/mentions';
 
 interface CommentSectionProps {
@@ -192,6 +193,24 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
           {comment.updated_at !== comment.created_at && (
             <span className="text-xs text-text-sub italic">(edited)</span>
           )}
+          {comment.source === 'assistant' && (
+            <span
+              data-testid="assistant-badge"
+              className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 bg-violet-50 dark:bg-violet-500/10 px-1.5 py-0.5 rounded"
+              title="Written by the portal chat assistant"
+            >
+              Assistant
+            </span>
+          )}
+          {comment.chat_meta?.handoff && (
+            <span
+              data-testid="draft-badge"
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded"
+              title="A drafted reply for the team. Nothing was sent."
+            >
+              Draft, not sent
+            </span>
+          )}
           {comment.is_internal && (
             <span
               className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded"
@@ -337,6 +356,15 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
       {/* Content */}
       {isExpanded && (
         <div className="border-t border-border">
+          {clientVisibleTask && (
+            <ChatStaffPanel
+              taskId={taskId}
+              onUseDraft={(draft) => {
+                setNewComment(draft);
+                setAudience('client');
+              }}
+            />
+          )}
           {/* Comments List */}
           <div className="p-3 space-y-3 max-h-80 overflow-y-auto custom-scrollbar">
             {isLoading ? (

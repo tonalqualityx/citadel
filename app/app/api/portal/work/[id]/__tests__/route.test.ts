@@ -12,6 +12,11 @@ vi.mock('@/lib/portal/requests', async (importOriginal) => {
   return { ...actual, loadWorkItem: vi.fn() };
 });
 
+vi.mock('@/lib/db/prisma', () => ({
+  prisma: { chatConversation: { findUnique: vi.fn().mockResolvedValue(null) }, task: { findUnique: vi.fn().mockResolvedValue({ site_id: null }) } },
+}));
+vi.mock('@/lib/portal/chat/switches', () => ({ chatAvailability: vi.fn().mockResolvedValue({ available: false, reason: 'mode_off' }) }));
+
 import { GET } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadWorkItem } from '@/lib/portal/requests';
@@ -46,7 +51,7 @@ describe('GET /api/portal/work/:id', () => {
     (loadWorkItem as Mock).mockResolvedValue({ id: ID, title: 'Site change: hours', answers: [] });
     const res = await call();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ work: { id: ID, title: 'Site change: hours', answers: [] } });
+    expect(await res.json()).toEqual({ work: { id: ID, title: 'Site change: hours', answers: [] }, chat: { conversation_id: null, available: false } });
     const [access, id] = (loadWorkItem as Mock).mock.calls[0];
     expect(access).toMatchObject({ clientId: 'cl1', contactId: 'c1', role: 'viewer' });
     expect(id).toBe(ID);

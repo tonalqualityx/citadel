@@ -126,6 +126,24 @@ describe('every client-facing string in the portal', () => {
   }
 });
 
+describe('the chat is in the scan (phase C slice C3)', () => {
+  const chatFiles = walk(path.join(APP, 'components/portal/chat'));
+  it('scans every file under components/portal/chat and both chat pages', () => {
+    expect(chatFiles.length).toBeGreaterThanOrEqual(12);
+    for (const f of chatFiles) expect(FILES, f).toContain(f);
+    expect(FILES).toContain(path.join(APP, 'app/(portal)/portal/requests/new/page.tsx'));
+    expect(FILES).toContain(path.join(APP, 'app/(portal)/portal/work/[id]/page.tsx'));
+  });
+  it('reads real strings from the chat components', () => {
+    const all = chatFiles.flatMap((f) => clientStrings(readFileSync(f, 'utf8'), f.endsWith('.tsx')));
+    expect(all).toContain('Attach a file');
+    expect(all).toContain('Search your pages');
+  });
+  it('the scanner catches a promise in chat copy', () => {
+    expect(copyProblems(`export const A = () => <p>We will reply within 2 hours</p>;`).join('|')).toMatch(/duration|will/);
+  });
+});
+
 describe('document pages', () => {
   // The five token pages carry real prices and dates as data, never as literals, so the same scan
   // (promises, dashes, staff names) applies to the words we wrote.

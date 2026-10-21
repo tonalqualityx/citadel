@@ -7,6 +7,7 @@ const updateMutateAsync = vi.fn(async (_input: Record<string, unknown>) => ({}))
 let role = 'pm';
 let comments: unknown[] = [];
 
+vi.mock('../chat-staff-panel', () => ({ ChatStaffPanel: () => null }));
 vi.mock('@/lib/hooks/use-auth', () => ({ useAuth: () => ({ user: { id: 'u1', role } }) }));
 vi.mock('@/lib/hooks/use-comments', () => ({
   useComments: () => ({ data: { comments, count: comments.length }, isLoading: false }),

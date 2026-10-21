@@ -121,6 +121,8 @@ export async function loadChatView(access: PortalAccess, conversationId: string,
   return {
     conversation_id: convo.id,
     task_id: convo.task_id,
+    // The conversation's site (or the one the client chose), so "Another page" can search its pages.
+    site_id: convo.site_id ?? slots.site_id ?? null,
     state: convo.state,
     mode: convo.mode,
     messages,

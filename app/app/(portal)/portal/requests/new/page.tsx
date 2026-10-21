@@ -1,20 +1,9 @@
-import { IntakeChat } from '@/components/portal/intake/intake-chat';
-import { PageHeader } from '@/components/portal/ui/page-header';
+import { RequestEntry } from '@/components/portal/chat/request-entry';
 
 export const metadata = { title: 'Request work | Indelible Portal' };
 
-// Request work (portal phase B slice 1). The chat is a client component; this page only frames it.
+// Request work. The chat when it is available for the contact, else the phase B stepper; the
+// client component decides after reading /api/portal/intake/context and frames both.
 export default function NewRequestPage() {
-  return (
-    <>
-      <PageHeader
-        eyebrow={['Requests', 'New request']}
-        title="Ask us for something"
-        size="page"
-        lede="A few short questions, then you check it and send. Nothing reaches the team until you press Send request."
-        motif="contours"
-      />
-      <IntakeChat />
-    </>
-  );
+  return <RequestEntry />;
 }

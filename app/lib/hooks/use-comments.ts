@@ -21,6 +21,9 @@ export interface Comment {
   client_question?: boolean;
   author_contact_id?: string | null;
   author_contact?: { name: string | null } | null;
+  // Portal phase C: `assistant` for the chat assistant, `portal`/`email` for the client's own words.
+  source?: string | null;
+  chat_meta?: { handoff?: boolean; handback?: boolean; injection?: boolean; fixed?: boolean } | null;
   created_at: string;
   updated_at: string;
 }
