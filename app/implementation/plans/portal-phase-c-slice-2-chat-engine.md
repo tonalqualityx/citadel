@@ -50,3 +50,13 @@ UI (C3), mailer/sweep/inbound/ingest (C4), cron lines and rollout (C5).
 
 ### Bucket policy check (rollout step, before mode pilot)
 `uploadToS3` (the staff `/api/uploads` route) returns a PUBLIC URL under `uploads/`, so the bucket may allow public read. Client files therefore live under a separate prefix, `portal-private/`, written with no ACL (`assertPrivateKey` refuses `uploads/`, `public/` and traversal). The bucket policy must grant anonymous read on `uploads/*` ONLY. Prove it on the deployed bucket with `verifyPrivateNotPublic()` in `lib/services/s3.ts`: it writes one fixed probe object under `portal-private/__probe__/` with the app's credentials and fetches it anonymously; it passes only on a 403/401 (a 404 or 200 fails). A probe on a missing key proves nothing, because a public-read bucket answers 403 for a key that does not exist. Without S3 the files go to `PORTAL_UPLOAD_DIR` outside the deploy path and are served only through the two authenticated routes.
+
+### Confirmation review (second pass)
+- The verbatim exemption is a WHOLE client sentence or the whole message (case, spacing and closing punctuation aside); a fragment is gated.
+- `sweepUnconfirmed`: per-conversation try/catch; three consecutive failures on one conversation tag it `needs-mike`, set `sweep_skip` and skip it. Candidates are ordered by the quiet clock (last client or assistant message), not `updated_at`, and paged in batches by a (quiet, id) cursor until none are left.
+- A stale "Send to the team" after the sweep filed the request returns "This request was already filed. Open it from Requests." with the link; `handBack` returns a sweep-filed conversation to `filed`, not `clarifying` (`slots.unconfirmed_filed`).
+- `scripts/verify-private-storage.ts` runs `verifyPrivateNotPublic` against the real bucket (rollout step; exit 0 private, 1 readable, 2 not configured).
+- The lease-drift check lives in Citadel (`lib/engine/__tests__/lease-drift.test.ts`): it imports the branch's own queue constants and reads `runner.py`; it cannot skip.
+
+### Known limit: compressed PDFs
+The PDF active-content scan reads object names in the raw file bytes (hex-escaped names decoded first). A PDF that keeps its actions inside compressed object streams (`/ObjStm`, Flate) does not show `/JavaScript` or `/OpenAction` to that scan, so it is not caught. What stands behind it: files are stored privately, served only through the two authenticated routes with `Content-Disposition: attachment` for everything that is not an image, `nosniff` and a sandboxing CSP, never rendered inline or previewed, never opened by the runner, and the model sees only a name, type and size. No virus scanner exists on either host (spec section 15).

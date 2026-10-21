@@ -58,7 +58,10 @@ export function zipEntryNames(buf: Buffer): string[] | null {
   return names;
 }
 
-/** PDF actions that run code or open things on their own. Names may be hex-obfuscated (#6A = j), so decode first. */
+/**
+ * Known limit: this reads the raw bytes, so actions kept inside compressed object streams are not seen.
+ * The rest of the chain (private storage, download-only, nosniff, no preview) is what stands behind it.
+ * PDF actions that run code or open things on their own. Names may be hex-obfuscated (#6A = j), so decode first. */
 const PDF_ACTIVE = /\/(?:JavaScript|JS|OpenAction|Launch|AA|RichMedia|XFA)(?![A-Za-z0-9])/;
 export function pdfHasActiveContent(buf: Buffer): boolean {
   const text = buf.toString('latin1').replace(/#([0-9A-Fa-f]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));

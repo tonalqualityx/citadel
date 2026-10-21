@@ -30,7 +30,9 @@ import { POST as claimRoute } from '@/app/api/engine/claim/route';
 import { POST as completeRoute } from '@/app/api/engine/jobs/[id]/complete/route';
 import { GET as quotaRoute } from '@/app/api/engine/jobs/[id]/tool-quota/route';
 import { handOff, handBack } from '@/lib/portal/chat/handoff';
-import { closeUnconfirmed, sweepUnconfirmed, UNCONFIRMED_FILE_HOURS, QUESTION_CLOSE_HOURS } from '@/lib/portal/chat/confirm';
+import { closeUnconfirmed, sweepUnconfirmed, listUnconfirmedCandidates, UNCONFIRMED_FILE_HOURS, QUESTION_CLOSE_HOURS, SWEEP_MAX_FAILURES } from '@/lib/portal/chat/confirm';
+import { POST as confirmRoute } from '@/app/api/portal/chat/[id]/confirm/route';
+import { ALREADY_FILED_LINE } from '@/lib/portal/chat/copy';
 import { stageUpload } from '@/lib/portal/chat/upload-service';
 
 const req = (url = '/x', init?: ConstructorParameters<typeof NextRequest>[1]) => new NextRequest(`http://localhost${url}`, init);
@@ -143,6 +145,16 @@ describe.skipIf(!SCRATCH)('chat hardening (real database)', () => {
 
     it('a paraphrase that drops the client number into the field unquoted is refused', async () => {
       await refused({ type: 'record', attachment_ids: [], change: 'Update the menu price to $20 as asked.' }, undefined, 'Please change the price on the menu to $20.');
+    });
+
+    it('only a WHOLE client sentence is exempt: a fragment carrying the number is gated, a whole sentence of two passes', async () => {
+      const text = 'The menu is out of date. Please change the price on the menu to $20.';
+      await refused({ type: 'record', attachment_ids: [], change: 'the price on the menu to $20' }, undefined, text);
+      const { body } = await start(text);
+      const { job } = await claim();
+      const ok = await complete(job.id, reply('Which part of the Menu page should change?', [{ type: 'record', attachment_ids: [], change: 'Please change the price on the menu to $20.' }]));
+      expect(ok.status, JSON.stringify(await ok.clone().json())).toBe(200);
+      expect(((await prisma.chatConversation.findUniqueOrThrow({ where: { task_id: body.task_id } })).slots as { change: string }).change).toBe('Please change the price on the menu to $20.');
     });
 
     it('the title on confirm is built from a gated change', async () => {
@@ -430,6 +442,161 @@ describe.skipIf(!SCRATCH)('chat hardening (real database)', () => {
       expect(slots.attachment_ids).toEqual([ownerUnsent.id]);
       const errs = ((await prisma.engineJob.findUniqueOrThrow({ where: { id: job.id } })).action_errors as Array<{ error: string; detail: string }>).filter((e) => e.error === 'unknown_attachment').map((e) => e.detail);
       expect(errs.sort()).toEqual([inA.id, viewerUnsent.id, unbound.id].sort());
+    });
+  });
+
+  // ---- confirmation review: sweep robustness, the quiet clock, paging, stale Send ----------------
+
+  describe('the walk-away sweep', () => {
+    async function due(text: string, hours = UNCONFIRMED_FILE_HOURS + 1) {
+      const { body } = await start(text);
+      const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { task_id: body.task_id } });
+      await prisma.engineJob.updateMany({ where: { conversation_id: convo.id }, data: { status: 'expired' } });
+      await ageThread(body.task_id, convo.id, hours);
+      return { taskId: body.task_id as string, convoId: convo.id };
+    }
+
+    it('one conversation that keeps failing is logged, skipped after three, tagged needs-mike; the rest still go through', async () => {
+      const stranger = await seedWorld({ sites: 1, role: 'owner' });
+      try {
+        const bad = await due('Please swap the photo on the Menu page');
+        const good = await due('Please fix the typo on the home page');
+        const badConvo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: bad.convoId } });
+        // A recorded summary that points at another client's site: filing it throws.
+        await prisma.chatConversation.update({
+          where: { id: bad.convoId },
+          data: { slots: { ...(badConvo.slots as object), summary: { request_type: 'site_change', site_id: stranger.sites[0].id, change: 'x', attachment_ids: [], text: null } } },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const first = await sweepUnconfirmed();
+        expect(first.failed).toBe(1);
+        expect(first.filed_unconfirmed).toBe(1); // the good one went through in the same sweep
+        expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: good.convoId } })).state).toBe('filed');
+        expect(((await prisma.chatConversation.findUniqueOrThrow({ where: { id: bad.convoId } })).slots as { sweep_failures: number }).sweep_failures).toBe(1);
+        expect(spy).toHaveBeenCalled();
+        const second = await sweepUnconfirmed();
+        expect(second.failed).toBe(1);
+        expect(second.parked).toBe(0);
+        const third = await sweepUnconfirmed();
+        expect(third.failed).toBe(1);
+        expect(third.parked).toBe(1);
+        const parked = await prisma.task.findUniqueOrThrow({ where: { id: bad.taskId } });
+        expect(parked.tags).toContain('needs-mike');
+        expect(parked.tags).not.toContain('chat-clarifying');
+        expect(((await prisma.chatConversation.findUniqueOrThrow({ where: { id: bad.convoId } })).slots as { sweep_skip: boolean }).sweep_skip).toBe(true);
+        expect((await prisma.comment.findMany({ where: { task_id: bad.taskId, is_internal: true } })).some((c) => c.content.includes('stopped trying'))).toBe(true);
+        // The fourth sweep does not touch it at all.
+        const fourth = await sweepUnconfirmed();
+        expect(fourth.failed).toBe(0);
+        expect(SWEEP_MAX_FAILURES).toBe(3);
+        spy.mockRestore();
+      } finally {
+        await cleanupWorld(stranger);
+      }
+    });
+
+    it('candidates follow the quiet clock, not updated_at, and the sweep pages past one batch', async () => {
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i++) ids.push((await due(`Request number ${i + 1} about the home page`)).convoId);
+      // A busy one: its client wrote an hour ago, but bookkeeping left updated_at ancient.
+      const busy = await due('A chat still going', UNCONFIRMED_FILE_HOURS + 1);
+      await prisma.comment.updateMany({ where: { task_id: busy.taskId, author_contact_id: { not: null } }, data: { created_at: new Date(Date.now() - HOUR) } });
+      await prisma.chatConversation.update({ where: { id: busy.convoId }, data: { updated_at: new Date(Date.now() - 100 * HOUR) } });
+      // And one whose updated_at is fresh from a bookkeeping write but whose messages are old.
+      const stale = await due('An abandoned chat');
+      await prisma.chatConversation.update({ where: { id: stale.convoId }, data: { updated_at: new Date() } });
+
+      const listed = (await listUnconfirmedCandidates(new Date(), { limit: 100 })).map((c) => c.id);
+      expect(listed).toContain(stale.convoId);
+      expect(listed).not.toContain(busy.convoId);
+      for (const id of ids) expect(listed).toContain(id);
+      // Oldest quiet first, keyset-paged: two batches of two cover the first four, none repeats.
+      const page1 = await listUnconfirmedCandidates(new Date(), { limit: 2 });
+      const page2 = await listUnconfirmedCandidates(new Date(), { limit: 2, after: page1[1] });
+      expect(new Set([...page1, ...page2].map((c) => c.id)).size).toBe(4);
+
+      const counts = await sweepUnconfirmed(new Date(), { batch: 2 }); // five due, batches of two
+      expect(counts.filed_unconfirmed).toBe(5);
+      expect(counts.failed).toBe(0);
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: busy.convoId } })).state).toBe('clarifying');
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: stale.convoId } })).state).toBe('filed');
+    });
+
+    it('a not-yet-due candidate is not read again inside one sweep (no endless loop)', async () => {
+      const q = await start('How many people visited?');
+      const { job } = await claim();
+      await complete(job.id, reply('I do not have that number. Would you like me to pass the question to the team?', [{ type: 'close_question' }]));
+      const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { task_id: q.body.task_id } });
+      await ageThread(q.body.task_id, convo.id, QUESTION_CLOSE_HOURS + 1); // old enough to be listed, question closed just now
+      const counts = await sweepUnconfirmed(new Date(), { batch: 1 });
+      expect(counts.skipped).toBeGreaterThanOrEqual(1);
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: convo.id } })).state).toBe('clarifying');
+    });
+  });
+
+  describe('a stale Send after the sweep filed the request', () => {
+    async function sweepFiled() {
+      const { body } = await start('Replace the photo on the Menu page');
+      const { job } = await claim();
+      const page = await prisma.sitePage.findFirstOrThrow({ where: { site_id: w.sites[0].id, title: 'Menu' } });
+      await complete(
+        job.id,
+        reply("Here's your request as I have it. Check it before it goes to the team.", [
+          { type: 'propose_summary', summary: 'Replace the photo on the Menu page.', request_type: 'site_change', site_id: w.sites[0].id, page_id: page.id, change: 'Replace the photo on the Menu page.', attachment_ids: [] },
+        ])
+      );
+      const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { task_id: body.task_id } });
+      await ageThread(body.task_id, convo.id, UNCONFIRMED_FILE_HOURS + 1);
+      expect(await closeUnconfirmed(convo.id)).toBe('filed_unconfirmed');
+      return { taskId: body.task_id as string, convo };
+    }
+
+    it('answers with the plain line and the link, changes nothing, and files nothing twice', async () => {
+      const { taskId, convo } = await sweepFiled();
+      const before = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      const waits = await prisma.wait.count({ where: { task_id: taskId } });
+      const notes = await prisma.comment.count({ where: { task_id: taskId } });
+      asOwner();
+      const res = await confirmRoute(req('/x', { ...SEND, body: json({ summary_version: convo.summary_version }) }), ctx(convo.id));
+      expect(res.status).toBe(200);
+      const out = await res.json();
+      expect(out.lines).toEqual([ALREADY_FILED_LINE]);
+      expect(ALREADY_FILED_LINE).toBe('This request was already filed. Open it from Requests.');
+      expect(out.already).toBe(true);
+      expect(out.link).toContain(`/portal/work/${taskId}`);
+      const after = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      expect(after.tags.sort()).toEqual(before.tags.sort());
+      expect(after.title).toBe(before.title);
+      expect(await prisma.wait.count({ where: { task_id: taskId } })).toBe(waits);
+      expect(await prisma.comment.count({ where: { task_id: taskId } })).toBe(notes); // no "Request sent."
+      // Any version number gets the same answer.
+      const again = await confirmRoute(req('/x', { ...SEND, body: json({ summary_version: 99 }) }), ctx(convo.id));
+      expect((await again.json()).lines).toEqual([ALREADY_FILED_LINE]);
+    });
+
+    it('a normal confirmed request still answers "Request sent." to a repeat Send', async () => {
+      const { body } = await start('Replace the photo on the Menu page');
+      const { job } = await claim();
+      const page = await prisma.sitePage.findFirstOrThrow({ where: { site_id: w.sites[0].id, title: 'Menu' } });
+      await complete(job.id, reply("Here's your request as I have it. Check it before it goes to the team.", [
+        { type: 'propose_summary', summary: 'Replace the photo on the Menu page.', request_type: 'site_change', site_id: w.sites[0].id, page_id: page.id, change: 'Replace the photo on the Menu page.', attachment_ids: [] },
+      ]));
+      const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { task_id: body.task_id } });
+      asOwner();
+      await confirmRoute(req('/x', { ...SEND, body: json({ summary_version: convo.summary_version }) }), ctx(convo.id));
+      const repeat = await confirmRoute(req('/x', { ...SEND, body: json({ summary_version: convo.summary_version }) }), ctx(convo.id));
+      expect((await repeat.json()).lines).toEqual(['Request sent.', 'You can keep adding details here.']);
+    });
+
+    it('hand-back treats a sweep-filed conversation as filed, not clarifying, and never re-adds chat-clarifying', async () => {
+      const { taskId, convo } = await sweepFiled();
+      await handOff(convo.id, { reason: 'other', draft: '', say: null });
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: convo.id } })).state).toBe('with_person');
+      expect(await handBack(taskId)).toBe(true);
+      expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: convo.id } })).state).toBe('filed');
+      const tags = (await prisma.task.findUniqueOrThrow({ where: { id: taskId } })).tags;
+      expect(tags).not.toContain('chat-clarifying');
+      expect(tags).toContain('unconfirmed-chat');
     });
   });
 });
