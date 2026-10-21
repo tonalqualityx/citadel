@@ -304,7 +304,8 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
 
   describe('hardening', () => {
     it('looksLikeYes: short and a whole word send or yes', () => {
-      for (const ok of ['Yes', 'yes, send it', 'Send.', 'Yes please send it as written', 'SEND IT!']) expect(looksLikeYes(ok), ok).toBe(true);
+      for (const ok of ['Yes', 'yes, send it', 'Send.', 'send', 'Yes please send it', 'Yes please send it as written', 'SEND IT!']) expect(looksLikeYes(ok), ok).toBe(true);
+      for (const hedge of ["No, don't send it", 'do not send yet', 'yes but change the headline first', 'Yes, except the title', 'send it instead of the draft', 'Wait, yes', 'hold on, send', "Don\u2019t send", 'not yet, send later', 'yes, no changes']) expect(looksLikeYes(hedge), hedge).toBe(false);
       for (const no of ['', 'Yesterday I called', 'resend', 'sending', 'ok', 'What does send mean for the other page and who does it go to and when and how long will it take please']) expect(looksLikeYes(no), no).toBe(false);
     });
 

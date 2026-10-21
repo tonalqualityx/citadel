@@ -4,19 +4,20 @@
  */
 import crypto from 'crypto';
 import { prisma } from '@/lib/db/prisma';
+import { dbBelongsToWorktree, dbNameOf, worktreeSlug } from './worktree-guard';
 
 export const SCRATCH = /scratch/i.test(process.env.DATABASE_URL ?? '');
 
 /**
  * One scratch database per worktree. Several of these tests (engine claim, settings, the sweep) read the
  * whole queue or the one settings row, so two worktrees sharing a database interfere. A worktree directory
- * named `citadel-<slug>-wt` must run against a database whose name carries `<slug>`; anything else fails
- * loudly instead of flaking. (The main checkout has no slug and is not checked.)
+ * named `citadel-<slug>-wt` must run against a database that carries `<slug>` as a whole word (rules in
+ * worktree-guard.ts); anything else fails loudly instead of flaking. The main checkout has no slug.
  */
-const slug = /citadel-([a-z0-9]+)-wt/.exec(process.cwd())?.[1];
-const dbName = /\/([^/?]+)(?:\?|$)/.exec(process.env.DATABASE_URL ?? '')?.[1] ?? '';
-if (SCRATCH && slug && !dbName.toLowerCase().includes(slug.toLowerCase())) {
-  throw new Error(`Scratch database "${dbName}" does not belong to worktree "${slug}". Use one scratch database per worktree (for example citadel_${slug}_scratch).`);
+const slug = worktreeSlug(process.cwd());
+const dbName = dbNameOf(process.env.DATABASE_URL ?? '');
+if (SCRATCH && slug && !dbBelongsToWorktree(dbName, slug)) {
+  throw new Error(`Scratch database "${dbName}" does not belong to worktree "${slug}". Use one scratch database per worktree (for example citadel_${slug.replace(/[^a-z0-9]+/g, '_')}_scratch).`);
 }
 
 export interface Seeded {
