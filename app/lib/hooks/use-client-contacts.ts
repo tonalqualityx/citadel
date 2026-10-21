@@ -68,7 +68,7 @@ export interface ContactPortalLoginLinkResponse {
 }
 
 /**
- * Team action: get a contact's portal login link. send=false returns the URL to copy;
+ * Team action: mint a single-use 7-day portal invite link for ONE contact (no shared team link). send=false returns the URL to copy;
  * send=true has Citadel email the contact the link.
  */
 export function useContactPortalLoginLink() {

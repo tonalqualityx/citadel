@@ -130,7 +130,7 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
     try {
       const res = await loginLink.mutateAsync({ id: c.id, send: false });
       await navigator.clipboard.writeText(res.url);
-      showToast.success('Login link copied to clipboard');
+      showToast.success('One-time invite link copied (works once, 7 days, this contact only)');
     } catch (error) {
       showToast.apiError(error, 'Failed to generate login link');
     } finally {
@@ -139,11 +139,11 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
   };
 
   const handleSendLoginLink = async (c: ClientContact) => {
-    if (!confirm(`Email ${c.email} their portal login link now?`)) return;
+    if (!confirm(`Email ${c.email} a one-time portal invite link now?`)) return;
     setLinkBusyId(c.id);
     try {
       await loginLink.mutateAsync({ id: c.id, send: true });
-      showToast.success(`Login link sent to ${c.email}`);
+      showToast.success(`One-time invite link sent to ${c.email}`);
     } catch (error) {
       showToast.apiError(error, 'Failed to send login link');
     } finally {
@@ -294,8 +294,8 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                   onClick={() => handleCopyLoginLink(c)}
                   disabled={linkBusyId === c.id}
                   className="p-1.5 text-text-sub hover:text-text-main transition-colors disabled:opacity-50"
-                  aria-label="Copy portal login link"
-                  title="Copy portal login link"
+                  aria-label="Copy one-time portal invite link for this contact"
+                  title="Copy one-time invite link (single use, 7 days, this contact only)"
                 >
                   <Link2 className="w-4 h-4" />
                 </button>
@@ -304,8 +304,8 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                   onClick={() => handleSendLoginLink(c)}
                   disabled={linkBusyId === c.id}
                   className="p-1.5 text-text-sub hover:text-text-main transition-colors disabled:opacity-50"
-                  aria-label="Email portal login link to contact"
-                  title="Email portal login link to contact"
+                  aria-label="Email one-time portal invite link to contact"
+                  title="Email one-time invite link to contact"
                 >
                   <Send className="w-4 h-4" />
                 </button>

@@ -1,34 +1,28 @@
 /**
- * Client Portal Auth (C1)
+ * Client Portal Auth (C1, hardened in portal A2)
  *
- * Magic-link login for client contacts → a 7-day, client-scoped browse session.
+ * Magic-link login for client contacts -> a 30-day sliding, client-scoped session.
  *
  * SECURITY-CRITICAL. The whole point is isolation: a session may ONLY ever read its own
- * client's data — never another client's, never Indelible internals. Enforcement lives in
+ * client's data - never another client's, never Indelible internals. Enforcement lives in
  * `requireClientAuth()` + `assertClientScope()`; route handlers must call both.
  *
  * Reuses the existing `PortalSession` model (token_type='client_session', entity_id=client_id,
- * tied to the contact). The magic-link row is a durable, reusable credential; each redemption
- * mints its OWN session row:
- *   1. request/invite phase — a link row: magic_token set, magic_token_expires_at = now+7d,
- *      session_token null. This row is the shareable link and is NEVER consumed.
- *   2. redeem phase — each click on a still-valid link CREATES a fresh session row
- *      (session_token set, expires_at = now+7d). The link works any number of times until it
- *      expires, so a client can share it with their team and meta-preview crawlers can't burn it.
+ * tied to the contact):
+ *   1. request/invite phase - a link row: only the SHA-256 hash of the token is stored
+ *      (`magic_token_hash`; the raw token exists only in the email/URL). TTL is 15 minutes when
+ *      the contact requested it, 7 days when the team issued it as an invite. SINGLE USE.
+ *   2. consume phase - a POST from the /portal/login/verify interstitial claims the link row
+ *      atomically (`consumed_at`), then mints a fresh session row (session_token, expires_at).
+ *      A GET never consumes, so mail scanners and link previewers cannot burn a link.
+ *   3. sessions slide 30 days on activity, hard-capped at 90 days from creation. They can be
+ *      revoked (`revoked_at`) by logout, by deleting the contact, or by setting portal_role none.
  *
- * NOTE (per Mike, 2026-06-24): the link is intentionally reusable-for-7-days rather than
- * single-use. This is a deliberate, temporary tradeoff for a small team-sharing use case — a
- * forwarded/leaked link grants its client's scope for up to 7 days. It will be tightened when the
- * full per-contact login lands.
- *
- * Portal v2 phase 1 (2026-08-09, Mike ops-review Q5): once redeemed, a session now SLIDES —
- * `requireClientAuth()` extends `expires_at` (and re-sets the cookie's maxAge) on activity, up to
- * `MAX_SESSION_TTL_DAYS` from the session's own `created_at`. The magic-link request/invite window
- * itself (`MAGIC_LINK_TTL_DAYS`/`TEAM_INVITE_TTL_DAYS`) is unchanged — only the logged-in session's
- * lifetime changed, per the approved decision ("magic-link flow otherwise unchanged").
+ * Legacy rows (raw `magic_token`, reusable link) are never matched by the hash lookup, so any
+ * pre-A2 reusable link is dead on deploy. Existing logged-in sessions keep working.
  */
 
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db/prisma';
 import { AuthError } from '@/lib/api/errors';
@@ -36,17 +30,16 @@ import { sendClientMagicLinkEmail } from '@/lib/services/email';
 
 export const CLIENT_SESSION_COOKIE = 'client_session';
 const TOKEN_TYPE = 'client_session';
-/**
- * The self-service request link and the team-generated invite link are valid for 7 days and
- * reusable within that window (so the client can share one link with their team, and link
- * prefetchers can't burn it). Still client-scoped on every redemption.
- */
-const MAGIC_LINK_TTL_DAYS = 7;
+/** A link the contact requested for themselves. */
+const MAGIC_LINK_TTL_MINUTES = 15;
+/** A link a team member issued for one specific contact (copied or emailed). */
+const TEAM_INVITE_TTL_DAYS = 7;
+/** At most one login request per email in this window; extra requests are silently ignored. */
+export const REQUEST_COOLDOWN_MS = 60 * 1000;
 /** A logged-in session's sliding window: each activity extends it this far into the future. */
 export const SESSION_TTL_DAYS = 30;
 /** Absolute cap on a session's lifetime from its own `created_at`, regardless of activity. */
 export const MAX_SESSION_TTL_DAYS = 90;
-const TEAM_INVITE_TTL_DAYS = 7;
 /** Only write the extended expiry (DB + cookie) when it moves the deadline by more than this —
  *  avoids a write + Set-Cookie on every single portal request. */
 const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;
@@ -61,17 +54,33 @@ function generateToken(): string {
   return randomBytes(64).toString('hex');
 }
 
+/** SHA-256 hex (64 chars) of a magic-link token. Only this is ever stored. */
+export function hashMagicToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
 function daysFromNow(days: number): Date {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
+function minutesFromNow(minutes: number): Date {
+  return new Date(Date.now() + minutes * 60 * 1000);
+}
+
+/** The interstitial page the email links to. Opening it consumes nothing. */
+function verifyUrl(baseUrl: string, token: string): string {
+  return `${baseUrl}/portal/login/verify?token=${token}`;
+}
+
 /**
- * Issue a magic link for every active contact matching the email and email each one its link.
+ * Issue a single-use magic link for every active, portal-enabled contact matching the email and
+ * email each one its link.
  *
  * An email can be a contact for more than one client (`@@unique[client_id, email]`); each match
  * gets its own token scoped to that contact's client, so consuming a link can only ever produce
- * that client's session. Returns the number of links issued — callers should NOT leak this to
- * the public response (avoid email enumeration); it exists for logging/tests.
+ * that client's session. Rate limit: if any of those contacts already requested a link within
+ * `REQUEST_COOLDOWN_MS`, nothing is minted or sent. Returns the number of links issued - callers
+ * must NOT leak this to the public response (no email enumeration); it exists for logging/tests.
  */
 export async function requestClientMagicLink(input: {
   email: string;
@@ -79,9 +88,21 @@ export async function requestClientMagicLink(input: {
   userAgent: string | null;
 }): Promise<number> {
   const contacts = await prisma.clientContact.findMany({
-    where: { email: input.email, is_deleted: false },
+    where: { email: input.email, is_deleted: false, portal_role: { not: 'none' } },
     select: { id: true, name: true, email: true, client_id: true },
   });
+  if (contacts.length === 0) return 0;
+
+  const recent = await prisma.portalSession.findFirst({
+    where: {
+      token_type: TOKEN_TYPE,
+      action: 'request',
+      contact_id: { in: contacts.map((c) => c.id) },
+      created_at: { gte: new Date(Date.now() - REQUEST_COOLDOWN_MS) },
+    },
+    select: { id: true },
+  });
+  if (recent) return 0;
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -92,8 +113,8 @@ export async function requestClientMagicLink(input: {
         token_type: TOKEN_TYPE,
         entity_id: contact.client_id,
         contact_id: contact.id,
-        magic_token: magicToken,
-        magic_token_expires_at: daysFromNow(MAGIC_LINK_TTL_DAYS),
+        magic_token_hash: hashMagicToken(magicToken),
+        magic_token_expires_at: minutesFromNow(MAGIC_LINK_TTL_MINUTES),
         ip_address: input.ipAddress,
         user_agent: input.userAgent,
         action: 'request',
@@ -102,9 +123,9 @@ export async function requestClientMagicLink(input: {
 
     await sendClientMagicLinkEmail({
       to: contact.email,
-      loginUrl: `${baseUrl}/api/portal/login/${magicToken}`,
+      loginUrl: verifyUrl(baseUrl, magicToken),
       contactName: contact.name,
-      expiresLabel: `${MAGIC_LINK_TTL_DAYS} days`,
+      expiresLabel: `${MAGIC_LINK_TTL_MINUTES} minutes`,
     });
   }
 
@@ -112,14 +133,13 @@ export async function requestClientMagicLink(input: {
 }
 
 /**
- * Team-side: mint a portal **login** link for a specific contact, so the team can proactively
- * invite a client in — either copying the URL (Mike pastes it into his own email) or having
- * Citadel email it (`send: true`). Unlike `requestClientMagicLink` (client-initiated, keyed by a
- * typed email), this is keyed by a known contact id. Both use the same 7-day window and are
- * reusable within it; this one is always scoped to the contact's own client.
+ * Team-side: mint a single-use portal **invite** link for ONE specific contact (copy the URL, or
+ * have Citadel email it with `send: true`). 7-day TTL, hashed at rest, consumed only by the
+ * interstitial POST. It signs in that contact only - there is no shareable team link; every
+ * person gets their own contact row and their own invite.
  *
- * Returns the link details, or `null` if the contact does not exist / is deleted. The email is
- * sent in the neutral Indelible voice and never references the internal worker persona.
+ * Returns the link details, or `null` if the contact does not exist, is deleted, or has portal
+ * role none. The email is sent in the neutral Indelible voice.
  */
 export async function createContactPortalLoginLink(input: {
   contactId: string;
@@ -134,10 +154,10 @@ export async function createContactPortalLoginLink(input: {
 } | null> {
   const contact = await prisma.clientContact.findUnique({
     where: { id: input.contactId },
-    select: { id: true, name: true, email: true, client_id: true, is_deleted: true },
+    select: { id: true, name: true, email: true, client_id: true, is_deleted: true, portal_role: true },
   });
 
-  if (!contact || contact.is_deleted) return null;
+  if (!contact || contact.is_deleted || contact.portal_role === 'none') return null;
 
   const magicToken = generateToken();
   const expiresAt = daysFromNow(TEAM_INVITE_TTL_DAYS);
@@ -147,7 +167,7 @@ export async function createContactPortalLoginLink(input: {
       token_type: TOKEN_TYPE,
       entity_id: contact.client_id,
       contact_id: contact.id,
-      magic_token: magicToken,
+      magic_token_hash: hashMagicToken(magicToken),
       magic_token_expires_at: expiresAt,
       ip_address: input.ipAddress,
       user_agent: input.userAgent,
@@ -156,7 +176,7 @@ export async function createContactPortalLoginLink(input: {
   });
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const url = `${baseUrl}/api/portal/login/${magicToken}`;
+  const url = verifyUrl(baseUrl, magicToken);
 
   if (input.send) {
     await sendClientMagicLinkEmail({
@@ -181,37 +201,55 @@ export async function createContactPortalLoginLink(input: {
 }
 
 /**
- * Redeem a magic link → start a fresh 7-day client-scoped session. REUSABLE: the magic-link row
- * is a durable credential and is never consumed; each redemption mints its OWN new session row, so
- * the same link can sign in any number of people/browsers until it expires (7-day window). This is
- * what lets a client share one link with their team, and why a meta-preview crawler GETting the
- * link can't lock anyone out. Returns the new session token + scope, or null if the token is
- * unknown or its magic-link window has expired.
- *
- * (Named `consume*` for historical continuity with the [token] route; despite the name it no
- * longer consumes the link — see the module header for the deliberate reusable-for-7-days model.)
+ * Consume a magic link -> start a fresh client-scoped session. SINGLE USE: the link row is
+ * claimed with one conditional update (`consumed_at` null -> now), so of two concurrent or
+ * repeated attempts exactly one wins. Called ONLY from the POST /api/portal/login/consume route
+ * (the interstitial); no GET path reaches it. Returns null for an unknown, already-used or
+ * expired token, or when the contact has since been deleted or set to portal role none.
  */
 export async function consumeClientMagicLink(input: {
   magicToken: string;
   ipAddress: string;
   userAgent: string | null;
 }): Promise<{ sessionToken: string; clientId: string; contactId: string; expiresAt: Date } | null> {
+  if (!input.magicToken) return null;
+  const tokenHash = hashMagicToken(input.magicToken);
+
   const row = await prisma.portalSession.findFirst({
-    where: {
-      magic_token: input.magicToken,
-      token_type: TOKEN_TYPE,
+    where: { magic_token_hash: tokenHash, token_type: TOKEN_TYPE },
+    select: {
+      id: true,
+      entity_id: true,
+      contact_id: true,
+      magic_token_expires_at: true,
+      consumed_at: true,
     },
-    select: { id: true, entity_id: true, contact_id: true, magic_token_expires_at: true },
   });
 
   if (!row || !row.contact_id) return null;
-  if (row.magic_token_expires_at && row.magic_token_expires_at < new Date()) return null;
+  if (row.consumed_at) return null;
+  if (!row.magic_token_expires_at || row.magic_token_expires_at < new Date()) return null;
+
+  const contact = await prisma.clientContact.findUnique({
+    where: { id: row.contact_id },
+    select: { is_deleted: true, portal_role: true },
+  });
+  if (!contact || contact.is_deleted || contact.portal_role === 'none') return null;
+
+  // Atomic claim. count 0 means another request consumed it between our read and now.
+  const claim = await prisma.portalSession.updateMany({
+    where: {
+      id: row.id,
+      consumed_at: null,
+      magic_token_expires_at: { gt: new Date() },
+    },
+    data: { consumed_at: new Date() },
+  });
+  if (claim.count !== 1) return null;
 
   const sessionToken = generateToken();
   const expiresAt = daysFromNow(SESSION_TTL_DAYS);
 
-  // Mint a NEW session row per redemption (don't touch the reusable link row). Each browser gets
-  // its own independent session_token, so multiple team members can use the one shared link.
   await prisma.portalSession.create({
     data: {
       token_type: TOKEN_TYPE,
@@ -234,12 +272,49 @@ export async function consumeClientMagicLink(input: {
   };
 }
 
+/** End one session (logout). Idempotent; unknown tokens are a no-op. */
+export async function revokeClientSession(sessionToken: string): Promise<void> {
+  if (!sessionToken) return;
+  await prisma.portalSession.updateMany({
+    where: { session_token: sessionToken, token_type: TOKEN_TYPE, revoked_at: null },
+    data: { revoked_at: new Date() },
+  });
+}
+
+/**
+ * Cut a contact off: revoke every live session AND burn every unused login link. Called when a
+ * contact is deleted or its portal_role is set to none. Returns the number of sessions revoked.
+ */
+export async function revokeContactAccess(contactId: string): Promise<number> {
+  const now = new Date();
+  const sessions = await prisma.portalSession.updateMany({
+    where: {
+      contact_id: contactId,
+      token_type: TOKEN_TYPE,
+      session_token: { not: null },
+      revoked_at: null,
+    },
+    data: { revoked_at: now },
+  });
+  await prisma.portalSession.updateMany({
+    where: {
+      contact_id: contactId,
+      token_type: TOKEN_TYPE,
+      magic_token_hash: { not: null },
+      consumed_at: null,
+    },
+    data: { consumed_at: now },
+  });
+  return sessions.count;
+}
+
 interface ActiveSessionRow {
   id: string;
   entity_id: string;
   contact_id: string;
   expires_at: Date;
   created_at: Date;
+  revoked_at?: Date | null;
 }
 
 /**
@@ -254,11 +329,20 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
     where: {
       session_token: sessionToken,
       token_type: TOKEN_TYPE,
+      revoked_at: null,
     },
-    select: { id: true, entity_id: true, contact_id: true, expires_at: true, created_at: true },
+    select: {
+      id: true,
+      entity_id: true,
+      contact_id: true,
+      expires_at: true,
+      created_at: true,
+      revoked_at: true,
+    },
   });
 
   if (!row || !row.contact_id || !row.expires_at) return null;
+  if (row.revoked_at) return null;
   if (row.expires_at < new Date()) return null;
 
   return row as ActiveSessionRow;
@@ -353,7 +437,7 @@ export function assertClientScope(session: ClientSession, clientId: string): voi
 }
 
 export const __testing = {
-  MAGIC_LINK_TTL_DAYS,
+  MAGIC_LINK_TTL_MINUTES,
   SESSION_TTL_DAYS,
   MAX_SESSION_TTL_DAYS,
   TEAM_INVITE_TTL_DAYS,

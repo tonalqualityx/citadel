@@ -8,14 +8,14 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'POST',
         summary:
-          'Client contact requests a magic-link login. Issues a 7-day, reusable link per matching active contact and emails it (so it can be shared with their team). Public, no auth required.',
+          'Client contact requests a magic-link login. Issues a single-use, 15-minute link per matching active contact (hashed at rest) and emails it. At most one request per email per 60 seconds; extra requests mint nothing. Public, no auth required.',
         auth: 'none',
         bodySchema: [
           { name: 'email', type: 'string', required: true, description: 'The contact email to send the login link to' },
         ],
         responseExample: { requested: true },
         responseNotes:
-          'Always returns { requested: true } regardless of whether the email matches a contact (no email enumeration). Rate-limited.',
+          'Always returns { requested: true } regardless of whether the email matches a contact or the 60-second limit applied (no email enumeration). IP rate-limited as well.',
       },
     ],
   },
@@ -26,10 +26,38 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'GET',
         summary:
-          'Redeem a magic-link token: issues a client-scoped session cookie (30 days, sliding on activity up to 90 days max — Portal v2 phase 1) and redirects into the portal. The link is reusable until it expires (each redemption starts its own session), so previews/multiple team members can use it. Public, no auth required.',
+          'Legacy magic-link entry. Never consumes the token: 303-redirects to /portal/login/verify?token=... where a person presses one button. Public, no auth required.',
         auth: 'none',
-        responseNotes:
-          'Sets the httpOnly `client_session` cookie and 303-redirects to /portal on success; redirects to /portal/login?error=invalid for an unknown/expired token (no cookie set). Every subsequent authenticated portal request extends the session (see requireClientAuth in client-auth.ts), capped at 90 days from the session\'s own creation.',
+        responseNotes: 'Exists so mail scanners that GET the link cannot burn it.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/login/consume',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Consume a single-use magic-link token (called by the /portal/login/verify button). Sets the httpOnly `client_session` cookie (30 days, sliding on activity, 90-day hard cap) and returns { redirect: "/portal" }. Public, no auth required.',
+        auth: 'none',
+        bodySchema: [
+          { name: 'token', type: 'string', required: true, description: 'The raw token from the emailed link' },
+        ],
+        responseExample: { redirect: '/portal' },
+        responseNotes: '401 for an unknown, already-used or expired token (no cookie set).',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/logout',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Revoke the current portal session server-side and clear the cookie. Always 200.',
+        auth: 'none',
+        responseExample: { loggedOut: true },
       },
     ],
   },

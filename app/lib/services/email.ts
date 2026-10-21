@@ -285,8 +285,8 @@ Hi${greeting},
 Here is your secure link to sign in to the Indelible client portal:
 ${loginUrl}
 
-This link stays active for ${expiresPhrase}, so you and your team can use it to sign
-in. Each sign-in keeps that browser logged in for 7 days.
+This link works once and stays active for ${expiresPhrase}. It is only for you, so please
+don't forward it. Once you're signed in, this browser stays signed in while you use the portal.
 
 If you didn't request this, you can safely ignore this email.
 
@@ -313,7 +313,7 @@ If you didn't request this, you can safely ignore this email.
     <p><a href="${loginUrl}" class="button">Sign In</a></p>
     <p>Or copy and paste this link into your browser:</p>
     <p><a href="${loginUrl}">${loginUrl}</a></p>
-    <p>This link stays active for ${expiresPhrase}, so you and your team can use it to sign in. Each sign-in keeps that browser logged in for 7 days.</p>
+    <p>This link works once and stays active for ${expiresPhrase}. It is only for you, so please don't forward it. Once you're signed in, this browser stays signed in while you use the portal.</p>
     <p class="footer">If you didn't request this, you can safely ignore this email.</p>
     <p class="footer">- The Indelible Team</p>
   </div>

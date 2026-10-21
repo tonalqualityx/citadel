@@ -2254,6 +2254,12 @@ model PortalSession {
   expires_at             DateTime?
   consumed_at            DateTime?
 
+  // Portal A2 (additive). Magic links are stored ONLY as the SHA-256 hex of the token; the raw
+  // token lives in the emailed URL. Legacy raw `magic_token` stays for pre-A2 rows and is never
+  // matched. `revoked_at` ends a session early (logout, contact deleted, portal_role none).
+  magic_token_hash       String?        @unique @db.VarChar(64)
+  revoked_at             DateTime?
+
   @@index([token_type, entity_id])
   @@index([created_at])
   @@index([contact_id])

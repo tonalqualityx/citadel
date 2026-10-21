@@ -12,9 +12,9 @@ const bodySchema = z.object({
 });
 
 // POST /api/contacts/:id/portal-login-link
-// Team-side (pm/admin): get a client contact's portal LOGIN link, two ways — copy the URL or have
-// Citadel email it to the contact. Mints a single-use, client-scoped magic link (longer team-invite
-// TTL so a copied link survives until clicked). Closes the gap that login was client-initiated only.
+// Team-side (pm/admin): mint ONE single-use, 7-day invite link for ONE contact, two ways: copy the
+// URL or have Citadel email it to the contact. It is never reusable and never a team link; each
+// person signs in with their own contact's invite.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

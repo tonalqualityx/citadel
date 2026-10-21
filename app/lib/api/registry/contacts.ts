@@ -124,7 +124,7 @@ export const contactEndpoints: ApiEndpoint[] = [
       {
         method: 'POST',
         summary:
-          "Team-side: get a client contact's portal LOGIN link. Mints a client-scoped magic link valid for 7 days and reusable within that window (a copied link survives until clicked and can be shared with the contact's team). send:false (default) returns the URL to copy; send:true emails the contact their login link on the team's behalf (neutral voice).",
+          "Team-side: mint a single-use portal INVITE link for this one contact. Valid 7 days, stored hashed, consumed only by the button on the login verify page, signs in that contact only (there is no shareable team link; each person needs their own contact). 404 for a deleted contact or portal role none. send:false (default) returns the URL to copy; send:true emails the contact on the team's behalf (neutral voice).",
         auth: 'required',
         roles: ['pm', 'admin'],
         bodySchema: [

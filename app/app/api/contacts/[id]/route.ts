@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatClientContactResponse } from '@/lib/api/formatters';
 import { deriveContactPortalFields } from '@/lib/portal/access';
+import { revokeContactAccess } from '@/lib/services/client-auth';
 import { logUpdate, logDelete, detectChanges } from '@/lib/services/activity';
 
 const updateContactSchema = z.object({
@@ -63,6 +64,11 @@ export async function PATCH(
     );
     await logUpdate(auth.userId, 'client_contact', contact.id, contact.email, changes);
 
+    // Portal role none ends portal access now: kill live sessions and unused login links.
+    if (contact.portal_role === 'none') {
+      await revokeContactAccess(contact.id);
+    }
+
     return NextResponse.json(formatClientContactResponse(contact));
   } catch (error) {
     return handleApiError(error);
@@ -89,6 +95,7 @@ export async function DELETE(
       data: { is_deleted: true },
     });
 
+    await revokeContactAccess(id);
     await logDelete(auth.userId, 'client_contact', id, existing.email);
 
     return NextResponse.json({ success: true });
