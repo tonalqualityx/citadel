@@ -1,9 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { ChoiceList } from './choice-list';
+import { ChatBubble } from './chat-bubble';
+import { SoFarPanel } from './so-far-panel';
+import { StepMeter } from './step-meter';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Callout } from '@/components/portal/ui/callout';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { IntakeStep, type StepAnswer, type StepSpec } from './intake-step';
 import { IntakeSummary } from './intake-summary';
 import {
@@ -338,41 +344,57 @@ export function IntakeChat() {
   }
 
   // ---- Render ----
-  if (loadError) return <p role="alert" className="text-status-error">{loadError}</p>;
-  if (!ctx) return <div className="py-20 text-center text-text-secondary">Loading…</div>;
+  if (loadError) {
+    return (
+      <Callout tone="urgent" icon={TriangleAlert} title="We could not load this page" id="intake-load">
+        <p>{loadError}</p>
+      </Callout>
+    );
+  }
+  if (!ctx) {
+    return (
+      <SkeletonRegion label="Loading the request chat">
+        <div className="chatwrap">
+          <div className="chatcard">
+            <Skeleton lines={2} block />
+          </div>
+          <div className="sofar desk">
+            <Skeleton lines={3} />
+          </div>
+        </div>
+      </SkeletonRegion>
+    );
+  }
   if (!ctx.can_request) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-6">
-        <p className="text-text-main">{NO_PERMISSION_MESSAGE}</p>
+      <div className="card">
+        <p>{NO_PERMISSION_MESSAGE}</p>
       </div>
     );
   }
 
-  const transcript: Array<{ prompt: string; answer: string }> = [];
+  // What has been said so far, oldest first. Each answer can be changed.
+  const transcript: Array<{ key: string; label: string; prompt: string; answer: string; change: () => void }> = [];
   if (type && phase !== 'type') {
-    transcript.push({ prompt: OPENING_PROMPT, answer: typeLabel(type) });
-    if (phase !== 'site' && siteOptions.length > 1 && selection.siteName) transcript.push({ prompt: SITE_PROMPT, answer: selection.siteName });
+    transcript.push({ key: 'type', label: 'What you need', prompt: OPENING_PROMPT, answer: typeLabel(type), change: () => setPhase('type') });
+    if (phase !== 'site' && siteOptions.length > 1 && selection.siteName) {
+      transcript.push({ key: 'site', label: 'Site', prompt: SITE_PROMPT, answer: selection.siteName, change: () => setPhase('site') });
+    }
     stepSpecs.forEach((s, i) => {
       if (phase === 'q' && i >= qIndex) return;
       const t = answerText(answers[s.id], s.choices);
-      if (t) transcript.push({ prompt: s.prompt, answer: t });
+      if (t)
+        transcript.push({
+          key: s.id,
+          label: s.prompt,
+          prompt: s.prompt,
+          answer: t,
+          change: () => {
+            setQIndex(i);
+            setPhase('q');
+          },
+        });
     });
-  }
-
-  if (phase === 'sent' && sent) {
-    return (
-      <section className="space-y-3 rounded-lg border border-border bg-surface p-6" aria-live="polite">
-        <h2 className="text-xl font-bold text-text-main">{SENT_HEADING}</h2>
-        {sent.urgent && <p className="font-semibold text-text-main">{SENT_URGENT}</p>}
-        {/* They asked for urgent but the daily limit meant no alert: do not say the team was alerted. */}
-        {!sent.urgent && urgent && <p className="text-text-secondary">{SENT_DOWNGRADED}</p>}
-        <p>
-          <Link href={`/portal/work/${sent.id}`} className="font-semibold text-brand-primary underline">
-            {SENT_LINK_LABEL}
-          </Link>
-        </p>
-      </section>
-    );
   }
 
   const placement = summary;
@@ -380,101 +402,138 @@ export function IntakeChat() {
   const okPlacement = placement && placement.ok ? placement : null;
   const projectName = okPlacement?.project_id ? ctx.open_builds.find((b) => b.id === okPlacement.project_id)?.name : null;
   const planName = okPlacement?.charter_id ? ctx.charters.find((c) => c.id === okPlacement.charter_id)?.label : null;
+  const destination =
+    okPlacement && (phase === 'summary' || siteSel !== null)
+      ? destinationLine({ chain: okPlacement.chain, project_name: projectName, plan_name: planName, site_name: selection.siteName })
+      : '';
+
+  const stage: 0 | 1 | 2 | 3 = phase === 'type' ? 0 : phase === 'site' ? 1 : phase === 'q' ? 2 : 3;
+  const meter = (
+    <StepMeter stage={stage} question={phase === 'q' ? qIndex + 1 : undefined} total={Math.max(1, stepSpecs.length)} sent={phase === 'sent'} />
+  );
+
+  if (phase === 'sent' && sent) {
+    return (
+      <>
+        {meter}
+        <section className="summary-card" aria-live="polite">
+          <h2 id="intake-sent-heading">{SENT_HEADING}</h2>
+          {sent.urgent && <p style={{ fontWeight: 700 }}>{SENT_URGENT}</p>}
+          {/* They asked for urgent but the daily limit meant no alert: do not say the team was alerted. */}
+          {!sent.urgent && urgent && <p>{SENT_DOWNGRADED}</p>}
+          <div className="actions">
+            <PortalButton href={`/portal/work/${sent.id}`}>{SENT_LINK_LABEL}</PortalButton>
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  const currentPrompt =
+    phase === 'type' ? OPENING_PROMPT : phase === 'site' ? SITE_PROMPT : phase === 'q' && stepSpecs[qIndex] ? stepSpecs[qIndex].prompt : null;
+  const sofarRows = transcript.map((t) => ({ label: t.label, value: t.answer }));
+  const inSummary = phase === 'summary';
 
   return (
-    <div className="space-y-6">
-      {/* The summary repeats every answer, so the transcript steps aside for it. */}
-      {transcript.length > 0 && phase !== 'summary' && (
-        <div role="log" aria-label="Your request so far" className="space-y-3">
-          {transcript.map((t) => (
-            <div key={t.prompt} className="space-y-1">
-              <p className="max-w-[85%] rounded-lg bg-surface-secondary px-3 py-2 text-sm text-text-main">{t.prompt}</p>
-              <p className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-main">{t.answer}</p>
+    <>
+      {meter}
+      <div className="chatwrap">
+        <section className="chatcard" aria-label="Request chat">
+          {/* The summary repeats every answer, so the log and the side panel step aside for it. */}
+          {!inSummary && <SoFarPanel mode="phone" rows={sofarRows} destination={destination || null} />}
+          {!inSummary && (
+            <div className="log" role="log" aria-live="polite" aria-label="Conversation">
+              {transcript.map((t) => (
+                <Fragment key={t.key}>
+                  <ChatBubble side="us" who="Indelible">
+                    {t.prompt}
+                  </ChatBubble>
+                  <ChatBubble side="you" who="You" onChange={t.change} changeLabel={t.prompt}>
+                    <span style={{ whiteSpace: 'pre-wrap' }}>{t.answer}</span>
+                  </ChatBubble>
+                </Fragment>
+              ))}
+              {currentPrompt && (
+                <ChatBubble side="us" who="Indelible" current>
+                  {currentPrompt}
+                </ChatBubble>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      <div className="rounded-lg border border-border bg-surface p-5">
-        {phase === 'type' && (
-          <fieldset className="space-y-3">
-            <legend className="text-lg font-semibold text-text-main">{OPENING_PROMPT}</legend>
-            <ChoiceList
-              name="intake-type"
-              options={OPENING_CHOICES}
-              value={type}
-              onChange={(k) => isIntakeType(k) && pickType(k)}
+          {phase === 'type' && (
+            <div className="composer">
+              <ChoiceList
+                name="intake-type"
+                label={OPENING_PROMPT}
+                options={OPENING_CHOICES}
+                value={type}
+                onChange={(k) => isIntakeType(k) && pickType(k)}
+              />
+              <p className="hint">You can change any answer before you send.</p>
+            </div>
+          )}
+
+          {phase === 'site' && (
+            <form
+              className="composer"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (siteSel) setPhase('q');
+              }}
+            >
+              <ChoiceList name="intake-site" label={SITE_PROMPT} options={siteOptions} value={siteSel} onChange={setSiteSel} />
+              <div className="actions">
+                <PortalButton type="submit" disabled={!siteSel}>
+                  {BUTTONS.next}
+                </PortalButton>
+                <PortalButton variant="quiet" icon={ArrowLeft} onClick={goBack}>
+                  {BUTTONS.back}
+                </PortalButton>
+              </div>
+              <p className="hint">You can change any answer before you send.</p>
+            </form>
+          )}
+
+          {phase === 'q' && stepSpecs[qIndex] && (
+            <IntakeStep
+              key={`${type}-${stepSpecs[qIndex].id}-${qIndex}`}
+              step={stepSpecs[qIndex]}
+              initial={answers[stepSpecs[qIndex].id]}
+              canGoBack
+              onBack={goBack}
+              onSubmit={(a) => submitQuestion(qIndex, a)}
             />
-          </fieldset>
-        )}
+          )}
 
-        {phase === 'site' && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (siteSel) setPhase('q');
-            }}
-          >
-            <fieldset className="space-y-3">
-              <legend className="text-lg font-semibold text-text-main">{SITE_PROMPT}</legend>
-              <ChoiceList name="intake-site" options={siteOptions} value={siteSel} onChange={setSiteSel} />
-            </fieldset>
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={!siteSel}
-                className="min-h-[44px] rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-              >
-                {BUTTONS.next}
-              </button>
-              <button type="button" onClick={goBack} className="min-h-[44px] px-2 text-sm text-text-secondary underline">
-                {BUTTONS.back}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {phase === 'q' && stepSpecs[qIndex] && (
-          <IntakeStep
-            key={`${type}-${stepSpecs[qIndex].id}-${qIndex}`}
-            step={stepSpecs[qIndex]}
-            initial={answers[stepSpecs[qIndex].id]}
-            canGoBack
-            onBack={goBack}
-            onSubmit={(a) => submitQuestion(qIndex, a)}
-          />
-        )}
-
-        {phase === 'summary' && type && (
-          <IntakeSummary
-            typeLabel={typeLabel(type)}
-            siteName={selection.siteName}
-            answers={questions
-              .filter((q) => answers[q.key])
-              .map((q) => ({ prompt: q.prompt, value: answerText(answers[q.key], stepSpecs.find((s) => s.id === q.key)?.choices) }))}
-            destination={
-              okPlacement
-                ? destinationLine({ chain: okPlacement.chain, project_name: projectName, plan_name: planName, site_name: selection.siteName })
-                : ''
-            }
-            quote={Boolean(okPlacement?.quote)}
-            urgent={urgent}
-            dateWords={type === 'new_page_feature' && answers.q3?.value === 'yes_date' ? answers.q3.detail ?? null : null}
-            projectChoices={projectChoices}
-            chosenProjectId={chosenProjectId}
-            onChooseProject={setChosenProjectId}
-            sending={sending}
-            error={sendError}
-            onSend={send}
-            onChange={() => {
-              setQIndex(Math.max(0, questions.length - 1));
-              setPhase('q');
-            }}
-            onCancel={cancel}
-          />
-        )}
+          {inSummary && type && (
+            <IntakeSummary
+              typeLabel={typeLabel(type)}
+              siteName={selection.siteName}
+              answers={questions
+                .filter((q) => answers[q.key])
+                .map((q) => ({ prompt: q.prompt, value: answerText(answers[q.key], stepSpecs.find((s) => s.id === q.key)?.choices) }))}
+              destination={destination}
+              quote={Boolean(okPlacement?.quote)}
+              urgent={urgent}
+              dateWords={type === 'new_page_feature' && answers.q3?.value === 'yes_date' ? answers.q3.detail ?? null : null}
+              projectChoices={projectChoices}
+              chosenProjectId={chosenProjectId}
+              onChooseProject={setChosenProjectId}
+              sending={sending}
+              error={sendError}
+              onSend={send}
+              onChange={() => {
+                setQIndex(Math.max(0, questions.length - 1));
+                setPhase('q');
+              }}
+              onCancel={cancel}
+            />
+          )}
+        </section>
+        {!inSummary && <SoFarPanel mode="desk" rows={sofarRows} destination={destination || null} />}
       </div>
-    </div>
+    </>
   );
 }
 

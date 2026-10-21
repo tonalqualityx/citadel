@@ -1,10 +1,17 @@
 'use client';
 
 import { use, useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { ChevronDown, TriangleAlert, PenLine } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 import { EngagementChip } from '@/components/portal/ui/engagement-chip';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Field } from '@/components/portal/ui/field';
+import { PortalButton } from '@/components/portal/ui/button';
+import { ActionLink } from '@/components/portal/ui/action-link';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { Thread } from '@/components/portal/thread';
 import type { Engagement } from '@/lib/portal/engagement';
 import type { ChipTone } from '@/lib/portal/status-labels';
@@ -98,25 +105,35 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     }
   }
 
-  if (loading) return <div className="py-20 text-center text-text-secondary">Loading…</div>;
+  if (loading) {
+    return (
+      <SkeletonRegion label="Loading this request">
+        <PageHeader title="Request" size="page" motif="contours" />
+        <div className="card">
+          <Skeleton lines={3} block />
+        </div>
+      </SkeletonRegion>
+    );
+  }
   if (notFound) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center">
-        <h1 className="mb-2 text-xl font-semibold text-text-main">We could not find that</h1>
-        <p className="text-text-secondary">It may have moved, or it may not be on your account.</p>
-        <p className="mt-4">
-          <Link href="/portal/requests" className="font-semibold text-brand-primary underline">
-            Back to your requests
-          </Link>
-        </p>
-      </div>
+      <EmptyState
+        art="meadow"
+        title="We could not find that request"
+        body="It may have moved, or it may not be on your account."
+        action={
+          <PortalButton href="/portal/home" variant="secondary">
+            Back to Home
+          </PortalButton>
+        }
+      />
     );
   }
   if (error || !work) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center">
-        <p className="text-text-secondary">{error ?? 'Failed to load this request'}</p>
-      </div>
+      <Callout tone="urgent" icon={TriangleAlert} title="We could not load this request" id="work-error">
+        <p>{error ?? 'Failed to load this request'}. Refresh the page to try again.</p>
+      </Callout>
     );
   }
 
@@ -128,91 +145,68 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     .join(', ');
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-2">
-        <EngagementChip engagement={work.engagement} />
-        <h1 className="text-2xl font-bold text-text-main">{work.title}</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          <StatusChip label={work.state.label} tone={work.state.tone} />
-          <p className="text-sm text-text-tertiary">{meta}</p>
-        </div>
-      </header>
+    <>
+      <PageHeader
+        eyebrow={[<EngagementChip key="kind" engagement={work.engagement} />, <StatusChip key="state" label={work.state.label} tone={work.state.tone} />]}
+        title={work.title}
+        size="page"
+        lede={meta}
+        motif="contours"
+      />
 
       {work.staged?.awaiting_approval && (
-        <section aria-labelledby="review-heading" className="rounded-lg border border-border bg-surface p-5">
-          <h2 id="review-heading" className="text-lg font-semibold text-text-main">
-            Ready for your review
-          </h2>
-          <a
-            href={work.staged.preview_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-block text-sm text-brand-primary underline"
-          >
-            View preview
-          </a>
-          {work.can_act ? (
-            <>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => act('approve')}
-                  className="min-h-[44px] rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90 disabled:opacity-60"
-                >
-                  {busy ? 'Working…' : 'Approve'}
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setShowChanges((v) => !v)}
-                  className="min-h-[44px] rounded-md border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-main hover:bg-surface-secondary"
-                >
-                  Something&apos;s not right
-                </button>
-              </div>
-              {showChanges && (
-                <div className="mt-3 border-t border-border pt-3">
-                  <label htmlFor="changes-note" className="mb-1 block text-sm font-medium text-text-main">
-                    What needs changing?
-                  </label>
-                  <textarea
-                    id="changes-note"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main"
-                  />
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => act('request-changes')}
-                    className="mt-2 min-h-[44px] rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90 disabled:opacity-60"
-                  >
-                    Send back for changes
-                  </button>
+        <Callout icon={PenLine} title="Ready for your review" id="review">
+          <div className="review-actions">
+            <ActionLink href={work.staged.preview_url} external>
+              Open the preview
+            </ActionLink>
+            {work.can_act ? (
+              <>
+                <div className="actions">
+                  <PortalButton busy={busy} busyLabel="Working…" onClick={() => act('approve')}>
+                    Approve
+                  </PortalButton>
+                  <PortalButton variant="secondary" disabled={busy} onClick={() => setShowChanges((v) => !v)} aria-expanded={showChanges}>
+                    Something&apos;s not right
+                  </PortalButton>
                 </div>
-              )}
-              {actionError && (
-                <p role="alert" className="mt-2 text-sm text-status-error">
-                  {actionError}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="mt-3 text-sm text-text-secondary">Someone with approval rights on your account can approve this.</p>
-          )}
-        </section>
+                {showChanges && (
+                  <div className="changes">
+                    <Field id="changes-note" label="What needs changing?">
+                      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
+                    </Field>
+                    <div className="actions">
+                      <PortalButton disabled={busy} onClick={() => act('request-changes')}>
+                        Send back for changes
+                      </PortalButton>
+                    </div>
+                  </div>
+                )}
+                {actionError && (
+                  <p role="alert" className="err">
+                    <TriangleAlert className="i" aria-hidden="true" focusable="false" />
+                    {actionError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="meta">Someone with approval rights on your account can approve this.</p>
+            )}
+          </div>
+        </Callout>
       )}
 
       {work.answers.length > 0 && (
-        <details className="rounded-lg border border-border bg-surface p-5">
-          <summary className="cursor-pointer font-semibold text-text-main">Your request</summary>
-          <dl className="mt-3 space-y-3 text-sm">
+        <details className="card fold">
+          <summary>
+            Your request
+            <ChevronDown className="i" aria-hidden="true" focusable="false" />
+          </summary>
+          <dl className="kv">
             {work.answers.map((a) => (
               <div key={a.prompt}>
-                <dt className="text-text-tertiary">{a.prompt}</dt>
-                <dd className="whitespace-pre-wrap text-text-main">{a.value}</dd>
+                <dt>{a.prompt}</dt>
+                <dd style={{ whiteSpace: 'pre-wrap' }}>{a.value}</dd>
               </div>
             ))}
           </dl>
@@ -220,6 +214,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       )}
 
       <Thread taskId={work.id} onAuthLost={() => router.replace('/portal/login')} />
-    </div>
+    </>
   );
 }

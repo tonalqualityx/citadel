@@ -2,8 +2,16 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ChevronDown, Contrast, PenLine, TriangleAlert } from 'lucide-react';
 import { RequestRow } from '@/components/portal/request-row';
 import { RequestWorkButton } from '@/components/portal/request-work-button';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Field } from '@/components/portal/ui/field';
+import { Section } from '@/components/portal/ui/section';
+import { SegmentedControl } from '@/components/portal/ui/segmented-control';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import type { RequestItem } from '@/lib/portal/requests';
 
 // Requests (portal phase B slice 1): everything the client has asked for, wherever it is being
@@ -54,44 +62,52 @@ export default function PortalRequestsPage() {
       .catch(() => undefined);
   }, [load]);
 
-  if (loading) return <div className="py-20 text-center text-text-secondary">Loading…</div>;
+  const none = open.length === 0 && closed.length === 0 && !siteId;
+  const lede = 'Everything you have asked us for, wherever it is being handled.';
+
+  if (loading) {
+    return (
+      <SkeletonRegion label="Loading your requests">
+        <PageHeader title="Requests" size="page" lede={lede} motif="contours" />
+        <div className="card">
+          <Skeleton lines={4} />
+        </div>
+      </SkeletonRegion>
+    );
+  }
   if (error) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center">
-        <h2 className="mb-2 text-xl font-semibold text-text-main">Unable to load your requests</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
+      <>
+        <PageHeader title="Requests" size="page" lede={lede} motif="contours" actions={<RequestWorkButton />} />
+        <Callout tone="urgent" icon={TriangleAlert} title="We could not load your requests" id="requests-error">
+          <p>{error}. Refresh the page to try again.</p>
+        </Callout>
+      </>
     );
   }
 
-  const none = open.length === 0 && closed.length === 0 && !siteId;
+  const needsYou = open.filter((i) => i.state.tone === 'attention');
+  const moving = open.filter((i) => i.state.tone !== 'attention');
+  const siteOptions = [{ value: '', label: 'All sites' }, ...sites.map((s) => ({ value: s.id, label: s.name }))];
+  const pickSite = (id: string) => {
+    setSiteId(id);
+    load(id);
+  };
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-text-main">
-            {open.length === 0 ? 'No open requests' : `${open.length} open request${open.length === 1 ? '' : 's'}`}
-          </h1>
-          <p className="mt-1 text-text-secondary">Everything you have asked us for, wherever it is being handled.</p>
-        </div>
-        <RequestWorkButton />
-      </header>
+    <>
+      <PageHeader
+        title={open.length === 0 ? 'No open requests' : `${open.length} open request${open.length === 1 ? '' : 's'}`}
+        size="page"
+        lede={lede}
+        motif="contours"
+        actions={<RequestWorkButton />}
+      />
 
-      {sites.length >= 2 && (
-        <div>
-          <label htmlFor="request-site" className="mb-1 block text-sm font-medium text-text-main">
-            Site
-          </label>
-          <select
-            id="request-site"
-            value={siteId}
-            onChange={(e) => {
-              setSiteId(e.target.value);
-              load(e.target.value);
-            }}
-            className="min-h-[44px] rounded-md border border-border bg-surface px-3 text-text-main"
-          >
+      {sites.length >= 2 && sites.length <= 3 && <SegmentedControl label="Site" options={siteOptions} value={siteId} onChange={pickSite} />}
+      {sites.length > 3 && (
+        <Field id="request-site" label="Site">
+          <select value={siteId} onChange={(e) => pickSite(e.target.value)}>
             <option value="">All sites</option>
             {sites.map((s) => (
               <option key={s.id} value={s.id}>
@@ -99,44 +115,63 @@ export default function PortalRequestsPage() {
               </option>
             ))}
           </select>
-        </div>
+        </Field>
       )}
 
       {none ? (
-        <div className="rounded-lg border border-border bg-surface p-6">
-          <p className="text-text-secondary">
-            You have not sent any requests yet. Use Request work to ask for a change, a new page, an article, or help with something broken.
-          </p>
-        </div>
+        <EmptyState
+          art="contours"
+          title="No requests yet"
+          body="You have not sent any requests yet. Use Request work to ask for a change, a new page, an article, or help with something broken."
+        />
       ) : (
         <>
-          {open.length > 0 && (
-            <section aria-labelledby="open-heading" className="rounded-lg border border-border bg-surface px-5">
-              <h2 id="open-heading" className="sr-only">
-                Open requests
-              </h2>
-              <ul className="divide-y divide-border">
-                {open.map((item) => (
+          {needsYou.length > 0 && (
+            <Callout icon={PenLine} title="Needs you" count={needsYou.length} id="requests-needs-you">
+              <ul className="rows">
+                {needsYou.map((item) => (
                   <RequestRow key={item.id} item={item} />
                 ))}
               </ul>
-            </section>
+            </Callout>
+          )}
+          {moving.length > 0 && (
+            <Section id="requests-moving" title="Moving" icon={Contrast} kind="request">
+              <div className="card">
+                <ul className="rows">
+                  {moving.map((item) => (
+                    <RequestRow key={item.id} item={item} />
+                  ))}
+                </ul>
+              </div>
+            </Section>
+          )}
+          {open.length === 0 && closed.length > 0 && (
+            <div className="card">
+              <p>Nothing is open right now.</p>
+            </div>
+          )}
+          {open.length === 0 && closed.length === 0 && siteId && (
+            <div className="card">
+              <p>No requests for this site yet.</p>
+            </div>
           )}
           {closed.length > 0 && (
-            <section aria-labelledby="closed-heading" className="rounded-lg border border-border bg-surface px-5 py-4">
-              <h2 id="closed-heading" className="text-lg font-semibold text-text-main">
+            <details className="card fold">
+              <summary>
                 Closed in the last 30 days
-              </h2>
-              <ul className="divide-y divide-border">
+                <ChevronDown className="i" aria-hidden="true" focusable="false" />
+              </summary>
+              <ul className="rows">
                 {closed.map((item) => (
                   <RequestRow key={item.id} item={item} />
                 ))}
               </ul>
-              <p className="mt-3 text-sm text-text-tertiary">Older work is in History.</p>
-            </section>
+              <p className="meta">Older work is in History.</p>
+            </details>
           )}
         </>
       )}
-    </div>
+    </>
   );
 }

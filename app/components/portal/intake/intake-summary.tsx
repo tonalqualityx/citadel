@@ -1,5 +1,8 @@
 'use client';
 
+import { MessageSquare, Send, TriangleAlert } from 'lucide-react';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Field } from '@/components/portal/ui/field';
 import {
   BUTTONS,
   EMERGENCY_LINE,
@@ -33,39 +36,29 @@ export interface SummaryProps {
 export function IntakeSummary(p: SummaryProps) {
   const needsPick = Boolean(p.projectChoices) && !p.chosenProjectId;
   return (
-    <section aria-labelledby="intake-summary-heading" className="space-y-4">
-      <h2 id="intake-summary-heading" className="text-lg font-semibold text-text-main">
-        {SUMMARY_HEADING}
-      </h2>
-      <dl className="space-y-3 rounded-lg border border-border bg-surface p-4 text-sm">
+    <section aria-labelledby="intake-summary-heading" className="summary-card">
+      <h2 id="intake-summary-heading">{SUMMARY_HEADING}</h2>
+      <dl>
         <div>
-          <dt className="text-text-tertiary">Type</dt>
-          <dd className="font-medium text-text-main">{p.typeLabel}</dd>
+          <dt>Type</dt>
+          <dd>{p.typeLabel}</dd>
         </div>
         {p.siteName && (
           <div>
-            <dt className="text-text-tertiary">Site</dt>
-            <dd className="font-medium text-text-main">{p.siteName}</dd>
+            <dt>Site</dt>
+            <dd>{p.siteName}</dd>
           </div>
         )}
         {p.answers.map((a) => (
           <div key={a.prompt}>
-            <dt className="text-text-tertiary">{a.prompt}</dt>
-            <dd className="whitespace-pre-wrap text-text-main">{a.value}</dd>
+            <dt>{a.prompt}</dt>
+            <dd style={{ whiteSpace: 'pre-wrap' }}>{a.value}</dd>
           </div>
         ))}
       </dl>
       {p.projectChoices && (
-        <div>
-          <label htmlFor="intake-project" className="mb-1 block text-sm font-medium text-text-main">
-            {PROJECT_SELECT_PROMPT}
-          </label>
-          <select
-            id="intake-project"
-            value={p.chosenProjectId}
-            onChange={(e) => p.onChooseProject(e.target.value)}
-            className="min-h-[44px] w-full rounded-md border border-border bg-surface px-3 text-text-main"
-          >
+        <Field id="intake-project" label={PROJECT_SELECT_PROMPT}>
+          <select value={p.chosenProjectId} onChange={(e) => p.onChooseProject(e.target.value)}>
             <option value="">Choose a project</option>
             {p.projectChoices.map((c) => (
               <option key={c.id} value={c.id}>
@@ -73,36 +66,41 @@ export function IntakeSummary(p: SummaryProps) {
               </option>
             ))}
           </select>
-        </div>
+        </Field>
       )}
-      <p className="text-sm text-text-main">{p.destination}</p>
-      {p.quote && <p className="text-sm text-text-secondary">{QUOTE_LINE}</p>}
-      {p.urgent && <p className="text-sm font-semibold text-text-main">{EMERGENCY_LINE}</p>}
-      {p.dateWords && <p className="text-sm text-text-secondary">{dateEcho(p.dateWords)}</p>}
-      {p.error && (
-        <p role="alert" className="text-sm text-status-error">
-          {p.error}
+      {p.destination ? (
+        <p className="dest">
+          <MessageSquare className="i" aria-hidden="true" focusable="false" />
+          <span>{p.destination}</span>
         </p>
-      )}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          disabled={p.sending || needsPick}
-          onClick={p.onSend}
-          className="min-h-[44px] rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          {p.sending ? 'Sending…' : BUTTONS.send}
-        </button>
-        <button
-          type="button"
-          onClick={p.onChange}
-          className="min-h-[44px] rounded-md border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-main hover:bg-surface-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
-          {BUTTONS.change}
-        </button>
-        <button type="button" onClick={p.onCancel} className="min-h-[44px] px-2 text-sm text-text-secondary underline">
-          {BUTTONS.cancel}
-        </button>
+      ) : null}
+      {p.quote && <p className="meta">{QUOTE_LINE}</p>}
+      {p.urgent && <p style={{ fontWeight: 700 }}>{EMERGENCY_LINE}</p>}
+      {p.dateWords && <p className="meta">{dateEcho(p.dateWords)}</p>}
+      <div className="composer">
+        {p.error && (
+          <p role="alert" className="err">
+            <TriangleAlert className="i" aria-hidden="true" focusable="false" />
+            {p.error}
+          </p>
+        )}
+        <div className="actions">
+          <PortalButton
+            icon={Send}
+            busy={p.sending}
+            busyLabel="Sending…"
+            disabled={needsPick}
+            onClick={p.onSend}
+          >
+            {BUTTONS.send}
+          </PortalButton>
+          <PortalButton variant="secondary" onClick={p.onChange}>
+            {BUTTONS.change}
+          </PortalButton>
+          <PortalButton variant="quiet" onClick={p.onCancel}>
+            {BUTTONS.cancel}
+          </PortalButton>
+        </div>
       </div>
     </section>
   );
