@@ -148,6 +148,8 @@ export async function requestClientMagicLink(input: {
 
     await sendClientMagicLinkEmail({
       to: contact.email,
+      kind: 'magic_link',
+      dedupeKey: `magic:${hashMagicToken(magicToken)}`,
       loginUrl: verifyUrl(baseUrl, magicToken),
       contactName: contact.name,
       expiresLabel: `${MAGIC_LINK_TTL_MINUTES} minutes`,
@@ -207,6 +209,8 @@ export async function createContactPortalLoginLink(input: {
   if (input.send) {
     await sendClientMagicLinkEmail({
       to: contact.email,
+      kind: 'invite',
+      dedupeKey: `invite:${hashMagicToken(magicToken)}`,
       loginUrl: url,
       contactName: contact.name,
       expiresLabel: `${TEAM_INVITE_TTL_DAYS} days`,

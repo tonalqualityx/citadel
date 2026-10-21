@@ -6,11 +6,19 @@
 
 import { prisma } from '@/lib/db/prisma';
 
+export type OutboxKind = 'magic_link' | 'invite' | 'notification' | 'other';
+
 interface SendEmailOptions {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  /** Outbox classification when the message has to be queued. Default 'other'. */
+  kind?: OutboxKind;
+  /** Unique key so a repeated request cannot queue the same message twice (token hash). */
+  dedupeKey?: string;
+  /** Marks a system message the drain may send to an address outside becomeindelible.com. */
+  allowExternal?: boolean;
 }
 
 interface SendGridConfig {
@@ -98,7 +106,7 @@ export function redactLoginLinks(text: string): string {
 }
 
 /**
- * Log email to console (fallback when SendGrid not configured)
+ * Log email to console (development only; production never prints a message body).
  */
 function logToConsole(options: SendEmailOptions): void {
   console.log('========================================');
@@ -112,8 +120,39 @@ function logToConsole(options: SendEmailOptions): void {
 }
 
 /**
+ * Queue the message in EmailOutbox. The drain on the Bast machine sends it from bast@.
+ * Returns false if the row could not be written. A duplicate dedupe_key counts as queued.
+ */
+async function queueInOutbox(options: SendEmailOptions): Promise<boolean> {
+  try {
+    await prisma.emailOutbox.create({
+      data: {
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html ?? null,
+        kind: options.kind ?? 'other',
+        allow_external: options.allowExternal ?? false,
+        dedupe_key: options.dedupeKey ?? null,
+      },
+    });
+    console.log(`Email queued in outbox for ${options.to} (${options.kind ?? 'other'})`);
+    return true;
+  } catch (error) {
+    if ((error as { code?: string })?.code === 'P2002') {
+      console.log(`Email already queued in outbox for ${options.to} (duplicate key)`);
+      return true;
+    }
+    console.error('Failed to queue email in outbox:', error);
+    return false;
+  }
+}
+
+/**
  * Send an email
- * Uses SendGrid if configured, otherwise logs to console
+ * Uses SendGrid if configured. With no active provider, or when the provider fails, the message
+ * goes to the EmailOutbox table for the Bast-machine drain. Console logging is the development
+ * convenience, and the last resort (redacted) if even the outbox write fails.
  */
 export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const config = await getSendGridConfig();
@@ -124,11 +163,15 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
       console.log(`Email sent via SendGrid to ${options.to}`);
       return;
     }
-    // Fall through to console logging if SendGrid fails
-    console.warn('SendGrid failed, falling back to console logging');
+    console.warn('SendGrid failed, queueing in outbox');
   }
 
-  // Fallback: log to console
+  if (process.env.NODE_ENV === 'development') {
+    logToConsole(options);
+    return;
+  }
+
+  if (await queueInOutbox(options)) return;
   logToConsole(options);
 }
 
@@ -279,6 +322,10 @@ export async function sendClientMagicLinkEmail(options: {
   expiresMinutes?: number;
   /** Human expiry phrase (e.g. "7 days"); overrides `expiresMinutes` when provided. Preferred. */
   expiresLabel?: string;
+  /** 'invite' for a team-minted invite; default 'magic_link'. */
+  kind?: 'magic_link' | 'invite';
+  /** Dedupe key for the outbox (hash of the login token). */
+  dedupeKey?: string;
 }): Promise<void> {
   const { to, loginUrl, contactName, expiresMinutes, expiresLabel } = options;
   const greeting = contactName ? ` ${contactName}` : '';
@@ -327,5 +374,13 @@ If you didn't request this, you can safely ignore this email.
 </html>
 `.trim();
 
-  await sendEmail({ to, subject, text, html });
+  await sendEmail({
+    to,
+    subject,
+    text,
+    html,
+    kind: options.kind ?? 'magic_link',
+    dedupeKey: options.dedupeKey,
+    allowExternal: true,
+  });
 }
