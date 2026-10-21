@@ -21,7 +21,7 @@ import { postInternalNote } from '@/lib/portal/chat/assistant-comment';
 import { handOff } from '@/lib/portal/chat/handoff';
 import { CANNED_LINE } from '@/lib/portal/chat/copy';
 import { chatSwitchesOn } from '@/lib/portal/chat/switches';
-import { closeUnconfirmed, listUnconfirmedCandidates, type UnconfirmedOutcome } from '@/lib/portal/chat/confirm';
+import { closeUnconfirmed, sweepUnconfirmed, type UnconfirmedOutcome } from '@/lib/portal/chat/confirm';
 import { readSlots } from '@/lib/portal/chat/slots';
 import {
   AWAY_HIDDEN_MS, AWAY_SILENCE_MS, STAFF_HOLD_MS, awayKey, buildAwayBody, buildStaffBody, clientIsWatching, emailFixedLine, frameFor,
@@ -233,11 +233,20 @@ async function stallPass(now: Date, ids: string[] | null): Promise<{ stalled: nu
 
 /** C2's walk-away step: question chats close at 24 hours, unconfirmed requests are filed with what is known at 48 (spec 2.5, 7.2). */
 async function unconfirmedPass(now: Date, ids: string[] | null): Promise<Record<UnconfirmedOutcome, number>> {
+  if (!ids) {
+    const { skipped, closed_question, filed_unconfirmed, handed_off } = await sweepUnconfirmed(now);
+    return { skipped, closed_question, filed_unconfirmed, handed_off };
+  }
+  // Scoped (tests): only these conversations, each in its own try/catch like C2's sweep.
   const counts: Record<UnconfirmedOutcome, number> = { skipped: 0, closed_question: 0, filed_unconfirmed: 0, handed_off: 0 };
-  const candidates = ids
-    ? (await prisma.chatConversation.findMany({ where: { id: { in: ids }, state: { in: ['clarifying', 'confirming'] } }, select: { id: true } })).map((r) => r.id)
-    : await listUnconfirmedCandidates(now, 500);
-  for (const id of candidates) counts[await closeUnconfirmed(id, { now })]++;
+  const open = await prisma.chatConversation.findMany({ where: { id: { in: ids }, state: { in: ['clarifying', 'confirming'] } }, select: { id: true } });
+  for (const { id } of open) {
+    try {
+      counts[await closeUnconfirmed(id, { now })]++;
+    } catch (error) {
+      console.error(`portal chat sweep: conversation ${id} failed`, error);
+    }
+  }
   return counts;
 }
 
