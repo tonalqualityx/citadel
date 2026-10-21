@@ -77,6 +77,12 @@ export async function POST(
       throw new ApiError('A contact with this email already exists for this client', 409);
     }
 
+    // Re-adding a soft-deleted contact must not restore old project grants (also covers rows
+    // deleted before grants were cleared on delete).
+    if (existing) {
+      await prisma.projectContact.deleteMany({ where: { contact_id: existing.id } });
+    }
+
     const contact = existing
       ? await prisma.clientContact.update({
           where: { id: existing.id },

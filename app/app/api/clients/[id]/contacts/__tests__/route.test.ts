@@ -16,6 +16,7 @@ vi.mock('@/lib/db/prisma', () => ({
       create: vi.fn(),
       update: vi.fn(),
     },
+    projectContact: { deleteMany: vi.fn() },
   },
 }));
 
@@ -137,6 +138,13 @@ describe('POST /api/clients/[id]/contacts', () => {
         data: expect.objectContaining({ is_deleted: false, can_initiate_work: true }),
       })
     );
+  });
+
+  it('re-adding a deleted contact clears its old project grants', async () => {
+    mockContactFindUnique.mockResolvedValue({ id: 'old-1', is_deleted: true });
+    mockContactUpdate.mockResolvedValue({ id: 'old-1', email: 'back@example.com' });
+    await POST(postReq({ email: 'back@example.com' }), { params });
+    expect(prisma.projectContact.deleteMany).toHaveBeenCalledWith({ where: { contact_id: 'old-1' } });
   });
 
   it('404s when the client does not exist', async () => {

@@ -7,7 +7,7 @@ vi.mock('next/headers', () => ({
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
-    clientContact: { findMany: vi.fn(), findUnique: vi.fn() },
+    clientContact: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     portalSession: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
   },
 }));
@@ -35,6 +35,7 @@ import type { Mock } from 'vitest';
 const mockCookies = cookies as Mock;
 const mockFindManyContacts = prisma.clientContact.findMany as Mock;
 const mockFindUniqueContact = prisma.clientContact.findUnique as Mock;
+const mockFindFirstContact = prisma.clientContact.findFirst as Mock;
 const mockCreate = prisma.portalSession.create as Mock;
 const mockFindFirst = prisma.portalSession.findFirst as Mock;
 const mockUpdate = prisma.portalSession.update as Mock;
@@ -42,6 +43,8 @@ const mockSendEmail = sendClientMagicLinkEmail as Mock;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: the session's contact is live and holds a role.
+  mockFindFirstContact.mockResolvedValue({ id: 'contact-1' });
 });
 
 const reqInput = { ipAddress: '1.2.3.4', userAgent: 'test-agent' };
@@ -243,6 +246,38 @@ describe('validateClientSession', () => {
   it('rejects an empty token without a DB call', async () => {
     expect(await validateClientSession('')).toBeNull();
     expect(mockFindFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('session revocation (deleted contact or role none)', () => {
+  const liveRow = {
+    id: 's1',
+    entity_id: 'client-acme',
+    contact_id: 'contact-1',
+    expires_at: new Date(Date.now() + 10 * 86_400_000),
+    created_at: new Date(),
+  };
+
+  it('looks the contact up as non-deleted and role != none', async () => {
+    mockFindFirst.mockResolvedValue(liveRow);
+    await validateClientSession('tok');
+    expect(mockFindFirstContact).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'contact-1', is_deleted: false, portal_role: { not: 'none' } } })
+    );
+  });
+
+  it('validateClientSession returns null when the contact is deleted or role none', async () => {
+    mockFindFirst.mockResolvedValue(liveRow);
+    mockFindFirstContact.mockResolvedValue(null);
+    expect(await validateClientSession('tok')).toBeNull();
+  });
+
+  it('requireClientAuth throws 401 for a revoked contact and never slides the session', async () => {
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }), set: vi.fn() });
+    mockFindFirst.mockResolvedValue(liveRow);
+    mockFindFirstContact.mockResolvedValue(null);
+    await expect(requireClientAuth()).rejects.toMatchObject({ statusCode: 401 });
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
 

@@ -8,6 +8,14 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
   return { ...actual, requireClientAuth: vi.fn() };
 });
 
+vi.mock('@/lib/portal/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/portal/access')>();
+  return {
+    ...actual,
+    loadPortalAccess: vi.fn(async () => ({ contactId: 'contact-1', clientId: 'client-acme', role: 'member' as const })),
+  };
+});
+
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     article: { findFirst: vi.fn(), update: vi.fn() },
@@ -15,6 +23,7 @@ vi.mock('@/lib/db/prisma', () => ({
 }));
 
 import { PATCH } from '../route';
+import { loadPortalAccess } from '@/lib/portal/access';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
@@ -47,6 +56,18 @@ describe('PATCH /api/portal/articles/:id (save edits)', () => {
     mockAuth.mockRejectedValue(new AuthError('Client authentication required', 401));
     const res = await PATCH(makeRequest(), makeParams());
     expect(res.status).toBe(401);
+    expect(mockFindFirst).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['revoked (deleted contact)', { role: 'none', revoked: true }],
+    ['role none', { role: 'none' }],
+  ])('404 for an existing in-review article when the contact is %s (access re-checked, article never loaded)', async (_label, access) => {
+    mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (loadPortalAccess as Mock).mockResolvedValueOnce({ contactId: 'contact-1', clientId: 'client-acme', ...access });
+    mockFindFirst.mockResolvedValue({ id: 'art-1', status: 'in_review', client_id: 'client-acme', client_approved_at: null, body: 'x' });
+    const res = await PATCH(makeRequest(), makeParams());
+    expect(res.status).toBe(404);
     expect(mockFindFirst).not.toHaveBeenCalled();
   });
 

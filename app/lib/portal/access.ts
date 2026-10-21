@@ -28,8 +28,13 @@ export type PortalVisibility = 'inherit' | 'restricted' | 'hidden';
 /** Roles a ProjectContact grant may carry (API-enforced, grants never lower access). */
 export const GRANTABLE_ROLES = ['member', 'viewer'] as const;
 
-/** Project statuses that are pre-kickoff and stay hidden from the portal. */
-export const PORTAL_HIDDEN_PROJECT_STATUSES = ['quote', 'queue'] as const;
+/**
+ * Project statuses that are NOT client-visible. Visible set: ready, in_progress, review, done.
+ *  - quote, queue: pre-kickoff (proposal stage / approved but not started).
+ *  - suspended: on hold, tasks hidden internally (ProjectStatus enum comment).
+ *  - cancelled: dead work the client has no reason to browse.
+ */
+export const PORTAL_HIDDEN_PROJECT_STATUSES = ['quote', 'queue', 'suspended', 'cancelled'] as const;
 
 const RANK: Record<PortalRole, number> = { none: 0, viewer: 1, member: 2, owner: 3 };
 
@@ -142,15 +147,20 @@ export interface PortalAccess {
 const MATCH_NOTHING = { id: { in: [] as string[] } };
 
 /**
- * Project visibility for a contact, WITHOUT status or deletion filters (so tasks of any project
- * the contact may see can be matched). Spread under AND.
+ * Project visibility for a contact: excludes deleted projects and projects whose status is not
+ * client-visible (PORTAL_HIDDEN_PROJECT_STATUSES), then applies portal_visibility and grants.
+ * Spread under AND. Shared by projectAccessWhere and taskAccessWhere.
  */
 export function projectAccessScope(
   access: Pick<PortalAccess, 'contactId' | 'role' | 'revoked'>
 ): Prisma.ProjectWhereInput {
   if (access.revoked) return MATCH_NOTHING;
   const grant: Prisma.ProjectWhereInput = { contact_grants: { some: { contact_id: access.contactId, role: { in: [...GRANTABLE_ROLES] } } } };
-  const notHidden: Prisma.ProjectWhereInput = { portal_visibility: { not: 'hidden' } };
+  const notHidden: Prisma.ProjectWhereInput = {
+    is_deleted: false,
+    status: { notIn: [...PORTAL_HIDDEN_PROJECT_STATUSES] },
+    portal_visibility: { not: 'hidden' },
+  };
   if (access.role === 'owner') return notHidden;
   if (access.role === 'none') return { AND: [notHidden, grant] };
   return { AND: [notHidden, { OR: [{ portal_visibility: 'inherit' }, grant] }] };

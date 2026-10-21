@@ -90,7 +90,7 @@ async function main() {
   });
   if (!existingContact) {
     await prisma.clientContact.create({
-      data: { client_id: client.id, email: CONTACT_EMAIL, name: CONTACT_NAME, can_initiate_work: true },
+      data: { client_id: client.id, email: CONTACT_EMAIL, name: CONTACT_NAME, can_initiate_work: true, portal_role: 'member' },
     });
   }
 

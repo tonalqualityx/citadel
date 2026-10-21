@@ -84,10 +84,12 @@ export async function DELETE(
       throw new ApiError('Contact not found', 404);
     }
 
-    await prisma.clientContact.update({
-      where: { id },
-      data: { is_deleted: true },
-    });
+    // Soft delete also drops the contact's project grants, so re-adding the same email later
+    // starts clean instead of silently restoring old access.
+    await prisma.$transaction([
+      prisma.clientContact.update({ where: { id }, data: { is_deleted: true } }),
+      prisma.projectContact.deleteMany({ where: { contact_id: id } }),
+    ]);
 
     await logDelete(auth.userId, 'client_contact', id, existing.email);
 

@@ -261,6 +261,15 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
   if (!row || !row.contact_id || !row.expires_at) return null;
   if (row.expires_at < new Date()) return null;
 
+  // Revoke on contact delete or role none (spec decision 13): a live session row is not enough,
+  // the contact behind it must still exist and hold a portal role. Checked on every request so
+  // no route can forget it.
+  const contact = await prisma.clientContact.findFirst({
+    where: { id: row.contact_id, is_deleted: false, portal_role: { not: 'none' } },
+    select: { id: true },
+  });
+  if (!contact) return null;
+
   return row as ActiveSessionRow;
 }
 

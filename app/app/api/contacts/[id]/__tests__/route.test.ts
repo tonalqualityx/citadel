@@ -13,6 +13,8 @@ vi.mock('@/lib/db/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    projectContact: { deleteMany: vi.fn() },
+    $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }));
 
@@ -33,6 +35,7 @@ import type { Mock } from 'vitest';
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockFindUnique = prisma.clientContact.findUnique as Mock;
 const mockUpdate = prisma.clientContact.update as Mock;
+const mockDeleteGrants = prisma.projectContact.deleteMany as Mock;
 
 const ID = 'contact-1';
 const params = Promise.resolve({ id: ID });
@@ -146,6 +149,13 @@ describe('DELETE /api/contacts/[id]', () => {
     expect(response.status).toBe(200);
     expect(body.success).toBe(true);
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: ID }, data: { is_deleted: true } });
+  });
+
+  it('removes the contact\'s project grants on soft delete', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, is_deleted: true });
+    await DELETE(new NextRequest('http://localhost/x'), { params });
+    expect(mockDeleteGrants).toHaveBeenCalledWith({ where: { contact_id: ID } });
   });
 
   it('404s when the contact is missing', async () => {

@@ -1,98 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/db/prisma', () => ({
-  prisma: {
-    task: {
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
-  },
-}));
+const mockFindFirst = vi.fn();
+vi.mock('@/lib/db/prisma', () => ({ prisma: { task: { findFirst: (...a: unknown[]) => mockFindFirst(...a) } } }));
 
-import { ensureTaskPortalToken } from '../portal';
-import { prisma } from '@/lib/db/prisma';
-import type { Mock } from 'vitest';
+import { validateTaskToken } from '@/lib/services/portal';
 
-const mockFindUnique = prisma.task.findUnique as Mock;
-const mockUpdate = prisma.task.update as Mock;
+beforeEach(() => vi.clearAllMocks());
 
-describe('ensureTaskPortalToken', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    delete process.env.NEXT_PUBLIC_APP_URL;
+const baseTask = { id: 't1', portal_token_expires_at: null, project: { portal_visibility: 'inherit' } };
+
+describe('validateTaskToken', () => {
+  it('loads the project visibility alongside the task', async () => {
+    mockFindFirst.mockResolvedValue(baseTask);
+    await validateTaskToken('tok');
+    expect(mockFindFirst.mock.calls[0][0].include.project).toEqual({ select: { portal_visibility: true } });
   });
 
-  it('mints a fresh token when the task has none and returns the public URL', async () => {
-    mockFindUnique.mockResolvedValue({
-      id: 'task-1',
-      is_deleted: false,
-      portal_token: null,
-      portal_token_expires_at: null,
-    });
-    mockUpdate.mockResolvedValue({});
-
-    const result = await ensureTaskPortalToken('task-1');
-
-    expect(result).not.toBeNull();
-    expect(result!.token).toMatch(/^[0-9a-f]{128}$/);
-    expect(result!.url).toBe(`http://localhost:3000/portal/task-approval/${result!.token}`);
-    expect(result!.expiresAt).toBeInstanceOf(Date);
-    expect(mockUpdate).toHaveBeenCalledWith({
-      where: { id: 'task-1' },
-      data: expect.objectContaining({ portal_token: result!.token }),
-    });
+  it('returns the task for a visible project and for a project-less task', async () => {
+    mockFindFirst.mockResolvedValue(baseTask);
+    expect(await validateTaskToken('tok')).toBe(baseTask);
+    const noProject = { ...baseTask, project: null };
+    mockFindFirst.mockResolvedValue(noProject);
+    expect(await validateTaskToken('tok')).toBe(noProject);
   });
 
-  it('reuses an existing unexpired token without minting a new one', async () => {
-    const future = new Date(Date.now() + 86400000);
-    mockFindUnique.mockResolvedValue({
-      id: 'task-1',
-      is_deleted: false,
-      portal_token: 'existing-token',
-      portal_token_expires_at: future,
-    });
-
-    const result = await ensureTaskPortalToken('task-1');
-
-    expect(result!.token).toBe('existing-token');
-    expect(result!.url).toContain('/portal/task-approval/existing-token');
-    expect(mockUpdate).not.toHaveBeenCalled();
+  it('rejects (null, so routes 404) a task whose project portal_visibility is hidden', async () => {
+    mockFindFirst.mockResolvedValue({ ...baseTask, project: { portal_visibility: 'hidden' } });
+    expect(await validateTaskToken('tok')).toBeNull();
   });
 
-  it('re-mints when the existing token is expired', async () => {
-    mockFindUnique.mockResolvedValue({
-      id: 'task-1',
-      is_deleted: false,
-      portal_token: 'old-token',
-      portal_token_expires_at: new Date(Date.now() - 1000),
-    });
-    mockUpdate.mockResolvedValue({});
-
-    const result = await ensureTaskPortalToken('task-1');
-
-    expect(result!.token).not.toBe('old-token');
-    expect(mockUpdate).toHaveBeenCalled();
-  });
-
-  it('honors NEXT_PUBLIC_APP_URL for the public URL', async () => {
-    process.env.NEXT_PUBLIC_APP_URL = 'https://citadel.becomeindelible.com';
-    mockFindUnique.mockResolvedValue({
-      id: 'task-1',
-      is_deleted: false,
-      portal_token: 'tok',
-      portal_token_expires_at: new Date(Date.now() + 86400000),
-    });
-
-    const result = await ensureTaskPortalToken('task-1');
-
-    expect(result!.url).toBe('https://citadel.becomeindelible.com/portal/task-approval/tok');
-  });
-
-  it('returns null for a missing or deleted task', async () => {
-    mockFindUnique.mockResolvedValue(null);
-    expect(await ensureTaskPortalToken('nope')).toBeNull();
-
-    mockFindUnique.mockResolvedValue({ id: 'task-1', is_deleted: true, portal_token: null, portal_token_expires_at: null });
-    expect(await ensureTaskPortalToken('task-1')).toBeNull();
+  it('still rejects an expired token', async () => {
+    mockFindFirst.mockResolvedValue({ ...baseTask, portal_token_expires_at: new Date(Date.now() - 1000) });
+    expect(await validateTaskToken('tok')).toBeNull();
   });
 });

@@ -39,6 +39,7 @@ export async function POST(
     const body = await request.json();
     const data = newTaskSchema.parse(body);
 
+    // A deleted requester resolves to null: never file the request as the primary contact.
     const contact = await resolveTaskContact(task);
     if (!contact) {
       throw new ApiError('No client contact is linked to this approval link', 400);
