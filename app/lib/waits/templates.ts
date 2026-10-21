@@ -88,7 +88,7 @@ export interface WaitTemplate {
   /** The caller may set the duration (handoff.generic only). */
   caller_duration?: boolean;
   /** Skip firing when this holds at the moment it runs out. */
-  precondition?: 'no_charter' | 'no_plan' | 'portal_answered';
+  precondition?: 'no_charter' | 'no_plan' | 'portal_answered' | 'portal_untouched';
   /** What an inbound reply does to the open wait (W6 reads this). */
   on_reply: 'stop' | 'needs_human' | null;
   /** Switch that holds the sends back while OFF. */
@@ -584,6 +584,7 @@ export const WAIT_TEMPLATES: WaitTemplate[] = [
     blocks_client: true,
     title: 'Respond to the urgent client request {subject}',
     steps: [{ duration: hrs(2), action: 'escalate', note: 'Mike owns it; running out puts it in front of him.' }],
+    precondition: 'portal_untouched',
     on_reply: null,
     spec: 'portal.emergency | handoff | Mike | 2 hours | escalate (visibility for Mike) | yes',
   },
