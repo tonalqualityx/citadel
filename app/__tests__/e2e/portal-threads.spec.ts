@@ -314,6 +314,24 @@ test.describe('Portal navigation after sign-in', () => {
     await context.close();
   });
 
+  test('a note typed on the approval page survives the session check that reveals the nav', async ({ browser }) => {
+    const context = await clientContext(browser, OWNER_TOKEN);
+    const page = await context.newPage();
+    // Hold the session check back so the page is still bare while the person types.
+    await page.route('**/api/portal/clients', async (route) => {
+      await new Promise((r) => setTimeout(r, 2500));
+      await route.continue();
+    });
+    await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
+    await page.getByRole('button', { name: 'Something is not right' }).click();
+    const note = page.getByRole('textbox').first();
+    await note.fill('The phone number is still the old one');
+    await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: 10_000 });
+    await expect(note).toHaveValue('The phone number is still the old one');
+    await context.close();
+  });
+
   test('the same approval page for someone with no session shows no nav', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();

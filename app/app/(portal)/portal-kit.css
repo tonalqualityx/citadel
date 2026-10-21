@@ -455,3 +455,4 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .strong { font-weight: 700; }
 [data-portal] .legend .sw-ring { border: 3px solid var(--p-kind-retainer); }
 [data-portal] .legend .sw-ready { background: var(--p-chip-attention-bg); border: 2px solid var(--p-attention-rail); }
+[data-portal] .shell.shell-bare { display: block; }

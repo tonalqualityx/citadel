@@ -69,7 +69,7 @@ describe('PortalShell', () => {
       render(<PortalShell>page</PortalShell>);
       expect(screen.queryByRole('navigation')).toBeNull();
       expect(screen.queryByRole('complementary')).toBeNull();
-      expect(screen.getByText('support@becomeindelible.com')).toBeInTheDocument();
+      expect(within(screen.getByRole('main')).getByText('support@becomeindelible.com')).toBeInTheDocument();
       expect(fetchMock).not.toHaveBeenCalled();
     });
   }
@@ -85,6 +85,21 @@ describe('PortalShell', () => {
     render(<PortalShell>page</PortalShell>);
     expect(screen.queryByRole('complementary')).toBeNull();
     await waitFor(() => expect(sidebar()).toBeInTheDocument());
+  });
+
+  it('the page content keeps the same DOM node, and its typed text, when the session answers', async () => {
+    pathname = '/portal/task-approval/abc';
+    let release: (v: unknown) => void = () => {};
+    fetchMock.mockReturnValue(new Promise((r) => { release = r; }));
+    render(<PortalShell><textarea aria-label="Note" data-testid="note" /></PortalShell>);
+    const before = screen.getByTestId('note') as HTMLTextAreaElement;
+    fireEvent.change(before, { target: { value: 'half-typed note' } });
+    expect(screen.queryByRole('complementary')).toBeNull();
+    release({ ok: true, json: async () => ({ active_client_id: 'c1', clients: [{ id: 'c1', name: 'Ridgeline' }] }) });
+    await waitFor(() => expect(sidebar()).toBeInTheDocument());
+    const after = screen.getByTestId('note') as HTMLTextAreaElement;
+    expect(after).toBe(before);
+    expect(after.value).toBe('half-typed note');
   });
 
   it('isBarePath and activeKey agree on the edges', () => {

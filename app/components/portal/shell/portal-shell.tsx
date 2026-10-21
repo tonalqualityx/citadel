@@ -36,26 +36,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  if (bare) {
-    return (
-      <div className="shell shell-bare">
-        <header className="topbar" data-nav-zone>
-          <Wordmark />
-        </header>
-        <main className="main main-bare" id="main">
-          <div className="bare-inner">{children}</div>
-          <HelpLine />
-        </main>
-      </div>
-    );
-  }
-
   const phoneNav = NAV.filter((n) => PHONE_SLOTS.has(n.key));
   const moreActive = active === 'history' || active === 'book';
 
+  // One tree for every page. A token page is "bare" until the session check returns 200; the nav
+  // parts are hidden (not absent) until then, and the content subtree has no key and never moves,
+  // so a half-typed note or signature survives the reveal.
   return (
-    <div className="shell">
-      <aside className="sidebar" aria-label="Portal" data-nav-zone>
+    <div className={`shell${bare ? ' shell-bare' : ''}`}>
+      <aside className="sidebar" aria-label="Portal" data-nav-zone hidden={bare}>
         <div className="side-in">
           <Wordmark />
           <AccountBlock name={session.name} canSwitch={session.canSwitch} />
@@ -89,21 +78,24 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <div className="col">
         <header className="topbar" data-nav-zone>
           <Wordmark />
-          <span className="who">{session.name}</span>
-          <Link className="btn-nav" href="/portal/requests/new">
+          <span className="who" hidden={bare}>
+            {session.name}
+          </span>
+          <Link className="btn-nav" href="/portal/requests/new" hidden={bare}>
             <Plus className="i" aria-hidden="true" focusable="false" />
             Request
           </Link>
         </header>
-        <main className="main" id="main">
-          {session.moved ? (
+        <main className={`main${bare ? ' main-bare' : ''}`} id="main">
+          {session.moved && !bare ? (
             <p role="status" className="moved">
               You no longer have access to the account you were viewing, so we opened {session.name}.
             </p>
           ) : null}
-          <div className="main-inner">{children}</div>
+          <div className={bare ? 'bare-inner' : 'main-inner'}>{children}</div>
+          {bare ? <HelpLine /> : null}
         </main>
-        <nav className="bottombar" aria-label="Portal" data-nav-zone>
+        <nav className="bottombar" aria-label="Portal" data-nav-zone hidden={bare}>
           {phoneNav.map(({ key, href, label, icon: Icon }) => (
             <Link key={key} href={href} aria-current={active === key ? 'page' : undefined}>
               <Icon className="i" aria-hidden="true" focusable="false" />
@@ -122,7 +114,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             More
           </button>
         </nav>
-        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} canSwitch={session.canSwitch} onSignOut={signOut} returnFocusTo={moreBtn} />
+        <MoreSheet open={moreOpen && !bare} onClose={() => setMoreOpen(false)} canSwitch={session.canSwitch} onSignOut={signOut} returnFocusTo={moreBtn} />
       </div>
     </div>
   );
