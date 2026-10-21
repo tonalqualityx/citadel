@@ -60,6 +60,7 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 vi.mock('@/lib/portal/waits', () => ({ onRequestFiled: vi.fn(async () => []) }));
+vi.mock('@/lib/portal/staff-notify', () => ({ notifyNewPortalRequest: vi.fn(async () => ({ notified: true, emailed: true })) }));
 vi.mock('@/lib/services/notification-dispatcher', () => ({ dispatchNotification: vi.fn(async () => ({})) }));
 vi.mock('@/lib/services/notifications', () => ({ createInAppNotificationOnly: vi.fn(async () => ({})) }));
 

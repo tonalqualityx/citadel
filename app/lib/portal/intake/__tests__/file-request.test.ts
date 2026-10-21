@@ -15,9 +15,11 @@ const tx = {
 vi.mock('@/lib/db/prisma', () => ({ prisma: { $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) } }));
 vi.mock('@/lib/portal/waits', () => ({ onRequestFiled: vi.fn(async () => []) }));
 vi.mock('@/lib/services/notification-dispatcher', () => ({ dispatchNotification: vi.fn(async () => ({})) }));
+vi.mock('@/lib/portal/staff-notify', () => ({ notifyNewPortalRequest: vi.fn(async () => ({ notified: true, emailed: true })) }));
 vi.mock('@/lib/services/notifications', () => ({ createInAppNotificationOnly: vi.fn(async () => ({})) }));
 
 import { onRequestFiled } from '@/lib/portal/waits';
+import { notifyNewPortalRequest } from '@/lib/portal/staff-notify';
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
 import { createInAppNotificationOnly } from '@/lib/services/notifications';
 import { fileRequest, LIMITS, WORDPRESS_ASSIGNEE_EMAIL, type FileRequestBody } from '../file-request';
@@ -441,5 +443,26 @@ describe('fileRequest: locks are taken before any count', () => {
     (tx.$executeRaw as Mock).mockImplementation(async (_s: unknown, key: string) => { keys.push(key); });
     await fileRequest(access, contact, siteChange, { now: NOW });
     expect(keys).toEqual([`portal-intake:${INTAKE}`, 'portal-intake-person:ct1']);
+  });
+});
+
+describe('fileRequest: staff notification', () => {
+  it('tells the assignee once after the commit when a new request is filed', async () => {
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(notifyNewPortalRequest).toHaveBeenCalledTimes(1);
+    expect(notifyNewPortalRequest).toHaveBeenCalledWith('t1');
+  });
+
+  it('a repeat of the same intake_id notifies nobody', async () => {
+    tx.task.findFirst.mockResolvedValue({ ...created({ title: 'x', client_title: 'x', tags: [] }), client_id: 'cl1' });
+    const r = await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(r.created).toBe(false);
+    expect(notifyNewPortalRequest).not.toHaveBeenCalled();
+  });
+
+  it('a real emergency keeps its own alert and skips the request notice', async () => {
+    await fileRequest(access, contact, brokenUrgent, { now: NOW });
+    expect(dispatchNotification).toHaveBeenCalledTimes(1);
+    expect(notifyNewPortalRequest).not.toHaveBeenCalled();
   });
 });

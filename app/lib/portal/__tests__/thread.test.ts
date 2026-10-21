@@ -9,12 +9,14 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
+vi.mock('@/lib/portal/staff-notify', () => ({ staffQuietLastHour: vi.fn(async () => true), emailClientMessage: vi.fn(async () => true) }));
 vi.mock('@/lib/services/notifications', () => ({ createNotification: vi.fn(async () => null) }));
 
 import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { createNotification } from '@/lib/services/notifications';
 import { onClientMessage } from '@/lib/portal/waits';
+import { emailClientMessage, staffQuietLastHour } from '@/lib/portal/staff-notify';
 import { splitLinks } from '../linkify';
 import {
   bastWordError,
@@ -153,10 +155,23 @@ describe('postClientMessage', () => {
     expect(createNotification).toHaveBeenCalledWith(expect.objectContaining({ userId: 'staff-1', type: 'comment_added', entityId: TASK }));
   });
 
+  it('emails the assignee when nothing about the task reached them in the last hour', async () => {
+    await post();
+    expect(emailClientMessage).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'staff-1', taskId: TASK, commentId: 'm1', contactName: 'Dana' }));
+  });
+
+  it('sends no email when the assignee was notified about the task within the hour', async () => {
+    (staffQuietLastHour as Mock).mockResolvedValueOnce(false);
+    await post();
+    expect(createNotification).toHaveBeenCalled();
+    expect(emailClientMessage).not.toHaveBeenCalled();
+  });
+
   it('does not alert Bast as assignee', async () => {
     tx.task.findFirst.mockResolvedValue({ ...taskRow, assignee_id: BAST_USER_ID });
     await post();
     expect(createNotification).not.toHaveBeenCalled();
+    expect(emailClientMessage).not.toHaveBeenCalled();
   });
 
   it('a repeat client_ref is a no-op: same message, 200, no write, no effects', async () => {

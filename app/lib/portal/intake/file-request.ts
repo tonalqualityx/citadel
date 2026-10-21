@@ -17,6 +17,7 @@ import { projectAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { engagementOf } from '@/lib/portal/engagement';
 import { requestState } from '@/lib/portal/status-labels';
 import { onRequestFiled } from '@/lib/portal/waits';
+import { notifyNewPortalRequest } from '@/lib/portal/staff-notify';
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
 import { createInAppNotificationOnly } from '@/lib/services/notifications';
 import { composeTask, sourceRefFor } from './compose';
@@ -328,6 +329,12 @@ export async function fileRequest(
     } catch (error) {
       console.error('portal downgraded emergency notification failed', error);
     }
+  }
+
+  // A request that lands on a person tells that person, in-app and by email. The emergency path
+  // above keeps its own alert, so it is left out here. Idempotent, and it never throws.
+  if (result.created && !result.emergencyEffects) {
+    await notifyNewPortalRequest(result.row.id);
   }
 
   return shape(result.row, result.created);
