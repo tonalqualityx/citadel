@@ -1,5 +1,5 @@
 /**
- * The Retainer page (portal phase B slice 2, spec section 4).
+ * The Retainer page (portal phase B slice 2, spec section 4; redesign 7.4 adds the plan-year months).
  *
  * One card per active or paused charter. Everything that leaves this module is an allow-list in
  * client words. Rules the spec fixes:
@@ -36,6 +36,13 @@ export interface RetainerItem {
   updated_at: Date | string;
 }
 
+export type YearMonthState = 'delivered' | 'current' | 'ready' | 'upcoming' | 'past';
+
+export interface RetainerMonth {
+  label: string;
+  state: YearMonthState;
+}
+
 export interface RetainerCard {
   id: string;
   heading: string;
@@ -46,6 +53,9 @@ export interface RetainerCard {
   plan_ready: { task_id: string; title: string; preview_url: string; book_href: string } | null;
   this_month: { open: RetainerItem[]; done: RetainerItem[] };
   latest_report: { title: string; headline: string | null; period: string; url: string } | null;
+  /** The contract year, up to twelve months. Empty when the charter has no usable start date. */
+  year_label: string | null;
+  months: RetainerMonth[];
 }
 
 // ---- pure helpers -----------------------------------------------------------------------
@@ -106,7 +116,7 @@ function hoursText(n: number): string {
 }
 
 /**
- * "Your plan includes up to 10 hours of work a month." Null when the plan sets no allowance.
+ * "Your plan covers up to 10 hours of work a month." Null when the plan sets no allowance.
  * This is the allowance only; hours used are not read anywhere in this module.
  */
 export function allowanceText(
@@ -117,7 +127,44 @@ export function allowanceText(
   const n = Number(budgetHours);
   if (!Number.isFinite(n) || n <= 0) return null;
   const per = billing === 'monthly' ? 'month' : 'year';
-  return `Your plan includes up to ${hoursText(n)} ${n === 1 ? 'hour' : 'hours'} of work a ${per}.`;
+  return `Your plan covers up to ${hoursText(n)} ${n === 1 ? 'hour' : 'hours'} of work a ${per}.`;
+}
+
+/**
+ * The twelve months of the contract year that holds `now`, counted from the charter start month.
+ * A month is 'delivered' when a published report exists for its period (YYYY-MM), 'current' for
+ * this month, 'ready' for next month when a plan is staged, 'upcoming' for later months, and
+ * 'past' for earlier months without a report. There is no "missed" state by design.
+ */
+export function buildYearMonths(
+  startDate: Date | string | null | undefined,
+  now: Date,
+  reportPeriods: string[],
+  planReady: boolean
+): { label: string | null; months: RetainerMonth[] } {
+  const s = startDate ? new Date(startDate) : null;
+  if (!s || Number.isNaN(s.getTime())) return { label: null, months: [] };
+  const { y, m } = ymParts(now);
+  const startMonth = s.getUTCMonth() + 1;
+  const startYear = m < startMonth ? y - 1 : y;
+  const delivered = new Set(reportPeriods);
+  const nowIdx = y * 12 + (m - 1);
+  const months: RetainerMonth[] = [];
+  for (let i = 0; i < 12; i++) {
+    const idx = startYear * 12 + (startMonth - 1) + i;
+    const yy = Math.floor(idx / 12);
+    const mm = (idx % 12) + 1;
+    const key = `${yy}-${String(mm).padStart(2, '0')}`;
+    let state: YearMonthState;
+    if (idx === nowIdx) state = 'current';
+    else if (idx < nowIdx) state = delivered.has(key) ? 'delivered' : 'past';
+    else if (idx === nowIdx + 1 && planReady) state = 'ready';
+    else state = 'upcoming';
+    months.push({ label: SHORT[mm - 1], state });
+  }
+  const lastIdx = startYear * 12 + (startMonth - 1) + 11;
+  const label = `${MONTHS[startMonth - 1]} ${startYear} to ${MONTHS[lastIdx % 12]} ${Math.floor(lastIdx / 12)}`;
+  return { label, months };
 }
 
 export function retainerHeading(clientLabel: string | null | undefined, wareNames: string[]): string {
@@ -203,7 +250,7 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
       ],
     };
 
-    const [plan, openRows, doneRows, report] = await Promise.all([
+    const [plan, openRows, doneRows, report, yearReports] = await Promise.all([
       prisma.task.findFirst({
         where: { AND: [taskBase, { tags: { has: PLAN_TAG }, client_approved_at: null }, stagedTaskWhere()] },
         select: { id: true, title: true, client_title: true, staging_preview_url: true },
@@ -241,11 +288,25 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
         select: { title: true, headline: true, period: true, url: true },
         orderBy: { published_at: 'desc' },
       }),
+      prisma.clientReport.findMany({
+        where: {
+          client_id: access.clientId,
+          published_at: { not: null, lte: now },
+          OR: [{ charter_id: c.id }, { site_id: { in: covered.map((s) => s.id) } }],
+        },
+        select: { period: true },
+      }),
     ]);
 
     // A staged plan is also an open task; show it once, in its own block.
     const open = (openRows as ItemRow[]).filter((r) => r.id !== plan?.id).map(toItem);
     const reportUrl = safeHttpUrl(report?.url);
+    const year = buildYearMonths(
+      c.start_date,
+      now,
+      ((yearReports ?? []) as { period: string }[]).map((r) => r.period),
+      Boolean(plan && plan.staging_preview_url)
+    );
 
     cards.push({
       id: c.id,
@@ -260,6 +321,8 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
           : null,
       this_month: { open, done: (doneRows as ItemRow[]).map(toItem) },
       latest_report: report && reportUrl ? { title: report.title, headline: report.headline, period: report.period, url: reportUrl } : null,
+      year_label: year.label,
+      months: year.months,
     });
   }
   return cards;

@@ -1,0 +1,126 @@
+'use client';
+
+import { useRef, useState } from 'react';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { Menu, LogOut, Plus } from 'lucide-react';
+import { AccountBlock, usePortalSession } from '@/components/portal/client-switcher';
+import { activeKey, isBarePath, isSignInPath, isTokenPath, NAV, type NavKey } from './nav-items';
+import { HelpLine } from './help-line';
+import { MoreSheet } from './more-sheet';
+import { ThemeControl } from './theme-control';
+import { Wordmark } from './wordmark';
+
+const PHONE_SLOTS = new Set<NavKey>(['home', 'projects', 'retainer', 'requests']);
+
+/**
+ * The frame of every portal page. Wide screens get the navy sidebar; phones get a top bar, a bottom
+ * bar and a More sheet. The sign-in, picker and token pages get the bare frame: the top bar only.
+ */
+export function PortalShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() ?? '';
+  const router = useRouter();
+  const signIn = isSignInPath(pathname);
+  // Token pages open for people with no session too, so they ask once and show the nav on a 200.
+  const session = usePortalSession(!signIn, pathname);
+  // A token page whose session check is still out keeps the signed-in layout (same column, same
+  // left edge) with the nav parts invisible, so the only change when it answers 200 is the nav
+  // appearing. With no session it then settles into the bare, centred frame.
+  const token = isTokenPath(pathname);
+  const pending = token && !session.settled && !session.loaded;
+  const bare = !pending && isBarePath(pathname, session.loaded);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreBtn = useRef<HTMLButtonElement>(null);
+  const active = activeKey(pathname);
+
+  async function signOut() {
+    try {
+      await fetch('/api/portal/logout', { method: 'POST' });
+    } finally {
+      router.replace('/portal/login');
+    }
+  }
+
+  const phoneNav = NAV.filter((n) => PHONE_SLOTS.has(n.key));
+  const moreActive = active === 'history' || active === 'book';
+
+  // One tree for every page. A token page is "bare" until the session check returns 200; the nav
+  // parts are hidden (not absent) until then, and the content subtree has no key and never moves,
+  // so a half-typed note or signature survives the reveal.
+  return (
+    <div className={`shell${bare ? ' shell-bare' : ''}${pending ? ' shell-pending' : ''}`}>
+      <aside className="sidebar" aria-label="Portal" data-nav-zone hidden={bare} aria-hidden={pending || undefined} inert={pending || undefined}>
+        <div className="side-in">
+          <Wordmark />
+          <AccountBlock name={session.name} canSwitch={session.canSwitch} />
+          <Link className="btn-nav" href="/portal/requests/new">
+            <Plus className="i" aria-hidden="true" focusable="false" />
+            Request work
+          </Link>
+          <nav className="snav" aria-label="Main">
+            {NAV.map(({ key, href, label, icon: Icon }) => (
+              <Link key={key} href={href} aria-current={active === key ? 'page' : undefined}>
+                <Icon className="i" aria-hidden="true" focusable="false" />
+                {label}
+              </Link>
+            ))}
+          </nav>
+          <div className="foot">
+            <svg className="side-motif" viewBox="0 0 224 56" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+              <path d="M0 44 L28 30 L46 36 L72 18 L98 34 L124 22 L150 38 L178 16 L204 30 L224 24" />
+              <path d="M0 52 C40 44 70 50 112 46 C150 42 190 52 224 46" />
+            </svg>
+            <ThemeControl />
+            <button type="button" className="linklike" onClick={signOut}>
+              <LogOut className="i" aria-hidden="true" focusable="false" />
+              Sign out
+            </button>
+            <HelpLine />
+          </div>
+        </div>
+      </aside>
+
+      <div className="col">
+        <header className="topbar" data-nav-zone>
+          <Wordmark />
+          <span className="who" hidden={bare} aria-hidden={pending || undefined}>
+            {session.name}
+          </span>
+          <Link className="btn-nav" href="/portal/requests/new" hidden={bare} aria-hidden={pending || undefined} tabIndex={pending ? -1 : undefined}>
+            <Plus className="i" aria-hidden="true" focusable="false" />
+            Request
+          </Link>
+        </header>
+        <main className={`main${bare ? ' main-bare' : ''}`} id="main">
+          {session.moved && !bare ? (
+            <p role="status" className="moved">
+              You no longer have access to the account you were viewing, so we opened {session.name}.
+            </p>
+          ) : null}
+          <div className={`${bare ? 'bare-inner' : 'main-inner'}${token ? ' col-narrow' : ''}`}>{children}</div>
+          {bare ? <HelpLine /> : null}
+        </main>
+        <nav className="bottombar" aria-label="Portal" data-nav-zone hidden={bare} aria-hidden={pending || undefined} inert={pending || undefined}>
+          {phoneNav.map(({ key, href, label, icon: Icon }) => (
+            <Link key={key} href={href} aria-current={active === key ? 'page' : undefined}>
+              <Icon className="i" aria-hidden="true" focusable="false" />
+              {label}
+            </Link>
+          ))}
+          <button
+            type="button"
+            ref={moreBtn}
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            aria-current={moreActive ? 'page' : undefined}
+            onClick={() => setMoreOpen(true)}
+          >
+            <Menu className="i" aria-hidden="true" focusable="false" />
+            More
+          </button>
+        </nav>
+        <MoreSheet open={moreOpen && !bare} onClose={() => setMoreOpen(false)} canSwitch={session.canSwitch} onSignOut={signOut} returnFocusTo={moreBtn} />
+      </div>
+    </div>
+  );
+}

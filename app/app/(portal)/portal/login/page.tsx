@@ -2,6 +2,11 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Mail, TriangleAlert } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Field } from '@/components/portal/ui/field';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Callout } from '@/components/portal/ui/callout';
 
 // Portal sign-in. Standalone wording: a person arriving here cold, from an expired-session
 // redirect or a bookmark, learns what this is and what to do without any other context.
@@ -41,59 +46,52 @@ function LoginForm() {
 
   if (sent) {
     return (
-      <div className="max-w-md mx-auto bg-surface border border-border rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Check your email</h2>
-        <p className="text-sm text-text-sub">
-          If {email.trim()} has access to the Indelible client portal, we have sent a sign-in link
-          to it. The link works once and expires in 15 minutes. If nothing arrives, check your spam
-          folder, or ask your Indelible contact to add you.
-        </p>
-      </div>
+      <>
+        <PageHeader
+          motif="meadow"
+          title="Check your email"
+          lede={`If ${email.trim()} has access to the Indelible client portal, we have sent a sign-in link to it. The link works once and expires soon.`}
+        />
+        <div className="card">
+          <p>If nothing arrives, check your spam folder, or ask your Indelible contact to add you.</p>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="max-w-md mx-auto bg-surface border border-border rounded-lg p-6">
-      <h2 className="text-xl font-semibold text-text-main mb-2">Sign in to your Indelible portal</h2>
-      <p className="text-sm text-text-sub mb-4">
-        Enter the email address your Indelible team has on file for you. We will email you a
-        one-time link to sign in. There is no password to remember.
-      </p>
-      {linkProblem && (
-        <p role="alert" className="text-sm text-red-600 mb-4">
-          That sign-in link has expired or was already used. Enter your email below and we will
-          send a fresh one.
-        </p>
-      )}
-      <form onSubmit={onSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="portal-email" className="block text-sm font-medium text-text-main mb-1">
-            Email address
-          </label>
+    <>
+      <PageHeader
+        motif="meadow"
+        title="Sign in to your Indelible portal"
+        lede="We email you a link. No password to remember."
+      />
+      <form onSubmit={onSubmit} className="card">
+        {linkProblem && (
+          <Callout tone="urgent" icon={TriangleAlert} title="That sign-in link has expired or was already used">
+            <p>Enter your email below and we will send a fresh one.</p>
+          </Callout>
+        )}
+        <Field id="portal-email" label="Email address" hint="Use the address your Indelible team has on file for you." error={error}>
           <input
-            id="portal-email"
             type="email"
             required
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-main"
           />
-        </div>
-        {error && (
-          <p role="alert" className="text-sm text-red-600">
-            {error}
-          </p>
-        )}
-        <button
+        </Field>
+        <PortalButton
           type="submit"
-          disabled={submitting || email.trim() === ''}
-          className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          icon={Mail}
+          disabled={email.trim() === ''}
+          busy={submitting}
+          busyLabel="Sending"
         >
-          {submitting ? 'Sending...' : 'Email me a sign-in link'}
-        </button>
+          Send me a link
+        </PortalButton>
       </form>
-    </div>
+    </>
   );
 }
 

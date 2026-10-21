@@ -2,6 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { FileSignature, TriangleAlert } from 'lucide-react';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Field } from '@/components/portal/ui/field';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+
+const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface MsaData {
   id: string;
@@ -20,6 +30,7 @@ export default function MsaPortalPage() {
   const [msa, setMsa] = useState<MsaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [signing, setSigning] = useState(false);
   const [signed, setSigned] = useState(false);
   const [signerName, setSignerName] = useState('');
@@ -30,6 +41,7 @@ export default function MsaPortalPage() {
       try {
         const res = await fetch(`/api/portal/msa/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'MSA not found');
           return;
@@ -68,96 +80,120 @@ export default function MsaPortalPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-text-secondary">Loading agreement...</div>
-      </div>
+      <SkeletonRegion>
+        <Skeleton block />
+        <Skeleton lines={4} />
+      </SkeletonRegion>
     );
   }
 
-  if (error) {
-    return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Unable to load agreement</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
-    );
+  if (!msa) {
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
 
-  if (!msa) return null;
+  const open = !msa.already_signed && !signed;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h2 className="text-2xl font-bold text-text-main mb-1">Master Service Agreement</h2>
-        <p className="text-text-secondary">For {msa.client.name}</p>
-        <p className="text-sm text-text-tertiary mt-1">
-          Version {msa.msa_version.version} &middot; Effective{' '}
-          {new Date(msa.msa_version.effective_date).toLocaleDateString()}
-        </p>
-      </div>
-
-      {/* MSA Content */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <div className="prose prose-sm max-w-none text-text-main" dangerouslySetInnerHTML={{ __html: msa.msa_version.content }} />
-      </div>
-
-      {/* Signed confirmation */}
-      {(msa.already_signed || signed) && (
-        <div className="bg-status-success/10 rounded-lg border border-status-success/30 p-6 text-center">
-          <h3 className="text-lg font-semibold text-text-main">
-            {signed ? 'Agreement Signed' : 'Already Signed'}
-          </h3>
-          <p className="text-text-secondary mt-1">
-            {signed
-              ? 'Thank you for signing the agreement.'
-              : `This agreement was signed on ${new Date(msa.signed_at!).toLocaleDateString()}.`}
-          </p>
+    <>
+      <header className="ph no-motif">
+        <p className="eyebrow">Agreement, version {msa.msa_version.version}</p>
+        <h1 className="h1">Master service agreement</h1>
+        <p>For {msa.client.name}</p>
+        <div>
+          {msa.already_signed || signed ? (
+            <StatusChip tone="done" label="Signed" />
+          ) : (
+            <StatusChip tone="attention" label="Waiting for you" />
+          )}
         </div>
-      )}
+      </header>
 
-      {/* Signing form */}
-      {!msa.already_signed && !signed && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Sign Agreement</h3>
-          <p className="text-sm text-text-secondary mb-4">
-            By signing below, you agree to the terms outlined in this Master Service Agreement.
-          </p>
-          <form onSubmit={handleSign} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">Full Name</label>
+      {error ? (
+        <Callout
+          tone="urgent"
+          icon={TriangleAlert}
+          title="Something went wrong"
+          note={`${error}. Try again, or write to support@becomeindelible.com.`}
+        />
+      ) : null}
+
+      {open ? (
+        <Callout icon={FileSignature} title="Sign the agreement" note="Read the terms below, then sign with your legal name and email.">
+          <PortalButton href="#sign-form">Go to signing</PortalButton>
+        </Callout>
+      ) : null}
+
+      <section className="card" aria-labelledby="details-h">
+        <h2 id="details-h">Details</h2>
+        <dl className="kv">
+          <div>
+            <dt>Version</dt>
+            <dd>{msa.msa_version.version}</dd>
+          </div>
+          <div>
+            <dt>Effective</dt>
+            <dd>{new Date(msa.msa_version.effective_date).toLocaleDateString()}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="card" aria-labelledby="terms-h">
+        <h2 id="terms-h">Agreement terms</h2>
+        <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: msa.msa_version.content }} />
+      </section>
+
+      {signed ? (
+        <EmptyState art="meadow" title="Agreement signed" body="Thank you for signing the agreement." />
+      ) : null}
+
+      {msa.already_signed && !signed ? (
+        <EmptyState
+          art="meadow"
+          title="Already signed"
+          body={`This agreement was signed on ${new Date(msa.signed_at!).toLocaleDateString()}.`}
+        />
+      ) : null}
+
+      {open ? (
+        <section className="card" id="sign-form" aria-labelledby="sign-h">
+          <h2 id="sign-h">Sign the agreement</h2>
+          <p>By signing below, you agree to the terms outlined in this Master Service Agreement.</p>
+          <form onSubmit={handleSign}>
+            <Field id="signer-name" label="Full name">
               <input
                 type="text"
                 required
                 value={signerName}
                 onChange={(e) => setSignerName(e.target.value)}
                 placeholder="Your full legal name"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">Email Address</label>
+            </Field>
+            <Field id="signer-email" label="Email address">
               <input
                 type="email"
                 required
                 value={signerEmail}
                 onChange={(e) => setSignerEmail(e.target.value)}
                 placeholder="your@email.com"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary"
               />
-            </div>
-            <div className="flex justify-end">
-              <button
+            </Field>
+            <div className="actions">
+              <PortalButton
                 type="submit"
+                variant="primary"
                 disabled={signing || !signerName || !signerEmail}
-                className="px-6 py-2 rounded-md bg-brand-primary text-white font-medium hover:bg-brand-primary/90 transition-colors disabled:opacity-50"
+                busy={signing}
+                busyLabel="Signing..."
               >
-                {signing ? 'Signing...' : 'Sign Agreement'}
-              </button>
+                Sign agreement
+              </PortalButton>
             </div>
           </form>
-        </div>
-      )}
-    </div>
+        </section>
+      ) : null}
+    </>
   );
 }

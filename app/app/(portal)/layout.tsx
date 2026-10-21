@@ -1,11 +1,25 @@
 import '@/app/globals.css';
-import { ClientSwitcher } from '@/components/portal/client-switcher';
-import { PortalNav } from '@/components/portal/portal-nav';
+import './portal-tokens.css';
+import './portal-kit.css';
+import { Atkinson_Hyperlegible, Lato } from 'next/font/google';
+import { PortalShell } from '@/components/portal/shell/portal-shell';
 
 export const metadata = {
   title: 'Indelible Portal',
   description: 'View and respond to proposals',
 };
+
+// Lato for headlines and the wordmark, Atkinson Hyperlegible for everything people read.
+const lato = Lato({ weight: ['400', '700', '900'], subsets: ['latin'], variable: '--font-lato', display: 'swap' });
+const atkinson = Atkinson_Hyperlegible({
+  weight: ['400', '700'],
+  subsets: ['latin'],
+  variable: '--font-atkinson',
+  display: 'swap',
+});
+
+// Applies a saved Light or Dark choice before first paint, so a dark reader never sees a white flash.
+const THEME_SCRIPT = `try{var t=localStorage.getItem('portal-theme');if(t==='light'||t==='dark'){document.currentScript.parentElement.setAttribute('data-theme',t)}}catch(e){}`;
 
 export default function PortalLayout({
   children,
@@ -13,22 +27,9 @@ export default function PortalLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-surface-secondary">
-      <header className="border-b border-border bg-surface px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          <h1 className="text-lg font-semibold text-text-main">Indelible</h1>
-          <ClientSwitcher />
-        </div>
-      </header>
-      <PortalNav />
-      <main className="max-w-4xl mx-auto px-6 py-8">
-        {children}
-      </main>
-      <footer className="border-t border-border bg-surface px-6 py-4 mt-auto">
-        <div className="max-w-4xl mx-auto text-center text-sm text-text-tertiary">
-          Powered by Indelible
-        </div>
-      </footer>
+    <div data-portal className={`${lato.variable} ${atkinson.variable} min-h-screen`} suppressHydrationWarning>
+      <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      <PortalShell>{children}</PortalShell>
     </div>
   );
 }

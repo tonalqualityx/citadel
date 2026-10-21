@@ -2,6 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { FileText, TriangleAlert } from 'lucide-react';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Field } from '@/components/portal/ui/field';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+
+const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface ProposalData {
   id: string;
@@ -42,6 +52,7 @@ export default function ProposalPortalPage() {
   const [proposal, setProposal] = useState<ProposalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [responding, setResponding] = useState(false);
   const [responseNote, setResponseNote] = useState('');
   const [responded, setResponded] = useState(false);
@@ -51,6 +62,7 @@ export default function ProposalPortalPage() {
       try {
         const res = await fetch(`/api/portal/proposals/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'Proposal not found');
           return;
@@ -94,198 +106,229 @@ export default function ProposalPortalPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-text-secondary">Loading proposal...</div>
-      </div>
+      <SkeletonRegion>
+        <Skeleton block />
+        <Skeleton lines={4} />
+      </SkeletonRegion>
     );
   }
 
-  if (error) {
-    return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Unable to load proposal</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
-    );
+  if (!proposal) {
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
-
-  if (!proposal) return null;
 
   const charterItems = proposal.accord.charter_items || [];
   const commissionItems = proposal.accord.commission_items || [];
   const keepItems = proposal.accord.keep_items || [];
   const hasItems = charterItems.length > 0 || commissionItems.length > 0 || keepItems.length > 0;
-  const alreadyResponded = proposal.status !== 'sent';
+  const open = proposal.status === 'sent' && !responded;
+  const charterTotal = charterItems.reduce((sum, item) => sum + item.total_contract_value, 0);
+  const keepTotal = keepItems.reduce((sum, item) => sum + (item.monthly_total || 0), 0);
+  const statusChip = responded
+    ? { tone: 'done' as const, label: 'Response sent' }
+    : proposal.status === 'sent'
+      ? { tone: 'attention' as const, label: 'Waiting for you' }
+      : proposal.status === 'accepted'
+        ? { tone: 'done' as const, label: 'Accepted' }
+        : { tone: 'quiet' as const, label: proposal.status.replace('_', ' ') };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h2 className="text-2xl font-bold text-text-main mb-1">{proposal.accord.name}</h2>
-        {proposal.accord.client && (
-          <p className="text-text-secondary">Prepared for {proposal.accord.client.name}</p>
-        )}
-        <p className="text-sm text-text-tertiary mt-1">Version {proposal.version}</p>
-      </div>
-
-      {/* Content */}
-      {proposal.content && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Proposal Details</h3>
-          <div className="prose prose-sm max-w-none text-text-main" dangerouslySetInnerHTML={{ __html: proposal.content }} />
+    <>
+      <header className="ph no-motif">
+        <p className="eyebrow">Proposal, version {proposal.version}</p>
+        <h1 className="h1">{proposal.accord.name}</h1>
+        {proposal.accord.client ? <p>Prepared for {proposal.accord.client.name}</p> : null}
+        <div>
+          <StatusChip tone={statusChip.tone} label={statusChip.label} />
         </div>
-      )}
+      </header>
 
-      {/* Pricing */}
-      {hasItems && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Pricing</h3>
+      {error ? (
+        <Callout
+          tone="urgent"
+          icon={TriangleAlert}
+          title="Something went wrong"
+          note={`${error}. Try again, or write to support@becomeindelible.com.`}
+        />
+      ) : null}
 
-          {/* Charter items */}
-          {charterItems.length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-medium text-text-secondary mb-2">Recurring Services</h4>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-2 text-sm font-medium text-text-secondary">Service</th>
-                    <th className="text-right py-2 text-sm font-medium text-text-secondary">Price</th>
-                    <th className="text-right py-2 text-sm font-medium text-text-secondary">Billing</th>
-                    <th className="text-right py-2 text-sm font-medium text-text-secondary">Total Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {charterItems.map((item, i) => (
-                    <tr key={i} className="border-b border-border/50">
-                      <td className="py-3 text-text-main">{item.name}</td>
-                      <td className="py-3 text-right text-text-main">${item.final_price.toLocaleString()}</td>
-                      <td className="py-3 text-right text-text-main">{item.billing_period}</td>
-                      <td className="py-3 text-right font-medium text-text-main">${item.total_contract_value.toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {open ? (
+        <Callout icon={FileText} title="Accept the proposal" note="Read the details below, then respond.">
+          <PortalButton href="#response">Go to your response</PortalButton>
+        </Callout>
+      ) : null}
 
-          {/* Commission items */}
-          {commissionItems.length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-medium text-text-secondary mb-2">Project Services</h4>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-2 text-sm font-medium text-text-secondary">Service</th>
-                    <th className="text-right py-2 text-sm font-medium text-text-secondary">Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {commissionItems.map((item, i) => (
-                    <tr key={i} className="border-b border-border/50">
-                      <td className="py-3 text-text-main">{item.name}</td>
-                      <td className="py-3 text-right font-medium text-text-main">
-                        {item.final_price ? `$${item.final_price.toLocaleString()}` : 'TBD'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Keep items */}
-          {keepItems.length > 0 && (
+      <section className="card" aria-labelledby="details-h">
+        <h2 id="details-h">Details</h2>
+        <dl className="kv">
+          {proposal.accord.client ? (
             <div>
-              <h4 className="text-sm font-medium text-text-secondary mb-2">Hosting & Maintenance</h4>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-2 text-sm font-medium text-text-secondary">Site</th>
-                    <th className="text-right py-2 text-sm font-medium text-text-secondary">Monthly</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {keepItems.map((item, i) => (
-                    <tr key={i} className="border-b border-border/50">
-                      <td className="py-3 text-text-main">{item.site_name}</td>
-                      <td className="py-3 text-right font-medium text-text-main">
-                        {item.monthly_total ? `$${item.monthly_total.toLocaleString()}/mo` : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <dt>Prepared for</dt>
+              <dd>{proposal.accord.client.name}</dd>
             </div>
-          )}
-        </div>
-      )}
+          ) : null}
+          <div>
+            <dt>Version</dt>
+            <dd>{proposal.version}</dd>
+          </div>
+          {proposal.sent_at ? (
+            <div>
+              <dt>Sent</dt>
+              <dd>{new Date(proposal.sent_at).toLocaleDateString()}</dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
 
-      {/* Status / Response */}
-      {responded && (
-        <div className="bg-status-success/10 rounded-lg border border-status-success/30 p-6 text-center">
-          <h3 className="text-lg font-semibold text-text-main">Response submitted</h3>
-          <p className="text-text-secondary mt-1">Thank you for your response. We&apos;ll be in touch shortly.</p>
-        </div>
-      )}
+      {proposal.content ? (
+        <section className="card" aria-labelledby="content-h">
+          <h2 id="content-h">Proposal details</h2>
+          <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: proposal.content }} />
+        </section>
+      ) : null}
 
-      {alreadyResponded && !responded && (
-        <div className="bg-surface rounded-lg border border-border p-6 text-center">
-          <p className="text-text-secondary">
-            This proposal has been <span className="font-medium">{proposal.status.replace('_', ' ')}</span>.
-          </p>
-        </div>
-      )}
+      {hasItems ? (
+        <section className="card" aria-labelledby="pricing-h">
+          <h2 id="pricing-h">Pricing</h2>
 
-      {!alreadyResponded && !responded && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Your Response</h3>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-text-secondary mb-1">
-              Notes (optional)
-            </label>
+          {charterItems.length > 0 ? (
+            <>
+              <h3>Recurring services</h3>
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Service</th>
+                      <th scope="col">Price</th>
+                      <th scope="col">Billing</th>
+                      <th scope="col">Total value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {charterItems.map((item, i) => (
+                      <tr key={i}>
+                        <td>{item.name}</td>
+                        <td>${item.final_price.toLocaleString()}</td>
+                        <td>{item.billing_period}</td>
+                        <td>${item.total_contract_value.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>Total</td>
+                      <td />
+                      <td />
+                      <td>${charterTotal.toLocaleString()}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+
+          {commissionItems.length > 0 ? (
+            <>
+              <h3>Project services</h3>
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Service</th>
+                      <th scope="col">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commissionItems.map((item, i) => (
+                      <tr key={i}>
+                        <td>{item.name}</td>
+                        <td>{item.final_price ? `$${item.final_price.toLocaleString()}` : 'TBD'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+
+          {keepItems.length > 0 ? (
+            <>
+              <h3>Hosting and maintenance</h3>
+              <div className="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Site</th>
+                      <th scope="col">Monthly</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keepItems.map((item, i) => (
+                      <tr key={i}>
+                        <td>{item.site_name}</td>
+                        <td>{item.monthly_total ? `$${item.monthly_total.toLocaleString()}/mo` : '-'}</td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>Total</td>
+                      <td>${keepTotal.toLocaleString()}/mo</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
+      {responded ? (
+        <EmptyState art="meadow" title="Response submitted" body="Thank you for your response. A person at Indelible reads every reply." />
+      ) : null}
+
+      {!open && !responded ? (
+        <EmptyState
+          art="meadow"
+          title="Already responded"
+          body={`This proposal has been ${proposal.status.replace('_', ' ')}.`}
+        />
+      ) : null}
+
+      {open ? (
+        <section className="card" id="response" aria-labelledby="response-h">
+          <h2 id="response-h">Your response</h2>
+          <Field id="response-note" label="Notes (optional)">
             <textarea
               value={responseNote}
               onChange={(e) => setResponseNote(e.target.value)}
               placeholder="Any comments or questions..."
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary"
               rows={3}
             />
-          </div>
-          <div className="flex gap-3 justify-end">
-            <button
+          </Field>
+          <div className="actions">
+            <PortalButton
+              variant="secondary"
               onClick={() => handleRespond('changes_requested')}
               disabled={responding}
-              className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors disabled:opacity-50"
             >
-              Request Changes
-            </button>
-            <button
-              onClick={() => handleRespond('reject')}
-              disabled={responding}
-              className="px-4 py-2 rounded-md bg-status-error text-white hover:bg-status-error/90 transition-colors disabled:opacity-50"
-            >
+              Request changes
+            </PortalButton>
+            <PortalButton variant="secondary" onClick={() => handleRespond('reject')} disabled={responding}>
               Decline
-            </button>
-            <button
-              onClick={() => handleRespond('accept')}
-              disabled={responding}
-              className="px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-50"
-            >
-              Accept Proposal
-            </button>
+            </PortalButton>
+            <PortalButton variant="primary" onClick={() => handleRespond('accept')} disabled={responding}>
+              Accept proposal
+            </PortalButton>
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {/* Contact */}
-      {proposal.accord.owner && (
-        <div className="text-center text-sm text-text-tertiary">
+      {proposal.accord.owner ? (
+        <p>
           Questions? Contact {proposal.accord.owner.name} at{' '}
-          <a href={`mailto:${proposal.accord.owner.email}`} className="text-brand-primary hover:underline">
-            {proposal.accord.owner.email}
-          </a>
-        </div>
-      )}
-    </div>
+          <a href={`mailto:${proposal.accord.owner.email}`}>{proposal.accord.owner.email}</a>
+        </p>
+      ) : null}
+    </>
   );
 }

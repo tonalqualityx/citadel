@@ -274,6 +274,8 @@ export async function GET(_request: NextRequest) {
         updated_at: project.updated_at,
         progress: computeProgress(tasks),
         current_phase: currentPhaseName(phases),
+        // Phase track for the home card: the same list the project page builds (done, current, upcoming).
+        phases: phases.map((ph) => ({ name: ph.name, state: ph.state })),
         // Review-surface link for open questions (no per-person token). Null shows a placeholder.
         review_link: reviewLink(links),
         links,

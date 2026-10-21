@@ -444,6 +444,39 @@ describe('GET /api/portal/home (portal MVP A5 sections)', () => {
     expect(mockLinkFindMany.mock.calls[0][0].where.project_id).toEqual({ in: ['proj-1'] });
   });
 
+  it('gives each project its phases as name and state (done, current, upcoming), nothing else', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    mockProjectFindMany.mockResolvedValue([OPEN_PROJECT]);
+    const row = (id: string, phase: string, status: string) => ({
+      id, title: id, project_id: 'proj-1', phase_id: phase, status, requested_by_contact_id: 'c', client_visible: false,
+      staging_preview_url: null, approved: false, client_approved_at: null, completed_at: status === 'done' ? new Date() : null,
+    });
+    mockTaskFindMany.mockImplementation(async (args: { where: { project_id?: unknown } }) =>
+      args.where.project_id ? [row('t1', 'ph1', 'done'), row('t2', 'ph2', 'in_progress'), row('t3', 'ph3', 'ready')] : []
+    );
+    mockPhaseFindMany.mockResolvedValue([
+      { id: 'ph1', project_id: 'proj-1', name: 'Design', sort_order: 1 },
+      { id: 'ph2', project_id: 'proj-1', name: 'Build', sort_order: 2 },
+      { id: 'ph3', project_id: 'proj-1', name: 'Launch', sort_order: 3 },
+      { id: 'ph4', project_id: 'proj-1', name: 'Empty phase', sort_order: 4 },
+    ]);
+    const body = await (await GET(makeRequest())).json();
+    expect(body.projects[0].phases).toEqual([
+      { name: 'Design', state: 'done' },
+      { name: 'Build', state: 'current' },
+      { name: 'Launch', state: 'upcoming' },
+    ]);
+  });
+
+  it('a project with no phases carries an empty phases list', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    mockProjectFindMany.mockResolvedValue([OPEN_PROJECT]);
+    const body = await (await GET(makeRequest())).json();
+    expect(body.projects[0].phases).toEqual([]);
+  });
+
   it('lists open questions with the newest client-visible comment, never an internal one', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
     setEmptyDefaults();
