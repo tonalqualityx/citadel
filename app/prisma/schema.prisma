@@ -560,10 +560,12 @@ model DnsProvider {
 // ============================================
 
 model Client {
-  id     String       @id @default(uuid()) @db.Uuid
-  name   String       @db.VarChar(255)
-  type   ClientType   @default(direct)
-  status ClientStatus @default(active)
+  id             String         @id @default(uuid()) @db.Uuid
+  // Portal phase B slice 2 (back-relation)
+  client_reports ClientReport[]
+  name           String         @db.VarChar(255)
+  type           ClientType     @default(direct)
+  status         ClientStatus   @default(active)
 
   // Contact info
   primary_contact String? @db.VarChar(255)
@@ -618,9 +620,12 @@ model Client {
 // only a contact with can_initiate_work may trigger work via email. The same email
 // can appear under multiple clients (one row each), e.g. agency contacts.
 model ClientContact {
-  id        String @id @default(uuid()) @db.Uuid
-  client_id String @db.Uuid
-  client    Client @relation(fields: [client_id], references: [id])
+  id                String         @id @default(uuid()) @db.Uuid
+  // Portal phase B slice 2 (back-relations)
+  authored_comments Comment[]      @relation("CommentAuthorContact")
+  portal_notices    PortalNotice[]
+  client_id         String         @db.Uuid
+  client            Client         @relation(fields: [client_id], references: [id])
 
   name              String? @db.VarChar(255)
   email             String  @db.VarChar(255)
@@ -685,9 +690,11 @@ enum RetainerUsageMode {
 // ============================================
 
 model Site {
-  id   String  @id @default(uuid()) @db.Uuid
-  name String  @db.VarChar(255)
-  url  String? @db.VarChar(500)
+  id             String         @id @default(uuid()) @db.Uuid
+  // Portal phase B slice 2 (back-relation)
+  client_reports ClientReport[]
+  name           String         @db.VarChar(255)
+  url            String?        @db.VarChar(500)
 
   // Client relationship (optional - sites can exist without a client)
   client_id String? @db.Uuid
@@ -1062,9 +1069,11 @@ model ProjectTeamAssignment {
 // ============================================
 
 model Task {
-  id          String  @id @default(uuid()) @db.Uuid
-  title       String  @db.VarChar(500)
-  description String? @db.Text
+  id             String         @id @default(uuid()) @db.Uuid
+  // Portal phase B slice 2 (back-relation)
+  portal_notices PortalNotice[]
+  title          String         @db.VarChar(500)
+  description    String?        @db.Text
 
   // Status
   status   TaskStatus @default(not_started)
@@ -1577,27 +1586,37 @@ model PasswordResetToken {
 // ============================================
 
 model Comment {
-  id                 String   @id @default(uuid()) @db.Uuid
-  task_id            String   @db.Uuid
-  task               Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
-  user_id            String   @db.Uuid
-  user               User     @relation(fields: [user_id], references: [id])
-  content            String   @db.Text
-  mentioned_user_ids String[] @default([]) @db.Uuid
-  is_deleted         Boolean  @default(false)
+  id                 String         @id @default(uuid()) @db.Uuid
+  task_id            String         @db.Uuid
+  task               Task           @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  user_id            String         @db.Uuid
+  user               User           @relation(fields: [user_id], references: [id])
+  content            String         @db.Text
+  mentioned_user_ids String[]       @default([]) @db.Uuid
+  is_deleted         Boolean        @default(false)
   // Internal/team notes (incl. Bast's automated technical summaries) are never shown
   // to clients. Defaults false so new comments are client-visible. Client questions
   // must stay false; only team/Bast technical notes are flagged true.
-  is_internal        Boolean  @default(false)
+  is_internal        Boolean        @default(false)
   // Portal MVP A5: staff mark a comment as a question for the client. Only comments with this flag
   // are shown to the client as "the question". Additive, default false.
-  client_question    Boolean  @default(false)
-  created_at         DateTime @default(now())
-  updated_at         DateTime @updatedAt
+  client_question    Boolean        @default(false)
+  // Portal phase B slice 2: shown in the client's thread on the work page. A staff reply is
+  // visible to the client only when this is true. Default false: nothing is shared by accident.
+  client_visible     Boolean        @default(false)
+  // Set when the client wrote it (user_id is then the Bast user; the column stays required).
+  author_contact_id  String?        @db.Uuid
+  author_contact     ClientContact? @relation("CommentAuthorContact", fields: [author_contact_id], references: [id])
+  // The client's own message uuid. Unique, so a double send is a no-op.
+  client_ref         String?        @unique @db.VarChar(64)
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
 
   @@index([task_id])
   @@index([user_id])
   @@index([created_at])
+  @@index([task_id, client_visible])
+  @@index([author_contact_id])
   @@map("comments")
 }
 
@@ -2148,6 +2167,9 @@ model ClientMsaSignature {
 
 model Charter {
   id                  String               @id @default(uuid()) @db.Uuid
+  // Portal phase B slice 2: the plan name the client sees (Charter.name is internal, never shown).
+  client_label        String?              @db.VarChar(255)
+  client_reports      ClientReport[]
   name                String               @db.VarChar(255)
   client_id           String               @db.Uuid
   client              Client               @relation(fields: [client_id], references: [id])
@@ -2298,8 +2320,8 @@ model PortalSession {
   // Portal A2 (additive). Magic links are stored ONLY as the SHA-256 hex of the token; the raw
   // token lives in the emailed URL. Legacy raw `magic_token` stays for pre-A2 rows and is never
   // matched. `revoked_at` ends a session early (logout, contact deleted, portal_role none).
-  magic_token_hash       String?        @unique @db.VarChar(64)
-  revoked_at             DateTime?
+  magic_token_hash String?   @unique @db.VarChar(64)
+  revoked_at       DateTime?
 
   @@index([token_type, entity_id])
   @@index([created_at])
@@ -3611,4 +3633,69 @@ model WaitEvent {
 
   @@index([wait_id, created_at])
   @@map("wait_events")
+}
+
+// ============================================
+// PORTAL PHASE B SLICE 2: client notices and reports
+// ============================================
+
+enum PortalNoticeStatus {
+  queued
+  sending
+  sent
+  failed
+  cancelled
+}
+
+// The outbox for "there is a new reply on your request" emails. Drained by the machine-side
+// approval sender (approval-sender.py process_portal_notices), which holds each notice two
+// minutes and sends one email per burst. ApprovalRequest needs a project, which a request
+// does not have, so notices get their own table.
+model PortalNotice {
+  id               String             @id @default(uuid()) @db.Uuid
+  task_id          String             @db.Uuid
+  task             Task               @relation(fields: [task_id], references: [id])
+  contact_id       String             @db.Uuid
+  contact          ClientContact      @relation(fields: [contact_id], references: [id])
+  comment_ids      String[]           @db.Uuid
+  to_email         String             @db.VarChar(255)
+  subject          String             @db.VarChar(255)
+  body             String             @db.Text
+  status           PortalNoticeStatus @default(queued)
+  send_attempt_at  DateTime?
+  sent_at          DateTime?
+  message_id       String?            @db.VarChar(255)
+  thread_id        String?            @db.VarChar(255)
+  send_error       String?            @db.Text
+  send_error_count Int                @default(0)
+  cancelled_at     DateTime?
+  created_at       DateTime           @default(now())
+  updated_at       DateTime           @updatedAt
+
+  @@index([status, created_at])
+  @@index([task_id, contact_id, status])
+  @@map("portal_notices")
+}
+
+// A published monthly report, as the retainer page lists it. The Steward lane writes one per
+// publish (POST /api/client-reports, upsert by url).
+model ClientReport {
+  id           String    @id @default(uuid()) @db.Uuid
+  client_id    String    @db.Uuid
+  client       Client    @relation(fields: [client_id], references: [id])
+  charter_id   String?   @db.Uuid
+  charter      Charter?  @relation(fields: [charter_id], references: [id])
+  site_id      String?   @db.Uuid
+  site         Site?     @relation(fields: [site_id], references: [id])
+  period       String    @db.VarChar(7)
+  title        String    @db.VarChar(255)
+  headline     String?   @db.Text
+  url          String    @unique @db.VarChar(500)
+  published_at DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  @@index([client_id, published_at])
+  @@index([charter_id])
+  @@map("client_reports")
 }
