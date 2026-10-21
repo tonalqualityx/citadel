@@ -10,6 +10,7 @@ import {
 
 type Row = {
   requested_by_contact_id: string | null;
+  client_visible: boolean;
   staging_preview_url: string | null;
   status: string;
   approved: boolean;
@@ -42,19 +43,20 @@ describe('portal task visibility', () => {
     });
   });
 
-  it('clientVisibleTaskWhere() is requested-by-contact OR staged', () => {
+  it('clientVisibleTaskWhere() is requested-by-contact OR client_visible OR staged', () => {
     expect(clientVisibleTaskWhere()).toEqual({
-      OR: [{ requested_by_contact_id: { not: null } }, stagedTaskWhere()],
+      OR: [{ requested_by_contact_id: { not: null } }, { client_visible: true }, stagedTaskWhere()],
     });
   });
 
   it('the where-fragments and the predicates agree on every combination', () => {
     const rows: Row[] = [];
     for (const requested_by_contact_id of [null, 'c1'])
+     for (const client_visible of [false, true])
       for (const staging_preview_url of [null, '', 'https://s.example'])
         for (const status of ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'])
           for (const approved of [false, true])
-            rows.push({ requested_by_contact_id, staging_preview_url, status, approved });
+            rows.push({ requested_by_contact_id, client_visible, staging_preview_url, status, approved });
 
     let staged = 0;
     for (const row of rows) {
@@ -62,8 +64,8 @@ describe('portal task visibility', () => {
       expect(matches(row, clientVisibleTaskWhere())).toBe(isClientVisibleTask(row));
       if (isStagedForApproval(row)) staged++;
     }
-    // review/done x one real url x not approved x 2 requesters
-    expect(staged).toBe(4);
+    // review/done x one real url x not approved x 2 requesters x 2 client_visible
+    expect(staged).toBe(8);
   });
 
   it('a staged, published task with no requester stays in history but never pending or actionable', () => {
@@ -98,6 +100,14 @@ describe('portal task visibility', () => {
     const t = { requested_by_contact_id: 'c1', staging_preview_url: null, status: 'not_started', approved: false };
     expect(isClientVisibleTask(t)).toBe(true);
     expect(isStagedForApproval(t)).toBe(false);
+  });
+
+  it('client_visible shares a task in lists but does not make it staged (not pending, not actionable)', () => {
+    const t = { requested_by_contact_id: null, client_visible: true, staging_preview_url: null, status: 'in_progress', approved: false };
+    expect(isClientVisibleTask(t)).toBe(true);
+    expect(isStagedForApproval(t)).toBe(false);
+    expect(matches(t, clientVisibleTaskWhere())).toBe(true);
+    expect(matches(t, stagedTaskWhere())).toBe(false);
   });
 
   it('already-published work (approved) is never staged', () => {

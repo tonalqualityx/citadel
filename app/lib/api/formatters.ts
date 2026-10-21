@@ -7,6 +7,7 @@ export function formatClientContactResponse(contact: any) {
     name: contact.name,
     email: contact.email,
     role: contact.role,
+    portal_role: contact.portal_role,
     can_initiate_work: contact.can_initiate_work,
     is_primary: contact.is_primary,
     notes: contact.notes,

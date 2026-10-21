@@ -9,6 +9,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
+    clientContact: { findFirst: vi.fn() },
     site: { findMany: vi.fn() },
     siteStatsSnapshot: { findFirst: vi.fn() },
   },
@@ -29,6 +30,8 @@ function makeRequest(): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A3: the signed-in contact is an owner of their own client unless a test overrides it.
+  (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'owner', is_deleted: false });
 });
 
 describe('GET /api/portal/stats', () => {
@@ -36,6 +39,14 @@ describe('GET /api/portal/stats', () => {
     mockRequireClientAuth.mockRejectedValue(new AuthError('Client authentication required', 401));
     const res = await GET(makeRequest());
     expect(res.status).toBe(401);
+    expect(mockSiteFindMany).not.toHaveBeenCalled();
+  });
+
+  it('returns no stats for a project-only contact (role none)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'none', is_deleted: false });
+    const res = await GET(makeRequest());
+    expect(await res.json()).toEqual({ sites: [] });
     expect(mockSiteFindMany).not.toHaveBeenCalled();
   });
 

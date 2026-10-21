@@ -1,3 +1,4 @@
+import { taskAccessWhere } from '@/lib/portal/access';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { AuthError } from '@/lib/api/errors';
@@ -11,6 +12,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
+    clientContact: { findFirst: vi.fn() },
     task: { findMany: vi.fn() },
   },
 }));
@@ -56,8 +58,12 @@ const approvedRow = {
   updated_at: new Date('2026-06-18T10:00:00Z'),
 };
 
+const OWNER_ACCESS = { contactId: 'contact-1', clientId: 'client-acme', role: 'owner' as const };
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // A3: the signed-in contact is an owner of their own client unless a test overrides it.
+  (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'owner', is_deleted: false });
 });
 
 describe('GET /api/portal/tasks', () => {
@@ -96,9 +102,22 @@ describe('GET /api/portal/tasks', () => {
 
     const [pendingCall, approvedCall] = mockTaskFindMany.mock.calls;
     // pending = visible AND staged; recently approved = visible. The client-scope OR is intact.
-    expect(pendingCall[0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
-    expect(approvedCall[0].where.AND).toEqual([clientHistoryTaskWhere()]);
+    expect(pendingCall[0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(OWNER_ACCESS)]);
+    expect(approvedCall[0].where.AND).toEqual([clientHistoryTaskWhere(), taskAccessWhere(OWNER_ACCESS)]);
     expect(pendingCall[0].where.OR).toHaveLength(2);
+  });
+
+  it('a project-only contact (role none) only gets tasks inside granted projects', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'none', is_deleted: false });
+    mockTaskFindMany.mockResolvedValue([]);
+
+    await GET(makeRequest());
+
+    const [pendingCall] = mockTaskFindMany.mock.calls;
+    const access = { contactId: 'contact-1', clientId: 'client-acme', role: 'none' as const };
+    expect(pendingCall[0].where.AND).toContainEqual(taskAccessWhere(access));
+    expect(taskAccessWhere(access)).not.toHaveProperty('OR'); // no project-less tasks for role none
   });
 
   it('never selects or returns estimated_minutes', async () => {

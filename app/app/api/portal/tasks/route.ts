@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { formatTaskForClient } from '@/lib/api/client-projections';
+import { loadPortalAccess, taskAccessWhere } from '@/lib/portal/access';
 import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 
 // GET /api/portal/tasks (Portal v2 phase 1)
@@ -25,14 +26,17 @@ export async function GET(_request: NextRequest) {
   try {
     const session = await requireClientAuth();
 
+    const access = await loadPortalAccess(session);
     const scope = {
       is_deleted: false,
       OR: [{ client_id: session.clientId }, { site: { client_id: session.clientId } }],
     };
+    // A3: only tasks in projects this contact may see (hidden/restricted/grants).
+    const taskAccess = taskAccessWhere(access);
 
     const [pending, recentlyApproved] = await Promise.all([
       prisma.task.findMany({
-        where: { ...scope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere()] },
+        where: { ...scope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere(), taskAccess] },
         select: {
           id: true,
           title: true,
@@ -47,7 +51,7 @@ export async function GET(_request: NextRequest) {
         take: 50,
       }),
       prisma.task.findMany({
-        where: { ...scope, client_approved_at: { not: null }, AND: [clientHistoryTaskWhere()] },
+        where: { ...scope, client_approved_at: { not: null }, AND: [clientHistoryTaskWhere(), taskAccess] },
         select: {
           id: true,
           title: true,

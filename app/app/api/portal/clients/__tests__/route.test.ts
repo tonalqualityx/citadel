@@ -11,6 +11,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
+    clientContact: { findFirst: vi.fn() },
     client: { findFirst: vi.fn() },
   },
 }));
@@ -32,6 +33,8 @@ function makeParams(clientId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A3: the signed-in contact is an owner of their own client unless a test overrides it.
+  (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'owner', is_deleted: false });
 });
 
 describe('GET /api/portal/clients/:clientId', () => {
@@ -60,6 +63,13 @@ describe('GET /api/portal/clients/:clientId', () => {
     const res = await GET(makeRequest(), makeParams('client-acme'));
     expect(res.status).toBe(401);
     expect(mockClientFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when the contact has been revoked (role none)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'none', is_deleted: false });
+    const res = await GET(makeRequest(), makeParams('client-acme'));
+    expect(res.status).toBe(403);
   });
 
   it('returns 404 when the owned client does not exist', async () => {

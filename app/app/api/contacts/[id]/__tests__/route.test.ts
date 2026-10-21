@@ -51,6 +51,7 @@ const existing = {
   name: 'Jane',
   email: 'jane@example.com',
   role: null,
+  portal_role: 'viewer',
   can_initiate_work: false,
   is_primary: false,
   is_deleted: false,
@@ -73,6 +74,47 @@ describe('PATCH /api/contacts/[id]', () => {
         data: expect.objectContaining({ can_initiate_work: true }),
       })
     );
+  });
+
+  it.each([
+    ['owner', true],
+    ['member', true],
+    ['viewer', false],
+    ['none', false],
+  ])('portal_role %s writes can_initiate_work=%s', async (portal_role, expected) => {
+    // Start from the opposite flag so the sync is what flips it (and a conflicting flag is overridden).
+    mockFindUnique.mockResolvedValue({ ...existing, can_initiate_work: !expected });
+    mockUpdate.mockResolvedValue({ ...existing, portal_role, can_initiate_work: expected });
+    const response = await PATCH(patchReq({ portal_role, can_initiate_work: !expected }), { params });
+    expect(response.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.portal_role).toBe(portal_role);
+    expect(data.can_initiate_work).toBe(expected);
+  });
+
+  it('rejects an unknown portal_role', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    const response = await PATCH(patchReq({ portal_role: 'admin' }), { params });
+    expect(response.status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('legacy can_initiate_work=true alone lifts a viewer to member, keeping the two in step', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue(existing);
+    await PATCH(patchReq({ can_initiate_work: true }), { params });
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.portal_role).toBe('member');
+    expect(data.can_initiate_work).toBe(true);
+  });
+
+  it('an unrelated edit leaves the role and flag untouched', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue(existing);
+    await PATCH(patchReq({ notes: 'x' }), { params });
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('portal_role');
+    expect(data).not.toHaveProperty('can_initiate_work');
   });
 
   it('404s when the contact is missing or deleted', async () => {

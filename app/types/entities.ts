@@ -1063,6 +1063,7 @@ export interface ClientContact {
   name: string | null;
   email: string;
   role: string | null;
+  portal_role: PortalRole;
   can_initiate_work: boolean;
   is_primary: boolean;
   notes: string | null;
@@ -1078,6 +1079,7 @@ export interface CreateClientContactInput {
   name?: string | null;
   email: string;
   role?: string | null;
+  portal_role?: PortalRole;
   can_initiate_work?: boolean;
   is_primary?: boolean;
   notes?: string | null;
@@ -1087,6 +1089,7 @@ export interface UpdateClientContactInput {
   name?: string | null;
   email?: string;
   role?: string | null;
+  portal_role?: PortalRole;
   can_initiate_work?: boolean;
   is_primary?: boolean;
   notes?: string | null;
@@ -1138,3 +1141,7 @@ export interface UpdateBrandProfileInput {
   brand_tokens?: unknown | null;
   notes?: string | null;
 }
+
+// Client portal role (portal MVP A3); can_initiate_work is derived from it (owner and member = true).
+export type PortalRole = 'owner' | 'member' | 'viewer' | 'none';
+export type PortalVisibility = 'inherit' | 'restricted' | 'hidden';

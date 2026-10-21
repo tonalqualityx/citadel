@@ -95,6 +95,24 @@ describe('POST /api/clients/[id]/contacts', () => {
     );
   });
 
+  it('derives can_initiate_work from the portal role on create (default viewer = false)', async () => {
+    await POST(postReq({ email: 'a@example.com', portal_role: 'owner' }), { params });
+    expect(mockContactCreate.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ portal_role: 'owner', can_initiate_work: true })
+    );
+    mockContactCreate.mockClear();
+    await POST(postReq({ email: 'b@example.com' }), { params });
+    expect(mockContactCreate.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ portal_role: 'viewer', can_initiate_work: false })
+    );
+    mockContactCreate.mockClear();
+    // Legacy callers sending only can_initiate_work: true become members.
+    await POST(postReq({ email: 'c@example.com', can_initiate_work: true }), { params });
+    expect(mockContactCreate.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ portal_role: 'member', can_initiate_work: true })
+    );
+  });
+
   it('rejects an invalid email', async () => {
     const response = await POST(postReq({ email: 'not-an-email' }), { params });
     const body = await response.json();

@@ -11,6 +11,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
+    clientContact: { findFirst: vi.fn() },
     article: { findMany: vi.fn() },
   },
 }));
@@ -44,6 +45,8 @@ const internalArticleRow = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A3: the signed-in contact is an owner of their own client unless a test overrides it.
+  (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'owner', is_deleted: false });
 });
 
 describe('GET /api/portal/articles', () => {
@@ -65,6 +68,14 @@ describe('GET /api/portal/articles', () => {
     // The query is scoped to the session's client, in_review only, non-deleted.
     const where = mockArticleFindMany.mock.calls[0][0].where;
     expect(where).toEqual({ client_id: 'client-acme', status: 'in_review', is_deleted: false });
+  });
+
+  it('returns no articles for a project-only contact (role none) without querying', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'none', is_deleted: false });
+    const res = await GET(makeRequest());
+    expect(await res.json()).toEqual({ articles: [] });
+    expect(prisma.article.findMany).not.toHaveBeenCalled();
   });
 
   it('projects each row client-safe — no internal field leaks', async () => {

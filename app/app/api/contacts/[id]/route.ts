@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatClientContactResponse } from '@/lib/api/formatters';
+import { deriveContactPortalFields } from '@/lib/portal/access';
 import { logUpdate, logDelete, detectChanges } from '@/lib/services/activity';
 
 const updateContactSchema = z.object({
@@ -11,6 +12,7 @@ const updateContactSchema = z.object({
   email: z.string().trim().email().max(255).optional(),
   role: z.string().max(100).optional().nullable(),
   can_initiate_work: z.boolean().optional(),
+  portal_role: z.enum(['owner', 'member', 'viewer', 'none']).optional(),
   is_primary: z.boolean().optional(),
   notes: z.string().optional().nullable(),
 });
@@ -46,13 +48,18 @@ export async function PATCH(
 
     const contact = await prisma.clientContact.update({
       where: { id },
-      data: { ...data, ...(email !== undefined ? { email } : {}) },
+      // Role is the source of truth; can_initiate_work is derived from it on every write.
+      data: {
+        ...data,
+        ...deriveContactPortalFields(data, existing.portal_role),
+        ...(email !== undefined ? { email } : {}),
+      },
     });
 
     const changes = detectChanges(
       existing as unknown as Record<string, unknown>,
       contact as unknown as Record<string, unknown>,
-      ['name', 'email', 'role', 'can_initiate_work', 'is_primary', 'notes']
+      ['name', 'email', 'role', 'portal_role', 'can_initiate_work', 'is_primary', 'notes']
     );
     await logUpdate(auth.userId, 'client_contact', contact.id, contact.email, changes);
 

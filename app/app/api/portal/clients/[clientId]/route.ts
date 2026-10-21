@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth, assertClientScope } from '@/lib/services/client-auth';
+import { loadPortalAccess } from '@/lib/portal/access';
 
 // GET /api/portal/clients/:clientId
 // Minimal client-scoped portal resource. Foundation for the C3+ client screens and the
@@ -19,6 +20,12 @@ export async function GET(
 
     // Hard scope gate: a session may only ever read its own client.
     assertClientScope(session, clientId);
+
+    // A3: a revoked (role none) or deleted contact has no client-level access.
+    const access = await loadPortalAccess(session);
+    if (access.role === 'none') {
+      throw new ApiError('Forbidden', 403);
+    }
 
     const client = await prisma.client.findFirst({
       where: { id: clientId, is_deleted: false },

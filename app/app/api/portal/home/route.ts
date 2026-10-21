@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import {
+  canSeeAnalytics,
+  canSeeBilling,
+  loadPortalAccess,
+  projectAccessWhere,
+  taskAccessWhere,
+} from '@/lib/portal/access';
 import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import {
   formatArticleForClient,
@@ -35,11 +42,18 @@ export async function GET(_request: NextRequest) {
   try {
     const session = await requireClientAuth();
     const clientId = session.clientId;
+    // A3: role on the active client, re-checked per request. Project-only contacts (role none)
+    // see only the projects and tasks they were granted, no articles, billing or stats.
+    const access = await loadPortalAccess(session);
+    const clientLevel = access.role !== 'none';
+    const showBilling = canSeeBilling(access.role);
+    const showAnalytics = canSeeAnalytics(access.role);
 
     const taskScope = {
       is_deleted: false,
       OR: [{ client_id: clientId }, { site: { client_id: clientId } }],
     };
+    const taskAccess = taskAccessWhere(access);
 
     const [
       client,
@@ -59,7 +73,7 @@ export async function GET(_request: NextRequest) {
       // Pending approvals — articles: in_review, WITH the full comment thread (same shape as the
       // single-article C4 screen), not the light list-only projection GET /api/portal/articles uses.
       prisma.article.findMany({
-        where: { client_id: clientId, status: 'in_review', is_deleted: false },
+        where: { client_id: clientId, status: 'in_review', is_deleted: false, ...(clientLevel ? {} : { id: { in: [] } }) },
         select: {
           id: true,
           title: true,
@@ -74,7 +88,7 @@ export async function GET(_request: NextRequest) {
       // Pending approvals — tasks awaiting the client's own approval, with staging preview.
       prisma.task.findMany({
         // Leak 1: only client-visible AND staged work is "waiting on your review".
-        where: { ...taskScope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere()] },
+        where: { ...taskScope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere(), taskAccess] },
         select: {
           id: true,
           title: true,
@@ -91,23 +105,35 @@ export async function GET(_request: NextRequest) {
       // Open/active projects (queue/quote are pre-kickoff internal stages, done/suspended/
       // cancelled are closed out — neither belongs on the account home).
       prisma.project.findMany({
-        where: { client_id: clientId, is_deleted: false, status: { in: ['ready', 'in_progress', 'review'] } },
+        where: { ...projectAccessWhere(access), status: { in: ['ready', 'in_progress', 'review'] } },
         select: { id: true, name: true, status: true, target_date: true, updated_at: true },
         orderBy: { updated_at: 'desc' },
       }),
       // Open/unbilled amount — Task side. There is no Invoice model in this schema; "open" is
       // computed directly from billing-eligible, not-yet-invoiced work. Amount + count only.
-      prisma.task.aggregate({
-        where: { ...taskScope, is_billable: true, invoiced: false, billing_amount: { not: null } },
-        _sum: { billing_amount: true },
-        _count: true,
-      }),
+      // Billing is owner-only (A3), and only counts work the client may see (A1 visibility rule)
+      // so internal tasks never inflate the client's balance. Skipped entirely for other roles.
+      showBilling
+        ? prisma.task.aggregate({
+            where: {
+              ...taskScope,
+              is_billable: true,
+              invoiced: false,
+              billing_amount: { not: null },
+              AND: [clientVisibleTaskWhere(), taskAccess],
+            },
+            _sum: { billing_amount: true },
+            _count: true,
+          })
+        : Promise.resolve(null),
       // Open/unbilled amount — Milestone side ('triggered' = ready to invoice, not yet invoiced).
-      prisma.milestone.aggregate({
-        where: { billing_status: 'triggered', project: { client_id: clientId, is_deleted: false } },
-        _sum: { billing_amount: true },
-        _count: true,
-      }),
+      showBilling
+        ? prisma.milestone.aggregate({
+            where: { billing_status: 'triggered', project: { client_id: clientId, is_deleted: false } },
+            _sum: { billing_amount: true },
+            _count: true,
+          })
+        : Promise.resolve(null),
       // Recent activity, derived (not read from ActivityLog — see lib/services/portal.ts /
       // implementation/plans/portal-v2-phase1.md for why): recently done or client-approved tasks.
       // NOTE: taskScope already carries its own OR (client_id/site.client_id) — combine via AND
@@ -118,6 +144,7 @@ export async function GET(_request: NextRequest) {
           AND: [
             { OR: taskScope.OR },
             clientHistoryTaskWhere(),
+            taskAccess,
             { OR: [{ status: 'done' }, { client_approved_at: { not: null } }] },
           ],
         },
@@ -126,13 +153,13 @@ export async function GET(_request: NextRequest) {
         take: RECENT_ACTIVITY_LIMIT,
       }),
       prisma.article.findMany({
-        where: { client_id: clientId, status: 'published', is_deleted: false },
+        where: { client_id: clientId, status: 'published', is_deleted: false, ...(clientLevel ? {} : { id: { in: [] } }) },
         select: { id: true, title: true, published_url: true, updated_at: true },
         orderBy: { updated_at: 'desc' },
         take: RECENT_ACTIVITY_LIMIT,
       }),
       prisma.site.findMany({
-        where: { client_id: clientId, is_deleted: false },
+        where: { client_id: clientId, is_deleted: false, ...(showAnalytics ? {} : { id: { in: [] } }) },
         select: { id: true, name: true },
       }),
     ]);
@@ -162,9 +189,14 @@ export async function GET(_request: NextRequest) {
         ...formatSiteStatsForClient(snapshotBySiteId.get(site.id)!),
       }));
 
-    const openAmount =
-      Number(unbilledTaskAgg._sum.billing_amount ?? 0) + Number(triggeredMilestoneAgg._sum.billing_amount ?? 0);
-    const openCount = unbilledTaskAgg._count + triggeredMilestoneAgg._count;
+    const billing =
+      unbilledTaskAgg && triggeredMilestoneAgg
+        ? {
+            open_amount:
+              Number(unbilledTaskAgg._sum.billing_amount ?? 0) + Number(triggeredMilestoneAgg._sum.billing_amount ?? 0),
+            open_count: unbilledTaskAgg._count + triggeredMilestoneAgg._count,
+          }
+        : null;
 
     const activity = [
       ...recentDoneOrApprovedTasks.map((task) => ({
@@ -195,7 +227,7 @@ export async function GET(_request: NextRequest) {
         })),
       },
       projects: openProjects,
-      billing: { open_amount: openAmount, open_count: openCount },
+      billing,
       activity,
       stats,
     });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import { loadPortalAccess } from '@/lib/portal/access';
 import { formatArticleForClient } from '@/lib/api/client-projections';
 
 // GET /api/portal/articles
@@ -15,6 +16,12 @@ import { formatArticleForClient } from '@/lib/api/client-projections';
 export async function GET(_request: NextRequest) {
   try {
     const session = await requireClientAuth();
+
+    // A3: articles are client-level; project-only contacts (role none) get none.
+    const access = await loadPortalAccess(session);
+    if (access.role === 'none') {
+      return NextResponse.json({ articles: [] });
+    }
 
     const articles = await prisma.article.findMany({
       where: {

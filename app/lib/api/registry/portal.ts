@@ -76,7 +76,7 @@ export const portalEndpoints: ApiEndpoint[] = [
             ],
           },
           projects: [{ id: 'uuid', name: 'string', status: 'ready|in_progress|review', target_date: 'ISO-8601|null', updated_at: 'ISO-8601' }],
-          billing: { open_amount: 'number', open_count: 'number' },
+          billing: '{ open_amount: number, open_count: number } | null (owner role only, null otherwise)',
           activity: [{ type: 'task_completed|task_approved|article_published', id: 'uuid', title: 'string', url: 'string|null', at: 'ISO-8601' }],
           stats: [
             {
@@ -87,7 +87,7 @@ export const portalEndpoints: ApiEndpoint[] = [
           ],
         },
         responseNotes:
-          '401 without a valid client session; 404 if the session\'s client record no longer resolves. "billing.open_amount" is computed from billing-eligible, not-yet-invoiced Task + Milestone rows (no Invoice model exists in this schema) — amount + count only, never rates/margins/internal targets. "activity" is derived from client-safe task/article state, not the internal ActivityLog (which carries non-client-safe diffs). "stats" omits any site with no snapshot yet rather than fabricating zeros.',
+          '401 without a valid client session; 404 if the session\'s client record no longer resolves. "billing" is returned only for portal role owner (null for member, viewer and project-only contacts). "billing.open_amount" is computed from billing-eligible, not-yet-invoiced Milestone rows plus Task rows the client may see (A1 visibility rule, project access applied) (no Invoice model exists in this schema) — amount + count only, never rates/margins/internal targets. "activity" is derived from client-safe task/article state, not the internal ActivityLog (which carries non-client-safe diffs). "stats" omits any site with no snapshot yet rather than fabricating zeros.',
       },
     ],
   },

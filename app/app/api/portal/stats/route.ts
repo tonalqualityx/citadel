@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import { canSeeAnalytics, loadPortalAccess } from '@/lib/portal/access';
 import { formatSiteStatsForClient } from '@/lib/api/client-projections';
 
 // GET /api/portal/stats (Portal v2 phase 1)
@@ -16,6 +17,12 @@ import { formatSiteStatsForClient } from '@/lib/api/client-projections';
 export async function GET(_request: NextRequest) {
   try {
     const session = await requireClientAuth();
+
+    // A3: analytics go to any client-level role; project-only contacts see none.
+    const access = await loadPortalAccess(session);
+    if (!canSeeAnalytics(access.role)) {
+      return NextResponse.json({ sites: [] });
+    }
 
     const sites = await prisma.site.findMany({
       where: { client_id: session.clientId, is_deleted: false },

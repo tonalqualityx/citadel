@@ -1,3 +1,4 @@
+import { projectAccessScope, taskAccessWhere } from '@/lib/portal/access';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { AuthError } from '@/lib/api/errors';
@@ -9,6 +10,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
+    clientContact: { findFirst: vi.fn() },
     client: { findFirst: vi.fn() },
     article: { findMany: vi.fn() },
     task: { findMany: vi.fn(), aggregate: vi.fn() },
@@ -50,8 +52,12 @@ function setEmptyDefaults() {
   mockSnapshotFindFirst.mockResolvedValue(null);
 }
 
+const OWNER_ACCESS = { contactId: 'contact-1', clientId: 'client-acme', role: 'owner' as const };
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // A3: the signed-in contact is an owner of their own client unless a test overrides it.
+  (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'owner', is_deleted: false });
 });
 
 describe('GET /api/portal/home', () => {
@@ -122,6 +128,65 @@ describe('GET /api/portal/home', () => {
     expect(body.billing).toEqual({ open_amount: 2000, open_count: 3 });
   });
 
+  it('the billing aggregate only counts client-visible work (A1 rule), not internal tasks', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+
+    await GET(makeRequest());
+
+    const where = mockTaskAggregate.mock.calls[0][0].where;
+    expect(where.is_billable).toBe(true);
+    expect(where.AND).toContainEqual(clientVisibleTaskWhere());
+    expect(where.AND).toContainEqual(taskAccessWhere(OWNER_ACCESS));
+  });
+
+  it.each(['member', 'viewer'])('hides billing from a %s and never queries the aggregates', async (portal_role) => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role, is_deleted: false });
+    setEmptyDefaults();
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.billing).toBeNull();
+    expect(mockTaskAggregate).not.toHaveBeenCalled();
+    expect(mockMilestoneAggregate).not.toHaveBeenCalled();
+  });
+
+  it('a project-only contact (role none) gets no billing, articles or stats', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'none', is_deleted: false });
+    setEmptyDefaults();
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(body.billing).toBeNull();
+    expect(mockArticleFindMany.mock.calls[0][0].where.id).toEqual({ in: [] });
+    expect(mockSiteFindMany.mock.calls[0][0].where.id).toEqual({ in: [] });
+  });
+
+  it('a deleted contact (no row) is treated as role none', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue(null);
+    setEmptyDefaults();
+
+    const res = await GET(makeRequest());
+    expect((await res.json()).billing).toBeNull();
+  });
+
+  it('open projects respect project visibility (hidden never, restricted for owners only)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+
+    await GET(makeRequest());
+
+    const where = mockProjectFindMany.mock.calls[0][0].where;
+    expect(where.client_id).toBe('client-acme');
+    expect(where.AND).toEqual([projectAccessScope(OWNER_ACCESS)]);
+  });
+
   it('projects pending articles with their full comment thread, client-safe', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
     setEmptyDefaults();
@@ -189,7 +254,7 @@ describe('GET /api/portal/home', () => {
 
     const calls = mockTaskFindMany.mock.calls.map((c) => c[0]);
     const pending = calls.find((a) => a.where.client_approved_at === null);
-    expect(pending.where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+    expect(pending.where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(OWNER_ACCESS)]);
     expect(pending.select).not.toHaveProperty('estimated_minutes');
     // The activity query ANDs the visibility fragment next to the client scope.
     const activity = calls.find((a) => a !== pending);

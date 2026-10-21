@@ -8,7 +8,9 @@
  *
  * A task is client-visible only if
  *   1. a client contact requested it (`requested_by_contact_id` set), OR
- *   2. it is staged for the client's approval.
+ *   2. it is staged for the client's approval, OR
+ *   3. staff explicitly shared it (`client_visible` = true, portal MVP A3).
+ * `client_visible` only widens LISTS: pending/approve/request-changes still require "staged".
  *
  * "Staged for approval" = `staging_preview_url` is a non-empty string AND status is `review`
  * or `done`. The worker finishes staged work as done + needs_review, and the portal fixtures
@@ -40,10 +42,10 @@ export function stagedTaskWhere() {
   };
 }
 
-/** Prisma where-fragment: task is client-visible (requested by a contact, or staged). */
+/** Prisma where-fragment: task is client-visible (requested by a contact, shared, or staged). */
 export function clientVisibleTaskWhere() {
   return {
-    OR: [{ requested_by_contact_id: { not: null } }, stagedTaskWhere()],
+    OR: [{ requested_by_contact_id: { not: null } }, { client_visible: true }, stagedTaskWhere()],
   };
 }
 
@@ -61,6 +63,7 @@ export function clientHistoryTaskWhere() {
 
 interface VisibilityFields {
   requested_by_contact_id?: string | null;
+  client_visible?: boolean | null;
   staging_preview_url?: string | null;
   status?: string | null;
   approved?: boolean | null;
@@ -79,7 +82,7 @@ export function isStagedForApproval(task: VisibilityFields): boolean {
 
 /** Predicate twin of clientVisibleTaskWhere(). */
 export function isClientVisibleTask(task: VisibilityFields): boolean {
-  return Boolean(task.requested_by_contact_id) || isStagedForApproval(task);
+  return Boolean(task.requested_by_contact_id) || task.client_visible === true || isStagedForApproval(task);
 }
 
 /** Predicate twin of clientHistoryTaskWhere(). */
@@ -90,6 +93,7 @@ export function isClientHistoryTask(task: VisibilityFields): boolean {
 /** The select fields the predicates need; spread into any select that uses them. */
 export const VISIBILITY_SELECT = {
   requested_by_contact_id: true,
+  client_visible: true,
   staging_preview_url: true,
   status: true,
   approved: true,

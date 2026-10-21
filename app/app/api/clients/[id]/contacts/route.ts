@@ -5,12 +5,14 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatClientContactResponse } from '@/lib/api/formatters';
 import { logCreate } from '@/lib/services/activity';
+import { deriveContactPortalFields } from '@/lib/portal/access';
 
 const createContactSchema = z.object({
   name: z.string().max(255).optional().nullable(),
   email: z.string().trim().email().max(255),
   role: z.string().max(100).optional().nullable(),
   can_initiate_work: z.boolean().optional(),
+  portal_role: z.enum(['owner', 'member', 'viewer', 'none']).optional(),
   is_primary: z.boolean().optional(),
   notes: z.string().optional().nullable(),
 });
@@ -64,6 +66,8 @@ export async function POST(
     const body = await request.json();
     const data = createContactSchema.parse(body);
     const email = data.email.trim();
+    // Portal role is the source of truth; can_initiate_work is derived from it on every write.
+    const portal = deriveContactPortalFields(data, 'viewer');
 
     // Enforce one row per (client, email), accounting for soft-deleted rows
     const existing = await prisma.clientContact.findUnique({
@@ -79,7 +83,8 @@ export async function POST(
           data: {
             name: data.name ?? null,
             role: data.role ?? null,
-            can_initiate_work: data.can_initiate_work ?? false,
+            portal_role: portal.portal_role ?? 'viewer',
+            can_initiate_work: portal.can_initiate_work ?? false,
             is_primary: data.is_primary ?? false,
             notes: data.notes ?? null,
             is_deleted: false,
@@ -91,7 +96,8 @@ export async function POST(
             name: data.name ?? null,
             email,
             role: data.role ?? null,
-            can_initiate_work: data.can_initiate_work ?? false,
+            portal_role: portal.portal_role ?? 'viewer',
+            can_initiate_work: portal.can_initiate_work ?? false,
             is_primary: data.is_primary ?? false,
             notes: data.notes ?? null,
           },

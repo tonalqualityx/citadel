@@ -71,7 +71,7 @@ interface HomePayload {
   client: { id: string; name: string };
   pending_approvals: { articles: ClientArticle[]; tasks: ClientTask[] };
   projects: ClientProject[];
-  billing: { open_amount: number; open_count: number };
+  billing: { open_amount: number; open_count: number } | null; // null unless the contact is an owner
   activity: ActivityItem[];
   stats: SiteStats[];
 }
@@ -337,6 +337,7 @@ export default function ClientHomePage() {
           )}
         </div>
 
+        {billing && (
         <div className="bg-surface rounded-lg border border-border p-6">
           <h3 className="text-lg font-semibold text-text-main mb-4">Open balance</h3>
           {billing.open_count === 0 ? (
@@ -350,6 +351,7 @@ export default function ClientHomePage() {
             </>
           )}
         </div>
+        )}
       </div>
 
       {/* Stats tiles per site */}

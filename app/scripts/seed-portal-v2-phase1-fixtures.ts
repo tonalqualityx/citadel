@@ -58,8 +58,9 @@ async function seedPopulatedClient() {
       email: 'contact@e2e-portal-fixture.example',
       is_primary: true,
       can_initiate_work: true,
+      portal_role: 'owner',
     },
-    update: { name: 'Jane Fixture', is_primary: true },
+    update: { name: 'Jane Fixture', is_primary: true, portal_role: 'owner', can_initiate_work: true },
   });
 
   const site = await findOrCreateSite(client.id, 'E2E Portal Fixture Site');
