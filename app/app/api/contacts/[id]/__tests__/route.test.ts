@@ -22,6 +22,10 @@ vi.mock('@/lib/api/formatters', () => ({
   formatClientContactResponse: vi.fn((c) => c),
 }));
 
+vi.mock('@/lib/services/client-auth', () => ({
+  revokeContactAccess: vi.fn(),
+}));
+
 vi.mock('@/lib/services/activity', () => ({
   logUpdate: vi.fn(),
   logDelete: vi.fn(),
@@ -30,11 +34,13 @@ vi.mock('@/lib/services/activity', () => ({
 
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import { revokeContactAccess } from '@/lib/services/client-auth';
 import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
 const mockFindUnique = prisma.clientContact.findUnique as Mock;
 const mockUpdate = prisma.clientContact.update as Mock;
+const mockRevoke = revokeContactAccess as Mock;
 const mockDeleteGrants = prisma.projectContact.deleteMany as Mock;
 
 const ID = 'contact-1';
@@ -151,6 +157,13 @@ describe('DELETE /api/contacts/[id]', () => {
     expect(mockUpdate).toHaveBeenCalledWith({ where: { id: ID }, data: { is_deleted: true } });
   });
 
+  it('revokes the contact\'s portal sessions and unused links on delete', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, is_deleted: true });
+    await DELETE(new NextRequest('http://localhost/x'), { params });
+    expect(mockRevoke).toHaveBeenCalledWith(ID);
+  });
+
   it('removes the contact\'s project grants on soft delete', async () => {
     mockFindUnique.mockResolvedValue(existing);
     mockUpdate.mockResolvedValue({ ...existing, is_deleted: true });
@@ -162,5 +175,27 @@ describe('DELETE /api/contacts/[id]', () => {
     mockFindUnique.mockResolvedValue(null);
     const response = await DELETE(new NextRequest('http://localhost/x'), { params });
     expect(response.status).toBe(404);
+  });
+});
+
+describe('PATCH /api/contacts/[id] session revocation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'pm', email: 'pm@x.com' });
+  });
+
+  it('revokes access when the role is set to none', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, portal_role: 'none', can_initiate_work: false });
+    const response = await PATCH(patchReq({ portal_role: 'none' }), { params });
+    expect(response.status).toBe(200);
+    expect(mockRevoke).toHaveBeenCalledWith(ID);
+  });
+
+  it('does not revoke when the role stays a real role', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, portal_role: 'member' });
+    await PATCH(patchReq({ portal_role: 'member' }), { params });
+    expect(mockRevoke).not.toHaveBeenCalled();
   });
 });

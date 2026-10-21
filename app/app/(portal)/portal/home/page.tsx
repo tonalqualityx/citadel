@@ -208,6 +208,21 @@ export default function ClientHomePage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await fetch('/api/portal/logout', { method: 'POST' });
+            } finally {
+              router.replace('/portal/login');
+            }
+          }}
+          className="text-sm text-text-tertiary underline"
+        >
+          Sign out
+        </button>
+      </div>
       {/* Greeting + headline */}
       <div className="bg-surface rounded-lg border border-border p-6">
         <h2 className="text-2xl font-bold text-text-main mb-1">Welcome back, {client.name}</h2>

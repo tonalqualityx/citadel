@@ -46,6 +46,15 @@ describe('POST /api/portal/login/request', () => {
     expect(await res.json()).toEqual({ requested: true });
   });
 
+  it('returns the identical 200 when the 60-second cooldown suppresses the link (nothing minted)', async () => {
+    mockRequest.mockResolvedValue(0);
+    const first = await POST(makeRequest({ email: 'ann@acme.com' }));
+    const second = await POST(makeRequest({ email: 'ann@acme.com' }));
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ requested: true });
+  });
+
   it('rejects an invalid email with 400', async () => {
     const res = await POST(makeRequest({ email: 'not-an-email' }));
     expect(res.status).toBe(400);

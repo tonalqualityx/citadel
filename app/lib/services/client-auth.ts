@@ -349,7 +349,12 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
   // the contact behind it must still exist and hold a portal role. Checked on every request so
   // no route can forget it.
   const contact = await prisma.clientContact.findFirst({
-    where: { id: row.contact_id, is_deleted: false, portal_role: { not: 'none' } },
+    where: {
+      id: row.contact_id,
+      is_deleted: false,
+      portal_role: { not: 'none' },
+      client: { is_deleted: false },
+    },
     select: { id: true },
   });
   if (!contact) return null;

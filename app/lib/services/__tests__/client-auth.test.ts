@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import { AuthError } from '@/lib/api/errors';
 
 vi.mock('next/headers', () => ({
@@ -23,6 +24,9 @@ import {
   requestClientMagicLink,
   createContactPortalLoginLink,
   consumeClientMagicLink,
+  revokeClientSession,
+  revokeContactAccess,
+  hashMagicToken,
   validateClientSession,
   requireClientAuth,
   assertClientScope,
@@ -39,6 +43,7 @@ const mockFindFirstContact = prisma.clientContact.findFirst as Mock;
 const mockCreate = prisma.portalSession.create as Mock;
 const mockFindFirst = prisma.portalSession.findFirst as Mock;
 const mockUpdate = prisma.portalSession.update as Mock;
+const mockUpdateMany = prisma.portalSession.updateMany as Mock;
 const mockSendEmail = sendClientMagicLinkEmail as Mock;
 
 beforeEach(() => {
@@ -50,11 +55,14 @@ beforeEach(() => {
 const reqInput = { ipAddress: '1.2.3.4', userAgent: 'test-agent' };
 
 describe('requestClientMagicLink', () => {
-  it('issues a magic link and emails each matching active contact', async () => {
-    mockFindManyContacts.mockResolvedValue([
-      { id: 'contact-1', name: 'Ann', email: 'ann@acme.com', client_id: 'client-acme' },
-      { id: 'contact-2', name: 'Ann (Agency)', email: 'ann@acme.com', client_id: 'client-agency' },
-    ]);
+  const contacts = [
+    { id: 'contact-1', name: 'Ann', email: 'ann@acme.com', client_id: 'client-acme' },
+    { id: 'contact-2', name: 'Ann (Agency)', email: 'ann@acme.com', client_id: 'client-agency' },
+  ];
+
+  it('issues a hashed 15-minute link and emails each matching active contact', async () => {
+    mockFindManyContacts.mockResolvedValue(contacts);
+    mockFindFirst.mockResolvedValue(null); // no recent request
     mockCreate.mockResolvedValue({});
 
     const count = await requestClientMagicLink({ email: 'ann@acme.com', ...reqInput });
@@ -62,21 +70,53 @@ describe('requestClientMagicLink', () => {
     expect(count).toBe(2);
     expect(mockCreate).toHaveBeenCalledTimes(2);
     expect(mockSendEmail).toHaveBeenCalledTimes(2);
-    // Each row is scoped to its own client and carries a magic_token.
     const created = mockCreate.mock.calls.map((c) => c[0].data);
-    expect(created[0]).toMatchObject({ token_type: 'client_session', entity_id: 'client-acme', contact_id: 'contact-1' });
-    expect(created[0].magic_token).toEqual(expect.any(String));
+    expect(created[0]).toMatchObject({ token_type: 'client_session', entity_id: 'client-acme', contact_id: 'contact-1', action: 'request' });
     expect(created[1]).toMatchObject({ entity_id: 'client-agency', contact_id: 'contact-2' });
-    // Each email links to that row's own token.
-    expect(created[0].magic_token).not.toEqual(created[1].magic_token);
-    // Self-service links are now valid for ~7 days (reusable, team-shareable), not 15 minutes.
+    expect(created[0].magic_token_hash).not.toEqual(created[1].magic_token_hash);
     const ttlMs = created[0].magic_token_expires_at.getTime() - Date.now();
-    expect(ttlMs).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
-    // The email advertises the 7-day window, not a minutes-based expiry.
-    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ expiresLabel: '7 days' });
+    expect(ttlMs).toBeGreaterThan(14 * 60 * 1000);
+    expect(ttlMs).toBeLessThanOrEqual(15 * 60 * 1000);
+    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ expiresLabel: '15 minutes' });
   });
 
-  it('does nothing (and sends no email) when no contact matches — no enumeration signal', async () => {
+  it('stores only the SHA-256 hash: the raw token is in the emailed URL and nowhere in the row', async () => {
+    mockFindManyContacts.mockResolvedValue([contacts[0]]);
+    mockFindFirst.mockResolvedValue(null);
+    mockCreate.mockResolvedValue({});
+
+    await requestClientMagicLink({ email: 'ann@acme.com', ...reqInput });
+
+    const data = mockCreate.mock.calls[0][0].data;
+    const url: string = mockSendEmail.mock.calls[0][0].loginUrl;
+    const rawToken = new URL(url).searchParams.get('token')!;
+    expect(url).toContain('/portal/login/verify?token=');
+    expect(rawToken).toMatch(/^[0-9a-f]{128}$/);
+    expect(data.magic_token_hash).toBe(createHash('sha256').update(rawToken).digest('hex'));
+    expect(data.magic_token_hash).toBe(hashMagicToken(rawToken));
+    expect(data.magic_token_hash).toHaveLength(64);
+    // No column carries the raw token.
+    expect(data.magic_token).toBeUndefined();
+    expect(JSON.stringify(data)).not.toContain(rawToken);
+  });
+
+  it('rate limit: a second request inside 60 seconds mints and sends nothing', async () => {
+    mockFindManyContacts.mockResolvedValue(contacts);
+    mockFindFirst.mockResolvedValue({ id: 'earlier-request' });
+
+    const count = await requestClientMagicLink({ email: 'ann@acme.com', ...reqInput });
+
+    expect(count).toBe(0);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    const where = mockFindFirst.mock.calls[0][0].where;
+    expect(where.action).toBe('request');
+    const windowStart = where.created_at.gte.getTime();
+    expect(Date.now() - windowStart).toBeGreaterThanOrEqual(59_000);
+    expect(Date.now() - windowStart).toBeLessThanOrEqual(61_000);
+  });
+
+  it('does nothing (and sends no email) when no contact matches', async () => {
     mockFindManyContacts.mockResolvedValue([]);
 
     const count = await requestClientMagicLink({ email: 'nobody@nowhere.com', ...reqInput });
@@ -84,6 +124,15 @@ describe('requestClientMagicLink', () => {
     expect(count).toBe(0);
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips portal role none contacts in the lookup', async () => {
+    mockFindManyContacts.mockResolvedValue([]);
+    await requestClientMagicLink({ email: 'ann@acme.com', ...reqInput });
+    expect(mockFindManyContacts.mock.calls[0][0].where).toMatchObject({
+      is_deleted: false,
+      portal_role: { not: 'none' },
+    });
   });
 });
 
@@ -94,22 +143,19 @@ describe('createContactPortalLoginLink', () => {
     email: 'ann@acme.com',
     client_id: 'client-acme',
     is_deleted: false,
+    portal_role: 'member',
   };
 
-  it('mints a client-scoped invite link and returns the URL without emailing (copy)', async () => {
+  it('mints a hashed 7-day single-use invite for that one contact and returns the interstitial URL (copy)', async () => {
     mockFindUniqueContact.mockResolvedValue(contact);
     mockCreate.mockResolvedValue({});
 
-    const result = await createContactPortalLoginLink({
-      contactId: 'contact-1',
-      send: false,
-      ...reqInput,
-    });
+    const result = await createContactPortalLoginLink({ contactId: 'contact-1', send: false, ...reqInput });
 
     expect(result).not.toBeNull();
     expect(result!.sent).toBe(false);
     expect(result!.contact).toMatchObject({ id: 'contact-1', email: 'ann@acme.com', clientId: 'client-acme' });
-    expect(result!.url).toContain('/api/portal/login/');
+    expect(result!.url).toContain('/portal/login/verify?token=');
     expect(mockSendEmail).not.toHaveBeenCalled();
 
     const created = mockCreate.mock.calls[0][0].data;
@@ -119,33 +165,34 @@ describe('createContactPortalLoginLink', () => {
       contact_id: 'contact-1',
       action: 'invite',
     });
-    expect(created.magic_token).toEqual(expect.any(String));
-    // The returned URL embeds the row's own token.
-    expect(result!.url).toContain(created.magic_token);
-    // Team-invite TTL is the 7-day window (reusable, scoped to the contact's client).
-    expect(created.magic_token_expires_at.getTime()).toBeGreaterThan(Date.now() + 24 * 60 * 60 * 1000);
+    const rawToken = new URL(result!.url).searchParams.get('token')!;
+    expect(created.magic_token_hash).toBe(hashMagicToken(rawToken));
+    expect(created.magic_token).toBeUndefined();
+    expect(JSON.stringify(created)).not.toContain(rawToken);
+    const ttl = created.magic_token_expires_at.getTime() - Date.now();
+    expect(ttl).toBeGreaterThan(6 * 24 * 60 * 60 * 1000);
+    expect(ttl).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
   });
 
   it('emails the contact their link when send=true', async () => {
     mockFindUniqueContact.mockResolvedValue(contact);
     mockCreate.mockResolvedValue({});
 
-    const result = await createContactPortalLoginLink({
-      contactId: 'contact-1',
-      send: true,
-      ...reqInput,
-    });
+    const result = await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput });
 
     expect(result!.sent).toBe(true);
     expect(mockSendEmail).toHaveBeenCalledTimes(1);
-    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ to: 'ann@acme.com', loginUrl: result!.url });
+    expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ to: 'ann@acme.com', loginUrl: result!.url, expiresLabel: '7 days' });
   });
 
-  it('returns null for an unknown or deleted contact (and never emails)', async () => {
+  it('returns null for an unknown, deleted, or role none contact (and never emails)', async () => {
     mockFindUniqueContact.mockResolvedValue(null);
     expect(await createContactPortalLoginLink({ contactId: 'nope', send: true, ...reqInput })).toBeNull();
 
     mockFindUniqueContact.mockResolvedValue({ ...contact, is_deleted: true });
+    expect(await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput })).toBeNull();
+
+    mockFindUniqueContact.mockResolvedValue({ ...contact, portal_role: 'none' });
     expect(await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput })).toBeNull();
 
     expect(mockCreate).not.toHaveBeenCalled();
@@ -158,28 +205,34 @@ describe('consumeClientMagicLink', () => {
     id: 'link-1',
     entity_id: 'client-acme',
     contact_id: 'contact-1',
-    magic_token_expires_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+    magic_token_expires_at: new Date(Date.now() + 5 * 60 * 1000),
+    consumed_at: null,
   };
 
-  it('issues a ~30-day session by minting a NEW session row (link is never consumed)', async () => {
-    mockFindFirst.mockResolvedValue(linkRow);
+  beforeEach(() => {
+    mockFindUniqueContact.mockResolvedValue({ is_deleted: false, portal_role: 'member' });
+    mockUpdateMany.mockResolvedValue({ count: 1 });
     mockCreate.mockResolvedValue({});
+  });
+
+  it('claims the link row atomically and mints a fresh 30-day session row', async () => {
+    mockFindFirst.mockResolvedValue(linkRow);
 
     const result = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
 
     expect(result).not.toBeNull();
     expect(result!.clientId).toBe('client-acme');
     expect(result!.contactId).toBe('contact-1');
-    expect(result!.sessionToken).toEqual(expect.any(String));
-    // ~SESSION_TTL_DAYS (30) out (allow a minute of slack). The initial grant is the sliding
-    // window's starting point — activity extends it further, see the requireClientAuth tests.
     const ms = result!.expiresAt.getTime() - Date.now();
     const ttlMs = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
     expect(ms).toBeGreaterThan(ttlMs - 60_000);
     expect(ms).toBeLessThan(ttlMs + 60_000);
-    // The link lookup is NOT gated on consumed_at — that's what makes the link reusable.
-    expect(mockFindFirst.mock.calls[0][0].where).not.toHaveProperty('consumed_at');
-    // A fresh session row is created (the durable link row is left untouched).
+    // Lookup is by hash, never by the raw token.
+    expect(mockFindFirst.mock.calls[0][0].where.magic_token_hash).toBe(hashMagicToken('magic-abc'));
+    // Claim is one conditional update on consumed_at null.
+    const claim = mockUpdateMany.mock.calls[0][0];
+    expect(claim.where).toMatchObject({ id: 'link-1', consumed_at: null });
+    expect(claim.data.consumed_at).toBeInstanceOf(Date);
     const created = mockCreate.mock.calls[0][0].data;
     expect(created).toMatchObject({
       token_type: 'client_session',
@@ -188,38 +241,85 @@ describe('consumeClientMagicLink', () => {
       session_token: result!.sessionToken,
       action: 'login',
     });
-    // The new row is a SESSION, not a link — it carries no magic_token.
-    expect(created.magic_token).toBeUndefined();
+    expect(created.magic_token_hash).toBeUndefined();
   });
 
-  it('is reusable: redeeming the same link twice mints two distinct sessions', async () => {
-    mockFindFirst.mockResolvedValue(linkRow);
-    mockCreate.mockResolvedValue({});
-
+  it('second consume of the same link fails (single use)', async () => {
+    // First attempt wins the claim; the link row now reads as consumed.
+    mockFindFirst.mockResolvedValueOnce(linkRow);
     const first = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
-    const second = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
-
     expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
-    expect(first!.sessionToken).not.toEqual(second!.sessionToken);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+
+    mockFindFirst.mockResolvedValueOnce({ ...linkRow, consumed_at: new Date() });
+    const second = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
+    expect(second).toBeNull();
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a concurrent consume that loses the atomic claim gets null and mints no session', async () => {
+    mockFindFirst.mockResolvedValue(linkRow);
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+    const result = await consumeClientMagicLink({ magicToken: 'magic-abc', ...reqInput });
+    expect(result).toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('returns null for an unknown token', async () => {
     mockFindFirst.mockResolvedValue(null);
-    const result = await consumeClientMagicLink({ magicToken: 'nope', ...reqInput });
-    expect(result).toBeNull();
+    expect(await consumeClientMagicLink({ magicToken: 'nope', ...reqInput })).toBeNull();
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('returns null for an expired magic token', async () => {
-    mockFindFirst.mockResolvedValue({
-      ...linkRow,
-      magic_token_expires_at: new Date(Date.now() - 60 * 1000),
-    });
-    const result = await consumeClientMagicLink({ magicToken: 'expired', ...reqInput });
-    expect(result).toBeNull();
+  it('returns null for an expired link', async () => {
+    mockFindFirst.mockResolvedValue({ ...linkRow, magic_token_expires_at: new Date(Date.now() - 60 * 1000) });
+    expect(await consumeClientMagicLink({ magicToken: 'expired', ...reqInput })).toBeNull();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the contact was deleted or set to role none after the link was issued', async () => {
+    mockFindFirst.mockResolvedValue(linkRow);
+    mockFindUniqueContact.mockResolvedValue({ is_deleted: true, portal_role: 'member' });
+    expect(await consumeClientMagicLink({ magicToken: 'm', ...reqInput })).toBeNull();
+    mockFindUniqueContact.mockResolvedValue({ is_deleted: false, portal_role: 'none' });
+    expect(await consumeClientMagicLink({ magicToken: 'm', ...reqInput })).toBeNull();
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('logout and contact revocation', () => {
+  it('revokeClientSession marks only that live session revoked', async () => {
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    await revokeClientSession('sess-1');
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { session_token: 'sess-1', token_type: 'client_session', revoked_at: null },
+      data: { revoked_at: expect.any(Date) },
+    });
+  });
+
+  it('revokeClientSession with no token is a no-op', async () => {
+    await revokeClientSession('');
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('revokeContactAccess revokes every live session and burns unused links', async () => {
+    mockUpdateMany.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce({ count: 1 });
+    const n = await revokeContactAccess('contact-1');
+    expect(n).toBe(3);
+    expect(mockUpdateMany.mock.calls[0][0].where).toMatchObject({ contact_id: 'contact-1', session_token: { not: null }, revoked_at: null });
+    expect(mockUpdateMany.mock.calls[1][0].where).toMatchObject({ contact_id: 'contact-1', magic_token_hash: { not: null }, consumed_at: null });
+  });
+
+  it('a revoked session row is not found by the validate lookup (filters revoked_at null)', async () => {
+    mockFindFirst.mockResolvedValue(null);
+    expect(await validateClientSession('sess-revoked')).toBeNull();
+    expect(mockFindFirst.mock.calls[0][0].where).toMatchObject({ session_token: 'sess-revoked', revoked_at: null });
+  });
+
+  it('requireClientAuth throws 401 for a revoked session', async () => {
+    mockCookies.mockResolvedValue({ get: () => ({ value: 'sess-revoked' }), set: vi.fn() });
+    mockFindFirst.mockResolvedValue(null);
+    await expect(requireClientAuth()).rejects.toMatchObject({ statusCode: 401 });
   });
 });
 
@@ -262,7 +362,7 @@ describe('session revocation (deleted contact or role none)', () => {
     mockFindFirst.mockResolvedValue(liveRow);
     await validateClientSession('tok');
     expect(mockFindFirstContact).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'contact-1', is_deleted: false, portal_role: { not: 'none' } } })
+      expect.objectContaining({ where: { id: 'contact-1', is_deleted: false, portal_role: { not: 'none' }, client: { is_deleted: false } } })
     );
   });
 
