@@ -19,7 +19,7 @@ import { buildDoors } from './work/doors-logic';
 import { BlockingToday } from './work/BlockingToday';
 import { DueThisWeek } from './work/DueThisWeek';
 import { AdminBlock } from './work/AdminBlock';
-import { useMyWaitBlocks } from '@/lib/hooks/use-waits';
+import { useMyWaitBlocks, fetchBlockingOverflow } from '@/lib/hooks/use-waits';
 import { ORACLE_WAIT_BLOCKS, ORACLE_WORK_DOORS } from '@/lib/config/feature-flags';
 
 interface WorkViewProps {
@@ -136,7 +136,7 @@ export function WorkView({ machines, liveSessions, waitingOnMe, nowMs, onGoToMod
         onGoToMode={onGoToMode}
       />
       <ClockStrip todayLabel={todayLabel} meetings={calendarData?.meetings ?? []} timezone={timezone} />
-      {ORACLE_WAIT_BLOCKS && <BlockingToday blocks={waitBlocks?.blocking_today} />}
+      {ORACLE_WAIT_BLOCKS && <BlockingToday blocks={waitBlocks?.blocking_today} onLoadMore={fetchBlockingOverflow} />}
       <TodaysPicksHero picks={picks} sessions={liveSessions} todayDateStr={todayDateStr} />
       {ORACLE_WAIT_BLOCKS && <DueThisWeek block={waitBlocks?.due_this_week} />}
       {ORACLE_WAIT_BLOCKS && <AdminBlock block={waitBlocks?.admin} />}

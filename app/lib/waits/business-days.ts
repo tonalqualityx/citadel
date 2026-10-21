@@ -208,3 +208,10 @@ export function endOfZonedDay(date: Date): Date {
   const next = civilPlusDays({ year: p.year, month: p.month, day: p.day }, 1);
   return new Date(zonedTimeToUtc(next.year, next.month, next.day, 0, 0).getTime() - 1);
 }
+
+/** True when both instants fall on the same civil date in the zone. */
+export function sameZonedDay(a: Date, b: Date): boolean {
+  const x = zonedParts(a);
+  const y = zonedParts(b);
+  return x.year === y.year && x.month === y.month && x.day === y.day;
+}

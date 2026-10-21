@@ -126,6 +126,22 @@ describe('Blocking today', () => {
   });
 });
 
+describe('Blocking today paging', () => {
+  it('serves the next 50 overflow rows after an offset', () => {
+    const waits = Array.from({ length: 120 }, (_, i) => wait({ id: `p${String(i).padStart(3, '0')}`, client_waiting_since: et(2026, 9, 1, 12, i % 60) }));
+    const first = selectBlockingToday(waits, MIKE, NOW, 0);
+    expect(first.rows).toHaveLength(5);
+    expect(first.overflow).toHaveLength(50);
+    expect(first.more).toBe(115);
+    const second = selectBlockingToday(waits, MIKE, NOW, 50);
+    expect(second.overflow).toHaveLength(50);
+    expect(second.overflow[0].id).not.toBe(first.overflow[0].id);
+    expect(new Set([...first.overflow, ...second.overflow].map((r) => r.id)).size).toBe(100);
+    const last = selectBlockingToday(waits, MIKE, NOW, 100);
+    expect(last.overflow).toHaveLength(15);
+  });
+});
+
 describe('Due this week', () => {
   it('lists the other waits and tasks within 7 days by date, once each', () => {
     const waits = [

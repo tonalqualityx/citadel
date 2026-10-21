@@ -369,13 +369,32 @@ describe('visibility ladder for Mike', () => {
     expect(dms).toBe(1);
   });
 
-  it('stays at level 1 when the DM cannot be sent, and tries again', async () => {
+  it('a failed DM holds the ladder at level 1: one attempt a business day, and no countdown until it lands', async () => {
+    const store = new MemStore();
+    const w = mk(store, et(2026, 10, 12, 10)); // due Wed 10-14; 5+ business days late by Wed 10-21
+    let attempts = 0;
+    const fail = async () => (attempts++, false);
+    await runSweep(deps(store, { now: () => et(2026, 10, 21, 9), notifyMike: fail }));
+    expect(attempts).toBe(1);
+    expect(store.get(w.id).nag_level).toBe(1);
+    // Same day, three more sweeps: throttled.
+    for (const h of [10, 12, 16]) await runSweep(deps(store, { now: () => et(2026, 10, 21, h), notifyMike: fail }));
+    expect(attempts).toBe(1);
+    // Next business day: exactly one more.
+    await runSweep(deps(store, { now: () => et(2026, 10, 22, 9), notifyMike: fail }));
+    await runSweep(deps(store, { now: () => et(2026, 10, 22, 13), notifyMike: fail }));
+    expect(attempts).toBe(2);
+    expect(store.get(w.id).nag_level).toBe(1);
+    // Delivered: DM rung, then the countdown.
+    await runSweep(deps(store, { now: () => et(2026, 10, 23, 9), notifyMike: async () => true }));
+    expect(store.get(w.id).nag_level).toBe(3);
+  });
+
+  it('a notifier that throws counts as a failure', async () => {
     const store = new MemStore();
     const w = mk(store, et(2026, 10, 12, 10));
-    await runSweep(deps(store, { now: () => et(2026, 10, 19, 9), notifyMike: async () => false }));
+    await runSweep(deps(store, { now: () => et(2026, 10, 21, 9), notifyMike: async () => { throw new Error('slack down'); } }));
     expect(store.get(w.id).nag_level).toBe(1);
-    await runSweep(deps(store, { now: () => et(2026, 10, 19, 9), notifyMike: async () => true }));
-    expect(store.get(w.id).nag_level).toBe(2);
   });
 
   it('the DM goes out only in business hours; at night the ladder waits', async () => {

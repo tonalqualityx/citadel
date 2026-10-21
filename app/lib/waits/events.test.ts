@@ -109,6 +109,18 @@ describe('applyWaitEvent', () => {
     expect(store.get(gate.id).nag_level).toBe(3);
   });
 
+  it('PROBE: a needs_human event selected by project skips on_reply-null waits, unless it names them', async () => {
+    const store = new MemStore();
+    const gate = open(store, { template_key: 'build.gate_mike', subject: 'the sitemap', started_at: et(2026, 10, 21, 9), project_id: UUID(50) });
+    const review = open(store, { template_key: 'build.review_client', subject: 'the copy', started_at: et(2026, 10, 21, 9), project_id: UUID(50) });
+    const r = await applyWaitEvent(store, { event_id: 'nh1', kind: 'needs_human', chain: { kind: 'project', id: UUID(50) }, payload: { question: 'Is this a decline?' } }, NOW);
+    expect(store.get(gate.id).state).toBe('waiting');
+    expect(r.applied.find((x) => x.wait_id === gate.id)?.action).toBe('skipped_not_named');
+    expect(store.get(review.id).state).toBe('needs_human');
+    await applyWaitEvent(store, { event_id: 'nh2', kind: 'needs_human', target: gate.id, payload: { question: 'You decide.' } }, NOW);
+    expect(store.get(gate.id).state).toBe('needs_human');
+  });
+
   it('an event that names the wait may move it, and an extension never resets nag_level', async () => {
     const store = new MemStore();
     const gate = open(store, { template_key: 'build.gate_mike', subject: 'the sitemap', started_at: et(2026, 10, 1, 9) }, { nag_level: 2 });

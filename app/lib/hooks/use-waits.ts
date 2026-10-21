@@ -54,6 +54,12 @@ export function useMyWaitBlocks(enabled = true) {
   });
 }
 
+/** Next page of the "and N more" list: rows after the `offset` overflow rows already loaded. */
+export async function fetchBlockingOverflow(offset: number) {
+  const r = await apiClient.get<MyWaitBlocks>('/waits/mine', { params: { overflow_offset: offset } });
+  return r.blocking_today.overflow;
+}
+
 export function useWaits(filters: WaitFilters = {}) {
   return useQuery({
     queryKey: WAIT_KEYS.list(filters),

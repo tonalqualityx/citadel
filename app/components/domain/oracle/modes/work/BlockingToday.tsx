@@ -9,6 +9,8 @@ import type { BlockingRow, RitualBlocks } from '@/lib/waits/ritual-blocks';
 
 interface BlockingTodayProps {
   blocks: RitualBlocks['blocking_today'] | undefined;
+  /** Fetches the next page of overflow rows (after `offset` already loaded). */
+  onLoadMore?: (offset: number) => Promise<BlockingRow[]>;
 }
 
 // Wait record phase 1 (specs/citadel-shape-SPEC.md 4.2) — the first block under the signals
@@ -77,9 +79,41 @@ function Row({ row }: { row: BlockingRow }) {
 /** "and N more" opens this many rows per click, so a long list never becomes a wall. */
 export const MORE_PAGE_SIZE = 5;
 
-export function BlockingToday({ blocks }: BlockingTodayProps) {
+export function BlockingToday({ blocks, onLoadMore }: BlockingTodayProps) {
   const [extra, setExtra] = React.useState(0);
+  const [fetched, setFetched] = React.useState<BlockingRow[]>([]);
+  const [loading, setLoading] = React.useState(false);
+
+  // A fresh response starts the list over.
+  React.useEffect(() => {
+    setExtra(0);
+    setFetched([]);
+  }, [blocks]);
+
   if (!blocks || blocks.total === 0) return null;
+
+  const loaded = [...blocks.overflow, ...fetched];
+  const remaining = blocks.more - extra;
+
+  async function showMore() {
+    if (!blocks) return;
+    const next = extra + MORE_PAGE_SIZE;
+    // Reached the end of what is loaded but the server has more: fetch the next 50.
+    if (next > loaded.length && loaded.length < blocks.more && onLoadMore) {
+      setLoading(true);
+      try {
+        const rows = await onLoadMore(loaded.length);
+        const seen = new Set(loaded.map((r) => r.id));
+        setFetched((f) => [...f, ...rows.filter((r) => !seen.has(r.id))]);
+      } catch {
+        // Leave the list as it is; the button stays so Mike can try again.
+        setLoading(false);
+        return;
+      }
+      setLoading(false);
+    }
+    setExtra(next);
+  }
 
   return (
     <section className="flex flex-col gap-2" data-testid="blocking-today" aria-label="Blocking today">
@@ -88,18 +122,18 @@ export function BlockingToday({ blocks }: BlockingTodayProps) {
         {blocks.rows.map((row) => (
           <Row key={row.id} row={row} />
         ))}
-        {blocks.overflow.slice(0, extra).map((row) => <Row key={row.id} row={row} />)}
+        {loaded.slice(0, extra).map((row) => <Row key={row.id} row={row} />)}
       </ul>
-      {blocks.more - extra > 0 && (
+      {remaining > 0 && (
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setExtra((n) => Math.min(n + MORE_PAGE_SIZE, blocks.overflow.length))}
-            disabled={extra >= blocks.overflow.length}
-            className="text-xs text-text-sub hover:text-text-main hover:underline disabled:no-underline disabled:opacity-100"
+            onClick={showMore}
+            disabled={loading}
+            className="text-xs text-text-sub hover:text-text-main hover:underline"
             data-testid="blocking-more"
           >
-            and {blocks.more - extra} more blocking a client
+            and {remaining} more blocking a client
           </button>
         </div>
       )}

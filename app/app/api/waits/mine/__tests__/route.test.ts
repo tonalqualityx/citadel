@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 import { GET } from '../route';
 import { MIKE_USER_ID } from '@/lib/waits/owner';
 
@@ -56,9 +57,24 @@ describe('GET /api/waits/mine', () => {
     });
     (requireAuth as Mock).mockResolvedValue({ userId: 'pm1', role: 'pm', email: 'pm@example.test' });
     await GET();
-    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toEqual({ includeAdmin: false });
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toMatchObject({ includeAdmin: false });
     (requireAuth as Mock).mockResolvedValue({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@becomeindelible.com' });
     await GET();
-    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toEqual({ includeAdmin: true });
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toMatchObject({ includeAdmin: true });
+  });
+
+  it('passes overflow_offset through, clamped', async () => {
+    (loadRitualBlocks as Mock).mockResolvedValue({
+      blocking_today: { rows: [], more: 0, total: 0, overflow: [] },
+      due_this_week: { rows: [], more: 0, total: 0 },
+      admin: { rows: [], more: 0, total: 0 },
+      generated_at: 'x',
+    });
+    await GET(new NextRequest('http://localhost/api/waits/mine?overflow_offset=50'));
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toMatchObject({ overflowOffset: 50 });
+    await GET(new NextRequest('http://localhost/api/waits/mine?overflow_offset=-5'));
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toMatchObject({ overflowOffset: 0 });
+    await GET(new NextRequest('http://localhost/api/waits/mine?overflow_offset=junk'));
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toMatchObject({ overflowOffset: 0 });
   });
 });

@@ -5,7 +5,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { prismaOwnerLookups } from '@/lib/waits/owner';
 import { runSweep, type WaitRow } from '@/lib/waits/sweeper';
-import { dispatchNotification } from '@/lib/services/notification-dispatcher';
+import { sendSlackNotification } from '@/lib/services/slack-notifications';
 import { calendarDaysSince } from '@/lib/waits/business-days';
 
 /**
@@ -23,7 +23,10 @@ const slackNagOn = () => (process.env.WAIT_SLACK_NAG ?? 'on').toLowerCase() !== 
 
 async function notifyMike(w: WaitRow, owner: { user_id: string }): Promise<boolean> {
   const days = w.client_waiting_since ? calendarDaysSince(w.client_waiting_since, new Date()) : null;
-  const result = await dispatchNotification({
+  // Slack only, straight to the Slack sender: no in-app notice and no email (the dispatcher
+  // would queue both). True only when Slack accepted it, so a failure retries the next
+  // business day instead of passing for sent.
+  return sendSlackNotification({
     userId: owner.user_id,
     type: 'system_alert',
     title: `A client is blocked on you: ${w.title}`.slice(0, 250),
@@ -31,10 +34,7 @@ async function notifyMike(w: WaitRow, owner: { user_id: string }): Promise<boole
     entityType: 'wait',
     entityId: w.id,
     priority: 'high',
-  });
-  // Count it sent only when Slack accepted it. An in-app row alone does not tell Mike, so
-  // the ladder tries again on the next pass.
-  return result.slack.sent === true;
+  }).catch(() => false);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import * as React from 'react';
 
 const openTaskPeek = vi.fn();
@@ -105,6 +105,34 @@ describe('BlockingToday', () => {
     expect(screen.queryByTestId('blocking-more')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('blocking-fewer'));
     expect(screen.getAllByTestId('blocking-row')).toHaveLength(2);
+  });
+
+  it('pages beyond the loaded 50 by fetching the next 50 when the end is reached', async () => {
+    const mkRows = (from: number, n: number) => Array.from({ length: n }, (_, i) => row({ id: `o${from + i}`, title: `Overflow ${from + i}` }));
+    const onLoadMore = vi.fn(async (offset: number) => mkRows(offset, 10));
+    render(<BlockingToday blocks={{ rows: [row()], more: 60, total: 61, overflow: mkRows(0, 50) }} onLoadMore={onLoadMore} />);
+    const more = screen.getByTestId('blocking-more');
+    for (let i = 0; i < 10; i++) fireEvent.click(more); // 10 clicks x 5 = the 50 loaded rows
+    expect(onLoadMore).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId('blocking-row')).toHaveLength(51);
+    expect(more).toHaveTextContent('and 10 more blocking a client');
+    fireEvent.click(more);
+    await waitFor(() => expect(onLoadMore).toHaveBeenCalledWith(50));
+    await waitFor(() => expect(screen.getAllByTestId('blocking-row')).toHaveLength(56));
+    fireEvent.click(screen.getByTestId('blocking-more'));
+    await waitFor(() => expect(screen.getAllByTestId('blocking-row')).toHaveLength(61));
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('blocking-more')).not.toBeInTheDocument();
+  });
+
+  it('a failed fetch leaves the list and the button in place', async () => {
+    const onLoadMore = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    render(<BlockingToday blocks={{ rows: [row()], more: 3, total: 4, overflow: [] }} onLoadMore={onLoadMore} />);
+    fireEvent.click(screen.getByTestId('blocking-more'));
+    await waitFor(() => expect(onLoadMore).toHaveBeenCalled());
+    expect(screen.getByTestId('blocking-more')).toHaveTextContent('and 3 more blocking a client');
   });
 
   it('a wait on an approval request is labelled Mark handled, not Approved', () => {

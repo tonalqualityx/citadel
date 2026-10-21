@@ -10,9 +10,9 @@ const store = new MemStore();
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn(), requireRole: vi.fn() }));
 vi.mock('@/lib/waits/prisma-store', () => ({ prismaSweepStore: () => store }));
-vi.mock('@/lib/services/notification-dispatcher', () => ({
-  dispatchNotification: vi.fn(async () => ({ inApp: { sent: true }, email: { sent: false }, slack: { sent: true } })),
-}));
+vi.mock('@/lib/services/slack-notifications', () => ({ sendSlackNotification: vi.fn(async () => true) }));
+// The general dispatcher also writes in-app rows and queues email. The sweeper must never use it.
+vi.mock('@/lib/services/notification-dispatcher', () => ({ dispatchNotification: vi.fn(async () => ({})) }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     user: { findUnique: vi.fn(async () => ({ is_active: true })) },
@@ -23,6 +23,7 @@ vi.mock('@/lib/db/prisma', () => ({
 }));
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { sendSlackNotification } from '@/lib/services/slack-notifications';
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
 import { AuthError } from '@/lib/api/errors';
 import type { Mock } from 'vitest';
@@ -86,8 +87,9 @@ describe('POST /api/waits/sweep', () => {
     const report = await res.json();
     expect(report.dry_run).toBe(false);
     expect(report.nagged[0].level).toBe(3);
-    expect(dispatchNotification).toHaveBeenCalledTimes(1);
-    expect((dispatchNotification as Mock).mock.calls[0][0]).toMatchObject({ userId: MIKE_USER_ID, type: 'system_alert' });
+    expect(sendSlackNotification).toHaveBeenCalledTimes(1);
+    expect(dispatchNotification).not.toHaveBeenCalled();
+    expect((sendSlackNotification as Mock).mock.calls[0][0]).toMatchObject({ userId: MIKE_USER_ID, type: 'system_alert' });
     expect(store.all()[0].nag_level).toBe(3);
   });
 
@@ -95,7 +97,7 @@ describe('POST /api/waits/sweep', () => {
     process.env.WAIT_SLACK_NAG = 'off';
     seed();
     await POST(post());
-    expect(dispatchNotification).not.toHaveBeenCalled();
+    expect(sendSlackNotification).not.toHaveBeenCalled();
     // The countdown does not depend on Slack: this wait is weeks late.
     expect(store.all()[0].nag_level).toBe(3);
   });
@@ -108,20 +110,41 @@ describe('POST /api/waits/sweep', () => {
 });
 
 describe('the Slack DM', () => {
-  it('counts as sent only when Slack accepted it', async () => {
-    (dispatchNotification as Mock).mockResolvedValueOnce({ inApp: { sent: true }, email: { sent: false }, slack: { sent: false } });
+  const lateWait = () =>
     store.add(buildWaitData({ template_key: 'build.gate_mike', subject: 'x', started_at: zonedTimeToUtc(2026, 10, 12, 10), client_id: '11111111-1111-4111-8111-111111111111' }));
-    // 5 days late: rung 2 fails (in-app only), so the ladder skips it and shows the countdown
-    const r = await (await POST(post())).json();
-    expect(r.nagged[0].level).toBe(3);
-    expect(dispatchNotification).toHaveBeenCalledTimes(1);
+
+  it('a Slack failure does not climb to the countdown, makes no in-app notice or email, and retries the next business day', async () => {
+    (sendSlackNotification as Mock).mockResolvedValue(false);
+    const w = lateWait(); // 5 business days late on Wed 10-21
+    const r1 = await (await POST(post())).json();
+    expect(r1.nag_failed).toEqual([w.id]);
+    expect(store.get(w.id).nag_level).toBe(1);
+    expect(sendSlackNotification).toHaveBeenCalledTimes(1);
+    expect(dispatchNotification).not.toHaveBeenCalled();
+    // Same business day, later: throttled, no second attempt.
+    vi.setSystemTime(zonedTimeToUtc(2026, 10, 21, 15));
+    await POST(post());
+    await POST(post());
+    expect(sendSlackNotification).toHaveBeenCalledTimes(1);
+    // Next business day: one more attempt.
+    vi.setSystemTime(zonedTimeToUtc(2026, 10, 22, 10));
+    await POST(post());
+    expect(sendSlackNotification).toHaveBeenCalledTimes(2);
+    expect(store.get(w.id).nag_level).toBe(1);
+    // Slack recovers: the DM lands, then the countdown follows.
+    (sendSlackNotification as Mock).mockResolvedValue(true);
+    vi.setSystemTime(zonedTimeToUtc(2026, 10, 23, 10));
+    await POST(post());
+    expect(sendSlackNotification).toHaveBeenCalledTimes(3);
+    expect(store.get(w.id).nag_level).toBe(3);
+    expect(dispatchNotification).not.toHaveBeenCalled();
   });
 
   it('is not attempted outside business hours', async () => {
     vi.setSystemTime(zonedTimeToUtc(2026, 10, 21, 22));
-    store.add(buildWaitData({ template_key: 'build.gate_mike', subject: 'x', started_at: zonedTimeToUtc(2026, 10, 12, 10), client_id: '11111111-1111-4111-8111-111111111111' }));
+    lateWait();
     const r = await (await POST(post())).json();
-    expect(dispatchNotification).not.toHaveBeenCalled();
+    expect(sendSlackNotification).not.toHaveBeenCalled();
     expect(r.nagged[0].level).toBe(1);
   });
 });

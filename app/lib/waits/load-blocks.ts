@@ -52,7 +52,7 @@ export async function loadRitualBlocks(
   db: PrismaClient,
   userId: string,
   now = new Date(),
-  opts: { includeAdmin?: boolean } = {}
+  opts: { includeAdmin?: boolean; overflowOffset?: number } = {}
 ): Promise<RitualBlocks> {
   const includeAdmin = opts.includeAdmin ?? true;
   const mikeId = userId || MIKE_USER_ID;
@@ -81,5 +81,5 @@ export async function loadRitualBlocks(
     due_date: t.due_date ? new Date(t.due_date).toISOString() : null,
     client: t.client,
   }));
-  return buildRitualBlocks({ waits, tasks: taskCandidates, admin: adminCandidates, mikeId, now });
+  return buildRitualBlocks({ waits, tasks: taskCandidates, admin: adminCandidates, mikeId, now, overflowOffset: opts.overflowOffset });
 }

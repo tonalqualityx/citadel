@@ -20,7 +20,7 @@ const blocks = {
   generated_at: '',
 };
 const useMyWaitBlocks = vi.fn((enabled?: boolean) => ({ data: enabled === false ? undefined : blocks }));
-vi.mock('@/lib/hooks/use-waits', () => ({ useMyWaitBlocks: (e?: boolean) => useMyWaitBlocks(e), useUpdateWait: () => ({ mutate: vi.fn(), isPending: false }) }));
+vi.mock('@/lib/hooks/use-waits', () => ({ useMyWaitBlocks: (e?: boolean) => useMyWaitBlocks(e), fetchBlockingOverflow: vi.fn(async () => []), useUpdateWait: () => ({ mutate: vi.fn(), isPending: false }) }));
 vi.mock('@/lib/hooks/use-today', () => ({
   useTodayPicks: () => ({ data: { picks: [] } }),
   useTodayCalendar: () => ({ data: { timezone: 'America/New_York', date: '2026-10-21', meetings: [] } }),

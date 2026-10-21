@@ -148,7 +148,7 @@ function blockingRow(w: WaitCandidate, now: Date): BlockingRow {
  * Blocking today. Project approvals first, then the oldest client_waiting_since (a missing
  * date sorts last), then the earliest due date, then the title so ties never shuffle.
  */
-export function selectBlockingToday(waits: WaitCandidate[], mikeId: string, now: Date) {
+export function selectBlockingToday(waits: WaitCandidate[], mikeId: string, now: Date, overflowOffset = 0) {
   const endOfToday = endOfZonedDay(now).getTime();
   const picked = waits
     .filter(
@@ -170,7 +170,7 @@ export function selectBlockingToday(waits: WaitCandidate[], mikeId: string, now:
       return a.title.localeCompare(b.title);
     });
   const rows = picked.slice(0, BLOCKING_CAP).map((w) => blockingRow(w, now));
-  const overflow = picked.slice(BLOCKING_CAP, BLOCKING_CAP + OVERFLOW_ROWS).map((w) => blockingRow(w, now));
+  const overflow = picked.slice(BLOCKING_CAP + overflowOffset, BLOCKING_CAP + overflowOffset + OVERFLOW_ROWS).map((w) => blockingRow(w, now));
   return { rows, more: Math.max(0, picked.length - BLOCKING_CAP), total: picked.length, overflow, pickedIds: new Set(picked.map((w) => w.id)) };
 }
 
@@ -235,8 +235,10 @@ export function buildRitualBlocks(input: {
   admin: AdminCandidate[];
   mikeId: string;
   now: Date;
+  /** Rows of the overflow list already shown; the next page of OVERFLOW_ROWS starts here. */
+  overflowOffset?: number;
 }): RitualBlocks {
-  const blocking = selectBlockingToday(input.waits, input.mikeId, input.now);
+  const blocking = selectBlockingToday(input.waits, input.mikeId, input.now, input.overflowOffset ?? 0);
   return {
     blocking_today: { rows: blocking.rows, more: blocking.more, total: blocking.total, overflow: blocking.overflow },
     due_this_week: selectDueThisWeek(input.waits, input.tasks, input.mikeId, input.now, blocking.pickedIds),

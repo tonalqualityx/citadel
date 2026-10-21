@@ -172,7 +172,7 @@ export async function applyWaitEvent(store: EventsStore, input: unknown, now = n
       continue;
     }
     const template = getTemplate(w.template_key);
-    if ((ev.kind === 'stop' || ev.kind === 'extend') && !explicit && (!template || template.on_reply === null)) {
+    if ((ev.kind === 'stop' || ev.kind === 'extend' || ev.kind === 'needs_human') && !explicit && (!template || template.on_reply === null)) {
       result.applied.push({ wait_id: w.id, action: 'skipped_not_named', detail: 'This wait does not react to replies; only an event naming it can move it.' });
       continue;
     }

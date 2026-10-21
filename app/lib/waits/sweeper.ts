@@ -22,6 +22,7 @@ import {
   addBusinessDays,
   businessDaysLate,
   isWithinSendWindow,
+  sameZonedDay,
 } from './business-days';
 import { MIKE_USER_ID, resolveOwner, type OwnerLookups, type ResolvedOwner } from './owner';
 import {
@@ -122,6 +123,8 @@ export interface SweepReport {
   skipped_disabled: string[];
   escalated: Array<{ id: string; stage: string; to: string | null }>;
   nagged: Array<{ id: string; level: number }>;
+  /** Waits whose Slack DM was attempted and not delivered this pass. */
+  nag_failed: string[];
   needs_human: string[];
   errors: Array<{ id: string; error: string; count: number }>;
   counts: Record<string, number>;
@@ -142,6 +145,7 @@ function emptyReport(dryRun: boolean, at: Date): SweepReport {
     skipped_disabled: [],
     escalated: [],
     nagged: [],
+    nag_failed: [],
     needs_human: [],
     errors: [],
     counts: {},
@@ -343,18 +347,40 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     // Only a wait that blocks a client climbs past level 1; Mike's time is the constraint.
     const target = !w.blocks_client ? 1 : late >= 5 ? 3 : late >= 3 ? 2 : 1;
     if (target <= w.nag_level) continue;
-    // Climb one rung at a time so Mike gets the one DM before the countdown shows. A DM that
-    // cannot be sent (no notifier, or it failed) skips that rung; the countdown never waits on it.
+    // Climb one rung at a time so Mike gets the one DM before the countdown shows.
+    // Rung 2 is the Slack DM. With no notifier configured (WAIT_SLACK_NAG=off) the rung is
+    // skipped on purpose. With one, the DM must actually go out before the ladder climbs past
+    // it: outside business hours, throttled, or failed all STOP the climb here (level stays
+    // where it is) and the next sweep tries again.
     let level = w.nag_level;
+    let attemptFailed = false;
     for (let rung = w.nag_level + 1; rung <= target; rung++) {
       if (rung === 2) {
         if (!deps.notifyMike) continue;
-        // The one DM goes out in business hours only. Outside them, stop here and try next pass,
-        // so the countdown can never jump ahead of a DM that was never sent.
         if (!isWithinSendWindow(now)) break;
-        if (!dryRun && !(await deps.notifyMike(w, resolved).catch(() => false))) continue;
+        // At most one attempt per business day per wait, failed or not.
+        if (w.last_nag_at && sameZonedDay(w.last_nag_at, now)) break;
+        if (!dryRun) {
+          const sent = await deps.notifyMike(w, resolved).catch(() => false);
+          if (!sent) {
+            attemptFailed = true;
+            break;
+          }
+        }
       }
       level = rung;
+    }
+    if (attemptFailed) {
+      // Record the attempt (so the throttle holds) and any lower rung reached; never level 2 or 3.
+      report.nag_failed.push(w.id);
+      await store.update(w.id, { nag_level: Math.max(level, w.nag_level), last_nag_at: now });
+      await store.addEvent({
+        wait_id: w.id,
+        kind: 'nagged',
+        reason: `Slack DM was not delivered (${late} business days late). Will retry next business day.`,
+        source: 'sweeper',
+      });
+      continue;
     }
     if (level <= w.nag_level) continue;
     report.nagged.push({ id: w.id, level });
@@ -381,6 +407,7 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     skipped_disabled: report.skipped_disabled.length,
     escalated: report.escalated.length,
     nagged: report.nagged.length,
+    nag_failed: report.nag_failed.length,
     needs_human: report.needs_human.length,
     errors: report.errors.length,
   };
