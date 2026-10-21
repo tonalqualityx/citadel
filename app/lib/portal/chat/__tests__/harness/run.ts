@@ -13,7 +13,7 @@ import crypto from 'crypto';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { auth } from './auth-state';
-import { seedWorld, cleanupWorld, type World, type WorldSpec } from './world';
+import { seedWorld, cleanupWorld, cleanupStrays, type World, type WorldSpec } from './world';
 import { POST as startRoute } from '@/app/api/portal/chat/route';
 import { GET as viewRoute } from '@/app/api/portal/chat/[id]/route';
 import { POST as messagesRoute } from '@/app/api/portal/chat/[id]/messages/route';
@@ -109,6 +109,7 @@ export async function mintEngineKey(): Promise<{ raw: string; id: string }> {
 }
 
 export async function playScenario(sc: Scenario, engineKey: string, assertions: (label: string, actual: unknown, expected: unknown) => void): Promise<Played> {
+  await cleanupStrays();
   const world = await seedWorld(sc.world);
   resetGateListsCache();
   const played: Played = { world, conversationId: null, taskId: null, views: [] };
@@ -127,7 +128,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
       let route: string | undefined;
 
       if (step.client) {
-        const c = step.client;
+        const c = resolve(step.client, world, extra) as NonNullable<Step['client']>;
         const access = { contactId: world.contactId, contactIds: [world.contactId], clientId: world.clientId, role: sc.world.role };
         const attachIds: string[] = [];
         for (let i = 0; i < (c.attach ?? 0); i++) {
@@ -150,6 +151,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
           else {
             played.conversationId = body.conversation_id;
             played.taskId = body.task_id;
+            route = body.route;
           }
         } else {
           const prev = played.views[played.views.length - 1];
@@ -202,8 +204,9 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
           const run = { attempt, model: 'recorded', prompt_hash: 'h'.repeat(64), input_tokens: 100, cache_read_tokens: 50, cache_write_tokens: 10, output_tokens: 40, cost_usd: 0.01, duration_ms: 1000, num_turns: 1, is_error: false };
           const thisRuns = [...runs, { ...run }];
           const res = await completeRoute(req('/x', { method: 'POST', body: JSON.stringify({ result, runs: thisRuns }) }), ctx(jobId));
-          assertions(`${label}: complete status`, res.status, rec.expect_status ?? 200);
-          if (rec.expect_rule) assertions(`${label}: rule`, (await res.json()).rule, rec.expect_rule);
+          const resBody = await res.json();
+          assertions(`${label}: complete status ${JSON.stringify(resBody).slice(0, 200)}`, res.status, rec.expect_status ?? 200);
+          if (rec.expect_rule) assertions(`${label}: rule`, resBody.rule, rec.expect_rule);
           if (res.status === 422) {
             runs.push({ ...run, rejected_text: result.reply ?? '' });
             continue;
@@ -228,6 +231,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
   } finally {
     auth.session = null;
     auth.bearer = null;
+    await cleanupWorld(world);
   }
   return played;
 }

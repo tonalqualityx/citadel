@@ -41,7 +41,7 @@
    "engine": [
     {
      "result": {
-      "reply": "Google Analytics counted 2,000 people last month. Anything else?",
+      "reply": "Google Analytics counted 2,000 people on the site. Anything else?",
       "actions": [
        {
         "type": "close_question"

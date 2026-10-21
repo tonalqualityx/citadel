@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+
+process.env.PORTAL_UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-uploads-test-'));
 
 vi.mock('next/headers', async () => {
   const { auth } = await import('./harness/auth-state');
@@ -14,7 +17,7 @@ vi.mock('@/lib/services/client-auth', async (orig) => {
 
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { cleanupWorld, mintEngineKey, playScenario, type Scenario } from './harness/run';
+import { mintEngineKey, playScenario, type Scenario } from './harness/run';
 
 const dir = path.join(__dirname, 'harness', 'scenarios');
 const scenarios: Scenario[] = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
@@ -35,15 +38,7 @@ describe.skipIf(!SCRATCH)('scripted conversations (recorded responses)', () => {
 
   for (const sc of scenarios) {
     it(sc.name, async () => {
-      let played: Awaited<ReturnType<typeof playScenario>> | null = null;
-      try {
-        played = await playScenario(sc, key.raw, (label, actual, expected) => expect(actual, label).toEqual(expected));
-      } finally {
-        // playScenario seeds inside; find the world by tag via the clients it made.
-        const clients = await prisma.client.findMany({ where: { name: { startsWith: 'Maple h' } }, select: { id: true, name: true } });
-        void clients;
-        if (played) await cleanupWorld(played.world);
-      }
+      await playScenario(sc, key.raw, (label, actual, expected) => expect(actual, label).toEqual(expected));
     });
   }
 });

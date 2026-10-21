@@ -53,7 +53,7 @@
       }
      ],
      "result": {
-      "reply": "I could not find a Careers page. Which page is closest to what you want?",
+      "reply": "There is no Careers page on the site. Which page is closest to what you want?",
       "actions": [
        {
         "type": "record",

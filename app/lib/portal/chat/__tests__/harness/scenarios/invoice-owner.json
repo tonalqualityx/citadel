@@ -72,7 +72,7 @@
       }
      ],
      "result": {
-      "reply": "Invoice 1042 still has a balance of $750.50. Anything else?",
+      "reply": "Your latest invoice still has a balance of $750.50. Anything else?",
       "actions": [
        {
         "type": "close_question"

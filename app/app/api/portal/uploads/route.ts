@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);
     const form = await request.formData();
-    const file = form.get('file');
-    if (!(file instanceof File)) throw new ApiError('No file provided', 400, 'bad_upload');
+    const file = form.get('file') as { name: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> } | string | null;
+    if (!file || typeof file === 'string' || typeof file.arrayBuffer !== 'function') throw new ApiError('No file provided', 400, 'bad_upload');
     if (file.size > MAX_FILE_BYTES) throw new ApiError('That file is too large. The limit is 20 MB.', 413, 'file_too_large');
     const intake = z.string().uuid().nullish().parse(form.get('intake_id') || null);
     const conv = z.string().uuid().nullish().parse(form.get('conversation_id') || null);

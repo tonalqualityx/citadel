@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       if (!existing) return NextResponse.json({ error: 'Chat is not available', code: 'chat_unavailable', reason: avail.reason }, { status: 409 });
     }
     const started = await startChat(access, contact, body);
-    return NextResponse.json({ conversation_id: started.conversation_id, task_id: started.task_id, mode: started.mode }, { status: started.created ? 201 : 200 });
+    return NextResponse.json({ conversation_id: started.conversation_id, task_id: started.task_id, mode: started.mode, route: started.route }, { status: started.created ? 201 : 200 });
   } catch (error) {
     return handleApiError(error);
   }

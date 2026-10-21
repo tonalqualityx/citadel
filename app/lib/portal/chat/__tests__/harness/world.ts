@@ -76,8 +76,17 @@ export async function seedWorld(spec: WorldSpec): Promise<World> {
   return { tag, clientId: client.id, contactId: who.id, ownerId: owner.id, viewerId: viewer.id, email: who.email!, sites, pageIds, otherClientId: other.id, otherName };
 }
 
+/** Remove every leftover harness world (a failed run leaves its rows behind). */
+export async function cleanupStrays(): Promise<void> {
+  const strays = await prisma.client.findMany({ where: { OR: [{ name: { startsWith: 'Maple h' } }, { name: { startsWith: 'Zenith h' } }] }, select: { id: true } });
+  if (strays.length) await cleanupClients(strays.map((c) => c.id));
+}
+
 export async function cleanupWorld(w: World): Promise<void> {
-  const clientIds = [w.clientId, w.otherClientId];
+  await cleanupClients([w.clientId, w.otherClientId]);
+}
+
+async function cleanupClients(clientIds: string[]): Promise<void> {
   const tasks = await prisma.task.findMany({ where: { client_id: { in: clientIds } }, select: { id: true } });
   const taskIds = tasks.map((t) => t.id);
   const jobs = await prisma.engineJob.findMany({ where: { client_id: { in: clientIds } }, select: { id: true } });
