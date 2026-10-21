@@ -18,6 +18,7 @@ import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { clientVisibleTaskWhere } from '@/lib/portal/visibility';
 import { onClientMessage } from '@/lib/portal/waits';
 import { createNotification } from '@/lib/services/notifications';
+import { emailClientMessage, staffQuietLastHour } from '@/lib/portal/staff-notify';
 
 export const STAFF_AUTHOR_NAME = 'Indelible';
 export const MESSAGE_MAX_CHARS = 4000;
@@ -182,6 +183,7 @@ export async function postClientMessage(
         project_id: true,
         charter_id: true,
         site_id: true,
+        client: { select: { name: true } },
       },
     });
     if (!task) throw new ApiError('Not found', 404);
@@ -244,6 +246,8 @@ export async function postClientMessage(
   });
 
   if (result.created && result.task.assignee_id && result.task.assignee_id !== BAST_USER_ID) {
+    // Decide before the in-app row exists, or that row would always count as recent.
+    const quiet = await staffQuietLastHour(result.task.assignee_id, result.task.id, now);
     try {
       const who = contact.name?.trim() || 'A client contact';
       await createNotification({
@@ -256,6 +260,17 @@ export async function postClientMessage(
       });
     } catch (error) {
       console.error('portal message notification failed', error);
+    }
+    if (quiet) {
+      await emailClientMessage({
+        assigneeId: result.task.assignee_id,
+        taskId: result.task.id,
+        commentId: result.row.id,
+        clientName: result.task.client?.name ?? 'A client',
+        contactName: contact.name,
+        requestTitle: result.task.client_title ?? result.task.title,
+        text: input.text,
+      });
     }
   }
 
