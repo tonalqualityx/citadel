@@ -35,6 +35,8 @@ import {
 } from '@/lib/portal/access';
 
 export const CLIENT_SESSION_COOKIE = 'client_session';
+/** Short-lived, non-httpOnly flag set when a revoked active client was swapped; read once by the header. */
+export const CLIENT_MOVED_COOKIE = 'portal_client_moved';
 const TOKEN_TYPE = 'client_session';
 /** A link the contact requested for themselves. */
 const MAGIC_LINK_TTL_MINUTES = 15;
@@ -65,6 +67,10 @@ export interface ClientSession extends ClientIdentity {
   role: PortalRole;
   email: string;
   sessionId: string;
+  /** Every contact row the person holds; project grants are matched on all of them. */
+  contactIds: string[];
+  /** True when this request found the active client revoked and moved the session to another. */
+  moved: boolean;
 }
 
 /** Cryptographically secure 128-hex-char token (matches the portal token convention). */
@@ -107,7 +113,7 @@ export async function requestClientMagicLink(input: {
   userAgent: string | null;
 }): Promise<number> {
   const contacts = await prisma.clientContact.findMany({
-    where: { ...PORTAL_SIGNIN_CONTACT_WHERE, email: input.email },
+    where: { ...PORTAL_SIGNIN_CONTACT_WHERE, email: { equals: input.email.trim(), mode: 'insensitive' } },
     select: { id: true, name: true, email: true, client_id: true },
   });
   if (contacts.length === 0) return 0;
@@ -469,24 +475,33 @@ export async function requireClientAuth(): Promise<ClientSession> {
     throw new AuthError('Invalid or expired session', 401);
   }
 
-  await slideSessionExpiry(cookieStore, token, row);
-
   // The active client lives on the session row and is re-checked here on every request against
   // the person's current access. If it was revoked (contact deleted, role none, grant removed),
   // fall back to the first client they can still reach; with none left the session is dead.
   const accessible = await resolveAccessibleClients(row.email);
   let active: AccessibleClient | undefined = accessible.find((c) => c.clientId === row.entity_id);
+  let moved = false;
   if (!active) {
     active = accessible[0];
     if (!active) {
       throw new AuthError('Invalid or expired session', 401);
     }
+    moved = true;
     try {
       await prisma.portalSession.update({ where: { id: row.id }, data: { entity_id: active.clientId } });
     } catch (error) {
       console.error('Failed to move session to a still-accessible client:', error);
     }
+    // One-shot, readable-by-the-page flag so the next screen can say why the client changed.
+    try {
+      cookieStore.set(CLIENT_MOVED_COOKIE, '1', { secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 60, path: '/' });
+    } catch {
+      // Not settable from a server component render; the response-level flag still works.
+    }
   }
+
+  // Slide only after the access check passed: a revoked or dead session must not be extended.
+  await slideSessionExpiry(cookieStore, token, row);
 
   return {
     clientId: active.clientId,
@@ -494,6 +509,8 @@ export async function requireClientAuth(): Promise<ClientSession> {
     role: active.role,
     email: row.email,
     sessionId: row.id,
+    contactIds: active.contactIds,
+    moved,
   };
 }
 
@@ -509,6 +526,9 @@ export async function switchActiveClient(session: ClientSession, targetClientId:
     throw new AuthError('Forbidden', 403);
   }
   await prisma.portalSession.update({ where: { id: session.sessionId }, data: { entity_id: target.clientId } });
+  console.info(
+    `[portal] session ${session.sessionId} switched client ${session.clientId} -> ${target.clientId} (contact ${target.contactId})`
+  );
   return target;
 }
 

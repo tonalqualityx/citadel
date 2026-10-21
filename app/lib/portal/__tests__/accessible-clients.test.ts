@@ -84,7 +84,7 @@ describe('resolveAccessibleClients', () => {
     db.addProject({ id: 'p1', client_id: 'acme' });
     db.addGrant({ project_id: 'p1', contact_id: 'k1', role: 'viewer' });
     const rows = await resolveAccessibleClients('pro@x.com');
-    expect(rows).toEqual([{ clientId: 'acme', name: 'Acme', role: 'none', contactId: 'k1', via: 'project' }]);
+    expect(rows).toEqual([{ clientId: 'acme', name: 'Acme', role: 'none', contactId: 'k1', contactIds: ['k1'], via: 'project' }]);
 
     db.grants.length = 0; // grant removed
     expect(await resolveAccessibleClients('pro@x.com')).toEqual([]);
@@ -97,6 +97,35 @@ describe('resolveAccessibleClients', () => {
     db.addGrant({ project_id: 'ph', contact_id: 'k1', role: 'member' });
     db.addGrant({ project_id: 'pq', contact_id: 'k1', role: 'member' });
     expect(await resolveAccessibleClients('pro@x.com')).toEqual([]);
+  });
+
+  it('a grant on a deleted or cancelled project does not keep a client reachable (same rule as sign-in)', async () => {
+    db.addContact({ id: 'k1', client_id: 'acme', email: 'pro@x.com', portal_role: 'none' });
+    db.addProject({ id: 'pd', client_id: 'acme', is_deleted: true });
+    db.addProject({ id: 'pc', client_id: 'acme', status: 'cancelled' });
+    db.addGrant({ project_id: 'pd', contact_id: 'k1', role: 'member' });
+    db.addGrant({ project_id: 'pc', contact_id: 'k1', role: 'member' });
+    expect(await resolveAccessibleClients('pro@x.com')).toEqual([]);
+  });
+
+  it('agency member plus a sub-client row: grants on the sub-client row apply under the agency entry', async () => {
+    db.addContact({ id: 'k-nh', client_id: 'nh', email: 'pat@nerdherd.com', portal_role: 'viewer' });
+    db.addContact({ id: 'k-sa', client_id: 'sub-a', email: 'pat@nerdherd.com', portal_role: 'none' });
+    db.addProject({ id: 'p-inherit', client_id: 'sub-a' });
+    db.addProject({ id: 'p-restricted', client_id: 'sub-a', portal_visibility: 'restricted' });
+    db.addGrant({ project_id: 'p-restricted', contact_id: 'k-sa', role: 'viewer' });
+
+    const rows = await resolveAccessibleClients('pat@nerdherd.com');
+    const sub = rows.find((r) => r.clientId === 'sub-a')!;
+    // The role comes from the agency row; the grant sits on the OTHER row.
+    expect(sub).toMatchObject({ role: 'viewer', contactId: 'k-nh', via: 'agency' });
+    expect(sub.contactIds.sort()).toEqual(['k-nh', 'k-sa']);
+
+    const access = await loadPortalAccess({ contactId: sub.contactId, contactIds: sub.contactIds, clientId: 'sub-a', role: sub.role });
+    const { projectAccessWhere } = await import('../access');
+    expect(db.visibleProjectIds(projectAccessWhere(access))).toEqual(['p-inherit', 'p-restricted']);
+    // Without carrying all rows, the restricted project would be lost.
+    expect(db.visibleProjectIds(projectAccessWhere({ contactId: 'k-nh', clientId: 'sub-a', role: 'viewer' }))).toEqual(['p-inherit']);
   });
 
   it('empty email resolves nothing', async () => {

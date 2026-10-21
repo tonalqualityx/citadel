@@ -14,6 +14,7 @@ export async function GET(_request: NextRequest) {
     const accessible = await resolveAccessibleClients(session.email);
     return NextResponse.json({
       active_client_id: session.clientId,
+      moved: session.moved,
       clients: accessible.map((c) => ({
         id: c.clientId,
         name: c.name,

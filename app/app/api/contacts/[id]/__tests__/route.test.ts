@@ -203,6 +203,39 @@ describe('PATCH /api/contacts/[id] session revocation', () => {
     expect(mockRevoke).toHaveBeenCalledWith(ID);
   });
 
+  it('counts only grants on client-visible projects (the shared sign-in rule)', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, portal_role: 'none' });
+    mockCountGrants.mockResolvedValue(0);
+    await PATCH(patchReq({ portal_role: 'none' }), { params });
+    expect(mockCountGrants.mock.calls[0][0].where).toEqual({
+      contact_id: ID,
+      role: { in: ['member', 'viewer'] },
+      project: {
+        is_deleted: false,
+        status: { notIn: ['quote', 'queue', 'suspended', 'cancelled'] },
+        portal_visibility: { not: 'hidden' },
+        client: { is_deleted: false },
+      },
+    });
+    expect(mockRevoke).toHaveBeenCalledWith(ID);
+  });
+
+  it('changing the email revokes live sessions and unused links (case-only edits do not)', async () => {
+    mockFindUnique.mockResolvedValueOnce(existing).mockResolvedValueOnce(null); // existing, then no clash
+    mockUpdate.mockResolvedValue({ ...existing, email: 'new@x.com' });
+    const res = await PATCH(patchReq({ email: 'new@x.com' }), { params });
+    expect(res.status).toBe(200);
+    expect(mockRevoke).toHaveBeenCalledWith(ID);
+
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'pm', email: 'pm@x.com' });
+    mockFindUnique.mockResolvedValueOnce(existing).mockResolvedValueOnce(null);
+    mockUpdate.mockResolvedValue({ ...existing, email: existing.email.toUpperCase() });
+    await PATCH(patchReq({ email: existing.email.toUpperCase() }), { params });
+    expect(mockRevoke).not.toHaveBeenCalled();
+  });
+
   it('does not revoke when the role stays a real role', async () => {
     mockFindUnique.mockResolvedValue(existing);
     mockUpdate.mockResolvedValue({ ...existing, portal_role: 'member' });
