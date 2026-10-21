@@ -43,8 +43,8 @@ export function WorkView({ machines, liveSessions, waitingOnMe, nowMs, onGoToMod
   const { data: todayData } = useTodayPicks();
   const { data: calendarData } = useTodayCalendar();
   const { data: dueSoonData } = useDueSoonTasks();
-  const { data: pipelineData } = usePipelineAccords();
-  const { data: triageStats } = useTriageStats();
+  const { data: pipelineData } = usePipelineAccords(ORACLE_WORK_DOORS);
+  const { data: triageStats } = useTriageStats(ORACLE_WORK_DOORS);
   const { data: waitBlocks } = useMyWaitBlocks(ORACLE_WAIT_BLOCKS);
 
   const picks = React.useMemo(() => todayData?.picks ?? [], [todayData]);

@@ -62,8 +62,9 @@ export interface PipelineGroupedResponse {
   };
 }
 
-export function usePipelineAccords() {
+export function usePipelineAccords(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: [...accordKeys.all, 'pipeline'] as const,
     queryFn: () => apiClient.get<PipelineGroupedResponse>('/accords', { params: { grouped: 'pipeline' } }),
   });

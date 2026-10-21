@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
+import { useUpdateWait } from '@/lib/hooks/use-waits';
 import { DEFAULT_DISPLAY_TIMEZONE } from '@/lib/timezone';
 import type { DueRow, RitualBlocks } from '@/lib/waits/ritual-blocks';
 
@@ -41,7 +43,27 @@ function Title({ row }: { row: DueRow }) {
       </Link>
     );
   }
-  return <span className="min-w-0 truncate text-sm text-text-main">{row.title}</span>;
+  return <HandleButton row={row} />;
+}
+
+// A wait with no task or project behind it still gets an action: closing it. For a wait on an
+// approval request it only says "handled" (it does not resolve the request itself).
+function HandleButton({ row }: { row: DueRow }) {
+  const update = useUpdateWait();
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="min-w-0 truncate text-sm text-text-main">{row.title}</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={update.isPending}
+        onClick={() => update.mutate({ id: row.id, patch: { action: 'resolve', resolution: 'completed' } })}
+        data-testid="due-row-action"
+      >
+        Mark handled
+      </Button>
+    </span>
+  );
 }
 
 export function DueThisWeek({ block }: DueThisWeekProps) {

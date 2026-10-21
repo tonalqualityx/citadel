@@ -26,8 +26,10 @@ vi.mock('@/lib/hooks/use-today', () => ({
   useTodayCalendar: () => ({ data: { timezone: 'America/New_York', date: '2026-10-21', meetings: [] } }),
   useDueSoonTasks: () => ({ data: { tasks: [] } }),
 }));
-vi.mock('@/lib/hooks/use-accords', () => ({ usePipelineAccords: () => ({ data: undefined }) }));
-vi.mock('@/lib/hooks/use-triage-stats', () => ({ useTriageStats: () => ({ data: undefined }) }));
+const usePipelineAccords = vi.fn((_e?: boolean) => ({ data: undefined }));
+const useTriageStats = vi.fn((_e?: boolean) => ({ data: undefined }));
+vi.mock('@/lib/hooks/use-accords', () => ({ usePipelineAccords: (e?: boolean) => usePipelineAccords(e) }));
+vi.mock('@/lib/hooks/use-triage-stats', () => ({ useTriageStats: (e?: boolean) => useTriageStats(e) }));
 
 vi.mock('../work/SignalsRail', () => ({ SignalsRail: () => <div data-testid="signals-rail" /> }));
 vi.mock('../work/ClockStrip', () => ({ ClockStrip: () => <div data-testid="clock-strip" /> }));
@@ -47,9 +49,21 @@ beforeEach(() => {
   flags.ORACLE_WAIT_BLOCKS = true;
   flags.ORACLE_WORK_DOORS = false;
   useMyWaitBlocks.mockClear();
+  usePipelineAccords.mockClear();
+  useTriageStats.mockClear();
 });
 
 describe('WorkView wait blocks and doors flags', () => {
+  it('hidden doors do not fetch their data; shown doors do', () => {
+    renderView();
+    expect(usePipelineAccords).toHaveBeenCalledWith(false);
+    expect(useTriageStats).toHaveBeenCalledWith(false);
+    flags.ORACLE_WORK_DOORS = true;
+    renderView();
+    expect(usePipelineAccords).toHaveBeenLastCalledWith(true);
+    expect(useTriageStats).toHaveBeenLastCalledWith(true);
+  });
+
   it('defaults: the three blocks show in order and the doors row is hidden', () => {
     renderView();
     const order = ['signals-rail', 'clock-strip', 'blocking-today', 'todays-picks-hero', 'due-this-week', 'admin-block'];

@@ -88,15 +88,30 @@ describe('BlockingToday', () => {
     expect(mutate).toHaveBeenCalledWith({ id: 'w1', patch: { action: 'resolve', resolution: 'completed' } });
   });
 
-  it('shows "and N more" and expands to the overflow rows', () => {
+  it('"and N more" opens five rows per click, never the whole list', () => {
     const rows = [row({ id: 'a' }), row({ id: 'b', title: 'Second' })];
-    render(<BlockingToday blocks={{ rows, more: 2, total: 4, overflow: [row({ id: 'c', title: 'Third' }), row({ id: 'd', title: 'Fourth' })] }} />);
+    const overflow = Array.from({ length: 12 }, (_, i) => row({ id: `o${i}`, title: `Overflow ${i}` }));
+    render(<BlockingToday blocks={{ rows, more: 12, total: 14, overflow }} />);
     expect(screen.getAllByTestId('blocking-row')).toHaveLength(2);
     const more = screen.getByTestId('blocking-more');
-    expect(more).toHaveTextContent('and 2 more blocking a client');
+    expect(more).toHaveTextContent('and 12 more blocking a client');
     fireEvent.click(more);
-    expect(screen.getAllByTestId('blocking-row')).toHaveLength(4);
-    expect(more).toHaveTextContent('Show fewer');
+    expect(screen.getAllByTestId('blocking-row')).toHaveLength(7);
+    expect(more).toHaveTextContent('and 7 more blocking a client');
+    fireEvent.click(more);
+    expect(screen.getAllByTestId('blocking-row')).toHaveLength(12);
+    fireEvent.click(more);
+    expect(screen.getAllByTestId('blocking-row')).toHaveLength(14);
+    expect(screen.queryByTestId('blocking-more')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('blocking-fewer'));
+    expect(screen.getAllByTestId('blocking-row')).toHaveLength(2);
+  });
+
+  it('a wait on an approval request is labelled Mark handled, not Approved', () => {
+    render(<BlockingToday blocks={{ rows: [row({ action: { type: 'approval', id: 'ar1' } })], more: 0, total: 1, overflow: [] }} />);
+    expect(screen.queryByText('Approved')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Mark handled'));
+    expect(mutate).toHaveBeenCalledWith({ id: 'w1', patch: { action: 'resolve', resolution: 'completed' } });
   });
 
   it('marks a countdown row', () => {
@@ -135,6 +150,10 @@ describe('DueThisWeek', () => {
     expect(document.body.textContent).not.toMatch(/overdue/i);
     fireEvent.click(screen.getByText('Send the Herba invoice'));
     expect(openTaskPeek).toHaveBeenCalledWith('t1');
+    // The bare wait row carries its own action too: every row has one.
+    expect(screen.getAllByTestId('due-row-action')).toHaveLength(2);
+    fireEvent.click(screen.getByText('Mark handled'));
+    expect(mutate).toHaveBeenCalledWith({ id: 'w2', patch: { action: 'resolve', resolution: 'completed' } });
   });
 });
 

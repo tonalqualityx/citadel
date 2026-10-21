@@ -35,8 +35,11 @@ function RowAction({ row }: { row: BlockingRow }) {
       </Button>
     );
   }
-  // A wait with no task or project behind it (a plain gate or handoff): the action is closing it.
-  const approval = row.kind === 'approval';
+  // A wait with no task or project behind it. A plain gate is approved here; a wait that sits
+  // on an approval request is only marked handled, because this button does not resolve the
+  // request itself and must not claim it did.
+  const onApprovalRequest = a.type === 'approval';
+  const approval = row.kind === 'approval' && !onApprovalRequest;
   return (
     <Button
       variant="secondary"
@@ -47,7 +50,7 @@ function RowAction({ row }: { row: BlockingRow }) {
       }
       data-testid="blocking-row-action"
     >
-      {approval ? 'Approved' : 'Mark done'}
+      {approval ? 'Approved' : onApprovalRequest ? 'Mark handled' : 'Mark done'}
     </Button>
   );
 }
@@ -71,8 +74,11 @@ function Row({ row }: { row: BlockingRow }) {
   );
 }
 
+/** "and N more" opens this many rows per click, so a long list never becomes a wall. */
+export const MORE_PAGE_SIZE = 5;
+
 export function BlockingToday({ blocks }: BlockingTodayProps) {
-  const [expanded, setExpanded] = React.useState(false);
+  const [extra, setExtra] = React.useState(0);
   if (!blocks || blocks.total === 0) return null;
 
   return (
@@ -82,17 +88,29 @@ export function BlockingToday({ blocks }: BlockingTodayProps) {
         {blocks.rows.map((row) => (
           <Row key={row.id} row={row} />
         ))}
-        {expanded && blocks.overflow.map((row) => <Row key={row.id} row={row} />)}
+        {blocks.overflow.slice(0, extra).map((row) => <Row key={row.id} row={row} />)}
       </ul>
-      {blocks.more > 0 && (
+      {blocks.more - extra > 0 && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setExtra((n) => Math.min(n + MORE_PAGE_SIZE, blocks.overflow.length))}
+            disabled={extra >= blocks.overflow.length}
+            className="text-xs text-text-sub hover:text-text-main hover:underline disabled:no-underline disabled:opacity-100"
+            data-testid="blocking-more"
+          >
+            and {blocks.more - extra} more blocking a client
+          </button>
+        </div>
+      )}
+      {extra > 0 && (
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setExtra(0)}
           className="self-start text-xs text-text-sub hover:text-text-main hover:underline"
-          aria-expanded={expanded}
-          data-testid="blocking-more"
+          data-testid="blocking-fewer"
         >
-          {expanded ? 'Show fewer' : `and ${blocks.more} more blocking a client`}
+          Show fewer
         </button>
       )}
     </section>

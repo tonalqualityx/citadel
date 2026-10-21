@@ -56,9 +56,9 @@ describe('GET /api/waits/mine', () => {
     });
     (requireAuth as Mock).mockResolvedValue({ userId: 'pm1', role: 'pm', email: 'pm@example.test' });
     await GET();
-    expect((loadRitualBlocks as Mock).mock.calls.at(-1)[3]).toEqual({ includeAdmin: false });
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toEqual({ includeAdmin: false });
     (requireAuth as Mock).mockResolvedValue({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@becomeindelible.com' });
     await GET();
-    expect((loadRitualBlocks as Mock).mock.calls.at(-1)[3]).toEqual({ includeAdmin: true });
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)![3]).toEqual({ includeAdmin: true });
   });
 });

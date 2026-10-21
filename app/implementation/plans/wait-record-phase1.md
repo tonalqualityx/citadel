@@ -24,6 +24,12 @@ One model, `Wait`, holds every handoff and every clock. A sweeper fires due wait
 - Hosting is a charter kind `hosting` (phase 3). Stand-in map: WordPress to Sabeen, content to Nils, admin to Angela (phase 3 `StandIn` rows; phase 1 only carries `stand_in_user_id` on the wait).
 - Escalate ladder interval: one business day per rung (role holder digest, PM, Mike).
 
+## Flags are build-time
+`ORACLE_WAIT_BLOCKS` and `ORACLE_WORK_DOORS` read `NEXT_PUBLIC_*` variables, which Next.js bakes into the client bundle at `next build`. Re-enabling the doors row (`NEXT_PUBLIC_ORACLE_WORK_DOORS=true`) or switching the blocks off (`NEXT_PUBLIC_ORACLE_WAIT_BLOCKS=false`) therefore needs a rebuild and redeploy, not just a restart. While the doors are hidden their two data hooks (pipeline accords, triage stats) do not fetch.
+
+## Review fixes (Opus review, 2026-10-21)
+The action a wait takes comes from its template, never from the wait row or a caller's payload; events on a client chain only touch waits whose template reacts to replies, unless the event names the wait; event replay is exact and transactional (marker event first); the Slack DM goes out in business hours only and counts only when Slack accepted it; the claim re-checks `due_at`; task creation is idempotent; "and N more" pages five rows at a time; pause restores the prior state; `waits/mine` needs pm or admin and only admins get the Admin block.
+
 ## Tests
 Unit: `lib/waits/*.test.ts`, `app/api/waits/**/__tests__`, `lib/api/registry/__tests__`, `components/domain/oracle/modes/**/__tests__`. E2E (needs the seeded dev DB): `oracle-wait-blocks.spec.ts`, `oracle-phase8-composition.spec.ts`.
 

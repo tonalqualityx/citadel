@@ -13,8 +13,9 @@ export interface TriageStatsResponse {
   archived_count: number;
 }
 
-export function useTriageStats() {
+export function useTriageStats(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ['triage-stats', 'today'],
     queryFn: () => apiClient.get<TriageStatsResponse>('/oracle/triage-stats'),
     refetchInterval: 5 * 60_000,
