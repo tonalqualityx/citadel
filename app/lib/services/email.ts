@@ -6,7 +6,7 @@
 
 import { prisma } from '@/lib/db/prisma';
 
-export type OutboxKind = 'magic_link' | 'invite' | 'proposal' | 'contract' | 'notification' | 'other';
+export type OutboxKind = 'magic_link' | 'invite' | 'proposal' | 'contract' | 'notification' | 'portal_chat' | 'other';
 
 interface SendEmailOptions {
   to: string;

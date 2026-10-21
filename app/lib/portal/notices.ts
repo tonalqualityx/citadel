@@ -82,7 +82,7 @@ export interface NoticeTask {
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-interface ContactRow {
+export interface ContactRow {
   id: string;
   name: string | null;
   email: string;
@@ -96,7 +96,7 @@ interface ContactRow {
  * (`threadTaskWhere`) with the role the contact holds on the task's client. Used when the notice is
  * queued AND again when it is claimed for sending, so a revoked contact never gets the email.
  */
-async function contactCanOpen(db: Db, c: ContactRow, task: { id: string; client_id: string | null }): Promise<boolean> {
+export async function contactCanOpen(db: Db, c: ContactRow, task: { id: string; client_id: string | null }): Promise<boolean> {
   if (c.is_deleted || !c.email?.trim() || !task.client_id) return false;
   const client = await db.client.findUnique({ where: { id: task.client_id }, select: { id: true, parent_agency_id: true, is_deleted: true } });
   if (!client || client.is_deleted) return false;
@@ -156,6 +156,12 @@ export async function queuePortalNotices(
   task: NoticeTask,
   comment: { id: string }
 ): Promise<{ queued: number; absorbed: number }> {
+  // A task with a portal chat conversation goes by the chat's own email lane (portal phase C, slice
+  // C4: bast@ from the EmailOutbox, in the conversation's thread, sent by the chat sweep after the
+  // same hold and only when the client is away). The notice lane must never double it.
+  const chat = await prisma.chatConversation.findUnique({ where: { task_id: task.id }, select: { id: true } });
+  if (chat) return { queued: 0, absorbed: 0 };
+
   const recipients = await noticeRecipients(task);
   let queued = 0;
   let absorbed = 0;

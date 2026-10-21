@@ -23,6 +23,8 @@ import { POST as toolCallRoute } from '@/app/api/engine/jobs/[id]/tool-calls/rou
 import { POST as completeRoute } from '@/app/api/engine/jobs/[id]/complete/route';
 import { stageUpload } from '@/lib/portal/chat/upload-service';
 import { resetGateListsCache } from '@/lib/portal/chat/gate-context';
+import { runSweep } from '@/lib/portal/chat/sweep';
+import { ingestEmailReply } from '@/lib/portal/chat/inbound';
 
 export interface Recording {
   tool_calls?: Array<{ tool: string; args: Record<string, unknown>; result?: unknown; row_count?: number; error?: string }>;
@@ -40,6 +42,10 @@ export interface Step {
   client?: { text?: string; choice?: { slot: string; label: string }; attach?: number; confirm?: boolean; project_label?: string };
   /** Recordings for the job this step queues, in order (a 422 takes the next one). Omit for no job. */
   engine?: Recording[] | 'down' | 'canned';
+  /** Slice C4: the client walks away; the sweep runs this many minutes after Bast's last message. */
+  sweep?: { after_minutes: number };
+  /** Slice C4: an email reply arrives (parsed, as ingest_replies.py posts it). */
+  email?: { text: string; from?: 'contact' | 'stranger'; auth_pass?: boolean; message_id?: string };
   expect?: Expect;
 }
 
@@ -77,6 +83,14 @@ export interface Expect {
   tags_exactly?: string[];
   http?: number;
   error_code?: string;
+  /** Slice C4 */
+  outbox_count?: number;
+  outbox_contains?: string[];
+  outbox_reply_to?: boolean;
+  email_status?: string;
+  job_type?: string;
+  email_reply_sent?: boolean;
+  client_messages_via_email?: number;
 }
 
 export interface Scenario {
@@ -188,6 +202,27 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
         }
       }
 
+      let emailStatus: string | undefined;
+      if (step.sweep && played.conversationId) {
+        const lastAssistant = await prisma.comment.findFirst({ where: { task_id: played.taskId!, source: 'assistant', is_internal: false }, orderBy: { created_at: 'desc' } });
+        await runSweep(new Date((lastAssistant?.created_at ?? new Date()).getTime() + step.sweep.after_minutes * 60_000), { conversationIds: [played.conversationId] });
+      }
+      if (step.email && played.conversationId) {
+        const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: played.conversationId } });
+        const out = await ingestEmailReply({
+          token: convo.email_token,
+          from_email: step.email.from === 'stranger' ? `stranger-${world.tag}@evil.test` : world.email,
+          text: step.email.text,
+          raw: step.email.text,
+          gmail_id: `g-${n}`,
+          rfc_message_id: step.email.message_id ?? `<${world.tag}-${n}@mail.test>`,
+          gmail_thread_id: `t-${world.tag}`,
+          auth_pass: step.email.auth_pass ?? true,
+          attachment_ids: [],
+        });
+        emailStatus = out.status;
+      }
+
       // Play the runner.
       const job = played.conversationId ? await prisma.engineJob.findFirst({ where: { conversation_id: played.conversationId, status: 'queued' }, orderBy: { queued_at: 'desc' } }) : null;
       const recordings = step.engine;
@@ -246,7 +281,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
       if (!played.conversationId) viewRes = new Response(null, { status: 404 }) as never;
       const view = played.conversationId ? await viewRes.json() : {};
       played.views.push(view);
-      if (step.expect) await check(label, resolve(step.expect, world, extra) as Expect, { played, view, http, errorCode, route, world }, assertions);
+      if (step.expect) await check(label, resolve(step.expect, world, extra) as Expect, { played, view, http, errorCode, route, world, emailStatus }, assertions);
     }
   } finally {
     auth.session = null;
@@ -259,7 +294,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
 async function check(
   label: string,
   e: Expect,
-  s: { played: Played; view: Record<string, any>; http: number; errorCode?: string; route?: string; world: World },
+  s: { played: Played; view: Record<string, any>; http: number; errorCode?: string; route?: string; world: World; emailStatus?: string },
   assertions: (l: string, a: unknown, b: unknown) => void
 ) {
   const { played, view } = s;
@@ -300,6 +335,23 @@ async function check(
     for (const x of e.action_errors) assertions(`${label}: action error ${x}`, errs.includes(x), true);
   }
   if (e.tool_calls !== undefined) assertions(`${label}: tool calls`, await prisma.engineToolCall.count({ where: { conversation_id: played.conversationId } }), e.tool_calls);
+  if (e.email_status) assertions(`${label}: email status`, s.emailStatus, e.email_status);
+  if (e.job_type) {
+    const j = await prisma.engineJob.findFirst({ where: { conversation_id: played.conversationId }, orderBy: { queued_at: 'desc' } });
+    assertions(`${label}: job type`, j?.type, e.job_type);
+  }
+  if (e.client_messages_via_email !== undefined) {
+    assertions(`${label}: client messages via email`, comments.filter((c) => c.source === 'email' && !c.is_internal && c.author_contact_id).length, e.client_messages_via_email);
+  }
+  if (e.outbox_count !== undefined || e.outbox_contains || e.outbox_reply_to !== undefined) {
+    const rows = await prisma.emailOutbox.findMany({ where: { task_id: played.taskId! }, orderBy: { created_at: 'asc' } });
+    if (e.outbox_count !== undefined) assertions(`${label}: outbox count`, rows.length, e.outbox_count);
+    for (const t of e.outbox_contains ?? []) assertions(`${label}: outbox contains ${t}`, rows.some((r) => r.text.includes(t)), true);
+    if (e.outbox_reply_to !== undefined) {
+      const convo2 = await prisma.chatConversation.findUniqueOrThrow({ where: { id: played.conversationId } });
+      assertions(`${label}: reply-to`, rows.length > 0 && rows.every((r) => r.reply_to === `bast+c-${convo2.email_token}@becomeindelible.com` && r.from_account === 'bast@becomeindelible.com'), e.outbox_reply_to);
+    }
+  }
   if (e.slots_absent) for (const k of e.slots_absent) assertions(`${label}: slot ${k} absent`, k in (convo.slots as Record<string, unknown>), false);
   if (e.waits_none) assertions(`${label}: no waits`, await prisma.wait.count({ where: { task_id: played.taskId! } }), 0);
   if (e.job_status) {

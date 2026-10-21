@@ -317,3 +317,45 @@ export async function onChatHandoff(
   );
   return { id: made.id, created: made.created };
 }
+
+// ---- Phase C slice C4: the chat's walk-away email --------------------------------------------
+
+/**
+ * The away email went out (spec 7.2): open `portal.awaiting_client` (five business days, then a
+ * task to the liaison who follows up by email or call). Keyed on the reply the question was in, so a
+ * repeat is a no-op. Nothing here sends a reminder.
+ */
+export async function onChatAwayEmail(
+  db: Db,
+  task: ThreadTask,
+  ref: string,
+  now: Date = new Date()
+): Promise<{ id: string; created: boolean }> {
+  const store = prismaSweepStore(db as PrismaClient);
+  const made = await openWait(
+    store,
+    {
+      template_key: 'portal.awaiting_client',
+      subject: task.client_title,
+      owner_contact_id: task.requested_by_contact_id ?? null,
+      idempotency_key: waitKey('awaiting_client', task.id, ref),
+      task_id: task.id,
+      client_id: task.client_id,
+      project_id: task.project_id,
+      charter_id: task.charter_id,
+      site_id: task.site_id,
+    },
+    now
+  );
+  return { id: made.id, created: made.created };
+}
+
+/** The client answered (in the portal or by email): close the open "awaiting the client" clocks on the task. */
+export async function onChatClientAnswered(db: Db, taskId: string, now: Date = new Date()): Promise<number> {
+  const store = prismaSweepStore(db as PrismaClient);
+  const open = await db.wait.findMany({ where: { task_id: taskId, template_key: 'portal.awaiting_client', state: { in: [...OPEN_STATES] } } });
+  for (const w of open) {
+    await resolveWait(store, w, 'client_replied', { now, source: 'api', reason: 'The client answered the chat.' });
+  }
+  return open.length;
+}

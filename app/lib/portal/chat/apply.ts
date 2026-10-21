@@ -23,6 +23,8 @@ import { refreshTaskDescription } from '@/lib/portal/chat/description';
 import { handOff } from '@/lib/portal/chat/handoff';
 import { confirmConversation } from '@/lib/portal/chat/confirm';
 import { CANNED_LINE, NOTE } from '@/lib/portal/chat/copy';
+import { emailAssistantReply, emailFixedLine } from '@/lib/portal/chat/mailer';
+import { looksLikeYes } from '@/lib/portal/chat/confirm-text';
 import { syncProvisionalPlacement } from '@/lib/portal/chat/place';
 import { clientSites, conversationPages, rankPages, readAsk, readSlots, resolveChoices, sectionsOf, type OpenAsk, type Slots, type SummarySnap } from '@/lib/portal/chat/slots';
 import { z } from 'zod';
@@ -124,7 +126,7 @@ export function isClientVerbatim(text: string, clientTexts: string[]): boolean {
   return clientTexts.some((c) => norm(c) === t || sentencesOfClientText(c).includes(t));
 }
 
-function gateAll(result: ChatResult, ctx: Parameters<typeof gateReply>[1], clientTexts: string[]): { rejected: GateResult | null; draftOk: boolean } {
+function gateAll(result: ChatResult, ctx: Parameters<typeof gateReply>[1], clientTexts: string[], jobType?: string): { rejected: GateResult | null; draftOk: boolean } {
   const checks: Array<[string, GateKind]> = [[result.reply, GATED_FIELDS.reply]];
   for (const a of result.actions) {
     if (a.type === 'ask') checks.push([a.question, GATED_FIELDS['ask.question']]);
@@ -138,6 +140,12 @@ function gateAll(result: ChatResult, ctx: Parameters<typeof gateReply>[1], clien
       if (a.page_text) checks.push([a.page_text, GATED_FIELDS['record.page_text']]);
       if (a.section_text) checks.push([a.section_text, GATED_FIELDS['record.section_text']]);
     }
+  }
+  // An answer to an email also goes out by email: the model's part of that body (reply, question,
+  // summary) is gated once more as an email body. Template lines (greeting, link, reference) are not.
+  if (jobType === 'chat_email_reply') {
+    const part = [result.reply, ...result.actions.flatMap((a) => (a.type === 'ask' ? [a.question] : a.type === 'propose_summary' ? [a.summary] : []))].join('\n');
+    checks.push([part, 'email']);
   }
   for (const [text, kind] of checks) {
     if (kind === 'field' && isClientVerbatim(text, clientTexts)) continue;
@@ -207,6 +215,16 @@ async function attachmentIdsFor(clientId: string, conversationId: string, ids: s
   return { ok: ids.filter((i) => have.has(i)), bad: ids.filter((i) => !have.has(i)) };
 }
 
+/** The client's newest email message on the task: what a "send it" has to be read from. */
+async function latestClientEmailText(taskId: string): Promise<string | null> {
+  const c = await prisma.comment.findFirst({
+    where: { task_id: taskId, source: 'email', author_contact_id: { not: null }, is_deleted: false, is_internal: false },
+    orderBy: { created_at: 'desc' },
+    select: { content: true },
+  });
+  return c?.content ?? null;
+}
+
 export async function applyResult(
   jobId: string,
   body: { result?: unknown; runs?: RunInput[]; canned?: boolean },
@@ -253,6 +271,8 @@ export async function applyResult(
       throw e;
     }
     await handOff(convo.id, { reason: 'unclear', draft: '', say: CANNED_LINE, now });
+    // The client wrote by email, so the fixed line goes back by email too (spec 7.4).
+    if (job.type === 'chat_email_reply') await emailFixedLine({ conversationId: convo.id, contactId: job.contact_id, text: CANNED_LINE, key: `job:${job.id}`, now });
     return { status: 'applied', gate_result: 'canned', comment_id: null };
   }
 
@@ -265,7 +285,7 @@ export async function applyResult(
   // Gate, then provenance.
   const context = await buildContext(access, convo.id, { now });
   const gateCtx = await loadGateContext({ jobId: job.id, clientId: access.clientId, contactId: job.contact_id, context, now });
-  const gated = gateAll(result, gateCtx, contextClientTexts(context));
+  const gated = gateAll(result, gateCtx, contextClientTexts(context), job.type);
   if (gated.rejected && !gated.rejected.ok) return { status: 'rejected', rule: gated.rejected.rule, match: gated.rejected.match };
 
   const calls = await prisma.engineToolCall.findMany({ where: { job_id: job.id, error: null }, select: { id: true, result: true } });
@@ -397,6 +417,7 @@ export async function applyResult(
         break;
       case 'confirm_from_email':
         if (job.type !== 'chat_email_reply') errors.push({ action: 'confirm_from_email', error: 'not_an_email_job' });
+        else if (!looksLikeYes(await latestClientEmailText(convo.task_id))) errors.push({ action: 'confirm_from_email', error: 'confirm_text_not_a_yes' });
         else confirmFromEmail = a;
         break;
       case 'close_question':
@@ -463,6 +484,14 @@ export async function applyResult(
     throw e;
   }
 
+  // An answer to an email goes back by email, in the thread, unless the client is in the portal now.
+  if (job.type === 'chat_email_reply' && commentId) {
+    try {
+      await emailAssistantReply({ conversationId: convo.id, commentId, contactId: job.contact_id, now });
+    } catch (error) {
+      console.error('chat email reply failed to queue', error);
+    }
+  }
   if (handoffAction) {
     await handOff(convo.id, { reason: handoffAction.reason, draft: handoffAction.draft_reply, draftOk: gated.draftOk, say: null, now });
   }
