@@ -29,7 +29,6 @@ import {
   buildWaitData,
   getTemplate,
   guardPasses,
-  type GuardKey,
   type GuardValues,
   type WaitActionName,
 } from './templates';
@@ -55,6 +54,8 @@ export interface TaskSpec {
   accord_id: string | null;
   due_date: Date;
   tags: string[];
+  /** Idempotency: the store returns the existing task when one carries this reference. */
+  source_ref: string;
 }
 
 export interface WaitEventInput {
@@ -89,6 +90,10 @@ export interface SweepStore {
   preconditionMet(wait: WaitRow, precondition: 'no_charter' | 'no_plan'): Promise<boolean>;
   createTask(spec: TaskSpec): Promise<string>;
   guardValues(wait: WaitRow): Promise<GuardValues>;
+  /** Runs fn with a store whose writes commit or roll back together. */
+  transaction<T>(fn: (tx: SweepStore) => Promise<T>): Promise<T>;
+  /** The newest event of a kind on a wait, or null. */
+  lastEvent(waitId: string, kind: string): Promise<WaitEventInput | null>;
 }
 
 export interface SweepDeps {
@@ -149,13 +154,20 @@ function payloadOf(wait: WaitRow): Record<string, unknown> {
     : {};
 }
 
-/** The action that runs now: the guarded fallback replaces the primary when the guard fails. */
+/**
+ * The action that runs now. It comes from the TEMPLATE's step, never from the wait's own
+ * columns or payload, so a row written with a smuggled action cannot send, proceed or publish.
+ * A failing guard swaps in the step's fallback. `send` additionally requires template.sends.
+ * Anything the template does not name for this step is `escalate`, which only climbs in visibility.
+ */
 export function effectiveAction(wait: WaitRow, guards: GuardValues): WaitActionName {
-  const p = payloadOf(wait);
-  const guard = p.guard as GuardKey | undefined;
-  const fallback = p.fallback as WaitActionName | undefined;
-  if (guard && fallback && !guardPasses(guard, guards)) return fallback;
-  return wait.terminal_action as WaitActionName;
+  const template = getTemplate(wait.template_key);
+  const step = template?.steps[wait.step - 1];
+  if (!template || !step) return 'escalate';
+  let action: WaitActionName = step.action;
+  if (step.guard && step.fallback && !guardPasses(step.guard, guards)) action = step.fallback;
+  if (action === 'send' && !template.sends) return 'escalate';
+  return action;
 }
 
 function ownerInput(wait: WaitRow) {
@@ -251,12 +263,15 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     if (dryRun) continue;
     const left = w.paused_remaining_ms != null ? Number(w.paused_remaining_ms) : 0;
     const due = new Date(now.getTime() + Math.max(0, left));
-    await store.update(w.id, { state: 'waiting', paused_until: null, paused_remaining_ms: null, due_at: due });
+    // Back to the state it was paused from: a needs_human wait stays needs_human.
+    const prior = (await store.lastEvent(w.id, 'paused'))?.from_state;
+    const back = prior === 'needs_human' || prior === 'blocked_by_switch' ? prior : 'waiting';
+    await store.update(w.id, { state: back, paused_until: null, paused_remaining_ms: null, due_at: due });
     await store.addEvent({
       wait_id: w.id,
       kind: 'resumed',
       from_state: 'paused',
-      to_state: 'waiting',
+      to_state: back,
       from_due_at: w.due_at,
       to_due_at: due,
       reason: 'Pause ended.',
@@ -334,6 +349,9 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     for (let rung = w.nag_level + 1; rung <= target; rung++) {
       if (rung === 2) {
         if (!deps.notifyMike) continue;
+        // The one DM goes out in business hours only. Outside them, stop here and try next pass,
+        // so the countdown can never jump ahead of a DM that was never sent.
+        if (!isWithinSendWindow(now)) break;
         if (!dryRun && !(await deps.notifyMike(w, resolved).catch(() => false))) continue;
       }
       level = rung;
@@ -442,16 +460,17 @@ async function fireOne(
       report.fired.push({ id: wait.id, template_key: wait.template_key, step: wait.step, action, note: step?.note });
       if (dryRun) return;
       // Stamp for the machine-side outbox; the sender confirms with PUT /api/waits/:id/sent.
+      // Next step first (idempotent on <id>:next), stamp last, so a failure retries cleanly.
+      await spawnNextStep(store, wait, now);
       await store.update(wait.id, { fired_at: now, claimed_at: null });
       await store.addEvent({ wait_id: wait.id, kind: 'fired', reason: step?.note ?? 'Queued for the outbox.', source: 'sweeper' });
-      await spawnNextStep(store, wait, now);
       return;
     }
 
     if (action === 'proceed') {
       report.fired.push({ id: wait.id, template_key: wait.template_key, step: wait.step, action, note: step?.note });
       if (dryRun) return;
-      const effect = typeof payloadOf(wait).effect === 'string' ? (payloadOf(wait).effect as string) : null;
+      const effect = typeof step?.payload?.effect === 'string' ? (step.payload.effect as string) : null;
       if (deps.applyProceed) await deps.applyProceed(wait, effect);
       await store.update(wait.id, { fired_at: now, claimed_at: null });
       await store.addEvent({
@@ -472,20 +491,29 @@ async function fireOne(
       report.fired.push({ id: wait.id, template_key: wait.template_key, step: wait.step, action, note: step?.note });
       if (dryRun) return;
       const resolved = await resolveWaitOwner(wait, deps.owner);
-      const taskId = await store.createTask({
-        title: wait.title,
-        description: [wait.detail, `Opened by the wait record (${wait.template_key}, step ${wait.step}).`].filter(Boolean).join('\n\n'),
-        assignee_id: resolved.user_id,
-        client_id: wait.client_id,
-        project_id: wait.project_id,
-        site_id: wait.site_id,
-        charter_id: wait.charter_id,
-        accord_id: wait.accord_id,
-        due_date: addBusinessDays(now, 2),
-        tags: ['wait-handoff'],
-      });
-      await store.update(wait.id, { fired_at: now, claimed_at: null });
-      await store.addEvent({ wait_id: wait.id, kind: 'fired', reason: `Opened task ${taskId} for ${resolved.user_id}.`, source: 'sweeper' });
+      // Idempotent: a retry after a partial failure reuses the task already made. The id is
+      // written to the wait right after creation, before anything else can fail, and the
+      // store also dedupes on source_ref.
+      const stored = payloadOf(wait).created_task_id;
+      let taskId = typeof stored === 'string' ? stored : null;
+      if (!taskId) {
+        taskId = await store.createTask({
+          title: wait.title,
+          description: [wait.detail, `Opened by the wait record (${wait.template_key}, step ${wait.step}).`].filter(Boolean).join('\n\n'),
+          assignee_id: resolved.user_id,
+          client_id: wait.client_id,
+          project_id: wait.project_id,
+          site_id: wait.site_id,
+          charter_id: wait.charter_id,
+          accord_id: wait.accord_id,
+          due_date: addBusinessDays(now, 2),
+          tags: ['wait-handoff'],
+          source_ref: `${wait.id}:task`,
+        });
+        await store.update(wait.id, {
+          action_payload: { ...payloadOf(wait), created_task_id: taskId } as WaitRow['action_payload'],
+        });
+      }
       // The task carries its own dated wait, so a task is never a bare state.
       const handoff = buildWaitData(
         {
@@ -510,6 +538,9 @@ async function fireOne(
       if (made.created) {
         await store.addEvent({ wait_id: made.wait.id, kind: 'created', to_state: 'waiting', to_due_at: made.wait.due_at, reason: `Handoff on task ${taskId}.`, source: 'sweeper' });
       }
+      // fired_at is stamped LAST: until then a failed attempt is still claimable and retries.
+      await store.update(wait.id, { fired_at: now, claimed_at: null });
+      await store.addEvent({ wait_id: wait.id, kind: 'fired', reason: `Opened task ${taskId} for ${resolved.user_id}.`, source: 'sweeper' });
       await resolveWait(store, { ...wait, fired_at: now }, 'task_created', { now, source: 'sweeper', reason: step?.note ?? 'Opened a task.' });
       return;
     }
@@ -553,8 +584,8 @@ async function fireOne(
 async function escalate(deps: SweepDeps, wait: WaitRow, now: Date, dryRun: boolean, report: SweepReport) {
   const { store } = deps;
   const resolved = await resolveWaitOwner(wait, deps.owner);
-  const p = payloadOf(wait);
-  const toMikeNow = p.escalate_to === 'mike';
+  const stepDef = getTemplate(wait.template_key)?.steps[wait.step - 1];
+  const toMikeNow = stepDef?.payload?.escalate_to === 'mike';
 
   if (resolved.user_id === MIKE_USER_ID && !toMikeNow) {
     // Visibility only: no state change, nothing to claim.

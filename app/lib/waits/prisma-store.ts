@@ -26,6 +26,9 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
           id,
           state: 'waiting',
           fired_at: null,
+          // Re-check the date in the claim itself: an extension that landed after the list was
+          // read must win, or the wait would fire on its old date.
+          due_at: { lte: now },
           OR: [{ claimed_at: null }, { claimed_at: { lt: staleBefore } }],
         },
         data: { claimed_at: now },
@@ -105,6 +108,9 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
       return true;
     },
     async createTask(spec: TaskSpec) {
+      // Idempotent on source_ref: a retry returns the task a crashed attempt already made.
+      const existing = await db.task.findFirst({ where: { source_ref: spec.source_ref }, select: { id: true } });
+      if (existing) return existing.id;
       const t = await db.task.create({
         data: {
           title: spec.title.slice(0, 500),
@@ -117,6 +123,7 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
           accord_id: spec.accord_id,
           due_date: spec.due_date,
           tags: spec.tags,
+          source_ref: spec.source_ref,
           created_by_id: BAST_USER_ID,
         },
         select: { id: true },
@@ -128,8 +135,27 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
       // the defaults in templates.ts apply to every client.
       return {};
     },
-    async eventSeen(eventId: string) {
-      const hit = await db.waitEvent.findFirst({ where: { event_id: { startsWith: `${eventId}:` } }, select: { id: true } });
+    transaction<T>(fn: (tx: SweepStore) => Promise<T>): Promise<T> {
+      // Nested use (already inside a transaction client) just runs in place.
+      if (!('$transaction' in db)) return fn(prismaSweepStore(db));
+      return (db as PrismaClient).$transaction(async (tx) => fn(prismaSweepStore(tx as unknown as PrismaClient)));
+    },
+    async lastEvent(waitId: string, kind: string) {
+      const e = await db.waitEvent.findFirst({ where: { wait_id: waitId, kind }, orderBy: { created_at: 'desc' } });
+      if (!e) return null;
+      return {
+        wait_id: e.wait_id,
+        kind: e.kind,
+        from_state: e.from_state,
+        to_state: e.to_state,
+        from_due_at: e.from_due_at,
+        to_due_at: e.to_due_at,
+        reason: e.reason,
+        source: e.source as WaitEventInput['source'],
+      };
+    },
+    async eventSeenForWait(eventId: string, waitId: string) {
+      const hit = await db.waitEvent.findUnique({ where: { event_id: `${eventId}:${waitId}` }, select: { id: true } });
       return !!hit;
     },
     findTargets(t: EventTarget) {

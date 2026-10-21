@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { loadRitualBlocks } from '@/lib/waits/load-blocks';
 import { blockingSummary } from '@/lib/waits/ritual-blocks';
@@ -13,7 +13,9 @@ import { blockingSummary } from '@/lib/waits/ritual-blocks';
 export async function GET() {
   try {
     const auth = await requireAuth();
-    const blocks = await loadRitualBlocks(prisma, auth.userId);
+    requireRole(auth, ['pm', 'admin']);
+    // The Admin block reads the admin-soon list, which is admin-only everywhere else.
+    const blocks = await loadRitualBlocks(prisma, auth.userId, new Date(), { includeAdmin: auth.role === 'admin' });
     return NextResponse.json({ ...blocks, summary: blockingSummary(blocks.blocking_today) });
   } catch (error) {
     return handleApiError(error);

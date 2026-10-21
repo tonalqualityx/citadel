@@ -100,7 +100,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const now = new Date();
     const common = { now, source: (body.source ?? 'user') as 'user' | 'ritual', actor_user_id: auth.userId };
 
-    if (['done', 'expired'].includes(w.state) && body.action !== 'resolve') {
+    if (['done', 'expired'].includes(w.state)) {
       throw new ApiError(`The wait is already ${w.state}.`, 409);
     }
 

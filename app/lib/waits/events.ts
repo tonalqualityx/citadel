@@ -85,7 +85,8 @@ export interface EventTarget {
 }
 
 export interface EventsStore extends SweepStore {
-  eventSeen(eventId: string): Promise<boolean>;
+  /** Has this exact (event, wait) pair been applied? Exact match on `${event_id}:${wait_id}`. */
+  eventSeenForWait(eventId: string, waitId: string): Promise<boolean>;
   /** Open waits matching the target. */
   findTargets(target: EventTarget): Promise<WaitRow[]>;
   /** Prior auto-reply extensions on one wait. */
@@ -137,15 +138,23 @@ export function targetFromEvent(ev: WaitEventPayload): EventTarget {
   return t;
 }
 
+/** Stored as the marker row's event_id; unique, so a concurrent replay cannot apply twice. */
+export const eventKey = (eventId: string, waitId: string) => `${eventId}:${waitId}`;
+
+const isUniqueViolation = (e: unknown) => !!e && typeof e === 'object' && (e as { code?: string }).code === 'P2002';
+
 export async function applyWaitEvent(store: EventsStore, input: unknown, now = new Date()): Promise<EventResult> {
   const ev = eventSchema.parse(input);
   const result: EventResult = { event_id: ev.event_id, duplicate: false, matched: 0, applied: [] };
-  if (await store.eventSeen(ev.event_id)) return { ...result, duplicate: true };
 
   const target = targetFromEvent(ev);
   const hasSelector = Object.values(target).some((v) => (Array.isArray(v) ? v.length > 0 : !!v));
   // A selector with nothing to select on would match every wait. Refuse it.
   if (!hasSelector) return result;
+  // Only an event that names the wait itself may touch a wait whose template has no on_reply
+  // rule (Mike's own gates, internal handoffs): a client reply or out-of-office on a client
+  // chain must never close or move them.
+  const explicit = !!target.wait_id;
 
   let waits = await store.findTargets(target);
   if (target.wait_kinds?.length) waits = waits.filter((w) => target.wait_kinds!.includes(w.kind));
@@ -155,68 +164,92 @@ export async function applyWaitEvent(store: EventsStore, input: unknown, now = n
   const p = ev.payload ?? {};
   const at = ev.at ? new Date(ev.at) : now;
   const sourceRef = typeof ev.source === 'string' ? ev.source : ev.source ? JSON.stringify(ev.source).slice(0, 300) : null;
+  let seen = 0;
 
   for (const w of waits) {
-    const per = `${ev.event_id}:${w.id}`;
-    const base = {
-      now,
-      source: 'placement' as const,
-      event_id: per,
-      email_message_id: p.email_message_id ?? null,
-    };
-
-    if (ev.kind === 'place') {
-      const data: Partial<WaitRow> = {};
-      if (!w.email_thread_id && p.thread_id) data.email_thread_id = p.thread_id;
-      if (!w.email_account && p.account) data.email_account = p.account;
-      const c = ev.chain;
-      if (c?.id) {
-        if (c.kind === 'accord' && !w.accord_id) data.accord_id = c.id;
-        if (c.kind === 'project' && !w.project_id) data.project_id = c.id;
-        if (c.kind === 'charter' && !w.charter_id) data.charter_id = c.id;
-        if (c.kind === 'site' && !w.site_id) data.site_id = c.id;
-      }
-      if (c?.client_id && !w.client_id) data.client_id = c.client_id;
-      if (Object.keys(data).length) await store.update(w.id, data);
-      await store.addEvent({ wait_id: w.id, kind: 'placed', reason: `Placed on its thread${sourceRef ? ` (${sourceRef})` : ''}.`, ...base });
-      result.applied.push({ wait_id: w.id, action: 'placed' });
+    if (await store.eventSeenForWait(ev.event_id, w.id)) {
+      seen++;
+      continue;
+    }
+    const template = getTemplate(w.template_key);
+    if ((ev.kind === 'stop' || ev.kind === 'extend') && !explicit && (!template || template.on_reply === null)) {
+      result.applied.push({ wait_id: w.id, action: 'skipped_not_named', detail: 'This wait does not react to replies; only an event naming it can move it.' });
       continue;
     }
 
-    if (ev.kind === 'stop') {
-      const reason = p.reason ?? 'reply';
-      const template = getTemplate(w.template_key);
-      const wantsHuman = (reason === 'reply' || reason === 'question') && template?.on_reply === 'needs_human';
-      if (wantsHuman) {
-        await needsHuman(store, w, { ...base, note: `The client wrote back${p.quote ? `: "${p.quote}"` : '.'} A person decides what it changes.`, reason: 'Reply on a review: a person decides.' });
+    try {
+      // The marker event goes in FIRST, in the same transaction as the change. Its unique key is
+      // the idempotency lock: a concurrent replay fails here and applies nothing.
+      await store.transaction(async (tx) => {
+        await tx.addEvent({
+          wait_id: w.id,
+          kind: 'event_received',
+          reason: `${ev.kind} event${sourceRef ? ` (${sourceRef})` : ''}`,
+          source: 'placement',
+          event_id: eventKey(ev.event_id, w.id),
+          email_message_id: p.email_message_id ?? null,
+        });
+        const base = { now, source: 'placement' as const, event_id: null, email_message_id: p.email_message_id ?? null };
+
+        if (ev.kind === 'place') {
+          const data: Partial<WaitRow> = {};
+          if (!w.email_thread_id && p.thread_id) data.email_thread_id = p.thread_id;
+          if (!w.email_account && p.account) data.email_account = p.account;
+          const c = ev.chain;
+          if (c?.id) {
+            if (c.kind === 'accord' && !w.accord_id) data.accord_id = c.id;
+            if (c.kind === 'project' && !w.project_id) data.project_id = c.id;
+            if (c.kind === 'charter' && !w.charter_id) data.charter_id = c.id;
+            if (c.kind === 'site' && !w.site_id) data.site_id = c.id;
+          }
+          if (c?.client_id && !w.client_id) data.client_id = c.client_id;
+          if (Object.keys(data).length) await tx.update(w.id, data);
+          await tx.addEvent({ wait_id: w.id, kind: 'placed', reason: `Placed on its thread${sourceRef ? ` (${sourceRef})` : ''}.`, ...base });
+          result.applied.push({ wait_id: w.id, action: 'placed' });
+          return;
+        }
+
+        if (ev.kind === 'stop') {
+          const reason = p.reason ?? 'reply';
+          const wantsHuman = (reason === 'reply' || reason === 'question') && template?.on_reply === 'needs_human';
+          if (wantsHuman) {
+            await needsHuman(tx, w, { ...base, note: `The client wrote back${p.quote ? `: "${p.quote}"` : '.'} A person decides what it changes.`, reason: 'Reply on a review: a person decides.' });
+            result.applied.push({ wait_id: w.id, action: 'needs_human' });
+          } else {
+            await resolveByPerson(tx, w, STOP_RESOLUTIONS[reason] ?? 'stopped_by_reply', { ...base, reason: `Stopped: ${reason}.` });
+            result.applied.push({ wait_id: w.id, action: 'stopped', detail: reason });
+          }
+          return;
+        }
+
+        if (ev.kind === 'extend') {
+          const auto = !!p.auto_reply;
+          const prior = auto ? await store.countAutoExtensions(w.id) : 0;
+          const r = await extendWait(tx, w, {
+            ...base,
+            now: at.getTime() > now.getTime() ? now : at,
+            reason: p.reason ?? 'extension',
+            business_days: p.mode === 'until' ? undefined : (p.business_days ?? 5),
+            until: p.mode === 'until' && p.until ? new Date(p.until) : undefined,
+            auto_reply: auto,
+            auto_reply_extensions: prior,
+          });
+          result.applied.push({ wait_id: w.id, action: r.ok ? 'extended' : r.code, detail: r.ok ? `+${r.added_business_days} business days` : undefined });
+          return;
+        }
+
+        const note = [p.question, p.suggestion ? `Suggestion: ${p.suggestion}` : null].filter(Boolean).join('\n');
+        await needsHuman(tx, w, { ...base, note: note || null, owner_user_id: p.owner_user_id ?? null, reason: p.question ?? 'Placement could not decide.' });
         result.applied.push({ wait_id: w.id, action: 'needs_human' });
-      } else {
-        await resolveByPerson(store, w, STOP_RESOLUTIONS[reason] ?? 'stopped_by_reply', { ...base, reason: `Stopped: ${reason}.` });
-        result.applied.push({ wait_id: w.id, action: 'stopped', detail: reason });
-      }
-      continue;
-    }
-
-    if (ev.kind === 'extend') {
-      const auto = !!p.auto_reply;
-      const prior = auto ? await store.countAutoExtensions(w.id) : 0;
-      const r = await extendWait(store, w, {
-        ...base,
-        now: at.getTime() > now.getTime() ? now : at,
-        reason: p.reason ?? 'extension',
-        business_days: p.mode === 'until' ? undefined : (p.business_days ?? 5),
-        until: p.mode === 'until' && p.until ? new Date(p.until) : undefined,
-        auto_reply: auto,
-        auto_reply_extensions: prior,
       });
-      result.applied.push({ wait_id: w.id, action: r.ok ? 'extended' : r.code, detail: r.ok ? `+${r.added_business_days} business days` : undefined });
-      continue;
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        seen++; // a concurrent replay got there first
+        continue;
+      }
+      throw e;
     }
-
-    // needs_human
-    const note = [p.question, p.suggestion ? `Suggestion: ${p.suggestion}` : null].filter(Boolean).join('\n');
-    await needsHuman(store, w, { ...base, note: note || null, owner_user_id: p.owner_user_id ?? null, reason: p.question ?? 'Placement could not decide.' });
-    result.applied.push({ wait_id: w.id, action: 'needs_human' });
   }
+  result.duplicate = waits.length > 0 && seen === waits.length;
   return result;
 }

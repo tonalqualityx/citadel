@@ -32,7 +32,9 @@ async function notifyMike(w: WaitRow, owner: { user_id: string }): Promise<boole
     entityId: w.id,
     priority: 'high',
   });
-  return result.inApp.sent || result.slack.sent || result.email.sent;
+  // Count it sent only when Slack accepted it. An in-app row alone does not tell Mike, so
+  // the ladder tries again on the next pass.
+  return result.slack.sent === true;
 }
 
 /**

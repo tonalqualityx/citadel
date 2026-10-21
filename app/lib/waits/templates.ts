@@ -669,6 +669,24 @@ export interface WaitInput {
   idempotency_key?: string | null;
 }
 
+/**
+ * Keys a caller may put in action_payload. Everything that shapes what the sweeper DOES
+ * (guard, fallback, effect, escalate_to, owner_role, shepherd_role, switch_owner_user_id,
+ * pay_link, retouch_days, ...) comes from the template alone; the sweeper reads the template,
+ * not the payload, for the action. This allowlist is the second lock.
+ */
+export const CALLER_PAYLOAD_KEYS = ['note', 'context', 'reference', 'from_wait_id'] as const;
+
+export function sanitizeCallerPayload(input: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!input || typeof input !== 'object') return out;
+  for (const k of CALLER_PAYLOAD_KEYS) {
+    const v = input[k];
+    if (typeof v === 'string') out[k] = v.slice(0, 500);
+  }
+  return out;
+}
+
 /** Plain columns for a new Wait row. Pure: no database. Throws TemplateError. */
 export function buildWaitData(input: WaitInput, opts: { allowDisabled?: boolean } = {}) {
   const template = getTemplate(input.template_key);
@@ -703,7 +721,7 @@ export function buildWaitData(input: WaitInput, opts: { allowDisabled?: boolean 
   const blocks_client = input.blocks_client ?? step.blocks_client ?? template.blocks_client;
   const payload: Record<string, unknown> = {
     ...(step.payload ?? {}),
-    ...(input.action_payload ?? {}),
+    ...sanitizeCallerPayload(input.action_payload),
     owner_role: step.owner ?? template.owner,
   };
   if (template.shepherd) payload.shepherd_role = template.shepherd;

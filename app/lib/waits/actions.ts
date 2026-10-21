@@ -87,8 +87,6 @@ export async function extendWait(
     due_at: newDue,
     extended_bd_total: wait.extended_bd_total + added,
     extension_count: wait.extension_count + 1,
-    nag_level: 0,
-    last_nag_at: null,
     fired_at: null,
     claimed_at: null,
   });
@@ -109,6 +107,7 @@ export async function extendWait(
 /** Freeze the clock. The wait resumes with the time it had left. */
 export async function pauseWait(store: SweepStore, wait: WaitRow, opts: Common & { until: Date }): Promise<WaitRow> {
   const remaining = Math.max(0, wait.due_at.getTime() - opts.now.getTime());
+  const fromState = wait.state;
   const updated = await store.update(wait.id, {
     state: 'paused',
     paused_until: opts.until,
@@ -118,7 +117,7 @@ export async function pauseWait(store: SweepStore, wait: WaitRow, opts: Common &
   await store.addEvent({
     wait_id: wait.id,
     kind: 'paused',
-    from_state: wait.state,
+    from_state: fromState,
     to_state: 'paused',
     from_due_at: wait.due_at,
     reason: opts.reason ?? `Paused until ${opts.until.toISOString()}.`,
@@ -129,15 +128,22 @@ export async function pauseWait(store: SweepStore, wait: WaitRow, opts: Common &
   return updated;
 }
 
+/** The state a paused wait goes back to: whatever it was when it was paused. */
+export async function stateBeforePause(store: SweepStore, waitId: string): Promise<'waiting' | 'needs_human' | 'blocked_by_switch'> {
+  const prior = (await store.lastEvent(waitId, 'paused'))?.from_state;
+  return prior === 'needs_human' || prior === 'blocked_by_switch' ? prior : 'waiting';
+}
+
 export async function resumeWait(store: SweepStore, wait: WaitRow, opts: Common): Promise<WaitRow> {
   const left = wait.paused_remaining_ms != null ? Number(wait.paused_remaining_ms) : 0;
   const due = new Date(opts.now.getTime() + Math.max(0, left));
-  const updated = await store.update(wait.id, { state: 'waiting', paused_until: null, paused_remaining_ms: null, due_at: due });
+  const back = await stateBeforePause(store, wait.id);
+  const updated = await store.update(wait.id, { state: back, paused_until: null, paused_remaining_ms: null, due_at: due });
   await store.addEvent({
     wait_id: wait.id,
     kind: 'resumed',
     from_state: 'paused',
-    to_state: 'waiting',
+    to_state: back,
     from_due_at: wait.due_at,
     to_due_at: due,
     reason: opts.reason ?? 'Resumed early.',

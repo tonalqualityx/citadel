@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '../route';
 import { MIKE_USER_ID } from '@/lib/waits/owner';
 
-vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
+vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn(), requireRole: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/waits/load-blocks', () => ({ loadRitualBlocks: vi.fn() }));
 
-import { requireAuth } from '@/lib/auth/middleware';
+import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { loadRitualBlocks } from '@/lib/waits/load-blocks';
 import { AuthError } from '@/lib/api/errors';
 import type { Mock } from 'vitest';
@@ -16,6 +16,7 @@ const row = (i: number) => ({ id: `w${i}`, title: `T${i}` });
 beforeEach(() => {
   vi.clearAllMocks();
   (requireAuth as Mock).mockResolvedValue({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@becomeindelible.com' });
+  (requireRole as Mock).mockImplementation(() => {});
 });
 
 describe('GET /api/waits/mine', () => {
@@ -37,5 +38,27 @@ describe('GET /api/waits/mine', () => {
   it('requires authentication', async () => {
     (requireAuth as Mock).mockRejectedValue(new AuthError('Authentication required', 401));
     expect((await GET()).status).toBe(401);
+  });
+
+  it('requires pm or admin', async () => {
+    (requireRole as Mock).mockImplementation(() => {
+      throw new AuthError('Insufficient permissions', 403);
+    });
+    expect((await GET()).status).toBe(403);
+  });
+
+  it('only an admin gets the admin-soon list', async () => {
+    (loadRitualBlocks as Mock).mockResolvedValue({
+      blocking_today: { rows: [], more: 0, total: 0, overflow: [] },
+      due_this_week: { rows: [], more: 0, total: 0 },
+      admin: { rows: [], more: 0, total: 0 },
+      generated_at: 'x',
+    });
+    (requireAuth as Mock).mockResolvedValue({ userId: 'pm1', role: 'pm', email: 'pm@example.test' });
+    await GET();
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)[3]).toEqual({ includeAdmin: false });
+    (requireAuth as Mock).mockResolvedValue({ userId: MIKE_USER_ID, role: 'admin', email: 'mike@becomeindelible.com' });
+    await GET();
+    expect((loadRitualBlocks as Mock).mock.calls.at(-1)[3]).toEqual({ includeAdmin: true });
   });
 });

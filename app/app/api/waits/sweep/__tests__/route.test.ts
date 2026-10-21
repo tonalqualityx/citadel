@@ -11,7 +11,7 @@ const store = new MemStore();
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn(), requireRole: vi.fn() }));
 vi.mock('@/lib/waits/prisma-store', () => ({ prismaSweepStore: () => store }));
 vi.mock('@/lib/services/notification-dispatcher', () => ({
-  dispatchNotification: vi.fn(async () => ({ inApp: { sent: true }, email: { sent: false }, slack: { sent: false } })),
+  dispatchNotification: vi.fn(async () => ({ inApp: { sent: true }, email: { sent: false }, slack: { sent: true } })),
 }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
@@ -31,6 +31,8 @@ const post = (qs = '') => new NextRequest(`http://localhost/api/waits/sweep${qs}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(zonedTimeToUtc(2026, 10, 21, 10)); // Wed 10:00 Eastern, inside business hours
   store.waits.clear();
   store.events.length = 0;
   store.seq = 0;
@@ -102,5 +104,24 @@ describe('POST /api/waits/sweep', () => {
     const report = await (await POST(post())).json();
     expect(report.counts.fired).toBe(0);
     expect(report.errors).toEqual([]);
+  });
+});
+
+describe('the Slack DM', () => {
+  it('counts as sent only when Slack accepted it', async () => {
+    (dispatchNotification as Mock).mockResolvedValueOnce({ inApp: { sent: true }, email: { sent: false }, slack: { sent: false } });
+    store.add(buildWaitData({ template_key: 'build.gate_mike', subject: 'x', started_at: zonedTimeToUtc(2026, 10, 12, 10), client_id: '11111111-1111-4111-8111-111111111111' }));
+    // 5 days late: rung 2 fails (in-app only), so the ladder skips it and shows the countdown
+    const r = await (await POST(post())).json();
+    expect(r.nagged[0].level).toBe(3);
+    expect(dispatchNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not attempted outside business hours', async () => {
+    vi.setSystemTime(zonedTimeToUtc(2026, 10, 21, 22));
+    store.add(buildWaitData({ template_key: 'build.gate_mike', subject: 'x', started_at: zonedTimeToUtc(2026, 10, 12, 10), client_id: '11111111-1111-4111-8111-111111111111' }));
+    const r = await (await POST(post())).json();
+    expect(dispatchNotification).not.toHaveBeenCalled();
+    expect(r.nagged[0].level).toBe(1);
   });
 });

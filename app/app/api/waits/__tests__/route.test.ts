@@ -81,6 +81,33 @@ describe('POST /api/waits', () => {
   });
 });
 
+describe('POST /api/waits payload smuggling', () => {
+  it('strips every action-shaping key a caller sends, keeping only the allowlisted notes', async () => {
+    const res = await POST(
+      post({
+        template_key: 'handoff.generic',
+        subject: 'a plain handoff',
+        action_payload: {
+          guard: 'review_clock_on',
+          fallback: 'send',
+          effect: 'publish_staged_change',
+          escalate_to: 'mike',
+          owner_role: 'sales',
+          shepherd_role: 'pm',
+          switch_owner_user_id: 'x',
+          note: 'Call Dan',
+        },
+      })
+    );
+    expect(res.status).toBe(201);
+    const stored = [...store.waits.values()][0].action_payload as Record<string, unknown>;
+    for (const k of ['guard', 'fallback', 'effect', 'escalate_to', 'shepherd_role', 'switch_owner_user_id']) expect(stored).not.toHaveProperty(k);
+    expect(stored.owner_role).toBe('mike'); // the template's, not the caller's
+    expect(stored.note).toBe('Call Dan');
+    expect([...store.waits.values()][0].terminal_action).toBe('escalate');
+  });
+});
+
 describe('GET /api/waits', () => {
   it('lists open waits by default and filters by resolved owner', async () => {
     const mine = store.add({

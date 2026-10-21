@@ -48,7 +48,13 @@ export async function loadWaitCandidates(db: PrismaClient): Promise<WaitCandidat
   return out;
 }
 
-export async function loadRitualBlocks(db: PrismaClient, userId: string, now = new Date()): Promise<RitualBlocks> {
+export async function loadRitualBlocks(
+  db: PrismaClient,
+  userId: string,
+  now = new Date(),
+  opts: { includeAdmin?: boolean } = {}
+): Promise<RitualBlocks> {
+  const includeAdmin = opts.includeAdmin ?? true;
   const mikeId = userId || MIKE_USER_ID;
   const limit = endOfZonedDay(new Date(now.getTime() + DUE_WINDOW_DAYS * 86_400_000));
   const [waits, tasks, admin] = await Promise.all([
@@ -64,7 +70,7 @@ export async function loadRitualBlocks(db: PrismaClient, userId: string, now = n
       orderBy: { due_date: 'asc' },
       take: 100,
     }),
-    fetchAdminSoon(mikeId),
+    includeAdmin ? fetchAdminSoon(mikeId) : Promise.resolve({ tasks: [] as Awaited<ReturnType<typeof fetchAdminSoon>>['tasks'] }),
   ]);
   const taskCandidates: TaskCandidate[] = tasks
     .filter((t): t is typeof t & { due_date: Date } => !!t.due_date)

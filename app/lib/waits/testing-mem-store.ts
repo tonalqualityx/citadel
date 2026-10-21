@@ -15,9 +15,12 @@ export class MemStore implements SweepStore, EventsStore {
   guards: GuardValues = {};
   preconditionOk = true;
   failCreateTask = false;
+  /** Test hook: runs inside claim() before the conditional check, to land a write between list and claim. */
+  beforeClaim: ((w: WaitRow) => void) | null = null;
+  taskRefs = new Map<string, string>();
 
   add(data: WaitData, extra: Partial<WaitRow> = {}): WaitRow {
-    const id = `w${++this.seq}`;
+    const id = `00000000-0000-4000-8000-${String(++this.seq).padStart(12, '0')}`;
     const row = {
       id,
       kind: data.kind,
@@ -92,7 +95,9 @@ export class MemStore implements SweepStore, EventsStore {
   }
   async claim(id: string, now: Date, staleBefore: Date) {
     const w = this.waits.get(id);
+    if (w && this.beforeClaim) this.beforeClaim(w);
     if (!w || w.state !== 'waiting' || w.fired_at) return null;
+    if (w.due_at.getTime() > now.getTime()) return null;
     if (w.claimed_at && w.claimed_at >= staleBefore) return null;
     w.claimed_at = now;
     return { ...w };
@@ -110,6 +115,9 @@ export class MemStore implements SweepStore, EventsStore {
     return { wait: this.add(data), created: true };
   }
   async addEvent(e: WaitEventInput) {
+    if (e.event_id && this.events.some((x) => x.event_id === e.event_id)) {
+      throw Object.assign(new Error('Unique constraint failed on event_id'), { code: 'P2002' });
+    }
     this.events.push(e);
   }
   async countEvents(waitId: string, kind: string) {
@@ -123,14 +131,40 @@ export class MemStore implements SweepStore, EventsStore {
   }
   async createTask(spec: TaskSpec) {
     if (this.failCreateTask) throw new Error('task api down');
+    const hit = this.taskRefs.get(spec.source_ref);
+    if (hit) return hit;
     this.tasks.push(spec);
-    return `t${this.tasks.length}`;
+    const id = `t${this.tasks.length}`;
+    this.taskRefs.set(spec.source_ref, id);
+    return id;
   }
   async guardValues() {
     return this.guards;
   }
-  async eventSeen(eventId: string) {
-    return this.events.some((e) => e.event_id?.startsWith(`${eventId}:`));
+  async eventSeenForWait(eventId: string, waitId: string) {
+    return this.events.some((e) => e.event_id === `${eventId}:${waitId}`);
+  }
+  /** Commit-or-roll-back, like the Postgres transaction. */
+  private txTail: Promise<unknown> = Promise.resolve();
+  transaction<T>(fn: (tx: SweepStore) => Promise<T>): Promise<T> {
+    // Serialized, like row locks on the same wait: the second copy of an event sees the first's marker.
+    const run = this.txTail.then(() => this.runTx(fn));
+    this.txTail = run.catch(() => undefined);
+    return run;
+  }
+  private async runTx<T>(fn: (tx: SweepStore) => Promise<T>): Promise<T> {
+    const waits = new Map([...this.waits].map(([k, v]) => [k, { ...v }]));
+    const events = [...this.events];
+    try {
+      return await fn(this);
+    } catch (e) {
+      this.waits = waits;
+      this.events = events;
+      throw e;
+    }
+  }
+  async lastEvent(waitId: string, kind: string) {
+    return [...this.events].reverse().find((e) => e.wait_id === waitId && e.kind === kind) ?? null;
   }
   async findTargets(t: EventTarget) {
     const open = this.all().filter((w) => ['waiting', 'needs_human', 'blocked_by_switch', 'paused'].includes(w.state));

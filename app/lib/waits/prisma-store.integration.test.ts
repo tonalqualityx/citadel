@@ -92,11 +92,16 @@ d('wait sweeper against Postgres', () => {
 
   it('the claim is exclusive', async () => {
     const store = prismaSweepStore(db);
-    const w = await db.wait.findUnique({ where: { id: ids.future } });
+    const w = (await store.insertIdempotent(buildWaitData({ template_key: 'build.gate_mike', subject: 'claim', idempotency_key: `${tag}:claim`, started_at: zonedTimeToUtc(2026, 8, 3, 9) }))).wait;
     const stale = new Date(now.getTime() - 600_000);
-    const results = await Promise.all([1, 2, 3, 4, 5].map(() => store.claim(w!.id, now, stale)));
+    const results = await Promise.all([1, 2, 3, 4, 5].map(() => store.claim(w.id, now, stale)));
     expect(results.filter(Boolean)).toHaveLength(1);
-    await store.update(w!.id, { claimed_at: null });
+    // Not due yet: nobody claims it, even with no claim held.
+    const later = await db.wait.findUnique({ where: { id: ids.future } });
+    expect(await store.claim(later!.id, now, stale)).toBeNull();
+    // An extension landing between list and claim wins.
+    await store.update(w.id, { claimed_at: null, due_at: new Date(now.getTime() + 86_400_000) });
+    expect(await store.claim(w.id, now, stale)).toBeNull();
   });
 
   it('insertIdempotent returns the existing row on a repeat key, even under a race', async () => {
@@ -107,12 +112,25 @@ d('wait sweeper against Postgres', () => {
     expect(out.filter((o) => o.created)).toHaveLength(1);
   });
 
-  it('events: a stop closes the wait and a replay is a duplicate', async () => {
+  it('events: an extension applies and a replay is a duplicate', async () => {
     const store = prismaSweepStore(db);
-    const ev = { event_id: `${tag}-stop`, kind: 'stop', target: ids.future, payload: { reason: 'approval' } };
+    const ev = { event_id: `${tag}-ext`, kind: 'extend', target: ids.future, payload: { mode: 'days', business_days: 2 } };
     const a = await applyWaitEvent(store, ev);
-    expect(a.applied[0].action).toBe('stopped');
-    expect((await db.wait.findUnique({ where: { id: ids.future } }))!.resolution).toBe('approved');
+    expect(a.applied[0].action).toBe('extended');
     expect((await applyWaitEvent(store, ev)).duplicate).toBe(true);
+    expect((await db.wait.findUnique({ where: { id: ids.future } }))!.extension_count).toBe(1);
+  });
+
+  it('events: concurrent copies of one event apply once, and the marker rolls back with a failed change', async () => {
+    const store = prismaSweepStore(db);
+    const w = (await store.insertIdempotent(buildWaitData({ template_key: 'build.gate_mike', subject: 'conc', idempotency_key: `${tag}:conc`, started_at: new Date(now.getTime() + 86_400_000) }))).wait;
+    const ev = { event_id: `${tag}-conc`, kind: 'extend', target: w.id, payload: { mode: 'days', business_days: 2 } };
+    const out = await Promise.all([applyWaitEvent(store, ev), applyWaitEvent(store, ev), applyWaitEvent(store, ev)]);
+    expect(out.flatMap((o) => o.applied)).toHaveLength(1);
+    expect((await db.wait.findUnique({ where: { id: w.id } }))!.extension_count).toBe(1);
+    expect(await db.waitEvent.count({ where: { event_id: `${ev.event_id}:${w.id}` } })).toBe(1);
+    // A prefix-sharing event id is a different event.
+    const other = await applyWaitEvent(store, { ...ev, event_id: `${tag}-con` });
+    expect(other.applied).toHaveLength(1);
   });
 });

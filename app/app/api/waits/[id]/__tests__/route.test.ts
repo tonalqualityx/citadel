@@ -107,6 +107,7 @@ describe('PATCH /api/waits/:id', () => {
     expect(res.status).toBe(200);
     expect(store.waits.get(UUID)).toMatchObject({ state: 'done', resolution: 'approved', resolved_by_id: MIKE_USER_ID });
     expect((await patch(UUID, { action: 'extend', business_days: 1, reason: 'x' })).status).toBe(409);
+    expect((await patch(UUID, { action: 'resolve', resolution: 'cancelled' })).status).toBe(409);
   });
 
   it('reassigns and sets a stand-in', async () => {

@@ -149,10 +149,80 @@ describe('proceed and task', () => {
     expect(handoff.due_at.getTime()).toBeGreaterThan(NOW.getTime());
   });
 
-  it('effectiveAction swaps in the fallback only when the guard fails', () => {
-    const base = { terminal_action: 'proceed', action_payload: { guard: 'silent_acceptance_live', fallback: 'task' } } as unknown as WaitRow;
-    expect(effectiveAction(base, {})).toBe('task');
-    expect(effectiveAction(base, { silent_acceptance_live: true })).toBe('proceed');
+  it('effectiveAction reads the template: a failing guard swaps in the fallback, nothing else does', () => {
+    const row = (over: object) => ({ template_key: 'build.review_client', step: 1, terminal_action: 'proceed', action_payload: {}, ...over }) as unknown as WaitRow;
+    expect(effectiveAction(row({}), {})).toBe('proceed'); // review clock defaults on
+    expect(effectiveAction(row({}), { review_clock_on: false })).toBe('task');
+  });
+
+  it('effectiveAction ignores a smuggled terminal_action and payload', () => {
+    const smuggled = {
+      template_key: 'handoff.generic',
+      step: 1,
+      terminal_action: 'send',
+      action_payload: { guard: 'review_clock_on', fallback: 'send', effect: 'publish_staged_change', escalate_to: 'mike' },
+    } as unknown as WaitRow;
+    expect(effectiveAction(smuggled, {})).toBe('escalate');
+    // A sender template that is not a sender step also falls to escalate.
+    expect(effectiveAction({ ...smuggled, template_key: 'build.gate_mike' } as WaitRow, {})).toBe('escalate');
+    expect(effectiveAction({ ...smuggled, template_key: 'nope' } as WaitRow, {})).toBe('escalate');
+  });
+
+  it('the sweeper refuses to send for a live wait carrying a smuggled send', async () => {
+    const store = new MemStore();
+    const w = open(store, { template_key: 'handoff.generic', subject: 'x', started_at: et(2026, 10, 14, 9) });
+    Object.assign(store.get(w.id), { terminal_action: 'send', action_payload: { fallback: 'send', guard: 'review_clock_on', effect: 'publish_staged_change' } });
+    const r = await runSweep(deps(store, { switchIsOn: async () => true, applyProceed: async () => { throw new Error('must not proceed'); } }));
+    expect(r.fired.filter((f) => f.action === 'send' || f.action === 'proceed')).toEqual([]);
+    expect(store.get(w.id).fired_at).toBeNull();
+    expect(store.get(w.id).state).toBe('waiting');
+  });
+
+  it('task creation is idempotent: a retry reuses the task already made', async () => {
+    const store = new MemStore();
+    enable('build.review_client');
+    store.guards = { review_clock_on: false };
+    const w = open(store, { template_key: 'build.review_client', subject: 'the copy', started_at: et(2026, 10, 1, 9), client_id: 'c1', project_id: 'p1' });
+    // Fail AFTER the task exists: the first handoff insert throws once.
+    const real = store.insertIdempotent.bind(store);
+    let boom = true;
+    store.insertIdempotent = async (d) => {
+      if (boom && d.idempotency_key === `${w.id}:task`) {
+        boom = false;
+        throw new Error('db hiccup');
+      }
+      return real(d);
+    };
+    await runSweep(deps(store));
+    expect(store.tasks).toHaveLength(1);
+    expect((store.get(w.id).action_payload as Record<string, unknown>).created_task_id).toBe('t1');
+    await runSweep(deps(store));
+    expect(store.tasks).toHaveLength(1); // no second task
+    expect(store.get(w.id)).toMatchObject({ state: 'done', resolution: 'task_created' });
+    expect(store.all().filter((x) => x.idempotency_key === `${w.id}:task`)).toHaveLength(1);
+  });
+
+  it('the store itself dedupes a task on source_ref', async () => {
+    const store = new MemStore();
+    const spec = { title: 't', description: '', assignee_id: 'a', client_id: null, project_id: null, site_id: null, charter_id: null, accord_id: null, due_date: NOW, tags: [], source_ref: 'w9:task' };
+    expect(await store.createTask(spec)).toBe(await store.createTask(spec));
+    expect(store.tasks).toHaveLength(1);
+  });
+});
+
+describe('claim', () => {
+  it('an extension that lands between the list and the claim wins', async () => {
+    const store = new MemStore();
+    enable('sales.proposal_unopened');
+    const w = open(store, { template_key: 'sales.proposal_unopened', subject: 'x', started_at: et(2026, 10, 7, 9) });
+    store.beforeClaim = (row) => {
+      row.due_at = new Date(NOW.getTime() + 3 * 86_400_000); // someone extended it after the list was read
+      store.beforeClaim = null;
+    };
+    const r = await runSweep(deps(store, { switchIsOn: async () => true }));
+    expect(r.fired).toHaveLength(0);
+    expect(store.get(w.id).fired_at).toBeNull();
+    expect(store.get(w.id).state).toBe('waiting');
   });
 });
 
@@ -306,6 +376,28 @@ describe('visibility ladder for Mike', () => {
     expect(store.get(w.id).nag_level).toBe(1);
     await runSweep(deps(store, { now: () => et(2026, 10, 19, 9), notifyMike: async () => true }));
     expect(store.get(w.id).nag_level).toBe(2);
+  });
+
+  it('the DM goes out only in business hours; at night the ladder waits', async () => {
+    const store = new MemStore();
+    const w = mk(store, et(2026, 10, 12, 10)); // due Wed 10-14; Mon 10-19 is 3 late
+    let dms = 0;
+    const notify = async () => (dms++, true);
+    await runSweep(deps(store, { now: () => et(2026, 10, 19, 22), notifyMike: notify }));
+    expect(dms).toBe(0);
+    expect(store.get(w.id).nag_level).toBe(1);
+    await runSweep(deps(store, { now: () => et(2026, 10, 24, 11), notifyMike: notify })); // a Saturday
+    expect(dms).toBe(0);
+    await runSweep(deps(store, { now: () => et(2026, 10, 20, 9), notifyMike: notify }));
+    expect(dms).toBe(1);
+    expect(store.get(w.id).nag_level).toBeGreaterThanOrEqual(2);
+  });
+
+  it('five days late at night still waits for the DM before the countdown', async () => {
+    const store = new MemStore();
+    const w = mk(store, et(2026, 10, 12, 10));
+    await runSweep(deps(store, { now: () => et(2026, 10, 21, 21), notifyMike: async () => true }));
+    expect(store.get(w.id).nag_level).toBe(1);
   });
 
   it('the countdown at five days late', async () => {
