@@ -1,0 +1,121 @@
+/* Portal tokens. Contrast pairs are in the redesign spec section 9 and re-checked by
+   lib/portal/__tests__/tokens-contrast.test.ts, which parses this file. */
+[data-portal] {
+  color-scheme: light;
+  /* Surfaces */
+  --p-bg: #F2F5F8;            /* mist page, same family as the monthly report */
+  --p-surface: #FFFFFF;
+  --p-sunk: #E9EEF3;          /* progress tracks, skeletons, site marks */
+  --p-tint: #EAF2FC;          /* client chat bubbles, milestones */
+  --p-line: #DCE3EB;
+  --p-line-strong: #7D8898;   /* inputs, secondary buttons */
+  /* Ink */
+  --p-ink: #15202E;
+  --p-ink-2: #435065;
+  --p-ink-3: #5A6678;
+  --p-head: #033578;
+  --p-primary: #033578;
+  --p-primary-hover: #022A61;
+  --p-on-primary: #FFFFFF;
+  --p-link: #144485;
+  --p-focus: #0B6FB0;
+  --p-accent: #19A1F6;        /* decorative only: top rule, active-nav bar, step meter */
+  /* Nav */
+  --p-nav-bg: #033578;
+  --p-nav-ink: #FFFFFF;
+  --p-nav-ink-2: #C9D6EA;
+  --p-nav-active: rgba(255, 255, 255, 0.10);
+  --p-nav-focus: #FFFFFF;
+  /* Where the work lives: rails, dots, swatches, icon tiles. Never text. */
+  --p-kind-project: #2E7DBA;
+  --p-kind-retainer: #2E8571;
+  --p-kind-request: #7A5BB5;
+  --p-kind-history: #6B7585;
+  /* State: chips, always icon + word */
+  --p-chip-attention-bg: #FDEFD3; --p-chip-attention-fg: #6E4300;
+  --p-chip-moving-bg: #E3EDFA;    --p-chip-moving-fg: #123E7A;
+  --p-chip-done-bg: #E1F1E7;      --p-chip-done-fg: #1B5432;
+  --p-chip-quiet-bg: #ECEFF3;     --p-chip-quiet-fg: #445064;
+  --p-chip-urgent-bg: #FBE4E1;    --p-chip-urgent-fg: #8A1C12;
+  --p-chip-quote-bg: #E8E3F5;     --p-chip-quote-fg: #47307A;
+  --p-attention-rail: #C27C00;
+  --p-urgent-rail: #C8372B;
+  --p-done-icon: #2F8A55;
+  --p-callout-bg: #FFF7E8;
+  --p-callout-line: #F1DDB4;
+  --p-count-ink: #1F1400;
+  /* Mood motifs */
+  --p-mood-1: #E3EDF8; --p-mood-2: #CFE0F2; --p-mood-3: #B7D0EA;
+  --p-mood-line: #9BBBDD; --p-mood-sun: #FBE3AE;
+  --p-spark: #144485; --p-spark-fill: rgba(20, 68, 133, 0.10);
+  /* Type */
+  --p-font-head: var(--font-lato), 'Lato', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --p-font: var(--font-atkinson), 'Atkinson Hyperlegible', var(--font-lato), system-ui, sans-serif;
+  /* Shape and depth */
+  --p-radius-chip: 3px;
+  --p-radius: 6px;            /* cards, buttons, inputs, bubbles */
+  --p-radius-sheet: 12px;     /* More sheet top corners only */
+  --p-shadow-callout: 0 1px 0 rgba(3, 53, 120, 0.04), 0 10px 24px -18px rgba(3, 53, 120, 0.35);
+  --p-shadow-sheet: 0 -8px 32px rgba(3, 23, 56, 0.18);
+  /* Motion */
+  --p-dur: 150ms;
+  --p-dur-sheet: 200ms;
+  --p-ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+
+/* Dark set: the same declarations twice, the media-query copy and the explicit copy.
+   tokens-contrast.test.ts asserts they are identical. */
+@media (prefers-color-scheme: dark) {
+  [data-portal]:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --p-bg: #0E1520; --p-surface: #152030; --p-sunk: #0B111A; --p-tint: #16253B;
+    --p-line: #263449; --p-line-strong: #6E7B8F;
+    --p-ink: #E8EDF4; --p-ink-2: #B5C0CF; --p-ink-3: #909CAE; --p-head: #DCE7F7;
+    --p-primary: #A9CBF5; --p-primary-hover: #C3DBF8; --p-on-primary: #06214A;
+    --p-link: #A9CBF5; --p-focus: #5FB4F2; --p-accent: #19A1F6;
+    --p-nav-bg: #0A1A33; --p-nav-ink: #E8EDF4; --p-nav-ink-2: #AFC0DA;
+    --p-nav-active: rgba(255, 255, 255, 0.08); --p-nav-focus: #E8EDF4;
+    --p-kind-project: #5AA6E0; --p-kind-retainer: #4DB396; --p-kind-request: #A68BDB; --p-kind-history: #8792A2;
+    --p-chip-attention-bg: #3A2B0E; --p-chip-attention-fg: #F4CF86;
+    --p-chip-moving-bg: #14284A;    --p-chip-moving-fg: #B5D0F5;
+    --p-chip-done-bg: #15301F;      --p-chip-done-fg: #A3DBB6;
+    --p-chip-quiet-bg: #232C39;     --p-chip-quiet-fg: #C5CDD8;
+    --p-chip-urgent-bg: #3D1714;    --p-chip-urgent-fg: #F4B1A8;
+    --p-chip-quote-bg: #2A2142;     --p-chip-quote-fg: #CDBDF2;
+    --p-attention-rail: #E7A93A; --p-urgent-rail: #F07A6C; --p-done-icon: #5CC184;
+    --p-callout-bg: #241D10; --p-callout-line: #4A3A18; --p-count-ink: #1F1400;
+    --p-mood-1: #142236; --p-mood-2: #182B44; --p-mood-3: #1E3554; --p-mood-line: #2C4A70; --p-mood-sun: #3B3220;
+    --p-spark: #A9CBF5; --p-spark-fill: rgba(169, 203, 245, 0.12);
+    --p-shadow-callout: none; --p-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+[data-portal][data-theme="dark"] {
+  color-scheme: dark;
+  --p-bg: #0E1520; --p-surface: #152030; --p-sunk: #0B111A; --p-tint: #16253B;
+  --p-line: #263449; --p-line-strong: #6E7B8F;
+  --p-ink: #E8EDF4; --p-ink-2: #B5C0CF; --p-ink-3: #909CAE; --p-head: #DCE7F7;
+  --p-primary: #A9CBF5; --p-primary-hover: #C3DBF8; --p-on-primary: #06214A;
+  --p-link: #A9CBF5; --p-focus: #5FB4F2; --p-accent: #19A1F6;
+  --p-nav-bg: #0A1A33; --p-nav-ink: #E8EDF4; --p-nav-ink-2: #AFC0DA;
+  --p-nav-active: rgba(255, 255, 255, 0.08); --p-nav-focus: #E8EDF4;
+  --p-kind-project: #5AA6E0; --p-kind-retainer: #4DB396; --p-kind-request: #A68BDB; --p-kind-history: #8792A2;
+  --p-chip-attention-bg: #3A2B0E; --p-chip-attention-fg: #F4CF86;
+  --p-chip-moving-bg: #14284A;    --p-chip-moving-fg: #B5D0F5;
+  --p-chip-done-bg: #15301F;      --p-chip-done-fg: #A3DBB6;
+  --p-chip-quiet-bg: #232C39;     --p-chip-quiet-fg: #C5CDD8;
+  --p-chip-urgent-bg: #3D1714;    --p-chip-urgent-fg: #F4B1A8;
+  --p-chip-quote-bg: #2A2142;     --p-chip-quote-fg: #CDBDF2;
+  --p-attention-rail: #E7A93A; --p-urgent-rail: #F07A6C; --p-done-icon: #5CC184;
+  --p-callout-bg: #241D10; --p-callout-line: #4A3A18; --p-count-ink: #1F1400;
+  --p-mood-1: #142236; --p-mood-2: #182B44; --p-mood-3: #1E3554; --p-mood-line: #2C4A70; --p-mood-sun: #3B3220;
+  --p-spark: #A9CBF5; --p-spark-fill: rgba(169, 203, 245, 0.12);
+  --p-shadow-callout: none; --p-shadow-sheet: 0 -8px 32px rgba(0, 0, 0, 0.5);
+}
+
+[data-portal] { background: var(--p-bg); color: var(--p-ink); font-family: var(--p-font); }
+[data-portal] :focus-visible { outline: 2px solid var(--p-focus); outline-offset: 2px; }
+[data-portal] [data-nav-zone] :focus-visible { outline-color: var(--p-nav-focus); }
+html:has([data-portal]) { scroll-padding-top: 72px; scroll-padding-bottom: 80px; } /* 2.4.11 under the sticky bars */
+@media (prefers-reduced-motion: reduce) {
+  [data-portal] *, [data-portal] *::before, [data-portal] *::after { transition: none !important; animation: none !important; }
+}

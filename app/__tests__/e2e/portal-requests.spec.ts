@@ -205,11 +205,11 @@ test.describe('Portal phase B slice 1: requests', () => {
 
     await page.goto('/portal/requests/new');
     // Picking the type moves straight on, so click rather than check.
-    await page.getByRole('radio', { name: /Change something on my site/ }).click();
+    await page.getByRole('button', { name: /Change something on my site/ }).click();
 
     // Two sites, so the chat asks which one.
     await expect(page.getByText('Which site is this about?')).toBeVisible();
-    await page.getByRole('radio', { name: SITE_ONE, exact: true }).check();
+    await page.getByRole('button', { name: SITE_ONE, exact: true }).click();
     await page.getByRole('button', { name: 'Next', exact: true }).click();
 
     await page.getByRole('textbox').fill('Change the phone number in the footer');
@@ -236,7 +236,7 @@ test.describe('Portal phase B slice 1: requests', () => {
     await expect(page.getByRole('link', { name: 'Site change: Change the phone number in the footer' })).toBeVisible();
 
     await page.goto('/portal/home');
-    await expect(page.getByRole('heading', { name: 'Requests' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Needs you' }).or(page.getByRole('heading', { name: /\d+ open/ })).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'Request work' }).first()).toBeVisible();
     await context.close();
   });

@@ -36,4 +36,14 @@ describe('GET /api/portal/retainer', () => {
     (loadRetainers as Mock).mockResolvedValue([]);
     expect(await (await call()).json()).toEqual({ retainers: [] });
   });
+  it('passes the plan-year months through unchanged (delivered, current, ready, upcoming, past)', async () => {
+    const months = [
+      { label: 'Aug', state: 'past' }, { label: 'Sep', state: 'delivered' }, { label: 'Oct', state: 'current' },
+      { label: 'Nov', state: 'ready' }, { label: 'Dec', state: 'upcoming' },
+    ];
+    (loadRetainers as Mock).mockResolvedValue([{ id: 'ch1', heading: 'SEO', status: { label: 'Paused', tone: 'quiet' }, year_label: 'August 2026 to July 2027', months }]);
+    const body = await (await call()).json();
+    expect(body.retainers[0].months).toEqual(months);
+    expect(body.retainers[0].status.label).toBe('Paused');
+  });
 });

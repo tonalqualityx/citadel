@@ -1,7 +1,12 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { LogIn } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { TriangleAlert } from 'lucide-react';
 
 // Interstitial for magic links. Opening this page consumes NOTHING; the token is spent only when
 // the person presses the button, which POSTs to /api/portal/login/consume. Mail scanners and link
@@ -36,7 +41,7 @@ function VerifyCard() {
       }
       setError(
         res.status === 401
-          ? 'This sign-in link has expired or was already used. Request a new one and we will email it right away.'
+          ? 'This sign-in link has expired or was already used. Request a new one and we will email you a new one.'
           : 'Something went wrong on our end. Please try again in a minute.'
       );
     } catch {
@@ -50,42 +55,36 @@ function VerifyCard() {
 
   if (!token) {
     return (
-      <div className="max-w-md mx-auto bg-surface border border-border rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-text-main mb-2">This link is incomplete</h2>
-        <p className="text-sm text-text-sub mb-4">
-          The sign-in link is missing part of its address. Request a new one and we will email it
-          to you.
-        </p>
-        <Link href="/portal/login" className="text-sm font-medium text-accent underline">
-          Go to sign in
-        </Link>
-      </div>
+      <EmptyState
+        art="meadow"
+        title="This link is incomplete"
+        body="The sign-in link is missing part of its address. Request a new one and we will email it to you."
+        action={<PortalButton href="/portal/login">Send a new link</PortalButton>}
+      />
     );
   }
 
   return (
-    <div className="max-w-md mx-auto bg-surface border border-border rounded-lg p-6">
-      <h2 className="text-xl font-semibold text-text-main mb-2">Finish signing in</h2>
-      <p className="text-sm text-text-sub mb-4">
-        Press the button to sign in to your Indelible client portal on this device.
-      </p>
-      {error && (
-        <div role="alert" className="mb-4 text-sm text-red-600">
-          <p>{error}</p>
-          <Link href="/portal/login" className="font-medium underline">
-            Request a new sign-in link
-          </Link>
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={onContinue}
-        disabled={busy}
-        className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-      >
-        {busy ? 'Signing in...' : 'Sign in to the portal'}
-      </button>
-    </div>
+    <>
+      <PageHeader
+        motif="meadow"
+        title="Finish signing in"
+        lede="This step stops email scanners from using your link."
+      />
+      <div className="card">
+        {error && (
+          <Callout tone="urgent" icon={TriangleAlert} title="Sign-in did not finish">
+            <p role="alert">{error}</p>
+            <PortalButton href="/portal/login" variant="secondary">
+              Request a new sign-in link
+            </PortalButton>
+          </Callout>
+        )}
+        <PortalButton icon={LogIn} onClick={onContinue} busy={busy} busyLabel="Signing in">
+          Sign in to the portal
+        </PortalButton>
+      </div>
+    </>
   );
 }
 

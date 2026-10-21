@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import * as React from 'react';
 
 let pathname = '/portal/home';
-vi.mock('next/navigation', () => ({ usePathname: () => pathname }));
+vi.mock('next/navigation', () => ({ usePathname: () => pathname, useRouter: () => ({ replace: vi.fn() }) }));
+vi.mock('next/link', () => ({ default: ({ href, children, ...r }: { href: string; children: React.ReactNode }) => <a href={href} {...r}>{children}</a> }));
 
-import { PortalNav } from '../portal-nav';
+import { PortalNav as Nav } from '../portal-nav';
+const PortalNav = () => <Nav>page</Nav>;
 
 const fetchMock = vi.fn();
 beforeEach(() => {
@@ -14,28 +16,27 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const labels = () => screen.getAllByRole('link').map((a) => a.textContent);
+const labels = () => within(screen.getAllByRole('navigation', { name: 'Main' })[0]).getAllByRole('link').map((a) => a.textContent);
 
 describe('PortalNav', () => {
   it('shows Home first, then the other destinations, on a page only a signed-in person can open', () => {
     pathname = '/portal/home';
     render(<PortalNav />);
-    expect(labels().slice(0, 6)).toEqual(['Home', 'Projects', 'Retainer', 'Requests', 'History', 'Book a meeting']);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(labels()).toEqual(['Home', 'Projects', 'Retainer', 'Requests', 'History', 'Book a meeting']);
   });
 
   it('marks the current page', () => {
     pathname = '/portal/retainer';
     render(<PortalNav />);
-    expect(screen.getByRole('link', { name: 'Retainer' })).toHaveAttribute('aria-current', 'page');
+    expect(within(screen.getAllByRole('navigation', { name: 'Main' })[0]).getByRole('link', { name: 'Retainer' })).toHaveAttribute('aria-current', 'page');
   });
 
   for (const p of ['/portal/task-approval/abc', '/portal/proposal/abc', '/portal/contract/abc', '/portal/msa/abc', '/portal/addendum/abc', '/portal/onboard/abc', '/portal/articles/1']) {
     it(`${p} shows the nav once a session is confirmed`, async () => {
       pathname = p;
-      fetchMock.mockResolvedValue({ ok: true });
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ active_client_id: 'c1', clients: [{ id: 'c1', name: 'Ridgeline' }] }) });
       render(<PortalNav />);
-      if (!p.startsWith('/portal/articles')) await waitFor(() => expect(screen.getByRole('navigation', { name: 'Portal' })).toBeInTheDocument());
+      if (!p.startsWith('/portal/articles')) await waitFor(() => expect(screen.getAllByRole('navigation', { name: 'Main' })[0]).toBeInTheDocument());
       expect(labels()[0]).toBe('Home');
     });
   }
@@ -51,8 +52,9 @@ describe('PortalNav', () => {
   it('the sign-in pages never show it and never ask', () => {
     for (const p of ['/portal/login', '/portal/login/verify']) {
       pathname = p;
-      const { container } = render(<PortalNav />);
-      expect(container).toBeEmptyDOMElement();
+      const { unmount } = render(<PortalNav />);
+      expect(screen.queryByRole('navigation')).toBeNull();
+      unmount();
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });

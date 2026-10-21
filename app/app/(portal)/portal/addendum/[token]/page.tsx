@@ -2,6 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { FileDiff, TriangleAlert } from 'lucide-react';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Callout } from '@/components/portal/ui/callout';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Field } from '@/components/portal/ui/field';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+
+const EXPIRED_BODY = 'Ask us for a new one at support@becomeindelible.com.';
+const FAILED_BODY = 'Please try again in a minute. If it keeps happening, email support@becomeindelible.com.';
 
 interface AddendumData {
   id: string;
@@ -30,6 +40,7 @@ export default function AddendumPortalPage() {
   const [addendum, setAddendum] = useState<AddendumData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [responseAction, setResponseAction] = useState<ResponseAction | null>(null);
@@ -42,6 +53,7 @@ export default function AddendumPortalPage() {
       try {
         const res = await fetch(`/api/portal/addendums/${token}`);
         if (!res.ok) {
+          if (res.status === 404 || res.status === 410) setExpired(true);
           const data = await res.json();
           setError(data.error || 'Addendum not found');
           return;
@@ -92,247 +104,240 @@ export default function AddendumPortalPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-text-secondary">Loading addendum...</div>
-      </div>
+      <SkeletonRegion>
+        <Skeleton block />
+        <Skeleton lines={4} />
+      </SkeletonRegion>
     );
   }
 
-  if (error) {
-    return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Unable to load addendum</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
-    );
+  if (!addendum) {
+    if (!expired) {
+      return <EmptyState art="meadow" headingLevel="h1" title="Something went wrong" body={FAILED_BODY} />;
+    }
+    return <EmptyState art="meadow" headingLevel="h1" title="This link has expired" body={EXPIRED_BODY} />;
   }
-
-  if (!addendum) return null;
 
   const alreadyResponded = addendum.status !== 'sent';
+  const open = !alreadyResponded && !submitted;
   const pricing = addendum.pricing_snapshot;
   const changes = addendum.changes;
+  const pricingTotal = Array.isArray(pricing)
+    ? pricing.reduce((sum: number, item: { total?: number | string; price?: number | string }) => sum + Number(item.total || item.price || 0), 0)
+    : 0;
+  const chipStatus = submitted && responseAction ? responseAction : addendum.status;
+  const chip =
+    chipStatus === 'sent'
+      ? { tone: 'attention' as const, label: 'Waiting for you' }
+      : chipStatus === 'accepted'
+        ? { tone: 'done' as const, label: 'Accepted' }
+        : { tone: 'quiet' as const, label: chipStatus.replace('_', ' ') };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h2 className="text-2xl font-bold text-text-main mb-1">{addendum.accord.name}</h2>
-        {addendum.accord.client && (
-          <p className="text-text-secondary">Prepared for {addendum.accord.client.name}</p>
-        )}
-        <div className="flex items-center gap-4 mt-2">
-          <span className="text-sm text-text-tertiary">
-            Addendum v{addendum.version}: {addendum.title}
-          </span>
+    <>
+      <header className="ph no-motif">
+        <p className="eyebrow">Addendum, version {addendum.version}</p>
+        <h1 className="h1">{addendum.title}</h1>
+        <p>{addendum.accord.name}</p>
+        {addendum.accord.client ? <p>Prepared for {addendum.accord.client.name}</p> : null}
+        <div>
+          <StatusChip tone={chip.tone} label={chip.label} />
         </div>
-      </div>
+      </header>
 
-      {/* Description */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-2">Description</h3>
-        <p className="text-text-secondary text-sm">{addendum.description}</p>
-      </div>
+      {error ? (
+        <Callout
+          tone="urgent"
+          icon={TriangleAlert}
+          title="Something went wrong"
+          note={`${error}. Try again, or write to support@becomeindelible.com.`}
+        />
+      ) : null}
 
-      {/* Contract Content */}
-      {addendum.contract_content && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Addendum Terms</h3>
-          <div
-            className="prose prose-sm max-w-none text-text-main"
-            dangerouslySetInnerHTML={{ __html: addendum.contract_content }}
-          />
-        </div>
-      )}
+      {open ? (
+        <Callout icon={FileDiff} title="Respond to the addendum" note="Read the changes below, then respond.">
+          <PortalButton href="#respond-form">Go to your response</PortalButton>
+        </Callout>
+      ) : null}
 
-      {/* Changes Summary */}
-      {changes && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Changes</h3>
+      <section className="card" aria-labelledby="details-h">
+        <h2 id="details-h">Details</h2>
+        <dl className="kv">
+          <div>
+            <dt>Description</dt>
+            <dd>{addendum.description}</dd>
+          </div>
+        </dl>
+      </section>
+
+      {addendum.contract_content ? (
+        <section className="card" aria-labelledby="terms-h">
+          <h2 id="terms-h">Addendum terms</h2>
+          <div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: addendum.contract_content }} />
+        </section>
+      ) : null}
+
+      {changes ? (
+        <section className="card" aria-labelledby="changes-h">
+          <h2 id="changes-h">Changes</h2>
           {Array.isArray(changes) ? (
-            <ul className="space-y-2">
+            <ul>
               {changes.map((change: any, i: number) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-text-main">
-                  <span className="font-medium capitalize">{change.type || 'Change'}:</span>
-                  <span>{change.item || change.description || JSON.stringify(change)}</span>
-                  {change.price != null && (
-                    <span className="ml-auto font-medium">${Number(change.price).toLocaleString()}</span>
-                  )}
+                <li key={i}>
+                  <span>{change.type || 'Change'}:</span> <span>{change.item || change.description || JSON.stringify(change)}</span>
+                  {change.price != null ? <span> ${Number(change.price).toLocaleString()}</span> : null}
                 </li>
               ))}
             </ul>
           ) : (
-            <pre className="text-sm text-text-secondary whitespace-pre-wrap">
+            <pre className="whitespace-pre-wrap">
               {typeof changes === 'string' ? changes : JSON.stringify(changes, null, 2)}
             </pre>
           )}
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {/* Pricing */}
-      {pricing && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Pricing</h3>
+      {pricing ? (
+        <section className="card" aria-labelledby="pricing-h">
+          <h2 id="pricing-h">Pricing</h2>
           {Array.isArray(pricing) ? (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-2 text-sm font-medium text-text-secondary">Item</th>
-                  <th className="text-right py-2 text-sm font-medium text-text-secondary">Price</th>
-                  <th className="text-right py-2 text-sm font-medium text-text-secondary">Qty</th>
-                  <th className="text-right py-2 text-sm font-medium text-text-secondary">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pricing.map((item: any, i: number) => (
-                  <tr key={i} className="border-b border-border/50">
-                    <td className="py-3 text-text-main">
-                      <div>{item.name || item.item}</div>
-                      {item.description && (
-                        <div className="text-sm text-text-tertiary">{item.description}</div>
-                      )}
-                    </td>
-                    <td className="py-3 text-right text-text-main">
-                      ${Number(item.price || 0).toLocaleString()}
-                    </td>
-                    <td className="py-3 text-right text-text-main">{item.quantity || 1}</td>
-                    <td className="py-3 text-right font-medium text-text-main">
-                      ${Number(item.total || item.price || 0).toLocaleString()}
-                    </td>
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Item</th>
+                    <th scope="col">Price</th>
+                    <th scope="col">Qty</th>
+                    <th scope="col">Total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pricing.map((item: any, i: number) => (
+                    <tr key={i}>
+                      <td>
+                        <div>{item.name || item.item}</div>
+                        {item.description ? <div>{item.description}</div> : null}
+                      </td>
+                      <td>${Number(item.price || 0).toLocaleString()}</td>
+                      <td>{item.quantity || 1}</td>
+                      <td>${Number(item.total || item.price || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td>Total</td>
+                    <td />
+                    <td />
+                    <td>${pricingTotal.toLocaleString()}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <pre className="text-sm text-text-secondary whitespace-pre-wrap">
+            <pre className="whitespace-pre-wrap">
               {typeof pricing === 'string' ? pricing : JSON.stringify(pricing, null, 2)}
             </pre>
           )}
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {/* Success confirmation */}
-      {submitted && (
-        <div className="bg-status-success/10 rounded-lg border border-status-success/30 p-6 text-center">
-          <h3 className="text-lg font-semibold text-text-main">
-            {responseAction === 'accepted'
-              ? 'Addendum Accepted'
+      {submitted ? (
+        <EmptyState
+          art="meadow"
+          title={
+            responseAction === 'accepted'
+              ? 'Addendum accepted'
               : responseAction === 'rejected'
-                ? 'Addendum Rejected'
-                : 'Changes Requested'}
-          </h3>
-          <p className="text-text-secondary mt-1">
-            {responseAction === 'accepted'
+                ? 'Addendum rejected'
+                : 'Changes requested'
+          }
+          body={
+            responseAction === 'accepted'
               ? "Thank you for accepting. We'll proceed with the updated scope."
               : responseAction === 'rejected'
                 ? "We've received your response. We'll be in touch."
-                : "We've received your feedback and will revise the addendum."}
-          </p>
-        </div>
-      )}
+                : "We've received your feedback and will revise the addendum."
+          }
+        />
+      ) : null}
 
-      {/* Already responded */}
-      {alreadyResponded && !submitted && (
-        <div className="bg-surface rounded-lg border border-border p-6 text-center">
-          <p className="text-text-secondary">
-            This addendum has been{' '}
-            <span className="font-medium">{addendum.status.replace('_', ' ')}</span>
-            {addendum.client_responded_at &&
-              ` on ${new Date(addendum.client_responded_at).toLocaleDateString()}`}
-            .
-          </p>
-          {addendum.client_note && (
-            <p className="text-text-tertiary text-sm mt-2">Note: {addendum.client_note}</p>
-          )}
-        </div>
-      )}
+      {alreadyResponded && !submitted ? (
+        <EmptyState
+          art="meadow"
+          title="Already responded"
+          body={`This addendum has been ${addendum.status.replace('_', ' ')}${
+            addendum.client_responded_at
+              ? ` on ${new Date(addendum.client_responded_at).toLocaleDateString()}`
+              : ''
+          }.${addendum.client_note ? ` Note: ${addendum.client_note}` : ''}`}
+        />
+      ) : null}
 
-      {/* Response form */}
-      {!alreadyResponded && !submitted && (
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Respond to Addendum</h3>
-          <p className="text-sm text-text-secondary mb-4">
-            Please review the addendum terms above and provide your response below.
-          </p>
-
-          {/* Signer info (for accept) */}
-          <div className="space-y-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">
-                Full Name <span className="text-status-error">*</span>
-              </label>
-              <input
-                type="text"
-                value={signerName}
-                onChange={(e) => setSignerName(e.target.value)}
-                placeholder="Your full name"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">
-                Email Address <span className="text-status-error">*</span>
-              </label>
-              <input
-                type="email"
-                value={signerEmail}
-                onChange={(e) => setSignerEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1">
-                Note <span className="text-text-tertiary">(optional)</span>
-              </label>
-              <textarea
-                value={clientNote}
-                onChange={(e) => setClientNote(e.target.value)}
-                placeholder="Any comments or requested changes..."
-                rows={3}
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary resize-none"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
+      {open ? (
+        <section className="card" id="respond-form" aria-labelledby="respond-h">
+          <h2 id="respond-h">Respond to addendum</h2>
+          <p>Please review the addendum terms above and provide your response below.</p>
+          <Field id="signer-name" label="Full name">
+            <input
+              type="text"
+              value={signerName}
+              onChange={(e) => setSignerName(e.target.value)}
+              placeholder="Your full name"
+            />
+          </Field>
+          <Field id="signer-email" label="Email address">
+            <input
+              type="email"
+              value={signerEmail}
+              onChange={(e) => setSignerEmail(e.target.value)}
+              placeholder="your@email.com"
+            />
+          </Field>
+          <Field id="client-note" label="Note (optional)">
+            <textarea
+              value={clientNote}
+              onChange={(e) => setClientNote(e.target.value)}
+              placeholder="Any comments or requested changes..."
+              rows={3}
+            />
+          </Field>
+          <div className="actions">
+            <PortalButton
+              variant="secondary"
               onClick={() => handleRespond('changes_requested')}
               disabled={submitting}
-              className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-hover transition-colors disabled:opacity-50"
+              busy={submitting}
+              busyLabel="Submitting..."
             >
-              {submitting ? 'Submitting...' : 'Request Changes'}
-            </button>
-            <button
+              Request changes
+            </PortalButton>
+            <PortalButton
+              variant="secondary"
               onClick={() => handleRespond('rejected')}
               disabled={submitting}
-              className="px-4 py-2 rounded-md bg-status-error/10 text-status-error border border-status-error/30 hover:bg-status-error/20 transition-colors disabled:opacity-50"
+              busy={submitting}
+              busyLabel="Submitting..."
             >
-              {submitting ? 'Submitting...' : 'Reject'}
-            </button>
-            <button
+              Reject
+            </PortalButton>
+            <PortalButton
+              variant="primary"
               onClick={() => handleRespond('accepted')}
               disabled={submitting || !signerName.trim() || !signerEmail.trim()}
-              className="px-6 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-50"
+              busy={submitting}
+              busyLabel="Submitting..."
             >
-              {submitting ? 'Submitting...' : 'Accept Addendum'}
-            </button>
+              Accept addendum
+            </PortalButton>
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {/* Contact */}
-      {addendum.accord.owner && (
-        <div className="text-center text-sm text-text-tertiary">
+      {addendum.accord.owner ? (
+        <p>
           Questions? Contact {addendum.accord.owner.name} at{' '}
-          <a
-            href={`mailto:${addendum.accord.owner.email}`}
-            className="text-brand-primary hover:underline"
-          >
-            {addendum.accord.owner.email}
-          </a>
-        </div>
-      )}
-    </div>
+          <a href={`mailto:${addendum.accord.owner.email}`}>{addendum.accord.owner.email}</a>
+        </p>
+      ) : null}
+    </>
   );
 }

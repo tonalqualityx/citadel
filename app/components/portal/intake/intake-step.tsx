@@ -1,11 +1,15 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ArrowLeft, TriangleAlert } from 'lucide-react';
 import { ChoiceList, type ChoiceOption } from './choice-list';
+import { PortalButton } from '@/components/portal/ui/button';
+import { Field } from '@/components/portal/ui/field';
 import { ANSWER_MAX, BUTTONS } from '@/lib/portal/intake/tree';
 
-// One prompt as a fieldset and legend. Either a choice list (with an optional follow-up text for
-// the picked choice) or a free-text box. Optional questions offer Skip. Back is the chat's job.
+// One prompt's composer. Either a choice list (with an optional follow-up text for the picked
+// choice) or a free-text box. Optional questions offer Skip. Back is the chat's job. The prompt
+// itself is shown by the chat as Indelible's message; the text box repeats it as its label.
 export interface StepAnswer {
   value: string;
   detail?: string;
@@ -35,9 +39,16 @@ export function IntakeStep({
   nextLabel?: string;
 }) {
   const uid = useId();
+  const formRef = useRef<HTMLFormElement>(null);
   const [value, setValue] = useState(initial?.value ?? '');
   const [detail, setDetail] = useState(initial?.detail ?? '');
   const [error, setError] = useState<string | null>(null);
+
+  // A new question replaces this form, so put the cursor on its first control.
+  useEffect(() => {
+    const first = formRef.current?.querySelector<HTMLElement>('textarea, .choices button');
+    first?.focus({ preventScroll: true });
+  }, []);
 
   const picked = step.choices?.find((c) => c.key === value) ?? null;
   const followUp = picked?.followUp ?? null;
@@ -57,72 +68,72 @@ export function IntakeStep({
     onSubmit({ value: v, detail: followUp ? detail.trim() : undefined });
   }
 
+  const errorOnMain = !step.choices && !followUp ? error : null;
+  const errorOnDetail = followUp ? error : null;
+  const loneError = step.choices && !followUp ? error : null;
+
   return (
-    <form onSubmit={submit} noValidate>
-      <fieldset className="space-y-3">
-        <legend className="text-lg font-semibold text-text-main">{step.prompt}</legend>
-        {step.choices ? (
-          <ChoiceList name={`${uid}-choice`} options={step.choices} value={value || null} onChange={(k) => { setValue(k); setError(null); }} />
-        ) : (
-          <>
-            <label htmlFor={`${uid}-text`} className="sr-only">
-              {step.prompt}
-            </label>
-            <textarea
-              id={`${uid}-text`}
-              value={value}
-              onChange={(e) => { setValue(e.target.value); setError(null); }}
-              rows={4}
-              maxLength={ANSWER_MAX}
-              aria-required={step.required}
-              aria-describedby={error ? `${uid}-err` : undefined}
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </>
-        )}
-        {followUp && (
-          <div className="space-y-1">
-            <label htmlFor={`${uid}-detail`} className="block text-sm font-medium text-text-main">
-              {followUp.prompt}
-            </label>
-            <textarea
-              id={`${uid}-detail`}
-              value={detail}
-              onChange={(e) => { setDetail(e.target.value); setError(null); }}
-              rows={3}
-              maxLength={ANSWER_MAX}
-              className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-        )}
-      </fieldset>
-      {error && (
-        <p id={`${uid}-err`} role="alert" className="mt-2 text-sm text-status-error">
-          {error}
-        </p>
+    <form ref={formRef} onSubmit={submit} noValidate className="composer">
+      {step.choices ? (
+        <ChoiceList
+          name={`${uid}-choice`}
+          label={step.prompt}
+          options={step.choices}
+          value={value || null}
+          onChange={(k) => {
+            setValue(k);
+            setError(null);
+          }}
+        />
+      ) : (
+        <Field id={`${uid}-text`} label={step.prompt} error={errorOnMain}>
+          <textarea
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(null);
+            }}
+            rows={4}
+            maxLength={ANSWER_MAX}
+            aria-required={step.required}
+          />
+        </Field>
       )}
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          className="min-h-[44px] rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-        >
+      {followUp && (
+        <Field id={`${uid}-detail`} label={followUp.prompt} error={errorOnDetail}>
+          <textarea
+            value={detail}
+            onChange={(e) => {
+              setDetail(e.target.value);
+              setError(null);
+            }}
+            rows={3}
+            maxLength={ANSWER_MAX}
+          />
+        </Field>
+      )}
+      {loneError ? (
+        <p role="alert" className="err">
+          <TriangleAlert className="i" aria-hidden="true" focusable="false" />
+          {loneError}
+        </p>
+      ) : null}
+      <div className="actions">
+        <PortalButton type="submit">
           {nextLabel}
-        </button>
+        </PortalButton>
         {!step.required && (
-          <button
-            type="button"
-            onClick={() => onSubmit({ value: '' })}
-            className="min-h-[44px] rounded-md border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-main hover:bg-surface-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          >
+          <PortalButton variant="secondary" onClick={() => onSubmit({ value: '' })}>
             {BUTTONS.skip}
-          </button>
+          </PortalButton>
         )}
         {canGoBack && (
-          <button type="button" onClick={onBack} className="min-h-[44px] px-2 text-sm text-text-secondary underline">
+          <PortalButton variant="quiet" icon={ArrowLeft} onClick={onBack}>
             {BUTTONS.back}
-          </button>
+          </PortalButton>
         )}
       </div>
+      <p className="hint">You can change any answer before you send.</p>
     </form>
   );
 }
