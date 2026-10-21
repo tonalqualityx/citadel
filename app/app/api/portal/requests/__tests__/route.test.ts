@@ -24,6 +24,8 @@ import { prisma } from '@/lib/db/prisma';
 import { fileRequest } from '@/lib/portal/intake/file-request';
 import { loadRequests } from '@/lib/portal/requests';
 import { rateLimit } from '@/lib/api/rate-limit';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 const INTAKE = '11111111-1111-4111-8111-111111111111';
 const SITE = '22222222-2222-4222-8222-222222222222';

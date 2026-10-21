@@ -83,7 +83,7 @@ export function SummaryCard({
       )}
       <div className="composer">
         <div className="actions">
-          <PortalButton icon={Send} busy={busy} busyLabel="Sending…" disabled={needsPick} onClick={() => onSend(project || null)}>
+          <PortalButton writes icon={Send} busy={busy} busyLabel="Sending…" disabled={needsPick} onClick={() => onSend(project || null)}>
             {summary.buttons.send}
           </PortalButton>
           <PortalButton variant="secondary" disabled={busy} onClick={onChange}>

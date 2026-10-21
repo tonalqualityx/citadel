@@ -32,6 +32,8 @@ import { loadPortalAccess } from '@/lib/portal/access';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 const mockAuth = requireClientAuth as Mock;
 const mockFindFirst = prisma.article.findFirst as Mock;

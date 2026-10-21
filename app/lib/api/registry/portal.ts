@@ -50,12 +50,25 @@ export const portalEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/portal-view-as/exit',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Exit an admin read-only portal view: revokes the view-as session (never a real client session), clears the cookie and returns where to go back to (the client record). Idempotent. Lives outside /api/portal because every write there refuses a view-as session.',
+        auth: 'none',
+        responseExample: { ended: true, return_to: '/clients/{id}' },
+      },
+    ],
+  },
+  {
     path: '/api/portal/logout',
     group: 'portal',
     methods: [
       {
         method: 'POST',
-        summary: 'Revoke the current portal session server-side and clear the cookie. Always 200.',
+        summary: 'Revoke the current portal session server-side and clear the cookie. Always 200. A view-as session is refused with 403 (use /api/portal-view-as/exit).',
         auth: 'none',
         responseExample: { loggedOut: true },
       },

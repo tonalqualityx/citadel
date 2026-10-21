@@ -4,6 +4,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
 import { getClientIp } from '@/lib/services/portal';
 import { requestClientMagicLink } from '@/lib/services/client-auth';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const requestSchema = z.object({
   email: z.string().email(),
@@ -14,6 +15,8 @@ const requestSchema = z.object({
 // always returns { requested: true } regardless of whether the email matches a contact, so the
 // endpoint can't be used to enumerate which emails are clients.
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   const rateLimitResponse = authRateLimit(request);
   if (rateLimitResponse) return rateLimitResponse;
 

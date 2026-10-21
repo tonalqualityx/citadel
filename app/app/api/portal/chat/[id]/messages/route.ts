@@ -6,6 +6,7 @@ import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { MESSAGE_MAX_CHARS } from '@/lib/portal/thread';
 import { postChatMessage } from '@/lib/portal/chat/post-message';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({
   client_ref: z.string().uuid(),
@@ -18,6 +19,8 @@ const bodySchema = z.object({
 // The client writes or presses a choice. Saved first, verbatim; a choice is checked against the real
 // options. 201 when new, 200 on a repeat of client_ref.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

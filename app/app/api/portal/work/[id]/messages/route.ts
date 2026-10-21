@@ -7,6 +7,7 @@ import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { loadThread, MESSAGE_MAX_CHARS, postClientMessage, toThreadMessage } from '@/lib/portal/thread';
 import { ensureConversation, postChatMessage } from '@/lib/portal/chat/post-message';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({
   client_ref: z.string().uuid(),
@@ -47,6 +48,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 // grant-only contacts included. 20 messages per 10 minutes and 200 a day per person (counted in
 // the database); past that, 429 with the plain-words limit message.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

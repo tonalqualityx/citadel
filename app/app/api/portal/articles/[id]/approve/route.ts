@@ -7,6 +7,7 @@ import {
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
   loadActionableArticle,
 } from '@/lib/articles/portal-actions';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal/articles/:id/approve
 // Client signs off on the article from the C4 review screen. Records client_approved_at +
@@ -21,6 +22,8 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const { id } = await params;

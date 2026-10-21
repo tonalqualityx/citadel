@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { runSweep } from '@/lib/portal/chat/sweep';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal-chat/sweep (portal phase C, slice C4; bot)
 // The runner calls this every 60 seconds. Sends the away email for conversations that went quiet
@@ -11,6 +12,8 @@ import { runSweep } from '@/lib/portal/chat/sweep';
 const bodySchema = z.object({ conversation_ids: z.array(z.string().uuid()).max(200).optional(), created_after: z.string().datetime().optional() }).strict();
 
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);

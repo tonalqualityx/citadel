@@ -86,6 +86,7 @@ export function IntakeSummary(p: SummaryProps) {
         )}
         <div className="actions">
           <PortalButton
+            writes
             icon={Send}
             busy={p.sending}
             busyLabel="Sending…"

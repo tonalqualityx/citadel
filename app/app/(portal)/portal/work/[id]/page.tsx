@@ -169,10 +169,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             {work.can_act ? (
               <>
                 <div className="actions">
-                  <PortalButton busy={busy} busyLabel="Working…" onClick={() => act('approve')}>
+                  <PortalButton writes busy={busy} busyLabel="Working…" onClick={() => act('approve')}>
                     Approve
                   </PortalButton>
-                  <PortalButton variant="secondary" disabled={busy} onClick={() => setShowChanges((v) => !v)} aria-expanded={showChanges}>
+                  <PortalButton writes variant="secondary" disabled={busy} onClick={() => setShowChanges((v) => !v)} aria-expanded={showChanges}>
                     Something&apos;s not right
                   </PortalButton>
                 </div>
@@ -182,7 +182,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                       <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
                     </Field>
                     <div className="actions">
-                      <PortalButton disabled={busy} onClick={() => act('request-changes')}>
+                      <PortalButton writes disabled={busy} onClick={() => act('request-changes')}>
                         Send back for changes
                       </PortalButton>
                     </div>

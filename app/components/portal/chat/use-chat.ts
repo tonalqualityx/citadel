@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, ChatPayload } from './types';
+import { useViewAs } from '../view-as-context';
 
 // The chat's data: the polled view, the merged messages, sending and confirming. Polls every 3
 // seconds while the assistant is writing (and for two minutes after a send), every 30 otherwise,
@@ -48,6 +49,8 @@ export async function errorText(res: Response): Promise<{ code: string | null; t
 }
 
 export function useChat(src: ChatSource) {
+  // In an admin's read-only view nothing is sent, confirmed or pinged.
+  const viewAs = useViewAs();
   const [convId, setConvId] = useState<string | null>(src.conversationId);
   const [payload, setPayload] = useState<ChatPayload | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -168,6 +171,7 @@ export function useChat(src: ChatSource) {
 
   const send = useCallback(
     async (input: { text?: string; choice?: { slot: string; id: string }; attachmentIds?: string[] }): Promise<boolean> => {
+      if (viewAs) return false;
       setSending(true);
       setSendError(null);
       const ref = refText.current || (refText.current = crypto.randomUUID());
@@ -220,12 +224,12 @@ export function useChat(src: ChatSource) {
         setSending(false);
       }
     },
-    [convId, afterSend]
+    [convId, afterSend, viewAs]
   );
 
   const confirm = useCallback(
     async (version: number, projectId: string | null) => {
-      if (!convId) return;
+      if (!convId || viewAs) return;
       setConfirming(true);
       setConfirmError(null);
       try {
@@ -257,7 +261,7 @@ export function useChat(src: ChatSource) {
         setConfirming(false);
       }
     },
-    [convId]
+    [convId, viewAs]
   );
 
   const writing = (payload?.writing ?? false) || localWriting;
@@ -271,9 +275,10 @@ export function useChat(src: ChatSource) {
 // Presence (spec 7.1): visible every 30 seconds, typing at most every 10, hidden on the way out
 // (sendBeacon, so it survives the page closing).
 export function usePresence(conversationId: string | null) {
+  const viewAs = useViewAs();
   const lastTyping = useRef(0);
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || viewAs) return;
     const url = `/api/portal/chat/${conversationId}/presence`;
     const post = (state: 'visible' | 'typing' | 'hidden') => {
       void fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }), keepalive: true }).catch(() => {});
@@ -297,10 +302,10 @@ export function usePresence(conversationId: string | null) {
       document.removeEventListener('visibilitychange', vis);
       window.removeEventListener('pagehide', beaconHidden);
     };
-  }, [conversationId]);
+  }, [conversationId, viewAs]);
 
   return useCallback(() => {
-    if (!conversationId) return;
+    if (!conversationId || viewAs) return;
     const now = Date.now();
     if (now - lastTyping.current < 10_000) return;
     lastTyping.current = now;
@@ -310,5 +315,5 @@ export function usePresence(conversationId: string | null) {
       body: JSON.stringify({ state: 'typing' }),
       keepalive: true,
     }).catch(() => {});
-  }, [conversationId]);
+  }, [conversationId, viewAs]);
 }

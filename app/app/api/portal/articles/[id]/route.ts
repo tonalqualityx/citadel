@@ -10,6 +10,7 @@ import {
   loadActionableArticle,
   assertPortalArticleAccess,
 } from '@/lib/articles/portal-actions';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // GET /api/portal/articles/:id
 // Load ONE article for the C4 full-screen review/edit screen, client-scoped and projected.
@@ -86,6 +87,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const { id } = await params;

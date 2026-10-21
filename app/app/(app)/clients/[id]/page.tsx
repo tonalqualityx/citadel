@@ -19,6 +19,7 @@ import {
   InlineSelect,
   ClientSelect,
 } from '@/components/ui/inline-edit';
+import { ViewAsPortalButton } from '@/components/domain/clients/view-as-portal-button';
 import { ClientActivityTab } from '@/components/domain/clients/client-activity-tab';
 import { ClientSitesTab } from '@/components/domain/clients/client-sites-tab';
 import { ClientRetainerTab } from '@/components/domain/clients/client-retainer-tab';
@@ -158,10 +159,13 @@ export default function ClientDetailPage({ params }: Props) {
           </div>
         </div>
         {isAdmin && (
-          <Button variant="destructive" size="sm" onClick={() => setIsDeleteOpen(true)}>
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </Button>
+          <div className="flex items-start gap-3">
+            <ViewAsPortalButton clientId={client.id} clientName={client.name} />
+            <Button variant="destructive" size="sm" onClick={() => setIsDeleteOpen(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </Button>
+          </div>
         )}
       </div>
 

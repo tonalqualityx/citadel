@@ -1,5 +1,9 @@
+'use client';
+
 import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
+import { useViewAs } from '@/components/portal/view-as-context';
+import { VIEW_AS_READ_ONLY_LINE } from '@/lib/portal/view-as-copy';
 
 type Variant = 'primary' | 'secondary' | 'quiet';
 
@@ -10,6 +14,8 @@ type Common = {
   busyLabel?: string;
   children: React.ReactNode;
   className?: string;
+  /** This button changes something (approve, send, save). Switched off, with the read-only line, in an admin's view-as. */
+  writes?: boolean;
 };
 
 // A 44px target. Links and buttons share one look; `href` makes it a link.
@@ -20,7 +26,9 @@ export function PortalButton(
       | ({ href?: undefined } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'className'>)
     ),
 ) {
-  const { variant = 'primary', icon: Icon, busy, busyLabel, children, className, ...rest } = props;
+  const { variant = 'primary', icon: Icon, busy, busyLabel, children, className, writes, ...rest } = props;
+  const viewAs = useViewAs();
+  const readOnly = !!writes && !!viewAs;
   const cls = `btn btn-${variant}${className ? ` ${className}` : ''}`;
   const content = (
     <>
@@ -37,9 +45,18 @@ export function PortalButton(
     );
   }
   const { type = 'button', disabled, ...b } = rest as React.ButtonHTMLAttributes<HTMLButtonElement>;
-  return (
-    <button type={type} className={cls} disabled={disabled || busy} aria-busy={busy || undefined} {...b}>
+  const button = (
+    <button type={type} className={cls} disabled={disabled || busy || readOnly} aria-busy={busy || undefined} {...b}>
       {content}
     </button>
+  );
+  if (!readOnly) return button;
+  return (
+    <>
+      {button}
+      <span className="note" role="note" data-view-as-note>
+        {VIEW_AS_READ_ONLY_LINE}
+      </span>
+    </>
   );
 }

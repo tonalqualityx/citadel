@@ -218,7 +218,7 @@ export default function ClientProjectPage() {
                         View preview
                       </ActionLink>
                     ) : null}
-                    <PortalButton variant="primary" icon={Check} busy={busyId === a.id} busyLabel="Approving…" onClick={() => approve(a.id)}>
+                    <PortalButton writes variant="primary" icon={Check} busy={busyId === a.id} busyLabel="Approving…" onClick={() => approve(a.id)}>
                       Approve
                     </PortalButton>
                   </>

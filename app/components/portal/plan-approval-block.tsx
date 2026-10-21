@@ -51,7 +51,7 @@ export function PlanApprovalBlock({ plan, monthName, onChanged }: { plan: PlanRe
           <FileText className="i" aria-hidden="true" focusable="false" />
           Open the plan
         </a>
-        <PortalButton variant="primary" icon={Check} busy={busy} busyLabel="Approving…" onClick={approve}>
+        <PortalButton writes variant="primary" icon={Check} busy={busy} busyLabel="Approving…" onClick={approve}>
           Approve the plan
         </PortalButton>
         <PortalButton variant="quiet" href={plan.book_href || BOOK}>

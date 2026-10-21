@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logPortalSession, getClientIp } from '@/lib/services/portal';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const respondSchema = z.object({
   response: z.enum(['accepted', 'rejected', 'changes_requested']),
@@ -35,6 +36,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const { token } = await params;
     const addendum = await validateAddendumToken(token);

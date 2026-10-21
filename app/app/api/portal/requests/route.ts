@@ -8,6 +8,7 @@ import { loadPortalAccess } from '@/lib/portal/access';
 import { fileRequest } from '@/lib/portal/intake/file-request';
 import { INTAKE_TYPES } from '@/lib/portal/intake/tree';
 import { loadRequests, MAX_CLOSED_DAYS } from '@/lib/portal/requests';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({
   intake_id: z.string().uuid(),
@@ -30,6 +31,8 @@ const bodySchema = z.object({
 // File a request as one Citadel task. 201 with the task when new; 200 with the same task when the
 // intake_id was already filed (nothing changes). Out of scope ids return 404, never 403.
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     // Per-IP guard on top of the per-person database limits, the same as the GETs.
     const limited = rateLimit(request, 120);

@@ -7,6 +7,7 @@ import { ChatBubble } from '@/components/portal/intake/chat-bubble';
 import { PortalButton } from '@/components/portal/ui/button';
 import { EmptyState } from '@/components/portal/ui/empty-state';
 import { Field } from '@/components/portal/ui/field';
+import { useViewAs } from '@/components/portal/view-as-context';
 import { Skeleton } from '@/components/portal/ui/skeleton';
 
 // The conversation on a work page (portal phase B slice 2, spec 3.1). Oldest first, with the
@@ -53,6 +54,7 @@ function Linked({ text }: { text: string }) {
 }
 
 export function Thread({ taskId, onAuthLost }: { taskId: string; onAuthLost?: () => void }) {
+  const viewAs = useViewAs();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState('');
@@ -103,7 +105,7 @@ export function Thread({ taskId, onAuthLost }: { taskId: string; onAuthLost?: ()
   async function send(e: React.FormEvent) {
     e.preventDefault();
     const body = text.trim();
-    if (!body || sending) return;
+    if (!body || sending || viewAs) return;
     setSending(true);
     setError(null);
     try {
@@ -182,10 +184,10 @@ export function Thread({ taskId, onAuthLost }: { taskId: string; onAuthLost?: ()
 
       <form onSubmit={send} className="composer">
         <Field id="thread-message" label="Add a message" hint="Your message goes to the team working on this." error={error}>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={4000} />
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={4000} readOnly={!!viewAs} />
         </Field>
         <div className="actions">
-          <PortalButton type="submit" icon={SendIcon} busy={sending} busyLabel="Sending…" disabled={text.trim().length === 0}>
+          <PortalButton writes type="submit" icon={SendIcon} busy={sending} busyLabel="Sending…" disabled={text.trim().length === 0}>
             Send
           </PortalButton>
         </div>

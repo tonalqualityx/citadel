@@ -19,6 +19,8 @@ import { GET, POST } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
 import { loadThread, postClientMessage } from '@/lib/portal/thread';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 const ID = '33333333-3333-4333-8333-333333333333';
 const REF = '44444444-4444-4444-8444-444444444444';

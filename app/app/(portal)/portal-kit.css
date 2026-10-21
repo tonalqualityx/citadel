@@ -519,3 +519,16 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .kbd-hint { display: none; }
 @media (hover: hover) and (pointer: fine) { [data-portal] .kbd-hint { display: block; } }
 [data-portal] .carried { margin-bottom: 16px; }
+
+/* View as client (admin, read-only). The banner sits above the shell and stays in view; the sticky
+   bars below it start under it via --va-h. Colors reuse the attention chip pair. */
+[data-portal] { --va-h: 0px; }
+[data-portal]:has([data-view-as-banner]) { --va-h: 48px; }
+.va-banner { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; padding: 6px 16px; background: var(--p-chip-attention-bg); color: var(--p-chip-attention-fg); border-bottom: 2px solid var(--p-chip-attention-fg); font-size: var(--pk-fs-small); font-weight: 700; }
+.va-banner .va-text { min-width: 0; overflow-wrap: anywhere; }
+.va-banner .va-exit { min-height: 36px; padding: 0 14px; border-radius: var(--p-radius); border: 2px solid var(--p-chip-attention-fg); background: var(--p-surface); color: var(--p-chip-attention-fg); font-weight: 700; cursor: pointer; }
+.va-banner .va-exit:disabled { opacity: .6; cursor: default; }
+[data-portal] .topbar { top: calc(env(safe-area-inset-top, 0px) + var(--va-h)); }
+@media (min-width: 960px) {
+  [data-portal] .side-in { top: var(--va-h); height: calc(100vh - var(--va-h)); }
+}

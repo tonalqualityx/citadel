@@ -6,6 +6,10 @@ vi.mock('@/lib/auth/middleware', async () => {
   return { ...actual, requireAuth: vi.fn() };
 });
 
+// The write guard reads the portal cookie; a direct handler call has no request scope, so give it an empty jar
+// (no portal cookie, nothing to refuse). The view-as tests cover the guard itself.
+vi.mock('next/headers', () => ({ cookies: vi.fn(async () => ({ get: () => undefined })), headers: vi.fn(async () => new Headers()) }));
+
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';

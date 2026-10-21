@@ -8,6 +8,7 @@ import { loadPortalAccess } from '@/lib/portal/access';
 import { MESSAGE_MAX_CHARS } from '@/lib/portal/thread';
 import { startChat } from '@/lib/portal/chat/file-early';
 import { chatAvailability } from '@/lib/portal/chat/switches';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({
   intake_id: z.string().uuid(),
@@ -26,6 +27,8 @@ const STEPPER_REASONS = new Set(['mode_off', 'not_pilot', 'site_off']);
 // then queues a reply job (or runs the question tree). 201 { conversation_id, task_id, mode } when
 // new, 200 on a repeat. 409 chat_unavailable when the switches are off for this contact.
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const limited = rateLimit(request, 120);
     if (limited) return limited;

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logPortalSession, getClientIp } from '@/lib/services/portal';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // GET /api/portal/onboard/:token - View onboarding info (public, no auth)
 export async function GET(
@@ -82,6 +83,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const { token } = await params;
 

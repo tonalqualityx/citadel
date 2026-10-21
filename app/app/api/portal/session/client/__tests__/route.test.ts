@@ -25,6 +25,8 @@ import { GET } from '../../../clients/route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
 import { FakePortalDb } from '@/lib/portal/__tests__/fake-portal-db';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 const db = new FakePortalDb();
 const mockAuth = requireClientAuth as Mock;

@@ -8,6 +8,7 @@ import {
   logPortalSession,
   getClientIp,
 } from '@/lib/services/portal';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal/tasks/:token/approve - Client approves the staged work. Public, token-gated.
 // Sets client_approved_at + approved_by_contact_id. For staged client sites
@@ -19,6 +20,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const { token } = await params;
     const task = await validateTaskToken(token);

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CLIENT_SESSION_COOKIE, revokeClientSession } from '@/lib/services/client-auth';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal/logout
 // Revokes the current session server-side (so a copied cookie stops working) and clears the
 // cookie. Always 200: logging out when already logged out is not an error.
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   const token = request.cookies.get(CLIENT_SESSION_COOKIE)?.value;
   if (token) {
     try {

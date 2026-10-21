@@ -33,6 +33,7 @@ import {
   type AccessibleClient,
   type PortalRole,
 } from '@/lib/portal/access';
+import { VIEW_AS_ACTION, VIEW_AS_TTL_MS, readViewAsMetadata, type ViewAsInfo } from '@/lib/portal/view-as';
 
 export const CLIENT_SESSION_COOKIE = 'client_session';
 /** Short-lived, non-httpOnly flag set when a revoked active client was swapped; read once by the header. */
@@ -71,6 +72,8 @@ export interface ClientSession extends ClientIdentity {
   contactIds: string[];
   /** True when this request found the active client revoked and moved the session to another. */
   moved: boolean;
+  /** Set only for a read-only admin "view as client" session: who is looking and as which role. */
+  viewAs?: ViewAsInfo;
 }
 
 /** Cryptographically secure 128-hex-char token (matches the portal token convention). */
@@ -363,6 +366,8 @@ interface ActiveSessionRow {
   expires_at: Date;
   created_at: Date;
   revoked_at?: Date | null;
+  /** Present only on an admin view-as session (action 'view_as'). */
+  viewAs?: ViewAsInfo;
 }
 
 /**
@@ -386,12 +391,18 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
       expires_at: true,
       created_at: true,
       revoked_at: true,
+      action: true,
+      metadata: true,
     },
   });
 
   if (!row || !row.contact_id || !row.expires_at) return null;
   if (row.revoked_at) return null;
   if (row.expires_at < new Date()) return null;
+
+  if (row.action === VIEW_AS_ACTION) {
+    return findActiveViewAsRow({ ...row, contact_id: row.contact_id, expires_at: row.expires_at });
+  }
 
   // Revoke on contact delete or role none (spec decision 13): a live session row is not enough,
   // the contact behind it must still exist and hold a portal role. Checked on every request so
@@ -404,6 +415,43 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
   if (!contact) return null;
 
   return { ...row, contact_id: row.contact_id, expires_at: row.expires_at, email: contact.email } as ActiveSessionRow;
+}
+
+/**
+ * A view-as row is live only while ALL of these hold: the marker in metadata is well formed, the
+ * row is younger than the fixed 30 minutes (whatever its expires_at says), the admin it names is
+ * still an active admin, the client is not deleted and the contact it is attributed to is not
+ * deleted. It never slides.
+ */
+async function findActiveViewAsRow(row: {
+  id: string;
+  entity_id: string;
+  contact_id: string;
+  expires_at: Date;
+  created_at: Date;
+  metadata: unknown;
+}): Promise<ActiveSessionRow | null> {
+  const viewAs = readViewAsMetadata(row.metadata);
+  if (!viewAs) return null;
+  if (Date.now() - row.created_at.getTime() > VIEW_AS_TTL_MS) return null;
+  const [admin, contact, client] = await Promise.all([
+    prisma.user.findFirst({ where: { id: viewAs.adminUserId, is_active: true, role: 'admin' }, select: { id: true } }),
+    prisma.clientContact.findFirst({
+      where: { id: row.contact_id, client_id: row.entity_id, is_deleted: false },
+      select: { email: true },
+    }),
+    prisma.client.findFirst({ where: { id: row.entity_id, is_deleted: false }, select: { id: true } }),
+  ]);
+  if (!admin || !contact || !client) return null;
+  return {
+    id: row.id,
+    entity_id: row.entity_id,
+    contact_id: row.contact_id,
+    email: contact.email,
+    expires_at: row.expires_at,
+    created_at: row.created_at,
+    viewAs,
+  };
 }
 
 /**
@@ -479,6 +527,20 @@ export async function requireClientAuth(): Promise<ClientSession> {
     throw new AuthError('Invalid or expired session', 401);
   }
 
+  // A view-as session is pinned to one client and one role, reads only, and never moves or slides.
+  if (row.viewAs) {
+    return {
+      clientId: row.entity_id,
+      contactId: row.contact_id,
+      role: row.viewAs.role,
+      email: row.email,
+      sessionId: row.id,
+      contactIds: [row.contact_id],
+      moved: false,
+      viewAs: row.viewAs,
+    };
+  }
+
   // The active client lives on the session row and is re-checked here on every request against
   // the person's current access. If it was revoked (contact deleted, role none, grant removed),
   // fall back to the first client they can still reach; with none left the session is dead.
@@ -524,6 +586,7 @@ export async function requireClientAuth(): Promise<ClientSession> {
  * entry switched to.
  */
 export async function switchActiveClient(session: ClientSession, targetClientId: string): Promise<AccessibleClient> {
+  if (session.viewAs) throw new AuthError('Forbidden', 403);
   const accessible = await resolveAccessibleClients(session.email);
   const target = accessible.find((c) => c.clientId === targetClientId);
   if (!target) {
