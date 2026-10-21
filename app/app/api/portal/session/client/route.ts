@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { handleApiError } from '@/lib/api/errors';
 import { rejectCrossSiteRequest } from '@/lib/api/same-origin-guard';
 import { requireClientAuth, switchActiveClient } from '@/lib/services/client-auth';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({ client_id: z.string().min(1).max(64) });
 
@@ -10,6 +11,8 @@ const bodySchema = z.object({ client_id: z.string().min(1).max(64) });
 // Switch the session's active client. 401 without a session; 403 when the target is not in the
 // person's current accessible list (re-resolved server-side, never trusted from the browser).
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   const rejected = rejectCrossSiteRequest(request);
   if (rejected) return rejected;
   try {

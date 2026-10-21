@@ -200,4 +200,19 @@ export const clientEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/clients/{id}/view-as',
+    group: 'clients',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          "Admin only, from a signed-in Citadel browser session (API keys are refused). Start a READ-ONLY, 30 minute view of this client's portal as a contact with the chosen role (owner by default). Sets the portal session cookie on the response; the token is never in the body. The view is bound to this admin, this client and the role, cannot be extended, and every write route under /api/portal and /api/portal-chat answers 403 to it. The start is written to the client's activity log (action view_as_started) before any session exists. 409 when the client has no contacts. The admin's Citadel session is untouched.",
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [{ name: 'role', type: 'string', required: false, description: 'owner (default) | member | viewer' }],
+        responseExample: { url: '/portal/home', client_name: 'string', role: 'owner|member|viewer', expires_at: 'ISO-8601' },
+      },
+    ],
+  },
 ];

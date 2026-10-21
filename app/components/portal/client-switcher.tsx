@@ -11,6 +11,8 @@ export interface PortalSession {
   name: string;
   canSwitch: boolean;
   moved: boolean;
+  /** Set while an admin is viewing this client's portal read-only. */
+  viewAs: { clientName: string; role: string } | null;
 }
 
 const MOVED_COOKIE = 'portal_client_moved';
@@ -31,7 +33,7 @@ function readAndClearMovedFlag(): boolean {
  * true so the shell can say so in one line. Fails quietly: no name is better than a broken page.
  */
 export function usePortalSession(enabled: boolean, pathname: string): PortalSession {
-  const [state, setState] = useState<PortalSession>({ loaded: false, settled: false, name: '', canSwitch: false, moved: false });
+  const [state, setState] = useState<PortalSession>({ loaded: false, settled: false, name: '', canSwitch: false, moved: false, viewAs: null });
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
@@ -42,10 +44,15 @@ export function usePortalSession(enabled: boolean, pathname: string): PortalSess
           if (!cancelled) setState((prev) => ({ ...prev, settled: true }));
           return;
         }
-        const body: { active_client_id: string; moved?: boolean; clients: Array<{ id: string; name: string }> } = await res.json();
+        const body: {
+          active_client_id: string;
+          moved?: boolean;
+          clients: Array<{ id: string; name: string }>;
+          view_as?: { client_name: string; role: string };
+        } = await res.json();
         if (cancelled) return;
         const name = body.clients.find((c) => c.id === body.active_client_id)?.name ?? '';
-        setState((prev) => ({ loaded: true, settled: true, name, canSwitch: body.clients.length >= 2, moved: prev.moved || readAndClearMovedFlag() || !!body.moved }));
+        setState((prev) => ({ loaded: true, settled: true, name, canSwitch: body.clients.length >= 2, moved: prev.moved || readAndClearMovedFlag() || !!body.moved, viewAs: body.view_as ? { clientName: body.view_as.client_name, role: body.view_as.role } : null }));
       } catch {
         if (!cancelled) setState((prev) => ({ ...prev, settled: true }));
       }

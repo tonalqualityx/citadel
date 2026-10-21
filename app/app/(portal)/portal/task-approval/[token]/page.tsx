@@ -244,7 +244,7 @@ export default function TaskApprovalPortalPage() {
 
       <Callout id="ta-actions" tone="attention" icon={MessageSquareMore} title="What would you like to do?">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-          <PortalButton
+          <PortalButton writes
             onClick={() => {
               setPendingAction('approve');
               setActionError(null);
@@ -257,7 +257,7 @@ export default function TaskApprovalPortalPage() {
               To ask for changes, sign in to the portal or reply to the email.
             </p>
           ) : (
-            <PortalButton
+            <PortalButton writes
               variant="secondary"
               onClick={() => {
                 setPendingAction('changes');
@@ -267,7 +267,7 @@ export default function TaskApprovalPortalPage() {
               Something is not right
             </PortalButton>
           )}
-          <PortalButton
+          <PortalButton writes
             variant="secondary"
             onClick={() => {
               setPendingAction('new_task');
@@ -282,7 +282,7 @@ export default function TaskApprovalPortalPage() {
           <div className="card">
             <p>Approve this work? This confirms you are happy with it and lets us finalise.</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              <PortalButton onClick={handleApprove} busy={submitting} busyLabel="Approving">
+              <PortalButton writes onClick={handleApprove} busy={submitting} busyLabel="Approving">
                 Confirm approval
               </PortalButton>
               {cancel}
@@ -301,7 +301,7 @@ export default function TaskApprovalPortalPage() {
               />
             </Field>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              <PortalButton onClick={handleRequestChanges} busy={submitting} busyLabel="Sending">
+              <PortalButton writes onClick={handleRequestChanges} busy={submitting} busyLabel="Sending">
                 Send back for changes
               </PortalButton>
               {cancel}
@@ -340,7 +340,7 @@ export default function TaskApprovalPortalPage() {
               </Field>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              <PortalButton onClick={handleNewTask} busy={submitting} busyLabel="Sending">
+              <PortalButton writes onClick={handleNewTask} busy={submitting} busyLabel="Sending">
                 Submit request
               </PortalButton>
               {cancel}

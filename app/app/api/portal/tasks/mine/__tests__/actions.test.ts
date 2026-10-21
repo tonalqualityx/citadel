@@ -29,6 +29,8 @@ import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import { taskAccessWhere } from '@/lib/portal/access';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 // A task a contact requested and that is staged for approval — the only kind a session may act on.
 const STAGED = {

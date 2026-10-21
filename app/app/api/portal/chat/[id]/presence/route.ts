@@ -5,12 +5,15 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { threadTaskWhere } from '@/lib/portal/thread';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({ state: z.enum(['visible', 'typing', 'hidden']) });
 
 // POST /api/portal/chat/:id/presence { state } (portal phase C)
 // last_seen_at / last_typing_at / page_hidden_at, read by the walk-away sweep (slice C4).
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

@@ -9,6 +9,8 @@ vi.mock('@/lib/services/client-auth', () => ({
 import { POST } from '../route';
 import { revokeClientSession } from '@/lib/services/client-auth';
 import type { Mock } from 'vitest';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 const mockRevoke = revokeClientSession as Mock;
 

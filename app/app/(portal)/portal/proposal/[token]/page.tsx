@@ -306,17 +306,17 @@ export default function ProposalPortalPage() {
             />
           </Field>
           <div className="actions">
-            <PortalButton
+            <PortalButton writes
               variant="secondary"
               onClick={() => handleRespond('changes_requested')}
               disabled={responding}
             >
               Request changes
             </PortalButton>
-            <PortalButton variant="secondary" onClick={() => handleRespond('reject')} disabled={responding}>
+            <PortalButton writes variant="secondary" onClick={() => handleRespond('reject')} disabled={responding}>
               Decline
             </PortalButton>
-            <PortalButton variant="primary" onClick={() => handleRespond('accept')} disabled={responding}>
+            <PortalButton writes variant="primary" onClick={() => handleRespond('accept')} disabled={responding}>
               Accept proposal
             </PortalButton>
           </div>

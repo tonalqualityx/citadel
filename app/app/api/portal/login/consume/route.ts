@@ -9,6 +9,7 @@ import {
   CLIENT_SESSION_COOKIE,
   SESSION_TTL_DAYS,
 } from '@/lib/services/client-auth';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // Sourced from client-auth.ts so the cookie's maxAge can never drift from the DB row's expires_at.
 const SESSION_MAX_AGE_SECONDS = SESSION_TTL_DAYS * 24 * 60 * 60;
@@ -22,6 +23,8 @@ const consumeSchema = z.object({
 // Valid -> sets the httpOnly client_session cookie and returns { redirect: '/portal/home' }, or '/portal/select' for two or more clients.
 // Unknown, used, or expired -> 401 { error } and no cookie.
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   const rateLimitResponse = authRateLimit(request);
   if (rateLimitResponse) return rateLimitResponse;
 

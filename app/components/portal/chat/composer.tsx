@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { Paperclip, Send as SendIcon, TriangleAlert, Upload } from 'lucide-react';
 import { PortalButton } from '@/components/portal/ui/button';
 import { Field } from '@/components/portal/ui/field';
+import { useViewAs } from '@/components/portal/view-as-context';
 import { AttachmentChip } from './attachment-chip';
 import type { Draft } from './types';
 
@@ -37,11 +38,13 @@ export function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const anyBusy = drafts.some((d) => !d.id && !d.error);
-  const canSend = !disabled && !sending && !anyBusy && (value.trim().length > 0 || drafts.some((d) => d.id));
+  const viewAs = useViewAs();
+  const canSend = !viewAs && !disabled && !sending && !anyBusy && (value.trim().length > 0 || drafts.some((d) => d.id));
 
   function drop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
+    if (viewAs) return;
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length) onFiles(files);
   }
@@ -86,7 +89,7 @@ export function Composer({
           value={value}
           rows={3}
           maxLength={4000}
-          disabled={disabled}
+          disabled={disabled || !!viewAs}
           onChange={(e) => {
             onChange(e.target.value);
             onTyping();
@@ -117,10 +120,10 @@ export function Composer({
             e.target.value = '';
           }}
         />
-        <PortalButton variant="quiet" icon={Paperclip} onClick={() => fileInput.current?.click()} disabled={disabled}>
+        <PortalButton writes variant="quiet" icon={Paperclip} onClick={() => fileInput.current?.click()} disabled={disabled}>
           Attach a file
         </PortalButton>
-        <PortalButton type="submit" icon={SendIcon} busy={sending} busyLabel="Sending…" disabled={!canSend}>
+        <PortalButton writes type="submit" icon={SendIcon} busy={sending} busyLabel="Sending…" disabled={!canSend}>
           Send
         </PortalButton>
       </div>

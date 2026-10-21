@@ -9,7 +9,8 @@ export type ActivityAction =
   | 'assigned'
   | 'unassigned'
   | 'completed'
-  | 'commented';
+  | 'commented'
+  | 'view_as_started';
 
 export type EntityType = 'task' | 'project' | 'client' | 'client_contact' | 'site' | 'sop' | 'comment' | 'api_key' | 'meeting' | 'troubador_run' | 'troubador_schedule' | 'article' | 'brand_profile' | 'project_note' | 'blocker_dismissal';
 

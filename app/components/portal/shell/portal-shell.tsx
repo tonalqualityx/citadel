@@ -10,6 +10,8 @@ import { HelpLine } from './help-line';
 import { MoreSheet } from './more-sheet';
 import { ThemeControl } from './theme-control';
 import { Wordmark } from './wordmark';
+import { ViewAsBanner, exitViewAs } from '../view-as-banner';
+import { ViewAsProvider } from '../view-as-context';
 
 const PHONE_SLOTS = new Set<NavKey>(['home', 'projects', 'retainer', 'requests']);
 
@@ -34,6 +36,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const active = activeKey(pathname);
 
   async function signOut() {
+    // In a read-only view "Sign out" means Exit view: the view ends and the admin goes back to Citadel.
+    if (session.viewAs) return exitViewAs();
     try {
       await fetch('/api/portal/logout', { method: 'POST' });
     } finally {
@@ -48,7 +52,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   // parts are hidden (not absent) until then, and the content subtree has no key and never moves,
   // so a half-typed note or signature survives the reveal.
   return (
-    <div className={`shell${bare ? ' shell-bare' : ''}${pending ? ' shell-pending' : ''}`}>
+    <ViewAsProvider value={session.viewAs}>
+    {session.viewAs ? <ViewAsBanner viewAs={session.viewAs} /> : null}
+    <div className={`shell${bare ? ' shell-bare' : ''}${pending ? ' shell-pending' : ''}`} data-view-as={session.viewAs ? 'true' : undefined}>
       <aside className="sidebar" aria-label="Portal" data-nav-zone hidden={bare} aria-hidden={pending || undefined} inert={pending || undefined}>
         <div className="side-in">
           <Wordmark />
@@ -122,5 +128,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <MoreSheet open={moreOpen && !bare} onClose={() => setMoreOpen(false)} canSwitch={session.canSwitch} onSignOut={signOut} returnFocusTo={moreBtn} />
       </div>
     </div>
+    </ViewAsProvider>
   );
 }

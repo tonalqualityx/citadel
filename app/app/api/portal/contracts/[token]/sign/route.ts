@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { validateContractToken, logPortalSession, getClientIp } from '@/lib/services/portal';
 import { runSignatureKickoffAutomation } from '@/lib/services/kickoff';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const signSchema = z.object({
   signer_name: z.string().min(1, 'Signer name is required'),
@@ -15,6 +16,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const { token } = await params;
     const contract = await validateContractToken(token);

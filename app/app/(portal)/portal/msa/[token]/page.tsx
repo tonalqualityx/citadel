@@ -181,7 +181,7 @@ export default function MsaPortalPage() {
               />
             </Field>
             <div className="actions">
-              <PortalButton
+              <PortalButton writes
                 type="submit"
                 variant="primary"
                 disabled={signing || !signerName || !signerEmail}

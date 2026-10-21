@@ -400,6 +400,7 @@ export default function ClientHomePage() {
                 actions={
                   <>
                     <PortalButton
+                      writes
                       icon={Check}
                       busy={submittingId === task.id}
                       busyLabel="Approving…"
@@ -419,6 +420,7 @@ export default function ClientHomePage() {
                       </PortalButton>
                     ) : null}
                     <PortalButton
+                      writes
                       variant="quiet"
                       disabled={submittingId === task.id}
                       aria-expanded={openChangesFor === task.id}
@@ -522,6 +524,7 @@ export default function ClientHomePage() {
               </Field>
               <div className="actions">
                 <PortalButton
+                  writes
                   busy={submittingId === openChangesFor}
                   busyLabel="Sending…"
                   onClick={() => handleRequestChanges(openChangesFor)}

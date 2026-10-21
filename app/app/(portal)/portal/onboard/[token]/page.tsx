@@ -179,7 +179,7 @@ export default function OnboardPortalPage() {
           <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" />
         </Field>
         <div className="actions">
-          <PortalButton
+          <PortalButton writes
             variant="primary"
             onClick={handleSubmit}
             disabled={submitting || !name.trim()}

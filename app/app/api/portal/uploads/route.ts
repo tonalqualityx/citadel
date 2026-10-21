@@ -6,12 +6,15 @@ import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { MAX_FILE_BYTES } from '@/lib/services/uploads';
 import { stageUpload } from '@/lib/portal/chat/upload-service';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal/uploads (multipart: file, intake_id | conversation_id | task_id) (portal phase C)
 // One file, staged under the contact and unbound until a message references it. The type comes from
 // the file's own bytes; SVG, HTML, executables, archives and macro Office are refused. Stored
 // privately. 201 { attachment }.
 export async function POST(request: NextRequest) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const limited = rateLimit(request, 60);
     if (limited) return limited;

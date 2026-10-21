@@ -4,6 +4,7 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { confirmConversation } from '@/lib/portal/chat/confirm';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({ summary_version: z.number().int().min(0), project_id: z.string().uuid().nullish() });
 
@@ -11,6 +12,8 @@ const bodySchema = z.object({ summary_version: z.number().int().min(0), project_
 // "Send to the team": placement, scope gate, tags, retitle, waits and the staff notice, all
 // deterministic. 409 when the summary changed; 422 choose_project when two builds are open.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

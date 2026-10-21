@@ -40,6 +40,8 @@ import {
 } from '@/lib/services/portal';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
+// The view-as guard has its own tests (lib/portal/__tests__/view-as*.test.ts); here it is a pass-through.
+vi.mock('@/lib/portal/view-as-guard', () => ({ refuseIfViewAs: vi.fn(async () => null) }));
 
 const mockValidateTaskToken = validateTaskToken as Mock;
 const mockLogPortalSession = logPortalSession as Mock;

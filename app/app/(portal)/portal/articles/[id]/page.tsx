@@ -241,7 +241,7 @@ export default function ClientArticleReviewPage() {
               placeholder="The article body will appear here."
             />
             <div className="actions">
-              <PortalButton onClick={handleSave} disabled={!isDirty || submitting !== null} busy={submitting === 'save'} busyLabel="Saving">
+              <PortalButton writes onClick={handleSave} disabled={!isDirty || submitting !== null} busy={submitting === 'save'} busyLabel="Saving">
                 Save edits
               </PortalButton>
               <PortalButton
@@ -312,14 +312,14 @@ export default function ClientArticleReviewPage() {
       ) : (
         <Callout tone="attention" icon={PenLine} title="What would you like to do?" id="article-actions">
           <div className="actions">
-            <PortalButton onClick={() => setPendingAction(pendingAction === 'approve' ? null : 'approve')} disabled={submitting !== null}>
+            <PortalButton writes onClick={() => setPendingAction(pendingAction === 'approve' ? null : 'approve')} disabled={submitting !== null}>
               Approve
             </PortalButton>
-            <PortalButton variant="secondary" onClick={() => setPendingAction(pendingAction === 'changes' ? null : 'changes')} disabled={submitting !== null}>
+            <PortalButton writes variant="secondary" onClick={() => setPendingAction(pendingAction === 'changes' ? null : 'changes')} disabled={submitting !== null}>
               Request changes
             </PortalButton>
             {!editing && (
-              <PortalButton variant="quiet" onClick={() => setEditing(true)} disabled={submitting !== null}>
+              <PortalButton writes variant="quiet" onClick={() => setEditing(true)} disabled={submitting !== null}>
                 Edit the text
               </PortalButton>
             )}
@@ -329,7 +329,7 @@ export default function ClientArticleReviewPage() {
             <div className="card">
               <p>Approve this article? This confirms you’re happy with it, including any edits you’ve made.</p>
               <div className="actions">
-                <PortalButton onClick={handleApprove} disabled={submitting !== null} busy={submitting === 'approve'} busyLabel="Approving">
+                <PortalButton writes onClick={handleApprove} disabled={submitting !== null} busy={submitting === 'approve'} busyLabel="Approving">
                   Confirm approval
                 </PortalButton>
               </div>
@@ -347,7 +347,7 @@ export default function ClientArticleReviewPage() {
                 />
               </Field>
               <div className="actions">
-                <PortalButton onClick={handleRequestChanges} disabled={submitting !== null || !changesNote.trim()} busy={submitting === 'changes'} busyLabel="Sending">
+                <PortalButton writes onClick={handleRequestChanges} disabled={submitting !== null || !changesNote.trim()} busy={submitting === 'changes'} busyLabel="Sending">
                   Send back for changes
                 </PortalButton>
               </div>

@@ -11,6 +11,7 @@ import {
   VISIBILITY_SELECT,
 } from '@/lib/portal/visibility';
 import { recordTaskClientApproval, logPortalSession, getClientIp } from '@/lib/services/portal';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 // POST /api/portal/tasks/mine/:id/approve (Portal v2 phase 1)
 // Session-scoped equivalent of POST /api/portal/tasks/:token/approve. Same mutation
@@ -22,6 +23,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const { id } = await params;

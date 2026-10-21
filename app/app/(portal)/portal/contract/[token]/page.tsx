@@ -327,7 +327,7 @@ export default function ContractPortalPage() {
             />
           </Field>
           <div className="actions">
-            <PortalButton
+            <PortalButton writes
               variant="primary"
               onClick={handleSign}
               disabled={signing || !signerName.trim() || !signerEmail.trim()}

@@ -301,7 +301,7 @@ export default function AddendumPortalPage() {
             />
           </Field>
           <div className="actions">
-            <PortalButton
+            <PortalButton writes
               variant="secondary"
               onClick={() => handleRespond('changes_requested')}
               disabled={submitting}
@@ -310,7 +310,7 @@ export default function AddendumPortalPage() {
             >
               Request changes
             </PortalButton>
-            <PortalButton
+            <PortalButton writes
               variant="secondary"
               onClick={() => handleRespond('rejected')}
               disabled={submitting}
@@ -319,7 +319,7 @@ export default function AddendumPortalPage() {
             >
               Reject
             </PortalButton>
-            <PortalButton
+            <PortalButton writes
               variant="primary"
               onClick={() => handleRespond('accepted')}
               disabled={submitting || !signerName.trim() || !signerEmail.trim()}

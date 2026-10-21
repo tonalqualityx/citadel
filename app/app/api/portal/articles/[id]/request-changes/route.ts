@@ -7,6 +7,7 @@ import {
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
   loadActionableArticle,
 } from '@/lib/articles/portal-actions';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const requestChangesSchema = z.object({
   note: z.string().min(1, 'Please describe what needs changing').max(5000),
@@ -26,6 +27,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const session = await requireClientAuth();
     const { id } = await params;

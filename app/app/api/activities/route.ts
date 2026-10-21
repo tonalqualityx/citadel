@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const entityType = searchParams.get('entity_type');
     const entityId = searchParams.get('entity_id');
     const userId = searchParams.get('user_id');
+    const action = searchParams.get('action');
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
@@ -31,6 +32,10 @@ export async function GET(request: NextRequest) {
     // (Access control on entity level is sufficient)
     if (userId) {
       where.user_id = userId;
+    }
+
+    if (action) {
+      where.action = action;
     }
 
     const [activities, total] = await Promise.all([

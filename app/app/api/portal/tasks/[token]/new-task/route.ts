@@ -10,6 +10,7 @@ import {
   logPortalSession,
   getClientIp,
 } from '@/lib/services/portal';
+import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const newTaskSchema = z.object({
   title: z.string().min(1).max(500),
@@ -25,6 +26,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const viewAsRefusal = await refuseIfViewAs();
+  if (viewAsRefusal) return viewAsRefusal;
   try {
     const { token } = await params;
     const task = await validateTaskToken(token);
