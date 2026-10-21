@@ -575,6 +575,10 @@ model Client {
   hourly_rate         Decimal?          @db.Decimal(10, 2)
   retainer_usage_mode RetainerUsageMode @default(medium)
 
+  // QuickBooks Online customer id (the billing source of truth). Set by the invoice sync mapper
+  // for exact name matches only; null means "no QuickBooks mapping yet".
+  qbo_customer_id String? @db.VarChar(64)
+
   // Relationships
   parent_agency_id String?  @db.Uuid
   parent_agency    Client?  @relation("AgencySubClients", fields: [parent_agency_id], references: [id])
@@ -604,6 +608,7 @@ model Client {
   arcs                  Arc[]
   scheduled_invoices    ScheduledInvoice[]
   email_asks            EmailAsk[]
+  invoices              ClientInvoice[]
 
   // Wait record phase 1 (back-relations)
   waits Wait[]
@@ -3637,4 +3642,25 @@ model EmailOutbox {
 
   @@index([sent_at, created_at])
   @@map("email_outbox")
+}
+
+// QuickBooks invoice mirror (read-only copy, synced by ~/.claude/tools/qbo-bridge/sync_invoices.py
+// through POST /api/clients/[id]/invoices/sync). QuickBooks is billing truth; Citadel never writes
+// back. status: open | paid | overdue | void (application-level, no enum so it needs no migration).
+model ClientInvoice {
+  id             String    @id @default(uuid()) @db.Uuid
+  client_id      String    @db.Uuid
+  client         Client    @relation(fields: [client_id], references: [id])
+  qbo_invoice_id String    @unique @db.VarChar(64)
+  doc_number     String?   @db.VarChar(64)
+  txn_date       DateTime  @db.Date
+  due_date       DateTime? @db.Date
+  total          Decimal   @db.Decimal(12, 2)
+  balance        Decimal   @db.Decimal(12, 2)
+  status         String    @default("open") @db.VarChar(16)
+  pay_link       String?   @db.Text
+  synced_at      DateTime  @default(now())
+
+  @@index([client_id, status])
+  @@map("client_invoices")
 }

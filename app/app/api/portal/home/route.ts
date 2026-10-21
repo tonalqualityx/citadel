@@ -86,7 +86,7 @@ export async function GET(_request: NextRequest) {
     ] = await Promise.all([
       prisma.client.findFirst({
         where: { id: clientId, is_deleted: false },
-        select: { id: true, name: true },
+        select: { id: true, name: true, qbo_customer_id: true },
       }),
       // Pending approvals — articles: in_review, WITH the full comment thread (same shape as the
       // single-article C4 screen), not the light list-only projection GET /api/portal/articles uses.
@@ -298,14 +298,64 @@ export async function GET(_request: NextRequest) {
         ...formatSiteStatsForClient(snapshotBySiteId.get(site.id)!),
       }));
 
-    const billing =
-      unbilledTaskAgg && triggeredMilestoneAgg
-        ? {
-            open_amount:
-              Number(unbilledTaskAgg._sum.billing_amount ?? 0) + Number(triggeredMilestoneAgg._sum.billing_amount ?? 0),
-            open_count: unbilledTaskAgg._count + triggeredMilestoneAgg._count,
-          }
-        : null;
+    // Billing (owners only). A client mapped to QuickBooks shows its REAL open invoices (the
+    // ClientInvoice mirror); only an unmapped client falls back to Citadel's unbilled-work summary,
+    // labelled as such so it is never mistaken for an invoice balance.
+    let billing:
+      | {
+          source: 'quickbooks' | 'unbilled_work';
+          label: string | null;
+          open_amount: number;
+          open_count: number;
+          oldest_due_date: string | null;
+          invoices: {
+            id: string;
+            number: string | null;
+            date: string;
+            due_date: string | null;
+            balance: number;
+            overdue: boolean;
+            pay_link: string | null;
+          }[];
+        }
+      | null = null;
+    if (showBilling && client.qbo_customer_id) {
+      const rows = await prisma.clientInvoice.findMany({
+        where: { client_id: clientId, status: { in: ['open', 'overdue'] }, balance: { gt: 0 } },
+        orderBy: [{ due_date: 'asc' }, { txn_date: 'asc' }],
+        select: { id: true, doc_number: true, txn_date: true, due_date: true, balance: true, pay_link: true },
+      });
+      const today = new Date().toISOString().slice(0, 10);
+      const iso = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+      const invoices = rows.map((r) => ({
+        id: r.id,
+        number: r.doc_number,
+        date: iso(r.txn_date) as string,
+        due_date: iso(r.due_date),
+        balance: Number(r.balance),
+        overdue: Boolean(r.due_date && iso(r.due_date)! < today),
+        pay_link: r.pay_link,
+      }));
+      const dues = invoices.map((i) => i.due_date).filter((d): d is string => Boolean(d)).sort();
+      billing = {
+        source: 'quickbooks',
+        label: null,
+        open_amount: Math.round(invoices.reduce((sum, i) => sum + i.balance, 0) * 100) / 100,
+        open_count: invoices.length,
+        oldest_due_date: dues[0] ?? null,
+        invoices,
+      };
+    } else if (unbilledTaskAgg && triggeredMilestoneAgg) {
+      billing = {
+        source: 'unbilled_work',
+        label: 'Work not yet invoiced',
+        open_amount:
+          Number(unbilledTaskAgg._sum.billing_amount ?? 0) + Number(triggeredMilestoneAgg._sum.billing_amount ?? 0),
+        open_count: unbilledTaskAgg._count + triggeredMilestoneAgg._count,
+        oldest_due_date: null,
+        invoices: [],
+      };
+    }
 
     const activity = [
       ...recentDoneOrApprovedTasks.map((task) => ({
@@ -326,7 +376,7 @@ export async function GET(_request: NextRequest) {
       .slice(0, RECENT_ACTIVITY_LIMIT);
 
     return NextResponse.json({
-      client,
+      client: { id: client.id, name: client.name },
       pending_approvals: {
         articles: pendingArticles.map(formatArticleForClient),
         tasks: pendingTasks.map((task) => ({

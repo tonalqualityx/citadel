@@ -96,7 +96,24 @@ interface HomePayload {
   pending_approvals: { articles: ClientArticle[]; tasks: ClientTask[] };
   needs_from_you: { questions: ClientQuestion[]; review_links: { project_id: string; project_name: string; url: string }[] };
   projects: ClientProject[];
-  billing: { open_amount: number; open_count: number } | null; // null unless the contact is an owner
+  // null unless the contact is an owner. source 'quickbooks' = real open invoices; 'unbilled_work' =
+  // the fallback for a client with no QuickBooks mapping (label says "Work not yet invoiced").
+  billing: {
+    source: 'quickbooks' | 'unbilled_work';
+    label: string | null;
+    open_amount: number;
+    open_count: number;
+    oldest_due_date: string | null;
+    invoices: {
+      id: string;
+      number: string | null;
+      date: string;
+      due_date: string | null;
+      balance: number;
+      overdue: boolean;
+      pay_link: string | null;
+    }[];
+  } | null;
   activity: ActivityItem[];
   stats: SiteStats[];
 }
@@ -106,6 +123,18 @@ function formatDate(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Date-only strings (YYYY-MM-DD) parse as UTC midnight; format them in UTC so US timezones do not show the day before.
+function formatDay(day: string | null): string {
+  if (!day) return '';
+  const d = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function formatMoney(amount: number): string {
+  return amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 }
 
 function formatCurrency(amount: number): string {
@@ -463,14 +492,54 @@ export default function ClientHomePage() {
       {billing && (
         <div id="open-balance" className="bg-surface rounded-lg border border-border p-6">
           <h3 className="text-lg font-semibold text-text-main mb-4">Open balance</h3>
-          {billing.open_count === 0 ? (
-            <p className="text-sm text-text-tertiary">Nothing outstanding right now.</p>
+          {billing.source === 'unbilled_work' ? (
+            billing.open_count === 0 ? (
+              <p className="text-sm text-text-tertiary">Nothing outstanding right now.</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-text-tertiary">{billing.label ?? 'Work not yet invoiced'}</p>
+                <p className="text-2xl font-bold text-text-main">{formatCurrency(billing.open_amount)}</p>
+                <p className="text-sm text-text-tertiary mt-1">
+                  {billing.open_count} item{billing.open_count === 1 ? '' : 's'} awaiting invoicing
+                </p>
+              </>
+            )
+          ) : billing.open_count === 0 ? (
+            <p className="text-sm text-text-tertiary">No outstanding invoices.</p>
           ) : (
             <>
-              <p className="text-2xl font-bold text-text-main">{formatCurrency(billing.open_amount)}</p>
+              <p className="text-2xl font-bold text-text-main">{formatMoney(billing.open_amount)}</p>
               <p className="text-sm text-text-tertiary mt-1">
-                {billing.open_count} item{billing.open_count === 1 ? '' : 's'} awaiting invoicing
+                {billing.open_count} open invoice{billing.open_count === 1 ? '' : 's'}
+                {billing.oldest_due_date ? ` \u00b7 oldest due ${formatDay(billing.oldest_due_date)}` : ''}
               </p>
+              <ul className="mt-4 divide-y divide-border text-sm">
+                {billing.invoices.map((inv) => (
+                  <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <span className="text-text-main">
+                      Invoice {inv.number ?? ''}
+                      <span className="block text-xs text-text-tertiary">
+                        Dated {formatDay(inv.date)}
+                        {inv.due_date ? ` \u00b7 due ${formatDay(inv.due_date)}` : ''}
+                        {inv.overdue ? ' \u00b7 past due' : ''}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <span className="font-medium text-text-main">{formatMoney(inv.balance)}</span>
+                      {inv.pay_link && (
+                        <a
+                          href={inv.pay_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-brand-primary hover:underline"
+                        >
+                          Pay
+                        </a>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </>
           )}
         </div>
