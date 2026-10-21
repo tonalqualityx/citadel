@@ -217,3 +217,31 @@ describe('charters', () => {
     expect(ok(input({ type: 'marketing_question', charters: [charter()] })).chain).toBe('charter');
   });
 });
+
+describe('open builds the contact cannot see still gate scope', () => {
+  const secret = [{ scope_locked: true }];
+
+  it('a visible unlocked build plus a hidden locked build on the site: quote', () => {
+    const r = ok(input({ projects: [build()], hidden_builds: secret }));
+    expect(r).toMatchObject({ chain: 'project', project_id: 'b1', quote: true, rule: 'site_change/build_locked' });
+  });
+  it('no visible build, a hidden locked build: site ad hoc, quote, and no project is named', () => {
+    const r = ok(input({ hidden_builds: secret }));
+    expect(r).toMatchObject({ chain: 'site', project_id: null, charter_id: null, quote: true, rule: 'site_change/hidden_build' });
+    expect(JSON.stringify(r)).not.toMatch(/Relaunch|name/);
+  });
+  it('no visible build, a hidden unlocked build: site ad hoc, in scope, even on a site with no plan', () => {
+    expect(ok(input({ hidden_builds: [{ scope_locked: false }] }))).toMatchObject({ chain: 'site', quote: false });
+  });
+  it('page copy with a visible unlocked build and a hidden locked one: quote', () => {
+    const r = ok(input({ type: 'content_article', content_kind: 'page_copy', projects: [build()], hidden_builds: secret }));
+    expect(r).toMatchObject({ chain: 'project', quote: true });
+  });
+  it('a hidden build never turns a broken request into a quote', () => {
+    expect(ok(input({ type: 'broken', hidden_builds: secret })).quote).toBe(false);
+  });
+  it('no hidden builds behaves exactly as before', () => {
+    expect(ok(input({ projects: [build()], hidden_builds: [] })).quote).toBe(false);
+    expect(ok(input({ projects: [build()] })).quote).toBe(false);
+  });
+});

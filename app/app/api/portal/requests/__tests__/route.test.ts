@@ -9,6 +9,10 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 });
 vi.mock('@/lib/db/prisma', () => ({ prisma: { clientContact: { findFirst: vi.fn() } } }));
 vi.mock('@/lib/portal/intake/file-request', () => ({ fileRequest: vi.fn() }));
+vi.mock('@/lib/api/rate-limit', async () => {
+  const { NextResponse } = await import('next/server');
+  return { rateLimit: vi.fn(() => null), tooMany: () => NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 }) };
+});
 vi.mock('@/lib/portal/requests', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/portal/requests')>();
   return { ...actual, loadRequests: vi.fn() };
@@ -19,6 +23,7 @@ import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
 import { fileRequest } from '@/lib/portal/intake/file-request';
 import { loadRequests } from '@/lib/portal/requests';
+import { rateLimit } from '@/lib/api/rate-limit';
 
 const INTAKE = '11111111-1111-4111-8111-111111111111';
 const SITE = '22222222-2222-4222-8222-222222222222';
@@ -59,6 +64,14 @@ describe('POST /api/portal/requests', () => {
   it('200s a repeat of the same intake_id', async () => {
     (fileRequest as Mock).mockResolvedValue(filed(false));
     expect((await POST(post(valid))).status).toBe(200);
+  });
+
+  it('applies the per-IP guard first: 429 before any auth, lookup or filing', async () => {
+    const { NextResponse } = await import('next/server');
+    (rateLimit as Mock).mockReturnValueOnce(NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 }));
+    expect((await POST(post(valid))).status).toBe(429);
+    expect(requireClientAuth).not.toHaveBeenCalled();
+    expect(fileRequest).not.toHaveBeenCalled();
   });
 
   it('never takes the client from the body', async () => {

@@ -347,7 +347,11 @@ export const BUTTONS = { send: 'Send request', change: 'Change an answer', cance
 
 export const SENT_HEADING = 'Request sent.';
 export const SENT_URGENT = 'Marked urgent. The team has been alerted.';
-export const SENT_FOLLOW_UP = 'You can add details, links or questions on this request at any time.';
+// TODO(slice 2): once the work-page conversation ships, restore the line
+// "You can add details, links or questions on this request at any time." after SENT_URGENT.
+// It is not shown now because there is nowhere to add them yet.
+/** Shown when the client chose an urgent option but the daily emergency limit meant no alert went out. */
+export const SENT_DOWNGRADED = 'Received. We will look at it in order.';
 export const SENT_LINK_LABEL = 'View your request';
 
 export const RATE_LIMIT_MESSAGE =
@@ -389,7 +393,7 @@ export function allIntakeStrings(): string[] {
     ...Object.values(BUTTONS),
     SENT_HEADING,
     SENT_URGENT,
-    SENT_FOLLOW_UP,
+    SENT_DOWNGRADED,
     SENT_LINK_LABEL,
     RATE_LIMIT_MESSAGE,
     NO_PERMISSION_MESSAGE

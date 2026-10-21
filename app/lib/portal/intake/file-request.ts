@@ -18,9 +18,10 @@ import { engagementOf } from '@/lib/portal/engagement';
 import { requestState } from '@/lib/portal/status-labels';
 import { onRequestFiled } from '@/lib/portal/waits';
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
+import { createInAppNotificationOnly } from '@/lib/services/notifications';
 import { composeTask, sourceRefFor } from './compose';
 import { classifyIntake } from './classify';
-import { placeRequest, type PlacementCharter, type PlacementProject } from './placement';
+import { OPEN_BUILD_STATUSES, placeRequest, type PlacementCharter, type PlacementProject } from './placement';
 import {
   NO_PERMISSION_MESSAGE,
   RATE_LIMIT_MESSAGE,
@@ -47,8 +48,12 @@ export interface FileRequestBody {
   answers: AnswerInput[];
 }
 
+/** Sabeen takes WordPress requests; Mike is the fallback when she cannot be found. */
+export const WORDPRESS_ASSIGNEE_EMAIL = 'sabeen@becomeindelible.com';
+
 export interface FiledRequest {
   created: boolean;
+  /** True only when the emergency alert actually went out. A downgraded emergency is false. */
   task: {
     id: string;
     client_title: string;
@@ -79,11 +84,12 @@ const TASK_RESULT_SELECT = {
 
 type ResultRow = Prisma.TaskGetPayload<{ select: typeof TASK_RESULT_SELECT }>;
 
-function shape(row: ResultRow, created: boolean, urgent: boolean): FiledRequest {
+function shape(row: ResultRow, created: boolean): FiledRequest {
   const wares = (row.charter?.charter_wares ?? []).map((w) => w.ware?.name ?? '').filter(Boolean);
   return {
     created,
-    urgent,
+    // The tag is only written when the alert fired, so a repeat reports the same answer.
+    urgent: row.tags.includes('emergency'),
     task: {
       id: row.id,
       client_title: row.client_title ?? row.title,
@@ -124,11 +130,16 @@ export async function fileRequest(
     const existing = await tx.task.findFirst({ where: { source_ref: sourceRef, is_deleted: false }, select: TASK_RESULT_SELECT });
     if (existing) {
       if (existing.client_id !== access.clientId) throw new ApiError('Not found', 404);
-      return { row: existing, created: false, emergencyEffects: false };
+      return { row: existing, created: false, emergencyEffects: false, downgraded: false };
     }
 
-    // Rate limits, per person, counted in the database.
+    // Rate limits, per person, counted in the database. The counts and the insert must be one
+    // atomic step per person, or parallel POSTs all read the same count and all get through.
+    // Lock every contact row the person holds, in sorted order so two requests cannot deadlock.
     const personIds = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
+    for (const id of [...new Set(personIds)].sort()) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-intake-person:${id}`}))`;
+    }
     const mine = { source: 'portal' as const, requested_by_contact_id: { in: personIds }, source_ref: { startsWith: 'portal-intake:' } };
     const [lastHour, lastDay] = await Promise.all([
       tx.task.count({ where: { ...mine, created_at: { gte: new Date(now.getTime() - HOUR) } } }),
@@ -139,6 +150,8 @@ export async function fileRequest(
     }
     let emergencyEffects = false;
     if (checked.urgent) {
+      // The daily emergency count is per client, across people: its own lock.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-intake-client:${access.clientId}`}))`;
       const today = await tx.task.count({
         where: { client_id: access.clientId, tags: { has: 'emergency' }, created_at: { gte: new Date(now.getTime() - DAY) } },
       });
@@ -155,7 +168,6 @@ export async function fileRequest(
           platform: true,
           maintenance_plan_id: true,
           hosting_plan_id: true,
-          maintenance_assignee_id: true,
         },
       }),
       tx.project.findMany({
@@ -186,17 +198,42 @@ export async function fileRequest(
     if (chosenProjectId && !projects.some((p) => p.id === chosenProjectId)) throw new ApiError('Not found', 404);
     const site = siteId ? sites.find((s) => s.id === siteId)! : null;
 
+    // Open builds on the site that this contact cannot see still gate scope. Only their lock state
+    // is read, never a name, so nothing about them can leak back to the client.
+    const visibleIds = new Set(projects.map((p) => p.id));
+    const hiddenBuilds = siteId
+      ? (
+          await tx.project.findMany({
+            where: {
+              client_id: access.clientId,
+              is_deleted: false,
+              site_id: siteId,
+              status: { in: [...OPEN_BUILD_STATUSES] },
+            },
+            select: { id: true, scope_locked: true },
+          })
+        )
+          .filter((p) => !visibleIds.has(p.id))
+          .map((p) => ({ scope_locked: p.scope_locked }))
+      : [];
+
     const placement = placeRequest({
       type: body.type,
       site_id: siteId,
       chosen_project_id: chosenProjectId,
       site_has_plan: Boolean(site && (site.maintenance_plan_id || site.hosting_plan_id)),
       projects,
+      hidden_builds: hiddenBuilds,
       charters,
       content_kind: checked.raw.q2?.choice ?? null,
       now,
     });
     if (!placement.ok) throw new ApiError('Please choose which project this is for.', 422, 'choose_project');
+
+    const isWordpress = Boolean(site && (site.site_type === 'wordpress' || /wordpress/i.test(site.platform ?? '')));
+    const sabeen = isWordpress
+      ? await tx.user.findFirst({ where: { email: WORDPRESS_ASSIGNEE_EMAIL, is_active: true }, select: { id: true } })
+      : null;
 
     const composed = composeTask({
       type: body.type,
@@ -206,13 +243,8 @@ export async function fileRequest(
       answers: checked.answers,
       placement,
       client_id: access.clientId,
-      site: site
-        ? {
-            id: site.id,
-            is_wordpress: site.site_type === 'wordpress' || /wordpress/i.test(site.platform ?? ''),
-            maintenance_assignee_id: site.maintenance_assignee_id,
-          }
-        : null,
+      site: site ? { id: site.id, is_wordpress: isWordpress } : null,
+      wordpress_assignee_id: sabeen?.id ?? null,
       urgent: checked.urgent,
       emergency_effects: emergencyEffects,
       suggested_type: suggested,
@@ -260,7 +292,7 @@ export async function fileRequest(
       now
     );
 
-    return { row: task, created: true, emergencyEffects: checked.urgent && emergencyEffects };
+    return { row: task, created: true, emergencyEffects: checked.urgent && emergencyEffects, downgraded: checked.urgent && !emergencyEffects };
   });
 
   // Alert after the commit: a failed Slack send must never lose the request.
@@ -280,5 +312,23 @@ export async function fileRequest(
     }
   }
 
-  return shape(result.row, result.created, checked.urgent);
+  // A downgraded emergency (past three a day) sends no Slack alert and no emergency clock, but it
+  // still lands in Mike's in-app notifications: after three false alarms, a real outage must reach him.
+  if (result.created && result.downgraded) {
+    try {
+      await createInAppNotificationOnly({
+        userId: MIKE_USER_ID,
+        type: 'portal_emergency',
+        title: `Urgent portal request (over the daily limit): ${result.row.client_title ?? result.row.title}`,
+        message: 'A client marked a request urgent after three urgent requests today. It was filed at priority 2. Check it.',
+        entityType: 'task',
+        entityId: result.row.id,
+        priority: 'high',
+      });
+    } catch (error) {
+      console.error('portal downgraded emergency notification failed', error);
+    }
+  }
+
+  return shape(result.row, result.created);
 }
