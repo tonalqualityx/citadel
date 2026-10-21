@@ -178,6 +178,7 @@ export async function startChat(
       commentId: comment.id,
       conversationId: convo.id,
       intakeId: body.intake_id,
+      contactIds: ids,
       now,
     });
     if (bound.length) await tx.chatConversation.update({ where: { id: convo.id }, data: { slots: { ...slots, attachment_ids: bound } as Prisma.InputJsonValue } });

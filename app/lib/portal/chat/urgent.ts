@@ -61,6 +61,8 @@ export async function applyUrgentChoice(
     });
     const effects = today < LIMITS.emergencies_per_day;
     const tags = new Set([...task.tags, 'needs-mike', ...(effects ? ['emergency'] : [])]);
+    // A parked needs-mike card must reach the gate; chat-clarifying would hide it (it never wakes).
+    tags.delete('chat-clarifying');
     await tx.task.update({ where: { id: task.id }, data: { tags: [...tags], priority: effects ? 1 : Math.min(task.priority ?? 3, 2) } });
     if (effects) {
       await onRequestFiled(

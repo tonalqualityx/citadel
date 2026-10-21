@@ -30,6 +30,8 @@ export interface Recording {
   /** The status this post must get: 200 (default), 422, 409. */
   expect_status?: number;
   expect_rule?: string;
+  /** After this refusal, stop: no regeneration and no canned fallback (the job stays claimed). */
+  hold_after_reject?: boolean;
 }
 
 export interface Step {
@@ -63,6 +65,14 @@ export interface Expect {
   action_errors?: string[];
   title_starts?: string;
   waits_include?: string[];
+  /** Keys that must not be in the slots at all. */
+  slots_absent?: string[];
+  /** No wait of any kind on the task. */
+  waits_none?: boolean;
+  /** Status of the conversation's newest job. */
+  job_status?: string;
+  /** The task's tag list, exactly. */
+  tags_exactly?: string[];
   http?: number;
   error_code?: string;
 }
@@ -187,6 +197,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
         const runs: Array<Record<string, unknown>> = [];
         extra.tc = [];
         let done = false;
+        let held = false;
         let attempt = 0;
         for (const rec of list) {
           attempt++;
@@ -207,6 +218,10 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
           const resBody = await res.json();
           assertions(`${label}: complete status ${JSON.stringify(resBody).slice(0, 200)}`, res.status, rec.expect_status ?? 200);
           if (rec.expect_rule) assertions(`${label}: rule`, resBody.rule, rec.expect_rule);
+          if (res.status === 422 && rec.hold_after_reject) {
+            held = true;
+            break;
+          }
           if (res.status === 422) {
             runs.push({ ...run, rejected_text: result.reply ?? '' });
             continue;
@@ -214,7 +229,7 @@ export async function playScenario(sc: Scenario, engineKey: string, assertions: 
           done = true;
           break;
         }
-        if (!done) {
+        if (!done && !held) {
           // Two refusals (or an explicit canned step): the fixed line and a handoff.
           const res = await completeRoute(req('/x', { method: 'POST', body: JSON.stringify({ canned: true, runs: runs.length ? runs : [{ attempt: 1, model: 'recorded', prompt_hash: 'h'.repeat(64), cost_usd: 0.01, is_error: false }] }) }), ctx(jobId));
           assertions(`${label}: canned status`, res.status, 200);
@@ -280,6 +295,13 @@ async function check(
     for (const x of e.action_errors) assertions(`${label}: action error ${x}`, errs.includes(x), true);
   }
   if (e.tool_calls !== undefined) assertions(`${label}: tool calls`, await prisma.engineToolCall.count({ where: { conversation_id: played.conversationId } }), e.tool_calls);
+  if (e.slots_absent) for (const k of e.slots_absent) assertions(`${label}: slot ${k} absent`, k in (convo.slots as Record<string, unknown>), false);
+  if (e.waits_none) assertions(`${label}: no waits`, await prisma.wait.count({ where: { task_id: played.taskId! } }), 0);
+  if (e.job_status) {
+    const newest = await prisma.engineJob.findFirst({ where: { conversation_id: played.conversationId }, orderBy: { queued_at: 'desc' } });
+    assertions(`${label}: newest job status`, newest?.status, e.job_status);
+  }
+  if (e.tags_exactly) assertions(`${label}: tags`, [...task.tags].sort(), [...e.tags_exactly].sort());
   if (e.waits_include) {
     const waits = await prisma.wait.findMany({ where: { task_id: played.taskId! }, select: { template_key: true } });
     for (const w of e.waits_include) assertions(`${label}: wait ${w}`, waits.some((x) => x.template_key === w), true);

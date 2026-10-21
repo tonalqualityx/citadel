@@ -58,6 +58,13 @@ export function zipEntryNames(buf: Buffer): string[] | null {
   return names;
 }
 
+/** PDF actions that run code or open things on their own. Names may be hex-obfuscated (#6A = j), so decode first. */
+const PDF_ACTIVE = /\/(?:JavaScript|JS|OpenAction|Launch|AA|RichMedia|XFA)(?![A-Za-z0-9])/;
+export function pdfHasActiveContent(buf: Buffer): boolean {
+  const text = buf.toString('latin1').replace(/#([0-9A-Fa-f]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
+  return PDF_ACTIVE.test(text);
+}
+
 const SCRIPTISH = /<\s*script\b|<\?php|<\s*html\b|<\s*svg\b|<!doctype\s+html/i;
 
 function looksLikeText(buf: Buffer): boolean {
@@ -91,7 +98,10 @@ export function sniffFile(buf: Buffer, declaredName = ''): SniffResult {
       const heic = brand.startsWith('he') && brand !== 'heif';
       type = IMAGE(heic ? 'image/heic' : 'image/heif', heic ? 'heic' : 'heif');
     }
-  } else if (ascii(buf, 0, 5) === '%PDF-') type = DOC('application/pdf', 'pdf');
+  } else if (ascii(buf, 0, 5) === '%PDF-') {
+    if (pdfHasActiveContent(buf)) return { ok: false, reason: 'That PDF contains active content and is not accepted. Please send a plain PDF or a photo.' };
+    type = DOC('application/pdf', 'pdf');
+  }
   else if (buf.length >= 4 && buf.readUInt32LE(0) === 0x04034b50) {
     const names = zipEntryNames(buf);
     if (!names) return { ok: false, reason: 'That file could not be read.' };

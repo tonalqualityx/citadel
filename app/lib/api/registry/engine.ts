@@ -120,4 +120,17 @@ export const engineEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/engine/jobs/{id}/tool-quota',
+    group: 'engine',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Preflight for a tool call: 200 { allowed: true } when the job has calls left and (for analytics tools) the client is under 40 a day; 429 otherwise; 409 when the job is not live. The tool server asks before it spends a Google call.',
+        ...authFields,
+        queryParams: [{ name: 'tool', type: 'string', required: true, description: 'ga4_report | search_console | citadel_read | site_pages' }],
+        responseExample: { allowed: true },
+      },
+    ],
+  },
 ];

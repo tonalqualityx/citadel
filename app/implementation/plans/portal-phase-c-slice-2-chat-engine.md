@@ -37,3 +37,16 @@ UI (C3), mailer/sweep/inbound/ingest (C4), cron lines and rollout (C5).
 - [ ] prisma validate; tsc --noEmit; vitest run (full); next build
 - [ ] python3 -m unittest discover (portal-chat tests); runner.py --isolation-check exit 0
 - [ ] live end-to-end gate (next start on the scratch DB, one real Opus run)
+
+## Review fixes (Opus review of C2)
+1. `gateAll` gates every client-visible model field (`GATED_FIELDS` in `apply.ts`); a vitest enumerates the Zod schema's string fields against the gated, id-validated and internal-only lists. Spec 9.2 updated.
+2. `chat-clarifying` is dropped on handoff and on an urgent press (hand-back puts it back while unconfirmed). `closeUnconfirmed` / `sweepUnconfirmed` in `confirm.ts` are the hook C4's sweep calls: question chats close as done after 24 h, unconfirmed requests are filed with what is known after 48 h (`unconfirmed-chat` + `needs-mike`).
+3. `expireStaleJobs` is one `UPDATE ... RETURNING`: the lease and queue conditions are in the write, only rows it changed are returned, and only their conversations go to tree mode.
+4. The isolation hash set now covers `runner.py`, both `chat_*.md` templates and `voice.md`.
+5. The tool server asks `GET /api/engine/jobs/:id/tool-quota` before it spends a Google call; exception text goes to `~/.local/log/portal-data-mcp.log`, never to the model or Citadel.
+6. One lease number: Citadel's lease is 120 s plus two 60 s heartbeats (240 s). The runner's `JOB_BUDGET_S` is 225 s for both runs and the posts; the regeneration gets only what is left, or the canned fallback when under 30 s remains.
+7. Uploads: PDFs with `/JavaScript`, `/JS`, `/OpenAction`, `/Launch`, `/AA`, `/RichMedia`, `/XFA` are refused (hex-obfuscated names decoded first); a file binds only to its own uploader's message; the model can name only this conversation's files.
+8. Harness: a refused result carrying `hand_to_person` + `record` + `suggest_urgent` changes no tag, slot or wait.
+
+### Bucket policy check (rollout step, before mode pilot)
+`uploadToS3` (the staff `/api/uploads` route) returns a PUBLIC URL under `uploads/`, so the bucket may allow public read. Client files therefore live under a separate prefix, `portal-private/`, written with no ACL (`assertPrivateKey` refuses `uploads/`, `public/` and traversal). The bucket policy must grant anonymous read on `uploads/*` ONLY. Prove it on the deployed bucket with `verifyPrivateNotPublic()` in `lib/services/s3.ts`: it writes one fixed probe object under `portal-private/__probe__/` with the app's credentials and fetches it anonymously; it passes only on a 403/401 (a 404 or 200 fails). A probe on a missing key proves nothing, because a public-read bucket answers 403 for a key that does not exist. Without S3 the files go to `PORTAL_UPLOAD_DIR` outside the deploy path and are served only through the two authenticated routes.
