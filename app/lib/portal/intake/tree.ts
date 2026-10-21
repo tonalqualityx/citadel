@@ -336,7 +336,7 @@ export function destinationLine(
 
 export const QUOTE_LINE =
   'New pages, features and changes after content sign-off are quoted separately. We will send you a quote before any work starts on this.';
-export const EMERGENCY_LINE = 'We will mark this urgent and alert the team now.';
+export const EMERGENCY_LINE = 'We will mark this urgent.';
 export const PROJECT_SELECT_PROMPT = 'Which project is this for?';
 
 export function dateEcho(theirWords: string): string {
