@@ -120,6 +120,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   interview_answers_submitted: 'Interview Answers Submitted',
   oracle_urgent_email: 'Urgent Email',
   portal_emergency: 'Portal Emergency',
+  portal_chat_handoff: 'Portal Chat Handoff',
 };
 
 // Notification type descriptions
@@ -142,4 +143,5 @@ export const NOTIFICATION_TYPE_DESCRIPTIONS: Record<NotificationType, string> = 
   interview_answers_submitted: 'When a client submits interview answers',
   oracle_urgent_email: 'When an urgent email lands in the crisis strip',
   portal_emergency: 'When a client files an emergency request in the portal',
+  portal_chat_handoff: 'When the portal chat hands a conversation to a person',
 };

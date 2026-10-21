@@ -117,6 +117,10 @@ export function formatSiteResponse(site: any) {
     staging_auth_password: site.staging_auth_password ?? null,
     bast_enabled: site.bast_enabled ?? false,
     auto_deploy: site.auto_deploy ?? false,
+    // Portal phase C
+    portal_chat_enabled: site.portal_chat_enabled ?? false,
+    ga4_property: site.ga4_property ?? null,
+    gsc_property: site.gsc_property ?? null,
     domains_count: site._count?.domains ?? site.domains?.length ?? 0,
     domains: site.domains?.map(formatDomainResponse),
     primary_domain: primaryDomain ? formatDomainResponse(primaryDomain) : null,
