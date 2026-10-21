@@ -9,9 +9,11 @@ vi.mock('@/lib/db/prisma', () => ({
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }));
+vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 
 import { recordTaskClientApproval, recordTaskClientRequestChanges } from '../portal';
 import { prisma } from '@/lib/db/prisma';
+import { onClientMessage } from '@/lib/portal/waits';
 import type { Mock } from 'vitest';
 
 const mockTaskUpdate = prisma.task.update as Mock;
@@ -141,5 +143,48 @@ describe('recordTaskClientRequestChanges', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
     }
+  });
+});
+
+describe('recordTaskClientRequestChanges: the note is a thread message (portal phase B slice 2)', () => {
+  const baseTask = { id: 'task-1', client_approved_at: null, title: 'Homepage', client_title: 'Homepage refresh', assignee_id: 'staff-1', client_id: 'cl1', project_id: null, charter_id: null, site_id: 's1' };
+
+  beforeEach(() => {
+    mockCommentCreate.mockResolvedValue({ id: 'cm1' });
+  });
+
+  it('with a known contact: authored by the contact, client-visible, still not internal', async () => {
+    await recordTaskClientRequestChanges(baseTask, 'The logo is too small', 'Jane', 'contact-1');
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({
+      task_id: 'task-1',
+      user_id: 'bast-user',
+      is_internal: false,
+      client_visible: true,
+      author_contact_id: 'contact-1',
+    });
+    expect(mockCommentCreate.mock.calls[0][0].data.content).toContain('The logo is too small');
+  });
+
+  it('runs the client-message wait effects with the contact and the new comment', async () => {
+    await recordTaskClientRequestChanges(baseTask, 'note', 'Jane', 'contact-1');
+    expect(onClientMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'task-1', client_title: 'Homepage refresh', assignee_id: 'staff-1' }),
+      { contact_ids: ['contact-1'], comment_id: 'cm1' }
+    );
+  });
+
+  it('without a contact (an unresolvable token link) keeps the old shape and runs no wait effects', async () => {
+    await recordTaskClientRequestChanges(baseTask, 'note', null);
+    const data = mockCommentCreate.mock.calls[0][0].data;
+    expect(data.author_contact_id).toBeUndefined();
+    expect(data.client_visible).toBeUndefined();
+    expect(onClientMessage).not.toHaveBeenCalled();
+  });
+
+  it('a failure in the wait effects never loses the note', async () => {
+    (onClientMessage as Mock).mockRejectedValueOnce(new Error('wait store down'));
+    await expect(recordTaskClientRequestChanges(baseTask, 'note', 'Jane', 'contact-1')).resolves.toBeUndefined();
+    expect(mockTaskUpdate).toHaveBeenCalledWith({ where: { id: 'task-1' }, data: { status: 'not_started' } });
   });
 });

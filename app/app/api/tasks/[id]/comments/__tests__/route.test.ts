@@ -17,6 +17,12 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+// The wait and notice side effects have their own tests (lib/portal/__tests__/share-reply.test.ts).
+vi.mock('@/lib/portal/share-reply', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/portal/share-reply')>();
+  return { ...actual, afterReplyShared: vi.fn() };
+});
+
 // Mock notifications
 vi.mock('@/lib/services/notifications', () => ({
   createNotification: vi.fn(),
@@ -25,6 +31,7 @@ vi.mock('@/lib/services/notifications', () => ({
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { createNotification } from '@/lib/services/notifications';
+import { afterReplyShared } from '@/lib/portal/share-reply';
 import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
@@ -69,6 +76,8 @@ beforeEach(() => {
     content: data.content,
     mentioned_user_ids: data.mentioned_user_ids,
     is_internal: data.is_internal ?? false,
+    client_visible: data.client_visible ?? false,
+    client_question: data.client_question ?? false,
     created_at: new Date(),
     updated_at: new Date(),
     user: { id: AUTHOR, name: 'Bast', email: 'b@x.com', avatar_url: null },
@@ -226,5 +235,54 @@ describe('GET /api/tasks/[id]/comments', () => {
       is_deleted: false,
       is_internal: false,
     });
+  });
+});
+
+
+describe('POST /api/tasks/[id]/comments client_visible (portal phase B slice 2)', () => {
+  beforeEach(() => mockUserFindMany.mockResolvedValue([]));
+
+  it('a plain comment is not client-visible and queues nothing', async () => {
+    const res = await POST(postRequest({ content: 'note' }), ctx);
+    expect(res.status).toBe(201);
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({ client_visible: false, client_question: false });
+    expect(afterReplyShared).not.toHaveBeenCalled();
+  });
+
+  it('a reply to the client is stored client_visible and triggers the notice and clock effects', async () => {
+    const res = await POST(postRequest({ content: 'We updated the hours.', client_visible: true }), ctx);
+    expect(res.status).toBe(201);
+    expect(mockCommentCreate.mock.calls[0][0].data).toMatchObject({ client_visible: true, is_internal: false });
+    expect(afterReplyShared).toHaveBeenCalledWith(expect.objectContaining({ id: 'comment-1', task_id: TASK_ID, client_question: false }));
+  });
+
+  it('a question for the client carries both flags', async () => {
+    await POST(postRequest({ content: 'Which page?', client_visible: true, client_question: true }), ctx);
+    expect(afterReplyShared).toHaveBeenCalledWith(expect.objectContaining({ client_question: true }));
+  });
+
+  it('a question without client_visible is a 400', async () => {
+    const res = await POST(postRequest({ content: 'Which page?', client_question: true }), ctx);
+    expect(res.status).toBe(400);
+    expect(mockCommentCreate).not.toHaveBeenCalled();
+  });
+
+  it('names Bast: 400 with the reason, nothing written', async () => {
+    const res = await POST(postRequest({ content: 'bast says hello', client_visible: true }), ctx);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/names Bast/);
+    expect(mockCommentCreate).not.toHaveBeenCalled();
+  });
+
+  it('an internal note cannot also be client_visible', async () => {
+    const res = await POST(postRequest({ content: 'x', client_visible: true, is_internal: true }), ctx);
+    expect(res.status).toBe(400);
+  });
+
+  it('a tech user cannot show a comment to the client', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: AUTHOR, role: 'tech' } as never);
+    mockTaskFindUnique.mockResolvedValue({ id: TASK_ID, title: 'A Task', project_id: null, assignee_id: AUTHOR, assignee: { id: AUTHOR } });
+    const res = await POST(postRequest({ content: 'x', client_visible: true }), ctx);
+    expect(res.status).toBe(403);
   });
 });

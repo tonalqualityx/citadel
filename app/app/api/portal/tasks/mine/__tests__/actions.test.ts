@@ -275,7 +275,8 @@ describe('POST /api/portal/tasks/mine/:id/request-changes', () => {
     expect(mockRecordRequestChanges).toHaveBeenCalledWith(
       { id: 'task-1', client_approved_at: null, ...STAGED },
       'too small',
-      'Jane'
+      'Jane',
+      'contact-1'
     );
   });
 

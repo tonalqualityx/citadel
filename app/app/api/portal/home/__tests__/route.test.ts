@@ -8,6 +8,9 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
   return { ...actual, requireClientAuth: vi.fn() };
 });
 
+vi.mock('@/lib/portal/retainer', () => ({ loadRetainers: vi.fn(async () => []) }));
+import { loadRetainers } from '@/lib/portal/retainer';
+
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     clientContact: { findFirst: vi.fn() },
@@ -513,5 +516,36 @@ describe('GET /api/portal/home requests summary (portal phase B slice 1)', () =>
     setEmptyDefaults();
     const body = await (await GET(makeRequest())).json();
     expect(body.requests).toEqual({ open_count: 0, top: [] });
+  });
+});
+
+describe('GET /api/portal/home retainers and summary (portal phase B slice 2)', () => {
+  it('lists each retainer as a short row and counts what is moving', async () => {
+    setEmptyDefaults();
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1', role: 'member' });
+    (loadRetainers as Mock).mockResolvedValueOnce([
+      {
+        id: 'ch1', heading: 'SEO', status: { label: 'Active', tone: 'done' }, period: 'October 2026', covers: ['a'], allowance: 'x',
+        plan_ready: { task_id: 'p1' },
+        this_month: { open: [1, 2, 3, 4].map((n) => ({ id: `t${n}`, title: `T${n}`, state: { label: 'In progress', tone: 'moving' }, site: null })), done: [] },
+        latest_report: null,
+      },
+    ]);
+    const body = await (await GET(makeRequest())).json();
+    expect(body.retainers).toEqual([
+      { id: 'ch1', heading: 'SEO', status: { label: 'Active', tone: 'done' }, period: 'October 2026', plan_ready: true, open: body.retainers[0].open },
+    ]);
+    expect(body.retainers[0].open).toHaveLength(3);
+    // Nothing the retainer page keeps to itself goes onto the home payload.
+    expect(JSON.stringify(body.retainers)).not.toContain('allowance');
+    expect(body.summary.moving).toEqual({ projects: 0, retainers: 1, requests: 0 });
+  });
+
+  it('an empty account has no retainers and nothing needing the client', async () => {
+    setEmptyDefaults();
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1', role: 'member' });
+    const body = await (await GET(makeRequest())).json();
+    expect(body.retainers).toEqual([]);
+    expect(body.summary).toEqual({ needs_count: 0, moving: { projects: 0, retainers: 0, requests: 0 } });
   });
 });

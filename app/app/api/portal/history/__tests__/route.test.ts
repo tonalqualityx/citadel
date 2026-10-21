@@ -214,7 +214,7 @@ describe('GET /api/portal/history', () => {
     expect(text).not.toContain('research_summary');
     for (const call of mockTasks.mock.calls) expect(Object.keys(call[0].select)).not.toContain('estimated_minutes');
     for (const item of JSON.parse(text).items) {
-      expect(Object.keys(item).sort()).toEqual(['at', 'id', 'project', 'title', 'type', 'url']);
+      expect(Object.keys(item).sort()).toEqual(['at', 'engagement', 'id', 'project', 'title', 'type', 'url']);
     }
   });
 });

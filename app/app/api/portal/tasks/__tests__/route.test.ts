@@ -346,7 +346,8 @@ describe('POST /api/portal/tasks/:token/request-changes', () => {
     expect(mockRecordTaskClientRequestChanges).toHaveBeenCalledWith(
       mockPortalTask,
       'The logo is too small',
-      'Jane'
+      'Jane',
+      expect.anything()
     );
     expect(mockLogPortalSession).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'changes_requested' })

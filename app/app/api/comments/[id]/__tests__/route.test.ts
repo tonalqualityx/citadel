@@ -14,6 +14,11 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/portal/share-reply', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/portal/share-reply')>();
+  return { ...actual, afterReplyShared: vi.fn(), afterReplyRetracted: vi.fn() };
+});
+
 vi.mock('@/lib/services/notifications', () => ({
   createNotification: vi.fn(),
 }));
@@ -21,6 +26,7 @@ vi.mock('@/lib/services/notifications', () => ({
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { createNotification } from '@/lib/services/notifications';
+import { afterReplyRetracted, afterReplyShared } from '@/lib/portal/share-reply';
 import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
@@ -140,5 +146,114 @@ describe('PATCH /api/comments/[id]', () => {
     const res = await PATCH(patchRequest({}), ctx);
     expect(res.status).toBe(400);
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('PATCH /api/comments/[id] client_visible (portal phase B slice 2)', () => {
+  const echo = () =>
+    mockUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: COMMENT_ID,
+      task_id: 'task-1',
+      user_id: AUTHOR,
+      content: 'existing',
+      is_internal: false,
+      client_visible: false,
+      client_question: false,
+      author_contact_id: null,
+      author_contact: null,
+      ...data,
+      created_at: new Date(),
+      updated_at: new Date(),
+      user: { id: AUTHOR, name: 'Bast', email: 'b@x.com', avatar_url: null },
+    }));
+  const existing = (over: Record<string, unknown> = {}) =>
+    mockFindUnique.mockResolvedValue({
+      id: COMMENT_ID,
+      task_id: 'task-1',
+      user_id: AUTHOR,
+      content: 'We have updated the hours.',
+      is_internal: false,
+      client_visible: false,
+      client_question: false,
+      author_contact_id: null,
+      mentioned_user_ids: [],
+      task: { id: 'task-1', project_id: null, assignee_id: AUTHOR, title: 'T' },
+      ...over,
+    });
+
+  it('shows a comment to the client, then queues the notice and resolves the clocks', async () => {
+    existing();
+    echo();
+    const res = await PATCH(patchRequest({ client_visible: true }), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).client_visible).toBe(true);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { client_visible: true } }));
+    expect(afterReplyShared).toHaveBeenCalledWith(expect.objectContaining({ id: COMMENT_ID, task_id: 'task-1' }));
+  });
+
+  it('refuses a comment that names Bast with a 400 and the reason', async () => {
+    existing({ content: 'Bast pushed the fix.' });
+    echo();
+    const res = await PATCH(patchRequest({ client_visible: true }), ctx);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/names Bast/);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(afterReplyShared).not.toHaveBeenCalled();
+  });
+
+  it('refuses an internal note', async () => {
+    existing({ is_internal: true });
+    const res = await PATCH(patchRequest({ client_visible: true }), ctx);
+    expect(res.status).toBe(400);
+  });
+
+  it('refuses a tech user with a 403', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: AUTHOR, role: 'tech' } as never);
+    existing();
+    const res = await PATCH(patchRequest({ client_visible: true }), ctx);
+    expect(res.status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('lets the Bast token show a comment', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'ca5335e7-a374-4eff-92dc-fd67ceef2297', role: 'tech' } as never);
+    existing({ user_id: 'ca5335e7-a374-4eff-92dc-fd67ceef2297' });
+    echo();
+    const res = await PATCH(patchRequest({ client_visible: true }), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it('hiding a shared comment refreshes the outbox instead of queueing', async () => {
+    existing({ client_visible: true });
+    echo();
+    const res = await PATCH(patchRequest({ client_visible: false }), ctx);
+    expect(res.status).toBe(200);
+    expect(afterReplyShared).not.toHaveBeenCalled();
+    expect(afterReplyRetracted).toHaveBeenCalled();
+  });
+
+  it('making a shared comment internal also takes it out of the thread', async () => {
+    existing({ client_visible: true });
+    echo();
+    await PATCH(patchRequest({ is_internal: true }), ctx);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { is_internal: true, client_visible: false } }));
+    expect(afterReplyRetracted).toHaveBeenCalled();
+  });
+
+  it('a message the client wrote cannot be hidden from them', async () => {
+    existing({ client_visible: true, author_contact_id: 'contact-1' });
+    const res = await PATCH(patchRequest({ client_visible: false }), ctx);
+    expect(res.status).toBe(400);
+  });
+
+  it('editing a shared comment re-checks the wording and refreshes the outbox', async () => {
+    existing({ client_visible: true });
+    echo();
+    const bad = await PATCH(patchRequest({ content: 'Ask Bast.' }), ctx);
+    expect(bad.status).toBe(400);
+    const ok = await PATCH(patchRequest({ content: 'Updated wording.' }), ctx);
+    expect(ok.status).toBe(200);
+    expect(afterReplyRetracted).toHaveBeenCalled();
   });
 });
