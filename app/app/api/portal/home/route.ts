@@ -11,6 +11,18 @@ import {
   taskAccessWhere,
 } from '@/lib/portal/access';
 import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { projectStatusLabel } from '@/lib/portal/status-labels';
+import { CLIENT_VISIBLE_COMMENT_WHERE } from '@/lib/comments/visibility';
+import {
+  AWAITING_CLARIFICATION_TAG,
+  buildPhaseList,
+  computeProgress,
+  currentPhaseName,
+  reviewLink,
+  toClientLinks,
+  toClientRequest,
+  type ViewTask,
+} from '@/lib/portal/project-view';
 import {
   formatArticleForClient,
   formatTaskForClient,
@@ -66,6 +78,7 @@ export async function GET(_request: NextRequest) {
       recentDoneOrApprovedTasks,
       recentPublishedArticles,
       sites,
+      questionTasks,
     ] = await Promise.all([
       prisma.client.findFirst({
         where: { id: clientId, is_deleted: false },
@@ -168,11 +181,86 @@ export async function GET(_request: NextRequest) {
         where: { client_id: clientId, is_deleted: false, ...(showAnalytics ? {} : { id: { in: [] } }) },
         select: { id: true, name: true },
       }),
+      // Open questions: client-visible tasks tagged awaiting-clarification, with the newest
+      // client-visible comment as the question. Internal comments never selected.
+      prisma.task.findMany({
+        where: {
+          ...taskScope,
+          tags: { has: AWAITING_CLARIFICATION_TAG },
+          status: { notIn: ['done', 'abandoned'] },
+          client_approved_at: null,
+          AND: [clientVisibleTaskWhere(), taskAccess],
+        },
+        select: {
+          id: true,
+          title: true,
+          comments: {
+            where: { is_deleted: false, ...CLIENT_VISIBLE_COMMENT_WHERE },
+            orderBy: { created_at: 'desc' },
+            take: 3,
+            select: { content: true, created_at: true, is_internal: true },
+          },
+        },
+        orderBy: { updated_at: 'desc' },
+        take: 25,
+      }),
     ]);
 
     if (!client) {
       return NextResponse.json({ error: 'Client not found' }, { status: 404 });
     }
+
+    // Per-project progress, current phase and client links. One query each for all open projects.
+    const projectIds = openProjects.map((p) => p.id);
+    const [progressRows, phaseRows, linkRows] = projectIds.length
+      ? await Promise.all([
+          prisma.task.findMany({
+            where: { is_deleted: false, project_id: { in: projectIds }, AND: [clientHistoryTaskWhere(), taskAccess] },
+            select: {
+              id: true,
+              title: true,
+              project_id: true,
+              phase_id: true,
+              status: true,
+              completed_at: true,
+              requested_by_contact_id: true,
+              client_visible: true,
+              staging_preview_url: true,
+              approved: true,
+              client_approved_at: true,
+            },
+          }),
+          prisma.projectPhase.findMany({
+            where: { project_id: { in: projectIds } },
+            select: { id: true, project_id: true, name: true, sort_order: true },
+          }),
+          prisma.resourceLink.findMany({
+            where: { project_id: { in: projectIds }, is_deleted: false },
+            select: { project_id: true, name: true, url: true, icon: true },
+            orderBy: { sort_order: 'asc' },
+          }),
+        ])
+      : [[], [], []];
+    const projectCards = openProjects.map((project) => {
+      const tasks = progressRows.filter((t) => t.project_id === project.id) as unknown as ViewTask[];
+      const phases = buildPhaseList(
+        phaseRows.filter((ph) => ph.project_id === project.id),
+        tasks
+      );
+      const links = toClientLinks(linkRows.filter((l) => l.project_id === project.id));
+      return {
+        id: project.id,
+        name: project.name,
+        status_label: projectStatusLabel(project.status),
+        target_date: project.target_date,
+        updated_at: project.updated_at,
+        progress: computeProgress(tasks),
+        current_phase: currentPhaseName(phases),
+        // Review-surface link for open questions (no per-person token). Null shows a placeholder.
+        review_link: reviewLink(links),
+        links,
+      };
+    });
 
     // Latest stats snapshot per site — same read as GET /api/portal/stats, embedded here so the
     // home page needs one round trip. Sites with no snapshot yet are simply omitted.
@@ -232,7 +320,14 @@ export async function GET(_request: NextRequest) {
           staging_deployed_at: task.staging_deployed_at,
         })),
       },
-      projects: openProjects,
+      // Needs from you: approvals (above), open questions, review links, and the owner's balance.
+      needs_from_you: {
+        questions: questionTasks.map(toClientRequest),
+        review_links: projectCards
+          .filter((p) => p.review_link)
+          .map((p) => ({ project_id: p.id, project_name: p.name, url: p.review_link as string })),
+      },
+      projects: projectCards,
       billing,
       activity,
       stats,

@@ -1,5 +1,6 @@
 import '@/app/globals.css';
 import { ClientSwitcher } from '@/components/portal/client-switcher';
+import { PortalNav } from '@/components/portal/portal-nav';
 
 export const metadata = {
   title: 'Indelible Portal',
@@ -19,6 +20,7 @@ export default function PortalLayout({
           <ClientSwitcher />
         </div>
       </header>
+      <PortalNav />
       <main className="max-w-4xl mx-auto px-6 py-8">
         {children}
       </main>

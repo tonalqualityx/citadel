@@ -15,6 +15,8 @@ vi.mock('@/lib/db/prisma', () => ({
     article: { findMany: vi.fn() },
     task: { findMany: vi.fn(), aggregate: vi.fn() },
     project: { findMany: vi.fn() },
+    projectPhase: { findMany: vi.fn() },
+    resourceLink: { findMany: vi.fn() },
     milestone: { aggregate: vi.fn() },
     site: { findMany: vi.fn() },
     siteStatsSnapshot: { findFirst: vi.fn() },
@@ -33,6 +35,8 @@ const mockArticleFindMany = prisma.article.findMany as Mock;
 const mockTaskFindMany = prisma.task.findMany as Mock;
 const mockTaskAggregate = prisma.task.aggregate as Mock;
 const mockProjectFindMany = prisma.project.findMany as Mock;
+const mockPhaseFindMany = prisma.projectPhase.findMany as Mock;
+const mockLinkFindMany = prisma.resourceLink.findMany as Mock;
 const mockMilestoneAggregate = prisma.milestone.aggregate as Mock;
 const mockSiteFindMany = prisma.site.findMany as Mock;
 const mockSnapshotFindFirst = prisma.siteStatsSnapshot.findFirst as Mock;
@@ -50,6 +54,8 @@ function setEmptyDefaults() {
   mockMilestoneAggregate.mockResolvedValue({ _sum: { billing_amount: null }, _count: 0 });
   mockSiteFindMany.mockResolvedValue([]);
   mockSnapshotFindFirst.mockResolvedValue(null);
+  mockPhaseFindMany.mockResolvedValue([]);
+  mockLinkFindMany.mockResolvedValue([]);
 }
 
 const OWNER_ACCESS = { contactId: 'contact-1', clientId: 'client-acme', role: 'owner' as const };
@@ -322,3 +328,113 @@ describe('GET /api/portal/home', () => {
     expect(body.stats).toEqual([]);
   });
 });
+
+describe('GET /api/portal/home (portal MVP A5 sections)', () => {
+  const OPEN_PROJECT = {
+    id: 'proj-1',
+    name: 'Site relaunch',
+    status: 'in_progress',
+    target_date: new Date('2026-12-01T00:00:00Z'),
+    updated_at: new Date('2026-10-15T00:00:00Z'),
+  };
+
+  it('gives each active project a client-words status, progress count, current phase and review link', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    mockProjectFindMany.mockResolvedValue([OPEN_PROJECT]);
+    // Call order: pending approvals, recent activity, progress rows, open questions.
+    mockTaskFindMany.mockImplementation(async (args: { where: { project_id?: unknown; tags?: unknown } }) => {
+      if (args.where.project_id) {
+        return [
+          { id: 't1', title: 'Wireframes', project_id: 'proj-1', phase_id: 'ph1', status: 'done', requested_by_contact_id: 'c', client_visible: false, staging_preview_url: null, approved: false, client_approved_at: null, completed_at: new Date() },
+          { id: 't2', title: 'Build', project_id: 'proj-1', phase_id: 'ph2', status: 'in_progress', requested_by_contact_id: 'c', client_visible: false, staging_preview_url: null, approved: false, client_approved_at: null, completed_at: null },
+          { id: 't3', title: 'Dropped', project_id: 'proj-1', phase_id: 'ph2', status: 'abandoned', requested_by_contact_id: 'c', client_visible: false, staging_preview_url: null, approved: false, client_approved_at: null, completed_at: null },
+        ];
+      }
+      return [];
+    });
+    mockPhaseFindMany.mockResolvedValue([
+      { id: 'ph1', project_id: 'proj-1', name: 'Design', sort_order: 1 },
+      { id: 'ph2', project_id: 'proj-1', name: 'Build', sort_order: 2 },
+    ]);
+    mockLinkFindMany.mockResolvedValue([
+      { project_id: 'proj-1', name: 'Figma', url: 'https://figma.com/internal', icon: 'figma' },
+      { project_id: 'proj-1', name: 'Review site copy', url: 'https://review.example/p', icon: 'review' },
+    ]);
+
+    const body = await (await GET(makeRequest())).json();
+    expect(body.projects).toHaveLength(1);
+    expect(body.projects[0]).toMatchObject({
+      id: 'proj-1',
+      status_label: 'In progress',
+      progress: { done: 1, total: 2 },
+      current_phase: 'Build',
+      review_link: 'https://review.example/p',
+    });
+    expect(body.projects[0].status).toBeUndefined();
+    expect(body.projects[0].links.map((l: { name: string }) => l.name)).toEqual(['Review site copy']);
+    expect(body.needs_from_you.review_links).toEqual([
+      { project_id: 'proj-1', project_name: 'Site relaunch', url: 'https://review.example/p' },
+    ]);
+    // Progress and links are scoped to the open projects only.
+    expect(mockLinkFindMany.mock.calls[0][0].where.project_id).toEqual({ in: ['proj-1'] });
+  });
+
+  it('lists open questions with the newest client-visible comment, never an internal one', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    mockTaskFindMany.mockImplementation(async (args: { where: { tags?: unknown } }) =>
+      args.where.tags
+        ? [
+            {
+              id: 'q1',
+              title: 'Pick a logo',
+              comments: [
+                { content: 'Internal: Bast tried twice', created_at: new Date('2026-10-12'), is_internal: true },
+                { content: 'Which logo do you prefer?', created_at: new Date('2026-10-11'), is_internal: false },
+              ],
+            },
+          ]
+        : []
+    );
+    const body = await (await GET(makeRequest())).json();
+    expect(body.needs_from_you.questions).toEqual([
+      { task_id: 'q1', title: 'Pick a logo', question: 'Which logo do you prefer?', asked_at: expect.anything() },
+    ]);
+    const questionCall = mockTaskFindMany.mock.calls.find((c) => c[0].where.tags)![0];
+    expect(questionCall.where.tags).toEqual({ has: 'awaiting-clarification' });
+    expect(questionCall.where.AND).toContainEqual(clientVisibleTaskWhere());
+    expect(JSON.stringify(body)).not.toContain('Bast');
+  });
+
+  it('payload carries no estimates or internal fields', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    mockProjectFindMany.mockResolvedValue([OPEN_PROJECT]);
+    mockTaskFindMany.mockResolvedValue([]);
+    const body = await (await GET(makeRequest())).json();
+    const text = JSON.stringify(body);
+    for (const forbidden of ['estimated_minutes', 'energy_estimate', 'assignee', 'tags']) {
+      expect(text).not.toContain(forbidden);
+    }
+    for (const call of mockTaskFindMany.mock.calls) {
+      expect(Object.keys(call[0].select ?? {})).not.toContain('estimated_minutes');
+    }
+  });
+
+  it('project-only contacts are scoped to granted projects for progress and questions too', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-2', role: 'none' });
+    setEmptyDefaults();
+    mockProjectFindMany.mockResolvedValue([OPEN_PROJECT]);
+    mockTaskFindMany.mockResolvedValue([]);
+    const body = await (await GET(makeRequest())).json();
+    expect(body.billing).toBeNull();
+    expect(body.pending_approvals.articles).toEqual([]);
+    const taskAccess = taskAccessWhere({ contactId: 'contact-2', clientId: 'client-acme', role: 'none' });
+    const scoped = mockTaskFindMany.mock.calls.filter((c) => JSON.stringify(c[0].where).includes('contact_grants'));
+    // pending approvals, recent activity, progress rows and open questions all carry the grant scope.
+    expect(scoped.length).toBe(4);
+    for (const call of scoped) expect(JSON.stringify(call[0].where)).toContain(JSON.stringify(taskAccess));
+  });
+});
+
