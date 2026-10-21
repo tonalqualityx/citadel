@@ -87,6 +87,7 @@ export const portalEndpoints: ApiEndpoint[] = [
         auth: 'session',
         responseExample: {
           client: { id: 'uuid', name: 'string' },
+          requests: { open_count: 'number', top: '[request item, see GET /api/portal/requests] (attention first, at most 3)' },
           pending_approvals: {
             articles: [
               {
@@ -590,6 +591,102 @@ export const portalEndpoints: ApiEndpoint[] = [
           signed_at: 'ISO-8601',
         },
         responseNotes: 'Returns 400 if contract has already been signed.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/intake/context',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 1: what the request chat needs. The active client\'s sites, the open builds the contact may see (ready, in_progress, review), and the active or paused charters with a client-facing plan label (never the internal charter name). The browser runs the same pure placement function for the summary line; the server re-checks every id at filing. Requires a client_session cookie. Rate limited to 120 a minute.',
+        auth: 'session',
+        responseExample: {
+          can_request: 'boolean',
+          sites: [{ id: 'uuid', name: 'string', has_plan: 'boolean' }],
+          open_builds: [{ id: 'uuid', name: 'string', site_id: 'uuid|null', status: 'ready|in_progress|review', scope_locked: 'boolean' }],
+          charters: [{ id: 'uuid', site_id: 'uuid|null', status: 'active|paused', start_date: 'ISO-8601', end_date: 'ISO-8601|null', created_at: 'ISO-8601', label: 'string' }],
+        },
+        responseNotes: 'can_request is false for grant-only contacts (portal_role none); the lists are then empty.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/requests',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase B slice 1: file a request as one Citadel task. Answers are validated against the fixed question tree and the stored prompts are rebuilt server-side. Placement mirrors inbound placement rule 6; during a build, a new page or feature, or any change after content lock, files tagged quote and needs-mike. The two urgent "broken" choices file at priority 1 with a critical notification to Mike and a portal.emergency wait. Idempotent on intake_id (one transaction under pg_advisory_xact_lock). Rate limits are counted in the database per person: 6 an hour, 20 a day; 3 emergencies a day per client (past that they file as priority 2 with needs-mike). Roles owner, member and viewer may file; grant-only contacts get 403.',
+        auth: 'session',
+        bodySchema: [
+          { name: 'intake_id', type: 'uuid', required: true, description: 'Client-generated id for this draft; makes a repeat POST a no-op' },
+          { name: 'type', type: 'string', required: true, description: 'site_change | new_page_feature | content_article | marketing_question | broken | other' },
+          { name: 'site_id', type: 'uuid', required: false, description: 'The chosen site' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'A siteless open build chosen at the site step, or a prefill from a project page' },
+          { name: 'chosen_project_id', type: 'uuid', required: false, description: 'The pick when the site has two open builds' },
+          { name: 'answers', type: 'object', required: true, description: 'Array of { key: q1|q2|q3, value, detail? }. Choice questions send the choice key as value.' },
+        ],
+        responseExample: {
+          task: {
+            id: 'uuid',
+            client_title: 'string',
+            state: { label: 'Received', tone: 'quiet' },
+            engagement: { kind: 'project|retainer|request', label: 'string', href: 'string|null' },
+          },
+          urgent: 'boolean',
+        },
+        responseNotes: '201 when new, 200 with the same task on a repeat. 404 for any site or project the contact may not see. 422 choose_project when two open builds match and none was chosen. 429 with the plain-language rate message.',
+      },
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 1: open requests (attention first, then newest) and recently closed ones for the active client. Includes client-visible ad hoc tasks and every task a contact on the client filed, on any chain. Query: site_id, closed_days (default 30). Requires a client_session cookie. Rate limited to 120 a minute.',
+        auth: 'session',
+        queryParams: [
+          { name: 'site_id', type: 'uuid', required: false, description: 'Only requests on this site' },
+          { name: 'closed_days', type: 'number', required: false, description: 'How far back "recently closed" goes (default 30, max 365)' },
+        ],
+        responseExample: {
+          open: [
+            {
+              id: 'uuid', title: 'string (client_title ?? title)',
+              state: { label: 'string', tone: 'attention|moving|done|quiet|urgent|quote' },
+              engagement: { kind: 'project|retainer|request', label: 'string', href: 'string|null' },
+              site: '{ id, name }|null', created_at: 'ISO-8601', updated_at: 'ISO-8601',
+            },
+          ],
+          recently_closed: [],
+        },
+        responseNotes: 'Allow-list only: tags, estimates and assignees never leave the server.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/work/:id',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 1: one client-visible task in client words. Title (client_title ?? title), state chip, engagement, site, who asked (first name), the intake answers verbatim, and the staged preview when it waits on the client. 404 for anything the contact may not see. Requires a client_session cookie. Rate limited to 120 a minute.',
+        auth: 'session',
+        responseExample: {
+          work: {
+            id: 'uuid', title: 'string',
+            state: { label: 'string', tone: 'string' },
+            engagement: { kind: 'project|retainer|request', label: 'string', href: 'string|null' },
+            site: '{ id, name }|null',
+            requested_by: '{ first_name }|null',
+            requested_at: 'ISO-8601',
+            answers: [{ prompt: 'string', value: 'string' }],
+            staged: '{ preview_url, awaiting_approval }|null',
+            can_act: 'boolean',
+          },
+        },
       },
     ],
   },

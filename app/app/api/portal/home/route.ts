@@ -11,7 +11,8 @@ import {
   taskAccessWhere,
 } from '@/lib/portal/access';
 import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
-import { projectStatusLabel } from '@/lib/portal/status-labels';
+import { projectStatusLabel, REQUEST_LABELS } from '@/lib/portal/status-labels';
+import { loadRequests } from '@/lib/portal/requests';
 import { CLIENT_VISIBLE_COMMENT_WHERE } from '@/lib/comments/visibility';
 import {
   AWAITING_CLARIFICATION_TAG,
@@ -41,6 +42,9 @@ const ARTICLE_COMMENT_SELECT = {
 };
 
 const RECENT_ACTIVITY_LIMIT = 15;
+
+/** Request states already shown under "Needs from you" (staged approvals and open questions). */
+const NEEDS_YOU_LABELS: string[] = [REQUEST_LABELS.review, REQUEST_LABELS.answer];
 
 // GET /api/portal/home (Portal v2 phase 1)
 // One payload for the client account home: identity, pending approvals (articles + tasks),
@@ -217,6 +221,10 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: 'Client not found' }, { status: 404 });
     }
 
+    // Requests (portal phase B slice 1): the open count and the top three, attention first.
+    // Loaded after the queries above so their order is unchanged.
+    const requests = await loadRequests(access);
+
     // Per-project progress, current phase and client links. One query each for all open projects.
     const projectIds = openProjects.map((p) => p.id);
     const [progressRows, phaseRows, linkRows] = projectIds.length
@@ -333,6 +341,11 @@ export async function GET(_request: NextRequest) {
         review_links: projectCards
           .filter((p) => p.review_link)
           .map((p) => ({ project_id: p.id, project_name: p.name, url: p.review_link as string })),
+      },
+      requests: {
+        open_count: requests.open.length,
+        // Work waiting on the client already sits under "Needs from you"; the panel shows the rest.
+        top: requests.open.filter((r) => !NEEDS_YOU_LABELS.includes(r.state.label)).slice(0, 3),
       },
       projects: projectCards,
       billing,

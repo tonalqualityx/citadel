@@ -434,8 +434,9 @@ describe('GET /api/portal/home (portal MVP A5 sections)', () => {
     expect(body.pending_approvals.articles).toEqual([]);
     const taskAccess = taskAccessWhere({ contactId: 'contact-2', clientId: 'client-acme', role: 'none' });
     const scoped = mockTaskFindMany.mock.calls.filter((c) => JSON.stringify(c[0].where).includes('contact_grants'));
-    // pending approvals, recent activity, progress rows and open questions all carry the grant scope.
-    expect(scoped.length).toBe(4);
+    // pending approvals, recent activity, progress rows, open questions and the two requests
+    // queries (open, recently closed) all carry the grant scope.
+    expect(scoped.length).toBe(6);
     for (const call of scoped) expect(JSON.stringify(call[0].where)).toContain(JSON.stringify(taskAccess));
   });
 
@@ -447,5 +448,70 @@ describe('GET /api/portal/home (portal MVP A5 sections)', () => {
     expect(activityWhere.AND).toContainEqual({
       OR: [{ status: 'done', NOT: stagedTaskWhere() }, { client_approved_at: { not: null } }],
     });
+  });
+});
+
+describe('GET /api/portal/home requests summary (portal phase B slice 1)', () => {
+  const requestRow = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    title: `internal ${id}`,
+    client_title: `Site change: ${id}`,
+    status: 'not_started',
+    tags: ['portal-chat', 'kind:site-change', 'needs-mike'],
+    staging_preview_url: null,
+    approved: false,
+    client_approved_at: null,
+    created_at: new Date('2026-10-20T10:00:00Z'),
+    updated_at: new Date('2026-10-20T10:00:00Z'),
+    project_id: null,
+    charter_id: null,
+    project: null,
+    charter: null,
+    site: { id: 'site-1', name: 'example.com' },
+    ...over,
+  });
+
+  it('returns the open count and the top three, newest first, in client words only', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    const rows = [
+      requestRow('a', { updated_at: new Date('2026-10-21T10:00:00Z') }),
+      requestRow('b', { updated_at: new Date('2026-10-20T10:00:00Z'), tags: ['quote', 'needs-mike'] }),
+      requestRow('c', { updated_at: new Date('2026-10-19T10:00:00Z') }),
+      requestRow('d', { updated_at: new Date('2026-10-18T10:00:00Z') }),
+    ];
+    // The requests list is the only query with the client_title select.
+    mockTaskFindMany.mockImplementation(async (args: { select?: Record<string, unknown> }) =>
+      args.select && 'client_title' in args.select ? rows : []
+    );
+    const body = await (await GET(makeRequest())).json();
+    expect(body.requests.open_count).toBe(4);
+    expect(body.requests.top.map((r: { id: string }) => r.id)).toEqual(['a', 'b', 'c']);
+    expect(body.requests.top[1]).toMatchObject({ title: 'Site change: b', state: { label: 'We will quote this', tone: 'quote' } });
+    const text = JSON.stringify(body.requests);
+    for (const leak of ['needs-mike', 'portal-chat', 'kind:', 'internal a']) expect(text).not.toContain(leak);
+  });
+
+  it('leaves out requests already under "Needs from you" (staged for review, waiting on an answer) but still counts them', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    const rows = [
+      requestRow('staged', { status: 'review', staging_preview_url: 'https://staging.example.com' }),
+      requestRow('asks', { tags: ['awaiting-clarification'] }),
+      requestRow('plain'),
+    ];
+    mockTaskFindMany.mockImplementation(async (args: { select?: Record<string, unknown> }) =>
+      args.select && 'client_title' in args.select ? rows : []
+    );
+    const body = await (await GET(makeRequest())).json();
+    expect(body.requests.open_count).toBe(3);
+    expect(body.requests.top.map((r: { id: string }) => r.id)).toEqual(['plain']);
+  });
+
+  it('reports no requests as an empty summary', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    const body = await (await GET(makeRequest())).json();
+    expect(body.requests).toEqual({ open_count: 0, top: [] });
   });
 });
