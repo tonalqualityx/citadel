@@ -9,7 +9,7 @@ outbox behind staff replies, the Retainer and Projects pages, and the machine-si
 keep the worker's comments internal unless marked.
 
 ## Schema (one additive migration, 20261021220000_portal_b_threads)
-Comment.client_visible, author_contact_id, client_ref (unique); Charter.client_label;
+Comment.client_visible, author_contact_id (user_id becomes nullable: a client has no staff author), client_ref (unique); Charter.client_label;
 PortalNotice (+ enum); ClientReport. Nothing renamed, dropped or made required.
 
 ## Files
@@ -29,3 +29,8 @@ route tests, comment-section component), python unittest for the sender and gate
 ## Verification checklist
 - [ ] prisma validate, tsc, the slice vitest set, next build, Playwright on the scratch DB: all exit 0
 - [ ] approval-sender and spawn-gate unit tests, `DRY_RUN=1 approval-sender.sh` exit 0
+
+## Review follow-ups (2026-10-21)
+- Notice claim returns the body to send under the queue's advisory lock; folds are conditional; recipient access is re-checked at claim and a no_access cancel alerts the task owner.
+- Client words are stored under the contact only (`user_id` null), verbatim, immutable to staff; a send-back is tagged `client-sent-back`, cleared by approval (single-statement tag updates).
+- An approval link with no contact reports `can_request_changes: false`; a note that still arrives is saved as an internal staff comment (tagged `needs-mike`).

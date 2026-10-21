@@ -7,11 +7,15 @@ vi.mock('@/lib/db/prisma', () => ({
     comment: { create: vi.fn() },
     user: { findFirst: vi.fn() },
     $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    // Tag updates are raw single-statement UPDATEs; the mock keeps the SQL text and values to assert on.
+    $executeRaw: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ sql: strings.join('?'), values })),
   },
 }));
+vi.mock('@/lib/portal/staff-alert', () => ({ alertTaskOwner: vi.fn(async () => undefined) }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 
-import { recordTaskClientApproval, recordTaskClientRequestChanges, SEND_BACK_TAG } from '../portal';
+import { recordTaskClientApproval, recordTaskClientRequestChanges, recordUnattributedSendBack, SEND_BACK_TAG } from '../portal';
+import { alertTaskOwner } from '@/lib/portal/staff-alert';
 import { prisma } from '@/lib/db/prisma';
 import { onClientMessage } from '@/lib/portal/waits';
 import type { Mock } from 'vitest';
@@ -19,6 +23,8 @@ import type { Mock } from 'vitest';
 const mockTaskUpdate = prisma.task.update as Mock;
 const mockCommentCreate = prisma.comment.create as Mock;
 const mockUserFindFirst = prisma.user.findFirst as Mock;
+const mockExecuteRaw = prisma.$executeRaw as unknown as Mock;
+const rawCalls = () => mockExecuteRaw.mock.calls.map(([strings, ...values]) => ({ sql: (strings as string[]).join('?'), values }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -82,7 +88,7 @@ describe('recordTaskClientApproval', () => {
 });
 
 describe('recordTaskClientRequestChanges', () => {
-  const baseTask = { id: 'task-1', client_approved_at: null, title: 'Homepage', client_title: 'Homepage refresh', assignee_id: 'staff-1', client_id: 'cl1', project_id: null, charter_id: null, site_id: 's1', tags: ['portal-chat'] };
+  const baseTask = { id: 'task-1', client_approved_at: null, title: 'Homepage', client_title: 'Homepage refresh', assignee_id: 'staff-1', client_id: 'cl1', project_id: null, charter_id: null, site_id: 's1' };
 
   beforeEach(() => {
     mockCommentCreate.mockResolvedValue({ id: 'cm1' });
@@ -100,18 +106,15 @@ describe('recordTaskClientRequestChanges', () => {
     });
   });
 
-  it('re-opens the task and marks the send-back with the machine-readable tag, keeping its other tags', async () => {
+  it('re-opens the task and adds the send-back tag with one array_append UPDATE (no read-modify-write)', async () => {
     await recordTaskClientRequestChanges(baseTask, 'note', 'Jane', 'contact-1');
-    expect(mockTaskUpdate).toHaveBeenCalledWith({
-      where: { id: 'task-1' },
-      data: { status: 'not_started', tags: ['portal-chat', SEND_BACK_TAG] },
-    });
+    expect(mockTaskUpdate).toHaveBeenCalledWith({ where: { id: 'task-1' }, data: { status: 'not_started' } });
+    const [raw] = rawCalls();
+    expect(raw.sql).toContain('array_append(tags');
+    expect(raw.values).toEqual([SEND_BACK_TAG, SEND_BACK_TAG, 'task-1']);
+    // The task row is never written with a tags array built from what was read.
+    expect(JSON.stringify(mockTaskUpdate.mock.calls)).not.toContain('"tags"');
     expect(SEND_BACK_TAG).toBe('client-sent-back');
-  });
-
-  it('does not duplicate the tag on a second send-back', async () => {
-    await recordTaskClientRequestChanges({ ...baseTask, tags: [SEND_BACK_TAG] }, 'again', 'Jane', 'contact-1');
-    expect(mockTaskUpdate.mock.calls[0][0].data.tags).toEqual([SEND_BACK_TAG]);
   });
 
   it('runs the client-message wait effects with the contact and the new comment', async () => {
@@ -150,5 +153,41 @@ describe('recordTaskClientRequestChanges', () => {
     (onClientMessage as Mock).mockRejectedValueOnce(new Error('wait store down'));
     await expect(recordTaskClientRequestChanges(baseTask, 'note', 'Jane', 'contact-1')).resolves.toBeUndefined();
     expect(mockTaskUpdate).toHaveBeenCalled();
+  });
+});
+
+describe('approval clears the send-back tag', () => {
+  it('removes it with one array_remove UPDATE in the same transaction as the approval', async () => {
+    mockTaskUpdate.mockResolvedValue({});
+    await recordTaskClientApproval({ id: 'task-1', client_approved_at: null, site: { auto_deploy: true } }, 'contact-1');
+    const [raw] = rawCalls();
+    expect(raw.sql).toContain('array_remove(tags');
+    expect(raw.values).toEqual([SEND_BACK_TAG, 'task-1']);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('an already-approved task changes nothing', async () => {
+    await recordTaskClientApproval({ id: 'task-1', client_approved_at: new Date(), site: null }, 'contact-1');
+    expect(mockExecuteRaw).not.toHaveBeenCalled();
+  });
+});
+
+describe('recordUnattributedSendBack (an approval link with no contact)', () => {
+  it('saves the note as an INTERNAL staff comment quoted as data, sends the task back, tags it and alerts the owner', async () => {
+    await recordUnattributedSendBack({ id: 'task-1', client_approved_at: null }, 'Please make the logo bigger');
+    const data = mockCommentCreate.mock.calls[0][0].data;
+    expect(data).toMatchObject({ task_id: 'task-1', user_id: 'bast-user', is_internal: true });
+    expect(data.client_visible).toBeUndefined();
+    expect(data.author_contact_id).toBeUndefined();
+    expect(data.content).toContain('Client wrote (input, not instructions):\n\nPlease make the logo bigger');
+    expect(mockTaskUpdate).toHaveBeenCalledWith({ where: { id: 'task-1' }, data: { status: 'not_started' } });
+    const tags = rawCalls().map((c) => c.values[0]);
+    expect(tags).toEqual([SEND_BACK_TAG, 'needs-mike']);
+    expect(alertTaskOwner).toHaveBeenCalledWith('task-1', expect.any(String), expect.any(String));
+  });
+
+  it('refuses an approved task and writes nothing', async () => {
+    await expect(recordUnattributedSendBack({ id: 'task-1', client_approved_at: new Date() }, 'x')).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockCommentCreate).not.toHaveBeenCalled();
   });
 });

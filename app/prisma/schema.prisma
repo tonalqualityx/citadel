@@ -1611,7 +1611,8 @@ model Comment {
   // Portal phase B slice 2: shown in the client's thread on the work page. A staff reply is
   // visible to the client only when this is true. Default false: nothing is shared by accident.
   client_visible     Boolean        @default(false)
-  // Set when the client wrote it (user_id is then the Bast user; the column stays required).
+  // Set when the client wrote it. user_id is then null: a client's words are never attached to a
+  // staff or bot user. Staff cannot edit or reclassify such a row.
   author_contact_id  String?        @db.Uuid
   author_contact     ClientContact? @relation("CommentAuthorContact", fields: [author_contact_id], references: [id], onDelete: Restrict)
   // The client's own message uuid. Unique, so a double send is a no-op.

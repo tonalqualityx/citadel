@@ -48,6 +48,9 @@ export async function GET(
       staging_deployed_at: task.staging_deployed_at ?? null,
       already_approved: Boolean(task.client_approved_at),
       contact: contact ? { id: contact.id, name: contact.name } : null,
+      // Request-changes is accepted from a link's OWN contact (its requester) and no one else. A link
+      // made without a requester shows the plain sign-in line instead of a form it cannot honour.
+      can_request_changes: Boolean(task.requested_by_contact && !task.requested_by_contact.is_deleted),
       available_sites,
     });
   } catch (error) {

@@ -11,6 +11,7 @@ vi.mock('@/lib/services/portal', () => ({
   getBastUserId: vi.fn(),
   recordTaskClientApproval: vi.fn(),
   recordTaskClientRequestChanges: vi.fn(),
+  recordUnattributedSendBack: vi.fn(),
 }));
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -35,6 +36,7 @@ import {
   getBastUserId,
   recordTaskClientApproval,
   recordTaskClientRequestChanges,
+  recordUnattributedSendBack,
 } from '@/lib/services/portal';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
@@ -46,6 +48,7 @@ const mockListContactSites = listContactSites as Mock;
 const mockGetBastUserId = getBastUserId as Mock;
 const mockRecordTaskClientApproval = recordTaskClientApproval as Mock;
 const mockRecordTaskClientRequestChanges = recordTaskClientRequestChanges as Mock;
+const mockRecordUnattributedSendBack = recordUnattributedSendBack as Mock;
 
 const mockPortalTask = {
   id: 'task-123',
@@ -120,6 +123,20 @@ describe('GET /api/portal/tasks/:token', () => {
     expect(data.staging_preview_url).toBe('https://staging.example.com/preview');
     expect(data.already_approved).toBe(false);
     expect(mockValidateTaskToken).toHaveBeenCalledWith('valid-token');
+  });
+
+  it('can_request_changes is true only when the link has its own contact', async () => {
+    mockValidateTaskToken.mockResolvedValue(mockPortalTask);
+    const own = await (await GET(makeRequest('http://localhost/api/portal/tasks/valid-token'), makeParams('valid-token'))).json();
+    expect(own.can_request_changes).toBe(true);
+
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, requested_by_contact: null });
+    const none = await (await GET(makeRequest('http://localhost/api/portal/tasks/valid-token'), makeParams('valid-token'))).json();
+    expect(none.can_request_changes).toBe(false);
+
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, requested_by_contact: { ...mockPortalTask.requested_by_contact, is_deleted: true } });
+    const gone = await (await GET(makeRequest('http://localhost/api/portal/tasks/valid-token'), makeParams('valid-token'))).json();
+    expect(gone.can_request_changes).toBe(false);
   });
 
   it('includes the resolved contact and available sites for the new-task form', async () => {
@@ -331,12 +348,15 @@ describe('no role gate on the token routes (Mike ruling overrides spec decision 
 });
 
 describe('POST /api/portal/tasks/:token/request-changes', () => {
-  it('writes under the link\'s own contact and never falls back to the primary contact', async () => {
+  it('a link with no contact never writes under the primary contact: the note is saved for staff instead of lost', async () => {
     mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, requested_by_contact: null });
     mockResolveTaskContact.mockResolvedValue({ id: 'primary', name: 'Pat Primary', email: 'p@a.com', client_id: 'client-1' });
-    const response = await REQUEST_CHANGES(postReq('valid-token', { note: 'x' }), makeParams('valid-token'));
-    expect(response.status).toBe(404);
+    const response = await REQUEST_CHANGES(postReq('valid-token', { note: 'Please fix the logo' }), makeParams('valid-token'));
+    expect(response.status).toBe(200);
+    expect((await response.json()).status).toBe('not_started');
     expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
+    expect(mockRecordUnattributedSendBack).toHaveBeenCalledWith(expect.objectContaining({ id: mockPortalTask.id }), 'Please fix the logo');
+    expect(mockLogPortalSession).toHaveBeenCalledWith(expect.objectContaining({ action: 'changes_requested', metadata: { contact_id: null, unattributed: true } }));
   });
 
   it('resolves the contact and delegates to the shared request-changes function', async () => {

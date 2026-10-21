@@ -16,6 +16,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { effectiveClientRole, type PortalAccess, type PortalRole } from '@/lib/portal/access';
 import { threadTaskWhere } from '@/lib/portal/thread';
+import { alertTaskOwner } from '@/lib/portal/staff-alert';
 
 export const NOTICE_HOLD_SECONDS = 120;
 export const NOTICE_REPLY_MAX_CHARS = 1500;
@@ -130,6 +131,15 @@ export async function noticeRecipients(
     if (await contactCanOpen(prisma, c as ContactRow, task)) out.push({ id: c.id, name: c.name, email: c.email.trim() });
   }
   return out;
+}
+
+/** Staff must see a reply that could not be emailed because the person lost access. */
+async function alertNoAccess(taskId: string): Promise<void> {
+  await alertTaskOwner(
+    taskId,
+    'A client reply was not emailed',
+    'The person it was addressed to no longer has access to this request, so the notice was cancelled and nothing was sent.'
+  );
 }
 
 const lockKey = (taskId: string, contactId: string) => `portal-notice:${taskId}:${contactId}`;
@@ -283,7 +293,10 @@ export async function cancelStaleNotices(now: Date = new Date()): Promise<number
       if (!fresh || fresh.status !== 'queued') return null;
       return refreshQueuedNotice(tx, fresh, now);
     });
-    if (result?.state === 'cancelled') cancelled++;
+    if (result?.state === 'cancelled') {
+      cancelled++;
+      if (result.reason === 'no_access') await alertNoAccess(n.task_id);
+    }
   }
   return cancelled;
 }
@@ -303,7 +316,7 @@ export async function claimNotice(
 > {
   const existing = await prisma.portalNotice.findUnique({ where: { id }, select: { task_id: true, contact_id: true } });
   if (!existing) return { ok: false, reason: 'not_found' };
-  return prisma.$transaction(async (tx) => {
+  const outcome = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(existing.task_id, existing.contact_id)}))`;
     const n = await tx.portalNotice.findUnique({ where: { id } });
     if (!n) return { ok: false, reason: 'not_found' } as const;
@@ -320,4 +333,6 @@ export async function claimNotice(
       notice: { id, status: 'sending' as const, send_attempt_at: now, to_email: fresh.notice.to_email, subject: fresh.notice.subject, body: fresh.notice.body },
     } as const;
   });
+  if (!outcome.ok && outcome.reason === 'no_access') await alertNoAccess(existing.task_id);
+  return outcome;
 }

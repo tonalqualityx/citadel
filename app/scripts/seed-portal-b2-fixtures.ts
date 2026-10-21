@@ -27,6 +27,8 @@ export const CHARTER_OPEN_TASK = 'E2E: Retainer open item (portal fixture)';
 export const CHARTER_PLAN_TASK = 'E2E: November marketing plan (portal fixture)';
 export const APPROVAL_TOKEN = 'e2e-b2-approval-page-token';
 export const APPROVAL_TASK_TITLE = 'E2E: Homepage refresh (portal fixture)';
+export const NOCONTACT_TOKEN = 'e2e-b2-approval-nocontact-token';
+export const NOCONTACT_TITLE = 'E2E: Unattributed approval link (portal fixture)';
 export const REPORT_URL = 'https://reports.e2e-portal-fixture.example/october';
 
 async function seed() {
@@ -84,7 +86,20 @@ async function seed() {
     where: { title: APPROVAL_TASK_TITLE, client_id: client.id },
     data: { portal_token: APPROVAL_TOKEN, portal_token_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), requested_by_contact_id: owner.id },
   });
-  console.log(JSON.stringify({ thread_task_id: thread.id, client_id: client.id }));
+  // A staged task whose approval link has NO contact of its own (as the approval-link and
+  // notify-requestor routes make them): the page must not offer a form it cannot honour.
+  const bare = await prisma.task.findFirst({ where: { title: NOCONTACT_TITLE, client_id: client.id } });
+  const bareData = {
+    status: 'review' as const, is_deleted: false, tags: [] as string[], client_approved_at: null, approved: false,
+    requested_by_contact_id: null, source: 'portal' as const,
+    staging_preview_url: 'https://staging.e2e-portal-fixture.example/bare',
+    portal_token: NOCONTACT_TOKEN, portal_token_expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  };
+  const bareTask = bare
+    ? await prisma.task.update({ where: { id: bare.id }, data: bareData })
+    : await prisma.task.create({ data: { title: NOCONTACT_TITLE, client_id: client.id, ...bareData } });
+  await prisma.comment.deleteMany({ where: { task_id: bareTask.id } });
+  console.log(JSON.stringify({ thread_task_id: thread.id, client_id: client.id, nocontact_task_id: bareTask.id }));
 }
 
 /** Retire this slice's fixture tasks so the slice 1 specs see the same client they always did. */
@@ -110,8 +125,8 @@ async function mintLink() {
 async function cleanup() {
   await prisma.task.updateMany({ where: { title: APPROVAL_TASK_TITLE }, data: { portal_token: null, portal_token_expires_at: null } });
   await prisma.task.updateMany({
-    where: { title: { in: [THREAD_TASK_TITLE, CHARTER_OPEN_TASK, CHARTER_PLAN_TASK] } },
-    data: { is_deleted: true },
+    where: { title: { in: [THREAD_TASK_TITLE, CHARTER_OPEN_TASK, CHARTER_PLAN_TASK, NOCONTACT_TITLE] } },
+    data: { is_deleted: true, portal_token: null, portal_token_expires_at: null },
   });
 }
 
@@ -132,7 +147,8 @@ async function inspectThread(taskId: string) {
     prisma.portalNotice.findMany({ where: { task_id: taskId }, orderBy: { created_at: 'asc' }, select: { id: true, status: true, to_email: true, subject: true, body: true, comment_ids: true } }),
     prisma.wait.findMany({ where: { task_id: taskId }, orderBy: { created_at: 'asc' }, select: { template_key: true, state: true, resolution: true } }),
   ]);
-  console.log(JSON.stringify({ comments, notices, waits }));
+  const task = await prisma.task.findUnique({ where: { id: taskId }, select: { tags: true, status: true } });
+  console.log(JSON.stringify({ comments, notices, waits, task }));
 }
 
 async function main() {

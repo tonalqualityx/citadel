@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 
+vi.mock('../staff-alert', () => ({ alertTaskOwner: vi.fn(async () => undefined) }));
+
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     comment: { findMany: vi.fn() },
@@ -25,6 +27,7 @@ import {
   queuePortalNotices,
   READ_THE_REST,
 } from '../notices';
+import { alertTaskOwner } from '../staff-alert';
 import { PROMISES } from '../intake/__tests__/promise-scan';
 
 const p = prisma as unknown as Record<string, Record<string, Mock>> & { $transaction: Mock };
@@ -259,5 +262,20 @@ describe('cancelStaleNotices (the two-minute hold)', () => {
     p.comment.findMany.mockResolvedValue([]);
     await cancelStaleNotices();
     expect(p.$executeRaw).toHaveBeenCalled();
+  });
+
+  it('files an alert to the task owner when a notice is cancelled because the recipient lost access', async () => {
+    list(queued({ comment_ids: ['r1'] }));
+    p.comment.findMany.mockResolvedValue([{ id: 'r1', content: 'Reply', created_at: new Date() }]);
+    p.task.count.mockResolvedValue(0);
+    await cancelStaleNotices();
+    expect(alertTaskOwner).toHaveBeenCalledWith('t', expect.stringContaining('not emailed'), expect.stringContaining('no longer has access'));
+  });
+
+  it('does not alert when the notice was cancelled only because its replies were withdrawn', async () => {
+    list(queued());
+    p.comment.findMany.mockResolvedValue([]);
+    await cancelStaleNotices();
+    expect(alertTaskOwner).not.toHaveBeenCalled();
   });
 });

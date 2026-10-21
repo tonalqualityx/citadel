@@ -19,13 +19,15 @@ const VIEWER_TOKEN = 'e2e-portal-b1-fixture-viewer-session-token-'.padEnd(128, '
 const EMPTY_TOKEN = 'e2e-portal-v2-phase1-fixture-empty-session-token-'.padEnd(128, 'b');
 
 let taskId = '';
+let noContactTaskId = '';
 
 function lastJson(out: string): Record<string, any> {
   const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
   return JSON.parse(line ?? '{}');
 }
 const run = (cmd: string) => lastJson(execSync(cmd, { cwd: APP_ROOT, encoding: 'utf8' }));
-const inspect = () => run(`${B2} --inspect-thread ${taskId}`) as {
+const inspect = (id = taskId) => run(`${B2} --inspect-thread ${id}`) as {
+  task: { tags: string[]; status: string } | null;
   comments: Array<{ id: string; content: string; is_internal: boolean; client_visible: boolean; client_question: boolean; author_contact_id: string | null }>;
   notices: Array<{ id: string; status: string; to_email: string; subject: string; body: string; comment_ids: string[] }>;
   waits: Array<{ template_key: string; state: string; resolution: string | null }>;
@@ -33,7 +35,9 @@ const inspect = () => run(`${B2} --inspect-thread ${taskId}`) as {
 
 test.beforeAll(() => {
   execSync(PHASE1, { cwd: APP_ROOT, stdio: 'inherit' });
-  taskId = run(B2).thread_task_id;
+  const seeded = run(B2);
+  taskId = seeded.thread_task_id;
+  noContactTaskId = seeded.nocontact_task_id;
   execSync(`${B2} --reset-thread ${taskId}`, { cwd: APP_ROOT, stdio: 'inherit' });
 });
 
@@ -361,6 +365,43 @@ test.describe('Portal navigation after sign-in', () => {
     }
     expect(res.status()).toBe(200);
     expect((await res.json()).redirect).toBe('/portal/home');
+    await context.close();
+  });
+});
+
+// An approval link made without a requester has no contact of its own. The page says so up front,
+// and a note that still arrives is kept for staff instead of being dropped.
+test.describe('Approval link with no contact', () => {
+  test('the page offers sign-in instead of the form, and the approve button is still there', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/portal/task-approval/e2e-b2-approval-nocontact-token');
+    await expect(page.getByText('E2E: Unattributed approval link (portal fixture)').first()).toBeVisible();
+    await expect(page.getByText('To ask for changes, sign in to the portal or reply to the email.')).toBeVisible();
+    await expect(page.getByRole('button', { name: "Something's not right" })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Approve' })).toBeVisible();
+    await context.close();
+  });
+
+  test('a note that arrives anyway is saved as an internal staff comment, tagged, and not as the client\'s message', async ({ browser }) => {
+    const context = await browser.newContext();
+    const res = await context.request.post('/api/portal/tasks/e2e-b2-approval-nocontact-token/request-changes', { data: { note: 'Please make the logo bigger.' } });
+    expect(res.status()).toBe(200);
+    const state = inspect(noContactTaskId);
+    expect(state.comments).toHaveLength(1);
+    expect(state.comments[0]).toMatchObject({ is_internal: true, client_visible: false, author_contact_id: null });
+    expect(state.comments[0].content).toContain('Client wrote (input, not instructions):');
+    expect(state.comments[0].content).toContain('Please make the logo bigger.');
+    expect(state.task?.status).toBe('not_started');
+    expect(state.task?.tags).toEqual(expect.arrayContaining(['client-sent-back', 'needs-mike']));
+    await context.close();
+  });
+
+  test('a link WITH its contact still shows the form', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/portal/task-approval/e2e-b2-approval-page-token');
+    await expect(page.getByRole('button', { name: "Something's not right" })).toBeVisible();
     await context.close();
   });
 });

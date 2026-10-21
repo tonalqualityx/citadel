@@ -24,6 +24,8 @@ interface ApprovalData {
   staging_deployed_at: string | null;
   already_approved: boolean;
   contact: { id: string; name: string | null } | null;
+  /** False when the link has no contact of its own: the page offers sign-in instead of the form. */
+  can_request_changes?: boolean;
   available_sites: PortalSite[];
 }
 
@@ -237,6 +239,11 @@ export default function TaskApprovalPortalPage() {
             >
               Approve
             </button>
+            {data.can_request_changes === false ? (
+              <p data-testid="no-changes-form" className="text-sm text-text-secondary self-center">
+                To ask for changes, sign in to the portal or reply to the email.
+              </p>
+            ) : (
             <button
               type="button"
               onClick={() => {
@@ -247,6 +254,7 @@ export default function TaskApprovalPortalPage() {
             >
               Something&apos;s not right
             </button>
+            )}
             <button
               type="button"
               onClick={() => {

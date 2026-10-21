@@ -139,6 +139,9 @@ describe.skipIf(!SCRATCH)('portal notice races (real database)', () => {
       const [after] = await notices();
       expect(after.status).toBe('cancelled');
       expect(after.send_error).toMatch(/no longer has access/);
+      // Staff are told: an in-app alert about this task reaches its owner.
+      const alert = await prisma.notification.findFirst({ where: { entity_id: taskId, type: 'system_alert' } });
+      expect(alert?.title).toBe('A client reply was not emailed');
     } finally {
       await prisma.clientContact.update({ where: { id: contactId }, data: { is_deleted: false } });
     }

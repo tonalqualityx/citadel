@@ -428,7 +428,7 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'POST',
         summary:
-          'Client asks for rework via portal token. Re-opens the task (status→not_started) and records the note as a client-visible comment. Public, no auth required.',
+          'Client asks for rework via portal token. Re-opens the task (status→not_started), tags it client-sent-back, and stores the note word for word as the link contact\'s own thread message. A link with no contact of its own (made by the approval-link and notify-requestor routes) never writes under another person: the note is saved as an INTERNAL staff comment quoted as client input, the task is tagged client-sent-back and needs-mike, and the task owner is alerted; the answer is the same. GET /api/portal/tasks/:token reports can_request_changes so the page can say so up front. Approval clears the client-sent-back tag. Public, no auth required.',
         auth: 'none',
         bodySchema: [
           { name: 'note', type: 'string', required: true, description: "What needs changing (the 'what')" },
@@ -710,7 +710,7 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'POST',
         summary:
-          'Portal phase B slice 2: the client writes in the thread. Creates a Comment authored by the contact (author_contact_id, user_id the Bast user, client_visible true, is_internal false), text verbatim. 201 when new, 200 with the same message when client_ref was already sent. Opens or moves the request\'s wait: stops the contact\'s waits, flags staff-owned waits needs_human, or opens portal.client_reply. Any client role may write, grant-only contacts included. 20 messages per 10 minutes and 200 a day per person (counted in the database); past that, 429 with the plain-words limit message.',
+          'Portal phase B slice 2: the client writes in the thread. Creates a Comment authored by the contact (author_contact_id set, user_id null, client_visible true, is_internal false), text verbatim. 201 when new, 200 with the same message when client_ref was already sent. Opens or moves the request\'s wait: stops the contact\'s waits, flags staff-owned waits needs_human, or opens portal.client_reply. Any client role may write, grant-only contacts included. 20 messages per 10 minutes and 200 a day per person (counted in the database); past that, 429 with the plain-words limit message.',
         auth: 'session',
         bodySchema: [
           { name: 'client_ref', type: 'uuid', required: true, description: 'The client\'s id for this message; a repeat is a no-op' },
@@ -789,10 +789,11 @@ export const portalEndpoints: ApiEndpoint[] = [
       {
         method: 'PUT',
         summary:
-          'The sender\'s claim, BEFORE the email goes to gog: queued -> sending, send_attempt_at stamped. 409 when the notice is not queued or its replies were withdrawn in the hold (it is then cancelled). Mirrors PUT /api/approval-requests/:id/sending. pm and admin only.',
+          'The sender\'s claim, BEFORE the email goes to gog: queued -> sending, send_attempt_at stamped. Under the same advisory lock the queue uses, the notice is re-checked and rebuilt, and the answer carries to_email, subject and body exactly as they stand now: the sender sends THOSE, never its earlier list copy. 409 with a code when it cannot be sent: not_queued (another sender took it, or it was cancelled), withdrawn (every reply was unflagged, made internal or deleted in the hold; the notice is cancelled) or no_access (the recipient was deleted or revoked, or lost the project; the notice is cancelled with a reason and the task owner gets an in-app alert). Mirrors PUT /api/approval-requests/:id/sending. pm and admin only.',
         auth: 'required',
         roles: ['pm', 'admin'],
-        responseExample: { id: 'uuid', status: 'sending', send_attempt_at: 'ISO-8601' },
+        responseExample: { id: 'uuid', status: 'sending', send_attempt_at: 'ISO-8601', to_email: 'string', subject: 'string', body: 'string' },
+        responseNotes: '409 code is one of not_queued, withdrawn, no_access.',
       },
     ],
   },

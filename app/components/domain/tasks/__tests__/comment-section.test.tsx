@@ -111,4 +111,17 @@ describe('CommentSection badges and toggle', () => {
     rerender(<CommentSection taskId="t" />);
     expect(screen.queryByLabelText('Show to the client')).toBeNull();
   });
+
+  it('a client-authored comment has no Edit button (staff can delete it, not rewrite it)', () => {
+    comments = [staff({ id: 'c7', author_contact_id: 'ct1', author_contact: { name: 'Dana' }, client_visible: true, user_id: null, user: null })];
+    render(<CommentSection taskId="t" clientVisibleTask />);
+    expect(screen.queryByTitle('Edit')).toBeNull();
+    expect(screen.getByTitle('Delete')).toBeInTheDocument();
+  });
+
+  it('a staff comment still has Edit', () => {
+    comments = [staff({ id: 'c8' })];
+    render(<CommentSection taskId="t" clientVisibleTask />);
+    expect(screen.getByTitle('Edit')).toBeInTheDocument();
+  });
 });
