@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { CalendarDays, ExternalLink, MessageSquareText, Sparkles } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
 import { CALENDLY_SCRIPT_URL, CALENDLY_STYLE_URL, SUPPORT_EMAIL, embedUrl, type MeetingType } from '@/lib/portal/booking';
+
+const TYPE_ICON = { consult: CalendarDays, marketing: Sparkles, questions: MessageSquareText } as const;
 
 type EmbedState = 'idle' | 'loading' | 'ready' | 'blocked';
 
@@ -80,60 +84,69 @@ export function BookingPicker({ types, initialType = null }: { types: MeetingTyp
   }, [embed, url]);
 
   return (
-    <div className="bg-surface rounded-lg border border-border p-6">
-      <h2 className="text-2xl font-bold text-text-main mb-1">Book a meeting</h2>
-      <p className="text-sm text-text-tertiary mb-4">What would you like to talk about?</p>
+    <>
+      <PageHeader
+        title="Book a meeting"
+        size="page"
+        lede="Pick the kind of call. Each opens a calendar where you choose the time."
+        motif="meadow"
+      />
 
-      <div role="radiogroup" aria-label="Meeting type" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div role="radiogroup" aria-label="Meeting type" className="tiles">
         {types.map((t) => {
           const active = t.key === selected;
+          const Icon = TYPE_ICON[t.key] ?? CalendarDays;
           return (
             <button
               key={t.key}
               type="button"
               role="radio"
               aria-checked={active}
+              data-selected={active ? 'true' : undefined}
               onClick={() => setSelected(t.key)}
-              className={`rounded-lg border p-4 text-left transition-colors ${
-                active ? 'border-brand-primary bg-surface-secondary' : 'border-border hover:border-text-tertiary'
-              }`}
+              className="cardlink"
+              style={{ textAlign: 'left', font: 'inherit', cursor: 'pointer' }}
             >
-              <span className="block font-medium text-text-main">{t.label}</span>
-              <span className="mt-1 block text-xs text-text-tertiary">{t.description}</span>
+              <span className="tile-ic" aria-hidden="true" style={{ gridRow: '1 / span 3' }}>
+                <Icon className="i" focusable="false" />
+              </span>
+              <b>{t.label}</b>
+              <small>{t.description}</small>
+              <small>
+                Opens the calendar{' '}
+                <ExternalLink className="i" aria-hidden="true" focusable="false" style={{ width: 14, height: 14, verticalAlign: 'text-bottom' }} />
+              </small>
             </button>
           );
         })}
       </div>
 
       {current && !url && (
-        <p className="mt-6 text-sm text-text-secondary">
-          Online booking for this kind of meeting is not ready yet. Email{' '}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className="text-brand-primary hover:underline">
-            {SUPPORT_EMAIL}
-          </a>{' '}
-          and we will find a time.
-        </p>
+        <div className="card">
+          <p>
+            Online booking for this kind of meeting is not ready yet. Email{' '}
+            <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> and we will find a time.
+          </p>
+        </div>
       )}
 
       {current && url && (
-        <div className="mt-6">
+        <div className="card">
           {embed === 'blocked' ? (
-            <p className="text-sm text-text-secondary">
+            <p>
               The scheduler could not load here.{' '}
-              <a href={url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:underline">
+              <a href={url} target="_blank" rel="noopener noreferrer">
                 Open the booking page
               </a>
               .
             </p>
           ) : (
             <>
-              {embed === 'loading' && <p className="text-sm text-text-tertiary">Loading the scheduler…</p>}
-              {embed === 'ready' && (
-                <div ref={container} style={{ minWidth: '320px', height: '700px' }} />
-              )}
-              <p className="mt-3 text-xs text-text-tertiary">
+              {embed === 'loading' && <div className="skel" aria-hidden="true"><span className="skel-block" /></div>}
+              {embed === 'ready' && <div ref={container} style={{ minWidth: '320px', height: '700px' }} />}
+              <p>
                 Prefer a plain page?{' '}
-                <a href={url} target="_blank" rel="noopener noreferrer" className="text-brand-primary hover:underline">
+                <a href={url} target="_blank" rel="noopener noreferrer">
                   Open the booking page
                 </a>
                 .
@@ -142,6 +155,6 @@ export function BookingPicker({ types, initialType = null }: { types: MeetingTyp
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }

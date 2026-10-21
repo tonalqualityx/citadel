@@ -1,15 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { PenLine, TriangleAlert } from 'lucide-react';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Callout } from '@/components/portal/ui/callout';
+import { PortalButton } from '@/components/portal/ui/button';
+import { ActionLink } from '@/components/portal/ui/action-link';
+import { Field } from '@/components/portal/ui/field';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { useParams, useRouter } from 'next/navigation';
 
 // [C4] Full-screen client article review/edit screen + [C5] the three wired writes. The client reads
 // the article comfortably (immersive prose column), edits the body in a full-height plain-text editor,
-// then approves, requests changes, or saves edits — all live against the session-scoped portal API.
+// then approves, requests changes, or saves edits, all live against the session-scoped portal API.
 //
-// Editor choice (rationale on the task): Article.body is plain text end-to-end (storage + the team
-// editor), so this is a comfortable full-screen plain-text surface, not a rich-text/TipTap editor —
+// Editor choice: Article.body is plain text end-to-end (storage + the team
+// editor), so this is a comfortable full-screen plain-text surface, not a rich-text/TipTap editor,
 // keeping storage and editor formats identical and the change reversible.
 
 interface ClientArticle {
@@ -36,12 +43,14 @@ export default function ClientArticleReviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Local edit state for the body — read + edit comfortably, persisted via Save / on submit.
+  // Local edit state for the body, read + edit comfortably, persisted via Save / on submit.
   const [body, setBody] = useState('');
 
   // Which action panel is open: null | 'approve' | 'changes'
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [changesNote, setChangesNote] = useState('');
+  // Reading column by default; Edit the text switches it to the plain-text editor.
+  const [editing, setEditing] = useState(false);
 
   // Write states. `submitting` names the in-flight action so every button can disable together;
   // `actionError` surfaces a failure inline; `completed` swaps the controls for a confirmation once
@@ -83,6 +92,7 @@ export default function ClientArticleReviewPage() {
     try {
       if (await persistBody()) {
         setSaveState('saved');
+        setEditing(false);
       }
     } finally {
       setSubmitting(null);
@@ -94,7 +104,7 @@ export default function ClientArticleReviewPage() {
     setActionError(null);
     setSubmitting('approve');
     try {
-      // Don't lose edits the client made before approving — save a dirty body first.
+      // Don't lose edits the client made before approving, save a dirty body first.
       if (isDirty && !(await persistBody())) return;
 
       const res = await fetch(`/api/portal/articles/${id}/approve`, { method: 'POST' });
@@ -172,178 +182,186 @@ export default function ClientArticleReviewPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-text-tertiary">Loading…</p>
-      </div>
+      <SkeletonRegion label="Loading the article">
+        <PageHeader title="Article for review" size="page" />
+        <Skeleton block lines={5} />
+      </SkeletonRegion>
     );
   }
 
   if (error || !article) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center">
-        <h2 className="mb-2 text-xl font-semibold text-text-main">Unable to load this article</h2>
-        <p className="text-text-secondary">{error || 'This article isn’t available.'}</p>
-        <Link href="/portal" className="mt-4 inline-block text-sm text-brand-primary hover:underline">
-          ← Back to your articles
-        </Link>
-      </div>
+      <>
+        <Callout tone="urgent" icon={TriangleAlert} title="We could not load this article" id="article-error">
+          <p className="note">{error || 'This article isn’t available.'} Please go back and try again.</p>
+        </Callout>
+        <div className="actions">
+          <ActionLink href="/portal">Back to your articles</ActionLink>
+        </div>
+      </>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Back + context */}
-      <div className="flex items-center justify-between gap-4">
-        <Link href="/portal" className="text-sm text-brand-primary hover:underline">
-          ← Back to your articles
-        </Link>
-        <span className="text-xs text-text-tertiary">Updated {formatDate(article.updated_at)}</span>
-      </div>
+  const chip =
+    completed === 'approved' ? (
+      <StatusChip label="Approved" tone="done" />
+    ) : completed === 'changes' ? (
+      <StatusChip label="Sent back for changes" tone="quiet" />
+    ) : (
+      <StatusChip label="Ready for your review" tone="attention" />
+    );
+  const paragraphs = (article.body ?? '').split(/\n{2,}/).filter((p) => p.trim().length > 0);
 
-      {/* The reading + editing surface — a comfortable, full-height prose column. */}
-      <div className="rounded-lg border border-border bg-surface">
-        <div className="border-b border-border px-6 py-5 sm:px-10">
-          <h1 className="text-2xl font-bold leading-snug text-text-main sm:text-3xl">{article.title}</h1>
-          <p className="mt-2 text-sm text-text-tertiary">
-            Read it through, make any edits directly in the text, then approve or send it back.
-          </p>
-        </div>
-        <div className="px-6 py-6 sm:px-10 sm:py-8">
-          <label htmlFor="article-body" className="sr-only">
-            Article body
-          </label>
-          <textarea
-            id="article-body"
-            value={body}
-            onChange={(e) => {
-              setBody(e.target.value);
-              setSaveState('idle');
-            }}
-            disabled={completed !== null}
-            spellCheck
-            className="block w-full resize-y border-0 bg-transparent p-0 text-[1.0625rem] leading-8 text-text-main focus:outline-none focus:ring-0 disabled:opacity-70"
-            style={{ minHeight: '60vh', fontFamily: 'Georgia, Cambria, "Times New Roman", serif' }}
-            placeholder="The article body will appear here."
-          />
-        </div>
-        {completed === null && (
-          <div className="flex items-center justify-end gap-3 border-t border-border px-6 py-3 sm:px-10">
-            {saveState === 'saved' && !isDirty && (
-              <span className="text-sm text-text-tertiary">Saved</span>
+  return (
+    <>
+      <PageHeader
+        eyebrow={['Article for review', chip, `Updated ${formatDate(article.updated_at)}`]}
+        title={article.title}
+        size="page"
+        lede="Read it through, make any edits directly in the text, then approve or send it back."
+        motif={null}
+      />
+
+      <div className="card" style={{ maxWidth: '65ch' }}>
+        {editing ? (
+          <>
+            <label htmlFor="article-body" className="sr-only">
+              Article body
+            </label>
+            <textarea
+              id="article-body"
+              value={body}
+              onChange={(e) => {
+                setBody(e.target.value);
+                setSaveState('idle');
+              }}
+              disabled={completed !== null}
+              spellCheck
+              style={{ minHeight: '70vh', fontSize: '1.0625rem', lineHeight: 1.7 }}
+              placeholder="The article body will appear here."
+            />
+            <div className="actions">
+              <PortalButton onClick={handleSave} disabled={!isDirty || submitting !== null} busy={submitting === 'save'} busyLabel="Saving">
+                Save edits
+              </PortalButton>
+              <PortalButton
+                variant="quiet"
+                disabled={submitting !== null}
+                onClick={() => {
+                  setBody(article.body ?? '');
+                  setSaveState('idle');
+                  setEditing(false);
+                }}
+              >
+                Cancel
+              </PortalButton>
+            </div>
+          </>
+        ) : (
+          <div className="prose" style={{ fontSize: '1.0625rem' }}>
+            {paragraphs.length > 0 ? (
+              paragraphs.map((p, i) => (
+                <p key={i} style={{ whiteSpace: 'pre-line' }}>
+                  {p}
+                </p>
+              ))
+            ) : (
+              <p>The article body will appear here.</p>
             )}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!isDirty || submitting !== null}
-              className="rounded-md border border-border px-3 py-1.5 text-sm text-text-main transition-colors hover:bg-surface-secondary disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting === 'save' ? 'Saving…' : 'Save edits'}
-            </button>
+            {saveState === 'saved' && !isDirty ? <p className="hint">Saved</p> : null}
           </div>
         )}
       </div>
 
-      {/* Prior feedback, if any — client-safe comments only (internal notes never reach here). */}
+      {/* Prior feedback, if any: client-safe comments only (internal notes never reach here). */}
       {article.comments.length > 0 && (
-        <div className="rounded-lg border border-border bg-surface p-6 sm:px-10">
-          <h2 className="mb-4 text-lg font-semibold text-text-main">Notes</h2>
-          <ul className="space-y-4">
+        <section className="sec" aria-labelledby="article-notes-h">
+          <div className="sec-h">
+            <h2 id="article-notes-h">Notes</h2>
+          </div>
+          <div style={{ display: 'grid', gap: 14 }}>
             {article.comments.map((c) => (
-              <li key={c.id} className="border-l-2 border-border pl-4">
-                <p className="whitespace-pre-line text-sm text-text-main">{c.content}</p>
-                <p className="mt-1 text-xs text-text-tertiary">
+              <div key={c.id} className="msg us">
+                <span className="av" aria-hidden="true">
+                  {(c.author_name ?? 'Indelible').slice(0, 1)}
+                </span>
+                <span className="who">
                   {c.author_name ?? 'Indelible'} · {formatDate(c.created_at)}
-                </p>
-              </li>
+                </span>
+                <div className="bub" style={{ whiteSpace: 'pre-line' }}>
+                  {c.content}
+                </div>
+              </div>
             ))}
-          </ul>
-        </div>
+          </div>
+        </section>
       )}
 
-      {/* Review controls, or the confirmation once the client has acted. */}
       {completed ? (
-        <div className="rounded-lg border border-border bg-surface p-6 text-center sm:px-10">
-          <h2 className="mb-2 text-xl font-semibold text-text-main">
-            {completed === 'approved' ? 'Thank you — approved' : 'Thanks — sent back for changes'}
-          </h2>
-          <p className="text-text-secondary">
+        <section className="card" aria-live="polite">
+          <h2>{completed === 'approved' ? 'Thank you, approved' : 'Thanks, sent back for changes'}</h2>
+          <p>
             {completed === 'approved'
               ? 'We’ve recorded your approval. There’s nothing more you need to do.'
               : 'We’ve passed your notes to the team and we’ll take another pass.'}
           </p>
-          <Link
-            href="/portal"
-            className="mt-4 inline-block text-sm text-brand-primary hover:underline"
-          >
-            ← Back to your articles
-          </Link>
-        </div>
+          <div className="actions">
+            <ActionLink href="/portal">Back to your articles</ActionLink>
+          </div>
+        </section>
       ) : (
-        <div className="rounded-lg border border-border bg-surface p-6 sm:px-10">
-          <h2 className="mb-4 text-lg font-semibold text-text-main">What would you like to do?</h2>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => setPendingAction(pendingAction === 'approve' ? null : 'approve')}
-              disabled={submitting !== null}
-              className="rounded-md bg-brand-primary px-4 py-2 text-white transition-colors hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
+        <Callout tone="attention" icon={PenLine} title="What would you like to do?" id="article-actions">
+          <div className="actions">
+            <PortalButton onClick={() => setPendingAction(pendingAction === 'approve' ? null : 'approve')} disabled={submitting !== null}>
               Approve
-            </button>
-            <button
-              type="button"
-              onClick={() => setPendingAction(pendingAction === 'changes' ? null : 'changes')}
-              disabled={submitting !== null}
-              className="rounded-md border border-border px-4 py-2 text-text-main transition-colors hover:bg-surface-secondary disabled:cursor-not-allowed disabled:opacity-60"
-            >
+            </PortalButton>
+            <PortalButton variant="secondary" onClick={() => setPendingAction(pendingAction === 'changes' ? null : 'changes')} disabled={submitting !== null}>
               Request changes
-            </button>
+            </PortalButton>
+            {!editing && (
+              <PortalButton variant="quiet" onClick={() => setEditing(true)} disabled={submitting !== null}>
+                Edit the text
+              </PortalButton>
+            )}
           </div>
 
           {pendingAction === 'approve' && (
-            <div className="mt-5 border-t border-border pt-5">
-              <p className="mb-4 text-text-secondary">
-                Approve this article? This confirms you’re happy with it, including any edits you’ve
-                made.
-              </p>
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={submitting !== null}
-                className="rounded-md bg-brand-primary px-4 py-2 text-white transition-colors hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting === 'approve' ? 'Approving…' : 'Confirm approval'}
-              </button>
+            <div className="card">
+              <p>Approve this article? This confirms you’re happy with it, including any edits you’ve made.</p>
+              <div className="actions">
+                <PortalButton onClick={handleApprove} disabled={submitting !== null} busy={submitting === 'approve'} busyLabel="Approving">
+                  Confirm approval
+                </PortalButton>
+              </div>
             </div>
           )}
 
           {pendingAction === 'changes' && (
-            <div className="mt-5 border-t border-border pt-5">
-              <label htmlFor="changes-note" className="mb-2 block text-sm font-medium text-text-main">
-                What needs changing?
-              </label>
-              <textarea
-                id="changes-note"
-                value={changesNote}
-                onChange={(e) => setChangesNote(e.target.value)}
-                rows={4}
-                placeholder="Tell us what’s not right and we’ll take another pass."
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-              />
-              <button
-                type="button"
-                onClick={handleRequestChanges}
-                disabled={submitting !== null || !changesNote.trim()}
-                className="mt-3 rounded-md bg-brand-primary px-4 py-2 text-white transition-colors hover:bg-brand-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting === 'changes' ? 'Sending…' : 'Send back for changes'}
-              </button>
+            <div className="card">
+              <Field id="changes-note" label="What needs changing?">
+                <textarea
+                  value={changesNote}
+                  onChange={(e) => setChangesNote(e.target.value)}
+                  rows={4}
+                  placeholder="Tell us what’s not right and we’ll take another pass."
+                />
+              </Field>
+              <div className="actions">
+                <PortalButton onClick={handleRequestChanges} disabled={submitting !== null || !changesNote.trim()} busy={submitting === 'changes'} busyLabel="Sending">
+                  Send back for changes
+                </PortalButton>
+              </div>
             </div>
           )}
 
-          {actionError && <p className="mt-4 text-sm text-error">{actionError}</p>}
-        </div>
+          {actionError && (
+            <p className="err" role="alert">
+              <TriangleAlert className="i" aria-hidden="true" focusable="false" />
+              {actionError}
+            </p>
+          )}
+        </Callout>
       )}
-    </div>
+    </>
   );
 }
