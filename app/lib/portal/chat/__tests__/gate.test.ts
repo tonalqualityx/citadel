@@ -6,13 +6,18 @@ import path from 'path';
 import { gateReply } from '@/lib/portal/chat/gate';
 import { buildProvenance, emptyProvenance } from '@/lib/portal/chat/provenance';
 import { renderThread, contextNumbers } from '../context';
-import { CALLS, fixtureContext, MUST_FAIL, MUST_PASS, PAGE_NAMES, PROBE_FAIL, PROBE_G2, PROBE_G2_PASS, PROBE_G3, PROBE_G3_PASS, PROBE_G4, PROBE_PASS_PAGES } from './gate-fixtures';
-import type { GateKind } from '../gate';
+import { CALLS, fixtureContext, MUST_FAIL, MUST_PASS, FP_CLIENT_TEXTS, FP_CORPUS, FP_EXAMPLES, FP_PAGE_NAMES, PAGE_NAMES, PROBE_FAIL, PROBE_G2, PROBE_G2_PASS, PROBE_G3, PROBE_G3_PASS, PROBE_G4, PROBE_PASS_PAGES } from './gate-fixtures';
+import type { GateContext, GateKind } from '../gate';
+import { GATED_FIELDS } from '../gate';
+import { FIXED_LINES, FIXED_LINE_LIST } from '../fixed-lines';
+import { allowanceText } from '@/lib/portal/retainer';
+import { extractResultNumbers } from '../provenance';
 
 describe('gate fixtures (spec 9.2)', () => {
   it('holds at least 80 must-fail and 50 must-pass sentences', () => {
+    const passesFp = FP_EXAMPLES.length + FP_CORPUS.length;
     const fails = MUST_FAIL.length + PROBE_FAIL.length + PROBE_G2.length - PROBE_G2_PASS.length + PROBE_G3.length - PROBE_G3_PASS.length;
-    const passes = MUST_PASS.length + PROBE_PASS_PAGES.length + PROBE_G4.length + PROBE_G2_PASS.length + PROBE_G3_PASS.length;
+    const passes = passesFp + MUST_PASS.length + PROBE_PASS_PAGES.length + PROBE_G4.length + PROBE_G2_PASS.length + PROBE_G3_PASS.length;
     expect(fails).toBeGreaterThanOrEqual(80);
     expect(passes).toBeGreaterThanOrEqual(50);
     console.log(`gate fixtures: must-fail ${fails}, must-pass ${passes}`);
@@ -61,7 +66,7 @@ describe('Opus review probes', () => {
   }
   it('page names are an allow-list, not a switch: without them the same words fail', () => {
     expect(gateReply('Is it the Free Shipping banner on the home page?', fixtureContext()).ok).toBe(false);
-    expect(gateReply('Is it the Ticket Sales page?', fixtureContext()).ok).toBe(false);
+    expect(gateReply('Is it the Guarantee page?', fixtureContext()).ok).toBe(false);
     expect(gateReply('Is it the Free Shipping banner on the home page?', pagesCtx)).toEqual({ ok: true });
     // A page name does not excuse a promise written beside it.
     expect(gateReply('The Pricing page is free and we will fix it.', pagesCtx).ok).toBe(false);
@@ -179,5 +184,100 @@ describe('parity with the writing standard prose gate', () => {
     const res = spawnSync('sh', [PROSE_GATE, file], { encoding: 'utf8' });
     // The prose gate is a lexical floor with its own tells; list what it flags rather than assume.
     expect([0, 1]).toContain(res.status);
+  });
+});
+
+
+// ---- the confirmation review: ordinary clarifying replies must pass --------------------------
+
+const ga = { label: 'Google Analytics, Sep 1 to Sep 30, 2026 (data through Sep 30)', totals: { totalUsers: 1002, sessions: 1425 } };
+const fpBase = (prov = buildProvenance([]), pageNames = ['Home', 'About', 'Menu', 'Catering', 'Contact']): GateContext => ({
+  provenance: prov,
+  staffNames: ['Mike', 'Ashlei', 'Sabeen'],
+  otherClientNames: ['Bootleggers Beverage', 'Abbott Septic'],
+  clientDomains: ['maplestreetbakery.com'],
+  portalOrigins: ['https://citadel.becomeindelible.com'],
+  reportUrls: [],
+  contactEmail: 'dana@maplestreetbakery.com',
+  pageNames,
+});
+
+describe('ordinary clarifying replies (false-positive corpus)', () => {
+  const gaProv = buildProvenance([{ tool: 'ga4_report', result_numbers: extractResultNumbers(ga), label: ga.label }]);
+  for (const [t, kind, c] of FP_EXAMPLES) {
+    it(`example passes (${kind}): ${t.slice(0, 60)}`, () => {
+      expect(gateReply(t, fpBase(c === 'ga' ? gaProv : buildProvenance([])), kind as GateKind)).toEqual({ ok: true });
+    });
+  }
+  const clientProv = buildProvenance([], ['9', '5', '20', '802', '555', '0142', '1998', '12', '2026', '10', '2'], FP_CLIENT_TEXTS);
+  for (const t of FP_CORPUS) {
+    it(`passes: ${t}`, () => {
+      expect(gateReply(t, fpBase(clientProv, FP_PAGE_NAMES))).toEqual({ ok: true });
+    });
+  }
+
+  it('a quote is hidden only when the client said it verbatim', () => {
+    const said = buildProvenance([], [], ['we now offer free delivery']);
+    const ctx = fpBase(said);
+    expect(gateReply('You wrote "we now offer free delivery". Which page?', ctx)).toEqual({ ok: true });
+    expect(gateReply('You wrote "we will build it for free". Which page?', ctx).ok).toBe(false);
+    expect(gateReply('You wrote "we now offer free delivery" and the team will fix it.', ctx).ok).toBe(false);
+    expect(gateReply('You wrote "we now offer free delivery". Which page?', fpBase()).ok).toBe(false);
+  });
+
+  it('words that are ordinary on a page still fail as promises elsewhere', () => {
+    const ctx = fpBase();
+    for (const t of ['It is free.', 'We will ship it tomorrow.', 'It will be done next week.', 'Two days from now.', 'It doubled.', 'Traffic grew by half.']) {
+      expect(gateReply(t, ctx).ok, t).toBe(false);
+    }
+    expect(gateReply('Feel free to attach the file here.', ctx)).toEqual({ ok: true });
+    expect(gateReply('It will be free for you.', ctx).ok).toBe(false);
+    expect(gateReply('The ticket number is on the page.', ctx).ok).toBe(false);
+    expect(gateReply('It will be ready Tuesday.', ctx).ok).toBe(false);
+    expect(gateReply('It will go to the team.', ctx)).toEqual({ ok: true });
+    expect(gateReply('It will build the page.', ctx).ok).toBe(false);
+    expect(gateReply('It would replace the old photo. Is that right?', ctx)).toEqual({ ok: true });
+  });
+
+  it('number words fail only beside a money, time or traffic noun', () => {
+    const ctx = fpBase();
+    for (const ok of ['Which of the two photos?', 'You gave three options.', 'The top half of the page.', 'Is it the second one?', 'A couple of photos.', 'Please double-check the number.']) {
+      expect(gateReply(ok, ctx), ok).toEqual({ ok: true });
+    }
+    for (const bad of ['Two days.', 'Fifty dollars.', 'Nine hundred visitors.', 'Half an hour.', 'Up seventeen percent.']) {
+      expect(gateReply(bad, ctx).ok, bad).toBe(false);
+    }
+  });
+});
+
+describe('fixed lines (fixed-lines.ts)', () => {
+  const ctx = fixtureContext();
+  it('each fixed line passes alone, as a reply', () => {
+    for (const line of FIXED_LINE_LIST) expect(gateReply(line, ctx), line).toEqual({ ok: true });
+  });
+  it('each fixed line passes inside a longer reply', () => {
+    expect(gateReply(`${FIXED_LINES.disclosure} Which page should this photo go on?`, ctx)).toEqual({ ok: true });
+    expect(gateReply(`Pricing questions go to the team, so I've passed this one along. ${FIXED_LINES.handoffPortal}`, ctx)).toEqual({ ok: true });
+    expect(gateReply(`${FIXED_LINES.capability} Anything else?`, ctx)).toEqual({ ok: true });
+  });
+  it('an altered fixed line is not exempt', () => {
+    expect(gateReply('I help get your requests clear for the team, and I can build your site in a week.', ctx).ok).toBe(false);
+    expect(gateReply('A person on the team will fix this tomorrow.', ctx).ok).toBe(false);
+  });
+  it('system.md still carries every fixed line word for word', () => {
+    const file = '/home/mike/.claude/tools/portal-chat/prompts/system.md';
+    if (!fs.existsSync(file)) return;
+    const md = fs.readFileSync(file, 'utf8').replace(/[\u2018\u2019]/g, "'");
+    for (const line of FIXED_LINE_LIST) expect(md.includes(line), line).toBe(true);
+  });
+});
+
+describe('gate scope: only what the model writes', () => {
+  it('names the gated fields, and template lines are outside them', () => {
+    expect(GATED_FIELDS).toEqual(['reply', 'ask.question', 'summary', 'draft_reply', 'email_body_model_part']);
+  });
+  it('the plan allowance sentence would fail the gate, which is why it is appended after gating', () => {
+    const allow = allowanceText(10, 'monthly')!;
+    expect(gateReply(allow, fixtureContext(), 'email').ok).toBe(false);
   });
 });

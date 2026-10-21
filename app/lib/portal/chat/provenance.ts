@@ -156,12 +156,14 @@ export interface Provenance {
   money: Map<string, Set<string>>;
   /** The numbers in the client's own words, echoed only inside quotation marks (a bare year too). */
   clientNumbers: Set<string>;
+  /** The client's own message texts. A quoted span found verbatim in one is their words, not ours. */
+  clientTexts: string[];
   labels: string[];
   labelDates: ParsedDate[];
 }
 
 export function emptyProvenance(): Provenance {
-  return { numbers: new Map(), percents: new Map(), money: new Map(), clientNumbers: new Set(), labels: [], labelDates: [] };
+  return { numbers: new Map(), percents: new Map(), money: new Map(), clientNumbers: new Set(), clientTexts: [], labels: [], labelDates: [] };
 }
 
 function put(map: Map<string, Set<string>>, key: string, tool: string) {
@@ -178,7 +180,7 @@ export const SOURCE_PATTERN: Record<string, RegExp> = {
   search_console: /search console/i,
 };
 
-export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[] = []): Provenance {
+export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[] = [], clientTexts: string[] = []): Provenance {
   const p = emptyProvenance();
   for (const c of calls) {
     const tool = toolKey(c);
@@ -193,6 +195,7 @@ export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[]
     }
   }
   for (const n of clientNumbers) p.clientNumbers.add(n);
+  p.clientTexts = clientTexts;
   return p;
 }
 

@@ -135,6 +135,17 @@ describe.skipIf(!SCRATCH)('engine routes (real database)', () => {
     }
   });
 
+  it('claim expires a stale claimed job first, so it never blocks its conversation', async () => {
+    const stuck = await prisma.engineJob.create({
+      data: { type: 'chat_reply', status: 'claimed', conversation_id: a.conversationId, task_id: a.taskId, client_id: a.clientId, contact_id: a.ownerId, claimed_at: new Date(Date.now() - 300_000), lease_until: new Date(Date.now() - 180_000), attempts: 1 },
+    });
+    const next = await queue(); // the client's follow-up message, queued behind the dead claim
+    const res = await claim(req('/api/engine/claim', { method: 'POST' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).job.id).toBe(next.job.id);
+    expect((await prisma.engineJob.findUniqueOrThrow({ where: { id: stuck.id } })).status).toBe('expired');
+  });
+
   it('claim rejects a bad body', async () => {
     const res = await claim(req('/api/engine/claim', { method: 'POST', body: JSON.stringify({ types: ['nope'] }) }));
     expect(res.status).toBe(400);

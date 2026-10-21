@@ -290,6 +290,13 @@ export function contextNumbers(ctx: Pick<ChatContext, 'thread'>): string[] {
   return out;
 }
 
+/** The client's message texts, unescaped: what the gate treats as their words when a reply quotes them. */
+export function contextClientTexts(ctx: Pick<ChatContext, 'thread'>): string[] {
+  return [...ctx.thread.matchAll(/<client_message\b[^>]*>([\s\S]*?)<\/client_message>/g)].map((m) =>
+    m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  );
+}
+
 /** The titles of the live pages on the given sites: page names the gate lets a reply say verbatim. */
 export async function loadPageNames(siteIds: string[]): Promise<string[]> {
   if (siteIds.length === 0) return [];
