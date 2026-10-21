@@ -27,6 +27,12 @@ import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db/prisma';
 import { AuthError } from '@/lib/api/errors';
 import { sendClientMagicLinkEmail } from '@/lib/services/email';
+import {
+  PORTAL_SIGNIN_CONTACT_WHERE,
+  resolveAccessibleClients,
+  type AccessibleClient,
+  type PortalRole,
+} from '@/lib/portal/access';
 
 export const CLIENT_SESSION_COOKIE = 'client_session';
 const TOKEN_TYPE = 'client_session';
@@ -44,9 +50,21 @@ export const MAX_SESSION_TTL_DAYS = 90;
  *  avoids a write + Set-Cookie on every single portal request. */
 const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
-export interface ClientSession {
+/** The identity every session lookup yields. */
+export interface ClientIdentity {
   clientId: string;
   contactId: string;
+}
+
+/**
+ * What requireClientAuth() returns (A4): the ACTIVE client, the person's role on it, their email,
+ * and the session row id (for switching). `contactId` is the contact row that carries the role on
+ * the active client (an agency contact when the client is inherited), so approvals attribute to it.
+ */
+export interface ClientSession extends ClientIdentity {
+  role: PortalRole;
+  email: string;
+  sessionId: string;
 }
 
 /** Cryptographically secure 128-hex-char token (matches the portal token convention). */
@@ -89,7 +107,7 @@ export async function requestClientMagicLink(input: {
   userAgent: string | null;
 }): Promise<number> {
   const contacts = await prisma.clientContact.findMany({
-    where: { email: input.email, is_deleted: false, portal_role: { not: 'none' } },
+    where: { ...PORTAL_SIGNIN_CONTACT_WHERE, email: input.email },
     select: { id: true, name: true, email: true, client_id: true },
   });
   if (contacts.length === 0) return 0;
@@ -153,12 +171,13 @@ export async function createContactPortalLoginLink(input: {
   sent: boolean;
   contact: { id: string; name: string | null; email: string; clientId: string };
 } | null> {
-  const contact = await prisma.clientContact.findUnique({
-    where: { id: input.contactId },
-    select: { id: true, name: true, email: true, client_id: true, is_deleted: true, portal_role: true },
+  // Project-only contacts (role none with a grant) may sign in; a contact with neither may not.
+  const contact = await prisma.clientContact.findFirst({
+    where: { ...PORTAL_SIGNIN_CONTACT_WHERE, id: input.contactId },
+    select: { id: true, name: true, email: true, client_id: true },
   });
 
-  if (!contact || contact.is_deleted || contact.portal_role === 'none') return null;
+  if (!contact) return null;
 
   const magicToken = generateToken();
   const expiresAt = daysFromNow(TEAM_INVITE_TTL_DAYS);
@@ -212,7 +231,14 @@ export async function consumeClientMagicLink(input: {
   magicToken: string;
   ipAddress: string;
   userAgent: string | null;
-}): Promise<{ sessionToken: string; clientId: string; contactId: string; expiresAt: Date } | null> {
+}): Promise<{
+  sessionToken: string;
+  clientId: string;
+  contactId: string;
+  expiresAt: Date;
+  /** How many clients this person can reach; 2 or more sends them to the picker. */
+  accessibleClientCount: number;
+} | null> {
   if (!input.magicToken) return null;
   const tokenHash = hashMagicToken(input.magicToken);
 
@@ -231,11 +257,11 @@ export async function consumeClientMagicLink(input: {
   if (row.consumed_at) return null;
   if (!row.magic_token_expires_at || row.magic_token_expires_at < new Date()) return null;
 
-  const contact = await prisma.clientContact.findUnique({
-    where: { id: row.contact_id },
-    select: { is_deleted: true, portal_role: true },
+  const contact = await prisma.clientContact.findFirst({
+    where: { ...PORTAL_SIGNIN_CONTACT_WHERE, id: row.contact_id },
+    select: { email: true },
   });
-  if (!contact || contact.is_deleted || contact.portal_role === 'none') return null;
+  if (!contact) return null;
 
   // Atomic claim. count 0 means another request consumed it between our read and now.
   const claim = await prisma.portalSession.updateMany({
@@ -265,11 +291,20 @@ export async function consumeClientMagicLink(input: {
     },
   });
 
+  // Picker trigger. A lookup failure must never fail a sign-in: fall back to the single-client path.
+  let accessibleClientCount = 1;
+  try {
+    accessibleClientCount = (await resolveAccessibleClients(contact.email)).length;
+  } catch (error) {
+    console.error('Failed to count accessible clients at sign-in:', error);
+  }
+
   return {
     sessionToken,
     clientId: row.entity_id,
     contactId: row.contact_id,
     expiresAt,
+    accessibleClientCount,
   };
 }
 
@@ -313,6 +348,8 @@ interface ActiveSessionRow {
   id: string;
   entity_id: string;
   contact_id: string;
+  /** The sign-in contact's email: the key that finds the person's other contact rows. */
+  email: string;
   expires_at: Date;
   created_at: Date;
   revoked_at?: Date | null;
@@ -349,18 +386,14 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
   // Revoke on contact delete or role none (spec decision 13): a live session row is not enough,
   // the contact behind it must still exist and hold a portal role. Checked on every request so
   // no route can forget it.
+  // A project-only contact (role none) stays signed in while at least one grant remains.
   const contact = await prisma.clientContact.findFirst({
-    where: {
-      id: row.contact_id,
-      is_deleted: false,
-      portal_role: { not: 'none' },
-      client: { is_deleted: false },
-    },
-    select: { id: true },
+    where: { ...PORTAL_SIGNIN_CONTACT_WHERE, id: row.contact_id },
+    select: { id: true, email: true },
   });
   if (!contact) return null;
 
-  return row as ActiveSessionRow;
+  return { ...row, contact_id: row.contact_id, expires_at: row.expires_at, email: contact.email } as ActiveSessionRow;
 }
 
 /**
@@ -368,7 +401,7 @@ async function findActiveSessionRow(sessionToken: string): Promise<ActiveSession
  * Identity-only — does not slide the session (no cookie access here); pair with
  * `requireClientAuth()` for the full cookie-backed, self-extending flow.
  */
-export async function validateClientSession(sessionToken: string): Promise<ClientSession | null> {
+export async function validateClientSession(sessionToken: string): Promise<ClientIdentity | null> {
   const row = await findActiveSessionRow(sessionToken);
   if (!row) return null;
 
@@ -438,14 +471,52 @@ export async function requireClientAuth(): Promise<ClientSession> {
 
   await slideSessionExpiry(cookieStore, token, row);
 
-  return { clientId: row.entity_id, contactId: row.contact_id };
+  // The active client lives on the session row and is re-checked here on every request against
+  // the person's current access. If it was revoked (contact deleted, role none, grant removed),
+  // fall back to the first client they can still reach; with none left the session is dead.
+  const accessible = await resolveAccessibleClients(row.email);
+  let active: AccessibleClient | undefined = accessible.find((c) => c.clientId === row.entity_id);
+  if (!active) {
+    active = accessible[0];
+    if (!active) {
+      throw new AuthError('Invalid or expired session', 401);
+    }
+    try {
+      await prisma.portalSession.update({ where: { id: row.id }, data: { entity_id: active.clientId } });
+    } catch (error) {
+      console.error('Failed to move session to a still-accessible client:', error);
+    }
+  }
+
+  return {
+    clientId: active.clientId,
+    contactId: active.contactId,
+    role: active.role,
+    email: row.email,
+    sessionId: row.id,
+  };
+}
+
+/**
+ * Switch the session's active client. The target must be in the person's CURRENT accessible
+ * list (re-resolved now, not trusted from the client): otherwise AuthError(403). Returns the
+ * entry switched to.
+ */
+export async function switchActiveClient(session: ClientSession, targetClientId: string): Promise<AccessibleClient> {
+  const accessible = await resolveAccessibleClients(session.email);
+  const target = accessible.find((c) => c.clientId === targetClientId);
+  if (!target) {
+    throw new AuthError('Forbidden', 403);
+  }
+  await prisma.portalSession.update({ where: { id: session.sessionId }, data: { entity_id: target.clientId } });
+  return target;
 }
 
 /**
  * Enforce that a client session may only access its own client's data.
  * Throws AuthError(403) on any cross-client access attempt.
  */
-export function assertClientScope(session: ClientSession, clientId: string): void {
+export function assertClientScope(session: ClientIdentity, clientId: string): void {
   if (session.clientId !== clientId) {
     throw new AuthError('Forbidden', 403);
   }

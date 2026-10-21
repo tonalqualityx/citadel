@@ -10,6 +10,8 @@ vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     clientContact: { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn() },
     portalSession: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), update: vi.fn() },
+    client: { findMany: vi.fn() },
+    projectContact: { findMany: vi.fn() },
   },
 }));
 
@@ -29,6 +31,7 @@ import {
   hashMagicToken,
   validateClientSession,
   requireClientAuth,
+  switchActiveClient,
   assertClientScope,
   CLIENT_SESSION_COOKIE,
   SESSION_TTL_DAYS,
@@ -38,18 +41,28 @@ import type { Mock } from 'vitest';
 
 const mockCookies = cookies as Mock;
 const mockFindManyContacts = prisma.clientContact.findMany as Mock;
-const mockFindUniqueContact = prisma.clientContact.findUnique as Mock;
 const mockFindFirstContact = prisma.clientContact.findFirst as Mock;
 const mockCreate = prisma.portalSession.create as Mock;
 const mockFindFirst = prisma.portalSession.findFirst as Mock;
 const mockUpdate = prisma.portalSession.update as Mock;
 const mockUpdateMany = prisma.portalSession.updateMany as Mock;
 const mockSendEmail = sendClientMagicLinkEmail as Mock;
+const mockFindManyClients = prisma.client.findMany as Mock;
+const mockFindManyGrants = prisma.projectContact.findMany as Mock;
+
+/** A person's contact row as resolveAccessibleClients reads it. */
+function contactRow(id: string, clientId: string, role: string, name = clientId) {
+  return { id, client_id: clientId, portal_role: role, client: { id: clientId, name } };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: the session's contact is live and holds a role.
-  mockFindFirstContact.mockResolvedValue({ id: 'contact-1' });
+  mockFindFirstContact.mockResolvedValue({ id: 'contact-1', email: 'ann@acme.com' });
+  // Default person: one contact row, member of client-acme, no sub-clients, no grants.
+  mockFindManyContacts.mockResolvedValue([contactRow('contact-1', 'client-acme', 'member')]);
+  mockFindManyClients.mockResolvedValue([]);
+  mockFindManyGrants.mockResolvedValue([]);
 });
 
 const reqInput = { ipAddress: '1.2.3.4', userAgent: 'test-agent' };
@@ -126,13 +139,15 @@ describe('requestClientMagicLink', () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
-  it('skips portal role none contacts in the lookup', async () => {
+  it('looks up only sign-in-eligible contacts: live, and a role other than none OR a project grant', async () => {
     mockFindManyContacts.mockResolvedValue([]);
     await requestClientMagicLink({ email: 'ann@acme.com', ...reqInput });
-    expect(mockFindManyContacts.mock.calls[0][0].where).toMatchObject({
-      is_deleted: false,
-      portal_role: { not: 'none' },
-    });
+    const where = mockFindManyContacts.mock.calls[0][0].where;
+    expect(where).toMatchObject({ is_deleted: false, email: 'ann@acme.com', client: { is_deleted: false } });
+    expect(where.OR).toEqual([
+      { portal_role: { not: 'none' } },
+      { project_grants: { some: { role: { in: ['member', 'viewer'] }, project: { is_deleted: false } } } },
+    ]);
   });
 });
 
@@ -147,7 +162,7 @@ describe('createContactPortalLoginLink', () => {
   };
 
   it('mints a hashed 7-day single-use invite for that one contact and returns the interstitial URL (copy)', async () => {
-    mockFindUniqueContact.mockResolvedValue(contact);
+    mockFindFirstContact.mockResolvedValue(contact);
     mockCreate.mockResolvedValue({});
 
     const result = await createContactPortalLoginLink({ contactId: 'contact-1', send: false, ...reqInput });
@@ -176,7 +191,7 @@ describe('createContactPortalLoginLink', () => {
   });
 
   it('emails the contact their link when send=true', async () => {
-    mockFindUniqueContact.mockResolvedValue(contact);
+    mockFindFirstContact.mockResolvedValue(contact);
     mockCreate.mockResolvedValue({});
 
     const result = await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput });
@@ -187,14 +202,10 @@ describe('createContactPortalLoginLink', () => {
   });
 
   it('returns null for an unknown, deleted, or role none contact (and never emails)', async () => {
-    mockFindUniqueContact.mockResolvedValue(null);
+    // The eligibility filter (live, role != none or a grant) is in the query; no match = null.
+    mockFindFirstContact.mockResolvedValue(null);
     expect(await createContactPortalLoginLink({ contactId: 'nope', send: true, ...reqInput })).toBeNull();
-
-    mockFindUniqueContact.mockResolvedValue({ ...contact, is_deleted: true });
-    expect(await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput })).toBeNull();
-
-    mockFindUniqueContact.mockResolvedValue({ ...contact, portal_role: 'none' });
-    expect(await createContactPortalLoginLink({ contactId: 'contact-1', send: true, ...reqInput })).toBeNull();
+    expect(mockFindFirstContact.mock.calls[0][0].where).toMatchObject({ id: 'nope', is_deleted: false });
 
     expect(mockCreate).not.toHaveBeenCalled();
     expect(mockSendEmail).not.toHaveBeenCalled();
@@ -211,7 +222,7 @@ describe('consumeClientMagicLink', () => {
   };
 
   beforeEach(() => {
-    mockFindUniqueContact.mockResolvedValue({ is_deleted: false, portal_role: 'member' });
+    mockFindFirstContact.mockResolvedValue({ email: 'ann@acme.com' });
     mockUpdateMany.mockResolvedValue({ count: 1 });
     mockCreate.mockResolvedValue({});
   });
@@ -280,9 +291,7 @@ describe('consumeClientMagicLink', () => {
 
   it('returns null when the contact was deleted or set to role none after the link was issued', async () => {
     mockFindFirst.mockResolvedValue(linkRow);
-    mockFindUniqueContact.mockResolvedValue({ is_deleted: true, portal_role: 'member' });
-    expect(await consumeClientMagicLink({ magicToken: 'm', ...reqInput })).toBeNull();
-    mockFindUniqueContact.mockResolvedValue({ is_deleted: false, portal_role: 'none' });
+    mockFindFirstContact.mockResolvedValue(null); // filtered out: deleted, or role none with no grant
     expect(await consumeClientMagicLink({ magicToken: 'm', ...reqInput })).toBeNull();
     expect(mockCreate).not.toHaveBeenCalled();
   });
@@ -359,12 +368,15 @@ describe('session revocation (deleted contact or role none)', () => {
     created_at: new Date(),
   };
 
-  it('looks the contact up as non-deleted and role != none', async () => {
+  it('looks the contact up as live and holding a role OR a project grant (project-only contacts stay in)', async () => {
     mockFindFirst.mockResolvedValue(liveRow);
     await validateClientSession('tok');
-    expect(mockFindFirstContact).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'contact-1', is_deleted: false, portal_role: { not: 'none' }, client: { is_deleted: false } } })
-    );
+    const where = mockFindFirstContact.mock.calls[0][0].where;
+    expect(where).toMatchObject({ id: 'contact-1', is_deleted: false, client: { is_deleted: false } });
+    expect(where.OR).toEqual([
+      { portal_role: { not: 'none' } },
+      { project_grants: { some: { role: { in: ['member', 'viewer'] }, project: { is_deleted: false } } } },
+    ]);
   });
 
   it('validateClientSession returns null when the contact is deleted or role none', async () => {
@@ -527,5 +539,90 @@ describe('assertClientScope', () => {
     } catch (e) {
       expect((e as AuthError).statusCode).toBe(403);
     }
+  });
+});
+
+describe('requireClientAuth: active client, role and email (A4)', () => {
+  const liveRow = (entity: string) => ({
+    id: 'sess-1',
+    entity_id: entity,
+    contact_id: 'contact-1',
+    expires_at: new Date(Date.now() + 10 * 86_400_000),
+    created_at: new Date(),
+  });
+  const cookie = () => mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }), set: vi.fn() });
+
+  it('returns client, role, email and session id for the active client', async () => {
+    cookie();
+    mockFindFirst.mockResolvedValue(liveRow('client-acme'));
+    const s = await requireClientAuth();
+    expect(s).toEqual({ clientId: 'client-acme', contactId: 'contact-1', role: 'member', email: 'ann@acme.com', sessionId: 'sess-1' });
+  });
+
+  it('a person with two contact rows gets the right role on each client', async () => {
+    mockFindManyContacts.mockResolvedValue([
+      contactRow('contact-1', 'client-acme', 'member'),
+      contactRow('contact-9', 'client-other', 'owner'),
+    ]);
+    cookie();
+    mockFindFirst.mockResolvedValue(liveRow('client-other'));
+    expect(await requireClientAuth()).toMatchObject({ clientId: 'client-other', contactId: 'contact-9', role: 'owner' });
+    mockFindFirst.mockResolvedValue(liveRow('client-acme'));
+    expect(await requireClientAuth()).toMatchObject({ clientId: 'client-acme', contactId: 'contact-1', role: 'member' });
+  });
+
+  it('revoked active client: falls back to a still-accessible client and persists it', async () => {
+    mockFindManyContacts.mockResolvedValue([contactRow('contact-1', 'client-acme', 'member')]);
+    cookie();
+    mockFindFirst.mockResolvedValue(liveRow('client-gone'));
+    mockUpdate.mockResolvedValue({});
+    const s = await requireClientAuth();
+    expect(s.clientId).toBe('client-acme');
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 'sess-1' }, data: { entity_id: 'client-acme' } });
+  });
+
+  it('no accessible client left: 401', async () => {
+    mockFindManyContacts.mockResolvedValue([]);
+    cookie();
+    mockFindFirst.mockResolvedValue(liveRow('client-acme'));
+    await expect(requireClientAuth()).rejects.toMatchObject({ statusCode: 401 });
+  });
+});
+
+describe('switchActiveClient', () => {
+  const session = { clientId: 'client-acme', contactId: 'contact-1', role: 'member' as const, email: 'ann@acme.com', sessionId: 'sess-1' };
+
+  it('switches to an accessible client and writes it to the session row', async () => {
+    mockFindManyContacts.mockResolvedValue([
+      contactRow('contact-1', 'client-acme', 'member'),
+      contactRow('contact-9', 'client-other', 'owner'),
+    ]);
+    mockUpdate.mockResolvedValue({});
+    const target = await switchActiveClient(session, 'client-other');
+    expect(target).toMatchObject({ clientId: 'client-other', role: 'owner' });
+    expect(mockUpdate).toHaveBeenCalledWith({ where: { id: 'sess-1' }, data: { entity_id: 'client-other' } });
+  });
+
+  it('403 for a client the person cannot reach, and nothing is written', async () => {
+    await expect(switchActiveClient(session, 'client-secret')).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('consume: picker trigger', () => {
+  it('reports how many clients the person can reach', async () => {
+    mockFindFirst.mockResolvedValue({
+      id: 'link-1', entity_id: 'client-acme', contact_id: 'contact-1',
+      magic_token_expires_at: new Date(Date.now() + 60_000), consumed_at: null,
+    });
+    mockUpdateMany.mockResolvedValue({ count: 1 });
+    mockCreate.mockResolvedValue({});
+    mockFindFirstContact.mockResolvedValue({ email: 'ann@acme.com' });
+    mockFindManyContacts.mockResolvedValue([
+      contactRow('contact-1', 'client-acme', 'member'),
+      contactRow('contact-9', 'client-other', 'owner'),
+    ]);
+    const out = await consumeClientMagicLink({ magicToken: 'm', ...reqInput });
+    expect(out?.accessibleClientCount).toBe(2);
   });
 });

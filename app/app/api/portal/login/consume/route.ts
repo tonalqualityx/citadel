@@ -57,7 +57,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = NextResponse.json({ redirect: '/portal' });
+    // Two or more reachable clients: show the picker first.
+    const response = NextResponse.json({
+      redirect: session.accessibleClientCount >= 2 ? '/portal/select' : '/portal',
+    });
     response.cookies.set(CLIENT_SESSION_COOKIE, session.sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

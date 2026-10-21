@@ -65,8 +65,11 @@ export async function PATCH(
     await logUpdate(auth.userId, 'client_contact', contact.id, contact.email, changes);
 
     // Portal role none ends portal access now: kill live sessions and unused login links.
+    // Exception (spec: project-only contacts): a contact that still holds a project grant keeps
+    // signing in and sees only the granted projects.
     if (contact.portal_role === 'none') {
-      await revokeContactAccess(contact.id);
+      const grants = await prisma.projectContact.count({ where: { contact_id: contact.id } });
+      if (grants === 0) await revokeContactAccess(contact.id);
     }
 
     return NextResponse.json(formatClientContactResponse(contact));
