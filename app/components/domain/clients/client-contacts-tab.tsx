@@ -219,7 +219,11 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                   label="Portal role"
                   options={PORTAL_ROLE_OPTIONS}
                   value={form.portal_role}
-                  onChange={(v) => setForm((f) => ({ ...f, portal_role: v as PortalRole }))}
+                  onChange={(v) => {
+                    // The shared Select always renders a blank placeholder option; never send ''.
+                    if (!v) return;
+                    setForm((f) => ({ ...f, portal_role: v as PortalRole }));
+                  }}
                 />
               </div>
               <label className="flex items-center gap-2 text-sm text-text-main">
@@ -286,7 +290,10 @@ export function ClientContactsTab({ clientId }: ClientContactsTabProps) {
                     aria-label="Portal role"
                     options={PORTAL_ROLE_OPTIONS}
                     value={c.portal_role ?? 'viewer'}
-                    onChange={(v) => handleRoleChange(c, v as PortalRole)}
+                    onChange={(v) => {
+                      if (!v) return; // blank placeholder option would 400
+                      handleRoleChange(c, v as PortalRole);
+                    }}
                   />
                 </div>
                 <button

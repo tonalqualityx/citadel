@@ -14,12 +14,17 @@ describe('resolveTaskContact', () => {
     expect(mockFindFirst).not.toHaveBeenCalled();
   });
 
-  it('does not resolve a deleted requester; falls back to the non-deleted primary contact', async () => {
+  it('a deleted requester resolves to null and never falls back to the primary contact', async () => {
+    mockFindFirst.mockResolvedValue({ id: 'k2', name: 'Pat', email: 'p@a.com', client_id: 'c1' });
+    const deleted = { id: 'k1', name: 'Jane', email: 'j@a.com', client_id: 'c1', is_deleted: true };
+    expect(await resolveTaskContact({ requested_by_contact: deleted, client_id: 'c1' })).toBeNull();
+    expect(mockFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('a task with no requester still resolves the primary contact', async () => {
     const primary = { id: 'k2', name: 'Pat', email: 'p@a.com', client_id: 'c1' };
     mockFindFirst.mockResolvedValue(primary);
-    const deleted = { id: 'k1', name: 'Jane', email: 'j@a.com', client_id: 'c1', is_deleted: true };
-    expect(await resolveTaskContact({ requested_by_contact: deleted, client_id: 'c1' })).toBe(primary);
-    expect(mockFindFirst.mock.calls[0][0].where).toEqual({ client_id: 'c1', is_primary: true, is_deleted: false });
+    expect(await resolveTaskContact({ requested_by_contact: null, client_id: 'c1' })).toBe(primary);
   });
 
   it('returns null for a deleted requester when there is no client to fall back on', async () => {

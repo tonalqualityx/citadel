@@ -32,6 +32,13 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// Non-client-visible project statuses are documented in access.ts (PORTAL_HIDDEN_PROJECT_STATUSES).
+const VISIBLE = {
+  is_deleted: false,
+  status: { notIn: ['quote', 'queue', 'suspended', 'cancelled'] },
+  portal_visibility: { not: 'hidden' },
+};
+
 const ROLES: PortalRole[] = ['owner', 'member', 'viewer', 'none'];
 const VISIBILITIES: PortalVisibility[] = ['inherit', 'restricted', 'hidden'];
 const GRANTS: Array<PortalRole | null> = [null, 'viewer', 'member'];
@@ -180,13 +187,13 @@ describe('Prisma where builders', () => {
   const base = { contactId: 'k1', clientId: 'c1' };
 
   it('owner: every non-hidden project, no grant needed', () => {
-    expect(projectAccessScope({ ...base, role: 'owner' })).toEqual({ portal_visibility: { not: 'hidden' } });
+    expect(projectAccessScope({ ...base, role: 'owner' })).toEqual(VISIBLE);
   });
 
   it('member/viewer: inherit projects or a grant, never hidden', () => {
     for (const role of ['member', 'viewer'] as const) {
       const scope = projectAccessScope({ ...base, role }) as any;
-      expect(scope.AND[0]).toEqual({ portal_visibility: { not: 'hidden' } });
+      expect(scope.AND[0]).toEqual(VISIBLE);
       expect(scope.AND[1].OR).toEqual([
         { portal_visibility: 'inherit' },
         { contact_grants: { some: { contact_id: 'k1', role: { in: ['member', 'viewer'] } } } },
@@ -197,7 +204,7 @@ describe('Prisma where builders', () => {
   it('none: only granted, non-hidden projects', () => {
     const scope = projectAccessScope({ ...base, role: 'none' }) as any;
     expect(scope.AND).toEqual([
-      { portal_visibility: { not: 'hidden' } },
+      VISIBLE,
       { contact_grants: { some: { contact_id: 'k1', role: { in: ['member', 'viewer'] } } } },
     ]);
   });
@@ -207,8 +214,19 @@ describe('Prisma where builders', () => {
     expect(where).toMatchObject({
       client_id: 'c1',
       is_deleted: false,
-      status: { notIn: ['quote', 'queue'] },
+      status: { notIn: ['quote', 'queue', 'suspended', 'cancelled'] },
     });
+  });
+
+  it('every project scope excludes deleted and non-client-visible statuses (tasks too)', () => {
+    for (const role of ROLES) {
+      const scope = JSON.stringify(projectAccessScope({ ...base, role }));
+      expect(scope).toContain('"is_deleted":false');
+      expect(scope).toContain('"notIn":["quote","queue","suspended","cancelled"]');
+      const tasks = JSON.stringify(taskAccessWhere({ ...base, role }));
+      expect(tasks).toContain('"is_deleted":false');
+      expect(tasks).toContain('"notIn":["quote","queue","suspended","cancelled"]');
+    }
   });
 
   it('taskAccessWhere: client roles also see project-less tasks, project-only contacts do not', () => {

@@ -279,6 +279,38 @@ describe('POST /api/portal/tasks/:token/approve', () => {
   });
 });
 
+describe('deleted requester revokes the token (no primary-contact fallback)', () => {
+  const deletedTask = {
+    ...mockPortalTask,
+    requested_by_contact: { ...mockPortalTask.requested_by_contact, is_deleted: true },
+  };
+
+  it('approve returns 404 and records nothing', async () => {
+    mockValidateTaskToken.mockResolvedValue(deletedTask);
+    const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientApproval).not.toHaveBeenCalled();
+  });
+
+  it('request-changes returns 404 and records nothing', async () => {
+    mockValidateTaskToken.mockResolvedValue(deletedTask);
+    const response = await REQUEST_CHANGES(postReq('valid-token', { note: 'x' }), makeParams('valid-token'));
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
+  });
+
+  it('new-task returns 400 and files nothing (resolveTaskContact yields null for a deleted requester)', async () => {
+    mockValidateTaskToken.mockResolvedValue(deletedTask);
+    mockResolveTaskContact.mockResolvedValue(null);
+    const response = await NEW_TASK(
+      postReq('valid-token', { title: 'X', site_id: '11111111-1111-4111-8111-111111111111' }),
+      makeParams('valid-token')
+    );
+    expect(response.status).toBe(400);
+    expect((prisma.task.create as Mock)).not.toHaveBeenCalled();
+  });
+});
+
 describe('no role gate on the token routes (Mike ruling overrides spec decision 11)', () => {
   it('a viewer-role requester can still approve', async () => {
     mockValidateTaskToken.mockResolvedValue(mockPortalTask);

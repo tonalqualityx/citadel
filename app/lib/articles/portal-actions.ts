@@ -9,6 +9,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { assertClientScope, type ClientSession } from '@/lib/services/client-auth';
+import { loadPortalAccess } from '@/lib/portal/access';
 
 /**
  * Statuses an internal draft is in BEFORE it is ever shown to a client. A client must never
@@ -40,8 +41,20 @@ export interface ActionableArticle {
 }
 
 /**
+ * Re-check the signed-in contact's access on every article read/write: a deleted contact, a
+ * role of none, or a client that no longer resolves gets 404 (existence not leaked). Belt and
+ * braces on top of requireClientAuth, which already refuses such sessions.
+ */
+export async function assertPortalArticleAccess(session: ClientSession): Promise<void> {
+  const access = await loadPortalAccess(session);
+  if (access.revoked || access.role === 'none') {
+    throw new ApiError('Article not found', 404);
+  }
+}
+
+/**
  * Load an article for a client-portal write and enforce the two access gates:
- *   - 404 when missing or in an internal/hidden stage (existence not leaked)
+ *   - 404 when the contact has no access (deleted / role none), or the article is missing or in an internal/hidden stage (existence not leaked)
  *   - 403 when it belongs to another client (assertClientScope)
  * Returns the row for the caller's own per-action guards (status / already-approved).
  */
@@ -49,6 +62,8 @@ export async function loadActionableArticle(
   id: string,
   session: ClientSession
 ): Promise<ActionableArticle> {
+  await assertPortalArticleAccess(session);
+
   const article = await prisma.article.findFirst({
     where: { id, is_deleted: false },
     select: {

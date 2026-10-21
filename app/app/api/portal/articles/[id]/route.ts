@@ -8,6 +8,7 @@ import {
   CLIENT_HIDDEN_ARTICLE_STATUSES,
   CLIENT_ACTIONABLE_ARTICLE_STATUSES,
   loadActionableArticle,
+  assertPortalArticleAccess,
 } from '@/lib/articles/portal-actions';
 
 // GET /api/portal/articles/:id
@@ -25,6 +26,8 @@ export async function GET(
   try {
     const session = await requireClientAuth();
     const { id } = await params;
+
+    await assertPortalArticleAccess(session);
 
     const article = await prisma.article.findFirst({
       where: { id, is_deleted: false },

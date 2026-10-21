@@ -10,6 +10,14 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
   return { ...actual, requireClientAuth: vi.fn() };
 });
 
+vi.mock('@/lib/portal/access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/portal/access')>();
+  return {
+    ...actual,
+    loadPortalAccess: vi.fn(async () => ({ contactId: 'contact-1', clientId: 'client-acme', role: 'member' as const })),
+  };
+});
+
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     article: { findFirst: vi.fn(), update: vi.fn() },
@@ -21,6 +29,7 @@ vi.mock('@/lib/services/portal', () => ({
 }));
 
 import { POST } from '../route';
+import { loadPortalAccess } from '@/lib/portal/access';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { recordArticleClientApproval } from '@/lib/services/portal';
 import { prisma } from '@/lib/db/prisma';
@@ -55,6 +64,18 @@ describe('POST /api/portal/articles/:id/approve', () => {
     expect(res.status).toBe(401);
     expect(mockFindFirst).not.toHaveBeenCalled();
     expect(mockRecord).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['revoked (deleted contact)', { role: 'none', revoked: true }],
+    ['role none', { role: 'none' }],
+  ])('404 for an existing in-review article when the contact is %s (access re-checked, article never loaded)', async (_label, access) => {
+    mockAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (loadPortalAccess as Mock).mockResolvedValueOnce({ contactId: 'contact-1', clientId: 'client-acme', ...access });
+    mockFindFirst.mockResolvedValue({ id: 'art-1', status: 'in_review', client_id: 'client-acme', client_approved_at: null, body: 'x' });
+    const res = await POST(makeRequest(), makeParams());
+    expect(res.status).toBe(404);
+    expect(mockFindFirst).not.toHaveBeenCalled();
   });
 
   it('404 when the article does not exist', async () => {
