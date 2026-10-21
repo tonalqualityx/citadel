@@ -8,6 +8,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
+    // The real-database tests (scratch DATABASE_URL only) share global state: the engine queue, the
+    // settings singleton. They run one file at a time; mocked suites are unaffected.
+    fileParallelism: !/scratch/i.test(process.env.DATABASE_URL ?? ''),
     exclude: [
       '**/node_modules/**',
       '**/e2e/**',
