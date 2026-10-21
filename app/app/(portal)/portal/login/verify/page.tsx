@@ -1,14 +1,22 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 
 // Interstitial for magic links. Opening this page consumes NOTHING; the token is spent only when
 // the person presses the button, which POSTs to /api/portal/login/consume. Mail scanners and link
 // previewers only ever GET, so they cannot burn the link.
 function VerifyCard() {
-  const token = useSearchParams().get('token') ?? '';
+  // The token lives in the URL fragment (#token=...) so it never reaches a server or proxy log.
+  // Legacy links with ?token= are still read so older emails land on a working page.
+  const [token, setToken] = useState('');
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token');
+    const fromQuery = new URLSearchParams(window.location.search).get('token');
+    setToken(fromHash ?? fromQuery ?? '');
+    setReady(true);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +45,8 @@ function VerifyCard() {
       setBusy(false);
     }
   }
+
+  if (!ready) return null;
 
   if (!token) {
     return (

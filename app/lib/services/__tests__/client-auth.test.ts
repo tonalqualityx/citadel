@@ -89,8 +89,8 @@ describe('requestClientMagicLink', () => {
 
     const data = mockCreate.mock.calls[0][0].data;
     const url: string = mockSendEmail.mock.calls[0][0].loginUrl;
-    const rawToken = new URL(url).searchParams.get('token')!;
-    expect(url).toContain('/portal/login/verify?token=');
+    const rawToken = new URL(url).hash.replace('#token=', '');
+    expect(url).toContain('/portal/login/verify#token=');
     expect(rawToken).toMatch(/^[0-9a-f]{128}$/);
     expect(data.magic_token_hash).toBe(createHash('sha256').update(rawToken).digest('hex'));
     expect(data.magic_token_hash).toBe(hashMagicToken(rawToken));
@@ -155,7 +155,8 @@ describe('createContactPortalLoginLink', () => {
     expect(result).not.toBeNull();
     expect(result!.sent).toBe(false);
     expect(result!.contact).toMatchObject({ id: 'contact-1', email: 'ann@acme.com', clientId: 'client-acme' });
-    expect(result!.url).toContain('/portal/login/verify?token=');
+    expect(result!.url).toContain('/portal/login/verify#token=');
+    expect(new URL(result!.url).search).toBe('');
     expect(mockSendEmail).not.toHaveBeenCalled();
 
     const created = mockCreate.mock.calls[0][0].data;
@@ -165,7 +166,7 @@ describe('createContactPortalLoginLink', () => {
       contact_id: 'contact-1',
       action: 'invite',
     });
-    const rawToken = new URL(result!.url).searchParams.get('token')!;
+    const rawToken = new URL(result!.url).hash.replace('#token=', '');
     expect(created.magic_token_hash).toBe(hashMagicToken(rawToken));
     expect(created.magic_token).toBeUndefined();
     expect(JSON.stringify(created)).not.toContain(rawToken);

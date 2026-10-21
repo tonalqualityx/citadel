@@ -67,9 +67,10 @@ function minutesFromNow(minutes: number): Date {
   return new Date(Date.now() + minutes * 60 * 1000);
 }
 
-/** The interstitial page the email links to. Opening it consumes nothing. */
+/** The interstitial page the email links to. Opening it consumes nothing. The token rides in the
+ *  URL fragment so it is never sent to the server, a proxy, or an access log. */
 function verifyUrl(baseUrl: string, token: string): string {
-  return `${baseUrl}/portal/login/verify?token=${token}`;
+  return `${baseUrl}/portal/login/verify#token=${token}`;
 }
 
 /**

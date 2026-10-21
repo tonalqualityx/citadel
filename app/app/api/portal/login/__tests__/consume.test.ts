@@ -18,11 +18,11 @@ import type { Mock } from 'vitest';
 
 const mockConsume = consumeClientMagicLink as Mock;
 
-function post(body: unknown): NextRequest {
+function post(body: unknown, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest(new URL('http://localhost/api/portal/login/consume'), {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
   });
 }
 
@@ -62,6 +62,36 @@ describe('POST /api/portal/login/consume', () => {
   });
 });
 
+describe('POST /api/portal/login/consume login-CSRF guard', () => {
+  it('rejects a non-JSON content type (cross-site form post) without consuming', async () => {
+    const res = await consumePOST(post({ token: 'tok' }, { 'content-type': 'application/x-www-form-urlencoded' }));
+    expect(res.status).toBe(415);
+    expect(mockConsume).not.toHaveBeenCalled();
+  });
+
+  it('rejects Sec-Fetch-Site cross-site and same-site', async () => {
+    for (const site of ['cross-site', 'same-site']) {
+      const res = await consumePOST(post({ token: 'tok' }, { 'sec-fetch-site': site }));
+      expect(res.status).toBe(403);
+    }
+    expect(mockConsume).not.toHaveBeenCalled();
+  });
+
+  it('rejects a foreign Origin', async () => {
+    const res = await consumePOST(post({ token: 'tok' }, { origin: 'https://evil.example' }));
+    expect(res.status).toBe(403);
+    expect(mockConsume).not.toHaveBeenCalled();
+  });
+
+  it('accepts same-origin and none (direct navigation tools)', async () => {
+    mockConsume.mockResolvedValue({ sessionToken: 's', clientId: 'c', contactId: 'k', expiresAt: new Date() });
+    for (const h of [{ 'sec-fetch-site': 'same-origin', origin: 'http://localhost' }, { 'sec-fetch-site': 'none' }] as Record<string, string>[]) {
+      const res = await consumePOST(post({ token: 'tok' }, h));
+      expect(res.status).toBe(200);
+    }
+  });
+});
+
 describe('GET /api/portal/login/[token] (legacy link)', () => {
   it('redirects to the interstitial and NEVER consumes', async () => {
     const res = await legacyGET(
@@ -69,7 +99,7 @@ describe('GET /api/portal/login/[token] (legacy link)', () => {
       { params: Promise.resolve({ token: 'abc123' }) }
     );
     expect(res.status).toBe(303);
-    expect(res.headers.get('location')).toContain('/portal/login/verify?token=abc123');
+    expect(res.headers.get('location')).toContain('/portal/login/verify#token=abc123');
     expect(mockConsume).not.toHaveBeenCalled();
     expect(res.cookies.get('client_session')).toBeUndefined();
   });

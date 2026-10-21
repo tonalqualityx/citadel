@@ -13,7 +13,7 @@ vi.mock('@/lib/db/prisma', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import { sendEmail, sendPasswordResetEmail, sendTaskApprovalRequestEmail } from '../email';
+import { sendEmail, sendPasswordResetEmail, sendTaskApprovalRequestEmail, redactLoginLinks } from '../email';
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
@@ -251,5 +251,23 @@ describe('sendTaskApprovalRequestEmail', () => {
 
     expect(text).toContain('Hi,');
     expect(text).not.toContain('Hi ,');
+  });
+});
+
+describe('redactLoginLinks', () => {
+  const body = 'Sign in: https://app.example.com/portal/login/verify#token=abc123 thanks';
+
+  it('redacts portal login URLs in production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const out = redactLoginLinks(body);
+    expect(out).not.toContain('abc123');
+    expect(out).toContain('[login link redacted]');
+    vi.unstubAllEnvs();
+  });
+
+  it('leaves the text alone outside production (local dev needs the link)', () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    expect(redactLoginLinks(body)).toBe(body);
+    vi.unstubAllEnvs();
   });
 });
