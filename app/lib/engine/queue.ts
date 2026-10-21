@@ -2,10 +2,12 @@
  * The engine queue (phase C spec 4.1). Citadel stores the work; a runner on the Bast machine claims
  * it over a bearer-protected API. Nothing here calls a model.
  *
- * - enqueue: one open (queued) job per conversation; later messages are absorbed into it. A job that
+ * - enqueue: one queued job per conversation, of any type; later messages are absorbed into it. A job that
  *   is already claimed gets a follow-up queued behind it (the claim skips a conversation whose
  *   earlier job is still being worked).
- * - claim: oldest queued job, FOR UPDATE SKIP LOCKED, lease 120 seconds.
+ * - claim: oldest queued job, FOR UPDATE SKIP LOCKED, lease 120 seconds. A conversation with a claimed job
+ *   (even one whose lease has lapsed and not yet expired) hands out nothing; a partial unique index on
+ *   engine_jobs(conversation_id) WHERE status = 'claimed' makes that a database fact, not a hope.
  * - heartbeat: +60 seconds, at most twice.
  * - expire: queued for over 60 seconds, or claimed with a lapsed lease. The conversation flips to
  *   tree mode (spec 1.7); the run on the machine, if any, gets a 409 when it posts.
@@ -40,7 +42,7 @@ export async function enqueueJob(input: EnqueueInput): Promise<{ job: EngineJob;
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`engine-enqueue:${input.conversationId}`}))`;
     const waiting = await tx.engineJob.findFirst({
-      where: { conversation_id: input.conversationId, status: 'queued', type: input.type },
+      where: { conversation_id: input.conversationId, status: 'queued' }, // any type: one waiting job a conversation
       orderBy: { queued_at: 'asc' },
     });
     if (waiting) {
@@ -123,7 +125,6 @@ export async function claimNextJob(opts: { types?: string[]; now?: Date } = {}):
           WHERE c.conversation_id IS NOT NULL
             AND c.conversation_id = j.conversation_id
             AND c.status = 'claimed'
-            AND c.lease_until > ${now}
         )
       ORDER BY j.queued_at ASC
       LIMIT 1

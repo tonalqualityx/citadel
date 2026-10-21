@@ -173,6 +173,13 @@ export const siteEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { site_id: 'uuid', pages: 'number', missing: 'number' },
       },
+      {
+        method: 'GET',
+        summary: "The site's current page set with live and missing counts (the sync reads it to refuse a replacement that would drop more than half the pages).",
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { site_id: 'uuid', live: 'number', missing: 'number', pages: [{ id: 'uuid', path: 'string', title: 'string', source: 'sitemap|wright', missing_since: 'ISO-8601|null', last_seen_at: 'ISO-8601' }] },
+      },
     ],
   },
   {

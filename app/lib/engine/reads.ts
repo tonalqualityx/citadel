@@ -12,8 +12,9 @@ import { loadProjectList } from '@/lib/portal/projects-list';
 import { loadProjectDetail } from '@/lib/portal/project-detail';
 import { loadRetainers, safeHttpUrl } from '@/lib/portal/retainer';
 import { loadHistory } from '@/lib/portal/history';
+import { searchSitePages } from '@/lib/portal/chat/site-pages-read';
 
-export const READ_KINDS = ['requests', 'work_item', 'projects', 'project', 'retainer', 'history', 'reports', 'invoices'] as const;
+export const READ_KINDS = ['requests', 'work_item', 'projects', 'project', 'retainer', 'history', 'reports', 'invoices', 'site_pages'] as const;
 export type ReadKind = (typeof READ_KINDS)[number];
 export const HISTORY_MAX_DAYS = 120;
 
@@ -42,6 +43,8 @@ export interface ReadParams {
   task_id?: string | null;
   project_id?: string | null;
   days?: number | null;
+  site_id?: string | null;
+  q?: string | null;
 }
 
 export async function runRead(access: PortalAccess, kind: ReadKind, params: ReadParams = {}, now: Date = new Date()): Promise<unknown> {
@@ -84,6 +87,12 @@ export async function runRead(access: PortalAccess, kind: ReadKind, params: Read
           return url ? [{ title: r.title, headline: r.headline, period: r.period, url, published_at: r.published_at }] : [];
         }),
       };
+    }
+    case 'site_pages': {
+      if (access.role === 'none') return { pages: [] };
+      const pages = await searchSitePages(access.clientId, { siteId: params.site_id, q: params.q });
+      if (!pages) throw new ApiError('Not found', 404);
+      return { pages };
     }
     case 'invoices': {
       if (!canSeeBilling(access.role)) throw new ApiError('Billing is not visible to this contact', 403);

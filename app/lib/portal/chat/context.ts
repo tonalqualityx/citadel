@@ -185,7 +185,9 @@ export async function buildContext(
     }),
   ]);
 
-  const siteIds = convo.site_id ? [convo.site_id] : sites.map((s) => s.id);
+  // Only this client's own sites, whatever the conversation row says.
+  const ownSiteIds = new Set(sites.map((s) => s.id));
+  const siteIds = convo.site_id ? (ownSiteIds.has(convo.site_id) ? [convo.site_id] : []) : [...ownSiteIds];
   const [pageRows, work, threadDesc, openWork] = await Promise.all([
     prisma.sitePage.findMany({
       where: { site_id: { in: siteIds }, missing_since: null },
@@ -276,14 +278,25 @@ export function capBundle(ctx: ChatContext, rows: ThreadRow[], attachments: Atta
   return out;
 }
 
-/** The numbers in the bundle the gate may treat as context: the allowance, today's date, what was said. */
-export function contextNumbers(ctx: ChatContext): string[] {
-  return [
-    ...numbersInText(ctx.plan_allowance ?? ''),
-    ...numbersInText(ctx.today),
-    ...numbersInText(ctx.thread),
-    ...numbersInText(JSON.stringify(ctx.task.slots ?? {})),
-  ];
+/**
+ * The numbers in the client's own words, for the gate: the text of their messages only, never the
+ * tags, ids, timestamps or file names around them. The gate lets the assistant echo them only
+ * inside quotation marks (and a bare year). The allowance, today's date and the slots are NOT here.
+ */
+export function contextNumbers(ctx: Pick<ChatContext, 'thread'>): string[] {
+  const out: string[] = [];
+  for (const m of ctx.thread.matchAll(/<client_message\b[^>]*>([\s\S]*?)<\/client_message>/g)) {
+    const text = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    out.push(...numbersInText(text));
+  }
+  return out;
+}
+
+/** The titles of the live pages on the given sites: page names the gate lets a reply say verbatim. */
+export async function loadPageNames(siteIds: string[]): Promise<string[]> {
+  if (siteIds.length === 0) return [];
+  const rows = await prisma.sitePage.findMany({ where: { site_id: { in: siteIds }, missing_since: null }, select: { title: true }, take: 400 });
+  return [...new Set(rows.map((r) => r.title).filter(Boolean))];
 }
 
 export async function buildToolScope(

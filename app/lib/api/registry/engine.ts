@@ -62,12 +62,14 @@ export const engineEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Returns exactly what the portal shows the job\'s contact. Valid only while the job is claimed and unexpired. kind: requests | work_item | projects | project | retainer | history | reports | invoices. invoices need a billing role (403 otherwise).',
+        summary: 'Returns exactly what the portal shows the job\'s contact. Valid only while the job is claimed and unexpired. kind: requests | work_item | projects | project | retainer | history | reports | invoices | site_pages. site_pages searches this client\'s own site pages (title, path, section heading). invoices need a billing role (403 otherwise).',
         ...authFields,
         queryParams: [
           { name: 'task_id', type: 'uuid', required: false, description: 'Task id' },
           { name: 'project_id', type: 'uuid', required: false, description: 'Project id' },
           { name: 'days', type: 'number', required: false, description: 'Look-back window in days (max 120)' },
+          { name: 'site_id', type: 'uuid', required: false, description: 'site_pages: one of the client\'s sites (404 for any other)' },
+          { name: 'q', type: 'string', required: false, description: 'site_pages: search text' },
         ],
         responseExample: { kind: 'string', data: 'object' },
       },

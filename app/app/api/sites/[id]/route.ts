@@ -92,10 +92,15 @@ export async function PATCH(
     const body = await request.json();
     const data = updateSiteSchema.parse(body);
 
-    // The chat switch and the analytics ids are admin settings; the Bast user may write them for the
-    // backfill. A pm cannot.
-    if (CHAT_SITE_FIELDS.some((f) => data[f] !== undefined) && auth.role !== 'admin' && auth.userId !== BAST_USER_ID) {
-      throw new ApiError('Only an admin can change the chat switch or analytics ids', 403);
+    // The chat switch and the analytics ids are admin settings. The Bast user may write the two
+    // analytics ids (the backfill) and may turn the chat switch OFF for a site, never on (spec 9.1):
+    // a client-facing switch is Mike's. Another pm may do none of it.
+    if (CHAT_SITE_FIELDS.some((f) => data[f] !== undefined)) {
+      if (auth.userId === BAST_USER_ID) {
+        if (data.portal_chat_enabled === true) throw new ApiError('The Bast token can turn the chat off for a site, never on', 403);
+      } else if (auth.role !== 'admin') {
+        throw new ApiError('Only an admin can change the chat switch or analytics ids', 403);
+      }
     }
 
     // Validate client exists if provided (and not null)

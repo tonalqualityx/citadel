@@ -56,6 +56,8 @@ describe.skipIf(!SCRATCH)('engine routes (real database)', () => {
     await prisma.$disconnect();
   });
   beforeEach(async () => {
+    const { updateChatSettings } = await import('@/lib/portal/chat/switches');
+    await updateChatSettings({ mode: 'on', pilot_contact_ids: [] });
     bearer = engineKey;
     await prisma.engineToolCall.deleteMany({ where: { client_id: a.clientId } });
     await prisma.engineJob.deleteMany({ where: { client_id: a.clientId } });
@@ -102,6 +104,34 @@ describe.skipIf(!SCRATCH)('engine routes (real database)', () => {
       expect((await prisma.engineJob.findFirstOrThrow({ where: { client_id: a.clientId } })).status).toBe('failed');
     } finally {
       await prisma.clientContact.update({ where: { id: a.ownerId }, data: { is_deleted: false } });
+    }
+  });
+
+  it('claim re-checks the switches: mode off, pilot and the site switch each close a queued job', async () => {
+    const { updateChatSettings, getChatSettings } = await import('@/lib/portal/chat/switches');
+    const before = await getChatSettings();
+    try {
+      await updateChatSettings({ mode: 'on', pilot_contact_ids: [] });
+      for (const [setup, reason] of [
+        [async () => { await updateChatSettings({ mode: 'off' }); }, 'mode_off'],
+        [async () => { await updateChatSettings({ mode: 'pilot', pilot_contact_ids: [a.viewerId] }); }, 'not_pilot'],
+        [async () => { await updateChatSettings({ mode: 'on' }); await prisma.site.update({ where: { id: a.siteId }, data: { portal_chat_enabled: false } }); }, 'site_off'],
+      ] as const) {
+        await prisma.engineJob.deleteMany({ where: { client_id: a.clientId } });
+        await prisma.site.update({ where: { id: a.siteId }, data: { portal_chat_enabled: true } });
+        await updateChatSettings({ mode: 'on' });
+        await queue();
+        await setup();
+        const res = await claim(req('/api/engine/claim', { method: 'POST' }));
+        expect(res.status).toBe(204);
+        const job = await prisma.engineJob.findFirstOrThrow({ where: { client_id: a.clientId } });
+        expect(job.status).toBe('failed');
+        expect(job.error).toBe(reason);
+        expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } })).mode).toBe('tree');
+      }
+    } finally {
+      await updateChatSettings({ mode: before.mode, pilot_contact_ids: before.pilot_contact_ids });
+      await prisma.site.update({ where: { id: a.siteId }, data: { portal_chat_enabled: true } });
     }
   });
 
