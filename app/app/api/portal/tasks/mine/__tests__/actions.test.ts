@@ -36,6 +36,7 @@ const STAGED = {
   status: 'review',
 };
 // Internal work: no requesting contact, nothing staged.
+const PUBLISHED = { ...STAGED, status: 'done', approved: true };
 const INTERNAL = { requested_by_contact_id: null, staging_preview_url: null, status: 'in_progress' };
 
 const mockRequireClientAuth = requireClientAuth as Mock;
@@ -96,6 +97,15 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
     mockTaskFindFirst.mockResolvedValue({ id: 'task-int', client_approved_at: null, site: null, ...INTERNAL });
 
     const res = await APPROVE(postReq('task-int'), makeParams('task-int'));
+    expect(res.status).toBe(404);
+    expect(mockRecordApproval).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for already-published work (approved: true) even with a staging url', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-pub', client_approved_at: null, site: null, ...PUBLISHED });
+
+    const res = await APPROVE(postReq('task-pub'), makeParams('task-pub'));
     expect(res.status).toBe(404);
     expect(mockRecordApproval).not.toHaveBeenCalled();
   });

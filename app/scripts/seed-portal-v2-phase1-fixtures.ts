@@ -100,6 +100,7 @@ async function seedPopulatedClient() {
       status: 'done',
       client_id: client.id,
       site_id: site.id,
+      requested_by_contact_id: contact.id,
       completed_at: new Date(),
       client_approved_at: new Date(),
     },

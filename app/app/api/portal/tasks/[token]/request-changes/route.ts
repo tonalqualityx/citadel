@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { handleApiError } from '@/lib/api/errors';
+import { isStagedForApproval } from '@/lib/portal/visibility';
 import {
   validateTaskToken,
   resolveTaskContact,
@@ -26,7 +27,10 @@ export async function POST(
     const { token } = await params;
     const task = await validateTaskToken(token);
 
-    if (!task) {
+    // Only work staged for the client can be acted on. A stale link to a task that was sent back
+    // for changes (or is already published) must not record an approval that the worker would
+    // later read as the client's yes on unseen rework.
+    if (!task || !isStagedForApproval(task)) {
       return NextResponse.json(
         { error: 'Approval link not found or has expired' },
         { status: 404 }

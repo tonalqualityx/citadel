@@ -254,6 +254,22 @@ describe('POST /api/portal/tasks/:token/approve', () => {
     );
   });
 
+  it('returns 404 and records nothing for a task that is no longer staged (sent back for changes)', async () => {
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, status: 'not_started' });
+
+    const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientApproval).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for already-published work with no client approval timestamp', async () => {
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, approved: true });
+
+    const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientApproval).not.toHaveBeenCalled();
+  });
+
   it('returns 404 for an invalid token', async () => {
     mockValidateTaskToken.mockResolvedValue(null);
 
@@ -284,6 +300,28 @@ describe('POST /api/portal/tasks/:token/request-changes', () => {
     expect(mockLogPortalSession).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'changes_requested' })
     );
+  });
+
+  it('returns 404 and records nothing for a task that is no longer staged', async () => {
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, status: 'not_started' });
+
+    const response = await REQUEST_CHANGES(
+      postReq('valid-token', { note: 'again' }),
+      makeParams('valid-token')
+    );
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for already-published work (approved: true)', async () => {
+    mockValidateTaskToken.mockResolvedValue({ ...mockPortalTask, approved: true });
+
+    const response = await REQUEST_CHANGES(
+      postReq('valid-token', { note: 'x' }),
+      makeParams('valid-token')
+    );
+    expect(response.status).toBe(404);
+    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
   });
 
   it('rejects an empty note before calling the shared function', async () => {

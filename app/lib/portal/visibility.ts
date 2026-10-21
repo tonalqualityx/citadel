@@ -16,6 +16,11 @@
  * are not awaiting the client. Approve and request-changes require "staged" in addition to
  * "visible".
  *
+ * NOTE: staged also requires the task not be `approved` (already published).
+ * NOTE: the unbuilt wp-delta pipeline (skills/wp-delta-pipeline/citadel-schema-sop.md:233) keeps
+ * staged tasks at `in_progress` with an awaiting-approval tag. The {review, done} rule will need
+ * to include that case when that pipeline ships.
+ *
  * Every portal route that selects tasks must spread these fragments into its `where` (via
  * AND so the client-scope `OR` is never overwritten) and every row-level check must use the
  * predicates, so the rule cannot drift between routes.
@@ -29,6 +34,9 @@ export function stagedTaskWhere() {
     staging_preview_url: { not: null },
     NOT: { staging_preview_url: '' },
     status: { in: [...PORTAL_STAGED_STATUSES] },
+    // Already-published work keeps its staging url forever (and pre-2026-10-15 email approvals
+    // set approved without client_approved_at), so it must never read as awaiting the client.
+    approved: false,
   };
 }
 
@@ -43,6 +51,7 @@ interface VisibilityFields {
   requested_by_contact_id?: string | null;
   staging_preview_url?: string | null;
   status?: string | null;
+  approved?: boolean | null;
 }
 
 /** Predicate twin of stagedTaskWhere(). */
@@ -50,6 +59,7 @@ export function isStagedForApproval(task: VisibilityFields): boolean {
   return (
     typeof task.staging_preview_url === 'string' &&
     task.staging_preview_url.length > 0 &&
+    !task.approved &&
     (PORTAL_STAGED_STATUSES as readonly string[]).includes(task.status ?? '')
   );
 }
@@ -64,4 +74,5 @@ export const VISIBILITY_SELECT = {
   requested_by_contact_id: true,
   staging_preview_url: true,
   status: true,
+  approved: true,
 } as const;
