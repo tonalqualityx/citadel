@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { getMeetingTypes } from '@/lib/portal/booking';
+import { getMeetingTypes, MEETING_TYPE_KEYS, type MeetingTypeKey } from '@/lib/portal/booking';
 import { BookingPicker } from '@/components/portal/booking-picker';
 import { CLIENT_SESSION_COOKIE, validateClientSession } from '@/lib/services/client-auth';
 
@@ -10,10 +10,18 @@ import { CLIENT_SESSION_COOKIE, validateClientSession } from '@/lib/services/cli
 // does not slide the cookie, which a server component cannot set).
 export const dynamic = 'force-dynamic';
 
-export default async function BookMeetingPage() {
+export default async function BookMeetingPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ type?: string | string[] }>;
+} = {}) {
   const cookieStore = await cookies();
   const token = cookieStore.get(CLIENT_SESSION_COOKIE)?.value;
   const identity = token ? await validateClientSession(token) : null;
   if (!identity) redirect('/portal/login');
-  return <BookingPicker types={getMeetingTypes()} />;
+  // ?type=marketing (the Retainer page's "Book a meeting") opens that meeting type directly.
+  const raw = (await searchParams)?.type;
+  const wanted = Array.isArray(raw) ? raw[0] : raw;
+  const initialType = (MEETING_TYPE_KEYS as readonly string[]).includes(wanted ?? '') ? (wanted as MeetingTypeKey) : null;
+  return <BookingPicker types={getMeetingTypes()} initialType={initialType} />;
 }

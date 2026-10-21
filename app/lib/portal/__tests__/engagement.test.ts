@@ -12,7 +12,7 @@ describe('engagementOf', () => {
     const e = engagementOf({ charter_id: 'c1', charter: { id: 'c1', ware_names: ['SEO', 'Social'] } });
     expect(e.kind).toBe('retainer');
     expect(e.label).toBe('SEO, Social');
-    expect(e.href).toBeNull();
+    expect(e.href).toBe('/portal/retainer');
     expect(engagementText(e)).toBe('Retainer: SEO, Social');
   });
 

@@ -79,6 +79,8 @@ export interface Task {
   // being approved" link). The API has returned this since client staging review
   // shipped; the type never declared it.
   staging_preview_url: string | null;
+  // Portal: the contact who filed it (set = a client request, so its thread is client-visible).
+  requested_by_contact_id?: string | null;
   // Billing
   is_billable: boolean;
   billing_target: number | null;

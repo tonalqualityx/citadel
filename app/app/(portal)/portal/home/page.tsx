@@ -90,8 +90,18 @@ interface HomeRequest {
   updated_at: string;
 }
 
+interface HomeRetainer {
+  id: string;
+  heading: string;
+  status: { label: string; tone: ChipTone };
+  period: string;
+  plan_ready: boolean;
+  open: Array<{ id: string; title: string; state: { label: string; tone: ChipTone } }>;
+}
+
 interface HomePayload {
   client: { id: string; name: string };
+  retainers: HomeRetainer[];
   requests: { open_count: number; top: HomeRequest[] };
   pending_approvals: { articles: ClientArticle[]; tasks: ClientTask[] };
   needs_from_you: { questions: ClientQuestion[]; review_links: { project_id: string; project_name: string; url: string }[] };
@@ -360,8 +370,14 @@ export default function ClientHomePage() {
                 <span className="font-medium text-text-main">{q.title}</span>
                 {q.question && <p className="mt-1 text-sm text-text-secondary">{q.question}</p>}
                 <p className="mt-2 text-xs text-text-tertiary">
-                  A question for you{q.asked_at ? `. Asked ${formatDate(q.asked_at)}` : ''}. Reply to our email and we will pick it up.
+                  A question for you{q.asked_at ? `. Asked ${formatDate(q.asked_at)}` : ''}.
                 </p>
+                <Link
+                  href={`/portal/work/${q.task_id}`}
+                  className="mt-2 inline-flex min-h-[44px] items-center rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90"
+                >
+                  Answer
+                </Link>
               </div>
             ))}
             {needs_from_you.review_links.map((l) => (
@@ -415,6 +431,45 @@ export default function ClientHomePage() {
             ))}
           </ul>
         )}
+      </div>
+
+      {/* Retainer */}
+      <div className="bg-surface rounded-lg border border-border p-6">
+        <h3 className="text-lg font-semibold text-text-main mb-1">Retainer</h3>
+        {data.retainers.length === 0 ? (
+          <p className="text-sm text-text-tertiary">No retainer on your account.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {data.retainers.map((r) => (
+              <li key={r.id} className="py-3">
+                <div className="flex items-center justify-between gap-4">
+                  <Link href="/portal/retainer" className="font-medium text-text-main hover:underline">
+                    {r.heading}
+                  </Link>
+                  <span className="shrink-0 text-xs text-text-tertiary">{r.period}</span>
+                </div>
+                {r.plan_ready && <p className="mt-1 text-sm text-text-secondary">A plan is ready for you to approve.</p>}
+                {r.open.length > 0 && (
+                  <ul className="mt-1 space-y-1 text-sm text-text-secondary">
+                    {r.open.map((i) => (
+                      <li key={i.id}>
+                        <Link href={`/portal/work/${i.id}`} className="hover:underline">
+                          {i.title}
+                        </Link>{' '}
+                        <span className="text-text-tertiary">({i.state.label})</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-4 text-sm">
+          <Link href="/portal/retainer" className="text-brand-primary hover:underline">
+            See your retainer
+          </Link>
+        </p>
       </div>
 
       {/* Requests */}

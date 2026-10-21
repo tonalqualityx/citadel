@@ -13,6 +13,7 @@ import {
 import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import { projectStatusLabel, REQUEST_LABELS } from '@/lib/portal/status-labels';
 import { loadRequests } from '@/lib/portal/requests';
+import { loadRetainers } from '@/lib/portal/retainer';
 import { CLIENT_VISIBLE_COMMENT_WHERE } from '@/lib/comments/visibility';
 import {
   AWAITING_CLARIFICATION_TAG,
@@ -224,6 +225,8 @@ export async function GET(_request: NextRequest) {
     // Requests (portal phase B slice 1): the open count and the top three, attention first.
     // Loaded after the queries above so their order is unchanged.
     const requests = await loadRequests(access);
+    // Retainers (slice 2): one summary row per active or paused plan, the three newest open items.
+    const retainerCards = await loadRetainers(access);
 
     // Per-project progress, current phase and client links. One query each for all open projects.
     const projectIds = openProjects.map((p) => p.id);
@@ -341,6 +344,25 @@ export async function GET(_request: NextRequest) {
         review_links: projectCards
           .filter((p) => p.review_link)
           .map((p) => ({ project_id: p.id, project_name: p.name, url: p.review_link as string })),
+      },
+      retainers: retainerCards.map((r) => ({
+        id: r.id,
+        heading: r.heading,
+        status: r.status,
+        period: r.period,
+        plan_ready: r.plan_ready !== null,
+        open: r.this_month.open.slice(0, 3),
+      })),
+      // The counts the home summary line is built from (zeros are skipped by the page). Needs-you
+      // counts approvals (a staged plan is one of them), open questions, review links and a balance.
+      summary: {
+        needs_count:
+          pendingArticles.length +
+          pendingTasks.length +
+          questionTasks.length +
+          projectCards.filter((p) => p.review_link).length +
+          (billing && billing.open_count > 0 ? 1 : 0),
+        moving: { projects: projectCards.length, retainers: retainerCards.length, requests: requests.open.length },
       },
       requests: {
         open_count: requests.open.length,

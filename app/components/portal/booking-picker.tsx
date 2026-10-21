@@ -10,8 +10,8 @@ type EmbedState = 'idle' | 'loading' | 'ready' | 'blocked';
  * The script loads only from assets.calendly.com. If it cannot load (blocked by a content
  * security policy, an ad blocker or the network) the page shows a plain link instead.
  */
-export function BookingPicker({ types }: { types: MeetingType[] }) {
-  const [selected, setSelected] = useState<MeetingType['key'] | null>(null);
+export function BookingPicker({ types, initialType = null }: { types: MeetingType[]; initialType?: MeetingType['key'] | null }) {
+  const [selected, setSelected] = useState<MeetingType['key'] | null>(initialType);
   const [embed, setEmbed] = useState<EmbedState>('idle');
   const container = useRef<HTMLDivElement>(null);
 

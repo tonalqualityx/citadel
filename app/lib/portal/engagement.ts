@@ -19,7 +19,7 @@ export interface Engagement {
   kind: EngagementKind;
   /** The text on the chip, without the kind: a project name, a plan label, or the site. */
   label: string;
-  /** Where the chip links, or null when the destination page does not exist yet. */
+  /** Where the chip links: the project page, the retainer page or the requests list. */
   href: string | null;
 }
 
@@ -36,8 +36,7 @@ export function engagementOf(task: EngagementFields): Engagement {
     return { kind: 'project', label: task.project?.name ?? 'Project', href: `/portal/projects/${id}` };
   }
   if (task.charter_id) {
-    // The retainer page lands in slice 2; until then the chip does not link.
-    return { kind: 'retainer', label: planLabel(task.charter?.ware_names), href: null };
+    return { kind: 'retainer', label: planLabel(task.charter?.ware_names), href: '/portal/retainer' };
   }
   return {
     kind: 'request',

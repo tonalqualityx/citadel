@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import { RequestWorkButton } from '@/components/portal/request-work-button';
 import { activityLabel, phaseStateLabel, type ActivityType, type PhaseState } from '@/lib/portal/status-labels';
 
 // Client project page (portal MVP A5). Backed by GET /api/portal/projects/:id, which answers 404
@@ -139,6 +140,9 @@ export default function ClientProjectPage() {
           <h2 className="text-2xl font-bold text-text-main">{project.name}</h2>
           <span className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-text-secondary">{project.status_label}</span>
         </div>
+        <div className="mt-3">
+          <RequestWorkButton variant="secondary" prefill={{ project_id: project.id }} />
+        </div>
         <p className="mt-2 text-sm text-text-secondary">
           {project.progress.total > 0
             ? `${project.progress.done} of ${project.progress.total} tasks complete`
@@ -192,7 +196,12 @@ export default function ClientProjectPage() {
               <div key={r.task_id} className="rounded-lg border border-border p-4">
                 <span className="font-medium text-text-main">{r.title}</span>
                 {r.question && <p className="mt-1 text-sm text-text-secondary">{r.question}</p>}
-                <p className="mt-2 text-xs text-text-tertiary">Reply to our email and we will pick it up.</p>
+                <Link
+                  href={`/portal/work/${r.task_id}`}
+                  className="mt-2 inline-flex min-h-[44px] items-center rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90"
+                >
+                  Answer
+                </Link>
               </div>
             ))}
             {needs_from_you.review_link && (

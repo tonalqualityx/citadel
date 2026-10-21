@@ -10,6 +10,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { clientHistoryTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { engagementOf, type Engagement } from '@/lib/portal/engagement';
 import type { ActivityType } from '@/lib/portal/status-labels';
 
 export const HISTORY_DEFAULT_PAGE_SIZE = 20;
@@ -22,6 +23,8 @@ export interface HistoryItem {
   title: string;
   url: string | null;
   project: { id: string; name: string } | null;
+  /** Project, Retainer or Request (portal phase B slice 2). Null for articles. */
+  engagement: Engagement | null;
   at: Date | string;
 }
 
@@ -91,10 +94,15 @@ export async function loadHistory(
   const select = {
     id: true,
     title: true,
+    client_title: true,
     client_approved_at: true,
     completed_at: true,
     updated_at: true,
+    project_id: true,
+    charter_id: true,
     project: { select: { id: true, name: true } },
+    charter: { select: { id: true, charter_wares: { where: { is_active: true }, select: { ware: { select: { name: true } } } } } },
+    site: { select: { id: true, name: true } },
   } as const;
 
   // Sort key is COALESCE(client_approved_at, completed_at), then id. Prisma cannot order by a
@@ -134,9 +142,18 @@ export async function loadHistory(
     item: {
       type: t.client_approved_at ? 'task_approved' : 'task_completed',
       id: t.id,
-      title: t.title,
+      title: t.client_title ?? t.title,
       url: null,
       project: t.project ? { id: t.project.id, name: t.project.name } : null,
+      engagement: engagementOf({
+        project_id: t.project_id,
+        project: t.project,
+        charter_id: t.charter_id,
+        charter: t.charter
+          ? { id: t.charter.id, ware_names: t.charter.charter_wares.map((w) => w.ware?.name ?? '').filter(Boolean) }
+          : null,
+        site: t.site,
+      }),
       at: t.client_approved_at ?? t.completed_at ?? t.updated_at,
     },
   });
@@ -144,7 +161,7 @@ export async function loadHistory(
     (a): Row => ({
       sortAt: a.updated_at,
       id: a.id,
-      item: { type: 'article_published', id: a.id, title: a.title, url: a.published_url ?? null, project: null, at: a.updated_at },
+      item: { type: 'article_published', id: a.id, title: a.title, url: a.published_url ?? null, project: null, engagement: null, at: a.updated_at },
     })
   );
 

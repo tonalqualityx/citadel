@@ -71,6 +71,7 @@ import {
   getTaskStatusVariant,
 } from '@/lib/calculations/status';
 import { formatDuration } from '@/lib/calculations/energy';
+import { isClientVisibleTask } from '@/lib/portal/visibility';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -596,7 +597,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
               )}
 
               {/* Comments - Compact mode showing most recent */}
-              <CommentSection taskId={task.id} defaultExpanded={true} variant="compact" />
+              <CommentSection taskId={task.id} defaultExpanded={true} variant="compact" clientVisibleTask={isClientVisibleTask(task)} />
 
               {/* Description */}
               <div>

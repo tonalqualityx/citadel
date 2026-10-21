@@ -88,6 +88,8 @@ export const portalEndpoints: ApiEndpoint[] = [
         responseExample: {
           client: { id: 'uuid', name: 'string' },
           requests: { open_count: 'number', top: '[request item, see GET /api/portal/requests] (attention first, at most 3)' },
+          retainers: '[{ id, heading, status, period, plan_ready: boolean, open: [at most 3 request items] }] (slice 2)',
+          summary: '{ needs_count: number, moving: { projects, retainers, requests } } (slice 2; the home summary line)',
           pending_approvals: {
             articles: [
               {
@@ -687,6 +689,169 @@ export const portalEndpoints: ApiEndpoint[] = [
             can_act: 'boolean',
           },
         },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/work/:id/messages',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 2: the conversation on a request, oldest first. Shows the client\'s own messages and the staff replies shared with them (client_visible), plus older questions staff marked for the client. Staff replies carry the author "Indelible", never a name; internal notes and unflagged comments never appear. Query: after (ISO-8601, only newer messages; the page polls every 30 seconds). 404 for work the contact may not see. Requires a client_session cookie. Rate limited to 120 a minute.',
+        auth: 'session',
+        responseExample: {
+          messages: [
+            { id: 'uuid', author: { kind: 'client|staff', name: 'string' }, mine: 'boolean', text: 'string', created_at: 'ISO-8601' },
+          ],
+        },
+      },
+      {
+        method: 'POST',
+        summary:
+          'Portal phase B slice 2: the client writes in the thread. Creates a Comment authored by the contact (author_contact_id, user_id the Bast user, client_visible true, is_internal false), text verbatim. 201 when new, 200 with the same message when client_ref was already sent. Opens or moves the request\'s wait: stops the contact\'s waits, flags staff-owned waits needs_human, or opens portal.client_reply. Any client role may write, grant-only contacts included. 20 messages per 10 minutes and 200 a day per person (counted in the database); past that, 429 with the plain-words limit message.',
+        auth: 'session',
+        bodySchema: [
+          { name: 'client_ref', type: 'uuid', required: true, description: 'The client\'s id for this message; a repeat is a no-op' },
+          { name: 'text', type: 'string', required: true, description: '1 to 4,000 characters, stored verbatim' },
+        ],
+        responseExample: { message: { id: 'uuid', author: { kind: 'client', name: 'string' }, mine: true, text: 'string', created_at: 'ISO-8601' } },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/retainer',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 2: one card per active or paused charter. Heading is Charter.client_label, else the active wares\' names, else "Marketing plan" (Charter.name is internal and never sent). Period, the sites covered, a staged unapproved marketing-plan task as plan_ready, this month\'s open and finished client-visible work, the newest published report, and the plan allowance as text. Hours used are never selected or sent. A grant-only contact gets an empty list. Requires a client_session cookie.',
+        auth: 'session',
+        responseExample: {
+          retainers: [
+            {
+              id: 'uuid', heading: 'string', status: { label: 'Active|Paused', tone: 'string' }, period: 'October 2026',
+              covers: ['string'], allowance: 'string|null',
+              plan_ready: '{ task_id, title, preview_url, book_href }|null',
+              this_month: { open: ['request item'], done: ['request item'] },
+              latest_report: '{ title, headline, period, url }|null',
+            },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/projects',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 2: the projects the contact may see, active (ready, in progress, in review) first, then complete. Same scope as the project page: hidden, restricted and pre-kickoff projects never appear. Name, status word, "N of M complete", the next open milestone and the target date. No money, owners or tags. Requires a client_session cookie.',
+        auth: 'session',
+        responseExample: {
+          active: [
+            { id: 'uuid', name: 'string', status_label: 'Starting soon|In progress|In review', progress: { done: 'number', total: 'number' }, next_milestone: '{ name, target_date }|null', target_date: 'ISO-8601|null', updated_at: 'ISO-8601' },
+          ],
+          complete: [],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/portal-notices',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal phase B slice 2: the outbox of "new reply on your request" emails, read by the machine-side sender (approval-sender.py process_portal_notices). pm and admin only. For status=queued, stale notices are cancelled first (a reply that was unflagged, made internal or deleted), and only notices quiet for at least older_than seconds are returned (default 120).',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          { name: 'status', type: 'string', required: false, description: 'queued (default), sending, sent, failed or cancelled' },
+          { name: 'older_than', type: 'number', required: false, description: 'Seconds a queued notice must have been quiet. Default 120.' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'Only notices for this task' },
+        ],
+        responseExample: {
+          notices: [{ id: 'uuid', task_id: 'uuid', contact_id: 'uuid', comment_ids: ['uuid'], to_email: 'string', subject: 'string', body: 'string', status: 'queued', created_at: 'ISO-8601' }],
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/portal-notices/:id/sending',
+    group: 'portal',
+    methods: [
+      {
+        method: 'PUT',
+        summary:
+          'The sender\'s claim, BEFORE the email goes to gog: queued -> sending, send_attempt_at stamped. 409 when the notice is not queued or its replies were withdrawn in the hold (it is then cancelled). Mirrors PUT /api/approval-requests/:id/sending. pm and admin only.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { id: 'uuid', status: 'sending', send_attempt_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/portal-notices/:id/sent',
+    group: 'portal',
+    methods: [
+      {
+        method: 'PUT',
+        summary:
+          'Record a delivery: sending -> sent. An already sent notice is an idempotent re-confirmation. Mirrors PUT /api/approval-requests/:id/sent. pm and admin only.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'sent_at', type: 'ISO-8601', required: true, description: 'When gog delivered it' },
+          { name: 'message_id', type: 'string', required: false, description: 'Required unless delivered_unconfirmed' },
+          { name: 'thread_id', type: 'string', required: false, description: 'Required unless delivered_unconfirmed' },
+          { name: 'delivered_unconfirmed', type: 'boolean', required: false, description: 'The email went out but its ids could not be resolved' },
+        ],
+        responseExample: { id: 'uuid', status: 'sent', message_id: 'string|null', thread_id: 'string|null', sent_at: 'ISO-8601' },
+      },
+    ],
+  },
+  {
+    path: '/api/portal-notices/:id/send-error',
+    group: 'portal',
+    methods: [
+      {
+        method: 'PUT',
+        summary:
+          'The sender could not hand the email to gog. The first two errors release the notice back to queued; the third (or a refusal on a queued notice) ends in failed. Mirrors PUT /api/approval-requests/:id/send-error. pm and admin only.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [{ name: 'error', type: 'string', required: true, description: 'Why it failed' }],
+        responseExample: { id: 'uuid', status: 'queued|failed', send_error: 'string', send_error_count: 'number' },
+      },
+    ],
+  },
+  {
+    path: '/api/client-reports',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Portal phase B slice 2: upsert a published monthly report by url, for the Retainer page. The Steward lane calls it when it publishes clients/<slug>/steward/<period>/publish.json. 409 when the url belongs to another client. pm and admin only.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'client_id', type: 'uuid', required: true, description: 'The client' },
+          { name: 'charter_id', type: 'uuid', required: false, description: 'The charter the report covers' },
+          { name: 'site_id', type: 'uuid', required: false, description: 'The site the report covers' },
+          { name: 'period', type: 'string', required: true, description: 'YYYY-MM' },
+          { name: 'title', type: 'string', required: true, description: 'Report title' },
+          { name: 'headline', type: 'string', required: false, description: 'The finding sentence' },
+          { name: 'url', type: 'string', required: true, description: 'The tracked report page (http or https)' },
+          { name: 'published_at', type: 'ISO-8601', required: false, description: 'Unset means not yet visible to the client' },
+        ],
+        responseExample: { report: { id: 'uuid', period: 'YYYY-MM', title: 'string', url: 'string' } },
       },
     ],
   },

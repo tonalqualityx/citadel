@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { EngagementChip } from '@/components/portal/ui/engagement-chip';
+import type { Engagement } from '@/lib/portal/engagement';
 import { activityLabel, type ActivityType } from '@/lib/portal/status-labels';
 
 // Client history (portal MVP A5): finished work and published articles, newest first, paged.
@@ -14,6 +16,7 @@ interface HistoryItem {
   title: string;
   url: string | null;
   project: { id: string; name: string } | null;
+  engagement: Engagement | null;
   at: string;
 }
 
@@ -99,12 +102,10 @@ export default function ClientHistoryPage() {
             <li key={`${item.type}-${item.id}`} className="flex items-center justify-between gap-4 py-3 text-sm">
               <span className="text-text-main">
                 {activityLabel(item.type)}: {item.title}
-                {item.project && (
+                {item.engagement && (
                   <>
                     {' '}
-                    <Link href={`/portal/projects/${item.project.id}`} className="text-xs text-brand-primary hover:underline">
-                      {item.project.name}
-                    </Link>
+                    <EngagementChip engagement={item.engagement} />
                   </>
                 )}
                 {item.url && (

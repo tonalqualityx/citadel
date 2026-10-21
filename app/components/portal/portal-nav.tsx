@@ -6,6 +6,8 @@ import { RequestWorkButton } from '@/components/portal/request-work-button';
 
 const NAV = [
   { href: '/portal/home', label: 'Home' },
+  { href: '/portal/projects', label: 'Projects' },
+  { href: '/portal/retainer', label: 'Retainer' },
   { href: '/portal/requests', label: 'Requests' },
   { href: '/portal/history', label: 'History' },
   { href: '/portal/book', label: 'Book a meeting' },
@@ -15,6 +17,7 @@ const NAV = [
 const NAV_PREFIXES = [
   '/portal/home',
   '/portal/projects',
+  '/portal/retainer',
   '/portal/requests',
   '/portal/work',
   '/portal/history',

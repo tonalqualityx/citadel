@@ -75,6 +75,7 @@ import { ReviewSection } from '@/components/domain/tasks/review-section';
 import { TimeEntriesSection } from '@/components/domain/tasks/time-entries-section';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
 import { TaskDependencies } from '@/components/domain/tasks/task-dependencies';
+import { isClientVisibleTask } from '@/lib/portal/visibility';
 
 // ============================================
 // INLINE EDITABLE TEXT COMPONENT
@@ -740,7 +741,7 @@ export default function QuestDetailPage() {
           <ReviewSection task={task} />
 
           {/* Comments */}
-          <CommentSection taskId={taskId} defaultExpanded={true} />
+          <CommentSection taskId={taskId} defaultExpanded={true} clientVisibleTask={isClientVisibleTask(task)} />
 
           {/* Billing - PM/Admin only */}
           {isPmOrAdmin && (

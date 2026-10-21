@@ -27,8 +27,9 @@ export const miscEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'content', type: 'string', required: false, description: 'New comment text' },
           { name: 'is_internal', type: 'boolean', required: false, description: 'Toggle whether the comment is an internal note hidden from clients (team UI toggle)' },
+          { name: 'client_visible', type: 'boolean', required: false, description: 'Portal phase B slice 2: show or hide this comment in the client thread on the work page. pm/admin roles and the Bast token only. Showing a comment that names Bast returns 400 with the reason; showing an internal note returns 400. Showing it queues the client email notice (held two minutes, one email per burst) and resolves the first-response and reply clocks; hiding it, editing it or deleting it while queued withdraws or rewrites the notice. A comment the client wrote cannot be hidden.' },
         ],
-        responseExample: { id: 'uuid', content: 'string', is_internal: 'boolean', updated_at: 'ISO-8601' },
+        responseExample: { id: 'uuid', content: 'string', is_internal: 'boolean', client_visible: 'boolean', client_question: 'boolean', author_contact_id: 'uuid|null', updated_at: 'ISO-8601' },
       },
       {
         method: 'DELETE',

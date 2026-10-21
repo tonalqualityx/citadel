@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { MessageSquare, ChevronDown, Send, Pencil, Trash2, X, Check, Eye, EyeOff } from 'lucide-react';
+import { MessageSquare, ChevronDown, Send, Pencil, Trash2, X, Check, Eye, EyeOff, Users } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '@/lib/hooks/use-auth';
 import {
@@ -22,17 +22,35 @@ interface CommentSectionProps {
   taskId: string;
   defaultExpanded?: boolean;
   variant?: 'full' | 'compact';
+  /**
+   * The task is in the client portal (a client filed it, staff shared it, or it is staged for their
+   * approval). pm/admin then get "Reply to client" or "Internal note" on the composer, with
+   * Internal note the default, so nothing reaches the client by accident.
+   */
+  clientVisibleTask?: boolean;
 }
 
-export function CommentSection({ taskId, defaultExpanded = true, variant = 'full' }: CommentSectionProps) {
+/** Who a new comment is for. Internal note is always the starting choice. */
+export type CommentAudience = 'internal' | 'client';
+
+/** The fields a new comment carries for its audience. Pure; see the component test. */
+export function commentFieldsFor(audience: CommentAudience, clientTask: boolean): { is_internal?: boolean; client_visible?: boolean } {
+  if (!clientTask) return {};
+  return audience === 'client' ? { client_visible: true } : { is_internal: true };
+}
+
+export function CommentSection({ taskId, defaultExpanded = true, variant = 'full', clientVisibleTask = false }: CommentSectionProps) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded);
   const [showAllComments, setShowAllComments] = React.useState(false);
   const [newComment, setNewComment] = React.useState('');
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editContent, setEditContent] = React.useState('');
+  const [audience, setAudience] = React.useState<CommentAudience>('internal');
 
   const { user } = useAuth();
   const isPmOrAdmin = user?.role === 'pm' || user?.role === 'admin';
+  // Only the team leads may show a comment to the client (the API enforces it too).
+  const showAudience = clientVisibleTask && isPmOrAdmin;
 
   const { data, isLoading } = useComments(taskId);
   const { data: suggestions } = useMentionSuggestions(taskId);
@@ -66,8 +84,13 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
 
     // Only team users are persisted as mentioned_user_ids / notified; contacts are not.
     const mentioned_user_ids = findMentionedUserIds(content, teamCandidates);
-    await createComment.mutateAsync({ content, mentioned_user_ids });
+    await createComment.mutateAsync({
+      content,
+      mentioned_user_ids,
+      ...commentFieldsFor(showAudience ? audience : 'internal', clientVisibleTask && showAudience),
+    });
     setNewComment('');
+    setAudience('internal');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,7 +128,17 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
     });
   };
 
+  // Team-only: show or hide a staff comment in the client's thread.
+  const handleToggleClientVisible = async (comment: Comment) => {
+    await updateComment.mutateAsync({
+      id: comment.id,
+      data: { client_visible: !comment.client_visible },
+    });
+  };
+
   const canEditComment = (comment: Comment) => {
+    // What the client wrote is theirs: staff can remove it, not rewrite it.
+    if (comment.author_contact_id) return false;
     return comment.user_id === user?.id || isPmOrAdmin;
   };
 
@@ -124,14 +157,33 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
     <div key={comment.id} className="flex gap-3">
       <Avatar
         src={comment.user?.avatar_url}
-        name={comment.user?.name || 'Unknown'}
+        name={comment.author_contact_id ? comment.author_contact?.name || 'Client' : comment.user?.name || 'Unknown'}
         size="sm"
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-sm font-medium text-text-main">
-            {comment.user?.name || 'Unknown'}
+            {comment.author_contact_id ? comment.author_contact?.name || 'Client' : comment.user?.name || 'Unknown'}
           </span>
+          {comment.author_contact_id && (
+            <span
+              data-testid="client-badge"
+              className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 bg-sky-50 dark:bg-sky-500/10 px-1.5 py-0.5 rounded"
+              title="Written by the client in the portal"
+            >
+              Client: {comment.author_contact?.name || 'Client'}
+            </span>
+          )}
+          {!comment.author_contact_id && comment.client_visible && !comment.is_internal && (
+            <span
+              data-testid="client-sees-badge"
+              className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 rounded"
+              title="The client sees this in their portal thread as Indelible"
+            >
+              <Users className="h-3 w-3" />
+              Client sees this
+            </span>
+          )}
           <span className="text-xs text-text-sub">
             {formatDistanceToNow(new Date(comment.created_at), {
               addSuffix: true,
@@ -195,8 +247,31 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
                 )
               )}
             </p>
+            {comment.author_contact_id && isPmOrAdmin && (
+              <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => handleDelete(comment.id)}
+                  className="p-1 text-text-sub hover:text-red-500 rounded"
+                  title="Delete"
+                  disabled={deleteComment.isPending}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             {canEditComment(comment) && (
               <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {isPmOrAdmin && clientVisibleTask && !comment.is_internal && (
+                  <button
+                    onClick={() => handleToggleClientVisible(comment)}
+                    className="p-1 text-text-sub hover:text-primary rounded"
+                    title={comment.client_visible ? 'Hide from the client' : 'Show to the client'}
+                    aria-label={comment.client_visible ? 'Hide from the client' : 'Show to the client'}
+                    disabled={updateComment.isPending}
+                  >
+                    <Users className="h-3 w-3" />
+                  </button>
+                )}
                 {isPmOrAdmin && (
                   <button
                     onClick={() => handleToggleInternal(comment)}
@@ -301,6 +376,38 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
 
           {/* Add Comment Form */}
           <form onSubmit={handleSubmit} className="p-3 border-t border-border bg-surface-alt">
+            {showAudience && (
+              <fieldset className="mb-2">
+                <legend className="sr-only">Who sees this comment</legend>
+                <div className="flex flex-wrap items-center gap-4 text-sm">
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`comment-audience-${taskId}`}
+                      value="internal"
+                      checked={audience === 'internal'}
+                      onChange={() => setAudience('internal')}
+                    />
+                    Internal note
+                  </label>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`comment-audience-${taskId}`}
+                      value="client"
+                      checked={audience === 'client'}
+                      onChange={() => setAudience('client')}
+                    />
+                    Reply to client
+                  </label>
+                </div>
+                {audience === 'client' && (
+                  <p className="mt-1 text-xs text-text-sub">
+                    The client sees this as Indelible, in the thread on their request, and gets an email after two minutes.
+                  </p>
+                )}
+              </fieldset>
+            )}
             <div className="flex gap-2">
               <MentionInput
                 value={newComment}

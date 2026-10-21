@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { StatusChip } from '@/components/portal/ui/status-chip';
 import { EngagementChip } from '@/components/portal/ui/engagement-chip';
+import { Thread } from '@/components/portal/thread';
 import type { Engagement } from '@/lib/portal/engagement';
 import type { ChipTone } from '@/lib/portal/status-labels';
 
 // One piece of work in client words (portal phase B slice 1): read-only, plus the review block
-// when it is staged for the client. The conversation arrives with slice 2.
+// when it is staged for the client, then the conversation (slice 2).
 
 interface Work {
   id: string;
@@ -217,6 +218,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           </dl>
         </details>
       )}
+
+      <Thread taskId={work.id} onAuthLost={() => router.replace('/portal/login')} />
     </div>
   );
 }
