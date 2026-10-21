@@ -72,9 +72,9 @@ export const MUST_FAIL: FailFixture[] = [
   // internal words
   { text: 'I tagged it needs-mike.', rule: 'internal' },
   { text: 'It is tagged chat-clarifying.', rule: 'internal' },
-  { text: 'I opened a ticket for this.', rule: 'internal' },
+  { text: 'I opened a support ticket for this.', rule: 'internal' },
   { text: 'Citadel shows it as open.', rule: 'internal' },
-  { text: 'The model could not find it.', rule: 'internal' },
+  { text: 'The AI model could not find it.', rule: 'internal' },
   { text: 'My prompt says to ask you.', rule: 'internal' },
   { text: 'I called ga4_report for that.', rule: 'internal' },
   { text: 'Your kind:request is saved.', rule: 'internal' },
@@ -403,3 +403,75 @@ export const PAGE_NAMES = ['Price', 'Pricing', 'Free Shipping', 'Ticket Sales', 
 /** Strings in the G2 and G3 probe lists that are correct replies; every other string there must fail. */
 export const PROBE_G2_PASS = ['Bounce rate was 45.6 percent in Google Analytics, Oct 1 to Oct 20, 2026.'];
 export const PROBE_G3_PASS = ['Your About page had 600 sessions in Google Analytics, Oct 1 to Oct 20, 2026.'];
+
+// ---- false-positive corpus (confirmation review, 2026-10-21): ordinary clarifying replies, all must pass ----
+export const FP_EXAMPLES: Array<[string, string, "base" | "ga"]> = [
+  ["I'm Indelible's AI assistant. Which page should this photo go on?", "reply", "base"],
+  ["Which page should this photo go on?", "ask", "base"],
+  ["Where on the About page should it go?", "reply", "base"],
+  ["Where on the About page should it go?", "ask", "base"],
+  ["Here's your request as I have it. Check it before it goes to the team.", "reply", "base"],
+  ["On the About page, in the team section, replace Dana's current headshot with the attached photo.", "summary", "base"],
+  ["Pricing questions go to the team, so I've passed this one along. A person on the team will read this and reply here.", "reply", "base"],
+  ["[TEAM NOTE: new gallery page for cake photos; no photos attached yet, page placement not discussed]\nHi Dana, thanks for asking about a gallery page for your cake photos. [TEAM: your answer on pricing and what it would involve.] If you have the photos ready, you can attach them to this request in the portal.", "draft", "base"],
+  ["Google Analytics counted 1,002 people on the site from Sep 1 to Sep 30, 2026. Between them they made 1,425 visits. Anything else?", "reply", "ga"],
+  ["I only have your own sites and requests in front of me. Which page should the new hours go on?", "reply", "base"],
+  ["Which page should the new hours go on?", "ask", "base"],
+  ["That sounds urgent. Pick the choice below that fits best.", "reply", "base"],
+  ["I'm an AI assistant. A person on the team reads every request.", "reply", "base"],
+  ["I help get your requests clear for the team, and I can look up your site's visits and search numbers and the status of your work.", "reply", "base"],
+  ["I do not have that number. Would you like me to pass the question to the team?", "reply", "base"],
+  ["The team's reply above has the details.", "reply", "base"],
+  ["About the new photo for your About page: which section should it go in?", "email", "base"],
+];
+
+export const FP_CORPUS: string[] = [
+  "Which page should the new photo go on?",
+  "Where on the Contact page should the new phone number go?",
+  "Where on the page? For example, the top banner or the team section.",
+  "The photo has arrived. Is this the file you meant?",
+  "I have what I need. Here's your request as I have it.",
+  "A person on the team will follow up here.",
+  "You wrote \"open 9 to 5\". Is that the new text for the Contact page?",
+  "You asked for \"20% off all cakes\" on the banner. Which page is the banner on?",
+  "You wrote \"call us at 802-555-0142\". Is that the new number for the footer?",
+  "Should \"since 1998\" go on the About page?",
+  "Which of the two photos goes on the About page?",
+  "Both photos have arrived. Which one goes on the Home page?",
+  "Is it the second photo you attached?",
+  "You gave three options. Which one should go in the banner?",
+  "Is it in the top half of the Home page?",
+  "Could you double-check the new phone number?",
+  "Feel free to attach the file here.",
+  "Send the photo here as soon as you have it.",
+  "Should the new cover photo go on the Home page?",
+  "What should the new Saturday hours say?",
+  "You mentioned \"the October 12 tasting\". Which page is that event on?",
+  "Should the new show go on the Events page, next to the ticket link?",
+  "Which page should the new price list go on?",
+  "You wrote \"we now offer free delivery\". Is that the new line for the Home page banner?",
+  "Is the Pricing page the one with the old menu?",
+  "So that would be the team section on the About page?",
+  "This will go to the team when you tap Send to the team.",
+  "You wrote \"they can book online now\". Which page should say that?",
+  "Which page should the specials for this week go on?",
+  "Which page lists the new kayak model?",
+  "Should the new membership fees go on the Join page?",
+  "Is this for the floor plan on your plan page?",
+  "Is this the first photo or the second photo you sent?",
+  "Should the new logo replace the old one everywhere, or only in the header?",
+  "What should the button say? For example, \"Book now\".",
+  "Did you mean the Catering page or the Menu page?",
+  "Thanks, Dana. Which page should the hours go on?",
+  "Is it the couple of photos you sent earlier, or new ones?",
+  "Should the footer say \"2026\" or the new year?",
+  "Which section of the Services page is it, the top banner or the list of services?",
+  "Here is the summary. Check it before it goes to the team.",
+  "It would replace the old photo on the About page. Is that right?",
+];
+
+/** What the client "said" in the corpus: quoted spans in FP_CORPUS that are theirs verbatim. */
+export const FP_CLIENT_TEXTS = [
+  'open 9 to 5', '20% off all cakes', 'call us at 802-555-0142', 'since 1998', 'the October 12 tasting', 'we now offer free delivery', 'they can book online now',
+];
+export const FP_PAGE_NAMES = ['Home', 'About', 'Menu', 'Catering', 'Contact', 'Pricing', 'Services', 'Events', 'Join'];

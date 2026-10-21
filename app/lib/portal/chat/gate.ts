@@ -1,9 +1,12 @@
 /**
  * The chat copy gate (phase C spec 9.2). Pure: `gateReply(text, ctx, kind)`.
  *
- * Citadel runs it in `complete` on the reply, every ask question, the summary and the handoff
- * draft, and on every email body. It is the only gate; the runner relies on its 422. The model
- * never decides what a client may be told, so every rule here fails closed.
+ * Citadel runs it in `complete` on what the MODEL writes and nothing else: the reply, every ask
+ * question, the summary, the handoff draft_reply, and the model's part of an email body. Lines the
+ * bundle or a template renders (the plan allowance, the handoff banner, an email greeting, sign-off
+ * and reference) are appended by Citadel after gating and are never gated. It is the only gate; the
+ * runner relies on its 422. The model never decides what a client may be told, so every rule here
+ * fails closed. The assistant's fixed lines (fixed-lines.ts) are exempt word for word.
  *
  * All rules read the FOLDED text: NFKC, zero-width and bidi characters removed, curly apostrophes
  * straightened, non-breaking hyphens made plain. Order: person, dash, link, internal words, names;
@@ -13,6 +16,10 @@
 import { PROMISES } from '@/lib/portal/intake/promises';
 import { bastWordError, foldForNameCheck } from '@/lib/portal/thread';
 import { maskText, SOURCE_PATTERN, type Provenance } from '@/lib/portal/chat/provenance';
+import { FIXED_LINE_LIST } from '@/lib/portal/chat/fixed-lines';
+
+/** The only fields the gate reads. Anything a template renders is outside it. */
+export const GATED_FIELDS = ['reply', 'ask.question', 'summary', 'draft_reply', 'email_body_model_part'] as const;
 
 export type GateRule =
   | 'person'
@@ -92,10 +99,10 @@ const INTERNAL: RegExp[] = [
   /\b[a-z0-9]+_[a-z0-9_]+\b/i, // any snake_case token: tags and tool names
   /\b[a-z_]+:[a-z_]+\b(?!\/\/)/i,
   /\binternal\s+(?:note|only|tag)s?\b/i,
-  /\btickets?\b/i,
+  /\b(?:support|help ?desk|service) tickets?\b|\bticket (?:number|id|#)/i,
   /\bcitadel\b/i,
   /\bprompts?\b/i,
-  /\bmodels?\b/i,
+  /\b(?:ai|language|machine[- ]learning) models?\b|\bthe model behind\b/i,
   /\b(?:llm|claude|anthropic|opus|sonnet|haiku|gpt|openai|mcp|json|ga4|ga 4|quickbooks|slack)\b/i,
   /\badmin (?:panel|area|screen)\b/i,
   /\b(?:the|a|our) (?:bot|ai|chatbot|robot)\b/i,
@@ -105,12 +112,34 @@ const INTERNAL: RegExp[] = [
 
 // ---- content words --------------------------------------------------------------------------
 
-const NUMBER_WORDS = new RegExp(
+const NUMBER_WORD = new RegExp(
   '\\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|' +
     '(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?|' +
-    'hundreds?|thousands?|millions?|dozens?|couple|half|twice|double[ds]?|tripled?|quadrupled?)\\b',
-  'i'
+    'hundreds?|thousands?|millions?|dozens?|twice)\\b',
+  'gi'
 );
+/** Money, time and traffic nouns: a number word beside one of these is a claim about money, time or numbers. */
+const COUNT_NOUN =
+  /\b(?:dollars?|bucks?|cents?|hours?|days?|weeks?|months?|years?|minutes?|visits?|visitors?|sessions?|clicks?|impressions?|leads?|orders?|sales|customers?|users?|views|pageviews|people|percent|per ?cent|searches|rankings?|positions?|calls?)\b/i;
+/** Always a figure of speech about change in numbers, never an item count. */
+const GROWTH_WORD = /\b(?:doubled?|tripled?|quadrupled?)\b(?!-check)/i;
+const HALF_NUMBER = /\bby half\b|\bhalf (?:an?|the) (?:hour|day|week|month|year|price|cost|amount)\b|\bhalf[- ](?:off|price)\b/i;
+
+/** A number word within three words of a money, time or traffic noun; or a growth word; or "half" used as a figure. */
+function numberWordProblem(text: string): string | null {
+  const g = GROWTH_WORD.exec(text);
+  if (g) return g[0];
+  const h = HALF_NUMBER.exec(text);
+  if (h) return h[0];
+  const words = text.split(/\s+/);
+  for (const m of text.matchAll(NUMBER_WORD)) {
+    const before = text.slice(0, m.index ?? 0).split(/\s+/).filter(Boolean).slice(-3).join(' ');
+    const after = text.slice((m.index ?? 0) + m[0].length).split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+    if (COUNT_NOUN.test(before) || COUNT_NOUN.test(after)) return m[0];
+  }
+  void words;
+  return null;
+}
 
 const MONEY_WORDS = /\b(?:dollars?|bucks?|cents?|free|complimentary|on the house|no (?:extra |additional )?charge|costs?|costing|discounts?|percent off|refunds?|waive[ds]?|fees?|comp(?:ed)?|gratis)\b|\bnothing extra\b/i;
 
@@ -127,19 +156,23 @@ const TIME_WORDS = new RegExp(
 const ESTIMATE_WORD = /\b(?:about|around|roughly|approximately|nearly|estimates?d?|projected|should reach|on track to)\b/gi;
 
 const APPROVAL = new RegExp(
-  '\\b(?:approved|approve it|signed off|go ahead and|covers?|covered|coverage|in scope|out of scope|part of your plan|your plan|' +
+  '\\b(?:approved|approve it|signed off|go ahead and|covers?|covered|coverage|in scope|out of scope|part of your plan|your plan(?!\\s+(?:page|section))|' +
     'retainer|allowance|within your (?:hours|plan|scope|budget)|hours (?:left|remaining)|comes? with your)\\b',
   'i'
 );
 
 // ---- commitments ----------------------------------------------------------------------------
 
-const SUBJECT =
-  "(?:we|i|our team|the team|team|someone|somebody|anyone|a person(?: on the team)?|one of us|indelible|they|it|this|that|he|she)";
+const SUBJECT = "(?:we|i|our team|the team|team|someone|somebody|anyone|a person(?: on the team)?|one of us|indelible)";
+/** it / this / that / they: only a delivery verb is a promise ("It will go to the team" is not). */
+const WEAK_SUBJECT = "(?:they|it|this|that|he|she)";
 const ADVERB = '(?:\\s+(?:absolutely|definitely|certainly|surely|gladly|happily|also|just|all|really|totally))?';
 const MODAL =
   "(?:'ll|\\s+will|'d|\\s+would|\\s+can|\\s+could|\\s+should|\\s+shall|\\s+must|\\s+may|\\s+might|\\s+(?:am|are|is)\\s+going\\s+to|'re\\s+going\\s+to|'m\\s+going\\s+to|\\s+(?:plans?|aims?|hopes?|expects?|intends?)\\s+to|\\s+gonna)";
 const COMMIT_RE = new RegExp(`\\b${SUBJECT}${ADVERB}${MODAL}(?![\\w'])([^.!?;\\n]*)`, 'gi');
+const WEAK_COMMIT_RE = new RegExp(`\\b${WEAK_SUBJECT}${ADVERB}${MODAL}(?![\\w'])([^.!?;\\n]*)`, 'gi');
+const STRICT_ACTION =
+  /\b(?:build|built|fix|fixed|ship|shipped|deliver|delivered|send you|have it|done|finish|finished|publish|published|launch|launched|ready|live|complete|completed|resolved|handled|taken care)\b/i;
 const ALLOWED_VERBS = new Set(['review', 'read', 'reply', 'look', 'follow', 'check', 'see', 'ask', 'pass']);
 /** Any of these after a modal is work being promised, whatever else the clause says. */
 const ACTION =
@@ -162,6 +195,9 @@ function commitmentProblem(text: string): string | null {
   for (const re of COMMIT_PHRASES) {
     const m = re.exec(text);
     if (m) return m[0];
+  }
+  for (const m of text.matchAll(WEAK_COMMIT_RE)) {
+    if (STRICT_ACTION.test(m[1])) return m[0].trim().slice(0, 80);
   }
   for (const m of text.matchAll(COMMIT_RE)) {
     const clause = m[1].trim().replace(/^(?:not|never|also|still|really|just)\s+/i, '');
@@ -303,8 +339,53 @@ function maskPageNames(text: string, names: string[]): string {
 const SOURCE_ANY = Object.values(SOURCE_PATTERN);
 const DATE_NAMED = /⟦d⟧/;
 
+/** Phrases that read like a promise but are ordinary words on a web page or in a request. */
+const ORDINARY_PHRASES: RegExp[] = [
+  /\bfeel free\b/gi,
+  /\bas soon as you\b/gi,
+  /\bcover (?:photos?|images?|pictures?|pages?|letters?|art|stor(?:y|ies)|songs?)\b/gi,
+  /\b(?:mon|tues?|wednes|thurs?|fri|satur|sun)day'?s? hours\b/gi,
+  /\b(?:weekday|weekend|opening|business|store|holiday) hours\b/gi,
+  /\b(?:specials|menu|events|classes|deals|hours|schedule|lineup|offers|hours of operation)\s+(?:for|of)\s+(?:this|next)\s+week\b/gi,
+  /\b(?:this|next)\s+week's\s+(?:specials|menu|events|classes|deals|hours|schedule|lineup|offers)\b/gi,
+  // a price list, a pricing page, membership fees: names of things on a site
+  /\b(?:price|pricing|rate|rates|fee|fees|menu)\s+(?:list|page|section|table|chart|sheet|schedule)\b/gi,
+  /\b(?:membership|registration|tuition|class|admission|entry|enrollment|application|annual|monthly|event|late|service)\s+(?:fees?|rates?|prices?)\b/gi,
+];
+
+function hideOrdinaryPhrases(text: string): string {
+  let out = text;
+  for (const re of ORDINARY_PHRASES) out = out.replace(re, ' ');
+  return out;
+}
+
+/** The assistant's fixed lines, removed word for word before the rest is read. */
+function removeFixedLines(text: string): string {
+  let out = text;
+  for (const line of [...FIXED_LINE_LIST].sort((a, b) => b.length - a.length)) out = out.split(foldText(line)).join(' ');
+  return out;
+}
+
+const norm = (t: string) => foldText(t).toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Quoted spans that appear verbatim in a client message: their words, not ours, so the content rules skip them. */
+function hideClientQuotes(text: string, clientTexts: string[]): string {
+  if (clientTexts.length === 0) return text;
+  const hay = clientTexts.map(norm);
+  return text.replace(/"([^"]{1,300})"/g, (whole, inner: string) => {
+    const needle = norm(inner).replace(/[.,;:!?]+$/, '');
+    return needle.length >= 3 && hay.some((h) => h.includes(needle)) ? ' QUOTE ' : whole;
+  });
+}
+
+/** Questions promise nothing: drop them before the commitment rule. */
+function withoutQuestions(text: string): string {
+  return sentencesOf(text).filter((x) => !x.trim().endsWith('?')).join('\n');
+}
+
 export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'reply'): GateResult {
-  const text = foldText(kind === 'draft' ? stripTeamSpans(input) : input);
+  const folded = foldText(kind === 'draft' ? stripTeamSpans(input) : input);
+  const text = removeFixedLines(folded);
 
   for (const re of PERSON) {
     const m = re.exec(text);
@@ -318,7 +399,7 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
   if (links.bad) return fail('link', links.bad);
 
   // Page titles the site itself uses may be named verbatim ("Price", "Free Shipping").
-  const plain = maskPageNames(links.scrubbed, ctx.pageNames ?? []);
+  const plain = maskPageNames(hideOrdinaryPhrases(links.scrubbed), ctx.pageNames ?? []);
   for (const re of INTERNAL) {
     const m = re.exec(plain);
     if (m) return fail('internal', m[0]);
@@ -331,7 +412,7 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
     if (other) return fail('name', other);
   }
 
-  const body = stripListNumbering(plain);
+  const body = hideClientQuotes(stripListNumbering(plain), ctx.provenance.clientTexts);
   const { masked, promiseText, analytics } = maskText(body, ctx.provenance);
 
   for (const m of promiseText.matchAll(ESTIMATE_WORD)) {
@@ -355,12 +436,12 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
     if (m) return fail('approval', m[0]);
   }
   {
-    const c = commitmentProblem(promiseText);
+    const c = commitmentProblem(withoutQuestions(promiseText));
     if (c) return fail('commitment', c);
   }
   {
-    const m = NUMBER_WORDS.exec(promiseText);
-    if (m) return fail('unsourced_number', m[0]);
+    const w = numberWordProblem(promiseText);
+    if (w) return fail('unsourced_number', w);
   }
   {
     const m = /\d/.exec(masked);
@@ -392,12 +473,12 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
   void SOURCE_ANY;
 
   if (kind === 'reply' || kind === 'ask') {
-    const n = wordCount(text);
+    const n = wordCount(folded);
     if (n > REPLY_MAX_WORDS) return fail('length', `${n} words`);
-    const s = sentencesOf(stripListNumbering(text)).length;
+    const s = sentencesOf(stripListNumbering(folded)).length;
     if (s > REPLY_MAX_SENTENCES) return fail('length', `${s} sentences`);
   } else if (kind === 'summary') {
-    const n = wordCount(text);
+    const n = wordCount(folded);
     if (n > SUMMARY_MAX_WORDS) return fail('length', `${n} words`);
   }
 
