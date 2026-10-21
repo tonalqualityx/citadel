@@ -56,8 +56,6 @@ export function useChat(src: ChatSource) {
   const wake = useRef<() => void>(() => {});
   // One client_ref per attempt: a retry after a failed send reuses it, so a double send is a no-op.
   const refText = useRef<string>('');
-  const newRef = () => (refText.current = crypto.randomUUID());
-  const currentRef = () => refText.current || newRef();
 
   const refresh = useCallback(async () => {
     const id = convId;
@@ -146,7 +144,7 @@ export function useChat(src: ChatSource) {
     async (input: { text?: string; choice?: { slot: string; id: string }; attachmentIds?: string[] }): Promise<boolean> => {
       setSending(true);
       setSendError(null);
-      const ref = currentRef();
+      const ref = refText.current || (refText.current = crypto.randomUUID());
       const text = (input.text ?? '').trim();
       const attachmentIds = input.attachmentIds ?? [];
       try {

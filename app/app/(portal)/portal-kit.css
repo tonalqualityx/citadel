@@ -464,6 +464,7 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 /* ---------- The chat with the assistant (phase C, slice C3) ---------- */
 [data-portal] .chat-disclosure { display: flex; gap: 8px; align-items: flex-start; font-size: var(--pk-fs-meta); color: var(--p-ink-2); margin: 0 0 14px; max-width: 60ch; }
 [data-portal] .chat-disclosure svg.i { color: var(--p-kind-request); margin-top: 2px; width: 18px; height: 18px; }
+[data-portal] .sec-h + .chat-disclosure { margin-top: 10px; }
 [data-portal] .chat .log { min-width: 0; }
 [data-portal] .chat .thread-log > li { gap: 4px; }
 [data-portal] .msg .bub { min-width: 0; }

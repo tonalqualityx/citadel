@@ -42,7 +42,6 @@ const STEPPER_LEDE = 'A few short questions, then you check it and send. Nothing
 export function RequestEntry() {
   const router = useRouter();
   const [mode, setMode] = useState<'loading' | 'chat' | 'stepper' | 'error' | 'no_permission'>('loading');
-  const [siteId, setSiteId] = useState<string | null>(null);
   const [resume, setResume] = useState<Resume | null>(null);
   const siteRef = useRef<string | null>(null);
 
@@ -58,7 +57,6 @@ export function RequestEntry() {
         if (ctx.can_request && ctx.chat?.available) {
           const wanted = new URLSearchParams(window.location.search).get('site_id');
           const chosen = wanted && ctx.sites.some((s) => s.id === wanted) ? wanted : ctx.sites.length === 1 ? ctx.sites[0].id : null;
-          setSiteId(chosen);
           siteRef.current = chosen;
           const r = readResume();
           setResume(r && r.intakeId ? r : { intakeId: crypto.randomUUID(), conversationId: null });

@@ -119,9 +119,7 @@ export function ChatView({
     seen.current = count;
   }, [count]);
 
-  useEffect(() => {
-    if (!ask?.search_pages) setSearching(false);
-  }, [ask?.search_pages]);
+  const showSearch = searching && Boolean(ask?.search_pages);
 
   const rows = useMemo(() => {
     const out: Array<{ kind: 'day'; key: string; text: string } | { kind: 'msg'; m: ChatMessage }> = [];
@@ -218,10 +216,10 @@ export function ChatView({
         {!chat.writing && urgent && (
           <ChoiceButtons slot="urgent" label={urgent.prompt} choices={urgent.choices} disabled={chat.sending} onChoose={choose} />
         )}
-        {!chat.writing && ask && !searching && (
+        {!chat.writing && ask && !showSearch && (
           <ChoiceButtons slot={ask.slot} label={ask.question} choices={ask.choices} disabled={chat.sending} onChoose={choose} />
         )}
-        {!chat.writing && ask && searching && (
+        {!chat.writing && ask && showSearch && (
           <PageSearch
             siteId={p?.site_id ?? null}
             onCancel={() => setSearching(false)}
