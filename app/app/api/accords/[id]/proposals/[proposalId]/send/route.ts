@@ -72,7 +72,11 @@ export async function POST(
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const portalUrl = `${baseUrl}/portal/proposal/${portalToken}`;
 
+    // Fires only on an internal user's explicit send; queued to the outbox when no provider is set.
     await sendEmail({
+      kind: 'proposal',
+      allowExternal: true,
+      dedupeKey: `proposal:${proposalId}`,
       to: recipientEmail,
       subject: `Proposal: ${existing.accord.name}`,
       text: `Hi ${recipientName},\n\nWe've prepared a proposal for "${existing.accord.name}" for your review.\n\nView your proposal here: ${portalUrl}\n\nThis link will expire in 60 days.\n\nBest regards,\nThe Indelible Team`,

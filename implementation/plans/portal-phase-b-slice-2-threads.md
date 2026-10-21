@@ -8,7 +8,7 @@ The conversation on a request (client messages, staff replies shared as "Indelib
 outbox behind staff replies, the Retainer and Projects pages, and the machine-side changes that
 keep the worker's comments internal unless marked.
 
-## Schema (one additive migration, 20261021180000_portal_b_threads)
+## Schema (one additive migration, 20261021220000_portal_b_threads)
 Comment.client_visible, author_contact_id, client_ref (unique); Charter.client_label;
 PortalNotice (+ enum); ClientReport. Nothing renamed, dropped or made required.
 

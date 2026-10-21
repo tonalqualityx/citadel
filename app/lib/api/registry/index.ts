@@ -65,6 +65,7 @@ import { brandProfileEndpoints } from './brand-profiles';
 import { oracleEndpoints } from './oracle';
 import { clarityEndpoints } from './clarity';
 import { waitEndpoints } from './waits';
+import { emailOutboxEndpoints } from './email-outbox';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -97,6 +98,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...oracleEndpoints,
   ...clarityEndpoints,
   ...waitEndpoints,
+  ...emailOutboxEndpoints,
 ];
 
 /**

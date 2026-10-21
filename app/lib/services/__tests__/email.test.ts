@@ -6,6 +6,9 @@ vi.mock('@/lib/db/prisma', () => ({
     integration: {
       findUnique: vi.fn(),
     },
+    emailOutbox: {
+      create: vi.fn(),
+    },
   },
 }));
 
@@ -18,6 +21,7 @@ import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 
 const mockIntegrationFindUnique = prisma.integration.findUnique as Mock;
+const mockOutboxCreate = prisma.emailOutbox.create as Mock;
 
 const validSendGridIntegration = {
   id: 'int-1',
@@ -63,71 +67,110 @@ describe('sendEmail', () => {
     ]);
   });
 
-  it('falls back to console when SendGrid not configured', async () => {
+  it('queues in the outbox when SendGrid is not configured', async () => {
     mockIntegrationFindUnique.mockResolvedValue(null);
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    mockOutboxCreate.mockResolvedValue({ id: 'o1' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await sendEmail(defaultEmailOptions);
+    await sendEmail({ ...defaultEmailOptions, html: '<p>hi</p>', kind: 'magic_link', dedupeKey: 'magic:abc', allowExternal: true });
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('To: recipient@test.com'));
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Test Subject'));
-
-    consoleSpy.mockRestore();
-  });
-
-  it('falls back to console when SendGrid integration is inactive', async () => {
-    mockIntegrationFindUnique.mockResolvedValue({
-      ...validSendGridIntegration,
-      is_active: false,
+    expect(mockOutboxCreate).toHaveBeenCalledWith({
+      data: {
+        to: 'recipient@test.com',
+        subject: 'Test Subject',
+        text: 'Test body content',
+        html: '<p>hi</p>',
+        kind: 'magic_link',
+        allow_external: true,
+        dedupe_key: 'magic:abc',
+      },
     });
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Test body content'));
+    logSpy.mockRestore();
+  });
+
+  it('defaults to kind other, no external allowance, no dedupe key', async () => {
+    mockIntegrationFindUnique.mockResolvedValue({ ...validSendGridIntegration, is_active: false });
+    mockOutboxCreate.mockResolvedValue({ id: 'o1' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     await sendEmail(defaultEmailOptions);
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('To: recipient@test.com'));
-
-    consoleSpy.mockRestore();
+    expect(mockOutboxCreate.mock.calls[0][0].data).toMatchObject({ kind: 'other', allow_external: false, dedupe_key: null, html: null });
+    logSpy.mockRestore();
   });
 
-  it('falls back to console when SendGrid API fails', async () => {
+  it('queues in the outbox when the SendGrid API fails', async () => {
     mockIntegrationFindUnique.mockResolvedValue(validSendGridIntegration);
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve('Internal Server Error'),
-    });
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('Internal Server Error') });
+    mockOutboxCreate.mockResolvedValue({ id: 'o1' });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await sendEmail(defaultEmailOptions);
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith(
-      'SendGrid failed, falling back to console logging'
-    );
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('To: recipient@test.com'));
+    expect(warnSpy).toHaveBeenCalledWith('SendGrid failed, queueing in outbox');
+    expect(mockOutboxCreate).toHaveBeenCalledTimes(1);
 
-    consoleWarnSpy.mockRestore();
-    consoleLogSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
+    warnSpy.mockRestore();
+    logSpy.mockRestore();
+    errSpy.mockRestore();
   });
 
-  it('falls back to console when fetch throws', async () => {
+  it('queues in the outbox when fetch throws', async () => {
     mockIntegrationFindUnique.mockResolvedValue(validSendGridIntegration);
     mockFetch.mockRejectedValue(new Error('Network error'));
-    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockOutboxCreate.mockResolvedValue({ id: 'o1' });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     await sendEmail(defaultEmailOptions);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('To: recipient@test.com'));
+    expect(mockOutboxCreate).toHaveBeenCalledTimes(1);
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errSpy.mockRestore();
+  });
 
-    consoleLogSpy.mockRestore();
-    consoleWarnSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
+  it('treats a duplicate dedupe key as already queued (no console fallback)', async () => {
+    mockIntegrationFindUnique.mockResolvedValue(null);
+    mockOutboxCreate.mockRejectedValue(Object.assign(new Error('unique'), { code: 'P2002' }));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await sendEmail({ ...defaultEmailOptions, dedupeKey: 'magic:abc' });
+
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('EMAIL SERVICE'));
+    logSpy.mockRestore();
+  });
+
+  it('falls back to console when the outbox write itself fails', async () => {
+    mockIntegrationFindUnique.mockResolvedValue(null);
+    mockOutboxCreate.mockRejectedValue(new Error('db down'));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await sendEmail(defaultEmailOptions);
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('To: recipient@test.com'));
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('logs to the console and skips the outbox in development', async () => {
+    mockIntegrationFindUnique.mockResolvedValue(null);
+    vi.stubEnv('NODE_ENV', 'development');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await sendEmail(defaultEmailOptions);
+
+    expect(mockOutboxCreate).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('To: recipient@test.com'));
+    logSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 
   it('includes HTML content when provided', async () => {

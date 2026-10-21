@@ -23,6 +23,7 @@ vi.mock('@/lib/db/prisma', () => ({
     milestone: { aggregate: vi.fn() },
     site: { findMany: vi.fn() },
     siteStatsSnapshot: { findFirst: vi.fn() },
+    clientInvoice: { findMany: vi.fn() },
   },
 }));
 
@@ -120,7 +121,7 @@ describe('GET /api/portal/home', () => {
     expect(body.client).toEqual({ id: 'client-acme', name: 'Acme Co' });
     expect(body.pending_approvals).toEqual({ articles: [], tasks: [] });
     expect(body.projects).toEqual([]);
-    expect(body.billing).toEqual({ open_amount: 0, open_count: 0 });
+    expect(body.billing).toMatchObject({ source: 'unbilled_work', label: 'Work not yet invoiced', open_amount: 0, open_count: 0 });
     expect(body.activity).toEqual([]);
     expect(body.stats).toEqual([]);
   });
@@ -134,7 +135,7 @@ describe('GET /api/portal/home', () => {
     const res = await GET(makeRequest());
     const body = await res.json();
 
-    expect(body.billing).toEqual({ open_amount: 2000, open_count: 3 });
+    expect(body.billing).toMatchObject({ source: 'unbilled_work', label: 'Work not yet invoiced', open_amount: 2000, open_count: 3 });
   });
 
   it('the billing aggregate only counts client-visible work (A1 rule), not internal tasks', async () => {
@@ -147,6 +148,66 @@ describe('GET /api/portal/home', () => {
     expect(where.is_billable).toBe(true);
     expect(where.AND).toContainEqual(clientVisibleTaskWhere());
     expect(where.AND).toContainEqual(taskAccessWhere(OWNER_ACCESS));
+  });
+
+  describe('QuickBooks invoices', () => {
+    const rows = [
+      { id: 'i1', doc_number: '3371', txn_date: new Date('2026-09-01'), due_date: new Date('2026-09-16'), balance: '850.00', pay_link: 'https://connect.intuit.com/pay/a' },
+      { id: 'i2', doc_number: '3402', txn_date: new Date('2026-10-01'), due_date: new Date('2099-10-16'), balance: '1200.50', pay_link: null },
+    ];
+
+    it('an owner of a mapped client sees open invoices, total, count and oldest due date', async () => {
+      mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      setEmptyDefaults();
+      mockClientFindFirst.mockResolvedValue({ id: 'client-acme', name: 'Acme Co', qbo_customer_id: '55' });
+      (prisma.clientInvoice.findMany as Mock).mockResolvedValue(rows);
+
+      const body = await (await GET(makeRequest())).json();
+
+      expect(body.billing.source).toBe('quickbooks');
+      expect(body.billing.label).toBeNull();
+      expect(body.billing.open_count).toBe(2);
+      expect(body.billing.open_amount).toBe(2050.5);
+      expect(body.billing.oldest_due_date).toBe('2026-09-16');
+      expect(body.billing.invoices[0]).toMatchObject({ number: '3371', date: '2026-09-01', due_date: '2026-09-16', balance: 850, overdue: true, pay_link: 'https://connect.intuit.com/pay/a' });
+      expect(body.billing.invoices[1]).toMatchObject({ overdue: false, pay_link: null });
+      const where = (prisma.clientInvoice.findMany as Mock).mock.calls[0][0].where;
+      expect(where.client_id).toBe('client-acme');
+      expect(where.status).toEqual({ in: ['open', 'overdue'] });
+    });
+
+    it('a mapped client with nothing open shows zero invoices, not the unbilled fallback', async () => {
+      mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      setEmptyDefaults();
+      mockClientFindFirst.mockResolvedValue({ id: 'client-acme', name: 'Acme Co', qbo_customer_id: '55' });
+      mockTaskAggregate.mockResolvedValue({ _sum: { billing_amount: 900 }, _count: 1 });
+      (prisma.clientInvoice.findMany as Mock).mockResolvedValue([]);
+
+      const body = await (await GET(makeRequest())).json();
+      expect(body.billing).toMatchObject({ source: 'quickbooks', open_count: 0, open_amount: 0, invoices: [] });
+    });
+
+    it.each(['member', 'viewer'])('a %s never sees invoices and the mirror is not queried', async (portal_role) => {
+      mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role, is_deleted: false });
+      setEmptyDefaults();
+      mockClientFindFirst.mockResolvedValue({ id: 'client-acme', name: 'Acme Co', qbo_customer_id: '55' });
+
+      const body = await (await GET(makeRequest())).json();
+      expect(body.billing).toBeNull();
+      expect(prisma.clientInvoice.findMany).not.toHaveBeenCalled();
+    });
+
+    it('an unmapped client falls back to the Citadel summary, labelled "Work not yet invoiced"', async () => {
+      mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+      setEmptyDefaults();
+      mockClientFindFirst.mockResolvedValue({ id: 'client-acme', name: 'Acme Co', qbo_customer_id: null });
+      mockTaskAggregate.mockResolvedValue({ _sum: { billing_amount: 500 }, _count: 2 });
+
+      const body = await (await GET(makeRequest())).json();
+      expect(body.billing).toMatchObject({ source: 'unbilled_work', label: 'Work not yet invoiced', open_amount: 500, open_count: 2, invoices: [] });
+      expect(prisma.clientInvoice.findMany).not.toHaveBeenCalled();
+    });
   });
 
   it.each(['member', 'viewer'])('hides billing from a %s and never queries the aggregates', async (portal_role) => {

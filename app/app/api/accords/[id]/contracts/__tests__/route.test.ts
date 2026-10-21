@@ -364,6 +364,15 @@ describe('POST /api/accords/:id/contracts/:contractId/send', () => {
     );
   });
 
+  it('queues the contract mail as kind=contract with the external allowance and a dedupe key', async () => {
+    mockContractFindFirst.mockResolvedValue({ ...mockContract, accord: { ...mockAccord, client: null } });
+    mockContractUpdate.mockResolvedValue({ ...mockContract, status: 'sent' });
+    await POST_SEND(createSendRequest(), { params: detailParams });
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'contract', allowExternal: true, dedupeKey: `contract:${mockContract.id}` })
+    );
+  });
+
   it('rejects non-draft contract', async () => {
     const sentContract = {
       ...mockContract,
