@@ -116,6 +116,17 @@ export default function LoginPage() {
           </Button>
         </CardFooter>
       </form>
+
+      <div className="border-t border-border px-6 py-4 text-center">
+        <p className="text-sm text-text-sub">Client?</p>
+        <Link
+          href="/portal/login"
+          className="text-sm font-medium text-primary hover:underline"
+          data-testid="portal-login-link"
+        >
+          Sign in to your portal
+        </Link>
+      </div>
     </Card>
   );
 }
