@@ -58,6 +58,16 @@ function styledText(text: string, styles: Record<string, boolean>): StyledText {
 // INLINE PARSING
 // ============================================
 
+/** http, https, mailto, tel, and relative paths or anchors. Everything else (javascript:, data:, vbscript:, file:) is refused. */
+export function isSafeHref(href: string): boolean {
+  // Browsers ignore tabs, newlines and control characters inside a scheme.
+  // eslint-disable-next-line no-control-regex
+  const h = href.replace(/[\u0000-\u0020]/g, '');
+  if (/^(https?:|mailto:|tel:)/i.test(h)) return true;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(h)) return false;
+  return true;
+}
+
 type InlineRuleName = 'code' | 'link' | 'bold' | 'strike' | 'italic';
 
 interface InlineRule {
@@ -116,6 +126,12 @@ function parseInline(
       const inner = parseInline(label, styles).filter(
         (n): n is StyledText => n.type === 'text'
       );
+      // Client text reaches this converter (portal requests). A scheme that can run script is
+      // never made a link: it stays as the plain text the person typed.
+      if (!isSafeHref(href)) {
+        result.push(styledText(match[0], styles));
+        break;
+      }
       result.push({
         type: 'link',
         href,

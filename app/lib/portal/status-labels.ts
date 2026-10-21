@@ -67,3 +67,62 @@ const ACTIVITY_PREFIX: Record<ActivityType, string> = {
 export function activityLabel(type: ActivityType): string {
   return ACTIVITY_PREFIX[type];
 }
+
+// ---- Requests (portal phase B slice 1, spec 2.6) -------------------------------------------
+
+export type ChipTone = 'attention' | 'moving' | 'done' | 'quiet' | 'urgent' | 'quote';
+
+export interface RequestState {
+  label: string;
+  tone: ChipTone;
+}
+
+export interface RequestStateFields {
+  status?: string | null;
+  tags?: string[] | null;
+  staging_preview_url?: string | null;
+  approved?: boolean | null;
+  client_approved_at?: Date | string | null;
+}
+
+export const REQUEST_LABELS = {
+  closed: 'Closed',
+  review: AWAITING_YOU_LABEL,
+  done: 'Done',
+  answer: 'Needs your answer',
+  quote: 'We will quote this',
+  urgent: 'Urgent: the team is on it',
+  progress: 'In progress',
+  received: 'Received',
+} as const;
+
+/**
+ * The client's word for where a request stands. First match wins (spec 2.6). Pure and
+ * tag-aware: tags are read here and never leave the server.
+ */
+export function requestState(task: RequestStateFields): RequestState {
+  const tags = task.tags ?? [];
+  const staged =
+    typeof task.staging_preview_url === 'string' &&
+    task.staging_preview_url.length > 0 &&
+    !task.approved &&
+    !task.client_approved_at &&
+    (task.status === 'review' || task.status === 'done');
+
+  if (task.status === 'abandoned') return { label: REQUEST_LABELS.closed, tone: 'quiet' };
+  if (staged) return { label: REQUEST_LABELS.review, tone: 'attention' };
+  if (task.status === 'done' || task.client_approved_at) return { label: REQUEST_LABELS.done, tone: 'done' };
+  if (tags.includes('awaiting-clarification')) return { label: REQUEST_LABELS.answer, tone: 'attention' };
+  if (tags.includes('quote')) return { label: REQUEST_LABELS.quote, tone: 'quote' };
+  if (tags.includes('emergency')) return { label: REQUEST_LABELS.urgent, tone: 'urgent' };
+  if (task.status === 'in_progress' || task.status === 'blocked' || task.status === 'review') {
+    return { label: REQUEST_LABELS.progress, tone: 'moving' };
+  }
+  return { label: REQUEST_LABELS.received, tone: 'quiet' };
+}
+
+/** True when a request is finished from the client's side (it belongs under "closed"). */
+export function isRequestClosed(task: RequestStateFields): boolean {
+  const s = requestState(task);
+  return s.label === REQUEST_LABELS.closed || s.label === REQUEST_LABELS.done;
+}

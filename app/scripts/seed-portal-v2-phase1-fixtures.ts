@@ -11,6 +11,13 @@
  *  - "E2E Portal Client Empty (fixture)" — deliberately bare: no pending anything, no stats.
  *    Exercises the quiet-placeholder states. Session token: FIXTURE_EMPTY_SESSION_TOKEN.
  *
+ * Portal phase B slice 1 adds to the populated client (for the request-intake placement matrix):
+ *  - a second site ("E2E Portal Fixture Site Two");
+ *  - an OPEN, unlocked build on the first site, and an open build with scope locked on the second;
+ *  - an active client-wide charter (the retainer).
+ * Run with `--inspect <intake_id>` to print the filed request's tags and placement as one JSON
+ * line instead of seeding (the Playwright spec reads it; Playwright has no database access).
+ *
  * Idempotent: each fixture is found-or-recreated by a fixed name/token on every run. Local dev
  * only — this seeds whatever DATABASE_URL points at; never point it at prod.
  *
@@ -22,6 +29,8 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 export const FIXTURE_SESSION_TOKEN = 'e2e-portal-v2-phase1-fixture-session-token-'.padEnd(128, 'a');
+export const FIXTURE_MEMBER_SESSION_TOKEN = 'e2e-portal-b1-fixture-member-session-token-'.padEnd(128, 'c');
+export const FIXTURE_VIEWER_SESSION_TOKEN = 'e2e-portal-b1-fixture-viewer-session-token-'.padEnd(128, 'd');
 export const FIXTURE_EMPTY_SESSION_TOKEN = 'e2e-portal-v2-phase1-fixture-empty-session-token-'.padEnd(128, 'b');
 
 const CLIENT_NAME = 'E2E Portal Client (fixture)';
@@ -45,6 +54,86 @@ async function findOrCreateRun(clientId: string, siteId: string, title: string) 
   const existing = await prisma.troubadorRun.findFirst({ where: { title } });
   if (existing) return existing;
   return prisma.troubadorRun.create({ data: { title, client_id: clientId, site_id: siteId, stage: 'in_production' } });
+}
+
+export const SECOND_SITE_NAME = 'E2E Portal Fixture Site Two';
+export const OPEN_BUILD_NAME = 'E2E: Open build (portal fixture)';
+export const LOCKED_BUILD_NAME = 'E2E: Locked build (portal fixture)';
+export const CHARTER_NAME = 'E2E: Marketing retainer (portal fixture)';
+
+/** Second site, an open build, a locked build and an active charter (portal phase B slice 1). */
+async function seedRequestFixtures(clientId: string, siteId: string) {
+  const site2 = await findOrCreateSite(clientId, SECOND_SITE_NAME);
+
+  // Find-or-update, never delete: requests filed by earlier e2e runs point at these projects.
+  async function upsertBuild(name: string, siteId: string, locked: boolean) {
+    const existing = await prisma.project.findFirst({ where: { name, client_id: clientId } });
+    const data = {
+      site_id: siteId,
+      status: 'in_progress' as const,
+      is_deleted: false,
+      scope_locked: locked,
+      scope_locked_at: locked ? new Date() : null,
+    };
+    if (existing) return prisma.project.update({ where: { id: existing.id }, data });
+    return prisma.project.create({ data: { name, client_id: clientId, ...data } });
+  }
+  await upsertBuild(OPEN_BUILD_NAME, siteId, false);
+  await upsertBuild(LOCKED_BUILD_NAME, site2.id, true);
+
+  // Two more people on the client (a member and a viewer), each with a fixed session. Request
+  // rate limits are per person, so the e2e spec spreads its filings across them. A viewer may
+  // request too (spec 6.3), which the UI test relies on.
+  for (const [email, name, role, token] of [
+    ['member@e2e-portal-fixture.example', 'Mia Member', 'member', FIXTURE_MEMBER_SESSION_TOKEN],
+    ['viewer@e2e-portal-fixture.example', 'Vic Viewer', 'viewer', FIXTURE_VIEWER_SESSION_TOKEN],
+  ] as const) {
+    const c = await prisma.clientContact.upsert({
+      where: { client_id_email: { client_id: clientId, email } },
+      create: { client_id: clientId, name, email, portal_role: role, can_initiate_work: role === 'member' },
+      update: { name, portal_role: role, is_deleted: false },
+    });
+    await prisma.portalSession.deleteMany({ where: { session_token: token } });
+    await prisma.portalSession.create({
+      data: {
+        token_type: 'client_session',
+        entity_id: clientId,
+        contact_id: c.id,
+        session_token: token,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        consumed_at: new Date(),
+        action: 'login',
+        ip_address: '127.0.0.1',
+      },
+    });
+  }
+
+  // Requests filed by earlier runs would eat the per-person rate limit and the daily emergency
+  // limit. Retire them without deleting: free the source_ref prefix the limits count on.
+  // The daily emergency limit counts the emergency tag, so retire that too.
+  await prisma.$executeRaw`UPDATE tasks SET source_ref = 'e2e-archived:' || id::text, is_deleted = true,
+      tags = array_remove(tags, 'emergency')
+    WHERE client_id = ${clientId}::uuid AND source_ref LIKE 'portal-intake:%'`;
+
+  const owner = (await prisma.user.findFirst({ where: { email: 'bast@becomeindelible.com' } })) ?? (await prisma.user.findFirst());
+  if (!owner) {
+    console.log('  (no user found: skipping the charter fixture)');
+    return;
+  }
+  const existing = await prisma.charter.findFirst({ where: { name: CHARTER_NAME, client_id: clientId } });
+  const data = {
+    status: 'active' as const,
+    is_deleted: false,
+    site_id: null,
+    start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    end_date: null,
+  };
+  if (existing) await prisma.charter.update({ where: { id: existing.id }, data });
+  else {
+    await prisma.charter.create({
+      data: { name: CHARTER_NAME, client_id: clientId, billing_period: 'monthly', created_by_id: owner.id, ...data },
+    });
+  }
 }
 
 async function seedPopulatedClient() {
@@ -180,6 +269,8 @@ async function seedPopulatedClient() {
     },
   });
 
+  await seedRequestFixtures(client.id, site.id);
+
   console.log(`  populated client fixture ready (client_id=${client.id})`);
 }
 
@@ -214,7 +305,33 @@ async function seedEmptyClient() {
   console.log(`  empty client fixture ready (client_id=${client.id})`);
 }
 
+async function inspect(intakeId: string) {
+  const task = await prisma.task.findFirst({
+    where: { source_ref: `portal-intake:${intakeId}` },
+    select: {
+      id: true,
+      title: true,
+      client_title: true,
+      priority: true,
+      tags: true,
+      is_retainer_work: true,
+      is_support: true,
+      project: { select: { name: true } },
+      charter: { select: { name: true } },
+      site: { select: { name: true } },
+      client_intake: true,
+    },
+  });
+  const waits = task ? await prisma.wait.findMany({ where: { task_id: task.id }, select: { template_key: true, state: true } }) : [];
+  console.log(JSON.stringify({ task, waits }));
+}
+
 async function main() {
+  const at = process.argv.indexOf('--inspect');
+  if (at !== -1) {
+    await inspect(process.argv[at + 1]);
+    return;
+  }
   console.log('Portal v2 phase 1 fixtures: seeding populated client...');
   await seedPopulatedClient();
   console.log('Portal v2 phase 1 fixtures: seeding empty client...');

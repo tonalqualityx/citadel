@@ -15,6 +15,7 @@ import {
   wouldCreateCycle,
 } from '@/lib/services/dependencies';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
+import { onTaskProgress } from '@/lib/portal/waits';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Schema for requirement items (flat items)
@@ -168,6 +169,25 @@ async function propagateBlockingStatus(taskId: string, newStatus: string, oldSta
   }
 }
 
+/**
+ * Portal phase B: a portal request that has moved off not_started, or is staged for the client,
+ * has an answer, so its first-response clock is resolved. Best effort: a wait hiccup must never
+ * fail a task update. Only portal tasks can hold such a clock, so every other task skips the query.
+ */
+async function resolvePortalFirstResponse(task: {
+  id: string;
+  source: string;
+  status: string;
+  staging_preview_url: string | null;
+}) {
+  if (task.source !== 'portal') return;
+  try {
+    await onTaskProgress(prisma, task);
+  } catch (error) {
+    console.error('portal first-response resolve failed', error);
+  }
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -313,6 +333,7 @@ export async function PATCH(
 
       // Propagate blocking status to dependent tasks
       await propagateBlockingStatus(id, statusData.status, existingTask.status);
+      await resolvePortalFirstResponse(task);
 
       // Clarity Phase 7 — the completion-nudge hook: closing a task that has an
       // attached email (directly, or via its arc) prompts the follow-through — Bast
@@ -622,6 +643,8 @@ export async function PATCH(
         },
       },
     });
+
+    await resolvePortalFirstResponse(task);
 
     // When a blocker is newly approved, approval-gated dependents become workable — unblock them.
     // (ordering-only dependents were already unblocked when the blocker hit `done`.)

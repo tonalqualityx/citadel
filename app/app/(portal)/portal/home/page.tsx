@@ -3,7 +3,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { activityLabel } from '@/lib/portal/status-labels';
+import { activityLabel, type ChipTone } from '@/lib/portal/status-labels';
+import type { Engagement } from '@/lib/portal/engagement';
+import { RequestRow } from '@/components/portal/request-row';
+import { RequestWorkButton } from '@/components/portal/request-work-button';
 
 // Client account home (Portal v2 phase 1, sections reordered in portal MVP A5). Order: Needs from
 // you (approvals, open questions, review links, open balance for owners), Active projects with
@@ -78,8 +81,18 @@ interface SiteStats {
   };
 }
 
+interface HomeRequest {
+  id: string;
+  title: string;
+  state: { label: string; tone: ChipTone };
+  engagement: Engagement;
+  site: { id: string; name: string } | null;
+  updated_at: string;
+}
+
 interface HomePayload {
   client: { id: string; name: string };
+  requests: { open_count: number; top: HomeRequest[] };
   pending_approvals: { articles: ClientArticle[]; tasks: ClientTask[] };
   needs_from_you: { questions: ClientQuestion[]; review_links: { project_id: string; project_name: string; url: string }[] };
   projects: ClientProject[];
@@ -208,7 +221,7 @@ export default function ClientHomePage() {
 
   if (!data) return null;
 
-  const { client, pending_approvals, needs_from_you, projects, billing, activity, stats } = data;
+  const { client, pending_approvals, needs_from_you, projects, billing, activity, stats, requests } = data;
   const hasBalance = Boolean(billing && billing.open_count > 0);
   const hasPending =
     pending_approvals.articles.length > 0 ||
@@ -237,7 +250,10 @@ export default function ClientHomePage() {
       </div>
       {/* Greeting + headline */}
       <div className="bg-surface rounded-lg border border-border p-6">
-        <h2 className="text-2xl font-bold text-text-main mb-1">Welcome back, {client.name}</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <h2 className="text-2xl font-bold text-text-main mb-1">Welcome back, {client.name}</h2>
+          <RequestWorkButton />
+        </div>
         {headlineStats?.payload.leads ? (
           <p className="mt-2 text-text-secondary">
             <span className="text-text-main font-semibold">{headlineStats.payload.leads.count} leads</span> this
@@ -399,6 +415,25 @@ export default function ClientHomePage() {
             ))}
           </ul>
         )}
+      </div>
+
+      {/* Requests */}
+      <div className="bg-surface rounded-lg border border-border p-6">
+        <h3 className="text-lg font-semibold text-text-main mb-1">Requests</h3>
+        {requests.top.length === 0 ? (
+          <p className="text-sm text-text-tertiary">No open requests right now.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {requests.top.map((item) => (
+              <RequestRow key={item.id} item={item} />
+            ))}
+          </ul>
+        )}
+        <p className="mt-4 text-sm">
+          <Link href="/portal/requests" className="text-brand-primary hover:underline">
+            {requests.open_count > requests.top.length ? `See all ${requests.open_count} requests` : 'See all requests'}
+          </Link>
+        </p>
       </div>
 
       {/* Recent activity */}

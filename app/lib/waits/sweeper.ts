@@ -88,7 +88,7 @@ export interface SweepStore {
   /** 'gone' = expire; 'task_done' = the task it points at is finished. */
   subjectState(wait: WaitRow): Promise<'gone' | 'task_done' | null>;
   /** False when the template's precondition says do not fire. */
-  preconditionMet(wait: WaitRow, precondition: 'no_charter' | 'no_plan'): Promise<boolean>;
+  preconditionMet(wait: WaitRow, precondition: 'no_charter' | 'no_plan' | 'portal_answered' | 'portal_untouched'): Promise<boolean>;
   createTask(spec: TaskSpec): Promise<string>;
   guardValues(wait: WaitRow): Promise<GuardValues>;
   /** Runs fn with a store whose writes commit or roll back together. */

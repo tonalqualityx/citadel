@@ -12,16 +12,37 @@ import {
 import { zonedTimeToUtc } from './business-days';
 
 describe('template table', () => {
-  it('registers the 29 clocks from the spec plus the generic handoff', () => {
+  it('registers the 29 clocks from the spec plus the generic handoff and the portal clocks', () => {
     const keys = WAIT_TEMPLATES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys.filter((k) => k !== 'handoff.generic')).toHaveLength(29);
+    expect(keys.filter((k) => k !== 'handoff.generic' && !k.startsWith('portal.'))).toHaveLength(29);
+    // Portal phase B slice 1 adds first_response and emergency; slice 2 adds client_reply and awaiting_client.
+    expect(keys.filter((k) => k.startsWith('portal.')).sort()).toEqual(['portal.emergency', 'portal.first_response']);
   });
 
-  it('opens only the six phase 1 templates', () => {
+  it('opens the six phase 1 templates plus the two portal clocks', () => {
     expect(liveTemplateKeys().sort()).toEqual(
-      ['build.gate_mike', 'build.review_internal', 'change.needs_human', 'handoff.generic', 'meeting.type_unclear', 'switch.off'].sort()
+      [
+        'build.gate_mike',
+        'build.review_internal',
+        'change.needs_human',
+        'handoff.generic',
+        'meeting.type_unclear',
+        'portal.emergency',
+        'portal.first_response',
+        'switch.off',
+      ].sort()
     );
+  });
+
+  it('matches the portal spec table (6.5)', () => {
+    const first = getTemplate('portal.first_response')!;
+    expect(first).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'bast', blocks_client: true, on_reply: null, precondition: 'portal_answered' });
+    expect(first.steps).toHaveLength(1);
+    expect(first.steps[0]).toMatchObject({ duration: { value: 1, unit: 'business_days' }, action: 'escalate' });
+    const emergency = getTemplate('portal.emergency')!;
+    expect(emergency).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'mike', blocks_client: true, on_reply: null, precondition: 'portal_untouched' });
+    expect(emergency.steps[0]).toMatchObject({ duration: { value: 2, unit: 'hours' }, action: 'escalate' });
   });
 
   it('never enables a template that sends', () => {
@@ -62,7 +83,14 @@ describe('template table', () => {
 
   it('blocks a client only where the spec says yes', () => {
     const yes = WAIT_TEMPLATES.filter((t) => t.blocks_client).map((t) => t.key).sort();
-    expect(yes).toEqual(['build.gate_mike', 'build.review_internal', 'change.needs_human', 'sales.proposal_review']);
+    expect(yes).toEqual([
+      'build.gate_mike',
+      'build.review_internal',
+      'change.needs_human',
+      'portal.emergency',
+      'portal.first_response',
+      'sales.proposal_review',
+    ]);
   });
 });
 
