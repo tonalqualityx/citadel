@@ -134,6 +134,8 @@ export function effectiveProjectRole(input: {
 
 export interface PortalAccess {
   contactId: string;
+  /** All of the person's contact rows; grants match on any of them. Defaults to [contactId]. */
+  contactIds?: string[];
   clientId: string;
   role: PortalRole;
   /**
@@ -152,10 +154,16 @@ const MATCH_NOTHING = { id: { in: [] as string[] } };
  * Spread under AND. Shared by projectAccessWhere and taskAccessWhere.
  */
 export function projectAccessScope(
-  access: Pick<PortalAccess, 'contactId' | 'role' | 'revoked'>
+  access: Pick<PortalAccess, 'contactId' | 'contactIds' | 'role' | 'revoked'>
 ): Prisma.ProjectWhereInput {
   if (access.revoked) return MATCH_NOTHING;
-  const grant: Prisma.ProjectWhereInput = { contact_grants: { some: { contact_id: access.contactId, role: { in: [...GRANTABLE_ROLES] } } } };
+  // One contact id keeps the exact A3 shape; several (the person has more than one row) use `in`.
+  const ids = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
+  const grant: Prisma.ProjectWhereInput = {
+    contact_grants: {
+      some: { contact_id: ids.length === 1 ? ids[0] : { in: ids }, role: { in: [...GRANTABLE_ROLES] } },
+    },
+  };
   const notHidden: Prisma.ProjectWhereInput = {
     is_deleted: false,
     status: { notIn: [...PORTAL_HIDDEN_PROJECT_STATUSES] },
@@ -187,18 +195,176 @@ export function taskAccessWhere(access: PortalAccess): Prisma.TaskWhereInput {
   return { OR: [{ project_id: null }, inProject] };
 }
 
-// TODO(A4): role is resolved from the session's contact row only, so a person with contact rows
-// on two clients gets role none after switching the active client. Spec section 2 resolves a
-// person by lowercased email across non-deleted ClientContact rows; do that when the picker lands.
+// ---- people: accessible clients (A4) ----------------------------------------------------------
+
+/**
+ * Where-fragment for a contact row that may hold a portal session: not deleted, client not
+ * deleted, and either a client-level role or at least one project grant (project-only contact,
+ * spec section 2). Used by sign-in, session validation and the role-none revocation rule.
+ */
+/**
+ * THE client-visible project rule for grants: not deleted, not hidden, not in a hidden status, on
+ * a live client. The sign-in filter, accessible-client resolution and the role-none revocation
+ * count all use this one fragment, so a grant on a project the client can never see cannot keep
+ * a contact signed in or surface a client.
+ */
+export const PORTAL_GRANTABLE_PROJECT_WHERE: Prisma.ProjectWhereInput = {
+  is_deleted: false,
+  status: { notIn: [...PORTAL_HIDDEN_PROJECT_STATUSES] },
+  portal_visibility: { not: 'hidden' },
+  client: { is_deleted: false },
+};
+
+export const PORTAL_SIGNIN_CONTACT_WHERE: Prisma.ClientContactWhereInput = {
+  is_deleted: false,
+  client: { is_deleted: false },
+  OR: [
+    { portal_role: { not: 'none' } },
+    { project_grants: { some: { role: { in: [...GRANTABLE_ROLES] }, project: PORTAL_GRANTABLE_PROJECT_WHERE } } },
+  ],
+};
+
+export interface AccessibleClient {
+  clientId: string;
+  name: string;
+  /** Client-level role on that client. 'none' = project-only access (granted projects only). */
+  role: PortalRole;
+  /** The contact row that carries the role on this client (approvals are attributed to it). */
+  contactId: string;
+  /** EVERY contact row the person holds (grants may sit on any of them). Grants are matched on these. */
+  contactIds: string[];
+  via: 'direct' | 'agency' | 'project';
+}
+
+export interface AccessContactRow {
+  id: string;
+  client_id: string;
+  portal_role: PortalRole;
+  client: { id: string; name: string };
+}
+export interface AccessSubClientRow {
+  id: string;
+  name: string;
+  parent_agency_id: string | null;
+}
+export interface AccessGrantRow {
+  contact_id: string;
+  role: PortalRole;
+  project: { client_id: string; client: { id: string; name: string } };
+}
+
+/**
+ * Pure core of resolveAccessibleClients (spec section 2). Inputs are the person's non-deleted
+ * contact rows, the live sub-clients of the clients those rows sit on, and their project grants.
+ *  - a contact with a role other than none gives that client at that role (direct);
+ *  - the same role is inherited onto every sub-client whose parent_agency_id is that client
+ *    (agency); a sub-client contact never reaches the agency or a sibling, because inheritance
+ *    only flows down;
+ *  - a grant on a client where no client-level role exists gives that client at role none
+ *    (project), granted projects only;
+ *  - one entry per client; the highest role wins, direct beats agency beats project on a tie.
+ * Sorted by name so the picker order is stable.
+ */
+export function buildAccessibleClients(input: {
+  contacts: AccessContactRow[];
+  subClients: AccessSubClientRow[];
+  grants: AccessGrantRow[];
+}): AccessibleClient[] {
+  const byClient = new Map<string, AccessibleClient>();
+  const ORDER = { direct: 3, agency: 2, project: 1 } as const;
+  const contactIds = input.contacts.map((c) => c.id);
+  const put = (entry: AccessibleClient) => {
+    const cur = byClient.get(entry.clientId);
+    if (
+      !cur ||
+      RANK[entry.role] > RANK[cur.role] ||
+      (RANK[entry.role] === RANK[cur.role] && ORDER[entry.via] > ORDER[cur.via])
+    ) {
+      byClient.set(entry.clientId, entry);
+    }
+  };
+
+  for (const c of input.contacts) {
+    if (c.portal_role === 'none') continue;
+    put({ clientId: c.client_id, name: c.client.name, role: c.portal_role, contactId: c.id, contactIds, via: 'direct' });
+    for (const sub of input.subClients) {
+      if (sub.parent_agency_id === c.client_id) {
+        put({ clientId: sub.id, name: sub.name, role: c.portal_role, contactId: c.id, contactIds, via: 'agency' });
+      }
+    }
+  }
+  for (const g of input.grants) {
+    if (!(GRANTABLE_ROLES as readonly string[]).includes(g.role)) continue;
+    const client = g.project.client;
+    put({ clientId: client.id, name: client.name, role: 'none', contactId: g.contact_id, contactIds, via: 'project' });
+  }
+  return [...byClient.values()].sort((a, b) => a.name.localeCompare(b.name) || a.clientId.localeCompare(b.clientId));
+}
+
+/**
+ * The clients a PERSON can reach, found by lowercased email across all their non-deleted
+ * ClientContact rows, plus agency inheritance and project-only grants. Always read fresh, so a
+ * deleted contact, a role set to none or a removed grant drops the client on the next request.
+ */
+export async function resolveAccessibleClients(email: string): Promise<AccessibleClient[]> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return [];
+
+  const contacts = (await prisma.clientContact.findMany({
+    where: { email: { equals: normalized, mode: 'insensitive' }, is_deleted: false, client: { is_deleted: false } },
+    select: { id: true, client_id: true, portal_role: true, client: { select: { id: true, name: true } } },
+  })) as AccessContactRow[];
+  if (contacts.length === 0) return [];
+
+  const agencyIds = [...new Set(contacts.filter((c) => c.portal_role !== 'none').map((c) => c.client_id))];
+  const [subClients, grants] = await Promise.all([
+    agencyIds.length
+      ? prisma.client.findMany({
+          where: { parent_agency_id: { in: agencyIds }, is_deleted: false },
+          select: { id: true, name: true, parent_agency_id: true },
+        })
+      : Promise.resolve([] as AccessSubClientRow[]),
+    prisma.projectContact.findMany({
+      where: {
+        contact_id: { in: contacts.map((c) => c.id) },
+        role: { in: [...GRANTABLE_ROLES] },
+        project: PORTAL_GRANTABLE_PROJECT_WHERE,
+      },
+      select: {
+        contact_id: true,
+        role: true,
+        project: { select: { client_id: true, client: { select: { id: true, name: true } } } },
+      },
+    }) as Promise<AccessGrantRow[]>,
+  ]);
+
+  return buildAccessibleClients({ contacts, subClients: subClients as AccessSubClientRow[], grants });
+}
 
 // ---- session -> access ----------------------------------------------------------------------
 
 /**
- * Resolve the signed-in contact's role on the session's active client. Re-checked per request
+ * Resolve the signed-in contact's role on the session's active client. A session from
+ * requireClientAuth() already carries its role (resolved by email, A4); the lookup below is the
+ * fallback for bare {contactId, clientId} callers. Re-checked per request
  * (deleted contact -> none, role changes take effect immediately). Own client costs one query;
  * a different client (A4 picker) adds one lookup to apply the agency rule.
  */
-export async function loadPortalAccess(session: { contactId: string; clientId: string }): Promise<PortalAccess> {
+export async function loadPortalAccess(session: {
+  contactId: string;
+  clientId: string;
+  contactIds?: string[];
+  /** Present on sessions from requireClientAuth(): already resolved by email this request. */
+  role?: PortalRole;
+}): Promise<PortalAccess> {
+  if (session.role !== undefined) {
+    return {
+      contactId: session.contactId,
+      ...(session.contactIds ? { contactIds: session.contactIds } : {}),
+      clientId: session.clientId,
+      role: session.role,
+    };
+  }
   const contact = await prisma.clientContact.findFirst({
     where: { id: session.contactId, is_deleted: false },
     select: { client_id: true, portal_role: true, is_deleted: true },

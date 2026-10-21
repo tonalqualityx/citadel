@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { activityLabel } from '@/lib/portal/status-labels';
 
-// Client account home (Portal v2 phase 1). One page: greeting, pending approvals (articles +
-// tasks), open/active projects, an open-amount billing summary, a stats headline + tiles per
-// site, and a recent-activity feed. Backed by GET /api/portal/home — a single aggregate payload
+// Client account home (Portal v2 phase 1, sections reordered in portal MVP A5). Order: Needs from
+// you (approvals, open questions, review links, open balance for owners), Active projects with
+// progress, Recent activity, Open balance (owners), Site stats. Backed by GET /api/portal/home, a single aggregate payload
 // so this page needs one round trip (matches the existing session-scoped page pattern:
 // fetch-on-mount, loading/error/401-redirect, no SWR/react-query).
 
@@ -42,9 +43,19 @@ interface ClientTask {
 interface ClientProject {
   id: string;
   name: string;
-  status: string;
+  status_label: string;
   target_date: string | null;
   updated_at: string;
+  progress: { done: number; total: number };
+  current_phase: string | null;
+  review_link: string | null;
+}
+
+interface ClientQuestion {
+  task_id: string;
+  title: string;
+  question: string | null;
+  asked_at: string | null;
 }
 
 interface ActivityItem {
@@ -70,6 +81,7 @@ interface SiteStats {
 interface HomePayload {
   client: { id: string; name: string };
   pending_approvals: { articles: ClientArticle[]; tasks: ClientTask[] };
+  needs_from_you: { questions: ClientQuestion[]; review_links: { project_id: string; project_name: string; url: string }[] };
   projects: ClientProject[];
   billing: { open_amount: number; open_count: number } | null; // null unless the contact is an owner
   activity: ActivityItem[];
@@ -93,12 +105,6 @@ function formatTrend(changePct: number | null | undefined): string | null {
   if (pct === 0) return 'flat vs. last period';
   return `${pct > 0 ? '+' : ''}${pct}% vs. last period`;
 }
-
-const PROJECT_STATUS_LABEL: Record<string, string> = {
-  ready: 'Ready to start',
-  in_progress: 'In progress',
-  review: 'In review',
-};
 
 export default function ClientHomePage() {
   const router = useRouter();
@@ -202,8 +208,14 @@ export default function ClientHomePage() {
 
   if (!data) return null;
 
-  const { client, pending_approvals, projects, billing, activity, stats } = data;
-  const hasPending = pending_approvals.articles.length > 0 || pending_approvals.tasks.length > 0;
+  const { client, pending_approvals, needs_from_you, projects, billing, activity, stats } = data;
+  const hasBalance = Boolean(billing && billing.open_count > 0);
+  const hasPending =
+    pending_approvals.articles.length > 0 ||
+    pending_approvals.tasks.length > 0 ||
+    needs_from_you.questions.length > 0 ||
+    needs_from_you.review_links.length > 0 ||
+    hasBalance;
   const headlineStats = stats.find((s) => s.payload.leads) ?? null;
 
   return (
@@ -243,9 +255,9 @@ export default function ClientHomePage() {
 
       {/* Pending approvals */}
       <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-1">Waiting on your review</h3>
+        <h3 className="text-lg font-semibold text-text-main mb-1">Needs from you</h3>
         <p className="text-sm text-text-tertiary mb-4">
-          Content and work we&apos;ve prepared for your approval.
+          Work to approve, questions to answer and links to open. Approving here or by email both count.
         </p>
 
         {!hasPending ? (
@@ -327,33 +339,94 @@ export default function ClientHomePage() {
                 )}
               </div>
             ))}
+            {needs_from_you.questions.map((q) => (
+              <div key={q.task_id} className="rounded-lg border border-border p-4">
+                <span className="font-medium text-text-main">{q.title}</span>
+                {q.question && <p className="mt-1 text-sm text-text-secondary">{q.question}</p>}
+                <p className="mt-2 text-xs text-text-tertiary">
+                  A question for you{q.asked_at ? `. Asked ${formatDate(q.asked_at)}` : ''}. Reply to our email and we will pick it up.
+                </p>
+              </div>
+            ))}
+            {needs_from_you.review_links.map((l) => (
+              <a
+                key={l.project_id}
+                href={l.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary"
+              >
+                <span className="font-medium text-text-main">Review and answer open questions</span>
+                <span className="block text-xs text-text-tertiary">{l.project_name}</span>
+              </a>
+            ))}
+            {billing && billing.open_count > 0 && (
+              <a href="#open-balance" className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary">
+                <span className="font-medium text-text-main">Open balance of {formatCurrency(billing.open_amount)}</span>
+              </a>
+            )}
             {actionError && <p className="text-sm text-status-error">{actionError}</p>}
           </div>
         )}
       </div>
 
-      {/* Projects + billing side by side on larger screens */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        <div className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Active projects</h3>
-          {projects.length === 0 ? (
-            <p className="text-sm text-text-tertiary">No active projects right now.</p>
-          ) : (
-            <ul className="space-y-3">
-              {projects.map((project) => (
-                <li key={project.id} className="flex items-center justify-between gap-4">
-                  <span className="text-text-main">{project.name}</span>
-                  <span className="shrink-0 text-xs text-text-tertiary">
-                    {PROJECT_STATUS_LABEL[project.status] ?? project.status}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* Active projects with progress */}
+      <div className="bg-surface rounded-lg border border-border p-6">
+        <h3 className="text-lg font-semibold text-text-main mb-4">Active projects</h3>
+        {projects.length === 0 ? (
+          <p className="text-sm text-text-tertiary">No active projects right now.</p>
+        ) : (
+          <ul className="space-y-3">
+            {projects.map((project) => (
+              <li key={project.id}>
+                <Link
+                  href={`/portal/projects/${project.id}`}
+                  className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="font-medium text-text-main">{project.name}</span>
+                    <span className="shrink-0 text-xs text-text-tertiary">{project.status_label}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    {project.progress.total > 0
+                      ? `${project.progress.done} of ${project.progress.total} tasks complete`
+                      : 'No tasks to show yet'}
+                    {project.current_phase ? ` \u00b7 ${project.current_phase}` : ''}
+                    {project.target_date ? ` \u00b7 Target ${formatDate(project.target_date)}` : ''}
+                  </p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
-        {billing && (
-        <div className="bg-surface rounded-lg border border-border p-6">
+      {/* Recent activity */}
+      <div className="bg-surface rounded-lg border border-border p-6">
+        <h3 className="text-lg font-semibold text-text-main mb-4">Recent activity</h3>
+        {activity.length === 0 ? (
+          <p className="text-sm text-text-tertiary">Nothing to show yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {activity.map((item) => (
+              <li key={`${item.type}-${item.id}`} className="flex items-center justify-between gap-4 text-sm">
+                <span className="text-text-main">
+                  {activityLabel(item.type)}: {item.title}
+                </span>
+                <span className="shrink-0 text-xs text-text-tertiary">{formatDate(item.at)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-4 text-sm">
+          <Link href="/portal/history" className="text-brand-primary hover:underline">
+            See all history
+          </Link>
+        </p>
+      </div>
+
+      {billing && (
+        <div id="open-balance" className="bg-surface rounded-lg border border-border p-6">
           <h3 className="text-lg font-semibold text-text-main mb-4">Open balance</h3>
           {billing.open_count === 0 ? (
             <p className="text-sm text-text-tertiary">Nothing outstanding right now.</p>
@@ -366,8 +439,7 @@ export default function ClientHomePage() {
             </>
           )}
         </div>
-        )}
-      </div>
+      )}
 
       {/* Stats tiles per site */}
       <div className="bg-surface rounded-lg border border-border p-6">
@@ -375,7 +447,7 @@ export default function ClientHomePage() {
         {stats.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface-secondary p-6 text-center">
             <p className="text-sm text-text-tertiary">
-              No stats yet — we&apos;ll show your leads, traffic, and rankings here once reporting is live.
+              No stats yet. We&apos;ll show your leads, traffic, and rankings here once reporting is live.
             </p>
           </div>
         ) : (
@@ -415,28 +487,6 @@ export default function ClientHomePage() {
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Recent activity */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">Recent activity</h3>
-        {activity.length === 0 ? (
-          <p className="text-sm text-text-tertiary">Nothing to show yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {activity.map((item) => (
-              <li key={`${item.type}-${item.id}`} className="flex items-center justify-between gap-4 text-sm">
-                <span className="text-text-main">
-                  {item.type === 'article_published' && 'Published: '}
-                  {item.type === 'task_completed' && 'Completed: '}
-                  {item.type === 'task_approved' && 'You approved: '}
-                  {item.title}
-                </span>
-                <span className="shrink-0 text-xs text-text-tertiary">{formatDate(item.at)}</span>
-              </li>
-            ))}
-          </ul>
         )}
       </div>
     </div>

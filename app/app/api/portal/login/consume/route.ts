@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { handleApiError } from '@/lib/api/errors';
 import { authRateLimit } from '@/lib/api/rate-limit';
+import { rejectCrossSiteRequest } from '@/lib/api/same-origin-guard';
 import { getClientIp } from '@/lib/services/portal';
 import {
   consumeClientMagicLink,
@@ -24,22 +25,9 @@ export async function POST(request: NextRequest) {
   const rateLimitResponse = authRateLimit(request);
   if (rateLimitResponse) return rateLimitResponse;
 
-  // Login CSRF defence: only the interstitial's same-origin JSON fetch may consume. A cross-site
-  // form post (which would sign the victim into the attacker's account) is rejected.
-  if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
-    return NextResponse.json({ error: 'Unsupported content type.' }, { status: 415 });
-  }
-  const fetchSite = request.headers.get('sec-fetch-site');
-  if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
-    return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
-  }
-  const origin = request.headers.get('origin');
-  if (origin && origin !== request.nextUrl.origin) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-    if (!appUrl || origin !== new URL(appUrl).origin) {
-      return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
-    }
-  }
+  // Login CSRF defence: only the interstitial's same-origin JSON fetch may consume.
+  const rejected = rejectCrossSiteRequest(request);
+  if (rejected) return rejected;
 
   try {
     const { token } = consumeSchema.parse(await request.json());
@@ -57,7 +45,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = NextResponse.json({ redirect: '/portal' });
+    // Two or more reachable clients: show the picker first.
+    const response = NextResponse.json({
+      redirect: session.accessibleClientCount >= 2 ? '/portal/select' : '/portal',
+    });
     response.cookies.set(CLIENT_SESSION_COOKIE, session.sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

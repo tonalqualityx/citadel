@@ -13,7 +13,7 @@ vi.mock('@/lib/db/prisma', () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
-    projectContact: { deleteMany: vi.fn() },
+    projectContact: { deleteMany: vi.fn(), count: vi.fn().mockResolvedValue(0) },
     $transaction: vi.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   },
 }));
@@ -42,6 +42,7 @@ const mockFindUnique = prisma.clientContact.findUnique as Mock;
 const mockUpdate = prisma.clientContact.update as Mock;
 const mockRevoke = revokeContactAccess as Mock;
 const mockDeleteGrants = prisma.projectContact.deleteMany as Mock;
+const mockCountGrants = prisma.projectContact.count as Mock;
 
 const ID = 'contact-1';
 const params = Promise.resolve({ id: ID });
@@ -184,12 +185,55 @@ describe('PATCH /api/contacts/[id] session revocation', () => {
     mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'pm', email: 'pm@x.com' });
   });
 
+  it('role none with a project grant keeps the session (project-only contact)', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, portal_role: 'none', can_initiate_work: false });
+    mockCountGrants.mockResolvedValue(1);
+    const response = await PATCH(patchReq({ portal_role: 'none' }), { params });
+    expect(response.status).toBe(200);
+    expect(mockRevoke).not.toHaveBeenCalled();
+  });
+
   it('revokes access when the role is set to none', async () => {
+    mockCountGrants.mockResolvedValue(0);
     mockFindUnique.mockResolvedValue(existing);
     mockUpdate.mockResolvedValue({ ...existing, portal_role: 'none', can_initiate_work: false });
     const response = await PATCH(patchReq({ portal_role: 'none' }), { params });
     expect(response.status).toBe(200);
     expect(mockRevoke).toHaveBeenCalledWith(ID);
+  });
+
+  it('counts only grants on client-visible projects (the shared sign-in rule)', async () => {
+    mockFindUnique.mockResolvedValue(existing);
+    mockUpdate.mockResolvedValue({ ...existing, portal_role: 'none' });
+    mockCountGrants.mockResolvedValue(0);
+    await PATCH(patchReq({ portal_role: 'none' }), { params });
+    expect(mockCountGrants.mock.calls[0][0].where).toEqual({
+      contact_id: ID,
+      role: { in: ['member', 'viewer'] },
+      project: {
+        is_deleted: false,
+        status: { notIn: ['quote', 'queue', 'suspended', 'cancelled'] },
+        portal_visibility: { not: 'hidden' },
+        client: { is_deleted: false },
+      },
+    });
+    expect(mockRevoke).toHaveBeenCalledWith(ID);
+  });
+
+  it('changing the email revokes live sessions and unused links (case-only edits do not)', async () => {
+    mockFindUnique.mockResolvedValueOnce(existing).mockResolvedValueOnce(null); // existing, then no clash
+    mockUpdate.mockResolvedValue({ ...existing, email: 'new@x.com' });
+    const res = await PATCH(patchReq({ email: 'new@x.com' }), { params });
+    expect(res.status).toBe(200);
+    expect(mockRevoke).toHaveBeenCalledWith(ID);
+
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'pm', email: 'pm@x.com' });
+    mockFindUnique.mockResolvedValueOnce(existing).mockResolvedValueOnce(null);
+    mockUpdate.mockResolvedValue({ ...existing, email: existing.email.toUpperCase() });
+    await PATCH(patchReq({ email: existing.email.toUpperCase() }), { params });
+    expect(mockRevoke).not.toHaveBeenCalled();
   });
 
   it('does not revoke when the role stays a real role', async () => {

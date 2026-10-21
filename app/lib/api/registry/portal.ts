@@ -103,7 +103,17 @@ export const portalEndpoints: ApiEndpoint[] = [
               },
             ],
           },
-          projects: [{ id: 'uuid', name: 'string', status: 'ready|in_progress|review', target_date: 'ISO-8601|null', updated_at: 'ISO-8601' }],
+          needs_from_you: {
+            questions: [{ task_id: 'uuid', title: 'string', question: 'string|null', asked_at: 'ISO-8601|null' }],
+            review_links: [{ project_id: 'uuid', project_name: 'string', url: 'string' }],
+          },
+          projects: [
+            {
+              id: 'uuid', name: 'string', status_label: 'Starting soon|In progress|In review', target_date: 'ISO-8601|null',
+              updated_at: 'ISO-8601', progress: { done: 'number', total: 'number' }, current_phase: 'string|null',
+              review_link: 'string|null', links: [{ name: 'string', url: 'string', kind: 'review|upload|preview' }],
+            },
+          ],
           billing: '{ open_amount: number, open_count: number } | null (owner role only, null otherwise)',
           activity: [{ type: 'task_completed|task_approved|article_published', id: 'uuid', title: 'string', url: 'string|null', at: 'ISO-8601' }],
           stats: [
@@ -116,6 +126,54 @@ export const portalEndpoints: ApiEndpoint[] = [
         },
         responseNotes:
           '401 without a valid client session; 404 if the session\'s client record no longer resolves. "billing" is returned only for portal role owner (null for member, viewer and project-only contacts). "billing.open_amount" is computed from billing-eligible, not-yet-invoiced Milestone rows plus Task rows the client may see (A1 visibility rule, project access applied) (no Invoice model exists in this schema) — amount + count only, never rates/margins/internal targets. "activity" is derived from client-safe task/article state, not the internal ActivityLog (which carries non-client-safe diffs). "stats" omits any site with no snapshot yet rather than fabricating zeros.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/projects/:id',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal MVP A5: one project in client words. Status label, progress (client-visible tasks done of total), phases with done/current, client-visible tasks, what we need from you (staged approvals, open questions, review link), links, and recent history for the project. Requires a client_session cookie.',
+        auth: 'session',
+        responseExample: {
+          project: {
+            id: 'uuid', name: 'string', status_label: 'Starting soon|In progress|In review|Complete',
+            target_date: 'ISO-8601|null', completed_date: 'ISO-8601|null',
+            progress: { done: 'number', total: 'number' }, current_phase: 'string|null',
+          },
+          phases: [{ id: 'uuid', name: 'string', state: 'done|current|upcoming' }],
+          tasks: [{ id: 'uuid', title: 'string', status_label: 'string', is_done: 'boolean', awaiting_you: 'boolean', phase: 'string|null', completed_at: 'ISO-8601|null' }],
+          needs_from_you: {
+            approvals: [{ id: 'uuid', title: 'string', staging_preview_url: 'string|null', staging_deployed_at: 'ISO-8601|null' }],
+            requests: [{ task_id: 'uuid', title: 'string', question: 'string|null', asked_at: 'ISO-8601|null' }],
+            review_link: 'string|null',
+          },
+          links: [{ name: 'string', url: 'string', kind: 'review|upload|preview' }],
+          history: [{ type: 'task_completed|task_approved', id: 'uuid', title: 'string', at: 'ISO-8601' }],
+        },
+        responseNotes:
+          '404 when the project is not accessible to the signed-in contact (other client, hidden, restricted for a non-owner, quote/queue/suspended/cancelled, deleted); the answer is identical for missing and not allowed. Tasks follow the A1 visibility rule. Phases appear only when they hold a client-visible task. Only ResourceLinks marked review or upload are shown. No estimates, assignees, tags, billing or internal notes.',
+      },
+    ],
+  },
+  {
+    path: '/api/portal/history',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Portal MVP A5: completed client-visible tasks and published articles for the active client, newest first. Query: page (default 1, max 20), page_size (default 20, max 50). Requires a client_session cookie.',
+        auth: 'session',
+        responseExample: {
+          items: [{ type: 'task_completed|task_approved|article_published', id: 'uuid', title: 'string', url: 'string|null', project: '{ id, name }|null', at: 'ISO-8601' }],
+          page: 'number', page_size: 'number', has_more: 'boolean',
+        },
+        responseNotes:
+          'Uses the A1 history visibility rule and the A3 project scope. Project-only contacts get tasks on their granted projects and no articles.',
       },
     ],
   },

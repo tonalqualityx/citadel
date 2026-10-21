@@ -133,3 +133,66 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
     await context.close();
   });
 });
+
+// Portal MVP A5: Needs-from-you heading, project page, history and booking. Same fixtures; the
+// populated client's owner session sees the fixture project and its completed task and article.
+test.describe('Portal MVP A5 - project page, history, booking', () => {
+  test('home leads with Needs from you and links each project to its page', async ({ browser }) => {
+    const context = await browser.newContext();
+    await loginAs(context, FIXTURE_SESSION_TOKEN);
+    const page = await context.newPage();
+
+    await page.goto('/portal/home');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Needs from you' })).toBeVisible();
+
+    await page.getByRole('link', { name: /E2E: Site relaunch \(portal fixture\)/ }).click();
+    await page.waitForURL(/\/portal\/projects\//);
+    await expect(page.getByRole('heading', { name: 'E2E: Site relaunch (portal fixture)' })).toBeVisible();
+    await expect(page.getByText('What we need from you')).toBeVisible();
+
+    await context.close();
+  });
+
+  test('project page answers with a not-found message for an id the person cannot see', async ({ browser }) => {
+    const context = await browser.newContext();
+    await loginAs(context, FIXTURE_SESSION_TOKEN);
+    const page = await context.newPage();
+
+    await page.goto('/portal/projects/00000000-0000-4000-8000-000000000000');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('We could not find that project')).toBeVisible();
+
+    await context.close();
+  });
+
+  test('history lists completed work and published articles', async ({ browser }) => {
+    const context = await browser.newContext();
+    await loginAs(context, FIXTURE_SESSION_TOKEN);
+    const page = await context.newPage();
+
+    await page.goto('/portal/history');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('E2E: Fixed broken link (portal fixture)')).toBeVisible();
+    await expect(page.getByText('E2E: New Blog Post (portal fixture)')).toBeVisible();
+
+    await context.close();
+  });
+
+  test('book a meeting shows the three meeting types', async ({ browser }) => {
+    const context = await browser.newContext();
+    await loginAs(context, FIXTURE_SESSION_TOKEN);
+    const page = await context.newPage();
+
+    await page.goto('/portal/book');
+    await page.waitForLoadState('networkidle');
+    for (const name of ['Consult', 'Marketing', 'Questions']) {
+      await expect(page.getByRole('radio', { name: new RegExp(name) })).toBeVisible();
+    }
+    // A type with no booking URL yet falls back to the support email line.
+    await page.getByRole('radio', { name: /Consult/ }).click();
+    await expect(page.getByText('Online booking for this kind of meeting is not ready yet.', { exact: false })).toBeVisible();
+
+    await context.close();
+  });
+});
