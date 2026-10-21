@@ -106,6 +106,26 @@ describe('markdownToBlockNote', () => {
   });
 });
 
+describe('link sanitizer (client text is data)', () => {
+  const links = (md: string) =>
+    JSON.stringify(markdownToBlockNote(md)).match(/"type":"link","href":"[^"]*"/g) ?? [];
+
+  it('keeps http, https, mailto, tel and relative links', () => {
+    for (const href of ['https://example.com/a', 'http://example.com', 'mailto:a@b.co', 'tel:+15555550100', '/contact', '#top']) {
+      expect(links(`[x](${href})`)).toHaveLength(1);
+    }
+  });
+
+  it('turns javascript:, data:, vbscript: and file: into plain text, however they are disguised', () => {
+    for (const href of ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<b>x</b>', 'vbscript:x', 'file:///etc/passwd', 'java\tscript:alert(1)']) {
+      const md = `[click](${href})`;
+      expect(links(md), href).toHaveLength(0);
+      // The words the person typed are still there.
+      expect(JSON.stringify(markdownToBlockNote(md))).toContain('click');
+    }
+  });
+});
+
 describe('normalizeRichTextInput', () => {
   it('returns null for null, undefined and empty string', () => {
     expect(normalizeRichTextInput(null)).toBeNull();
