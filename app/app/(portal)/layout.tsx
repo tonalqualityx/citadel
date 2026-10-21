@@ -1,4 +1,7 @@
 import '@/app/globals.css';
+import './portal-tokens.css';
+import './portal-kit.css';
+import { Atkinson_Hyperlegible, Lato } from 'next/font/google';
 import { ClientSwitcher } from '@/components/portal/client-switcher';
 import { PortalNav } from '@/components/portal/portal-nav';
 
@@ -7,16 +10,25 @@ export const metadata = {
   description: 'View and respond to proposals',
 };
 
+// Lato for headlines and the wordmark, Atkinson Hyperlegible for everything people read.
+const lato = Lato({ weight: ['400', '700', '900'], subsets: ['latin'], variable: '--font-lato', display: 'swap' });
+const atkinson = Atkinson_Hyperlegible({
+  weight: ['400', '700'],
+  subsets: ['latin'],
+  variable: '--font-atkinson',
+  display: 'swap',
+});
+
 export default function PortalLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-surface-secondary">
-      <header className="border-b border-border bg-surface px-6 py-4">
+    <div data-portal className={`${lato.variable} ${atkinson.variable} min-h-screen`} suppressHydrationWarning>
+      <header className="border-b border-p-line bg-p-surface px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          <h1 className="text-lg font-semibold text-text-main">Indelible</h1>
+          <h1 className="text-lg font-semibold">Indelible</h1>
           <ClientSwitcher />
         </div>
       </header>
@@ -24,11 +36,6 @@ export default function PortalLayout({
       <main className="max-w-4xl mx-auto px-6 py-8">
         {children}
       </main>
-      <footer className="border-t border-border bg-surface px-6 py-4 mt-auto">
-        <div className="max-w-4xl mx-auto text-center text-sm text-text-tertiary">
-          Powered by Indelible
-        </div>
-      </footer>
     </div>
   );
 }
