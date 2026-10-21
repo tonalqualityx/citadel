@@ -15,6 +15,20 @@ interface ChatSettings {
   contacts: Array<{ id: string; name: string | null; email: string | null; role: string; client: string }>;
 }
 
+interface ChatStatus {
+  runner: { last_seen_at: string | null; last_claim_at: string | null; dead: boolean };
+  today: { jobs: Record<string, number>; spend_usd: number };
+}
+
+function ago(iso: string | null): string {
+  if (!iso) return 'never';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+}
+
 const MODES: Array<{ value: ChatSettings['mode']; title: string; text: string }> = [
   { value: 'off', title: 'Off', text: 'Everyone sees the question steps.' },
   { value: 'pilot', title: 'Pilot', text: 'Only the pilot contacts below get the chat.' },
@@ -26,6 +40,7 @@ const MODES: Array<{ value: ChatSettings['mode']; title: string; text: string }>
 export function PortalChatSettings() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['portal-chat-settings'], queryFn: () => apiClient.get<ChatSettings>('/portal-chat/settings'), retry: false });
+  const status = useQuery({ queryKey: ['portal-chat-status'], queryFn: () => apiClient.get<ChatStatus>('/portal-chat/status'), retry: false, refetchInterval: 30_000 });
   const [cap, setCap] = React.useState('');
   const [find, setFind] = React.useState('');
   const [siteFind, setSiteFind] = React.useState('');
@@ -53,6 +68,16 @@ export function PortalChatSettings() {
 
   return (
     <div className="space-y-6" data-testid="portal-chat-settings">
+      {status.data && (
+        <p className="text-sm" data-testid="chat-runner-status">
+          <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium mr-2 ${status.data.runner.dead ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+            {status.data.runner.dead ? 'Runner not answering' : 'Runner running'}
+          </span>
+          <span className="text-text-sub">
+            Last seen {ago(status.data.runner.last_seen_at)}, last job claimed {ago(status.data.runner.last_claim_at)}. Today: {status.data.today.jobs.done ?? 0} done, {status.data.today.jobs.expired ?? 0} expired, ${status.data.today.spend_usd.toFixed(2)} spent.
+          </span>
+        </p>
+      )}
       <fieldset>
         <legend className="text-sm font-medium text-text-main mb-2">Mode</legend>
         <div className="grid gap-2 sm:grid-cols-3">
