@@ -64,6 +64,7 @@ import { contactEndpoints } from './contacts';
 import { brandProfileEndpoints } from './brand-profiles';
 import { oracleEndpoints } from './oracle';
 import { clarityEndpoints } from './clarity';
+import { waitEndpoints } from './waits';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -95,6 +96,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...brandProfileEndpoints,
   ...oracleEndpoints,
   ...clarityEndpoints,
+  ...waitEndpoints,
 ];
 
 /**
@@ -132,6 +134,9 @@ export const apiEnums = {
   askSeverities: ['client_blocking', 'launch_blocking', 'internal'],
   ideaSources: ['session', 'oracle', 'email'],
   ideaStatuses: ['open', 'kept', 'promoted', 'discarded'],
+  waitKinds: ['approval', 'clock', 'handoff', 'meeting', 'external', 'switch'],
+  waitStates: ['waiting', 'needs_human', 'paused', 'blocked_by_switch', 'done', 'expired'],
+  waitActions: ['proceed', 'send', 'escalate', 'task'],
 };
 
 /**

@@ -32,3 +32,17 @@ export const ORACLE_PROJECTS_TAB = true;
  */
 export const ORACLE_HIDE_PLAN_PROCESS =
   process.env.NEXT_PUBLIC_ORACLE_HIDE_PLAN_PROCESS !== 'false';
+
+/**
+ * Wait record phase 1 (specs/citadel-shape-SPEC.md 4.2). Work mode gets three blocks:
+ * Blocking today, Due this week, Admin. On by default; only the literal string 'false' turns
+ * it off. NEXT_PUBLIC_ so a client bundle can read it; the flag is baked in at build time.
+ */
+export const ORACLE_WAIT_BLOCKS = process.env.NEXT_PUBLIC_ORACLE_WAIT_BLOCKS !== 'false';
+
+/**
+ * The Work doors row (Reviews, Intake, Pipeline, Due soon). Mike called it noise on 2026-09-04
+ * and it still rendered; it is hidden by default now. Hide, not delete: set
+ * NEXT_PUBLIC_ORACLE_WORK_DOORS=true to bring it back. Only the literal string 'true' shows it.
+ */
+export const ORACLE_WORK_DOORS = process.env.NEXT_PUBLIC_ORACLE_WORK_DOORS === 'true';

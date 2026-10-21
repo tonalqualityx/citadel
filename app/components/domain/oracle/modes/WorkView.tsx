@@ -16,6 +16,11 @@ import { ClockStrip } from './work/ClockStrip';
 import { TodaysPicksHero } from './work/TodaysPicksHero';
 import { DoorsRow } from './work/DoorsRow';
 import { buildDoors } from './work/doors-logic';
+import { BlockingToday } from './work/BlockingToday';
+import { DueThisWeek } from './work/DueThisWeek';
+import { AdminBlock } from './work/AdminBlock';
+import { useMyWaitBlocks } from '@/lib/hooks/use-waits';
+import { ORACLE_WAIT_BLOCKS, ORACLE_WORK_DOORS } from '@/lib/config/feature-flags';
 
 interface WorkViewProps {
   machines: OracleMachineDTO[];
@@ -29,12 +34,18 @@ interface WorkViewProps {
 // law). Signals rail -> meetings-only clock strip -> Today's picks hero -> four
 // information-scent doors. NOTHING else renders here — everything else is a drill-in via
 // a door or a tab, never auto-surfaced.
+//
+// Wait record phase 1 (2026-10-21): Blocking today sits above the picks, Due this week and
+// Admin below them (behind ORACLE_WAIT_BLOCKS, on by default), and the doors row is hidden
+// behind ORACLE_WORK_DOORS (off by default; Mike called it noise on 2026-09-04). Hide, not
+// delete: the doors code and its data hooks are unchanged.
 export function WorkView({ machines, liveSessions, waitingOnMe, nowMs, onGoToMode }: WorkViewProps) {
   const { data: todayData } = useTodayPicks();
   const { data: calendarData } = useTodayCalendar();
   const { data: dueSoonData } = useDueSoonTasks();
   const { data: pipelineData } = usePipelineAccords();
   const { data: triageStats } = useTriageStats();
+  const { data: waitBlocks } = useMyWaitBlocks(ORACLE_WAIT_BLOCKS);
 
   const picks = React.useMemo(() => todayData?.picks ?? [], [todayData]);
   const timezone = calendarData?.timezone ?? DEFAULT_DISPLAY_TIMEZONE;
@@ -125,8 +136,11 @@ export function WorkView({ machines, liveSessions, waitingOnMe, nowMs, onGoToMod
         onGoToMode={onGoToMode}
       />
       <ClockStrip todayLabel={todayLabel} meetings={calendarData?.meetings ?? []} timezone={timezone} />
+      {ORACLE_WAIT_BLOCKS && <BlockingToday blocks={waitBlocks?.blocking_today} />}
       <TodaysPicksHero picks={picks} sessions={liveSessions} todayDateStr={todayDateStr} />
-      <DoorsRow doors={doors} onGoToMode={onGoToMode} />
+      {ORACLE_WAIT_BLOCKS && <DueThisWeek block={waitBlocks?.due_this_week} />}
+      {ORACLE_WAIT_BLOCKS && <AdminBlock block={waitBlocks?.admin} />}
+      {ORACLE_WORK_DOORS && <DoorsRow doors={doors} onGoToMode={onGoToMode} />}
     </div>
   );
 }

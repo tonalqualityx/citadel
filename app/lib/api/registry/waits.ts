@@ -1,0 +1,160 @@
+import type { ApiEndpoint } from './index';
+
+// Wait record, phase 1 (specs/citadel-shape-SPEC.md section 2). A wait is anything Indelible is
+// waiting on, with a date when something happens if nobody acts. Phase 1 sends nothing.
+const waitExample = {
+  id: 'uuid',
+  kind: 'approval|clock|handoff|meeting|external|switch',
+  template_key: 'build.gate_mike',
+  step: 1,
+  title: 'Approve the VCDP sitemap',
+  state: 'waiting|needs_human|paused|blocked_by_switch|done|expired',
+  resolved_owner: { user_id: 'uuid', source: 'stand_in|escalated|person|role_project|role_charter|role_client|accord_owner|bast|switch_owner|mike', role_key: 'string|null' },
+  due_at: 'ISO-8601',
+  blocks_client: 'boolean',
+  client_waiting_since: 'ISO-8601|null',
+  nag_level: '0|1|2|3',
+  terminal_action: 'proceed|send|escalate|task',
+};
+
+export const waitEndpoints: ApiEndpoint[] = [
+  {
+    path: '/api/waits',
+    group: 'waits',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List waits (default: open ones), soonest due first.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        queryParams: [
+          { name: 'state', type: 'string', required: false, description: 'open (default), waiting, needs_human, paused, blocked_by_switch, done, expired' },
+          { name: 'kind', type: 'string', required: false, description: 'approval, clock, handoff, meeting, external, switch' },
+          { name: 'owner', type: 'string', required: false, description: 'A user id, or "me": only waits that resolve to that user (stand-in, person, role holder, accord owner, else Mike)' },
+          { name: 'client_id', type: 'uuid', required: false, description: 'Filter by client' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'Filter by project' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'Filter by task' },
+          { name: 'charter_id', type: 'uuid', required: false, description: 'Filter by charter' },
+          { name: 'template_key', type: 'string', required: false, description: 'Filter by template' },
+          { name: 'limit', type: 'number', required: false, description: 'Default 50, max 200' },
+        ],
+        responseExample: { data: [waitExample], meta: { count: 'number', limit: 'number' } },
+      },
+      {
+        method: 'POST',
+        summary: 'Open a wait from a template. Idempotent on idempotency_key.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'template_key', type: 'string', required: true, description: 'Phase 1 opens only build.gate_mike, build.review_internal, change.needs_human, meeting.type_unclear, switch.off, handoff.generic. Any other registered template answers 409 template_disabled.' },
+          { name: 'subject', type: 'string', required: false, description: 'Fills the template title: "Approve {subject}". Give subject or title.' },
+          { name: 'title', type: 'string', required: false, description: 'The action, standalone (names the person, the thing and the date). Overrides the template title.' },
+          { name: 'detail', type: 'string', required: false, description: 'Context for whoever picks it up' },
+          { name: 'duration', type: 'object', required: false, description: 'handoff.generic only: { value, unit: hours|calendar_days|business_days }. Other templates use their own clock.' },
+          { name: 'due_at', type: 'ISO-8601', required: false, description: 'Overrides the computed due time' },
+          { name: 'owner_user_id', type: 'uuid', required: false, description: 'A person; wins over the role' },
+          { name: 'owner_function_id', type: 'uuid', required: false, description: 'A role (Function); the holder is looked up on the project' },
+          { name: 'client_id', type: 'uuid', required: false, description: 'Link' },
+          { name: 'project_id', type: 'uuid', required: false, description: 'Link' },
+          { name: 'task_id', type: 'uuid', required: false, description: 'Link' },
+          { name: 'approval_request_id', type: 'uuid', required: false, description: 'Link' },
+          { name: 'blocks_client', type: 'boolean', required: false, description: 'Defaults from the template' },
+          { name: 'client_waiting_since', type: 'ISO-8601', required: false, description: 'Defaults to now when it blocks a client' },
+          { name: 'idempotency_key', type: 'string', required: false, description: 'A repeat returns the existing wait with 200' },
+        ],
+        responseExample: waitExample,
+        responseNotes: '201 when created, 200 for an idempotent repeat, 409 for a disabled template.',
+      },
+    ],
+  },
+  {
+    path: '/api/waits/{id}',
+    group: 'waits',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'One wait with its event log (pause, extend, reassign, fire, nag).',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { ...waitExample, events: [{ id: 'uuid', kind: 'created|paused|resumed|extended|escalated|nagged|fired|state_changed|reassigned|stand_in|placed', reason: 'string|null', source: 'sweeper|placement|ritual|user|ooo|api', created_at: 'ISO-8601' }] },
+      },
+      {
+        method: 'PATCH',
+        summary: 'One action per call: pause, resume, extend, redate, reassign, stand_in, needs_human, resolve.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'action', type: 'string', required: true, description: 'pause | resume | extend | redate | reassign | stand_in | needs_human | resolve' },
+          { name: 'until', type: 'ISO-8601', required: false, description: 'pause: when it resumes (future). extend: the date the client named; the wait moves to the next business day after it.' },
+          { name: 'business_days', type: 'number', required: false, description: 'extend: 1 to 15 business days' },
+          { name: 'due_at', type: 'ISO-8601', required: false, description: 'redate: the new due time' },
+          { name: 'reason', type: 'string', required: false, description: 'Required for extend and redate; logged on the event' },
+          { name: 'source', type: 'string', required: false, description: 'user (default) or ritual' },
+          { name: 'owner_user_id', type: 'uuid', required: false, description: 'reassign' },
+          { name: 'owner_function_id', type: 'uuid', required: false, description: 'reassign' },
+          { name: 'stand_in_user_id', type: 'uuid', required: false, description: 'stand_in: null clears it' },
+          { name: 'note', type: 'string', required: false, description: 'needs_human: what the person must decide' },
+          { name: 'resolution', type: 'string', required: false, description: 'resolve: approved, completed, cancelled, sent, booked, signed, declined. approved/sent/completed/booked/signed open the next step of the chain.' },
+        ],
+        responseExample: waitExample,
+        responseNotes: 'Extending past two extensions or 15 business days returns 409 code "cap" and the wait becomes needs_human. A done or expired wait only accepts resolve. A wait is never deleted; cancel it with resolve + cancelled.',
+      },
+    ],
+  },
+  {
+    path: '/api/waits/sweep',
+    group: 'waits',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'One sweeper pass: resume paused, release switches, expire, fire due waits, run the visibility ladder.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [{ name: 'dry_run', type: 'string', required: false, description: '1 = report what would happen and write nothing' }],
+        responseExample: { dry_run: 'boolean', at: 'ISO-8601', fired: [{ id: 'uuid', action: 'string' }], nagged: [{ id: 'uuid', level: 'number' }], counts: { due: 'number', fired: 'number' } },
+        responseNotes: 'Admin session or admin API key (Bearer). Called every 15 minutes by ~/.local/bin/citadel-wait-sweep.sh; it does not use CRON_SECRET. Idempotent: a wait is claimed with a conditional update and the next step is keyed <wait id>:next. Three firing errors turn a wait needs_human on Mike. Phase 1 sends nothing; a send only stamps fired_at for the machine-side outbox.',
+      },
+    ],
+  },
+  {
+    path: '/api/waits/mine',
+    group: 'waits',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'The Work-mode blocks for the signed-in user: Blocking today (cap 5), Due this week (cap 7), Admin (cap 5), plus the ritual summary line.',
+        auth: 'required',
+        responseExample: {
+          blocking_today: { rows: [{ id: 'uuid', title: 'string', client: { id: 'uuid', name: 'string' }, label: 'waiting 8 days', action: { type: 'task|approval|project|wait', id: 'uuid' } }], more: 'number', total: 'number', overflow: ['same rows'] },
+          due_this_week: { rows: [{ id: 'uuid', type: 'wait|task', title: 'string', due_at: 'ISO-8601' }], more: 'number', total: 'number' },
+          admin: { rows: [{ id: 'uuid', title: 'string' }], more: 'number', total: 'number' },
+          summary: '5 blocking a client, 3 more behind them.',
+          generated_at: 'ISO-8601',
+        },
+        responseNotes: 'Exactly what the Seeing Stone renders. Project approvals sort first, then the longest client wait. Nothing reads the focus flag. The ritual walks Blocking today from this response.',
+      },
+    ],
+  },
+  {
+    path: '/api/waits/events',
+    group: 'waits',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Inbound placement events (W6 contract): place, stop, extend, needs_human. Idempotent on event_id.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'event_id', type: 'string', required: true, description: 'uuid5 of the RFC id, the kind and the target; a replay returns duplicate: true' },
+          { name: 'kind', type: 'string', required: true, description: 'place | stop | extend | needs_human' },
+          { name: 'chain', type: 'object', required: false, description: '{ kind: accord|project|charter|site|client|none, id, client_id }' },
+          { name: 'target', type: 'object', required: false, description: 'A wait id, or a selector { wait_kinds, contact_id, thread_id, template_key }. A selector with nothing to select on selects nothing.' },
+          { name: 'payload', type: 'object', required: false, description: 'stop: { reason: reply|question|booking|signature|approval|decline|changes }. extend: { mode: days|until, business_days, until, reason: ooo|need_more_time, auto_reply }. needs_human: { question, candidates, suggestion, owner_role }. place: { thread_id, account }.' },
+          { name: 'events', type: 'object', required: false, description: 'Instead of one event, { events: [...] } up to 100' },
+        ],
+        responseExample: { results: [{ event_id: 'string', duplicate: 'boolean', matched: 'number', applied: [{ wait_id: 'uuid', action: 'placed|stopped|extended|needs_human|cap|auto_reply_used' }] }] },
+        responseNotes: 'A reply on a review (build.review_client, change.staged_live, marketing.plan_approval, case-study consent) becomes needs_human instead of closing. Extensions stop at two per wait or 15 business days in total; the next becomes needs_human. An auto-reply extends each wait once.',
+      },
+    ],
+  },
+];
