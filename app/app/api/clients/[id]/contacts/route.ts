@@ -78,13 +78,11 @@ export async function POST(
     }
 
     // Re-adding a soft-deleted contact must not restore old project grants (also covers rows
-    // deleted before grants were cleared on delete).
-    if (existing) {
-      await prisma.projectContact.deleteMany({ where: { contact_id: existing.id } });
-    }
-
+    // deleted before grants were cleared on delete). Grant clear + revive are one transaction.
     const contact = existing
-      ? await prisma.clientContact.update({
+      ? await prisma.$transaction(async (tx) => {
+          await tx.projectContact.deleteMany({ where: { contact_id: existing.id } });
+          return tx.clientContact.update({
           where: { id: existing.id },
           data: {
             name: data.name ?? null,
@@ -95,6 +93,7 @@ export async function POST(
             notes: data.notes ?? null,
             is_deleted: false,
           },
+          });
         })
       : await prisma.clientContact.create({
           data: {

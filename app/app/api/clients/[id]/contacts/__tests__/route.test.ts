@@ -17,6 +17,7 @@ vi.mock('@/lib/db/prisma', () => ({
       update: vi.fn(),
     },
     projectContact: { deleteMany: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -75,6 +76,7 @@ describe('GET /api/clients/[id]/contacts', () => {
 
 describe('POST /api/clients/[id]/contacts', () => {
   beforeEach(() => {
+    (prisma.$transaction as Mock).mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma));
     vi.clearAllMocks();
     mockRequireAuth.mockResolvedValue({ userId: 'u1', role: 'pm', email: 'pm@x.com' });
     mockClientFindUnique.mockResolvedValue({ id: CLIENT_ID });
@@ -144,7 +146,17 @@ describe('POST /api/clients/[id]/contacts', () => {
     mockContactFindUnique.mockResolvedValue({ id: 'old-1', is_deleted: true });
     mockContactUpdate.mockResolvedValue({ id: 'old-1', email: 'back@example.com' });
     await POST(postReq({ email: 'back@example.com' }), { params });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.projectContact.deleteMany).toHaveBeenCalledWith({ where: { contact_id: 'old-1' } });
+    expect(mockContactUpdate).toHaveBeenCalled();
+  });
+
+  it('does not revive the contact when the grant clear fails (one transaction)', async () => {
+    mockContactFindUnique.mockResolvedValue({ id: 'old-1', is_deleted: true });
+    (prisma.projectContact.deleteMany as Mock).mockRejectedValueOnce(new Error('boom'));
+    const response = await POST(postReq({ email: 'back@example.com' }), { params });
+    expect(response.status).toBe(500);
+    expect(mockContactUpdate).not.toHaveBeenCalled();
   });
 
   it('404s when the client does not exist', async () => {

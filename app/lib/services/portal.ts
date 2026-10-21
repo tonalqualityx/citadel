@@ -8,6 +8,7 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
+import { PORTAL_HIDDEN_PROJECT_STATUSES } from '@/lib/portal/access';
 
 const TOKEN_LENGTH = 64; // 128 hex characters
 const DEFAULT_EXPIRY_DAYS = 60;
@@ -266,7 +267,7 @@ export async function validateTaskToken(token: string) {
       // Site drives auto_deploy (staging→prod promotion on approve) and the client the
       // task belongs to; requested_by_contact is the first-choice approver/requestor.
       site: { select: { id: true, name: true, auto_deploy: true, client_id: true } },
-      project: { select: { portal_visibility: true } },
+      project: { select: { portal_visibility: true, status: true, is_deleted: true } },
       requested_by_contact: {
         select: { id: true, name: true, email: true, client_id: true, is_deleted: true },
       },
@@ -275,8 +276,20 @@ export async function validateTaskToken(token: string) {
 
   if (!task) return null;
 
-  // Tasks of a project hidden from the portal are never reachable by token.
-  if (task.project?.portal_visibility === 'hidden') return null;
+  // A deleted requester revokes every token route (no fallback to the primary contact).
+  if (task.requested_by_contact?.is_deleted) return null;
+
+  // Tasks of a project hidden, deleted, or in a non-client-visible status are never reachable.
+  if (task.project) {
+    const { portal_visibility, status, is_deleted } = task.project;
+    if (
+      portal_visibility === 'hidden' ||
+      is_deleted ||
+      (PORTAL_HIDDEN_PROJECT_STATUSES as readonly string[]).includes(status)
+    ) {
+      return null;
+    }
+  }
 
   // Check expiry
   if (task.portal_token_expires_at && task.portal_token_expires_at < new Date()) {
