@@ -32,6 +32,7 @@
 .bottombar [aria-current="page"] { color: var(--p-head); font-weight: 700; }
 .bottombar [aria-current="page"]::before { content: ""; position: absolute; top: 0; left: 22%; right: 22%; height: 3px; background: var(--p-accent); border-radius: 0 0 2px 2px; }
 
+.sidebar { display: none; }
 @media (min-width: 960px) {
   .shell { display: grid; grid-template-columns: 256px minmax(0, 1fr); }
   .topbar, .bottombar { display: none; }
@@ -446,3 +447,4 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .review-actions { display: grid; gap: 10px; }
 [data-portal] .review-actions .actions { margin-top: 2px; }
 [data-portal] .review-actions .err { font-size: var(--pk-fs-meta); color: var(--p-chip-urgent-fg); background: var(--p-chip-urgent-bg); padding: 8px 10px; border-radius: var(--p-radius); display: flex; gap: 8px; align-items: center; }
+[data-portal] .shell-bare .topbar { display: flex; }

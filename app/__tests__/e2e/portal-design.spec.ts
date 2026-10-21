@@ -43,7 +43,7 @@ const SCREENS: Array<{ name: string; url: () => string; signedIn: boolean; ready
   { name: 'requests', url: () => '/portal/requests', signedIn: true, ready: /open request|No open requests/i },
   { name: 'request-new', url: () => '/portal/requests/new', signedIn: true, ready: 'Ask us for something' },
   { name: 'work', url: () => `/portal/work/${taskId}`, signedIn: true, ready: /Update the opening hours/ },
-  { name: 'retainer', url: () => '/portal/retainer', signedIn: true, ready: /Retainer/ },
+  { name: 'retainer', url: () => '/portal/retainer', signedIn: true, ready: /E2E Growth plan/ },
   { name: 'history', url: () => '/portal/history', signedIn: true, ready: 'What we have finished together' },
   { name: 'login', url: () => '/portal/login', signedIn: false, ready: 'Sign in to your Indelible portal' },
 ];
