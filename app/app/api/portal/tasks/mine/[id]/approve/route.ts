@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
-import { canActOnWork, loadPortalAccess, taskAccessWhere } from '@/lib/portal/access';
+import { loadPortalAccess, taskAccessWhere } from '@/lib/portal/access';
 import {
   clientVisibleTaskWhere,
   stagedTaskWhere,
@@ -26,12 +26,10 @@ export async function POST(
     const session = await requireClientAuth();
     const { id } = await params;
 
-    // Decision 11: approve / request-changes need member or owner; the task must also sit in a
-    // project this contact may see (hidden/restricted projects are closed by id too). 404, not 403.
+    // Mike's ruling (overrides spec decision 11): for now ANY portal user may approve / request
+    // changes, so there is deliberately no role gate here. The task must still sit in a project
+    // this contact may see (hidden/restricted closed by id too). 404, not 403.
     const access = await loadPortalAccess(session);
-    if (!canActOnWork(access.role)) {
-      throw new ApiError('Task not found', 404);
-    }
 
     const task = await prisma.task.findFirst({
       where: {

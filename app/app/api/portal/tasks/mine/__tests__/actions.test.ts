@@ -183,52 +183,44 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
   });
 });
 
-describe('portal role gate on the session routes (decision 11)', () => {
+describe('project scope, no role gate on the session routes (Mike ruling overrides spec decision 11)', () => {
   const roleOf = (portal_role: string) =>
     (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role, is_deleted: false });
 
-  it.each(['viewer', 'none'])('a %s gets 404 on approve and request-changes before any task lookup', async (role) => {
+  it('a member in a hidden project gets 404: the lookup carries the project scope and finds nothing', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    roleOf(role);
-    const a = await APPROVE(postReq('task-1'), makeParams('task-1'));
-    const r = await REQUEST_CHANGES(postReq('task-1', { note: 'x' }), makeParams('task-1'));
+    roleOf('member');
+    mockTaskFindFirst.mockResolvedValue(null); // the DB applies the where; a hidden-project task is not found
+    const a = await APPROVE(postReq('task-hidden'), makeParams('task-hidden'));
+    const r = await REQUEST_CHANGES(postReq('task-hidden', { note: 'x' }), makeParams('task-hidden'));
     expect(a.status).toBe(404);
     expect(r.status).toBe(404);
-    expect(mockTaskFindFirst).not.toHaveBeenCalled();
+    const memberAccess = { contactId: 'contact-1', clientId: 'client-acme', role: 'member' as const };
+    for (const call of mockTaskFindFirst.mock.calls) {
+      expect(call[0].where.AND).toContainEqual(taskAccessWhere(memberAccess));
+    }
+    expect(JSON.stringify(taskAccessWhere(memberAccess))).toContain('"not":"hidden"');
     expect(mockRecordApproval).not.toHaveBeenCalled();
     expect(mockRecordRequestChanges).not.toHaveBeenCalled();
   });
 
-  it('a deleted contact (no row) gets 404', async () => {
+  it('a viewer on a visible staged task still succeeds (ruling: any portal user may approve)', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    (prisma.clientContact.findFirst as Mock).mockResolvedValue(null);
-    const res = await APPROVE(postReq('task-1'), makeParams('task-1'));
-    expect(res.status).toBe(404);
-    expect(mockTaskFindFirst).not.toHaveBeenCalled();
-  });
-
-  it('a member is limited to projects they may see: the lookup carries the project scope (hidden/restricted excluded)', async () => {
-    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    roleOf('member');
-    // The DB applies the where; a task in a hidden project simply is not found.
-    mockTaskFindFirst.mockResolvedValue(null);
-    const res = await APPROVE(postReq('task-hidden'), makeParams('task-hidden'));
-    expect(res.status).toBe(404);
-    const memberAccess = { contactId: 'contact-1', clientId: 'client-acme', role: 'member' as const };
-    const and = mockTaskFindFirst.mock.calls[0][0].where.AND;
-    expect(and).toContainEqual(taskAccessWhere(memberAccess));
-    expect(JSON.stringify(taskAccessWhere(memberAccess))).toContain('"not":"hidden"');
-    expect(mockRecordApproval).not.toHaveBeenCalled();
-  });
-
-  it('an owner approves a visible staged task', async () => {
-    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
-    roleOf('owner');
+    roleOf('viewer');
     mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, site: null, ...STAGED });
     mockRecordApproval.mockResolvedValue({ already_approved: false, approved_at: new Date(), promotion_pending: false });
     const res = await APPROVE(postReq('task-1'), makeParams('task-1'));
     expect(res.status).toBe(200);
     expect(mockRecordApproval).toHaveBeenCalled();
+  });
+
+  it('a deleted contact matches nothing (revoked scope), so the lookup is closed', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue(null);
+    mockTaskFindFirst.mockResolvedValue(null);
+    const res = await APPROVE(postReq('task-1'), makeParams('task-1'));
+    expect(res.status).toBe(404);
+    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toContainEqual({ id: { in: [] } });
   });
 });
 
@@ -255,7 +247,7 @@ describe('POST /api/portal/tasks/mine/:id/request-changes', () => {
 
     const res = await REQUEST_CHANGES(postReq('task-int', { note: 'x' }), makeParams('task-int'));
     expect(res.status).toBe(404);
-    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(OWNER_ACCESS)]);
     expect(mockRecordRequestChanges).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/api/errors';
-import { canActOnWork } from '@/lib/portal/access';
 import { isStagedForApproval } from '@/lib/portal/visibility';
 import {
   validateTaskToken,
@@ -36,11 +35,7 @@ export async function POST(
 
     const contact = await resolveTaskContact(task);
 
-    // Decision 11: approve / request-changes need member or owner. A viewer (or none) gets the
-    // same 404 as a bad link; a link with no resolvable contact keeps its previous behavior.
-    if (contact && !canActOnWork(contact.portal_role ?? 'none')) {
-      return NextResponse.json({ error: 'Approval link not found or has expired' }, { status: 404 });
-    }
+    // Mike's ruling (overrides spec decision 11): no role gate on approval links for now.
     const result = await recordTaskClientApproval(task, contact?.id ?? null);
 
     if (result.already_approved) {

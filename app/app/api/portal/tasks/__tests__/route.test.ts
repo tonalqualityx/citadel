@@ -97,7 +97,6 @@ beforeEach(() => {
     name: 'Jane',
     email: 'jane@acme.com',
     client_id: 'client-1',
-    portal_role: 'member',
   });
   mockListContactSites.mockResolvedValue([{ id: 'site-1', name: 'Acme' }]);
   mockGetBastUserId.mockResolvedValue('bast-user');
@@ -280,29 +279,22 @@ describe('POST /api/portal/tasks/:token/approve', () => {
   });
 });
 
-describe('portal role gate on the token routes (decision 11)', () => {
-  it.each(['viewer', 'none'])('approve returns 404 and records nothing for a %s', async (portal_role) => {
+describe('no role gate on the token routes (Mike ruling overrides spec decision 11)', () => {
+  it('a viewer-role requester can still approve', async () => {
     mockValidateTaskToken.mockResolvedValue(mockPortalTask);
-    mockResolveTaskContact.mockResolvedValue({ id: 'contact-1', name: 'Jane', email: 'j@a.com', client_id: 'client-1', portal_role });
-    const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
-    expect(response.status).toBe(404);
-    expect(mockRecordTaskClientApproval).not.toHaveBeenCalled();
-  });
-
-  it.each(['viewer', 'none'])('request-changes returns 404 and records nothing for a %s', async (portal_role) => {
-    mockValidateTaskToken.mockResolvedValue(mockPortalTask);
-    mockResolveTaskContact.mockResolvedValue({ id: 'contact-1', name: 'Jane', email: 'j@a.com', client_id: 'client-1', portal_role });
-    const response = await REQUEST_CHANGES(postReq('valid-token', { note: 'x' }), makeParams('valid-token'));
-    expect(response.status).toBe(404);
-    expect(mockRecordTaskClientRequestChanges).not.toHaveBeenCalled();
-  });
-
-  it('an owner still approves', async () => {
-    mockValidateTaskToken.mockResolvedValue(mockPortalTask);
-    mockResolveTaskContact.mockResolvedValue({ id: 'contact-1', name: 'Jane', email: 'j@a.com', client_id: 'client-1', portal_role: 'owner' });
+    mockResolveTaskContact.mockResolvedValue({ id: 'contact-1', name: 'Jane', email: 'j@a.com', client_id: 'client-1', portal_role: 'viewer' });
     mockRecordTaskClientApproval.mockResolvedValue({ already_approved: false, approved_at: new Date(), promotion_pending: false });
     const response = await APPROVE(postReq('valid-token'), makeParams('valid-token'));
     expect(response.status).toBe(200);
+    expect(mockRecordTaskClientApproval).toHaveBeenCalled();
+  });
+
+  it('a viewer-role requester can still request changes', async () => {
+    mockValidateTaskToken.mockResolvedValue(mockPortalTask);
+    mockResolveTaskContact.mockResolvedValue({ id: 'contact-1', name: 'Jane', email: 'j@a.com', client_id: 'client-1', portal_role: 'viewer' });
+    const response = await REQUEST_CHANGES(postReq('valid-token', { note: 'x' }), makeParams('valid-token'));
+    expect(response.status).toBe(200);
+    expect(mockRecordTaskClientRequestChanges).toHaveBeenCalled();
   });
 });
 
