@@ -47,11 +47,24 @@ export function clientVisibleTaskWhere() {
   };
 }
 
+/**
+ * Prisma where-fragment for HISTORY lists only (home activity feed, tasks recently-approved):
+ * client-visible OR the client has approved it. Staged work stops matching the visible rule
+ * once published (approved = true), but the client's own approval must stay in their history.
+ * Never use for pending lists or approve/request-changes.
+ */
+export function clientHistoryTaskWhere() {
+  return {
+    OR: [{ client_approved_at: { not: null } }, ...clientVisibleTaskWhere().OR],
+  };
+}
+
 interface VisibilityFields {
   requested_by_contact_id?: string | null;
   staging_preview_url?: string | null;
   status?: string | null;
   approved?: boolean | null;
+  client_approved_at?: Date | string | null;
 }
 
 /** Predicate twin of stagedTaskWhere(). */
@@ -67,6 +80,11 @@ export function isStagedForApproval(task: VisibilityFields): boolean {
 /** Predicate twin of clientVisibleTaskWhere(). */
 export function isClientVisibleTask(task: VisibilityFields): boolean {
   return Boolean(task.requested_by_contact_id) || isStagedForApproval(task);
+}
+
+/** Predicate twin of clientHistoryTaskWhere(). */
+export function isClientHistoryTask(task: VisibilityFields): boolean {
+  return Boolean(task.client_approved_at) || isClientVisibleTask(task);
 }
 
 /** The select fields the predicates need; spread into any select that uses them. */

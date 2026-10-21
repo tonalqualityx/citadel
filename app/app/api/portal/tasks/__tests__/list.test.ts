@@ -18,7 +18,7 @@ vi.mock('@/lib/db/prisma', () => ({
 import { GET } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
-import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import type { Mock } from 'vitest';
 
 const mockRequireClientAuth = requireClientAuth as Mock;
@@ -97,7 +97,7 @@ describe('GET /api/portal/tasks', () => {
     const [pendingCall, approvedCall] = mockTaskFindMany.mock.calls;
     // pending = visible AND staged; recently approved = visible. The client-scope OR is intact.
     expect(pendingCall[0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
-    expect(approvedCall[0].where.AND).toEqual([clientVisibleTaskWhere()]);
+    expect(approvedCall[0].where.AND).toEqual([clientHistoryTaskWhere()]);
     expect(pendingCall[0].where.OR).toHaveLength(2);
   });
 

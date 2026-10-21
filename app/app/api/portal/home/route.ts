@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
-import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import {
   formatArticleForClient,
   formatTaskForClient,
@@ -117,7 +117,7 @@ export async function GET(_request: NextRequest) {
           is_deleted: false,
           AND: [
             { OR: taskScope.OR },
-            clientVisibleTaskWhere(),
+            clientHistoryTaskWhere(),
             { OR: [{ status: 'done' }, { client_approved_at: { not: null } }] },
           ],
         },

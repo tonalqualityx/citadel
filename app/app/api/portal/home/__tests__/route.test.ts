@@ -22,7 +22,7 @@ vi.mock('@/lib/db/prisma', () => ({
 import { GET } from '../route';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';
-import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import type { Mock } from 'vitest';
 
 const mockRequireClientAuth = requireClientAuth as Mock;
@@ -193,7 +193,7 @@ describe('GET /api/portal/home', () => {
     expect(pending.select).not.toHaveProperty('estimated_minutes');
     // The activity query ANDs the visibility fragment next to the client scope.
     const activity = calls.find((a) => a !== pending);
-    expect(activity.where.AND).toContainEqual(clientVisibleTaskWhere());
+    expect(activity.where.AND).toContainEqual(clientHistoryTaskWhere());
   });
 
   it('home payload carries no estimated_minutes', async () => {

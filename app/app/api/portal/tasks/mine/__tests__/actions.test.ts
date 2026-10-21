@@ -110,6 +110,18 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
     expect(mockRecordApproval).not.toHaveBeenCalled();
   });
 
+  it('returns 404 on approve for a published, client-approved task with no requester', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    mockTaskFindFirst.mockResolvedValue({
+      id: 'task-hist', client_approved_at: new Date(), site: null,
+      requested_by_contact_id: null, staging_preview_url: 'https://s.example', status: 'done', approved: true,
+    });
+
+    const res = await APPROVE(postReq('task-hist'), makeParams('task-hist'));
+    expect(res.status).toBe(404);
+    expect(mockRecordApproval).not.toHaveBeenCalled();
+  });
+
   it('returns 404 for a contact-requested task that is not staged yet', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
     mockTaskFindFirst.mockResolvedValue({

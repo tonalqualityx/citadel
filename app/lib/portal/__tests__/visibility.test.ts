@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   clientVisibleTaskWhere,
+  clientHistoryTaskWhere,
+  isClientHistoryTask,
   stagedTaskWhere,
   isClientVisibleTask,
   isStagedForApproval,
@@ -62,6 +64,28 @@ describe('portal task visibility', () => {
     }
     // review/done x one real url x not approved x 2 requesters
     expect(staged).toBe(4);
+  });
+
+  it('a staged, published task with no requester stays in history but never pending or actionable', () => {
+    const published = {
+      requested_by_contact_id: null,
+      staging_preview_url: 'https://s.example',
+      status: 'done',
+      approved: true,
+      client_approved_at: new Date('2026-10-01'),
+    };
+    expect(matches(published, clientHistoryTaskWhere())).toBe(true);
+    expect(isClientHistoryTask(published)).toBe(true);
+    // Strict rules (pending lists, approve, request-changes) still reject it.
+    expect(matches(published, stagedTaskWhere())).toBe(false);
+    expect(isStagedForApproval(published)).toBe(false);
+    expect(matches(published, clientVisibleTaskWhere())).toBe(false);
+  });
+
+  it('history does not admit an internal, unapproved task', () => {
+    const internal = { requested_by_contact_id: null, staging_preview_url: null, status: 'done', approved: true, client_approved_at: null };
+    expect(matches(internal, clientHistoryTaskWhere())).toBe(false);
+    expect(isClientHistoryTask(internal)).toBe(false);
   });
 
   it('hides an internal task (no requesting contact, nothing staged)', () => {

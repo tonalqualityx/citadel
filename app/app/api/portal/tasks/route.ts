@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { formatTaskForClient } from '@/lib/api/client-projections';
-import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 
 // GET /api/portal/tasks (Portal v2 phase 1)
 // The logged-in client's tasks: those awaiting THEIR approval, plus recently-approved ones —
@@ -47,7 +47,7 @@ export async function GET(_request: NextRequest) {
         take: 50,
       }),
       prisma.task.findMany({
-        where: { ...scope, client_approved_at: { not: null }, AND: [clientVisibleTaskWhere()] },
+        where: { ...scope, client_approved_at: { not: null }, AND: [clientHistoryTaskWhere()] },
         select: {
           id: true,
           title: true,
