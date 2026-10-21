@@ -614,6 +614,11 @@ model ClientContact {
   is_primary        Boolean @default(false)
   notes             String? @db.Text
 
+  // Client-portal role (portal MVP A3). `can_initiate_work` is derived from it on every write
+  // (owner and member = true). `role` above is the contact's job title, unrelated.
+  portal_role    PortalRole       @default(viewer)
+  project_grants ProjectContact[]
+
   is_deleted Boolean  @default(false)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -823,8 +828,12 @@ model Project {
   status ProjectStatus @default(quote)
 
   // Relationships
-  client_id String  @db.Uuid
-  client    Client  @relation(fields: [client_id], references: [id])
+  client_id         String           @db.Uuid
+  client            Client           @relation(fields: [client_id], references: [id])
+  // Client-portal visibility (portal MVP A3): inherit | restricted | hidden.
+  portal_visibility PortalVisibility @default(inherit)
+  contact_grants    ProjectContact[]
+
   site_id   String? @db.Uuid
   site      Site?   @relation(fields: [site_id], references: [id])
   recipe_id String? @db.Uuid
@@ -862,7 +871,7 @@ model Project {
   dependencies_ordering_only Boolean @default(false)
 
   // Notes
-  notes String? @db.Text
+  notes       String? @db.Text
   // Local plan folder path, e.g. /home/mike/Documents/projects/<slug>
   plan_folder String?
 
@@ -870,15 +879,15 @@ model Project {
   // inferred, refreshed nightly / on demand / overridable). source tracks who/what last
   // wrote it: graph (pure computed candidate), bast (nightly/on-demand inference job), or
   // mike (explicit override, sticky until Mike or a later graph/bast pass changes it).
-  next_step_text     String?         @db.Text
-  next_step_owner_id String?         @db.Uuid
-  next_step_owner    User?           @relation("ProjectNextStepOwner", fields: [next_step_owner_id], references: [id])
+  next_step_text                 String?         @db.Text
+  next_step_owner_id             String?         @db.Uuid
+  next_step_owner                User?           @relation("ProjectNextStepOwner", fields: [next_step_owner_id], references: [id])
   // Oracle Projects Tab Phase 3 — an owner who is not a User (e.g. a client contact,
   // "Andy (client)"). Set only when next_step_owner_id is null; the two are mutually
   // exclusive by construction (the write routes never set both).
-  next_step_owner_label String?         @db.VarChar(255)
-  next_step_source      NextStepSource?
-  next_step_at          DateTime?
+  next_step_owner_label          String?         @db.VarChar(255)
+  next_step_source               NextStepSource?
+  next_step_at                   DateTime?
   // Oracle Projects Tab Phase 3 — stamped by POST /api/oracle/projects/[id]/refresh (or
   // the refresh-all variant); cleared by the machine-side job once it writes a fresh
   // next_step. Non-null means "a refresh is queued," read by the nightly/poll job via
@@ -1039,6 +1048,9 @@ model Task {
   is_focus Boolean    @default(false) // User's personal focus flag
 
   // Project relationship (nullable for ad-hoc tasks)
+  // Portal MVP A3: explicitly share this task with the client (private by default).
+  client_visible Boolean @default(false)
+
   project_id String?  @db.Uuid
   project    Project? @relation(fields: [project_id], references: [id])
 
@@ -3282,19 +3294,19 @@ model ApprovalRequest {
   // most one of cancelled_at/approved_at/changes_requested_at, since those three are the
   // terminal states, but queued_at survives past them as the historical record of when it
   // was first queued to send.
-  queued_at              DateTime?
-  queued_by_id           String?   @db.Uuid
-  queued_by              User?     @relation("ApprovalRequestQueuedBy", fields: [queued_by_id], references: [id])
-  cancelled_at           DateTime?
-  approved_at            DateTime?
-  changes_requested_at   DateTime?
+  queued_at            DateTime?
+  queued_by_id         String?   @db.Uuid
+  queued_by            User?     @relation("ApprovalRequestQueuedBy", fields: [queued_by_id], references: [id])
+  cancelled_at         DateTime?
+  approved_at          DateTime?
+  changes_requested_at DateTime?
 
   // Phase 5 fixes (MEDIUM-1, layer 2) — stamped by PUT .../sending the instant the
   // machine-side sender claims this row (queued -> sending), immediately before it
   // calls gog. A `sending` row older than 30 minutes with no PUT .../sent on file is
   // surfaced to Mike as a "Approval send unconfirmed" blocker (owner Mike; never
   // auto-resent) — see lib/oracle/projects/blockers.ts's classifyClientApprovals.
-  send_attempt_at        DateTime?
+  send_attempt_at DateTime?
 
   // Phase 5 — set by PUT .../send-error when the machine-side sender fails to send a
   // queued row; cleared on a subsequent successful send. After 3 recorded errors the
@@ -3360,4 +3372,34 @@ model BlockerDismissal {
 
   @@index([project_id, kind, source_id])
   @@map("blocker_dismissals")
+}
+
+// ---- Client portal roles (portal MVP A3) ----
+enum PortalRole {
+  owner
+  member
+  viewer
+  none
+}
+
+enum PortalVisibility {
+  inherit
+  restricted
+  hidden
+}
+
+// Per-project grant for a contact. Raise-only (no deny rows); role is member | viewer, API-enforced.
+model ProjectContact {
+  id            String        @id @default(uuid()) @db.Uuid
+  project_id    String        @db.Uuid
+  project       Project       @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  contact_id    String        @db.Uuid
+  contact       ClientContact @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  role          PortalRole
+  created_by_id String?       @db.Uuid
+  created_at    DateTime      @default(now())
+
+  @@unique([project_id, contact_id])
+  @@index([contact_id])
+  @@map("project_contacts")
 }
