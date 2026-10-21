@@ -3,12 +3,13 @@
  * lives in the sweeper, which is tested against memory.
  */
 
-import { Prisma, type PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient, type WaitKind } from '@prisma/client';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import type { GuardValues } from './templates';
+import type { EventsStore, EventTarget } from './events';
 import { OPEN_STATES, type SweepStore, type TaskSpec, type WaitData, type WaitEventInput, type WaitRow } from './sweeper';
 
-export function prismaSweepStore(db: PrismaClient): SweepStore {
+export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
   return {
     listPausedDue(now) {
       return db.wait.findMany({ where: { state: 'paused', paused_until: { lte: now } } });
@@ -126,6 +127,31 @@ export function prismaSweepStore(db: PrismaClient): SweepStore {
       // review_clock_on and silent_acceptance_live are Client columns from phase 3. Until then
       // the defaults in templates.ts apply to every client.
       return {};
+    },
+    async eventSeen(eventId: string) {
+      const hit = await db.waitEvent.findFirst({ where: { event_id: { startsWith: `${eventId}:` } }, select: { id: true } });
+      return !!hit;
+    },
+    findTargets(t: EventTarget) {
+      return db.wait.findMany({
+        where: {
+          state: { in: [...OPEN_STATES] },
+          ...(t.wait_id ? { id: t.wait_id } : {}),
+          ...(t.project_id ? { project_id: t.project_id } : {}),
+          ...(t.accord_id ? { accord_id: t.accord_id } : {}),
+          ...(t.charter_id ? { charter_id: t.charter_id } : {}),
+          ...(t.site_id ? { site_id: t.site_id } : {}),
+          ...(t.client_id ? { client_id: t.client_id } : {}),
+          ...(t.contact_id ? { owner_contact_id: t.contact_id } : {}),
+          ...(t.thread_id ? { email_thread_id: t.thread_id } : {}),
+          ...(t.wait_kinds?.length ? { kind: { in: t.wait_kinds as WaitKind[] } } : {}),
+          ...(t.template_key ? { template_key: t.template_key } : {}),
+        },
+        take: 200,
+      });
+    },
+    countAutoExtensions(waitId: string) {
+      return db.waitEvent.count({ where: { wait_id: waitId, kind: 'extended', reason: { startsWith: 'auto-reply' } } });
     },
   };
 }

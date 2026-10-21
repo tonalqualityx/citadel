@@ -39,7 +39,7 @@ export const MAX_FIRE_ERRORS = 3;
 export const CLAIM_STALE_MS = 10 * 60 * 1000;
 export const OPEN_STATES = ['waiting', 'needs_human', 'blocked_by_switch', 'paused'] as const;
 /** Resolutions that start the next step of a chain. */
-export const ADVANCING_RESOLUTIONS = ['approved', 'proceeded_on_silence', 'sent', 'completed'] as const;
+export const ADVANCING_RESOLUTIONS = ['approved', 'proceeded_on_silence', 'sent', 'completed', 'booked', 'signed'] as const;
 
 export type WaitRow = Wait;
 export type WaitData = ReturnType<typeof buildWaitData>;
@@ -206,7 +206,14 @@ export async function resolveWait(
   store: SweepStore,
   wait: WaitRow,
   resolution: string,
-  opts: { now: Date; actor_user_id?: string | null; source: WaitEventInput['source']; reason?: string | null }
+  opts: {
+    now: Date;
+    actor_user_id?: string | null;
+    source: WaitEventInput['source'];
+    reason?: string | null;
+    event_id?: string | null;
+    email_message_id?: string | null;
+  }
 ): Promise<WaitRow> {
   const updated = await store.update(wait.id, {
     state: 'done',
@@ -223,6 +230,8 @@ export async function resolveWait(
     reason: opts.reason ?? `Resolved: ${resolution}.`,
     source: opts.source,
     actor_user_id: opts.actor_user_id ?? null,
+    event_id: opts.event_id ?? null,
+    email_message_id: opts.email_message_id ?? null,
   });
   if ((ADVANCING_RESOLUTIONS as readonly string[]).includes(resolution)) {
     await spawnNextStep(store, updated, opts.now);
