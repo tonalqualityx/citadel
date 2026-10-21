@@ -17,6 +17,8 @@ const updateClientSchema = z.object({
   retainer_usage_mode: z.enum(['low', 'medium', 'high', 'actual']).optional(),
   parent_agency_id: z.string().uuid().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // QuickBooks customer id (set by the invoice sync mapper; null unmaps).
+  qbo_customer_id: z.string().trim().min(1).max(64).optional().nullable(),
 });
 
 export async function GET(

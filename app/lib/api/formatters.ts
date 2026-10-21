@@ -47,6 +47,7 @@ export function formatClientResponse(client: any) {
     parent_agency_id: client.parent_agency_id,
     parent_agency: client.parent_agency || null,
     notes: client.notes,
+    qbo_customer_id: client.qbo_customer_id ?? null,
     sites_count: client._count?.sites ?? client.sites?.length ?? 0,
     sub_clients_count: client._count?.sub_clients ?? 0,
     sites: client.sites?.map(formatSiteResponse),
