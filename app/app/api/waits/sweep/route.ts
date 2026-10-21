@@ -36,15 +36,16 @@ async function notifyMike(w: WaitRow, owner: { user_id: string }): Promise<boole
 }
 
 /**
- * POST /api/waits/sweep: one pass of the wait sweeper. Admin session or admin API key
- * (Bearer), called every 15 minutes by ~/.local/bin/citadel-wait-sweep.sh. `?dry_run=1`
+ * POST /api/waits/sweep: one pass of the wait sweeper. Admin or PM session, or an API key
+ * (Bearer) belonging to one, called every 15 minutes by ~/.local/bin/citadel-wait-sweep.sh. `?dry_run=1`
  * reports what would happen and writes nothing. It sends no mail: a send only stamps fired_at
  * for the machine-side outbox, and no template that sends is open in phase 1.
  */
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['admin']);
+    // pm or admin, like the other sweeps (tasks/unblock-sweep): the machine-side API key may belong to either.
+    requireRole(auth, ['pm', 'admin']);
     const dryRun = new URL(request.url).searchParams.get('dry_run') === '1';
     const report = await runSweep(
       {

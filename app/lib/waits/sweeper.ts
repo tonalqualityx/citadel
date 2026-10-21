@@ -392,6 +392,13 @@ async function fireOne(
     const action = effectiveAction(wait, guards);
     const step = template?.steps[wait.step - 1];
 
+    // Phase 1 gate: a registered-but-disabled template never fires.
+    if (!template || !template.enabled) {
+      report.skipped_disabled.push(wait.id);
+      if (!dryRun) await store.update(wait.id, { claimed_at: null });
+      return;
+    }
+
     if (template && template.precondition && !(await store.preconditionMet(wait, template.precondition))) {
       report.skipped_precondition.push(wait.id);
       if (!dryRun) {
@@ -402,13 +409,6 @@ async function fireOne(
           reason: `Precondition ${template.precondition} says not to fire.`,
         });
       }
-      return;
-    }
-
-    // Phase 1 gate: a registered-but-disabled template never fires.
-    if (!template || !template.enabled) {
-      report.skipped_disabled.push(wait.id);
-      if (!dryRun) await store.update(wait.id, { claimed_at: null });
       return;
     }
 
