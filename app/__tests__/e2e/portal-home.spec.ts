@@ -59,16 +59,18 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
     await page.goto('/portal/home');
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('Welcome back,', { exact: false })).toBeVisible();
+    // The page header replaces the old "Welcome back" greeting: one H1, worded from the count.
+    await expect(page.getByRole('heading', { level: 1, name: /need/i })).toBeVisible();
 
     // Pending approvals — the fixture article and task.
     await expect(page.getByText('E2E: Q3 Recap (portal fixture)')).toBeVisible();
     await expect(page.getByText('E2E: Homepage refresh (portal fixture)')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'View preview' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open the preview' })).toBeVisible();
 
     // Active project + open balance.
     await expect(page.getByText('E2E: Site relaunch (portal fixture)')).toBeVisible();
-    await expect(page.getByText('$1,500')).toBeVisible();
+    // Scoped to the Needs you balance item: the Open balance section also prints the amount.
+    await expect(page.getByText('Open balance of $1,500')).toBeVisible();
 
     // Stats tile (leads headline + site tile).
     await expect(page.getByText('14 leads', { exact: false })).toBeVisible();
@@ -91,7 +93,8 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
     await page.goto('/portal/home');
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('Nothing is waiting on your review right now.', { exact: false })).toBeVisible();
+    // The all-clear empty state (its H3; the page H1 says the same words).
+    await expect(page.getByRole('heading', { level: 3, name: 'Nothing needs you right now' })).toBeVisible();
     await expect(page.getByText('No stats yet', { exact: false })).toBeVisible();
     await expect(page.getByText('No active projects right now.')).toBeVisible();
     await expect(page.getByText('Nothing outstanding right now.')).toBeVisible();
@@ -107,17 +110,17 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
     await page.goto('/portal/home');
     await page.waitForLoadState('networkidle');
 
-    const taskCard = page.getByText('E2E: Homepage refresh (portal fixture)').locator('..').locator('..');
+    const taskCard = page.locator('.ny li', { hasText: 'E2E: Homepage refresh (portal fixture)' });
     await expect(taskCard.getByRole('button', { name: 'Approve' })).toBeVisible();
     await taskCard.getByRole('button', { name: 'Approve' }).click();
 
-    // The page refetches after a successful approve — the task drops out of "waiting on your
-    // review" (it's no longer client_approved_at: null) and shows up in Recent activity instead.
-    // (The plain title text is NOT a safe "gone" signal on its own — it legitimately reappears
-    // in the activity feed as "You approved: <title>".)
+    // The row keeps a done line until reload, the Approve button is gone, and the page refetches:
+    // the task now shows in Recently finished as "You approved". (The plain title text is NOT a
+    // safe "gone" signal on its own: it stays in the done line and in the finished list.)
     await expect(page.getByRole('button', { name: 'Approve' })).toBeHidden({ timeout: 10000 });
+    await expect(page.getByText('Approved. Thank you. We will tell you when it is live.')).toBeVisible();
     await expect(
-      page.getByText(/You approved: E2E: Homepage refresh \(portal fixture\)/)
+      page.locator('.tl li', { hasText: 'You approved' }).filter({ hasText: 'E2E: Homepage refresh (portal fixture)' })
     ).toBeVisible();
 
     await context.close();
@@ -134,7 +137,7 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
   });
 });
 
-// Portal MVP A5: Needs-from-you heading, project page, history and booking. Same fixtures; the
+// Portal MVP A5: Needs-you heading, project page, history and booking. Same fixtures; the
 // populated client's owner session sees the fixture project and its completed task and article.
 test.describe('Portal MVP A5 - project page, history, booking', () => {
   test('home leads with Needs from you and links each project to its page', async ({ browser }) => {
@@ -144,9 +147,13 @@ test.describe('Portal MVP A5 - project page, history, booking', () => {
 
     await page.goto('/portal/home');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('heading', { name: 'Needs from you' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Needs you', exact: true })).toBeVisible();
 
-    await page.getByRole('link', { name: /E2E: Site relaunch \(portal fixture\)/ }).click();
+    // The project title is a card heading now; the card's link reads "Open the project".
+    await page
+      .locator('article.rcard', { hasText: 'E2E: Site relaunch (portal fixture)' })
+      .getByRole('link', { name: 'Open the project' })
+      .click();
     await page.waitForURL(/\/portal\/projects\//);
     await expect(page.getByRole('heading', { name: 'E2E: Site relaunch (portal fixture)' })).toBeVisible();
     await expect(page.getByText('What we need from you')).toBeVisible();

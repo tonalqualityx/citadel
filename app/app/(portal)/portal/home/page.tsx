@@ -1,18 +1,40 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import {
+  Check, CircleCheck, ClipboardList, ExternalLink, Eye, FileText, MessageSquareText, PenLine, Plus, Receipt,
+  TriangleAlert, Video,
+} from 'lucide-react';
 import { activityLabel, type ChipTone } from '@/lib/portal/status-labels';
+import { AWAITING_YOU_LABEL } from '@/lib/portal/status-labels';
 import type { Engagement } from '@/lib/portal/engagement';
-import { RequestRow } from '@/components/portal/request-row';
-import { RequestWorkButton } from '@/components/portal/request-work-button';
+import { homeHeadline, homeLede } from '@/lib/portal/headline';
+import { PortalButton } from '@/components/portal/ui/button';
+import { ActionLink } from '@/components/portal/ui/action-link';
+import { PageHeader } from '@/components/portal/ui/page-header';
+import { Section } from '@/components/portal/ui/section';
+import { RailCard } from '@/components/portal/ui/rail-card';
+import { Callout } from '@/components/portal/ui/callout';
+import { NeedsYouItem } from '@/components/portal/ui/needs-you-item';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+import { KindTag } from '@/components/portal/ui/kind-tag';
+import { SiteMark } from '@/components/portal/ui/site-mark';
+import { ProgressBar } from '@/components/portal/ui/progress-bar';
+import { PhaseTrack } from '@/components/portal/ui/phase-track';
+import { StatTile } from '@/components/portal/ui/stat-tile';
+import { Timeline, type TimelineItem } from '@/components/portal/ui/timeline';
+import { Field } from '@/components/portal/ui/field';
+import { EmptyState } from '@/components/portal/ui/empty-state';
+import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
+import { KIND_ICON } from '@/components/portal/ui/icons';
+import Link from 'next/link';
 
-// Client account home (Portal v2 phase 1, sections reordered in portal MVP A5). Order: Needs from
-// you (approvals, open questions, review links, open balance for owners), Active projects with
-// progress, Recent activity, Open balance (owners), Site stats. Backed by GET /api/portal/home, a single aggregate payload
-// so this page needs one round trip (matches the existing session-scoped page pattern:
-// fetch-on-mount, loading/error/401-redirect, no SWR/react-query).
+// Client account home (Portal v2 phase 1, redesigned in portal redesign slice 3). Order: header
+// (headline from the count), Needs you (approvals, plans, open questions, review links, owner
+// balance), Moving now (projects, retainer, requests), Your sites this month, Open balance
+// (owners), Recently finished. Backed by GET /api/portal/home, a single aggregate payload so this
+// page needs one round trip (fetch-on-mount, loading/error/401-redirect, no SWR/react-query).
 
 interface ClientComment {
   id: string;
@@ -52,6 +74,7 @@ interface ClientProject {
   progress: { done: number; total: number };
   current_phase: string | null;
   review_link: string | null;
+  phases?: Array<{ name: string; state: 'done' | 'current' | 'upcoming' }>;
 }
 
 interface ClientQuestion {
@@ -75,7 +98,7 @@ interface SiteStats {
   period: string;
   payload: {
     leads?: { count: number; change_pct?: number | null };
-    traffic?: { sessions: number; change_pct?: number | null; top_sources?: { source: string; sessions: number }[] };
+    traffic?: { sessions: number; change_pct?: number | null; top_sources?: { source: string; sessions: number }[]; series?: number[] };
     rankings?: { avg_position?: number | null; tracked_keywords?: number; top3_count?: number };
     uptime_pct?: number | null;
   };
@@ -126,6 +149,7 @@ interface HomePayload {
   } | null;
   activity: ActivityItem[];
   stats: SiteStats[];
+  summary?: { needs_count: number; moving: { projects: number; retainers: number; requests: number } };
 }
 
 function formatDate(iso: string | null): string {
@@ -133,6 +157,13 @@ function formatDate(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatShortDate(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // Date-only strings (YYYY-MM-DD) parse as UTC midnight; format them in UTC so US timezones do not show the day before.
@@ -151,11 +182,49 @@ function formatCurrency(amount: number): string {
   return amount.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 }
 
-function formatTrend(changePct: number | null | undefined): string | null {
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+function monthName(year: number, month0: number): string {
+  return new Date(Date.UTC(year, month0, 1)).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+}
+
+/** The month before the one the snapshot covers: "September" for an October snapshot. */
+function previousMonthName(stats: SiteStats): string {
+  const m = /^(\d{4})-(\d{2})/.exec(stats.period ?? '');
+  let year: number;
+  let month0: number;
+  if (m) {
+    year = Number(m[1]);
+    month0 = Number(m[2]) - 1;
+  } else {
+    const d = new Date(stats.captured_at);
+    const ok = !Number.isNaN(d.getTime());
+    year = ok ? d.getUTCFullYear() : new Date().getUTCFullYear();
+    month0 = ok ? d.getUTCMonth() : new Date().getUTCMonth();
+  }
+  return monthName(year, month0 - 1);
+}
+
+function trendWords(changePct: number | null | undefined): string | null {
   if (changePct === null || changePct === undefined) return null;
   const pct = Math.round(changePct * 100);
-  if (pct === 0) return 'flat vs. last period';
-  return `${pct > 0 ? '+' : ''}${pct}% vs. last period`;
+  if (pct === 0) return 'flat on the last period';
+  return `${pct > 0 ? 'up' : 'down'} ${Math.abs(pct)}% on the last period`;
+}
+
+function HomeSkeleton() {
+  return (
+    <SkeletonRegion label="Your account home">
+      <div className="skel-stack" style={{ display: 'grid', gap: 32 }}>
+        <Skeleton block lines={2} />
+        <Skeleton block lines={4} />
+        <Skeleton block lines={3} />
+        <Skeleton block lines={3} />
+      </div>
+    </SkeletonRegion>
+  );
 }
 
 export default function ClientHomePage() {
@@ -169,6 +238,8 @@ export default function ClientHomePage() {
   const [changesNote, setChangesNote] = useState('');
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Tasks approved in this visit keep their row, with a done line, until the page is reloaded.
+  const [approvedDone, setApprovedDone] = useState<Array<{ id: string; title: string }>>([]);
 
   const fetchHome = useCallback(async () => {
     try {
@@ -195,7 +266,7 @@ export default function ClientHomePage() {
     fetchHome();
   }, [fetchHome]);
 
-  async function handleApproveTask(taskId: string) {
+  async function handleApproveTask(taskId: string, title: string) {
     setSubmittingId(taskId);
     setActionError(null);
     try {
@@ -205,6 +276,7 @@ export default function ClientHomePage() {
         setActionError(body.error || 'Something went wrong. Please try again.');
         return;
       }
+      setApprovedDone((prev) => [...prev, { id: taskId, title }]);
       await fetchHome();
     } catch {
       setActionError('Something went wrong. Please try again.');
@@ -241,20 +313,13 @@ export default function ClientHomePage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-text-secondary">Loading…</div>
-      </div>
-    );
-  }
+  if (loading) return <HomeSkeleton />;
 
   if (error) {
     return (
-      <div className="bg-surface rounded-lg border border-border p-8 text-center">
-        <h2 className="text-xl font-semibold text-text-main mb-2">Unable to load your account home</h2>
-        <p className="text-text-secondary">{error}</p>
-      </div>
+      <Callout tone="urgent" icon={TriangleAlert} title="We could not load your account home" id="home-error">
+        <p>{error}. Refresh the page, or email support@becomeindelible.com.</p>
+      </Callout>
     );
   }
 
@@ -262,392 +327,437 @@ export default function ClientHomePage() {
 
   const { client, pending_approvals, needs_from_you, projects, billing, activity, stats, requests } = data;
   const hasBalance = Boolean(billing && billing.open_count > 0);
-  const hasPending =
-    pending_approvals.articles.length > 0 ||
-    pending_approvals.tasks.length > 0 ||
-    needs_from_you.questions.length > 0 ||
-    needs_from_you.review_links.length > 0 ||
-    hasBalance;
-  const headlineStats = stats.find((s) => s.payload.leads) ?? null;
+  const plansReady = data.retainers.filter((r) => r.plan_ready);
+  const needsCount =
+    pending_approvals.articles.length +
+    pending_approvals.tasks.length +
+    plansReady.length +
+    needs_from_you.questions.length +
+    needs_from_you.review_links.length +
+    (hasBalance ? 1 : 0);
+  const showCallout = needsCount > 0 || approvedDone.length > 0;
+  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const moving = data.summary?.moving ?? {
+    projects: projects.length,
+    retainers: data.retainers.length,
+    requests: requests.open_count,
+  };
+  const recent = activity.slice(0, 4);
+  const timeline: TimelineItem[] = recent.map((item) => ({
+    id: `${item.type}-${item.id}`,
+    kind: 'history',
+    type: item.type === 'task_approved' ? 'approved' : item.type === 'article_published' ? 'published' : 'completed',
+    title: item.title,
+    what: activityLabel(item.type),
+    at: formatShortDate(item.at),
+  }));
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={async () => {
-            try {
-              await fetch('/api/portal/logout', { method: 'POST' });
-            } finally {
-              router.replace('/portal/login');
-            }
-          }}
-          className="text-sm text-text-tertiary underline"
-        >
-          Sign out
-        </button>
-      </div>
-      {/* Greeting + headline */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <h2 className="text-2xl font-bold text-text-main mb-1">Welcome back, {client.name}</h2>
-          <RequestWorkButton />
-        </div>
-        {headlineStats?.payload.leads ? (
-          <p className="mt-2 text-text-secondary">
-            <span className="text-text-main font-semibold">{headlineStats.payload.leads.count} leads</span> this
-            period{' '}
-            {formatTrend(headlineStats.payload.leads.change_pct) && (
-              <span className="text-text-tertiary">({formatTrend(headlineStats.payload.leads.change_pct)})</span>
-            )}
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-text-tertiary">
-            Here&apos;s everything on your account right now.
-          </p>
-        )}
-      </div>
+    <>
+      <PageHeader
+        size="display"
+        motif="ridgeline"
+        eyebrow={[client.name, today]}
+        title={homeHeadline(needsCount)}
+        lede={homeLede(moving)}
+        actions={
+          <>
+            <PortalButton href="/portal/requests/new" icon={Plus}>
+              Request work
+            </PortalButton>
+            <PortalButton href="/portal/book" variant="secondary" icon={Video}>
+              Book a meeting
+            </PortalButton>
+          </>
+        }
+      />
 
-      {/* Pending approvals */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-1">Needs from you</h3>
-        <p className="text-sm text-text-tertiary mb-4">
-          Work to approve, questions to answer and links to open. Approving here or by email both count.
-        </p>
-
-        {!hasPending ? (
-          <div className="rounded-lg border border-border bg-surface-secondary p-6 text-center">
-            <p className="text-sm text-text-tertiary">
-              Nothing is waiting on your review right now. We&apos;ll email you when something&apos;s ready.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {pending_approvals.articles.map((article) => (
-              <Link
-                key={article.id}
-                href={`/portal/articles/${article.id}`}
-                className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-medium text-text-main">{article.title}</span>
-                  <span className="shrink-0 text-xs text-text-tertiary">Article &middot; Updated {formatDate(article.updated_at)}</span>
-                </div>
-              </Link>
+      {showCallout ? (
+        <Callout icon={PenLine} title="Needs you" count={needsCount} note="Approving here or by email both count." id="needs-you">
+          <ul className="ny">
+            {approvedDone.map((a) => (
+              <NeedsYouItem
+                key={`done-${a.id}`}
+                icon={Check}
+                title={a.title}
+                chip={{ label: 'Approved', tone: 'done' }}
+                actions={
+                  <p className="meta">
+                    <CircleCheck className="i" aria-hidden="true" focusable="false" />
+                    Approved. Thank you. We will tell you when it is live.
+                  </p>
+                }
+              />
             ))}
 
             {pending_approvals.tasks.map((task) => (
-              <div key={task.id} className="rounded-lg border border-border p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="font-medium text-text-main">{task.title}</span>
-                  <span className="shrink-0 text-xs text-text-tertiary">Task &middot; Updated {formatDate(task.updated_at)}</span>
-                </div>
-                {task.staging_preview_url && (
-                  <a
-                    href={task.staging_preview_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-block text-sm text-brand-primary hover:underline"
-                  >
-                    View preview
-                  </a>
-                )}
-                <div className="flex flex-col sm:flex-row gap-3 mt-3">
-                  <button
-                    type="button"
-                    disabled={submittingId === task.id}
-                    onClick={() => handleApproveTask(task.id)}
-                    className="px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
-                  >
-                    {submittingId === task.id ? 'Approving…' : 'Approve'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={submittingId === task.id}
-                    onClick={() => {
-                      setOpenChangesFor(openChangesFor === task.id ? null : task.id);
-                      setActionError(null);
-                    }}
-                    className="px-4 py-2 rounded-md border border-border text-text-main hover:bg-surface-secondary transition-colors"
-                  >
-                    Something&apos;s not right
-                  </button>
-                </div>
-                {openChangesFor === task.id && (
-                  <div className="mt-3 border-t border-border pt-3">
-                    <textarea
-                      value={changesNote}
-                      onChange={(e) => setChangesNote(e.target.value)}
-                      rows={3}
-                      placeholder="Tell us what's not right and we'll take another pass."
-                      className="w-full rounded-md border border-border bg-surface px-3 py-2 text-text-main placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-                    />
-                    <button
-                      type="button"
-                      disabled={submittingId === task.id}
-                      onClick={() => handleRequestChanges(task.id)}
-                      className="mt-2 px-4 py-2 rounded-md bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
+              <NeedsYouItem
+                key={task.id}
+                icon={Eye}
+                title={task.title}
+                chip={{ label: AWAITING_YOU_LABEL, tone: 'attention' }}
+                extra={<span>{`Updated ${formatDate(task.updated_at)}`}</span>}
+                actions={
+                  <>
+                    <PortalButton
+                      icon={Check}
+                      busy={submittingId === task.id}
+                      busyLabel="Approving…"
+                      onClick={() => handleApproveTask(task.id, task.title)}
                     >
-                      {submittingId === task.id ? 'Sending…' : 'Send back for changes'}
-                    </button>
-                  </div>
-                )}
-              </div>
+                      Approve
+                    </PortalButton>
+                    {task.staging_preview_url ? (
+                      <PortalButton
+                        variant="secondary"
+                        icon={ExternalLink}
+                        href={task.staging_preview_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open the preview
+                      </PortalButton>
+                    ) : null}
+                    <PortalButton
+                      variant="quiet"
+                      disabled={submittingId === task.id}
+                      aria-expanded={openChangesFor === task.id}
+                      onClick={() => {
+                        setOpenChangesFor(openChangesFor === task.id ? null : task.id);
+                        setActionError(null);
+                      }}
+                    >
+                      Something is not right
+                    </PortalButton>
+                  </>
+                }
+              />
             ))}
+
+            {pending_approvals.articles.map((article) => (
+              <NeedsYouItem
+                key={article.id}
+                icon={FileText}
+                title={article.title}
+                chip={{ label: AWAITING_YOU_LABEL, tone: 'attention' }}
+                extra={<span>{`Article. Updated ${formatDate(article.updated_at)}`}</span>}
+                actions={
+                  <PortalButton href={`/portal/articles/${article.id}`} icon={Eye}>
+                    Review
+                  </PortalButton>
+                }
+              />
+            ))}
+
+            {plansReady.map((r) => (
+              <NeedsYouItem
+                key={`plan-${r.id}`}
+                icon={FileText}
+                title={r.heading}
+                detail="A plan is ready for you to approve."
+                chip={{ label: 'Plan ready for you', tone: 'attention' }}
+                extra={<KindTag kind="retainer" label={`Retainer: ${r.heading}`} href="/portal/retainer" />}
+                actions={
+                  <PortalButton href="/portal/retainer" icon={FileText}>
+                    Open the plan
+                  </PortalButton>
+                }
+              />
+            ))}
+
             {needs_from_you.questions.map((q) => (
-              <div key={q.task_id} className="rounded-lg border border-border p-4">
-                <span className="font-medium text-text-main">{q.title}</span>
-                {q.question && <p className="mt-1 text-sm text-text-secondary">{q.question}</p>}
-                <p className="mt-2 text-xs text-text-tertiary">
-                  A question for you{q.asked_at ? `. Asked ${formatDate(q.asked_at)}` : ''}.
-                </p>
-                <Link
-                  href={`/portal/work/${q.task_id}`}
-                  className="mt-2 inline-flex min-h-[44px] items-center rounded-md bg-brand-primary px-4 py-2 text-sm font-semibold text-white hover:bg-brand-primary/90"
-                >
-                  Answer
-                </Link>
-              </div>
+              <NeedsYouItem
+                key={q.task_id}
+                icon={MessageSquareText}
+                title={q.title}
+                detail={q.question}
+                chip={{ label: 'Needs your answer', tone: 'attention' }}
+                extra={q.asked_at ? <span>{`Asked ${formatShortDate(q.asked_at)}`}</span> : null}
+                actions={
+                  <PortalButton href={`/portal/work/${q.task_id}`} icon={MessageSquareText}>
+                    Answer
+                  </PortalButton>
+                }
+              />
             ))}
+
             {needs_from_you.review_links.map((l) => (
-              <a
+              <NeedsYouItem
                 key={l.project_id}
-                href={l.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary"
-              >
-                <span className="font-medium text-text-main">Review and answer open questions</span>
-                <span className="block text-xs text-text-tertiary">{l.project_name}</span>
-              </a>
+                icon={ClipboardList}
+                title="Review and answer open questions"
+                chip={{ label: 'Needs your answer', tone: 'attention' }}
+                extra={<KindTag kind="project" label={`Project: ${l.project_name}`} href={`/portal/projects/${l.project_id}`} />}
+                actions={
+                  <PortalButton href={l.url} icon={ExternalLink} target="_blank" rel="noopener noreferrer">
+                    Open the review
+                  </PortalButton>
+                }
+              />
             ))}
-            {billing && billing.open_count > 0 && (
-              <a href="#open-balance" className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary">
-                <span className="font-medium text-text-main">Open balance of {formatCurrency(billing.open_amount)}</span>
-              </a>
-            )}
-            {actionError && <p className="text-sm text-status-error">{actionError}</p>}
-          </div>
-        )}
-      </div>
 
-      {/* Active projects with progress */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">Active projects</h3>
-        {projects.length === 0 ? (
-          <p className="text-sm text-text-tertiary">No active projects right now.</p>
-        ) : (
-          <ul className="space-y-3">
-            {projects.map((project) => (
-              <li key={project.id}>
-                <Link
-                  href={`/portal/projects/${project.id}`}
-                  className="block rounded-lg border border-border p-4 transition-colors hover:border-text-tertiary"
+            {billing && billing.open_count > 0 ? (
+              <NeedsYouItem
+                icon={Receipt}
+                title={`Open balance of ${formatCurrency(billing.open_amount)}`}
+                chip={{ label: billing.source === 'unbilled_work' ? 'Not yet invoiced' : 'Invoice open', tone: 'quiet' }}
+                actions={
+                  <PortalButton href="#open-balance" variant="secondary" icon={Receipt}>
+                    View billing
+                  </PortalButton>
+                }
+              />
+            ) : null}
+          </ul>
+
+          {openChangesFor && pending_approvals.tasks.some((t) => t.id === openChangesFor) ? (
+            <div className="changes">
+              <Field id={`changes-${openChangesFor}`} label="What should change?">
+                <textarea
+                  value={changesNote}
+                  onChange={(e) => setChangesNote(e.target.value)}
+                  rows={3}
+                  placeholder="Tell us what is not right and we will take another pass."
+                />
+              </Field>
+              <div className="actions">
+                <PortalButton
+                  busy={submittingId === openChangesFor}
+                  busyLabel="Sending…"
+                  onClick={() => handleRequestChanges(openChangesFor)}
                 >
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="font-medium text-text-main">{project.name}</span>
-                    <span className="shrink-0 text-xs text-text-tertiary">{project.status_label}</span>
-                  </div>
-                  <p className="mt-1 text-sm text-text-secondary">
-                    {project.progress.total > 0
-                      ? `${project.progress.done} of ${project.progress.total} tasks complete`
-                      : 'No tasks to show yet'}
-                    {project.current_phase ? ` \u00b7 ${project.current_phase}` : ''}
-                    {project.target_date ? ` \u00b7 Target ${formatDate(project.target_date)}` : ''}
-                  </p>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+                  Send back for changes
+                </PortalButton>
+              </div>
+            </div>
+          ) : null}
 
-      {/* Retainer */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-1">Retainer</h3>
-        {data.retainers.length === 0 ? (
-          <p className="text-sm text-text-tertiary">No retainer on your account.</p>
+          {actionError ? (
+            <p className="note" role="alert">
+              <TriangleAlert className="i" aria-hidden="true" focusable="false" /> {actionError}
+            </p>
+          ) : null}
+        </Callout>
+      ) : (
+        <EmptyState
+          art="all-clear"
+          title="Nothing needs you right now"
+          body="When something is ready for your review, it shows here and we email you."
+        />
+      )}
+
+      <Section id="moving" title="Moving now" lede="What the team is working on for you.">
+        {projects.length === 0 ? (
+          <RailCard kind="project" icon={KIND_ICON.project} eyebrow="Project" title="Projects">
+            <p className="meta">No active projects right now.</p>
+          </RailCard>
         ) : (
-          <ul className="divide-y divide-border">
-            {data.retainers.map((r) => (
-              <li key={r.id} className="py-3">
-                <div className="flex items-center justify-between gap-4">
-                  <Link href="/portal/retainer" className="font-medium text-text-main hover:underline">
-                    {r.heading}
-                  </Link>
-                  <span className="shrink-0 text-xs text-text-tertiary">{r.period}</span>
-                </div>
-                {r.plan_ready && <p className="mt-1 text-sm text-text-secondary">A plan is ready for you to approve.</p>}
-                {r.open.length > 0 && (
-                  <ul className="mt-1 space-y-1 text-sm text-text-secondary">
-                    {r.open.map((i) => (
-                      <li key={i.id}>
-                        <Link href={`/portal/work/${i.id}`} className="hover:underline">
-                          {i.title}
-                        </Link>{' '}
-                        <span className="text-text-tertiary">({i.state.label})</span>
-                      </li>
-                    ))}
-                  </ul>
+          projects.map((project) => {
+            const phases = project.phases ?? [];
+            const currentIdx = phases.findIndex((p) => p.state === 'current');
+            const nextPhase = currentIdx >= 0 ? phases[currentIdx + 1]?.name ?? null : null;
+            return (
+              <RailCard
+                key={project.id}
+                kind="project"
+                icon={KIND_ICON.project}
+                eyebrow="Project"
+                title={project.name}
+                chip={{ label: project.status_label, tone: 'moving' }}
+              >
+                {phases.length > 0 ? <PhaseTrack phases={phases} kind="project" /> : null}
+                {project.progress.total > 0 ? (
+                  <ProgressBar
+                    done={project.progress.done}
+                    total={project.progress.total}
+                    label="tasks complete"
+                    kind="project"
+                    next={nextPhase}
+                  />
+                ) : (
+                  <p className="meta">No tasks to show yet</p>
                 )}
-              </li>
-            ))}
-          </ul>
+                {phases.length === 0 && project.current_phase ? <p className="meta">{project.current_phase}</p> : null}
+                {project.target_date ? <p className="meta">{`Target ${formatDate(project.target_date)}`}</p> : null}
+                <ActionLink href={`/portal/projects/${project.id}`}>Open the project</ActionLink>
+              </RailCard>
+            );
+          })
         )}
-        <p className="mt-4 text-sm">
-          <Link href="/portal/retainer" className="text-brand-primary hover:underline">
-            See your retainer
-          </Link>
-        </p>
-      </div>
 
-      {/* Requests */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-1">Requests</h3>
-        {requests.top.length === 0 ? (
-          <p className="text-sm text-text-tertiary">No open requests right now.</p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {requests.top.map((item) => (
-              <RequestRow key={item.id} item={item} />
-            ))}
-          </ul>
-        )}
-        <p className="mt-4 text-sm">
-          <Link href="/portal/requests" className="text-brand-primary hover:underline">
-            {requests.open_count > requests.top.length ? `See all ${requests.open_count} requests` : 'See all requests'}
-          </Link>
-        </p>
-      </div>
-
-      {/* Recent activity */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">Recent activity</h3>
-        {activity.length === 0 ? (
-          <p className="text-sm text-text-tertiary">Nothing to show yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {activity.map((item) => (
-              <li key={`${item.type}-${item.id}`} className="flex items-center justify-between gap-4 text-sm">
-                <span className="text-text-main">
-                  {activityLabel(item.type)}: {item.title}
-                </span>
-                <span className="shrink-0 text-xs text-text-tertiary">{formatDate(item.at)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="mt-4 text-sm">
-          <Link href="/portal/history" className="text-brand-primary hover:underline">
-            See all history
-          </Link>
-        </p>
-      </div>
-
-      {billing && (
-        <div id="open-balance" className="bg-surface rounded-lg border border-border p-6">
-          <h3 className="text-lg font-semibold text-text-main mb-4">Open balance</h3>
-          {billing.source === 'unbilled_work' ? (
-            billing.open_count === 0 ? (
-              <p className="text-sm text-text-tertiary">Nothing outstanding right now.</p>
+        <div className="grid-2">
+          <RailCard kind="retainer" icon={KIND_ICON.retainer} eyebrow="Retainer" title="Retainer">
+            {data.retainers.length === 0 ? (
+              <p className="meta">No retainer on your account.</p>
             ) : (
-              <>
-                <p className="text-sm font-medium text-text-tertiary">{billing.label ?? 'Work not yet invoiced'}</p>
-                <p className="text-2xl font-bold text-text-main">{formatCurrency(billing.open_amount)}</p>
-                <p className="text-sm text-text-tertiary mt-1">
-                  {billing.open_count} item{billing.open_count === 1 ? '' : 's'} awaiting invoicing
-                </p>
-              </>
-            )
-          ) : billing.open_count === 0 ? (
-            <p className="text-sm text-text-tertiary">No outstanding invoices.</p>
-          ) : (
-            <>
-              <p className="text-2xl font-bold text-text-main">{formatMoney(billing.open_amount)}</p>
-              <p className="text-sm text-text-tertiary mt-1">
-                {billing.open_count} open invoice{billing.open_count === 1 ? '' : 's'}
-                {billing.oldest_due_date ? ` \u00b7 oldest due ${formatDay(billing.oldest_due_date)}` : ''}
-              </p>
-              <ul className="mt-4 divide-y divide-border text-sm">
-                {billing.invoices.map((inv) => (
-                  <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                    <span className="text-text-main">
-                      Invoice {inv.number ?? ''}
-                      <span className="block text-xs text-text-tertiary">
-                        Dated {formatDay(inv.date)}
-                        {inv.due_date ? ` \u00b7 due ${formatDay(inv.due_date)}` : ''}
-                        {inv.overdue ? ' \u00b7 past due' : ''}
-                      </span>
+              <ul className="rows">
+                {data.retainers.map((r) => (
+                  <li key={r.id}>
+                    <span className="t">
+                      <Link href="/portal/retainer">{r.heading}</Link>
                     </span>
-                    <span className="flex items-center gap-3">
-                      <span className="font-medium text-text-main">{formatMoney(inv.balance)}</span>
-                      {inv.pay_link && (
-                        <a
-                          href={inv.pay_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-brand-primary hover:underline"
-                        >
-                          Pay
-                        </a>
-                      )}
+                    <StatusChip label={r.status.label} tone={r.status.tone} />
+                    <span className="meta">
+                      <span>{r.period}</span>
+                      {r.plan_ready ? <span>A plan is ready for you to approve.</span> : null}
+                      {r.open.map((i) => (
+                        <span key={i.id}>
+                          <Link href={`/portal/work/${i.id}`}>{i.title}</Link>
+                          {` (${i.state.label})`}
+                        </span>
+                      ))}
                     </span>
                   </li>
                 ))}
               </ul>
-            </>
-          )}
-        </div>
-      )}
+            )}
+            <ActionLink href="/portal/retainer">Open the retainer</ActionLink>
+          </RailCard>
 
-      {/* Stats tiles per site */}
-      <div className="bg-surface rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold text-text-main mb-4">Site stats</h3>
+          <RailCard kind="request" icon={KIND_ICON.request} eyebrow="Requests" title={`${requests.open_count} open`}>
+            {requests.top.length === 0 ? (
+              <p className="meta">No open requests right now.</p>
+            ) : (
+              <ul className="rows">
+                {requests.top.map((item) => (
+                  <li key={item.id}>
+                    <span className="t">
+                      <Link href={`/portal/work/${item.id}`}>{item.title}</Link>
+                    </span>
+                    <StatusChip label={item.state.label} tone={item.state.tone} />
+                    {item.site ? (
+                      <span className="meta">
+                        <SiteMark name={item.site.name} />
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ActionLink href="/portal/requests">
+              {requests.open_count > requests.top.length ? `See all ${requests.open_count} requests` : 'See all requests'}
+            </ActionLink>
+          </RailCard>
+        </div>
+      </Section>
+
+      <Section id="sites" title="Your sites this month" aside="Visits, last 30 days">
         {stats.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface-secondary p-6 text-center">
-            <p className="text-sm text-text-tertiary">
-              No stats yet. We&apos;ll show your leads, traffic, and rankings here once reporting is live.
-            </p>
-          </div>
+          <EmptyState
+            art="field"
+            title="No stats yet"
+            body="We will show your leads, traffic and rankings here once reporting is live."
+          />
         ) : (
-          <div className="space-y-4">
-            {stats.map((s) => (
-              <div key={s.site.id} className="rounded-lg border border-border p-4">
-                <div className="flex items-center justify-between gap-4 mb-3">
-                  <span className="font-medium text-text-main">{s.site.name}</span>
-                  <span className="text-xs text-text-tertiary">As of {formatDate(s.captured_at)}</span>
+          <div className="tiles">
+            {stats.map((s) => {
+              const t = s.payload.traffic;
+              const leads = s.payload.leads;
+              const kw = s.payload.rankings?.tracked_keywords;
+              const uptime = s.payload.uptime_pct;
+              const vs = previousMonthName(s);
+              let value: number | null = null;
+              let label = '';
+              let change: number | null | undefined = null;
+              if (t) {
+                value = t.sessions;
+                label = 'visits';
+                change = t.change_pct;
+              } else if (leads) {
+                value = leads.count;
+                label = 'leads';
+                change = leads.change_pct;
+              } else if (kw !== undefined) {
+                value = kw;
+                label = 'keywords tracked';
+              }
+              const extras: string[] = [];
+              if (leads) {
+                const trend = trendWords(leads.change_pct);
+                extras.push(`${leads.count} ${plural(leads.count, 'lead', 'leads')} this period${trend ? `, ${trend}` : ''}`);
+              }
+              if (kw !== undefined && t) extras.push(`${kw} keywords tracked`);
+              const series = t?.series && t.series.length > 1 ? t.series : undefined;
+              return (
+                <div key={s.site.id} className="tile-col">
+                  {value !== null ? (
+                    <StatTile
+                      site={s.site.name}
+                      value={value}
+                      label={label}
+                      delta={change !== null && change !== undefined ? { pct: change * 100, vs } : null}
+                      series={series}
+                      uptime={
+                        uptime !== undefined && uptime !== null
+                          ? { pct: uptime, note: uptime >= 100 ? null : `Site up ${uptime}% of the time` }
+                          : null
+                      }
+                    />
+                  ) : (
+                    <SiteMark name={s.site.name} />
+                  )}
+                  {extras.length > 0 ? <p className="meta">{extras.join('. ')}</p> : null}
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  {s.payload.leads && (
-                    <div>
-                      <p className="text-text-tertiary">Leads</p>
-                      <p className="text-text-main font-semibold">{s.payload.leads.count}</p>
-                    </div>
-                  )}
-                  {s.payload.traffic && (
-                    <div>
-                      <p className="text-text-tertiary">Sessions</p>
-                      <p className="text-text-main font-semibold">{s.payload.traffic.sessions}</p>
-                    </div>
-                  )}
-                  {s.payload.rankings?.tracked_keywords !== undefined && (
-                    <div>
-                      <p className="text-text-tertiary">Keywords tracked</p>
-                      <p className="text-text-main font-semibold">{s.payload.rankings.tracked_keywords}</p>
-                    </div>
-                  )}
-                  {s.payload.uptime_pct !== undefined && s.payload.uptime_pct !== null && (
-                    <div>
-                      <p className="text-text-tertiary">Uptime</p>
-                      <p className="text-text-main font-semibold">{s.payload.uptime_pct}%</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
-      </div>
-    </div>
+      </Section>
+
+      {billing ? (
+        <div id="open-balance">
+          <Section id="balance" title="Open balance" icon={Receipt}>
+            {billing.source === 'unbilled_work' ? (
+              billing.open_count === 0 ? (
+                <p className="sec-lede">Nothing outstanding right now.</p>
+              ) : (
+                <div className="card">
+                  <p className="meta">{billing.label ?? 'Work not yet invoiced'}</p>
+                  <p className="val">{formatCurrency(billing.open_amount)}</p>
+                  <p className="meta">
+                    {billing.open_count} {plural(billing.open_count, 'item', 'items')} awaiting invoicing
+                  </p>
+                </div>
+              )
+            ) : billing.open_count === 0 ? (
+              <p className="sec-lede">No outstanding invoices.</p>
+            ) : (
+              <div className="card">
+                <p className="val">{formatMoney(billing.open_amount)}</p>
+                <p className="meta">
+                  {billing.open_count} open {plural(billing.open_count, 'invoice', 'invoices')}
+                  {billing.oldest_due_date ? `. Oldest due ${formatDay(billing.oldest_due_date)}` : ''}
+                </p>
+                <ul className="rows">
+                  {billing.invoices.map((inv) => (
+                    <li key={inv.id}>
+                      <span className="t">Invoice {inv.number ?? ''}</span>
+                      <span className="t num">{formatMoney(inv.balance)}</span>
+                      <span className="meta">
+                        <span>
+                          Dated {formatDay(inv.date)}
+                          {inv.due_date ? `. Due ${formatDay(inv.due_date)}` : ''}
+                          {inv.overdue ? '. Past due' : ''}
+                        </span>
+                        {inv.pay_link ? (
+                          <a className="go" href={inv.pay_link} target="_blank" rel="noopener noreferrer">
+                            Pay
+                            <ExternalLink className="i" aria-hidden="true" focusable="false" />
+                          </a>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Section>
+        </div>
+      ) : null}
+
+      <Section id="finished" title="Recently finished" aside={<ActionLink href="/portal/history">See all history</ActionLink>}>
+        {timeline.length === 0 ? <p className="sec-lede">Nothing to show yet.</p> : <Timeline items={timeline} />}
+      </Section>
+    </>
   );
 }

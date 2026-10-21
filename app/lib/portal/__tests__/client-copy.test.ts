@@ -18,7 +18,7 @@ import { DEFAULT_PLAN_LABEL, engagementText } from '../engagement';
 const APP = path.resolve(__dirname, '..', '..', '..');
 
 // Strings that describe a window we show, not a promise about our work.
-const ALLOWED_DURATIONS = ['Closed in the last 30 days'];
+const ALLOWED_DURATIONS = ['Closed in the last 30 days', 'Visits, last 30 days'];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
@@ -28,15 +28,19 @@ function walk(dir: string): string[] {
   });
 }
 
-const FILES = [
-  ...walk(path.join(APP, 'components/portal/intake')),
-  ...walk(path.join(APP, 'components/portal/ui')),
-  path.join(APP, 'components/portal/request-row.tsx'),
-  path.join(APP, 'components/portal/request-work-button.tsx'),
-  path.join(APP, 'app/(portal)/portal/requests/page.tsx'),
-  path.join(APP, 'app/(portal)/portal/requests/new/page.tsx'),
-  path.join(APP, 'app/(portal)/portal/work/[id]/page.tsx'),
-];
+// Everything a signed-in client reads: every component under components/portal and every page the
+// redesign covers. The proposal, contract, MSA, addendum and onboarding pages carry real prices and
+// dates by design (the document itself), so their pricing tables are checked for dashes only.
+const PAGES = [
+  'home', 'projects', 'projects/[id]', 'retainer', 'requests', 'requests/new', 'work/[id]', 'history', 'book',
+  'articles/[id]', 'login', 'login/verify', 'select', 'task-approval/[token]',
+].map((p) => path.join(APP, 'app/(portal)/portal', p, 'page.tsx'));
+
+const FILES = [...walk(path.join(APP, 'components/portal')), ...PAGES];
+
+const DOCUMENT_PAGES = ['proposal', 'contract', 'msa', 'addendum', 'onboard'].map((p) =>
+  path.join(APP, 'app/(portal)/portal', p, '[token]/page.tsx'),
+);
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
@@ -70,12 +74,12 @@ describe('the scanner itself', () => {
   });
   it('actually reads the files (a real number of strings)', () => {
     const total = FILES.flatMap((f) => clientStrings(readFileSync(f, 'utf8'))).length;
-    expect(FILES.length).toBeGreaterThan(10);
-    expect(total).toBeGreaterThan(60);
+    expect(FILES.length).toBeGreaterThan(30);
+    expect(total).toBeGreaterThan(150);
   });
 });
 
-describe('every client-facing string in slice 1', () => {
+describe('every client-facing string in the portal', () => {
   for (const file of FILES) {
     const rel = path.relative(APP, file);
     const src = readFileSync(file, 'utf8');
@@ -89,6 +93,17 @@ describe('every client-facing string in slice 1', () => {
       }
     });
     it(`${rel}: never names staff or tooling`, () => {
+      for (const s of clientStrings(src)) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
+    });
+  }
+});
+
+describe('document pages', () => {
+  for (const file of DOCUMENT_PAGES) {
+    const rel = path.relative(APP, file);
+    it(`${rel}: no em or en dashes, no staff or tooling names`, () => {
+      const src = readFileSync(file, 'utf8');
+      expect(stripComments(src)).not.toMatch(/[—–]/);
       for (const s of clientStrings(src)) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
     });
   }

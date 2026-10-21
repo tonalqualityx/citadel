@@ -11,7 +11,7 @@ import { MoreSheet } from './more-sheet';
 import { ThemeControl } from './theme-control';
 import { Wordmark } from './wordmark';
 
-const PHONE_SLOTS: NavKey[] = ['home', 'projects', 'retainer', 'requests'];
+const PHONE_SLOTS = new Set<NavKey>(['home', 'projects', 'retainer', 'requests']);
 
 /**
  * The frame of every portal page. Wide screens get the navy sidebar; phones get a top bar, a bottom
@@ -48,7 +48,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const phoneNav = NAV.filter((n) => PHONE_SLOTS.includes(n.key));
+  const phoneNav = NAV.filter((n) => PHONE_SLOTS.has(n.key));
   const moreActive = active === 'history' || active === 'book';
 
   return (

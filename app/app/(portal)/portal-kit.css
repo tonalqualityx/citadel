@@ -394,3 +394,55 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .sidebar .btn-nav { color: var(--p-nav-bg); }
 [data-portal] .sidebar .snav a[aria-current="page"], [data-portal] .sidebar .snav a:hover { color: var(--p-nav-ink); }
 [data-portal] .main-inner > * { min-width: 0; }
+
+/* ---------- Retainer, Projects, Project detail (step 6) ---------- */
+[data-portal] .callout .plan-actions { margin: 6px 0 0 48px; }
+[data-portal] .callout .plan-err { color: var(--p-chip-urgent-fg); font-weight: 700; }
+[data-portal] .empty-line { color: var(--p-ink-2); max-width: 60ch; }
+[data-portal] .report .report-body { display: grid; gap: 8px; min-width: 0; }
+[data-portal] .report .thumb .thumb-ic { width: 100%; height: 44px; color: var(--p-kind-retainer); stroke-width: 1.5; }
+[data-portal] .proj-next { color: var(--p-ink-2); font-size: var(--pk-fs-meta); }
+[data-portal] details.fold > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--p-link); font-weight: 700; }
+[data-portal] details.fold > summary::-webkit-details-marker { display: none; }
+[data-portal] details.fold[open] > summary .open-t, [data-portal] details.fold:not([open]) > summary .close-t { display: none; }
+[data-portal] .links-list { display: grid; gap: 4px; }
+[data-portal] .links-list li { min-height: 44px; display: flex; align-items: center; }
+[data-portal] .stack-cards { display: grid; gap: 16px; }
+
+/* Home: a stat tile with its extra facts underneath */
+.tile-col { display: grid; gap: 8px; align-content: start; }
+.tile-col > .stat { height: 100%; }
+
+/* Requests and the request chat (slice 3, step 5). */
+[data-portal] .req-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 12px 0; border-top: 1px solid var(--p-line); align-items: start; }
+[data-portal] .req-row:first-child { border-top: 0; padding-top: 2px; }
+[data-portal] .req-row .t { font-weight: 700; color: var(--p-ink); line-height: 1.4; min-width: 0; overflow-wrap: anywhere; }
+[data-portal] .req-row .t a { color: inherit; text-decoration: none; display: inline-block; min-height: 24px; }
+[data-portal] .req-row .t a:hover { text-decoration: underline; }
+[data-portal] .req-row .meta { grid-column: 1 / -1; }
+@media (max-width: 520px) { [data-portal] .req-row { grid-template-columns: 1fr; } [data-portal] .req-row .chip { justify-self: start; } }
+[data-portal] .req-group { display: grid; gap: 4px; }
+[data-portal] .req-group > h3 { font-family: var(--p-font-head); font-weight: 900; font-size: var(--pk-fs-h3); color: var(--p-head); }
+[data-portal] details.fold > summary { cursor: pointer; display: flex; align-items: center; gap: 8px; min-height: 44px; font-family: var(--p-font-head); font-weight: 900; font-size: var(--pk-fs-h3); color: var(--p-head); }
+[data-portal] details.fold > summary svg.i { transition: transform var(--p-dur); }
+[data-portal] details.fold[open] > summary svg.i { transform: rotate(180deg); }
+[data-portal] .choices button[aria-pressed="true"] { border-color: var(--p-focus); border-width: 2px; padding: 11px 13px; background: var(--p-tint); }
+[data-portal] .choices button[aria-pressed="true"] svg.i { color: var(--p-head); }
+[data-portal] .msg.you .ctl button { min-height: 44px; min-width: 44px; }
+[data-portal] .msg .when { font-size: var(--pk-fs-tiny); color: var(--p-ink-3); }
+[data-portal] .msg.us .when { grid-column: 2; }
+[data-portal] .msg.you .bub { white-space: pre-wrap; }
+[data-portal] .summary-card h2 { font-family: var(--p-font-head); font-weight: 900; font-size: 1.125rem; color: var(--p-head); }
+[data-portal] .summary-card dd { font-size: var(--pk-fs-small); overflow-wrap: anywhere; }
+[data-portal] .summary-card .composer { padding-top: 12px; }
+[data-portal] .summary-card .dest svg.i { color: var(--p-kind-request); margin-top: 2px; flex: none; }
+[data-portal] .chatcard .sofar-phone { border-bottom: 1px solid var(--p-line); padding-bottom: 8px; }
+[data-portal] .chatcard .sofar-phone summary { cursor: pointer; }
+[data-portal] .chatcard { min-width: 0; }
+[data-portal] .thread-log { display: grid; gap: 14px; }
+[data-portal] .thread-log > li { display: grid; min-width: 0; }
+[data-portal] .thread-log > li.day { display: flex; }
+[data-portal] .bub a { color: var(--p-link); text-decoration: underline; overflow-wrap: anywhere; }
+[data-portal] .review-actions { display: grid; gap: 10px; }
+[data-portal] .review-actions .actions { margin-top: 2px; }
+[data-portal] .review-actions .err { font-size: var(--pk-fs-meta); color: var(--p-chip-urgent-fg); background: var(--p-chip-urgent-bg); padding: 8px 10px; border-radius: var(--p-radius); display: flex; gap: 8px; align-items: center; }
