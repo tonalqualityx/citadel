@@ -324,6 +324,24 @@ describe('lifecycle', () => {
     expect(store.get(w.id)).toMatchObject({ state: 'done', resolution: 'precondition_not_met' });
   });
 
+  it('skips portal.first_response when the portal_answered precondition fails and closes the wait', async () => {
+    const store = new MemStore();
+    const w = open(store, { template_key: 'portal.first_response', subject: 'Site change: hours', started_at: et(2026, 10, 14, 9), client_id: 'c1' });
+    store.preconditionOk = false;
+    const r = await runSweep(deps(store, { switchIsOn: async () => true }));
+    expect(r.skipped_precondition).toEqual([w.id]);
+    expect(store.get(w.id)).toMatchObject({ state: 'done', resolution: 'precondition_not_met' });
+  });
+
+  it('fires portal.first_response (escalates) when nobody has answered', async () => {
+    const store = new MemStore();
+    const w = open(store, { template_key: 'portal.first_response', subject: 'Site change: hours', started_at: et(2026, 10, 14, 9), client_id: 'c1' });
+    store.preconditionOk = true;
+    const r = await runSweep(deps(store, { switchIsOn: async () => true }));
+    expect(r.skipped_precondition).toEqual([]);
+    expect(r.fired.map((f) => f.id)).toContain(w.id);
+  });
+
   it('never fires a registered-but-disabled template', async () => {
     const store = new MemStore();
     const w = open(store, { template_key: 'sales.proposal_unopened', subject: 'x', started_at: et(2026, 10, 7, 9) });

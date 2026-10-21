@@ -88,7 +88,7 @@ export interface WaitTemplate {
   /** The caller may set the duration (handoff.generic only). */
   caller_duration?: boolean;
   /** Skip firing when this holds at the moment it runs out. */
-  precondition?: 'no_charter' | 'no_plan';
+  precondition?: 'no_charter' | 'no_plan' | 'portal_answered';
   /** What an inbound reply does to the open wait (W6 reads this). */
   on_reply: 'stop' | 'needs_human' | null;
   /** Switch that holds the sends back while OFF. */
@@ -559,6 +559,33 @@ export const WAIT_TEMPLATES: WaitTemplate[] = [
     steps: [{ duration: bd(2), action: 'escalate', note: 'Mike owns it, so this only climbs in visibility.' }],
     on_reply: null,
     spec: 'incident.after_action | handoff | Mike | 2 bd after resolve | ladder | no',
+  },
+
+  // ----- Client portal (phase B) -----
+  {
+    key: 'portal.first_response',
+    kind: 'handoff',
+    enabled: true,
+    sends: false,
+    owner: 'bast',
+    blocks_client: true,
+    title: 'Answer the client request {subject}',
+    steps: [{ duration: bd(1), action: 'escalate', note: 'Climb the ladder when nobody has answered the client.' }],
+    precondition: 'portal_answered',
+    on_reply: null,
+    spec: 'portal.first_response | handoff | caller sets, bast by default | 1 bd | escalate; skipped by portal_answered | yes',
+  },
+  {
+    key: 'portal.emergency',
+    kind: 'handoff',
+    enabled: true,
+    sends: false,
+    owner: 'mike',
+    blocks_client: true,
+    title: 'Respond to the urgent client request {subject}',
+    steps: [{ duration: hrs(2), action: 'escalate', note: 'Mike owns it; running out puts it in front of him.' }],
+    on_reply: null,
+    spec: 'portal.emergency | handoff | Mike | 2 hours | escalate (visibility for Mike) | yes',
   },
 
   // ----- Meetings, switches, generic -----

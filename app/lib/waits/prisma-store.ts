@@ -7,6 +7,7 @@ import { Prisma, type PrismaClient, type WaitKind } from '@prisma/client';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import type { GuardValues } from './templates';
 import type { EventsStore, EventTarget } from './events';
+import { isPortalTaskAnswered } from './portal-precondition';
 import { OPEN_STATES, type SweepStore, type TaskSpec, type WaitData, type WaitEventInput, type WaitRow } from './sweeper';
 
 export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
@@ -103,6 +104,18 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
           where: { client_id: w.client_id, is_deleted: false, status: { in: ['active', 'paused'] } },
         });
         return n === 0;
+      }
+      if (precondition === 'portal_answered') {
+        // The portal first-response clock only fires while nobody has answered: the task is still
+        // not started and has no staged preview. Fires when the task is gone (subjectState handles
+        // that first), so a missing row never suppresses the escalation.
+        if (!w.task_id) return true;
+        const t = await db.task.findUnique({
+          where: { id: w.task_id },
+          select: { status: true, staging_preview_url: true, is_deleted: true },
+        });
+        if (!t || t.is_deleted) return true;
+        return !isPortalTaskAnswered(t);
       }
       // no_plan: plans are not modelled yet (phase 3); never suppress the task.
       return true;
