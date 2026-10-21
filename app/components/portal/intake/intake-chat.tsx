@@ -12,7 +12,7 @@ import {
   NO_PERMISSION_MESSAGE,
   OPENING_CHOICES,
   OPENING_PROMPT,
-  SENT_FOLLOW_UP,
+  SENT_DOWNGRADED,
   SENT_HEADING,
   SENT_LINK_LABEL,
   SENT_URGENT,
@@ -364,7 +364,8 @@ export function IntakeChat() {
       <section className="space-y-3 rounded-lg border border-border bg-surface p-6" aria-live="polite">
         <h2 className="text-xl font-bold text-text-main">{SENT_HEADING}</h2>
         {sent.urgent && <p className="font-semibold text-text-main">{SENT_URGENT}</p>}
-        <p className="text-text-secondary">{SENT_FOLLOW_UP}</p>
+        {/* They asked for urgent but the daily limit meant no alert: do not say the team was alerted. */}
+        {!sent.urgent && urgent && <p className="text-text-secondary">{SENT_DOWNGRADED}</p>}
         <p>
           <Link href={`/portal/work/${sent.id}`} className="font-semibold text-brand-primary underline">
             {SENT_LINK_LABEL}
