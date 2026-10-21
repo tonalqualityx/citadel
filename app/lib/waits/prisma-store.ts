@@ -115,7 +115,11 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
           select: { status: true, staging_preview_url: true, is_deleted: true },
         });
         if (!t || t.is_deleted) return true;
-        return !isPortalTaskAnswered(t);
+        // Slice 2: a reply staff made visible to the client also counts as an answer.
+        const staffReplies = await db.comment.count({
+          where: { task_id: w.task_id, is_deleted: false, is_internal: false, client_visible: true, author_contact_id: null },
+        });
+        return !isPortalTaskAnswered({ ...t, has_staff_reply: staffReplies > 0 });
       }
       // no_plan: plans are not modelled yet (phase 3); never suppress the task.
       return true;

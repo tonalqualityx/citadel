@@ -42,7 +42,18 @@ export async function POST(
         // Leak 2: act only on client-visible tasks that are staged for approval.
         AND: [clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(access)],
       },
-      select: { id: true, client_approved_at: true, ...VISIBILITY_SELECT },
+      select: {
+        id: true,
+        title: true,
+        client_title: true,
+        assignee_id: true,
+        client_id: true,
+        project_id: true,
+        charter_id: true,
+        site_id: true,
+        client_approved_at: true,
+        ...VISIBILITY_SELECT,
+      },
     });
 
     if (!task || !isClientVisibleTask(task) || !isStagedForApproval(task)) {
@@ -59,7 +70,7 @@ export async function POST(
       select: { name: true },
     });
 
-    await recordTaskClientRequestChanges(task, note, contact?.name ?? null);
+    await recordTaskClientRequestChanges(task, note, contact?.name ?? null, session.contactId);
 
     await logPortalSession({
       tokenType: 'task_approval',

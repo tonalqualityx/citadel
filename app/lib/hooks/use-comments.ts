@@ -15,6 +15,11 @@ export interface Comment {
   content: string;
   mentioned_user_ids: string[];
   is_internal: boolean;
+  // Portal phase B slice 2: shown in the client's thread; set when the client wrote it.
+  client_visible?: boolean;
+  client_question?: boolean;
+  author_contact_id?: string | null;
+  author_contact?: { name: string | null } | null;
   created_at: string;
   updated_at: string;
 }
@@ -28,11 +33,14 @@ export interface CreateCommentInput {
   content: string;
   mentioned_user_ids?: string[];
   is_internal?: boolean;
+  /** "Reply to client": show this comment in the client's thread and email them (pm/admin only). */
+  client_visible?: boolean;
 }
 
 export interface UpdateCommentInput {
   content?: string;
   is_internal?: boolean;
+  client_visible?: boolean;
 }
 
 // Query keys for comments

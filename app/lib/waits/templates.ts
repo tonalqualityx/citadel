@@ -588,6 +588,32 @@ export const WAIT_TEMPLATES: WaitTemplate[] = [
     spec: 'portal.emergency | handoff | Mike | 2 hours | escalate (visibility for Mike) | yes',
   },
 
+  {
+    key: 'portal.client_reply',
+    kind: 'handoff',
+    enabled: true,
+    sends: false,
+    owner: 'liaison',
+    blocks_client: true,
+    title: 'Read and answer the client message on {subject}',
+    steps: [{ duration: bd(1), action: 'escalate', note: 'Climb the ladder when nobody has answered the client message.' }],
+    on_reply: null,
+    spec: 'portal.client_reply | handoff | assignee if a person, else liaison | 1 bd | escalate | yes',
+  },
+  {
+    key: 'portal.awaiting_client',
+    kind: 'external',
+    enabled: true,
+    sends: false,
+    owner: 'client',
+    shepherd: 'liaison',
+    blocks_client: false,
+    title: 'Client has not answered {subject}; follow up by email or call',
+    steps: [{ duration: bd(5), action: 'task', owner: 'liaison', note: 'Open a task for the liaison to follow up by email or call.' }],
+    on_reply: 'stop',
+    spec: 'portal.awaiting_client | external | client; liaison | 5 bd | task to liaison: follow up by email or call | no',
+  },
+
   // ----- Meetings, switches, generic -----
   {
     key: 'meeting.type_unclear',

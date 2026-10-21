@@ -1,5 +1,5 @@
 /**
- * Portal wait effects (portal phase B slice 1, spec section 3.5).
+ * Portal wait effects (portal phase B slices 1 and 2, spec section 3.5).
  *
  * Every request opens a clock so no request sits silent. All writes go through `buildWaitData`
  * and the wait store so every change writes a WaitEvent. Keys are
@@ -9,6 +9,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { MIKE_USER_ID } from '@/lib/waits/owner';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
+import { needsHuman } from '@/lib/waits/actions';
 import { OPEN_STATES, resolveWait, type SweepStore } from '@/lib/waits/sweeper';
 import { buildWaitData } from '@/lib/waits/templates';
 import { isPortalTaskAnswered } from '@/lib/waits/portal-precondition';
@@ -35,7 +36,7 @@ export interface FiledEffects {
 
 export const waitKey = (template: string, taskId: string, ref: string) => `portal:${template}:${taskId}:${ref}`;
 
-async function open(
+async function openWait(
   store: SweepStore,
   input: Parameters<typeof buildWaitData>[0],
   now: Date
@@ -78,7 +79,7 @@ export async function onRequestFiled(
 
   if (effects.emergency) {
     opened.push(
-      await open(
+      await openWait(
         store,
         {
           template_key: 'portal.emergency',
@@ -95,7 +96,7 @@ export async function onRequestFiled(
 
   if (effects.quote) {
     opened.push(
-      await open(
+      await openWait(
         store,
         {
           template_key: 'build.gate_mike',
@@ -114,7 +115,7 @@ export async function onRequestFiled(
   // nowhere else to go) owns it by name.
   const owner = task.assignee_id && task.assignee_id !== BAST_USER_ID ? task.assignee_id : null;
   opened.push(
-    await open(
+    await openWait(
       store,
       {
         template_key: 'portal.first_response',
@@ -152,4 +153,135 @@ export async function onTaskProgress(
     });
   }
   return open.length;
+}
+
+// ---- Slice 2: the conversation ---------------------------------------------------------------
+
+export interface ThreadTask extends FiledTask {
+  /** The contact who filed the request; the one a question is put to. */
+  requested_by_contact_id?: string | null;
+}
+
+/**
+ * A client wrote in the thread (or sent changes back). Spec 3.5, in order:
+ *  1. Stop this contact's waits on the task, and any open "awaiting the client" clock: the
+ *     question has an answer (`client_replied`).
+ *  2. Staff-owned open waits on the task that are still waiting go `needs_human`: a person must
+ *     read it.
+ *  3. If no staff-owned wait is open at all, open `portal.client_reply`, so a message never sits
+ *     unread.
+ * Idempotent: the third step keys on the comment, and the first two only touch open waits.
+ */
+export async function onClientMessage(
+  db: Db,
+  task: ThreadTask,
+  msg: { contact_ids: string[]; comment_id: string },
+  now: Date = new Date()
+): Promise<{ stopped: number; flagged: number; opened: string | null }> {
+  const store = prismaSweepStore(db as PrismaClient);
+  const open = await db.wait.findMany({
+    where: { task_id: task.id, state: { in: [...OPEN_STATES] } },
+  });
+
+  let stopped = 0;
+  for (const w of open) {
+    const theirs = w.owner_contact_id != null && msg.contact_ids.includes(w.owner_contact_id);
+    if (theirs || w.template_key === 'portal.awaiting_client') {
+      await resolveWait(store, w, 'client_replied', {
+        now,
+        source: 'api',
+        reason: 'The client wrote back in the portal.',
+      });
+      stopped++;
+    }
+  }
+
+  // Staff-owned: not owned by a client contact, and not the "awaiting the client" clock.
+  const staffOwned = open.filter((w) => w.owner_contact_id == null && w.template_key !== 'portal.awaiting_client');
+  let flagged = 0;
+  for (const w of staffOwned) {
+    if (w.state !== 'waiting') continue;
+    await needsHuman(store, w, {
+      now,
+      source: 'api',
+      note: 'The client wrote in the portal thread. A person reads it and answers.',
+      reason: 'A client message arrived on this request.',
+    });
+    flagged++;
+  }
+
+  // A staff-owned wait still open (a quote gate, a first response) already has a person on it, so a
+  // reply clock would only duplicate the nag.
+  let opened: string | null = null;
+  if (staffOwned.length === 0) {
+    const owner = task.assignee_id && task.assignee_id !== BAST_USER_ID ? task.assignee_id : null;
+    const made = await openWait(
+      store,
+      {
+        template_key: 'portal.client_reply',
+        subject: task.client_title,
+        owner_user_id: owner,
+        idempotency_key: waitKey('client_reply', task.id, msg.comment_id),
+        task_id: task.id,
+        client_id: task.client_id,
+        project_id: task.project_id,
+        charter_id: task.charter_id,
+        site_id: task.site_id,
+      },
+      now
+    );
+    opened = made.created ? made.id : null;
+  }
+  return { stopped, flagged, opened };
+}
+
+/**
+ * Staff made a reply visible to the client. Resolves the reply and first-response clocks as
+ * `answered`. A reply that is a question opens `portal.awaiting_client` (five business days, then
+ * a task to the liaison), owned by the requester.
+ */
+export async function onStaffReply(
+  db: Db,
+  task: ThreadTask,
+  comment: { id: string; client_question: boolean },
+  now: Date = new Date()
+): Promise<{ resolved: number; awaiting: string | null }> {
+  const store = prismaSweepStore(db as PrismaClient);
+  const open = await db.wait.findMany({
+    where: {
+      task_id: task.id,
+      template_key: { in: ['portal.client_reply', 'portal.first_response'] },
+      state: { in: [...OPEN_STATES] },
+    },
+  });
+  for (const w of open) {
+    await resolveWait(store, w, 'answered', { now, source: 'api', reason: 'Staff replied to the client in the portal.' });
+  }
+
+  let awaiting: string | null = null;
+  if (comment.client_question) {
+    const already = await db.wait.findMany({
+      where: { task_id: task.id, template_key: 'portal.awaiting_client', state: { in: [...OPEN_STATES] } },
+      select: { id: true },
+    });
+    if (already.length === 0) {
+      const made = await openWait(
+        store,
+        {
+          template_key: 'portal.awaiting_client',
+          subject: task.client_title,
+          owner_contact_id: task.requested_by_contact_id ?? null,
+          idempotency_key: waitKey('awaiting_client', task.id, comment.id),
+          task_id: task.id,
+          client_id: task.client_id,
+          project_id: task.project_id,
+          charter_id: task.charter_id,
+          site_id: task.site_id,
+        },
+        now
+      );
+      awaiting = made.created ? made.id : null;
+    }
+  }
+  return { resolved: open.length, awaiting };
 }

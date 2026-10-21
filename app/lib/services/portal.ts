@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { PORTAL_HIDDEN_PROJECT_STATUSES } from '@/lib/portal/access';
+import { onClientMessage } from '@/lib/portal/waits';
 
 const TOKEN_LENGTH = 64; // 128 hex characters
 const DEFAULT_EXPIRY_DAYS = 60;
@@ -443,9 +444,10 @@ export async function recordTaskClientApproval(
  * `recordTaskClientApproval` above for why this is a shared core rather than duplicated per flow.
  */
 export async function recordTaskClientRequestChanges(
-  task: { id: string; client_approved_at: Date | null },
+  task: { id: string; client_approved_at: Date | null; title?: string; client_title?: string | null; assignee_id?: string | null; client_id?: string | null; project_id?: string | null; charter_id?: string | null; site_id?: string | null },
   note: string,
-  contactName: string | null
+  contactName: string | null,
+  contactId: string | null = null
 ): Promise<void> {
   if (task.client_approved_at) {
     throw new ApiError('This work has already been approved', 400);
@@ -456,14 +458,18 @@ export async function recordTaskClientRequestChanges(
     throw new ApiError('Unable to record your feedback right now', 500);
   }
 
+  // Portal phase B slice 2: the note is the client's own message in the thread (author_contact_id
+  // set, client_visible true) when the acting contact is known. The attribution line stays so the
+  // worker, which reads task comments, still sees that this was a send-back and who sent it.
   const attribution = contactName ? `${contactName} (client)` : 'Client';
-  await prisma.$transaction([
+  const [comment] = await prisma.$transaction([
     prisma.comment.create({
       data: {
         task_id: task.id,
         user_id: bastUserId,
         content: `${attribution} requested changes via the approval portal:\n\n${note}`,
         is_internal: false,
+        ...(contactId ? { client_visible: true, author_contact_id: contactId } : {}),
       },
     }),
     prisma.task.update({
@@ -471,6 +477,27 @@ export async function recordTaskClientRequestChanges(
       data: { status: 'not_started' },
     }),
   ]);
+
+  // Wait effects (spec 3.5): a send-back is a client message. Best-effort: the note is saved.
+  if (contactId && comment?.id) {
+    try {
+      await onClientMessage(
+        prisma,
+        {
+          id: task.id,
+          client_title: task.client_title ?? task.title ?? 'your request',
+          assignee_id: task.assignee_id ?? null,
+          client_id: task.client_id ?? null,
+          project_id: task.project_id ?? null,
+          charter_id: task.charter_id ?? null,
+          site_id: task.site_id ?? null,
+        },
+        { contact_ids: [contactId], comment_id: comment.id }
+      );
+    } catch (error) {
+      console.error('portal wait effects failed after a send-back', error);
+    }
+  }
 }
 
 /**

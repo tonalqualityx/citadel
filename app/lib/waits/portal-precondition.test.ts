@@ -15,4 +15,8 @@ describe('isPortalTaskAnswered (the portal_answered sweeper skip condition)', ()
   it('is true when the task is staged for the client', () => {
     expect(isPortalTaskAnswered({ status: 'not_started', staging_preview_url: 'https://staging.example.com' })).toBe(true);
   });
+  it('is true once staff have replied to the client, even if the task has not moved', () => {
+    expect(isPortalTaskAnswered({ status: 'not_started', has_staff_reply: true })).toBe(true);
+    expect(isPortalTaskAnswered({ status: 'not_started', has_staff_reply: false })).toBe(false);
+  });
 });

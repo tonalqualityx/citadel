@@ -43,7 +43,7 @@ export async function POST(
 
     // Mike's ruling (overrides spec decision 11): no role gate on approval links for now.
     const contact = await resolveTaskContact(task);
-    await recordTaskClientRequestChanges(task, note, contact?.name ?? null);
+    await recordTaskClientRequestChanges(task, note, contact?.name ?? null, contact?.id ?? null);
 
     await logPortalSession({
       tokenType: 'task_approval',

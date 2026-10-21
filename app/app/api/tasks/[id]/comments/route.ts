@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { createNotification } from '@/lib/services/notifications';
 import { clientVisibleCommentWhere } from '@/lib/comments/visibility';
+import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -12,6 +13,12 @@ const createCommentSchema = z.object({
   // Team/Bast-only: mark a comment as an internal note hidden from clients.
   // Defaults to client-visible (false). Client questions must stay false.
   is_internal: z.boolean().optional(),
+  // Portal phase B slice 2: show this comment to the client in the thread on their work page.
+  // Staff pm/admin roles and the Bast token only; internal notes cannot be shared; a comment
+  // that names Bast is refused (400). Queues the client's email notice.
+  client_visible: z.boolean().optional(),
+  // A question for the client (needs client_visible). Opens an "awaiting the client" clock.
+  client_question: z.boolean().optional(),
 });
 
 // Format comment for response
@@ -31,6 +38,11 @@ function formatComment(comment: any) {
     content: comment.content,
     mentioned_user_ids: comment.mentioned_user_ids ?? [],
     is_internal: comment.is_internal ?? false,
+    client_visible: comment.client_visible ?? false,
+    client_question: comment.client_question ?? false,
+    // Set when the client wrote it (portal thread); the badge in the Citadel UI reads this.
+    author_contact_id: comment.author_contact_id ?? null,
+    author_contact: comment.author_contact ? { name: comment.author_contact.name } : null,
     created_at: comment.created_at,
     updated_at: comment.updated_at,
   };
@@ -101,6 +113,7 @@ export async function GET(
             avatar_url: true,
           },
         },
+        author_contact: { select: { name: true } },
       },
       orderBy: { created_at: 'asc' },
     });
@@ -125,6 +138,12 @@ export async function POST(
     const body = await request.json();
 
     const data = createCommentSchema.parse(body);
+    if (data.client_question && !data.client_visible) {
+      throw new ApiError('A question for the client must also be client_visible.', 400, 'question_not_visible');
+    }
+    if (data.client_visible) {
+      assertShareable(auth, { content: data.content, is_internal: data.is_internal ?? false });
+    }
 
     // Verify task exists and user has access
     const task = await prisma.task.findUnique({
@@ -186,6 +205,8 @@ export async function POST(
         content: data.content,
         mentioned_user_ids: mentionedUserIds,
         is_internal: data.is_internal ?? false,
+        client_visible: data.client_visible ?? false,
+        client_question: data.client_question ?? false,
       },
       include: {
         user: {
@@ -196,8 +217,15 @@ export async function POST(
             avatar_url: true,
           },
         },
+        author_contact: { select: { name: true } },
       },
     });
+
+    // Shared with the client: clocks resolve, the email notice is queued (it waits two minutes in
+    // the outbox before the sender takes it). The comment is already saved either way.
+    if (comment.client_visible) {
+      await afterReplyShared({ id: comment.id, task_id: taskId, client_question: comment.client_question });
+    }
 
     // Get the commenter's name for notification
     const commenter = await prisma.user.findUnique({

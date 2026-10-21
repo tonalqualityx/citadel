@@ -16,11 +16,16 @@ describe('template table', () => {
     const keys = WAIT_TEMPLATES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys.filter((k) => k !== 'handoff.generic' && !k.startsWith('portal.'))).toHaveLength(29);
-    // Portal phase B slice 1 adds first_response and emergency; slice 2 adds client_reply and awaiting_client.
-    expect(keys.filter((k) => k.startsWith('portal.')).sort()).toEqual(['portal.emergency', 'portal.first_response']);
+    // Portal phase B: slice 1 adds first_response and emergency; slice 2 adds client_reply and awaiting_client.
+    expect(keys.filter((k) => k.startsWith('portal.')).sort()).toEqual([
+      'portal.awaiting_client',
+      'portal.client_reply',
+      'portal.emergency',
+      'portal.first_response',
+    ]);
   });
 
-  it('opens the six phase 1 templates plus the two portal clocks', () => {
+  it('opens the six phase 1 templates plus the four portal clocks', () => {
     expect(liveTemplateKeys().sort()).toEqual(
       [
         'build.gate_mike',
@@ -28,6 +33,8 @@ describe('template table', () => {
         'change.needs_human',
         'handoff.generic',
         'meeting.type_unclear',
+        'portal.awaiting_client',
+        'portal.client_reply',
         'portal.emergency',
         'portal.first_response',
         'switch.off',
@@ -43,6 +50,15 @@ describe('template table', () => {
     const emergency = getTemplate('portal.emergency')!;
     expect(emergency).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'mike', blocks_client: true, on_reply: null });
     expect(emergency.steps[0]).toMatchObject({ duration: { value: 2, unit: 'hours' }, action: 'escalate' });
+    const reply = getTemplate('portal.client_reply')!;
+    expect(reply).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'liaison', blocks_client: true, on_reply: null });
+    expect(reply.steps).toHaveLength(1);
+    expect(reply.steps[0]).toMatchObject({ duration: { value: 1, unit: 'business_days' }, action: 'escalate' });
+    const awaiting = getTemplate('portal.awaiting_client')!;
+    expect(awaiting).toMatchObject({ kind: 'external', enabled: true, sends: false, owner: 'client', shepherd: 'liaison', blocks_client: false, on_reply: 'stop' });
+    expect(awaiting.steps).toHaveLength(1);
+    expect(awaiting.steps[0]).toMatchObject({ duration: { value: 5, unit: 'business_days' }, action: 'task', owner: 'liaison' });
+    expect(awaiting.title).toBe('Client has not answered {subject}; follow up by email or call');
   });
 
   it('never enables a template that sends', () => {
@@ -87,6 +103,7 @@ describe('template table', () => {
       'build.gate_mike',
       'build.review_internal',
       'change.needs_human',
+      'portal.client_reply',
       'portal.emergency',
       'portal.first_response',
       'sales.proposal_review',
