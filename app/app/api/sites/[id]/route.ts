@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatSiteResponse } from '@/lib/api/formatters';
+import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const updateSiteSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -34,7 +35,13 @@ const updateSiteSchema = z.object({
   staging_auth_password: z.string().max(255).optional().nullable(),
   bast_enabled: z.boolean().optional(),
   auto_deploy: z.boolean().optional(),
+  // Portal phase C: chat switch and the analytics ids the chat tools read (admin, or the Bast user)
+  portal_chat_enabled: z.boolean().optional(),
+  ga4_property: z.string().max(64).regex(/^properties\/\d+$/).optional().nullable(),
+  gsc_property: z.string().max(255).regex(/^(sc-domain:[a-z0-9.-]+|https?:\/\/\S+)$/i).optional().nullable(),
 });
+
+const CHAT_SITE_FIELDS = ['portal_chat_enabled', 'ga4_property', 'gsc_property'] as const;
 
 export async function GET(
   request: NextRequest,
@@ -84,6 +91,17 @@ export async function PATCH(
 
     const body = await request.json();
     const data = updateSiteSchema.parse(body);
+
+    // The chat switch and the analytics ids are admin settings. The Bast user may write the two
+    // analytics ids (the backfill) and may turn the chat switch OFF for a site, never on (spec 9.1):
+    // a client-facing switch is Mike's. Another pm may do none of it.
+    if (CHAT_SITE_FIELDS.some((f) => data[f] !== undefined)) {
+      if (auth.userId === BAST_USER_ID) {
+        if (data.portal_chat_enabled === true) throw new ApiError('The Bast token can turn the chat off for a site, never on', 403);
+      } else if (auth.role !== 'admin') {
+        throw new ApiError('Only an admin can change the chat switch or analytics ids', 403);
+      }
+    }
 
     // Validate client exists if provided (and not null)
     if (data.client_id) {

@@ -28,6 +28,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   interview_answers_submitted: 'Interview Answers Submitted',
   oracle_urgent_email: 'Urgent Email',
   portal_emergency: 'Portal Emergency',
+  portal_chat_handoff: 'Portal Chat Handoff',
 };
 
 // Notification type icons/emojis for email
@@ -50,6 +51,7 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   interview_answers_submitted: '📨',
   oracle_urgent_email: '🚨',
   portal_emergency: '🚨',
+  portal_chat_handoff: '💬',
 };
 
 /**

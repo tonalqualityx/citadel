@@ -66,6 +66,8 @@ import { oracleEndpoints } from './oracle';
 import { clarityEndpoints } from './clarity';
 import { waitEndpoints } from './waits';
 import { emailOutboxEndpoints } from './email-outbox';
+import { engineEndpoints } from './engine';
+import { portalChatEndpoints } from './portal-chat';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -99,6 +101,8 @@ export const apiRegistry: ApiEndpoint[] = [
   ...clarityEndpoints,
   ...waitEndpoints,
   ...emailOutboxEndpoints,
+  ...engineEndpoints,
+  ...portalChatEndpoints,
 ];
 
 /**

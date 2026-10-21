@@ -31,6 +31,7 @@ const DEFAULT_PREFERENCES: Record<
   oracle_urgent_email: { in_app: true, email: true, slack: true },
   // A client filed an emergency request in the portal: critical, every channel.
   portal_emergency: { in_app: true, email: true, slack: true },
+  portal_chat_handoff: { in_app: true, email: true, slack: true },
 };
 
 export interface NotificationPreferenceRow {

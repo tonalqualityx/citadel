@@ -126,6 +126,8 @@ model ApiKey {
   last_used_at DateTime?
   expires_at   DateTime?
   is_revoked   Boolean   @default(false)
+  // Portal phase C: extra capabilities beyond the role. 'engine' lets the key claim chat jobs.
+  scopes       String[]  @default([])
   created_at   DateTime  @default(now())
   updated_at   DateTime  @updatedAt
 
@@ -357,6 +359,8 @@ enum NotificationType {
   oracle_urgent_email
   // Portal phase B slice 1 — a client filed an emergency request in the portal.
   portal_emergency
+  // Portal phase C — the chat handed a conversation to a person.
+  portal_chat_handoff
 }
 
 enum NotificationPriority {
@@ -560,12 +564,13 @@ model DnsProvider {
 // ============================================
 
 model Client {
-  id             String         @id @default(uuid()) @db.Uuid
+  chat_conversations ChatConversation[]
+  id                 String             @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
-  client_reports ClientReport[]
-  name           String         @db.VarChar(255)
-  type           ClientType     @default(direct)
-  status         ClientStatus   @default(active)
+  client_reports     ClientReport[]
+  name               String             @db.VarChar(255)
+  type               ClientType         @default(direct)
+  status             ClientStatus       @default(active)
 
   // Contact info
   primary_contact String? @db.VarChar(255)
@@ -625,12 +630,13 @@ model Client {
 // only a contact with can_initiate_work may trigger work via email. The same email
 // can appear under multiple clients (one row each), e.g. agency contacts.
 model ClientContact {
-  id                String         @id @default(uuid()) @db.Uuid
+  opened_chats      ChatConversation[] @relation("ChatOpenedBy")
+  id                String             @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relations)
-  authored_comments Comment[]      @relation("CommentAuthorContact")
+  authored_comments Comment[]          @relation("CommentAuthorContact")
   portal_notices    PortalNotice[]
-  client_id         String         @db.Uuid
-  client            Client         @relation(fields: [client_id], references: [id])
+  client_id         String             @db.Uuid
+  client            Client             @relation(fields: [client_id], references: [id])
 
   name              String? @db.VarChar(255)
   email             String  @db.VarChar(255)
@@ -695,11 +701,13 @@ enum RetainerUsageMode {
 // ============================================
 
 model Site {
-  id             String         @id @default(uuid()) @db.Uuid
+  pages              SitePage[]
+  chat_conversations ChatConversation[]
+  id                 String             @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
-  client_reports ClientReport[]
-  name           String         @db.VarChar(255)
-  url            String?        @db.VarChar(500)
+  client_reports     ClientReport[]
+  name               String             @db.VarChar(255)
+  url                String?            @db.VarChar(500)
 
   // Client relationship (optional - sites can exist without a client)
   client_id String? @db.Uuid
@@ -741,6 +749,11 @@ model Site {
   staging_auth_password String? @db.VarChar(255) // basic-auth password (gate only, not secret)
   bast_enabled          Boolean @default(false) // Bast may auto-execute work on this site
   auto_deploy           Boolean @default(false) // deploy straight to prod (true) vs staging→approval (false); per-site, allowed on client sites that pre-authorize
+
+  // Portal phase C: chat switch for this site, and the analytics ids the chat tools read
+  portal_chat_enabled Boolean @default(false)
+  ga4_property        String? @db.VarChar(64) // properties/362082877
+  gsc_property        String? @db.VarChar(255) // sc-domain:herbapumps.com
 
   // Metadata
   is_deleted Boolean  @default(false)
@@ -1074,11 +1087,12 @@ model ProjectTeamAssignment {
 // ============================================
 
 model Task {
-  id             String         @id @default(uuid()) @db.Uuid
+  chat_conversation ChatConversation?
+  id                String            @id @default(uuid()) @db.Uuid
   // Portal phase B slice 2 (back-relation)
-  portal_notices PortalNotice[]
-  title          String         @db.VarChar(500)
-  description    String?        @db.Text
+  portal_notices    PortalNotice[]
+  title             String            @db.VarChar(500)
+  description       String?           @db.Text
 
   // Status
   status   TaskStatus @default(not_started)
@@ -1617,6 +1631,10 @@ model Comment {
   author_contact     ClientContact? @relation("CommentAuthorContact", fields: [author_contact_id], references: [id], onDelete: Restrict)
   // The client's own message uuid. Unique, so a double send is a no-op.
   client_ref         String?        @unique @db.VarChar(64)
+  // Portal phase C: where the message came from (portal | email | assistant; null = staff) and the chat
+  // metadata (sources, choices offered, job id, raw email).
+  source             String?        @db.VarChar(20)
+  chat_meta          Json?
   created_at         DateTime       @default(now())
   updated_at         DateTime       @updatedAt
 
@@ -1661,6 +1679,11 @@ model AppSettings {
   bug_report_project_id     String? @db.Uuid
   bug_report_phase_id       String? @db.Uuid
   bug_report_notify_user_id String? @db.Uuid
+
+  // Portal phase C: the chat kill switch (off / pilot / on), the pilot contacts, and the daily spend cap (API-equivalent USD)
+  portal_chat_mode              PortalChatSwitch @default(off)
+  portal_chat_pilot_contact_ids String[]         @default([]) @db.Uuid
+  portal_chat_daily_cap_usd     Decimal          @default(30) @db.Decimal(8, 2)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -3713,22 +3736,28 @@ model ClientReport {
 // row, sends it with `gog gmail send` from from_account, and records the result. Body text is
 // scrubbed once sent so a single-use login link does not stay at rest.
 model EmailOutbox {
-  id             String    @id @default(uuid()) @db.Uuid
-  to             String    @db.VarChar(320)
-  cc             String?   @db.VarChar(1000)
-  subject        String    @db.VarChar(500)
-  text           String    @db.Text
-  html           String?   @db.Text
-  from_account   String    @default("bast@becomeindelible.com") @db.VarChar(320)
-  kind           String    @default("other") @db.VarChar(30)
-  allow_external Boolean   @default(false)
-  created_at     DateTime  @default(now())
-  claimed_at     DateTime?
-  sent_at        DateTime?
-  message_id     String?   @db.VarChar(255)
-  attempts       Int       @default(0)
-  last_error     String?   @db.Text
-  dedupe_key     String?   @unique @db.VarChar(128)
+  id                String    @id @default(uuid()) @db.Uuid
+  to                String    @db.VarChar(320)
+  cc                String?   @db.VarChar(1000)
+  subject           String    @db.VarChar(500)
+  text              String    @db.Text
+  html              String?   @db.Text
+  from_account      String    @default("bast@becomeindelible.com") @db.VarChar(320)
+  kind              String    @default("other") @db.VarChar(30)
+  allow_external    Boolean   @default(false)
+  created_at        DateTime  @default(now())
+  claimed_at        DateTime?
+  sent_at           DateTime?
+  message_id        String?   @db.VarChar(255)
+  attempts          Int       @default(0)
+  last_error        String?   @db.Text
+  dedupe_key        String?   @unique @db.VarChar(128)
+  // Portal phase C: threaded replies to a chat
+  reply_to          String?   @db.VarChar(320)
+  reply_to_gmail_id String?   @db.VarChar(64)
+  rfc_message_id    String?   @db.VarChar(255)
+  gmail_thread_id   String?   @db.VarChar(64)
+  task_id           String?   @db.Uuid
 
   @@index([sent_at, created_at])
   @@map("email_outbox")
@@ -3753,4 +3782,187 @@ model ClientInvoice {
 
   @@index([client_id, status])
   @@map("client_invoices")
+}
+
+// ============================================
+// PORTAL PHASE C: CHAT CORE
+// ============================================
+
+enum PortalChatSwitch {
+  off
+  pilot
+  on
+}
+
+enum ChatMode {
+  model
+  tree
+}
+
+enum ChatState {
+  clarifying
+  confirming
+  filed
+  with_person
+  closed
+}
+
+enum EngineJobStatus {
+  queued
+  claimed
+  done
+  failed
+  expired
+}
+
+model ChatConversation {
+  id                       String        @id @default(uuid()) @db.Uuid
+  task_id                  String        @unique @db.Uuid
+  task                     Task          @relation(fields: [task_id], references: [id])
+  client_id                String        @db.Uuid
+  client                   Client        @relation(fields: [client_id], references: [id])
+  site_id                  String?       @db.Uuid
+  site                     Site?         @relation(fields: [site_id], references: [id])
+  opened_by_contact_id     String        @db.Uuid
+  opened_by                ClientContact @relation("ChatOpenedBy", fields: [opened_by_contact_id], references: [id])
+  intake_id                String?       @unique @db.VarChar(64)
+  mode                     ChatMode      @default(model)
+  state                    ChatState     @default(clarifying)
+  slots                    Json          @default("{}")
+  summary_version          Int           @default(0)
+  summary_text             String?       @db.Text
+  confirmed_at             DateTime?
+  open_ask                 Json?
+  email_token              String        @unique @db.VarChar(16)
+  gmail_thread_id          String?       @db.VarChar(64)
+  last_outbound_gmail_id   String?       @db.VarChar(64)
+  away_sent_for_comment_id String?       @db.Uuid
+  last_seen_at             DateTime?
+  last_typing_at           DateTime?
+  page_hidden_at           DateTime?
+  jobs_count               Int           @default(0)
+  created_at               DateTime      @default(now())
+  updated_at               DateTime      @updatedAt
+
+  jobs        EngineJob[]
+  attachments PortalAttachment[]
+
+  @@index([state, updated_at])
+  @@index([client_id])
+  @@map("portal_chat_conversations")
+}
+
+model EngineJob {
+  id              String            @id @default(uuid()) @db.Uuid
+  type            String            @db.VarChar(30) // chat_reply | chat_email_reply
+  status          EngineJobStatus   @default(queued)
+  conversation_id String?           @db.Uuid
+  conversation    ChatConversation? @relation(fields: [conversation_id], references: [id])
+  task_id         String?           @db.Uuid
+  client_id       String?           @db.Uuid
+  contact_id      String?           @db.Uuid
+  payload         Json              @default("{}") // up_to_comment_id, regenerate note
+  attempts        Int               @default(0)
+  queued_at       DateTime          @default(now())
+  claimed_at      DateTime?
+  lease_until     DateTime?
+  finished_at     DateTime?
+  expired_at      DateTime?
+  gate_result     String?           @db.VarChar(20)
+  action_errors   Json?
+  error           String?           @db.Text
+
+  runs       EngineRun[]
+  tool_calls EngineToolCall[]
+
+  @@index([status, queued_at])
+  @@index([conversation_id])
+  @@map("engine_jobs")
+}
+
+model EngineRun {
+  id                 String    @id @default(uuid()) @db.Uuid
+  job_id             String    @db.Uuid
+  job                EngineJob @relation(fields: [job_id], references: [id])
+  attempt            Int
+  model              String    @db.VarChar(64)
+  prompt_hash        String    @db.VarChar(64)
+  input_tokens       Int       @default(0)
+  cache_read_tokens  Int       @default(0)
+  cache_write_tokens Int       @default(0)
+  output_tokens      Int       @default(0)
+  cost_usd           Decimal   @default(0) @db.Decimal(10, 6)
+  duration_ms        Int?
+  duration_api_ms    Int?
+  num_turns          Int?
+  is_error           Boolean   @default(false)
+  rejected_text      String?   @db.Text
+  created_at         DateTime  @default(now())
+
+  @@index([job_id])
+  @@index([created_at])
+  @@map("engine_runs")
+}
+
+model EngineToolCall {
+  id              String    @id @default(uuid()) @db.Uuid
+  job_id          String    @db.Uuid
+  job             EngineJob @relation(fields: [job_id], references: [id])
+  task_id         String?   @db.Uuid
+  conversation_id String?   @db.Uuid
+  client_id       String    @db.Uuid
+  tool            String    @db.VarChar(40)
+  args            Json
+  row_count       Int?
+  latency_ms      Int?
+  error           String?   @db.Text
+  result          Json? // capped at 20 KB
+  result_numbers  String[]  @default([])
+  created_at      DateTime  @default(now())
+
+  @@index([task_id])
+  @@index([client_id, created_at])
+  @@map("engine_tool_calls")
+}
+
+model PortalAttachment {
+  id                     String            @id @default(uuid()) @db.Uuid
+  client_id              String            @db.Uuid
+  task_id                String?           @db.Uuid
+  comment_id             String?           @db.Uuid
+  conversation_id        String?           @db.Uuid
+  conversation           ChatConversation? @relation(fields: [conversation_id], references: [id])
+  intake_id              String?           @db.VarChar(64)
+  uploaded_by_contact_id String?           @db.Uuid
+  uploaded_by_user_id    String?           @db.Uuid
+  source                 String            @db.VarChar(10) // portal | email
+  storage_key            String            @db.VarChar(500)
+  filename               String            @db.VarChar(120)
+  content_type           String            @db.VarChar(100)
+  size_bytes             Int
+  sha256                 String            @db.VarChar(64)
+  expired_at             DateTime?
+  is_deleted             Boolean           @default(false)
+  created_at             DateTime          @default(now())
+
+  @@index([task_id])
+  @@index([conversation_id])
+  @@map("portal_attachments")
+}
+
+model SitePage {
+  id            String    @id @default(uuid()) @db.Uuid
+  site_id       String    @db.Uuid
+  site          Site      @relation(fields: [site_id], references: [id])
+  url           String    @db.VarChar(1000)
+  path          String    @db.VarChar(1000)
+  title         String    @db.VarChar(255)
+  sections      Json      @default("[]") // [{ key, heading }]
+  depth         Int       @default(0)
+  source        String    @db.VarChar(10) // sitemap | wright
+  last_seen_at  DateTime
+  missing_since DateTime?
+
+  @@unique([site_id, path])
+  @@map("site_pages")
 }
