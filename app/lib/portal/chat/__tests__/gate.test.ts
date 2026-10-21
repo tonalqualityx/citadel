@@ -5,12 +5,17 @@ import os from 'os';
 import path from 'path';
 import { gateReply } from '@/lib/portal/chat/gate';
 import { buildProvenance, emptyProvenance } from '@/lib/portal/chat/provenance';
-import { CALLS, fixtureContext, MUST_FAIL, MUST_PASS } from './gate-fixtures';
+import { renderThread, contextNumbers } from '../context';
+import { CALLS, fixtureContext, MUST_FAIL, MUST_PASS, PAGE_NAMES, PROBE_FAIL, PROBE_G2, PROBE_G2_PASS, PROBE_G3, PROBE_G3_PASS, PROBE_G4, PROBE_PASS_PAGES } from './gate-fixtures';
+import type { GateKind } from '../gate';
 
 describe('gate fixtures (spec 9.2)', () => {
   it('holds at least 80 must-fail and 50 must-pass sentences', () => {
-    expect(MUST_FAIL.length).toBeGreaterThanOrEqual(80);
-    expect(MUST_PASS.length).toBeGreaterThanOrEqual(50);
+    const fails = MUST_FAIL.length + PROBE_FAIL.length + PROBE_G2.length - PROBE_G2_PASS.length + PROBE_G3.length - PROBE_G3_PASS.length;
+    const passes = MUST_PASS.length + PROBE_PASS_PAGES.length + PROBE_G4.length + PROBE_G2_PASS.length + PROBE_G3_PASS.length;
+    expect(fails).toBeGreaterThanOrEqual(80);
+    expect(passes).toBeGreaterThanOrEqual(50);
+    console.log(`gate fixtures: must-fail ${fails}, must-pass ${passes}`);
   });
 
   const ctx = fixtureContext();
@@ -35,6 +40,68 @@ describe('gate fixtures (spec 9.2)', () => {
     for (const rule of ['person', 'dash', 'name', 'internal', 'link', 'estimate', 'promise', 'approval', 'commitment', 'unsourced_number', 'source', 'length']) {
       expect(rules.has(rule as never)).toBe(true);
     }
+  });
+});
+
+describe('Opus review probes', () => {
+  it('has the reviewer\'s strings', () => {
+    expect(PROBE_FAIL.length).toBeGreaterThanOrEqual(99);
+    expect(PROBE_PASS_PAGES).toHaveLength(20);
+  });
+  for (const t of PROBE_FAIL) {
+    it(`fails: ${JSON.stringify(t.slice(0, 60))}`, () => {
+      expect(gateReply(t, fixtureContext()).ok).toBe(false);
+    });
+  }
+  const pagesCtx = fixtureContext({ pageNames: PAGE_NAMES });
+  for (const t of PROBE_PASS_PAGES) {
+    it(`passes with the site's own page names: ${JSON.stringify(t.slice(0, 60))}`, () => {
+      expect(gateReply(t, pagesCtx)).toEqual({ ok: true });
+    });
+  }
+  it('page names are an allow-list, not a switch: without them the same words fail', () => {
+    expect(gateReply('Is it the Free Shipping banner on the home page?', fixtureContext()).ok).toBe(false);
+    expect(gateReply('Is it the Ticket Sales page?', fixtureContext()).ok).toBe(false);
+    expect(gateReply('Is it the Free Shipping banner on the home page?', pagesCtx)).toEqual({ ok: true });
+    // A page name does not excuse a promise written beside it.
+    expect(gateReply('The Pricing page is free and we will fix it.', pagesCtx).ok).toBe(false);
+  });
+  const withClient = fixtureContext({ provenance: buildProvenance(CALLS, ['300', '5', '2', '12']) });
+  for (const t of PROBE_G2) {
+    const shouldPass = PROBE_G2_PASS.includes(t);
+    it(`${shouldPass ? 'passes' : 'fails'}: ${JSON.stringify(t.slice(0, 60))}`, () => {
+      expect(gateReply(t, fixtureContext()).ok).toBe(shouldPass);
+      expect(gateReply(t, withClient).ok).toBe(shouldPass);
+    });
+  }
+  // The thread as the model reads it: timestamp, attachment id, size and file name sit around the words.
+  const thread = renderThread(
+    [{ id: 'c1', content: 'Can you swap the photo? We pay 500 for this.', created_at: new Date('2026-10-21T14:37:52.418Z'), source: 'portal', chat_meta: null, author_contact_id: 'x', user_id: null, author_contact: { name: 'Dana Smith' } }],
+    [{ id: '7c9e6679-7425-40de-944b-e07fc1f90ae7', comment_id: 'c1', filename: 'IMG_4471.jpg', content_type: 'image/jpeg', size_bytes: 2_200_000 }]
+  );
+  const threadCtx = fixtureContext({ provenance: buildProvenance([], contextNumbers({ thread })) });
+  it('only the client\'s words feed the numbers: not timestamps, ids, sizes or file names', () => {
+    expect(contextNumbers({ thread })).toEqual(['500']);
+  });
+  for (const t of PROBE_G3) {
+    const shouldPass = PROBE_G3_PASS.includes(t);
+    it(`${shouldPass ? 'passes' : 'fails'}: ${JSON.stringify(t.slice(0, 60))}`, () => {
+      expect(gateReply(t, shouldPass ? pagesCtx : threadCtx).ok).toBe(shouldPass);
+    });
+  }
+  it('the client\'s own number is echoed only inside their quote', () => {
+    expect(gateReply('You wrote "we pay 500 for this".', threadCtx)).toEqual({ ok: true });
+    expect(gateReply('That is 500 for this.', threadCtx).ok).toBe(false);
+  });
+  for (const [t, kind] of PROBE_G4) {
+    it(`passes (${kind}): ${JSON.stringify(t.slice(0, 60))}`, () => {
+      expect(gateReply(t, pagesCtx, kind as GateKind)).toEqual({ ok: true });
+    });
+  }
+  it('staff-only spans never reach the gate in a draft, but a reply carries no such span', () => {
+    const d = '[TEAM: confirm the price and when it will be done.] Hi Dana, thanks for the photo.';
+    expect(gateReply(d, fixtureContext(), 'draft')).toEqual({ ok: true });
+    expect(gateReply(d, fixtureContext(), 'reply').ok).toBe(false);
   });
 });
 
@@ -72,9 +139,10 @@ describe('provenance masking', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('numbers from the context bundle are allowed', () => {
+  it('numbers from the client\'s words are allowed inside a quote', () => {
     const ctx = fixtureContext({ provenance: buildProvenance([], ['7']) });
-    expect(gateReply('Page 7 is on the list.', ctx)).toEqual({ ok: true });
+    expect(gateReply('You wrote "page 7" and I have that.', ctx)).toEqual({ ok: true });
+    expect(gateReply('Page 7 is on the list.', ctx).ok).toBe(false);
   });
 
   it('a masked number followed by a time unit is still a duration promise', () => {

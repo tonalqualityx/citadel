@@ -100,6 +100,17 @@ describe.skipIf(!SCRATCH)('context bundle (real database)', () => {
     expect(ctx.pages.length).toBeLessThanOrEqual(MAX_PAGES_IN_CONTEXT);
   });
 
+  it('a conversation row pointing at another client\'s site never pulls that site\'s pages', async () => {
+    await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { site_id: b.siteId } });
+    try {
+      const { ctx } = await bundleFor(a);
+      expect(ctx.pages).toEqual([]);
+      expect(JSON.stringify(ctx)).not.toContain(B_SECRET);
+    } finally {
+      await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { site_id: a.siteId } });
+    }
+  });
+
   it('carries the contact, role flags, today in New York and the open ask', async () => {
     const { ctx } = await bundleFor(a);
     expect(ctx.contact).toMatchObject({ first_name: expect.stringContaining('Olive'), role: 'owner', can_see_analytics: true, can_see_billing: true });

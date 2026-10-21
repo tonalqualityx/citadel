@@ -40,7 +40,7 @@ describe.skipIf(!SCRATCH)('engine reads (real database)', () => {
   const job = (s: Seeded, contactId: string) => ({ client_id: s.clientId, contact_id: contactId });
 
   it('knows the eight read kinds', () => {
-    expect(READ_KINDS).toHaveLength(8);
+    expect(READ_KINDS).toHaveLength(9);
     expect(isReadKind('invoices')).toBe(true);
     expect(isReadKind('tasks')).toBe(false);
   });
@@ -104,6 +104,25 @@ describe.skipIf(!SCRATCH)('engine reads (real database)', () => {
     } finally {
       await prisma.project.delete({ where: { id: projB.id } });
     }
+  });
+
+  it('site_pages: this client\'s sites only, searched by title, path or section; another client\'s site is a 404', async () => {
+    await prisma.sitePage.createMany({
+      data: [
+        { site_id: a.siteId, url: 'https://a.test/', path: '/', title: 'Home', depth: 0, source: 'sitemap', last_seen_at: new Date() },
+        { site_id: a.siteId, url: 'https://a.test/team', path: '/team', title: 'Meet the crew', sections: [{ key: 'staff', heading: 'Our staff' }], depth: 1, source: 'sitemap', last_seen_at: new Date() },
+        { site_id: a.siteId, url: 'https://a.test/old', path: '/old', title: 'Old', depth: 1, source: 'sitemap', last_seen_at: new Date(), missing_since: new Date() },
+        { site_id: b.siteId, url: 'https://b.test/', path: '/', title: 'Bravo secret page', depth: 0, source: 'sitemap', last_seen_at: new Date() },
+      ],
+    });
+    const ownerA = (await accessForJob(job(a, a.ownerId)))!;
+    const all = (await runRead(ownerA, 'site_pages')) as { pages: Array<{ title: string }> };
+    expect(all.pages.map((p) => p.title).sort()).toEqual(['Home', 'Meet the crew']);
+    const byHeading = (await runRead(ownerA, 'site_pages', { q: 'STAFF' })) as { pages: Array<{ title: string; sections: string[] }> };
+    expect(byHeading.pages).toEqual([expect.objectContaining({ title: 'Meet the crew', sections: ['Our staff'] })]);
+    expect(JSON.stringify(all)).not.toContain('Bravo');
+    await expect(runRead(ownerA, 'site_pages', { site_id: b.siteId })).rejects.toMatchObject({ statusCode: 404 });
+    expect(((await runRead(ownerA, 'site_pages', { site_id: a.siteId, q: 'zzz' })) as { pages: unknown[] }).pages).toEqual([]);
   });
 
   it('history and retainer and projects return shapes without internal fields', async () => {

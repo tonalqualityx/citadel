@@ -28,9 +28,16 @@ describe('PATCH /api/sites/:id chat fields (portal phase C)', () => {
     expect(await res.json()).toMatchObject({ portal_chat_enabled: true, ga4_property: 'properties/1', gsc_property: 'sc-domain:x.com' });
   });
 
-  it('the Bast user may write them (the backfill)', async () => {
-    vi.mocked(requireAuth).mockResolvedValue({ userId: BAST_USER_ID, role: 'pm', email: 'b@x' } as never);
-    expect((await patch({ ga4_property: 'properties/1' })).status).toBe(200);
+  it('the Bast user may write the analytics ids (the backfill) and turn the switch off, never on', async () => {
+    for (const role of ['pm', 'admin']) {
+      vi.mocked(requireAuth).mockResolvedValue({ userId: BAST_USER_ID, role, email: 'b@x' } as never);
+      expect((await patch({ ga4_property: 'properties/1', gsc_property: 'sc-domain:x.com' })).status).toBe(200);
+      expect((await patch({ portal_chat_enabled: false })).status).toBe(200);
+      update.mockClear();
+      expect((await patch({ portal_chat_enabled: true })).status).toBe(403);
+      expect((await patch({ ga4_property: 'properties/1', portal_chat_enabled: true })).status).toBe(403);
+      expect(update).not.toHaveBeenCalled();
+    }
   });
 
   it('another pm may not, but may still change ordinary fields', async () => {

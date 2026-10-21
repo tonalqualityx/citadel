@@ -11,7 +11,7 @@ const uuid = z.string().uuid();
 // GET /api/engine/jobs/:id/read/:kind (portal phase C, engine scope)
 // The `citadel_read` tool: exactly what the portal shows the job's contact, from the portal's own
 // loaders, under that contact's own access. Valid only while the job is claimed and unexpired.
-// kind: requests | work_item (?task_id) | projects | project (?project_id) | retainer | history (?days) | reports | invoices
+// kind: requests | work_item (?task_id) | projects | project (?project_id) | retainer | history (?days) | reports | invoices | site_pages (?site_id, ?q)
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string; kind: string }> }) {
   try {
     await requireEngine();
@@ -32,8 +32,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const projectId = sp.get('project_id');
     if (taskId && !uuid.safeParse(taskId).success) throw new ApiError('Invalid task_id', 400);
     if (projectId && !uuid.safeParse(projectId).success) throw new ApiError('Invalid project_id', 400);
+    const siteId = sp.get('site_id');
+    if (siteId && !uuid.safeParse(siteId).success) throw new ApiError('Invalid site_id', 400);
     const days = sp.get('days');
-    const data = await runRead(access, p.kind, { task_id: taskId, project_id: projectId, days: days ? Number(days) : null });
+    const data = await runRead(access, p.kind, { task_id: taskId, project_id: projectId, days: days ? Number(days) : null, site_id: siteId, q: sp.get('q') });
     return NextResponse.json({ kind: p.kind, data });
   } catch (error) {
     return handleApiError(error);

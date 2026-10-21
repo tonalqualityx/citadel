@@ -721,6 +721,20 @@ export const portalEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/portal/sites/{id}/pages',
+    group: 'portal',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          "Portal phase C: pages of one of the signed-in client's own sites, for \"Another page\" in the chat. Searches title, path and section headings. 404 for a site that is not theirs, a bad id, or a project-only contact. Requires a client_session cookie.",
+        auth: 'session',
+        queryParams: [{ name: 'q', type: 'string', required: false, description: 'Search text' }],
+        responseExample: { pages: [{ id: 'uuid', site_id: 'uuid', title: 'string', path: 'string', sections: ['string'] }] },
+      },
+    ],
+  },
+  {
     path: '/api/portal/retainer',
     group: 'portal',
     methods: [

@@ -64,6 +64,17 @@ export async function runnerState(now: Date = new Date()): Promise<RunnerState> 
 export type Unavailable = 'mode_off' | 'not_pilot' | 'site_off' | 'runner_down' | CapReason;
 export type Availability = { available: true } | { available: false; reason: Unavailable };
 
+/** The kill switches alone (mode, pilot, site): re-checked when a job is claimed, so turning chat off stops queued work. */
+export async function chatSwitchesOn(input: { contactId: string; clientId: string; siteId?: string | null }): Promise<{ on: true } | { on: false; reason: 'mode_off' | 'not_pilot' | 'site_off' }> {
+  const settings = await getChatSettings();
+  if (settings.mode === 'off') return { on: false, reason: 'mode_off' };
+  if (settings.mode === 'pilot' && !settings.pilot_contact_ids.includes(input.contactId)) return { on: false, reason: 'not_pilot' };
+  const siteOk = input.siteId
+    ? (await prisma.site.count({ where: { id: input.siteId, client_id: input.clientId, is_deleted: false, portal_chat_enabled: true } })) > 0
+    : (await prisma.site.count({ where: { client_id: input.clientId, is_deleted: false, portal_chat_enabled: true } })) > 0;
+  return siteOk ? { on: true } : { on: false, reason: 'site_off' };
+}
+
 export async function chatAvailability(input: {
   contactId: string;
   clientId: string;
@@ -72,14 +83,8 @@ export async function chatAvailability(input: {
   now?: Date;
 }): Promise<Availability> {
   const now = input.now ?? new Date();
-  const settings = await getChatSettings();
-  if (settings.mode === 'off') return { available: false, reason: 'mode_off' };
-  if (settings.mode === 'pilot' && !settings.pilot_contact_ids.includes(input.contactId)) return { available: false, reason: 'not_pilot' };
-
-  const siteOk = input.siteId
-    ? (await prisma.site.count({ where: { id: input.siteId, client_id: input.clientId, is_deleted: false, portal_chat_enabled: true } })) > 0
-    : (await prisma.site.count({ where: { client_id: input.clientId, is_deleted: false, portal_chat_enabled: true } })) > 0;
-  if (!siteOk) return { available: false, reason: 'site_off' };
+  const sw = await chatSwitchesOn(input);
+  if (!sw.on) return { available: false, reason: sw.reason };
 
   const caps = await checkCaps({ conversationId: input.conversationId, contactId: input.contactId, clientId: input.clientId, now });
   if (!caps.ok) return { available: false, reason: caps.reason };

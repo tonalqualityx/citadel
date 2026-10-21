@@ -6,6 +6,7 @@ import { requireEngine } from '@/lib/engine/auth';
 import { abandonJob, activeConversationCount, claimNextJob, expireStaleJobs, JOB_TYPES } from '@/lib/engine/queue';
 import { accessForJob } from '@/lib/engine/reads';
 import { buildContext, buildToolScope } from '@/lib/portal/chat/context';
+import { chatSwitchesOn } from '@/lib/portal/chat/switches';
 
 const bodySchema = z.object({ types: z.array(z.enum(JOB_TYPES)).max(4).optional() }).default({});
 
@@ -31,6 +32,12 @@ export async function POST(request: NextRequest) {
       return new NextResponse(null, { status: 204, headers });
     }
     const convo = await prisma.chatConversation.findUnique({ where: { id: job.conversation_id }, select: { site_id: true } });
+    // The switches may have been turned off while the job waited: the kill switch also stops queued work.
+    const sw = await chatSwitchesOn({ contactId: job.contact_id, clientId: job.client_id, siteId: convo?.site_id });
+    if (!sw.on) {
+      await abandonJob(job.id, sw.reason);
+      return new NextResponse(null, { status: 204, headers });
+    }
     const context = await buildContext(access, job.conversation_id);
     const scope = await buildToolScope(access, { id: job.id, client_id: job.client_id, contact_id: job.contact_id }, convo?.site_id);
     return NextResponse.json(

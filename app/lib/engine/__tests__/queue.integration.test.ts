@@ -147,6 +147,45 @@ describe.skipIf(!SCRATCH)('engine queue (real database)', () => {
     expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: b.conversationId } })).mode).toBe('tree');
   });
 
+  it('one queued job per conversation whatever its type: an email reply folds into a waiting chat job', async () => {
+    const chat = await enqueueJob(input(a));
+    const email = await enqueueJob({ ...input(a), type: 'chat_email_reply', upToCommentId: 'e1' });
+    expect(email.absorbed).toBe(true);
+    expect(email.job.id).toBe(chat.job.id);
+    expect(await prisma.engineJob.count({ where: { conversation_id: a.conversationId, status: 'queued' } })).toBe(1);
+    const c = (await claimNextJob())!;
+    await markJobDone(c.id, 'pass');
+  });
+
+  it('the database refuses a second claimed job in one conversation', async () => {
+    await enqueueJob(input(a));
+    const c = (await claimNextJob())!;
+    await expect(
+      prisma.engineJob.create({ data: { type: 'chat_reply', status: 'claimed', conversation_id: a.conversationId, client_id: a.clientId, claimed_at: new Date(), lease_until: new Date(Date.now() + 1000) } })
+    ).rejects.toMatchObject({ code: 'P2002' });
+    // A claimed job whose lease lapsed still blocks a claim until it is expired, so the index cannot be hit.
+    await prisma.engineJob.update({ where: { id: c.id }, data: { lease_until: new Date(Date.now() - 1000) } });
+    await enqueueJob(input(a));
+    expect(await claimNextJob()).toBeNull();
+    await expireStaleJobs();
+    await prisma.engineJob.updateMany({ where: { conversation_id: a.conversationId, status: 'queued' }, data: { status: 'done' } });
+  });
+
+  it('many claimers over many conversations never double-claim one conversation', async () => {
+    await prisma.engineJob.updateMany({ where: { client_id: { in: [a.clientId, b.clientId] }, status: { in: ['queued', 'claimed'] } }, data: { status: 'done' } });
+    await enqueueJob(input(a));
+    const first = (await claimNextJob())!;
+    await enqueueJob(input(a)); // follow-up behind the claimed job
+    await enqueueJob(input(b));
+    const got = (await Promise.all([claimNextJob(), claimNextJob(), claimNextJob(), claimNextJob()])).filter(Boolean);
+    expect(got.map((j) => j!.conversation_id)).toEqual([b.conversationId]);
+    await markJobDone(first.id, 'pass');
+    await markJobDone(got[0]!.id, 'pass');
+    const rest = await claimNextJob();
+    expect(rest?.conversation_id).toBe(a.conversationId);
+    await markJobDone(rest!.id, 'pass');
+  });
+
   it('counts conversations with a client message in the last five minutes', async () => {
     const before = await activeConversationCount();
     await prisma.comment.create({ data: { task_id: b.taskId, author_contact_id: b.ownerId, content: 'hello', client_visible: true, source: 'portal' } });

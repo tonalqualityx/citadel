@@ -11,7 +11,7 @@ import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { GET as status } from '../status/route';
 import { PUT as settings } from '../settings/route';
-import { PUT as putPages } from '../../sites/[id]/pages/route';
+import { PUT as putPages, GET as getPages } from '../../sites/[id]/pages/route';
 import { getChatSettings, updateChatSettings } from '@/lib/portal/chat/switches';
 import { cleanup, SCRATCH, seedClient, type Seeded } from '@/lib/engine/__tests__/seed';
 
@@ -108,6 +108,17 @@ describe.skipIf(!SCRATCH)('portal-chat settings and status, site pages (real dat
     expect(row.title.length).toBeLessThanOrEqual(255);
     expect(row.title).not.toMatch(/[<>‮\n]/);
     expect(row.sections).toEqual([{ key: 'k', heading: 'Heading here' }]);
+  });
+
+  it('pages: GET reports live and missing counts for the sync\'s shrink check', async () => {
+    as(BAST_USER_ID, 'pm');
+    await putPages(put('/x', { pages: [page('/'), page('/about')] }), ctx());
+    const body = await (await getPages(new NextRequest('http://localhost/x'), ctx())).json();
+    expect(body.live).toBe(2);
+    expect(body.missing).toBeGreaterThanOrEqual(0);
+    expect(body.pages.length).toBe(body.live + body.missing);
+    as('u2', 'tech');
+    expect((await getPages(new NextRequest('http://localhost/x'), ctx())).status).toBe(403);
   });
 
   it('pages: validates paths and the 300 page cap, 404 for an unknown site, refuses a non-pm', async () => {

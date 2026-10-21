@@ -72,3 +72,29 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return handleApiError(error);
   }
 }
+
+// GET /api/sites/:id/pages (portal phase C; bot and staff)
+// The site's current page set, so the sync can see how many pages it is about to replace.
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const auth = await requireAuth();
+    requireRole(auth, ['pm', 'admin']);
+    const id = z.string().uuid().safeParse((await params).id);
+    if (!id.success) throw new ApiError('Site not found', 404);
+    const site = await prisma.site.findUnique({ where: { id: id.data, is_deleted: false }, select: { id: true } });
+    if (!site) throw new ApiError('Site not found', 404);
+    const rows = await prisma.sitePage.findMany({
+      where: { site_id: site.id },
+      orderBy: [{ depth: 'asc' }, { path: 'asc' }],
+      select: { id: true, path: true, title: true, source: true, missing_since: true, last_seen_at: true },
+    });
+    return NextResponse.json({
+      site_id: site.id,
+      live: rows.filter((r) => !r.missing_since).length,
+      missing: rows.filter((r) => r.missing_since).length,
+      pages: rows,
+    });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
