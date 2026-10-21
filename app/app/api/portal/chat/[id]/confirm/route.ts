@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!id.success) throw new ApiError('Not found', 404);
     const body = bodySchema.parse(await request.json());
     const done = await confirmConversation(access, id.data, body);
-    return NextResponse.json({ state: 'filed', quote: done.quote, urgent: done.urgent, lines: done.lines });
+    return NextResponse.json({ state: 'filed', already: done.already, quote: done.quote, urgent: done.urgent, lines: done.lines, task_id: done.task_id ?? null, link: done.link ?? null });
   } catch (error) {
     return handleApiError(error);
   }

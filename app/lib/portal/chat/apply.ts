@@ -14,7 +14,7 @@ import { ApiError } from '@/lib/api/errors';
 import { isLive, abandonJob } from '@/lib/engine/queue';
 import { accessForJob } from '@/lib/engine/reads';
 import { composeTitle } from '@/lib/portal/intake/compose';
-import { buildContext } from '@/lib/portal/chat/context';
+import { buildContext, contextClientTexts } from '@/lib/portal/chat/context';
 import { gateReply, type GateKind, type GateResult } from '@/lib/portal/chat/gate';
 import { loadGateContext } from '@/lib/portal/chat/gate-context';
 import { APPLY_ORDER, injectionReports, resultSchema, type ChatAction, type ChatResult } from '@/lib/portal/chat/result';
@@ -64,13 +64,83 @@ interface ActionError {
 const TEAM_SPAN = /\[TEAM[^\]]*\]/g;
 const DATE_RANGE = /^\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}$/;
 
-function gateAll(result: ChatResult, ctx: Parameters<typeof gateReply>[1]): { rejected: GateResult | null; draftOk: boolean } {
-  const checks: Array<[string, GateKind]> = [[result.reply, 'reply']];
+/**
+ * Every string field of the result contract, and what happens to it. A test enumerates the Zod
+ * schema's string fields and fails when one is in none of these three lists, so a new field cannot
+ * reach a client ungated by accident.
+ *
+ *  - GATED_FIELDS: runs through the copy gate in `complete` (a refusal is a 422), and says as what.
+ *  - ID_VALIDATED_FIELDS: an id, a key or a call id that Citadel checks against this client's own
+ *    rows and drops when unknown; the client never sees the model's text for it.
+ *  - INTERNAL_ONLY_FIELDS: never shown to a client (staff note, or rebuilt from the database).
+ */
+export const GATED_FIELDS: Record<string, GateKind> = {
+  reply: 'reply',
+  'ask.question': 'ask',
+  'propose_summary.summary': 'summary',
+  'propose_summary.change': 'field',
+  'propose_summary.section': 'field',
+  'record.change': 'field',
+  'record.page_text': 'field',
+  'record.section_text': 'field',
+  'hand_to_person.draft_reply': 'draft',
+};
+export const ID_VALIDATED_FIELDS: string[] = [
+  'ask.choice_ids',
+  'record.site_id',
+  'record.page_id',
+  'record.section_key',
+  'record.attachment_ids',
+  'propose_summary.site_id',
+  'propose_summary.page_id',
+  'propose_summary.attachment_ids',
+  'sources.tool_call_id',
+  'sources.range',
+];
+export const INTERNAL_ONLY_FIELDS: string[] = [
+  'report_injection.excerpt', // staff note, quotes the client, never shown or obeyed
+  'sources.label', // replaced by the tool result's own label from the database
+];
+
+const norm = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').replace(/[.?!\s]+$/, '').trim();
+
+/** A client message split into its sentences (on . ? ! followed by a space, and on line breaks). */
+export function sentencesOfClientText(text: string): string[] {
+  return text
+    .split(/(?<=[.?!])\s+|\r?\n+/)
+    .map((x) => norm(x))
+    .filter(Boolean);
+}
+
+/**
+ * A short field that is the client's own words is theirs to say, so it is not gated as our copy. That
+ * holds for a WHOLE client sentence, or a whole client message, exactly (case, spacing and the closing
+ * punctuation aside). A fragment of a sentence, or two sentences glued together, is model text: it goes
+ * through the gate like any other (the fragment "the price on the menu to $20" is how a number slips in).
+ */
+export function isClientVerbatim(text: string, clientTexts: string[]): boolean {
+  const t = norm(text);
+  if (!t) return false;
+  return clientTexts.some((c) => norm(c) === t || sentencesOfClientText(c).includes(t));
+}
+
+function gateAll(result: ChatResult, ctx: Parameters<typeof gateReply>[1], clientTexts: string[]): { rejected: GateResult | null; draftOk: boolean } {
+  const checks: Array<[string, GateKind]> = [[result.reply, GATED_FIELDS.reply]];
   for (const a of result.actions) {
-    if (a.type === 'ask') checks.push([a.question, 'ask']);
-    if (a.type === 'propose_summary') checks.push([a.summary, 'summary']);
+    if (a.type === 'ask') checks.push([a.question, GATED_FIELDS['ask.question']]);
+    if (a.type === 'propose_summary') {
+      checks.push([a.summary, GATED_FIELDS['propose_summary.summary']]);
+      checks.push([a.change, GATED_FIELDS['propose_summary.change']]);
+      if (a.section) checks.push([a.section, GATED_FIELDS['propose_summary.section']]);
+    }
+    if (a.type === 'record') {
+      if (a.change) checks.push([a.change, GATED_FIELDS['record.change']]);
+      if (a.page_text) checks.push([a.page_text, GATED_FIELDS['record.page_text']]);
+      if (a.section_text) checks.push([a.section_text, GATED_FIELDS['record.section_text']]);
+    }
   }
   for (const [text, kind] of checks) {
+    if (kind === 'field' && isClientVerbatim(text, clientTexts)) continue;
     const g = gateReply(text, ctx, kind);
     if (!g.ok) return { rejected: g, draftOk: true };
   }
@@ -116,10 +186,21 @@ async function closeJob(tx: Prisma.TransactionClient, job: EngineJob, gate: 'pas
   if (job.conversation_id) await tx.chatConversation.update({ where: { id: job.conversation_id }, data: { mode: 'model' } });
 }
 
-async function attachmentIdsFor(clientId: string, conversationId: string, ids: string[]): Promise<{ ok: string[]; bad: string[] }> {
+/**
+ * Attachment ids the model may name: files of THIS conversation that are already on a message, or that
+ * this same person staged and has not yet sent. Never another contact's unbound file, never another
+ * conversation's, never another client's.
+ */
+async function attachmentIdsFor(clientId: string, conversationId: string, ids: string[], contactIds: string[]): Promise<{ ok: string[]; bad: string[] }> {
   if (ids.length === 0) return { ok: [], bad: [] };
   const rows = await prisma.portalAttachment.findMany({
-    where: { id: { in: ids }, client_id: clientId, is_deleted: false, OR: [{ conversation_id: conversationId }, { conversation_id: null }] },
+    where: {
+      id: { in: ids },
+      client_id: clientId,
+      is_deleted: false,
+      conversation_id: conversationId,
+      OR: [{ comment_id: { not: null } }, { uploaded_by_contact_id: { in: contactIds } }],
+    },
     select: { id: true },
   });
   const have = new Set(rows.map((r) => r.id));
@@ -184,7 +265,7 @@ export async function applyResult(
   // Gate, then provenance.
   const context = await buildContext(access, convo.id, { now });
   const gateCtx = await loadGateContext({ jobId: job.id, clientId: access.clientId, contactId: job.contact_id, context, now });
-  const gated = gateAll(result, gateCtx);
+  const gated = gateAll(result, gateCtx, contextClientTexts(context));
   if (gated.rejected && !gated.rejected.ok) return { status: 'rejected', rule: gated.rejected.rule, match: gated.rejected.match };
 
   const calls = await prisma.engineToolCall.findMany({ where: { job_id: job.id, error: null }, select: { id: true, result: true } });
@@ -203,6 +284,7 @@ export async function applyResult(
 
   // Actions: validate ids against this client; drop what does not belong.
   let slots: Slots = readSlots(convo.slots);
+  const personIds = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
   const sites = await clientSites(access.clientId);
   const pages = await conversationPages(access.clientId, convo.site_id ?? slots.site_id);
   const siteOk = (id?: string | null) => (id ? sites.some((s) => s.id === id) : false);
@@ -249,7 +331,7 @@ export async function applyResult(
         if (a.section_text) slots = { ...slots, section_text: a.section_text };
         if (a.change) slots = { ...slots, change: a.change };
         if (a.attachment_ids.length) {
-          const { ok, bad } = await attachmentIdsFor(access.clientId, convo.id, a.attachment_ids);
+          const { ok, bad } = await attachmentIdsFor(access.clientId, convo.id, a.attachment_ids, personIds);
           for (const b of bad) errors.push({ action: 'record', error: 'unknown_attachment', detail: b });
           slots = { ...slots, attachment_ids: [...new Set([...(slots.attachment_ids ?? []), ...ok])] };
         }
@@ -289,7 +371,7 @@ export async function applyResult(
         if (!siteOk(a.site_id)) errors.push({ action: 'propose_summary', error: 'unknown_site', detail: a.site_id });
         const page = a.page_id ? pages.find((p) => p.id === a.page_id) : null;
         if (a.page_id && !page) errors.push({ action: 'propose_summary', error: 'unknown_page', detail: a.page_id });
-        const { ok, bad } = await attachmentIdsFor(access.clientId, convo.id, a.attachment_ids);
+        const { ok, bad } = await attachmentIdsFor(access.clientId, convo.id, a.attachment_ids, personIds);
         for (const b of bad) errors.push({ action: 'propose_summary', error: 'unknown_attachment', detail: b });
         summaryVersion += 1;
         summarySnap = {

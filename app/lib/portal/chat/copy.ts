@@ -40,6 +40,8 @@ export const RESERVED_CHOICES = ['not_sure', 'another_page', 'no_file'] as const
 export const SUMMARY_LABELS = { site: 'Site', page: 'Page', section: 'Section', change: 'Change', files: 'Files' } as const;
 export const BUTTONS = { send: 'Send to the team', change: 'Change something' } as const;
 export const SENT_LINES = { heading: SENT_HEADING, more: 'You can keep adding details here.' } as const;
+/** A stale "Send to the team" after the sweep already filed the request (client walked away). */
+export const ALREADY_FILED_LINE = 'This request was already filed. Open it from Requests.';
 export const CHANGE_PROMPT = 'What would you like to change?';
 export const CLOSED_QUESTION_LINE = 'Anything else?';
 export const NOT_SURE = 'Not sure';
@@ -60,6 +62,6 @@ export function allChatStrings(): string[] {
     ASSISTANT_NAME, CANNED_LINE, HANDOFF_BANNER, DISCLOSURE_LINE, ...Object.values(WRITING_LABELS), URGENT_PROMPT,
     ...URGENT_CHOICES.map((c) => c.label), URGENT_MARKED, URGENT_DOWNGRADED, URGENT_DISMISSED, ...Object.values(TREE),
     ...Object.values(CHOICE_LABELS), ...Object.values(SUMMARY_LABELS), ...Object.values(BUTTONS), ...Object.values(SENT_LINES),
-    CHANGE_PROMPT, CLOSED_QUESTION_LINE, QUOTE_LINE, EMERGENCY_LINE, ...OPENING_CHOICES.flatMap((o) => [o.label, o.line]),
+    CHANGE_PROMPT, ALREADY_FILED_LINE, CLOSED_QUESTION_LINE, QUOTE_LINE, EMERGENCY_LINE, ...OPENING_CHOICES.flatMap((o) => [o.label, o.line]),
   ];
 }

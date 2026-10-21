@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeFilename, serveHeaders, sniffFile, validateUpload, zipEntryNames, MAX_FILE_BYTES } from '../uploads';
+import { pdfHasActiveContent, sanitizeFilename, serveHeaders, sniffFile, validateUpload, zipEntryNames, MAX_FILE_BYTES } from '../uploads';
 
 /** A stored (uncompressed) zip with empty entries: enough for the container checks. */
 export function makeZip(names: string[]): Buffer {
@@ -138,5 +138,26 @@ describe('names and headers', () => {
     expect(img['Content-Disposition']).toMatch(/^inline/);
     const doc = serveHeaders({ content_type: 'application/pdf', filename: 'a.pdf', size_bytes: 3 });
     expect(doc['Content-Disposition']).toMatch(/^attachment/);
+  });
+});
+
+describe('PDFs with active content are refused', () => {
+  const pdf = (body: string) => Buffer.from(`%PDF-1.7\n${body}\n%%EOF`);
+  it.each([
+    ['/JavaScript action', '1 0 obj << /Type /Action /S /JavaScript /JS (app.alert(1)) >> endobj'],
+    ['/JS alone', '2 0 obj << /S /Foo /JS (x) >> endobj'],
+    ['/OpenAction', '<< /Type /Catalog /OpenAction 3 0 R >>'],
+    ['/Launch', '<< /S /Launch /F (cmd.exe) >>'],
+    ['additional actions /AA', '<< /Type /Page /AA << /O 4 0 R >> >>'],
+    ['a hex-obfuscated name', '<< /S /J#61vaScr#69pt /JS (x) >>'],
+    ['a hex-obfuscated OpenAction', '<< /#4Fpen#41ction 3 0 R >>'],
+  ])('refuses %s', (_label, body) => {
+    expect(pdfHasActiveContent(pdf(body))).toBe(true);
+    expect(validateUpload(pdf(body), 'invoice.pdf').ok).toBe(false);
+  });
+  it('accepts a plain PDF, even one that talks about JavaScript in its text', () => {
+    const plain = pdf('<< /Type /Catalog /Pages 2 0 R >>\nBT (We build with JavaScript and OpenAction-free pages) Tj ET');
+    expect(pdfHasActiveContent(plain)).toBe(false);
+    expect(validateUpload(plain, 'menu.pdf')).toMatchObject({ ok: true, file: { content_type: 'application/pdf' } });
   });
 });

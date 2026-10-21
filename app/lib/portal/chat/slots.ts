@@ -33,6 +33,11 @@ export interface Slots {
   asked?: string[];
   summary?: SummarySnap | null;
   question_closed_at?: string | null;
+  /** The sweep filed this request after the client walked away (never confirmed by them). */
+  unconfirmed_filed?: boolean;
+  /** Consecutive sweep failures on this conversation; after three it is tagged needs-mike and skipped. */
+  sweep_failures?: number;
+  sweep_skip?: boolean;
 }
 
 export type AskSlot = 'site' | 'page' | 'section' | 'change' | 'asset' | 'other';
@@ -140,7 +145,7 @@ export async function resolveChoices(
     }
   } else if (slot === 'asset') {
     const atts = await prisma.portalAttachment.findMany({
-      where: { client_id: conv.client_id, is_deleted: false, OR: [{ conversation_id: conv.id }, { conversation_id: null }] },
+      where: { client_id: conv.client_id, is_deleted: false, conversation_id: conv.id },
       select: { id: true, filename: true },
     });
     for (const id of ids) {

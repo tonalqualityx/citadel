@@ -163,7 +163,7 @@ export async function postChatMessage(
       select: { id: true },
     });
     const bound = await bindAttachments(tx, {
-      clientId: access.clientId, ids: body.attachment_ids ?? [], taskId: convo.task_id, commentId: comment.id, conversationId: convo.id, now,
+      clientId: access.clientId, ids: body.attachment_ids ?? [], taskId: convo.task_id, commentId: comment.id, conversationId: convo.id, contactIds: ids, now,
     });
 
     // Slots: choices always; words only in tree mode.

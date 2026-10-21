@@ -69,8 +69,8 @@ export async function seedWorld(spec: WorldSpec): Promise<World> {
   const other = await prisma.client.create({ data: { name: otherName, type: 'direct', status: 'active' } });
   await prisma.appSettings.upsert({
     where: { id: 'singleton' },
-    update: { portal_chat_mode: 'on', portal_chat_daily_cap_usd: 30 },
-    create: { id: 'singleton', portal_chat_mode: 'on' },
+    update: { portal_chat_mode: 'on', portal_chat_daily_cap_usd: 30, portal_chat_runner_seen_at: new Date() },
+    create: { id: 'singleton', portal_chat_mode: 'on', portal_chat_runner_seen_at: new Date() },
   });
   const who = spec.role === 'owner' ? owner : viewer;
   return { tag, clientId: client.id, contactId: who.id, ownerId: owner.id, viewerId: viewer.id, email: who.email!, sites, pageIds, otherClientId: other.id, otherName };

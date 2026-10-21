@@ -34,6 +34,7 @@ import { POST as messagesRoute } from '@/app/api/portal/chat/[id]/messages/route
 import { POST as confirmRoute } from '@/app/api/portal/chat/[id]/confirm/route';
 import { POST as presenceRoute } from '@/app/api/portal/chat/[id]/presence/route';
 import { POST as claimRoute } from '@/app/api/engine/claim/route';
+import { POST as heartbeatRoute } from '@/app/api/engine/runner/heartbeat/route';
 import { POST as completeRoute } from '@/app/api/engine/jobs/[id]/complete/route';
 import { POST as failRoute } from '@/app/api/engine/jobs/[id]/fail/route';
 import { POST as toolCallRoute } from '@/app/api/engine/jobs/[id]/tool-calls/route';
@@ -343,13 +344,25 @@ describe.skipIf(!SCRATCH)('chat engine (real database)', () => {
     expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: convo.id } })).state).toBe('with_person');
   });
 
-  it('dead runner: a new conversation runs the tree at once', async () => {
-    await prisma.engineJob.create({ data: { type: 'chat_reply', status: 'queued', queued_at: new Date(), client_id: other.clientId } });
-    await prisma.engineJob.updateMany({ where: { client_id: other.clientId }, data: { queued_at: new Date(Date.now() - 20 * 60_000) } });
+  it('dead runner (no heartbeat for three minutes): a new conversation runs the tree at once', async () => {
+    await prisma.appSettings.update({ where: { id: 'singleton' }, data: { portal_chat_runner_seen_at: new Date(Date.now() - 4 * 60_000) } });
     const { body } = await start('Please update our hours');
     expect(body.mode).toBe('tree');
     expect(body.route).toBe('tree');
     expect(await prisma.engineJob.count({ where: { task_id: body.task_id } })).toBe(0);
+  });
+
+  it('the runner heartbeat route stores the time, needs the engine key, and revives a silent runner', async () => {
+    await prisma.appSettings.update({ where: { id: 'singleton' }, data: { portal_chat_runner_seen_at: new Date(Date.now() - 10 * 60_000) } });
+    auth.bearer = null;
+    expect([401, 403]).toContain((await heartbeatRoute()).status);
+    asEngine();
+    const res = await heartbeatRoute();
+    expect(res.status).toBe(200);
+    const seen = (await prisma.appSettings.findUniqueOrThrow({ where: { id: 'singleton' } })).portal_chat_runner_seen_at!;
+    expect(Date.now() - seen.getTime()).toBeLessThan(5000);
+    const { body } = await start('Please update our hours');
+    expect(body.mode).toBe('model');
   });
 
   describe('uploads', () => {
