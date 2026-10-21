@@ -21,10 +21,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { email } = requestSchema.parse(body);
 
-    await requestClientMagicLink({
+    // Deliberately NOT awaited: minting and emailing take longer for a real contact than for an
+    // unknown address, so awaiting would leak which emails are clients through response time.
+    // The response path is identical for every email; failures are logged, never surfaced.
+    void requestClientMagicLink({
       email,
       ipAddress: getClientIp(request),
       userAgent: request.headers.get('user-agent'),
+    }).catch((error) => {
+      console.error('Magic link request failed:', error instanceof Error ? error.message : 'unknown error');
     });
 
     return NextResponse.json({ requested: true });

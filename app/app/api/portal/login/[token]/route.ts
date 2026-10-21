@@ -13,7 +13,7 @@ export async function GET(
   const { token } = await params;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   return NextResponse.redirect(
-    `${baseUrl}/portal/login/verify?token=${encodeURIComponent(token)}`,
+    `${baseUrl}/portal/login/verify#token=${encodeURIComponent(token)}`,
     303
   );
 }

@@ -91,6 +91,12 @@ async function sendViaSendGrid(
   }
 }
 
+/** In production never print a login URL (it holds a live single-use token) to the logs. */
+export function redactLoginLinks(text: string): string {
+  if (process.env.NODE_ENV !== 'production') return text;
+  return text.replace(/https?:\/\/\S*\/portal\/login\/\S*/g, '[login link redacted]');
+}
+
 /**
  * Log email to console (fallback when SendGrid not configured)
  */
@@ -101,7 +107,7 @@ function logToConsole(options: SendEmailOptions): void {
   console.log(`To: ${options.to}`);
   console.log(`Subject: ${options.subject}`);
   console.log('----------------------------------------');
-  console.log(options.text);
+  console.log(redactLoginLinks(options.text));
   console.log('========================================');
 }
 

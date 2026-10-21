@@ -55,6 +55,25 @@ describe('POST /api/portal/login/request', () => {
     expect(await second.json()).toEqual({ requested: true });
   });
 
+  it('does not await the mint: the response returns while the service call is still pending', async () => {
+    let release!: () => void;
+    mockRequest.mockReturnValue(new Promise<number>((resolve) => { release = () => resolve(1); }));
+    const known = await POST(makeRequest({ email: 'ann@acme.com' }));
+    expect(known.status).toBe(200);
+    expect(await known.json()).toEqual({ requested: true });
+    release();
+  });
+
+  it('a failing background mint still returns 200 and is logged, not thrown', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockRequest.mockRejectedValue(new Error('smtp down'));
+    const res = await POST(makeRequest({ email: 'ann@acme.com' }));
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it('rejects an invalid email with 400', async () => {
     const res = await POST(makeRequest({ email: 'not-an-email' }));
     expect(res.status).toBe(400);
