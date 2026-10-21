@@ -327,8 +327,13 @@ test.describe('Portal navigation after sign-in', () => {
     const note = page.getByRole('textbox').first();
     await note.fill('The phone number is still the old one');
     await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
+    const before = await note.boundingBox();
     await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible({ timeout: 10_000 });
     await expect(note).toHaveValue('The phone number is still the old one');
+    // The column neither rewraps nor jumps: the only change is the nav appearing.
+    const after = await note.boundingBox();
+    expect(before).not.toBeNull();
+    expect(after).toEqual(before);
     await context.close();
   });
 

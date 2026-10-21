@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Menu, LogOut, Plus } from 'lucide-react';
 import { AccountBlock, usePortalSession } from '@/components/portal/client-switcher';
-import { activeKey, isBarePath, isSignInPath, NAV, type NavKey } from './nav-items';
+import { activeKey, isBarePath, isSignInPath, isTokenPath, NAV, type NavKey } from './nav-items';
 import { HelpLine } from './help-line';
 import { MoreSheet } from './more-sheet';
 import { ThemeControl } from './theme-control';
@@ -23,7 +23,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const signIn = isSignInPath(pathname);
   // Token pages open for people with no session too, so they ask once and show the nav on a 200.
   const session = usePortalSession(!signIn, pathname);
-  const bare = isBarePath(pathname, session.loaded);
+  // A token page whose session check is still out keeps the signed-in layout (same column, same
+  // left edge) with the nav parts invisible, so the only change when it answers 200 is the nav
+  // appearing. With no session it then settles into the bare, centred frame.
+  const token = isTokenPath(pathname);
+  const pending = token && !session.settled && !session.loaded;
+  const bare = !pending && isBarePath(pathname, session.loaded);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreBtn = useRef<HTMLButtonElement>(null);
   const active = activeKey(pathname);
@@ -43,8 +48,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   // parts are hidden (not absent) until then, and the content subtree has no key and never moves,
   // so a half-typed note or signature survives the reveal.
   return (
-    <div className={`shell${bare ? ' shell-bare' : ''}`}>
-      <aside className="sidebar" aria-label="Portal" data-nav-zone hidden={bare}>
+    <div className={`shell${bare ? ' shell-bare' : ''}${pending ? ' shell-pending' : ''}`}>
+      <aside className="sidebar" aria-label="Portal" data-nav-zone hidden={bare} aria-hidden={pending || undefined} inert={pending || undefined}>
         <div className="side-in">
           <Wordmark />
           <AccountBlock name={session.name} canSwitch={session.canSwitch} />
@@ -78,10 +83,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <div className="col">
         <header className="topbar" data-nav-zone>
           <Wordmark />
-          <span className="who" hidden={bare}>
+          <span className="who" hidden={bare} aria-hidden={pending || undefined}>
             {session.name}
           </span>
-          <Link className="btn-nav" href="/portal/requests/new" hidden={bare}>
+          <Link className="btn-nav" href="/portal/requests/new" hidden={bare} aria-hidden={pending || undefined} tabIndex={pending ? -1 : undefined}>
             <Plus className="i" aria-hidden="true" focusable="false" />
             Request
           </Link>
@@ -92,10 +97,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               You no longer have access to the account you were viewing, so we opened {session.name}.
             </p>
           ) : null}
-          <div className={bare ? 'bare-inner' : 'main-inner'}>{children}</div>
+          <div className={`${bare ? 'bare-inner' : 'main-inner'}${token ? ' col-narrow' : ''}`}>{children}</div>
           {bare ? <HelpLine /> : null}
         </main>
-        <nav className="bottombar" aria-label="Portal" data-nav-zone hidden={bare}>
+        <nav className="bottombar" aria-label="Portal" data-nav-zone hidden={bare} aria-hidden={pending || undefined} inert={pending || undefined}>
           {phoneNav.map(({ key, href, label, icon: Icon }) => (
             <Link key={key} href={href} aria-current={active === key ? 'page' : undefined}>
               <Icon className="i" aria-hidden="true" focusable="false" />

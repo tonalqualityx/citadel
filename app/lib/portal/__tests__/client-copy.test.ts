@@ -18,6 +18,9 @@ import { DEFAULT_PLAN_LABEL, engagementText } from '../engagement';
 const APP = path.resolve(__dirname, '..', '..', '..');
 
 // Strings that describe a window we show, not a promise about our work.
+// Sentences shown to staff, who see them in Citadel, never to a client.
+const STAFF_ONLY = ['This reply names Bast, so it cannot be shown to the client. Reword it, or keep it as an internal note.'];
+
 const ALLOWED_DURATIONS = ['Closed in the last 30 days', 'Visits, last 30 days'];
 
 function walk(dir: string): string[] {
@@ -36,7 +39,12 @@ const PAGES = [
   'articles/[id]', 'login', 'login/verify', 'select', 'task-approval/[token]',
 ].map((p) => path.join(APP, 'app/(portal)/portal', p, 'page.tsx'));
 
-const LIB_FILES = ['headline.ts', 'history-group.ts'].map((f) => path.join(APP, 'lib/portal', f));
+// Every lib/portal file that holds words a client reads (labels, headings, sentences in payloads).
+const LIB_FILES = [
+  'headline.ts', 'history-group.ts', 'retainer.ts', 'status-labels.ts', 'engagement.ts', 'projects-list.ts',
+  'project-view.ts', 'requests.ts', 'thread.ts', 'history.ts', 'booking.ts', 'waits.ts', 'share-reply.ts', 'notices.ts',
+  'intake/file-request.ts',
+].map((f) => path.join(APP, 'lib/portal', f));
 
 const FILES = [...walk(path.join(APP, 'components/portal')), ...LIB_FILES, ...PAGES];
 
@@ -46,7 +54,7 @@ export function copyProblems(src: string, allowed: string[] = [], file = 'x.tsx'
   if (/[—–]/.test(stripComments(src))) out.push('em or en dash');
   for (const s of clientStrings(src, file.endsWith('.tsx'))) {
     if (!ALLOWED_DURATIONS.includes(s) && !allowed.includes(s)) for (const [name, re] of PROMISES) if (re.test(s)) out.push(`${name} in "${s}"`);
-    if (/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i.test(s)) out.push(`staff or tooling name in "${s}"`);
+    if (!STAFF_ONLY.includes(s) && /\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i.test(s)) out.push(`staff or tooling name in "${s}"`);
   }
   return out;
 }
@@ -113,7 +121,7 @@ describe('every client-facing string in the portal', () => {
       }
     });
     it(`${rel}: never names staff or tooling`, () => {
-      for (const s of clientStrings(src, file.endsWith('.tsx'))) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
+      for (const s of clientStrings(src, file.endsWith('.tsx'))) if (!STAFF_ONLY.includes(s)) expect(s, s).not.toMatch(/\bbast\b|\bcitadel\b|\bclaude\b|needs-mike|portal-chat|kind:/i);
     });
   }
 });

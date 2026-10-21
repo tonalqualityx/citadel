@@ -128,7 +128,7 @@ for (const size of SIZES) {
           await expect(page).toHaveScreenshot(`${screen.name}-${size.tag}-${scheme}.png`, { fullPage: true, maxDiffPixelRatio: 0.01 });
           await context.close();
           } finally {
-            if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
+            if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup-second-account`, { cwd: APP_ROOT, stdio: 'inherit' });
           }
         });
       }

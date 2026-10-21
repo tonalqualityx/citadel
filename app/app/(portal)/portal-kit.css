@@ -456,3 +456,7 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .legend .sw-ring { border: 3px solid var(--p-kind-retainer); }
 [data-portal] .legend .sw-ready { background: var(--p-chip-attention-bg); border: 2px solid var(--p-attention-rail); }
 [data-portal] .shell.shell-bare { display: block; }
+/* Token pages: one 640px column in every state, so the nav appearing moves nothing. */
+[data-portal] .main-inner.col-narrow, [data-portal] .bare-inner.col-narrow { max-width: 640px; width: 100%; }
+[data-portal] .shell-pending .sidebar, [data-portal] .shell-pending .bottombar,
+[data-portal] .shell-pending .topbar .who, [data-portal] .shell-pending .topbar .btn-nav { visibility: hidden; }

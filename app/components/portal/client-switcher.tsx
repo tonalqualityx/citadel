@@ -5,6 +5,8 @@ import Link from 'next/link';
 
 export interface PortalSession {
   loaded: boolean;
+  /** True once the session check has answered either way (200, 401 or a network error). */
+  settled: boolean;
   /** The active client's name, or '' when signed out or not loaded. */
   name: string;
   canSwitch: boolean;
@@ -29,20 +31,23 @@ function readAndClearMovedFlag(): boolean {
  * true so the shell can say so in one line. Fails quietly: no name is better than a broken page.
  */
 export function usePortalSession(enabled: boolean, pathname: string): PortalSession {
-  const [state, setState] = useState<PortalSession>({ loaded: false, name: '', canSwitch: false, moved: false });
+  const [state, setState] = useState<PortalSession>({ loaded: false, settled: false, name: '', canSwitch: false, moved: false });
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch('/api/portal/clients');
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setState((prev) => ({ ...prev, settled: true }));
+          return;
+        }
         const body: { active_client_id: string; moved?: boolean; clients: Array<{ id: string; name: string }> } = await res.json();
         if (cancelled) return;
         const name = body.clients.find((c) => c.id === body.active_client_id)?.name ?? '';
-        setState((prev) => ({ loaded: true, name, canSwitch: body.clients.length >= 2, moved: prev.moved || readAndClearMovedFlag() || !!body.moved }));
+        setState((prev) => ({ loaded: true, settled: true, name, canSwitch: body.clients.length >= 2, moved: prev.moved || readAndClearMovedFlag() || !!body.moved }));
       } catch {
-        // Nothing to show.
+        if (!cancelled) setState((prev) => ({ ...prev, settled: true }));
       }
     })();
     return () => {
