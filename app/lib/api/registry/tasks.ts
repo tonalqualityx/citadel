@@ -395,6 +395,47 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/staged',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'The change is staged and waits for the client. Sets status review, stores the preview url, posts the client-visible "Ready for your review" line, removes the client-sent-back tag and (portal requests only) sends the approval email to the requester. Repeating the same preview url sends nothing.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'preview_url', type: 'string', required: true, description: 'http(s) preview link the client opens' },
+          { name: 'note', type: 'string', required: false, description: 'One short client-visible line under the preview link (no dashes, no Bast)' },
+        ],
+        responseExample: { status: 'review', preview_url: 'string', already_staged: false, approval_email: 'sent|skipped' },
+        responseNotes:
+          'The Bast token is accepted as well as pm/admin (403 otherwise). 409 when the client already approved the task or it is abandoned. The client approval (portal or approval link) stamps client_approved_at and the client-approved tag; the status stays review until the live call.',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/live',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'The client-approved change is live. Requires the client approval (client_approved_at or the client-approved tag): 409 otherwise unless force. Sets status done + completed_at + approved, posts the client-visible "This is live now" line and emails the requester plus contacts who wrote in the thread (never the whole roster). Idempotent: the go-live-notified tag is claimed first, a repeat sends nothing.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        bodySchema: [
+          { name: 'live_url', type: 'string', required: true, description: 'http(s) link to the live change' },
+          { name: 'summary', type: 'string', required: false, description: 'What changed, one line (defaults to the client title). Max 300, no dashes, no Bast.' },
+          { name: 'force', type: 'boolean', required: false, description: 'Skip the approval check (staff and Bast only), for work approved outside the portal' },
+        ],
+        responseExample: { status: 'done', already_notified: false, lane: 'chat|email|none', emailed: ['string'] },
+        responseNotes:
+          'The Bast token is accepted as well as pm/admin. Chat tasks (a portal chat conversation exists): the line is posted as a team message and the chat sweep emails it when the client is away. Other tasks: one EmailOutbox row per recipient, kind portal_golive, from bast@ as Indelible Support, subject "<Client>: your change is live". A task with no portal requester sends no client email.',
+      },
+    ],
+  },
+  {
     path: '/api/tasks/unblock-sweep',
     group: 'tasks',
     methods: [

@@ -421,6 +421,8 @@ export async function recordTaskClientApproval(
       },
     }),
     removeTaskTagQuery(task.id, SEND_BACK_TAG),
+    // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
+    addTaskTagQuery(task.id, CLIENT_APPROVED_TAG),
   ]);
 
   const promotionPending = task.site?.auto_deploy === false;
@@ -512,6 +514,9 @@ export async function recordTaskClientRequestChanges(
 
 /** Marks a task the client sent back for changes (machine-readable; the worker or an approval removes it). */
 export const SEND_BACK_TAG = 'client-sent-back';
+
+/** Marks a staged task the client said yes to (the worker gate reads it; so does the go-live call). */
+export const CLIENT_APPROVED_TAG = 'client-approved';
 
 /** Add a tag in one UPDATE (no read-modify-write): a no-op when the tag is already there. */
 export function addTaskTagQuery(taskId: string, tag: string) {
