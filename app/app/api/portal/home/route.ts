@@ -6,6 +6,7 @@ import {
   canSeeAnalytics,
   canSeeBilling,
   loadPortalAccess,
+  projectAccessScope,
   projectAccessWhere,
   taskAccessWhere,
 } from '@/lib/portal/access';
@@ -129,7 +130,12 @@ export async function GET(_request: NextRequest) {
       // Open/unbilled amount — Milestone side ('triggered' = ready to invoice, not yet invoiced).
       showBilling
         ? prisma.milestone.aggregate({
-            where: { billing_status: 'triggered', project: { client_id: clientId, is_deleted: false } },
+            // Hidden means nobody (owners included), so milestones on hidden/ungranted projects are
+            // not counted. Mike may rule otherwise (money owed on a hidden project).
+            where: {
+              billing_status: 'triggered',
+              project: { client_id: clientId, is_deleted: false, AND: [projectAccessScope(access)] },
+            },
             _sum: { billing_amount: true },
             _count: true,
           })

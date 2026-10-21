@@ -17,7 +17,7 @@ vi.mock('@/lib/services/portal', () => ({
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     task: { findFirst: vi.fn() },
-    clientContact: { findUnique: vi.fn() },
+    clientContact: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
 }));
 
@@ -28,6 +28,7 @@ import { recordTaskClientApproval, recordTaskClientRequestChanges, logPortalSess
 import { prisma } from '@/lib/db/prisma';
 import type { Mock } from 'vitest';
 import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
+import { taskAccessWhere } from '@/lib/portal/access';
 
 // A task a contact requested and that is staged for approval — the only kind a session may act on.
 const STAGED = {
@@ -59,7 +60,11 @@ function postReq(id: string, body?: unknown): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A3: the signed-in contact is an owner of their own client unless a test overrides it.
+  (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role: 'owner', is_deleted: false });
 });
+
+const OWNER_ACCESS = { contactId: 'contact-1', clientId: 'client-acme', role: 'owner' as const };
 
 describe('POST /api/portal/tasks/mine/:id/approve', () => {
   it('returns 401 without a session, before any task lookup', async () => {
@@ -89,7 +94,7 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
 
     await APPROVE(postReq('task-1'), makeParams('task-1'));
 
-    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere()]);
+    expect(mockTaskFindFirst.mock.calls[0][0].where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(OWNER_ACCESS)]);
   });
 
   it('returns 404 and never approves an unstaged internal task, even if the lookup returns it (Leak 2)', async () => {
@@ -175,6 +180,55 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
     const body = await res.json();
 
     expect(body.already_approved).toBe(true);
+  });
+});
+
+describe('portal role gate on the session routes (decision 11)', () => {
+  const roleOf = (portal_role: string) =>
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue({ client_id: 'client-acme', portal_role, is_deleted: false });
+
+  it.each(['viewer', 'none'])('a %s gets 404 on approve and request-changes before any task lookup', async (role) => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    roleOf(role);
+    const a = await APPROVE(postReq('task-1'), makeParams('task-1'));
+    const r = await REQUEST_CHANGES(postReq('task-1', { note: 'x' }), makeParams('task-1'));
+    expect(a.status).toBe(404);
+    expect(r.status).toBe(404);
+    expect(mockTaskFindFirst).not.toHaveBeenCalled();
+    expect(mockRecordApproval).not.toHaveBeenCalled();
+    expect(mockRecordRequestChanges).not.toHaveBeenCalled();
+  });
+
+  it('a deleted contact (no row) gets 404', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    (prisma.clientContact.findFirst as Mock).mockResolvedValue(null);
+    const res = await APPROVE(postReq('task-1'), makeParams('task-1'));
+    expect(res.status).toBe(404);
+    expect(mockTaskFindFirst).not.toHaveBeenCalled();
+  });
+
+  it('a member is limited to projects they may see: the lookup carries the project scope (hidden/restricted excluded)', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    roleOf('member');
+    // The DB applies the where; a task in a hidden project simply is not found.
+    mockTaskFindFirst.mockResolvedValue(null);
+    const res = await APPROVE(postReq('task-hidden'), makeParams('task-hidden'));
+    expect(res.status).toBe(404);
+    const memberAccess = { contactId: 'contact-1', clientId: 'client-acme', role: 'member' as const };
+    const and = mockTaskFindFirst.mock.calls[0][0].where.AND;
+    expect(and).toContainEqual(taskAccessWhere(memberAccess));
+    expect(JSON.stringify(taskAccessWhere(memberAccess))).toContain('"not":"hidden"');
+    expect(mockRecordApproval).not.toHaveBeenCalled();
+  });
+
+  it('an owner approves a visible staged task', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    roleOf('owner');
+    mockTaskFindFirst.mockResolvedValue({ id: 'task-1', client_approved_at: null, site: null, ...STAGED });
+    mockRecordApproval.mockResolvedValue({ already_approved: false, approved_at: new Date(), promotion_pending: false });
+    const res = await APPROVE(postReq('task-1'), makeParams('task-1'));
+    expect(res.status).toBe(200);
+    expect(mockRecordApproval).toHaveBeenCalled();
   });
 });
 

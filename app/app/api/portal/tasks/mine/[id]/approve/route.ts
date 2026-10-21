@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { requireClientAuth } from '@/lib/services/client-auth';
+import { canActOnWork, loadPortalAccess, taskAccessWhere } from '@/lib/portal/access';
 import {
   clientVisibleTaskWhere,
   stagedTaskWhere,
@@ -25,13 +26,20 @@ export async function POST(
     const session = await requireClientAuth();
     const { id } = await params;
 
+    // Decision 11: approve / request-changes need member or owner; the task must also sit in a
+    // project this contact may see (hidden/restricted projects are closed by id too). 404, not 403.
+    const access = await loadPortalAccess(session);
+    if (!canActOnWork(access.role)) {
+      throw new ApiError('Task not found', 404);
+    }
+
     const task = await prisma.task.findFirst({
       where: {
         id,
         is_deleted: false,
         OR: [{ client_id: session.clientId }, { site: { client_id: session.clientId } }],
         // Leak 2: act only on client-visible tasks that are staged for approval.
-        AND: [clientVisibleTaskWhere(), stagedTaskWhere()],
+        AND: [clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(access)],
       },
       select: {
         id: true,

@@ -42,9 +42,10 @@ ALTER TABLE "project_contacts" ADD CONSTRAINT "project_contacts_project_id_fkey"
 ALTER TABLE "project_contacts" ADD CONSTRAINT "project_contacts_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "client_contacts"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
--- Backfill (spec section 2): primary contacts and anyone who could already initiate work become
--- owner; everyone else stays viewer (the column default). can_initiate_work is then derived from
--- the role (owner/member = true). Note: a primary contact that had can_initiate_work = false
--- becomes true here (the derivation rule); every other contact keeps its current value.
-UPDATE "client_contacts" SET "portal_role" = 'owner' WHERE "is_primary" = true OR "can_initiate_work" = true;
-UPDATE "client_contacts" SET "can_initiate_work" = ("portal_role" IN ('owner', 'member'));
+-- Backfill (spec section 2): owner where can_initiate_work AND is_primary; member where
+-- can_initiate_work only; everyone else stays viewer (the column default). Roles are derived
+-- from the existing flag, never the other way round, so can_initiate_work is NOT rewritten:
+-- owner and member are exactly the rows that already had it true, viewer exactly those with it
+-- false. email-check (/api/contacts/resolve) therefore accepts the same people before and after.
+UPDATE "client_contacts" SET "portal_role" = 'owner' WHERE "can_initiate_work" = true AND "is_primary" = true;
+UPDATE "client_contacts" SET "portal_role" = 'member' WHERE "can_initiate_work" = true AND "is_primary" = false;

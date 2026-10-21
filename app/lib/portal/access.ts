@@ -131,13 +131,24 @@ export interface PortalAccess {
   contactId: string;
   clientId: string;
   role: PortalRole;
+  /**
+   * True when the contact row is deleted/missing or the active client no longer resolves. A
+   * revoked contact matches nothing, grants included (role none alone would still match
+   * ProjectContact grants).
+   */
+  revoked?: boolean;
 }
+
+const MATCH_NOTHING = { id: { in: [] as string[] } };
 
 /**
  * Project visibility for a contact, WITHOUT status or deletion filters (so tasks of any project
  * the contact may see can be matched). Spread under AND.
  */
-export function projectAccessScope(access: Pick<PortalAccess, 'contactId' | 'role'>): Prisma.ProjectWhereInput {
+export function projectAccessScope(
+  access: Pick<PortalAccess, 'contactId' | 'role' | 'revoked'>
+): Prisma.ProjectWhereInput {
+  if (access.revoked) return MATCH_NOTHING;
   const grant: Prisma.ProjectWhereInput = { contact_grants: { some: { contact_id: access.contactId, role: { in: [...GRANTABLE_ROLES] } } } };
   const notHidden: Prisma.ProjectWhereInput = { portal_visibility: { not: 'hidden' } };
   if (access.role === 'owner') return notHidden;
@@ -160,10 +171,15 @@ export function projectAccessWhere(access: PortalAccess): Prisma.ProjectWhereInp
  * are client-level work: any client role sees them, project-only contacts do not.
  */
 export function taskAccessWhere(access: PortalAccess): Prisma.TaskWhereInput {
+  if (access.revoked) return MATCH_NOTHING;
   const inProject: Prisma.TaskWhereInput = { project: projectAccessScope(access) };
   if (access.role === 'none') return inProject;
   return { OR: [{ project_id: null }, inProject] };
 }
+
+// TODO(A4): role is resolved from the session's contact row only, so a person with contact rows
+// on two clients gets role none after switching the active client. Spec section 2 resolves a
+// person by lowercased email across non-deleted ClientContact rows; do that when the picker lands.
 
 // ---- session -> access ----------------------------------------------------------------------
 
@@ -177,7 +193,8 @@ export async function loadPortalAccess(session: { contactId: string; clientId: s
     where: { id: session.contactId, is_deleted: false },
     select: { client_id: true, portal_role: true, is_deleted: true },
   });
-  if (!contact) return { contactId: session.contactId, clientId: session.clientId, role: 'none' };
+  const revoked = { contactId: session.contactId, clientId: session.clientId, role: 'none' as const, revoked: true };
+  if (!contact) return revoked;
 
   let client: { id: string; parent_agency_id: string | null } = {
     id: session.clientId,
@@ -188,7 +205,7 @@ export async function loadPortalAccess(session: { contactId: string; clientId: s
       where: { id: session.clientId, is_deleted: false },
       select: { id: true, parent_agency_id: true },
     });
-    if (!found) return { contactId: session.contactId, clientId: session.clientId, role: 'none' };
+    if (!found) return revoked;
     client = found;
   }
 

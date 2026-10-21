@@ -8,6 +8,7 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
+import type { PortalRole } from '@/lib/portal/access';
 
 const TOKEN_LENGTH = 64; // 128 hex characters
 const DEFAULT_EXPIRY_DAYS = 60;
@@ -267,7 +268,7 @@ export async function validateTaskToken(token: string) {
       // task belongs to; requested_by_contact is the first-choice approver/requestor.
       site: { select: { id: true, name: true, auto_deploy: true, client_id: true } },
       requested_by_contact: {
-        select: { id: true, name: true, email: true, client_id: true },
+        select: { id: true, name: true, email: true, client_id: true, is_deleted: true, portal_role: true },
       },
     },
   });
@@ -290,18 +291,26 @@ export async function validateTaskToken(token: string) {
  * client_approved_at; approved_by_contact_id simply stays null).
  */
 export async function resolveTaskContact(task: {
-  requested_by_contact?: { id: string; name: string | null; email: string; client_id: string } | null;
+  requested_by_contact?: {
+    id: string;
+    name: string | null;
+    email: string;
+    client_id: string;
+    is_deleted?: boolean;
+    portal_role?: PortalRole;
+  } | null;
   client_id?: string | null;
   site?: { client_id: string | null } | null;
 }) {
-  if (task.requested_by_contact) return task.requested_by_contact;
+  // A deleted requester is no longer a person we act for; fall through to the primary contact.
+  if (task.requested_by_contact && !task.requested_by_contact.is_deleted) return task.requested_by_contact;
 
   const clientId = task.client_id ?? task.site?.client_id ?? null;
   if (!clientId) return null;
 
   return prisma.clientContact.findFirst({
     where: { client_id: clientId, is_primary: true, is_deleted: false },
-    select: { id: true, name: true, email: true, client_id: true },
+    select: { id: true, name: true, email: true, client_id: true, portal_role: true },
   });
 }
 

@@ -221,7 +221,23 @@ describe('Prisma where builders', () => {
 });
 
 describe('loadPortalAccess', () => {
+  const base = { contactId: 'k1', clientId: 'c1' };
   const session = { contactId: 'k1', clientId: 'c1' };
+
+  it('flags a deleted contact as revoked, and both where-builders then match nothing', async () => {
+    mockContactFindFirst.mockResolvedValue(null);
+    const access = await loadPortalAccess(session);
+    expect(access).toMatchObject({ role: 'none', revoked: true });
+    expect(projectAccessScope(access)).toEqual({ id: { in: [] } });
+    expect(projectAccessWhere(access).AND).toEqual([{ id: { in: [] } }]);
+    expect(taskAccessWhere(access)).toEqual({ id: { in: [] } });
+  });
+
+  it('revoked beats a role: even an owner-shaped revoked access matches nothing', () => {
+    const access = { ...base, role: 'owner' as const, revoked: true };
+    expect(projectAccessScope(access)).toEqual({ id: { in: [] } });
+    expect(taskAccessWhere(access)).toEqual({ id: { in: [] } });
+  });
 
   it('own client: one query, contact role applies', async () => {
     mockContactFindFirst.mockResolvedValue({ client_id: 'c1', portal_role: 'member', is_deleted: false });
