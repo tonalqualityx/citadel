@@ -441,6 +441,15 @@ describe('POST /api/accords/:id/proposals/:proposalId/send', () => {
     );
   });
 
+  it('queues the proposal mail as kind=proposal with the external allowance and a dedupe key', async () => {
+    mockProposalFindFirst.mockResolvedValue({ ...mockProposal, accord: { ...mockAccord, client: null } });
+    mockProposalUpdate.mockResolvedValue({ ...mockProposal, status: 'sent' });
+    await POST_SEND(createSendRequest(), { params: detailParams });
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'proposal', allowExternal: true, dedupeKey: `proposal:${mockProposal.id}` })
+    );
+  });
+
   it('rejects non-draft proposal', async () => {
     const sentProposal = {
       ...mockProposal,

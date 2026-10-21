@@ -15,7 +15,7 @@ export const emailOutboxEndpoints: ApiEndpoint[] = [
         responseExample: {
           items: [{
             id: 'uuid', to: 'string', cc: 'string|null', subject: 'string',
-            kind: 'magic_link|invite|notification|other', from_account: 'string',
+            kind: 'magic_link|invite|proposal|contract|notification|other', from_account: 'string',
             allow_external: 'boolean', attempts: 'number', claimed_at: 'ISO-8601|null',
             created_at: 'ISO-8601', last_error: 'string|null',
           }],
