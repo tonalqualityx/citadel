@@ -210,4 +210,17 @@ export const adminEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/admin/portal-request-notice',
+    group: 'admin',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Send the new-request notice (in-app and email) for one portal task to its assignee. Idempotent.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: { success: true, notified: 'boolean', emailed: 'boolean' },
+      },
+    ],
+  },
 ];
