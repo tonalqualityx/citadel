@@ -236,6 +236,12 @@ export function ChatView({
           />
         )}
 
+        {chat.alreadyFiled && (
+          <p className="strong" data-testid="chat-already-filed">
+            {chat.alreadyFiled.line}{' '}
+            {chat.alreadyFiled.taskId ? <a href={`/portal/work/${chat.alreadyFiled.taskId}`}>View your request</a> : null}
+          </p>
+        )}
         {withPerson && p?.banner ? <HandoffBanner text={p.banner} /> : null}
         {filed && (
           <section className="summary-card sent" aria-labelledby="chat-sent-h" data-testid="chat-sent">

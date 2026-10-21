@@ -47,6 +47,7 @@ export function useChat(src: ChatSource) {
   const [localWriting, setLocalWriting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [alreadyFiled, setAlreadyFiled] = useState<{ line: string; taskId: string | null } | null>(null);
 
   const srcRef = useRef(src);
   srcRef.current = src;
@@ -218,6 +219,8 @@ export function useChat(src: ChatSource) {
           wake.current();
           return;
         }
+        const done = (await res.json().catch(() => ({}))) as { already?: boolean; lines?: string[]; task_id?: string | null };
+        if (done.already && done.lines?.[0] && done.task_id) setAlreadyFiled({ line: done.lines[0], taskId: done.task_id });
         wake.current();
       } catch {
         setConfirmError('Something went wrong. Please try again.');
@@ -230,7 +233,7 @@ export function useChat(src: ChatSource) {
 
   const writing = (payload?.writing ?? false) || localWriting;
   return {
-    convId, payload, messages, loaded, gone, sending, sendError, setSendError, writing, confirming, confirmError, send, confirm,
+    convId, payload, messages, loaded, gone, sending, sendError, setSendError, writing, confirming, confirmError, alreadyFiled, send, confirm,
     refresh: () => wake.current(),
     label: payload?.writing_label ?? 'Writing',
   };

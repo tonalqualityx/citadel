@@ -63,3 +63,22 @@ describe('ChatView', () => {
     await screen.findByTestId('chat-drop');
   });
 });
+
+describe('ChatView confirm answering "already filed"', () => {
+  it('shows the plain line with a link to the request', async () => {
+    const summary = {
+      kind: 'summary', version: 1, text: null, rows: [{ label: 'Site', value: 'maple.example' }], files: [], destination: null, quote_line: null, urgent_line: null,
+      choose_project: null, buttons: { send: 'Send to the team', change: 'Change something' },
+    };
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith('/confirm') && init?.method === 'POST')
+        return new Response(JSON.stringify({ state: 'filed', already: true, lines: ['This request was already filed. Open it from Requests.'], task_id: 't9' }), { status: 200 });
+      return new Response(JSON.stringify({ ...base, state: 'confirming', messages: [msg({})], pending: summary }), { status: 200 });
+    }) as unknown as typeof fetch;
+    render(<ChatView source={{ conversationId: 'c1' }} composerLabel="Add a message" hint="Saved when sent." />);
+    (await screen.findByRole('button', { name: 'Send to the team' })).click();
+    const line = await screen.findByTestId('chat-already-filed');
+    expect(line.textContent).toContain('already filed');
+    expect(line.querySelector('a')?.getAttribute('href')).toBe('/portal/work/t9');
+  });
+});
