@@ -31,6 +31,9 @@ const bodySchema = z.object({
 // intake_id was already filed (nothing changes). Out of scope ids return 404, never 403.
 export async function POST(request: NextRequest) {
   try {
+    // Per-IP guard on top of the per-person database limits, the same as the GETs.
+    const limited = rateLimit(request, 120);
+    if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);
     const body = bodySchema.parse(await request.json());

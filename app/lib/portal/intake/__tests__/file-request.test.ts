@@ -10,14 +10,17 @@ const tx = {
   site: { findMany: vi.fn() },
   project: { findMany: vi.fn() },
   charter: { findMany: vi.fn() },
+  user: { findFirst: vi.fn() },
 };
 vi.mock('@/lib/db/prisma', () => ({ prisma: { $transaction: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) } }));
 vi.mock('@/lib/portal/waits', () => ({ onRequestFiled: vi.fn(async () => []) }));
 vi.mock('@/lib/services/notification-dispatcher', () => ({ dispatchNotification: vi.fn(async () => ({})) }));
+vi.mock('@/lib/services/notifications', () => ({ createInAppNotificationOnly: vi.fn(async () => ({})) }));
 
 import { onRequestFiled } from '@/lib/portal/waits';
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
-import { fileRequest, LIMITS, type FileRequestBody } from '../file-request';
+import { createInAppNotificationOnly } from '@/lib/services/notifications';
+import { fileRequest, LIMITS, WORDPRESS_ASSIGNEE_EMAIL, type FileRequestBody } from '../file-request';
 import { RATE_LIMIT_MESSAGE } from '../tree';
 
 const NOW = new Date('2026-10-21T15:00:00Z');
@@ -25,7 +28,7 @@ const INTAKE = '11111111-1111-4111-8111-111111111111';
 const access = { contactId: 'ct1', clientId: 'cl1', role: 'owner' as const };
 const contact = { id: 'ct1', name: 'Dana Reyes' };
 
-const SITE = { id: 's1', name: 'example.com', site_type: null, platform: null, maintenance_plan_id: null, hosting_plan_id: null, maintenance_assignee_id: null };
+const SITE = { id: 's1', name: 'example.com', site_type: null, platform: null, maintenance_plan_id: null, hosting_plan_id: null };
 const BUILD = { id: 'b1', name: 'Relaunch', site_id: 's1', status: 'in_progress', scope_locked: false };
 const CHARTER = { id: 'ch1', name: 'internal', site_id: null, status: 'active', start_date: new Date('2026-01-01'), end_date: null, created_at: new Date('2026-01-01') };
 
@@ -74,6 +77,7 @@ beforeEach(() => {
   tx.site.findMany.mockResolvedValue([SITE]);
   tx.project.findMany.mockResolvedValue([]);
   tx.charter.findMany.mockResolvedValue([]);
+  tx.user.findFirst.mockResolvedValue({ id: 'sabeen-id' });
 });
 
 const createdData = () => (tx.task.create as Mock).mock.calls[0][0].data as Record<string, unknown> & { tags: string[]; client_intake: unknown };
@@ -99,9 +103,10 @@ describe('fileRequest: permissions and validation', () => {
 describe('fileRequest: filing', () => {
   it('takes the advisory lock on the source_ref, then files one task with the composed fields', async () => {
     const r = await fileRequest(access, contact, siteChange, { now: NOW });
-    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
-    // A tagged template call: [strings, ...values]; the value is the source_ref.
+    // Tagged template calls: [strings, ...values]. First the intake lock on the source_ref, then the person lock.
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
     expect((tx.$executeRaw as Mock).mock.calls[0][1]).toBe(`portal-intake:${INTAKE}`);
+    expect((tx.$executeRaw as Mock).mock.calls[1][1]).toBe('portal-intake-person:ct1');
     expect(tx.task.create).toHaveBeenCalledTimes(1);
     const d = createdData();
     expect(d).toMatchObject({
@@ -164,10 +169,26 @@ describe('fileRequest: filing', () => {
     expect(createdData().tags).not.toContain('quote');
   });
 
-  it('assigns the WordPress maintainer when the site is WordPress and names one', async () => {
+  it('assigns WordPress requests to Sabeen (looked up by email), never to the aspirational maintainer', async () => {
     tx.site.findMany.mockResolvedValue([{ ...SITE, site_type: 'wordpress', maintenance_assignee_id: 'maint-1' }]);
     await fileRequest(access, contact, siteChange, { now: NOW });
-    expect(createdData().assignee_id).toBe('maint-1');
+    expect(createdData().assignee_id).toBe('sabeen-id');
+    expect(tx.user.findFirst).toHaveBeenCalledWith({ where: { email: WORDPRESS_ASSIGNEE_EMAIL, is_active: true }, select: { id: true } });
+    expect(WORDPRESS_ASSIGNEE_EMAIL).toBe('sabeen@becomeindelible.com');
+    // The site query does not even read the aspirational field.
+    expect(JSON.stringify((tx.site.findMany as Mock).mock.calls[0][0].select)).not.toContain('maintenance_assignee_id');
+  });
+
+  it('falls back to Mike when Sabeen cannot be found', async () => {
+    tx.site.findMany.mockResolvedValue([{ ...SITE, platform: 'WordPress' }]);
+    tx.user.findFirst.mockResolvedValue(null);
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(createdData().assignee_id).toBe(MIKE_USER_ID);
+  });
+
+  it('does not look Sabeen up for a non-WordPress site', async () => {
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(tx.user.findFirst).not.toHaveBeenCalled();
   });
 
   it('gives a marketing question with nowhere to go to Mike', async () => {
@@ -257,7 +278,39 @@ describe('fileRequest: emergencies', () => {
     expect(d.tags).not.toContain('emergency');
     expect((onRequestFiled as Mock).mock.calls[0][2].emergency).toBe(false);
     expect(dispatchNotification).not.toHaveBeenCalled();
+    // The client is NOT told the team was alerted: no alert went out.
+    expect(r.urgent).toBe(false);
+    // But Mike still gets an in-app notification (no Slack) so a real outage after three false alarms reaches him.
+    expect(createInAppNotificationOnly).toHaveBeenCalledTimes(1);
+    expect((createInAppNotificationOnly as Mock).mock.calls[0][0]).toMatchObject({
+      userId: MIKE_USER_ID,
+      type: 'portal_emergency',
+      priority: 'high',
+      entityType: 'task',
+      entityId: 't1',
+    });
+  });
+
+  it('a real emergency reports urgent true and sends no in-app-only extra', async () => {
+    const r = await fileRequest(access, contact, brokenUrgent, { now: NOW });
     expect(r.urgent).toBe(true);
+    expect(createInAppNotificationOnly).not.toHaveBeenCalled();
+  });
+
+  it('a repeat of a real emergency still reports urgent (from the stored tag) and alerts nobody again', async () => {
+    tx.task.findFirst.mockResolvedValue({ ...created({ title: 'T', client_title: 'T', tags: ['emergency'], client_id: 'cl1' }), id: 'existing' });
+    const r = await fileRequest(access, contact, brokenUrgent, { now: NOW });
+    expect(r).toMatchObject({ created: false, urgent: true });
+    expect(dispatchNotification).not.toHaveBeenCalled();
+    expect(createInAppNotificationOnly).not.toHaveBeenCalled();
+  });
+
+  it('a failed in-app notification for a downgraded emergency never loses the request', async () => {
+    tx.task.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3).mockResolvedValueOnce(LIMITS.emergencies_per_day);
+    (createInAppNotificationOnly as Mock).mockRejectedValueOnce(new Error('db hiccup'));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await expect(fileRequest(access, contact, brokenUrgent, { now: NOW })).resolves.toMatchObject({ created: true, urgent: false });
+    spy.mockRestore();
   });
 
   it('counts emergencies per client over the last day', async () => {
@@ -315,5 +368,78 @@ describe('fileRequest: scope re-checks', () => {
     tx.site.findMany.mockResolvedValue([]);
     await fileRequest(access, contact, { ...siteChange, site_id: null }, { now: NOW });
     expect(createdData()).toMatchObject({ site_id: null, project_id: null, charter_id: null, client_id: 'cl1' });
+  });
+});
+
+describe('fileRequest: queries are scoped to the client', () => {
+  it('reads sites, projects, charters and hidden builds only for the session client', async () => {
+    tx.project.findMany.mockResolvedValue([BUILD]);
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect((tx.site.findMany as Mock).mock.calls[0][0].where).toEqual({ client_id: 'cl1', is_deleted: false });
+    expect((tx.charter.findMany as Mock).mock.calls[0][0].where).toEqual({ client_id: 'cl1', is_deleted: false, status: { in: ['active', 'paused'] } });
+    const projectCalls = (tx.project.findMany as Mock).mock.calls.map((c) => c[0].where);
+    expect(projectCalls).toHaveLength(2);
+    for (const w of projectCalls) expect(w.client_id).toBe('cl1');
+    // The visible-projects query carries the contact's access scope; the hidden-builds query is a plain open-builds-on-this-site read.
+    expect(JSON.stringify(projectCalls[0])).toContain('"portal_visibility":{"not":"hidden"}');
+    expect(projectCalls[1]).toMatchObject({ client_id: 'cl1', site_id: 's1', is_deleted: false, status: { in: ['ready', 'in_progress', 'review'] } });
+  });
+
+  it('never takes the client from the body: the rate-limit, emergency and idempotency reads use the session client', async () => {
+    await fileRequest(access, contact, { ...brokenUrgent, client_id: 'another' } as unknown as FileRequestBody, { now: NOW });
+    expect((tx.task.count as Mock).mock.calls[2][0].where.client_id).toBe('cl1');
+    expect(createdData()).toMatchObject({ client_id: 'cl1' });
+  });
+});
+
+describe('fileRequest: open builds the contact cannot see still gate scope', () => {
+  it('reads their lock state only and quotes when a hidden build is locked, without placing on it', async () => {
+    tx.project.findMany
+      .mockResolvedValueOnce([BUILD]) // visible
+      .mockResolvedValueOnce([{ id: 'b1', scope_locked: false }, { id: 'hidden-1', scope_locked: true }]); // all open builds on the site
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(createdData()).toMatchObject({ project_id: 'b1' });
+    expect(createdData().tags).toContain('quote');
+    const select = (tx.project.findMany as Mock).mock.calls[1][0].select;
+    expect(Object.keys(select).sort()).toEqual(['id', 'scope_locked']);
+  });
+
+  it('with no visible build and one hidden locked build: site ad hoc, quote, no project id stored', async () => {
+    tx.project.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'hidden-1', scope_locked: true }]);
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(createdData()).toMatchObject({ project_id: null, site_id: 's1' });
+    expect(createdData().tags).toContain('quote');
+    expect(JSON.stringify(createdData())).not.toContain('hidden-1');
+  });
+
+  it('does not look for hidden builds when no site was chosen', async () => {
+    tx.site.findMany.mockResolvedValue([]);
+    await fileRequest(access, contact, { ...siteChange, site_id: null }, { now: NOW });
+    expect(tx.project.findMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fileRequest: locks are taken before any count', () => {
+  it('locks the intake, then each contact row sorted, then (for an emergency) the client, all before counting', async () => {
+    const order: string[] = [];
+    (tx.$executeRaw as Mock).mockImplementation(async (_s: unknown, key: string) => { order.push(`lock:${key}`); });
+    (tx.task.count as Mock).mockImplementation(async () => { order.push('count'); return 0; });
+    await fileRequest({ ...access, contactIds: ['ct9', 'ct1'] }, contact, brokenUrgent, { now: NOW });
+    expect(order.slice(0, 4)).toEqual([
+      `lock:portal-intake:${INTAKE}`,
+      'lock:portal-intake-person:ct1',
+      'lock:portal-intake-person:ct9',
+      'count',
+    ]);
+    const clientLock = order.indexOf('lock:portal-intake-client:cl1');
+    expect(clientLock).toBeGreaterThan(order.indexOf('count')); // hour and day counts first
+    expect(order.slice(clientLock + 1)[0]).toBe('count'); // then the lock, then the emergency count
+  });
+
+  it('takes no client lock for a non-urgent request', async () => {
+    const keys: string[] = [];
+    (tx.$executeRaw as Mock).mockImplementation(async (_s: unknown, key: string) => { keys.push(key); });
+    await fileRequest(access, contact, siteChange, { now: NOW });
+    expect(keys).toEqual([`portal-intake:${INTAKE}`, 'portal-intake-person:ct1']);
   });
 });

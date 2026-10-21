@@ -18,6 +18,8 @@ const SEED = 'npx ts-node --compiler-options \'{"module":"CommonJS"}\' scripts/s
 const OWNER_TOKEN = 'e2e-portal-v2-phase1-fixture-session-token-'.padEnd(128, 'a');
 const MEMBER_TOKEN = 'e2e-portal-b1-fixture-member-session-token-'.padEnd(128, 'c');
 const VIEWER_TOKEN = 'e2e-portal-b1-fixture-viewer-session-token-'.padEnd(128, 'd');
+// The other client (a different company entirely), from the phase 1 seed.
+const OTHER_CLIENT_TOKEN = 'e2e-portal-v2-phase1-fixture-empty-session-token-'.padEnd(128, 'b');
 
 const SITE_ONE = 'E2E Portal Fixture Site';
 const SITE_TWO = 'E2E Portal Fixture Site Two';
@@ -65,6 +67,8 @@ async function siteIdByName(context: BrowserContext, name: string): Promise<stri
   return body.sites.find((s: { name: string }) => s.name === name).id;
 }
 
+let ownerTaskId = '';
+
 test.describe('Portal phase B slice 1: requests', () => {
   test('files each kind of request with the right chain, tags and client label, then rate-limits the 7th', async ({ browser }) => {
     const context = await browser.newContext();
@@ -88,6 +92,7 @@ test.describe('Portal phase B slice 1: requests', () => {
     expect((await a.res.json()).task.engagement).toMatchObject({ kind: 'project', label: OPEN_BUILD });
     const ia = inspect(a.intake_id);
     expect(ia.task?.project?.name).toBe(OPEN_BUILD);
+    ownerTaskId = ia.task!.id;
     expect(ia.task?.client_title).toBe('Site change: Update the opening hours');
     expect(ia.task?.tags).toEqual(['portal-chat', 'kind:site-change']);
     expect(ia.waits.map((w) => w.template_key)).toEqual(['portal.first_response']);
@@ -234,6 +239,49 @@ test.describe('Portal phase B slice 1: requests', () => {
     await expect(page.getByRole('heading', { name: 'Requests' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Request work' }).first()).toBeVisible();
     await context.close();
+  });
+
+  test('a burst of parallel requests cannot beat the hourly limit', async ({ browser }) => {
+    // The viewer filed one request in the chat test above; six an hour leaves room for five.
+    const context = await browser.newContext();
+    await loginAs(context, VIEWER_TOKEN);
+    const siteOne = await siteIdByName(context, SITE_ONE);
+    const statuses = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        context.request
+          .post('/api/portal/requests', {
+            data: { intake_id: uuid(), type: 'other', site_id: siteOne, answers: [{ key: 'q1', value: `Burst ${i}` }, { key: 'q2', value: 'not_really' }] },
+          })
+          .then((r) => r.status())
+      )
+    );
+    expect(statuses.filter((s) => s === 201)).toHaveLength(5);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(3);
+    await context.close();
+  });
+
+  test('another client cannot see or file against this client: 404, never 403', async ({ browser }) => {
+    const owner = await browser.newContext();
+    await loginAs(owner, OWNER_TOKEN);
+    const siteOne = await siteIdByName(owner, SITE_ONE);
+    await owner.close();
+
+    const other = await browser.newContext();
+    await loginAs(other, OTHER_CLIENT_TOKEN);
+    // Reading the first client's work page.
+    expect(ownerTaskId).not.toBe('');
+    expect((await other.request.get(`/api/portal/work/${ownerTaskId}`)).status()).toBe(404);
+    // Filing against the first client's site.
+    const res = await other.request.post('/api/portal/requests', {
+      data: { intake_id: uuid(), type: 'site_change', site_id: siteOne, answers: [{ key: 'q1', value: 'x' }, { key: 'q2', value: 'y' }] },
+    });
+    expect(res.status()).toBe(404);
+    // Their own lists carry nothing of the first client's.
+    const list = await (await other.request.get('/api/portal/requests')).json();
+    expect(JSON.stringify(list)).not.toContain(ownerTaskId);
+    const ctx = await (await other.request.get('/api/portal/intake/context')).json();
+    expect(JSON.stringify(ctx)).not.toContain(siteOne);
+    await other.close();
   });
 
   test('the primary Approve button is visible: its background is not transparent (the invisible-button bug)', async ({ browser }) => {

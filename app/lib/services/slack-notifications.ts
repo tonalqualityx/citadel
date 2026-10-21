@@ -113,10 +113,15 @@ function buildContextLine(context: TaskContext): string {
   return parts.join(' | ');
 }
 
+/** Escape the three characters Slack reserves (https://api.slack.com/reference/surfaces/formatting#escaping). */
+export function escapeSlack(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /**
  * Build Slack blocks for a notification
  */
-function buildSlackBlocks(
+export function buildSlackBlocks(
   type: NotificationType,
   title: string,
   message: string | undefined,
@@ -125,6 +130,10 @@ function buildSlackBlocks(
 ): object[] {
   const icon = TYPE_ICONS[type];
   const blocks: object[] = [];
+  // Slack mrkdwn treats & < > as control characters (<!channel>, <url|label>). Titles and
+  // titles can carry client words (portal requests), so the title is escaped. Messages are
+  // written by us and may use mrkdwn links on purpose.
+  title = escapeSlack(title);
 
   // Header section
   blocks.push({

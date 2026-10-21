@@ -7,6 +7,7 @@ import { formatSiteResponse } from '@/lib/api/formatters';
 
 const updateSiteSchema = z.object({
   name: z.string().min(1).max(255).optional(),
+  url: z.string().url().max(500).optional().nullable(),
   client_id: z.string().uuid().optional().nullable(),
   hosted_by: z.enum(['indelible', 'client', 'other']).optional(),
   platform: z.string().max(100).optional().nullable(),

@@ -48,7 +48,7 @@ describe('template table', () => {
     expect(first.steps).toHaveLength(1);
     expect(first.steps[0]).toMatchObject({ duration: { value: 1, unit: 'business_days' }, action: 'escalate' });
     const emergency = getTemplate('portal.emergency')!;
-    expect(emergency).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'mike', blocks_client: true, on_reply: null });
+    expect(emergency).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'mike', blocks_client: true, on_reply: null, precondition: 'portal_untouched' });
     expect(emergency.steps[0]).toMatchObject({ duration: { value: 2, unit: 'hours' }, action: 'escalate' });
     const reply = getTemplate('portal.client_reply')!;
     expect(reply).toMatchObject({ kind: 'handoff', enabled: true, sends: false, owner: 'liaison', blocks_client: true, on_reply: null });

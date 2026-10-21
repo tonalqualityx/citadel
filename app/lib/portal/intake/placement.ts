@@ -42,6 +42,12 @@ export interface PlacementInput {
   site_has_plan: boolean;
   /** The contact's visible projects (already filtered with projectAccessWhere). */
   projects: PlacementProject[];
+  /**
+   * Open builds on the chosen site that the contact CANNOT see (hidden or restricted). Only their
+   * lock state, never their names: the scope gate must count them, and the client must not learn
+   * they exist. Optional; empty when the caller has none.
+   */
+  hidden_builds?: Array<{ scope_locked: boolean }>;
   charters: PlacementCharter[];
   /** Answer key of the content "what kind of piece" question: blog, page_copy, social_email, not_sure. */
   content_kind?: string | null;
@@ -117,6 +123,8 @@ export function placeRequest(input: PlacementInput): Placement {
     build = picked;
   }
   const charter = matchingCharter(input);
+  const hidden = input.hidden_builds ?? [];
+  const hiddenLocked = hidden.some((h) => h.scope_locked);
   const paused = charter?.status === 'paused';
 
   const base = {
@@ -161,7 +169,13 @@ export function placeRequest(input: PlacementInput): Placement {
 
   switch (input.type) {
     case 'site_change':
-      if (build) return toProject(build.scope_locked ? 'site_change/build_locked' : 'site_change/build', build.scope_locked);
+      if (build) {
+        const locked = build.scope_locked || hiddenLocked;
+        return toProject(locked ? 'site_change/build_locked' : 'site_change/build', locked);
+      }
+      // An open build the client cannot see still gates scope. It cannot be the placement (the
+      // project is hidden), so the request is site ad hoc, quoted only if that build is locked.
+      if (hidden.length > 0) return toSite('site_change/hidden_build', hiddenLocked);
       if (charter) return toSite('site_change/retainer', false);
       return toSite('site_change/none', !input.site_has_plan);
 
@@ -175,7 +189,10 @@ export function placeRequest(input: PlacementInput): Placement {
       const retainerKind = kind === 'blog' || kind === 'social_email';
       if (build) {
         if (retainerKind && charter) return toCharter('content_article/build_retainer');
-        if (kind === 'page_copy') return toProject(build.scope_locked ? 'content_article/build_page_copy_locked' : 'content_article/build_page_copy', build.scope_locked);
+        if (kind === 'page_copy') {
+          const locked = build.scope_locked || hiddenLocked;
+          return toProject(locked ? 'content_article/build_page_copy_locked' : 'content_article/build_page_copy', locked);
+        }
         return toProject('content_article/build', true);
       }
       if (charter) return toCharter('content_article/retainer');
