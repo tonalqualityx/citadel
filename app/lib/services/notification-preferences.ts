@@ -29,6 +29,8 @@ const DEFAULT_PREFERENCES: Record<
   // Crisis-strip trigger — same "critical, every channel" default as retainer_alert /
   // system_alert.
   oracle_urgent_email: { in_app: true, email: true, slack: true },
+  // A client filed an emergency request in the portal: critical, every channel.
+  portal_emergency: { in_app: true, email: true, slack: true },
 };
 
 export interface NotificationPreferenceRow {

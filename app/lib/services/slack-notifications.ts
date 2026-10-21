@@ -42,6 +42,7 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   article_client_changes_requested: '🔁',
   interview_answers_submitted: '📨',
   oracle_urgent_email: '🚨',
+  portal_emergency: '🚨',
 };
 
 interface TaskContext {

@@ -355,6 +355,8 @@ enum NotificationType {
   interview_answers_submitted
   // Clarity Phase 4a — an is_urgent EmailAsk was inserted (crisis strip trigger).
   oracle_urgent_email
+  // Portal phase B slice 1 — a client filed an emergency request in the portal.
+  portal_emergency
 }
 
 enum NotificationPriority {
@@ -1178,6 +1180,11 @@ model Task {
   source_ref              String?        @db.VarChar(255) // email message-id / portal submission id
   requested_by_contact_id String?        @db.Uuid
   requested_by_contact    ClientContact? @relation("TaskRequestedByContact", fields: [requested_by_contact_id], references: [id])
+
+  // Portal phase B slice 1: what the client sees, and the intake answers they gave.
+  // The portal shows client_title ?? title. client_intake is { v: 1, intake_id, type, ... }.
+  client_title  String? @db.VarChar(500)
+  client_intake Json?
 
   // Clarity Phase 1: quests spawned from a Claude Code session (source=session), and
   // lightweight "arc" (micro-project) grouping. Arc status is never stored — see

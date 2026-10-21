@@ -46,3 +46,12 @@ export const ORACLE_WAIT_BLOCKS = process.env.NEXT_PUBLIC_ORACLE_WAIT_BLOCKS !==
  * NEXT_PUBLIC_ORACLE_WORK_DOORS=true to bring it back. Only the literal string 'true' shows it.
  */
 export const ORACLE_WORK_DOORS = process.env.NEXT_PUBLIC_ORACLE_WORK_DOORS === 'true';
+
+/**
+ * Portal phase B slice 1 (specs/client-portal-phase-B-SPEC.md 2.7). The request intake is a
+ * fixed question tree. This is the model slot: when true AND ANTHROPIC_API_KEY is set,
+ * lib/portal/intake/classify.ts may suggest a type for "Something else" requests. The result is
+ * stored as `suggested_type` plus a `suggested:{type}` tag. It never reaches the client and never
+ * changes placement. Plain const, ships OFF.
+ */
+export const PORTAL_INTAKE_LLM = false;
