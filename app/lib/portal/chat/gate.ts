@@ -17,6 +17,7 @@ import { PROMISES } from '@/lib/portal/intake/promises';
 import { bastWordError, foldForNameCheck } from '@/lib/portal/thread';
 import { maskText, SOURCE_PATTERN, type Provenance } from '@/lib/portal/chat/provenance';
 import { FIXED_LINE_LIST } from '@/lib/portal/chat/fixed-lines';
+import { isCommonWord } from '@/lib/portal/chat/common-words';
 
 /** The only fields the gate reads. Anything a template renders is outside it. */
 export const GATED_FIELDS = ['reply', 'ask.question', 'summary', 'draft_reply', 'email_body_model_part'] as const;
@@ -47,6 +48,10 @@ export interface GateContext {
   staffNames: string[];
   /** Other clients' names (cached list, the signed-in client's own excluded). */
   otherClientNames: string[];
+  /** Other clients' site domains (e.g. herbapumps.com); their name and brand slug are matched too. */
+  otherClientDomains?: string[];
+  /** The signed-in client's own name(s) and domains: always allowed, even where a word is shared with another client. */
+  ownClientNames?: string[];
   /** The client's own domains, e.g. herbapumps.com. */
   clientDomains: string[];
   /** The portal origin(s); only https://<host>/portal/... is a link the client may be given. */
@@ -289,19 +294,93 @@ function nameHit(folded: string, names: string[]): string | null {
   return null;
 }
 
-const NAME_STOP = new Set(['the', 'and', 'inc', 'llc', 'ltd', 'co', 'company', 'group', 'services', 'service', 'church', 'community', 'vermont', 'northeast', 'news', 'site', 'store', 'shop']);
+const NAME_STOP = new Set(['the', 'and', 'inc', 'llc', 'ltd', 'co', 'company', 'group', 'vermont', 'northeast', 'news', 'site', 'store', 'shop']);
 
-/** The full name, and its first distinctive word when that is long enough to be the name by itself. */
-function clientNameForms(names: string[]): string[] {
+/** Letters-only words of a display name, in order ("Mitch's Maples" gives mitch, maples). */
+export function nameTokens(name: string): string[] {
+  return foldText(name)
+    .toLowerCase()
+    .replace(/'s\b/g, '')
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+}
+
+/**
+ * The words of a name that may match ON THEIR OWN: at least 4 letters, not a stop word, not a common English
+ * word. "First Congregational Church" gives only "congregational"... unless that is common too; the full name
+ * always matches as a phrase whatever its words are.
+ */
+export function distinctiveTokens(name: string): string[] {
+  return nameTokens(name).filter((t) => t.length >= 4 && !/\d/.test(t) && !NAME_STOP.has(t) && !isCommonWord(t));
+}
+
+/** Brand slugs of a name and of a domain: "bootleggers" from bootleggers.com; the joined name when it is one coined word. */
+function slugsOf(name: string | null, domain: string | null): string[] {
   const out: string[] = [];
-  for (const n of names) {
-    const full = n.trim();
-    if (!full) continue;
-    out.push(full);
-    const first = full.split(/[\s,.&]+/).find((w) => w.length >= 5 && !NAME_STOP.has(w.toLowerCase()));
-    if (first) out.push(first);
+  if (domain) {
+    const label = hostOf(domain).split('.')[0] ?? '';
+    if (label.length >= 5 && !isCommonWord(label.replace(/-/g, ''))) out.push(label);
+  }
+  if (name) {
+    const toks = nameTokens(name);
+    if (toks.length > 1) {
+      const joined = toks.join('');
+      if (joined.length >= 8) out.push(joined);
+    }
   }
   return out;
+}
+
+/** What another client can be called by: full phrase, distinctive tokens, domain and brand slug. */
+function clientNameForms(names: string[], domains: string[] = []): { phrases: string[]; singles: string[] } {
+  const out: string[] = [];
+  const phrases: string[] = [];
+  for (const n of names) {
+    const full = n.trim();
+    // Indelible is us: the assistant says the company name in its own wording.
+    if (!full || /^indelible(?:\s+(?:llc|inc))?$/i.test(full)) continue;
+    phrases.push(full);
+    out.push(...distinctiveTokens(full));
+    out.push(...slugsOf(full, null));
+  }
+  for (const d of domains) {
+    const host = hostOf(d);
+    if (!host) continue;
+    phrases.push(host);
+    out.push(...slugsOf(null, host));
+  }
+  return { phrases, singles: out };
+}
+
+/** The signed-in client's own names and tokens are always allowed: take them out before the other-client rule reads. */
+function maskOwn(text: string, own: string[]): string {
+  const forms = new Set<string>();
+  for (const n of own) {
+    const full = foldText(n).trim();
+    if (full.length >= 3) forms.add(full);
+    for (const t of distinctiveTokens(full)) forms.add(t);
+    for (const sl of slugsOf(full, null)) forms.add(sl);
+    if (full.includes('.')) {
+      const host = hostOf(full);
+      if (host) forms.add(host);
+      for (const sl of slugsOf(null, host)) forms.add(sl);
+    }
+  }
+  let out = text;
+  for (const f of [...forms].sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(f)}(?![\\p{L}\\p{N}])`, 'giu'), ' OWN ');
+  }
+  return out;
+}
+
+/** "Mike" inside a quoted phrase that is the client's own wording (a business called "Mike's Bikes") is not the staff member. */
+function hideMikeInOwnQuotes(text: string, own: string[]): string {
+  const ownN = own.map(norm).filter((n) => n.length >= 3);
+  return text.replace(/"([^"]{1,300})"/g, (whole, inner: string) => {
+    if (!/\bmike\b/i.test(inner)) return whole;
+    const n = norm(inner);
+    return ownN.some((o) => n.includes(o)) ? ' QUOTE ' : whole;
+  });
 }
 
 // ---- sentences and words --------------------------------------------------------------------
@@ -414,10 +493,14 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
   {
     // A short client-name form can be an ordinary word ("First" of a "First ... Church"); inside a sourced
     // quote ("done right the first time") it is the client's or their site's words, not a name we said.
-    const named = hideClientQuotes(plain, sourced);
-    const staff = nameHit(named, [...BUILT_IN_STAFF, ...ctx.staffNames]);
+    const own = ctx.ownClientNames ?? [];
+    const quoted = hideClientQuotes(plain, sourced);
+    const staff = nameHit(hideMikeInOwnQuotes(quoted, own), [...BUILT_IN_STAFF, ...ctx.staffNames]);
     if (staff) return fail('name', staff);
-    const other = nameHit(named, clientNameForms(ctx.otherClientNames));
+    // Full names read the text as written (another client's whole name is never ours); single words and slugs
+    // read it with the signed-in client's own names taken out.
+    const forms = clientNameForms(ctx.otherClientNames, ctx.otherClientDomains);
+    const other = nameHit(quoted, forms.phrases) ?? nameHit(maskOwn(quoted, own), forms.singles);
     if (other) return fail('name', other);
   }
 
