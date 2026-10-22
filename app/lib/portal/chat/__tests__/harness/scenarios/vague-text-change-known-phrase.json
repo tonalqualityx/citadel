@@ -1,0 +1,178 @@
+{
+ "name": "vague text change with a known phrase",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/",
+    "sections": [
+     {
+      "key": "team",
+      "heading": "The team"
+     },
+     {
+      "key": "story",
+      "heading": "Our story"
+     }
+    ]
+   },
+   {
+    "title": "Menu",
+    "path": "/menu/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Fix the wording on the 'What we Do' section"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "I'm Indelible's AI assistant. What should the What we do section say instead?",
+      "actions": [
+       {
+        "type": "record",
+        "site_id": "{{site:0}}",
+        "attachment_ids": [],
+        "request_type": "site_change",
+        "section_text": "What we do"
+       },
+       {
+        "type": "ask",
+        "slot": "change",
+        "question": "What should the What we do section say instead?",
+        "choice_ids": [],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "pending_kind": "ask",
+    "pending_slot": "change",
+    "state": "clarifying",
+    "tool_calls": 0
+   }
+  },
+  {
+   "client": {
+    "text": "Drop the 'done right the first time' wording"
+   },
+   "engine": [
+    {
+     "tool_calls": [
+      {
+       "tool": "page_text",
+       "args": {
+        "site_id": "{{site:0}}",
+        "page_id": "{{page:Home}}",
+        "find": "done right the first time"
+       },
+       "result": {
+        "page": {
+         "id": "{{page:Home}}",
+         "site_id": "{{site:0}}",
+         "title": "Home",
+         "path": "/",
+         "url": "https://{{domain:0}}/"
+        },
+        "find": "done right the first time",
+        "found": true,
+        "match_count": 1,
+        "matches": [
+         {
+          "heading": "What we do",
+          "level": 2,
+          "sentence": "Custom cakes for every occasion, done right the first time.",
+          "in_heading": false
+         }
+        ],
+        "row_count": 1,
+        "cached": false,
+        "html_truncated": false
+       },
+       "row_count": 1
+      }
+     ],
+     "result": {
+      "reply": "I found that wording in the What we do section of the Home page. Check the request below and send it to the team if it's right.",
+      "actions": [
+       {
+        "type": "record",
+        "page_id": "{{page:Home}}",
+        "section_text": "What we do",
+        "change": "Remove \"done right the first time\" from the What we do section.",
+        "attachment_ids": []
+       },
+       {
+        "type": "propose_summary",
+        "summary": "Remove \"done right the first time\" from the What we do section on the Home page. The sentence now reads \"Custom cakes for every occasion, done right the first time.\"",
+        "request_type": "site_change",
+        "site_id": "{{site:0}}",
+        "page_id": "{{page:Home}}",
+        "section": "What we do",
+        "change": "Remove \"done right the first time\" from the What we do section.",
+        "attachment_ids": []
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "state": "confirming",
+    "pending_kind": "summary",
+    "tool_calls": 1,
+    "gate_result": "pass",
+    "slots": {
+     "page_id": "{{page:Home}}",
+     "section_text": "What we do",
+     "change": "Remove \"done right the first time\" from the What we do section."
+    },
+    "tags_exclude": [
+     "chat-handoff",
+     "needs-mike",
+     "awaiting-clarification"
+    ],
+    "reply_contains": [
+     "What we do section of the Home page"
+    ]
+   }
+  },
+  {
+   "client": {
+    "confirm": true
+   },
+   "expect": {
+    "http": 200,
+    "state": "filed",
+    "tags_include": [
+     "kind:site-change"
+    ],
+    "tags_exclude": [
+     "chat-clarifying",
+     "awaiting-clarification",
+     "chat-handoff"
+    ],
+    "reply_contains": [
+     "Request sent."
+    ]
+   }
+  }
+ ]
+}

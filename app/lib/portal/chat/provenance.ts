@@ -11,6 +11,8 @@
  * - A date is backed only as a WHOLE date that equals a date in a tool's own range label, written
  *   in a sentence that names that tool's source (Google Analytics, Search Console).
  * - What the client wrote may be echoed only inside quotation marks, plus a bare year they named.
+ * - So may text a page_text lookup in this job returned: a quoted phrase found on the client's own page
+ *   is the site's words, sourced, not ours.
  * Pure: no database, no clock.
  */
 
@@ -158,12 +160,14 @@ export interface Provenance {
   clientNumbers: Set<string>;
   /** The client's own message texts. A quoted span found verbatim in one is their words, not ours. */
   clientTexts: string[];
+  /** Page text this job's page_text lookups returned. A quoted span found verbatim in it is the site's own words (sourced). */
+  pageTexts: string[];
   labels: string[];
   labelDates: ParsedDate[];
 }
 
 export function emptyProvenance(): Provenance {
-  return { numbers: new Map(), percents: new Map(), money: new Map(), clientNumbers: new Set(), clientTexts: [], labels: [], labelDates: [] };
+  return { numbers: new Map(), percents: new Map(), money: new Map(), clientNumbers: new Set(), clientTexts: [], pageTexts: [], labels: [], labelDates: [] };
 }
 
 function put(map: Map<string, Set<string>>, key: string, tool: string) {
@@ -180,7 +184,7 @@ export const SOURCE_PATTERN: Record<string, RegExp> = {
   search_console: /search console/i,
 };
 
-export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[] = [], clientTexts: string[] = []): Provenance {
+export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[] = [], clientTexts: string[] = [], pageTexts: string[] = []): Provenance {
   const p = emptyProvenance();
   for (const c of calls) {
     const tool = toolKey(c);
@@ -196,6 +200,7 @@ export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[]
   }
   for (const n of clientNumbers) p.clientNumbers.add(n);
   p.clientTexts = clientTexts;
+  p.pageTexts = pageTexts;
   return p;
 }
 

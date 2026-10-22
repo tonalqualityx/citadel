@@ -13,8 +13,9 @@ import { loadProjectDetail } from '@/lib/portal/project-detail';
 import { loadRetainers, safeHttpUrl } from '@/lib/portal/retainer';
 import { loadHistory } from '@/lib/portal/history';
 import { searchSitePages } from '@/lib/portal/chat/site-pages-read';
+import { readPageText } from '@/lib/portal/chat/page-text';
 
-export const READ_KINDS = ['requests', 'work_item', 'projects', 'project', 'retainer', 'history', 'reports', 'invoices', 'site_pages'] as const;
+export const READ_KINDS = ['requests', 'work_item', 'projects', 'project', 'retainer', 'history', 'reports', 'invoices', 'site_pages', 'page_text'] as const;
 export type ReadKind = (typeof READ_KINDS)[number];
 export const HISTORY_MAX_DAYS = 120;
 
@@ -45,6 +46,9 @@ export interface ReadParams {
   days?: number | null;
   site_id?: string | null;
   q?: string | null;
+  page_id?: string | null;
+  path?: string | null;
+  find?: string | null;
 }
 
 export async function runRead(access: PortalAccess, kind: ReadKind, params: ReadParams = {}, now: Date = new Date()): Promise<unknown> {
@@ -93,6 +97,11 @@ export async function runRead(access: PortalAccess, kind: ReadKind, params: Read
       const pages = await searchSitePages(access.clientId, { siteId: params.site_id, q: params.q });
       if (!pages) throw new ApiError('Not found', 404);
       return { pages };
+    }
+    case 'page_text': {
+      // The live text of one page on this client's own site (site record + SitePage path only).
+      if (access.role === 'none') throw new ApiError('Not found', 404);
+      return readPageText(access.clientId, { site_id: params.site_id, page_id: params.page_id, path: params.path, find: params.find }, { now: now.getTime() });
     }
     case 'invoices': {
       if (!canSeeBilling(access.role)) throw new ApiError('Billing is not visible to this contact', 403);

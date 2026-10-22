@@ -10,7 +10,7 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { buildProvenance, extractResultNumbers, type Provenance, type ProvenanceCall } from '@/lib/portal/chat/provenance';
 
-export const TOOLS = ['ga4_report', 'search_console', 'citadel_read', 'site_pages'] as const;
+export const TOOLS = ['ga4_report', 'search_console', 'citadel_read', 'site_pages', 'page_text'] as const;
 export type ToolName = (typeof TOOLS)[number];
 export const ANALYTICS_TOOLS: readonly string[] = ['ga4_report', 'search_console'];
 export const MAX_CALLS_PER_JOB = 6;
@@ -90,11 +90,28 @@ export async function loadJobProvenance(jobId: string, contextNumbers: string[] 
     select: { tool: true, args: true, result: true, result_numbers: true },
     orderBy: { created_at: 'asc' },
   });
+  // Text a page_text lookup returned: a phrase quoted from it is the site's own words (spec 9.2, sourced text).
+  const pageTexts = rows.filter((r) => r.tool === 'page_text').flatMap((r) => pageTextStrings(r.result));
   const calls: ProvenanceCall[] = rows.map((r) => ({
     tool: r.tool,
     kind: typeof (r.args as { kind?: unknown } | null)?.kind === 'string' ? ((r.args as { kind: string }).kind) : undefined,
     result_numbers: r.result_numbers,
     label: typeof (r.result as { label?: unknown } | null)?.label === 'string' ? ((r.result as { label: string }).label) : null,
   }));
-  return buildProvenance(calls, contextNumbers, clientTexts);
+  return buildProvenance(calls, contextNumbers, clientTexts, pageTexts);
+}
+
+/** The visible strings of a stored page_text result: headings, matched sentences and section text. */
+export function pageTextStrings(result: unknown): string[] {
+  const out: string[] = [];
+  const r = (result ?? {}) as { matches?: Array<{ heading?: unknown; sentence?: unknown }>; sections?: Array<{ heading?: unknown; text?: unknown }> };
+  for (const m of Array.isArray(r.matches) ? r.matches : []) {
+    if (typeof m?.heading === 'string') out.push(m.heading);
+    if (typeof m?.sentence === 'string') out.push(m.sentence);
+  }
+  for (const s of Array.isArray(r.sections) ? r.sections : []) {
+    if (typeof s?.heading === 'string') out.push(s.heading);
+    if (typeof s?.text === 'string') out.push(...s.text.split('\n'));
+  }
+  return out;
 }

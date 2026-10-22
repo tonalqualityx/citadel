@@ -369,7 +369,10 @@ function removeFixedLines(text: string): string {
 
 const norm = (t: string) => foldText(t).toLowerCase().replace(/\s+/g, ' ').trim();
 
-/** Quoted spans that appear verbatim in a client message: their words, not ours, so the content rules skip them. */
+/**
+ * Quoted spans that appear verbatim in a client message, or in page text a page_text lookup in this job
+ * returned: their words (or their site's), not ours, so the content rules skip them.
+ */
 function hideClientQuotes(text: string, clientTexts: string[]): string {
   if (clientTexts.length === 0) return text;
   const hay = clientTexts.map(norm);
@@ -406,14 +409,19 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
     if (m) return fail('internal', m[0]);
   }
   if (bastWordError(text)) return fail('name', 'Bast');
+  // Sourced quotes (the client's own words, or their own page's words from a page_text lookup) are not ours.
+  const sourced = [...ctx.provenance.clientTexts, ...(ctx.provenance.pageTexts ?? [])];
   {
-    const staff = nameHit(plain, [...BUILT_IN_STAFF, ...ctx.staffNames]);
+    // A short client-name form can be an ordinary word ("First" of a "First ... Church"); inside a sourced
+    // quote ("done right the first time") it is the client's or their site's words, not a name we said.
+    const named = hideClientQuotes(plain, sourced);
+    const staff = nameHit(named, [...BUILT_IN_STAFF, ...ctx.staffNames]);
     if (staff) return fail('name', staff);
-    const other = nameHit(plain, clientNameForms(ctx.otherClientNames));
+    const other = nameHit(named, clientNameForms(ctx.otherClientNames));
     if (other) return fail('name', other);
   }
 
-  const body = hideClientQuotes(stripListNumbering(plain), ctx.provenance.clientTexts);
+  const body = hideClientQuotes(stripListNumbering(plain), sourced);
   const { masked, promiseText, analytics } = maskText(body, ctx.provenance);
 
   for (const m of promiseText.matchAll(ESTIMATE_WORD)) {

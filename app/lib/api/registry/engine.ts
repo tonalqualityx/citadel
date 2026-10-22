@@ -45,7 +45,7 @@ export const engineEndpoints: ApiEndpoint[] = [
         summary: 'Log one tool call before the result goes back to the model. Result is stored capped at 20 KB. 409 if job not live; 429 over 6 calls a job or 40 analytics calls a client a day.',
         ...authFields,
         bodySchema: [
-          { name: 'tool', type: 'string', required: true, description: 'Chat tool: ga4_report | search_console | citadel_read | site_pages' },
+          { name: 'tool', type: 'string', required: true, description: 'Chat tool: ga4_report | search_console | citadel_read | site_pages | page_text' },
           { name: 'args', type: 'object', required: true, description: 'Arguments the tool was called with' },
           { name: 'row_count', type: 'number', required: false, description: 'Rows returned' },
           { name: 'latency_ms', type: 'number', required: false, description: 'Tool call latency in milliseconds' },
@@ -62,7 +62,7 @@ export const engineEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Returns exactly what the portal shows the job\'s contact. Valid only while the job is claimed and unexpired. kind: requests | work_item | projects | project | retainer | history | reports | invoices | site_pages. site_pages searches this client\'s own site pages (title, path, section heading). invoices need a billing role (403 otherwise).',
+        summary: 'Returns exactly what the portal shows the job\'s contact. Valid only while the job is claimed and unexpired. kind: requests | work_item | projects | project | retainer | history | reports | invoices | site_pages | page_text. site_pages searches this client\'s own site pages (title, path, section heading). page_text fetches the live visible text of one of this client\'s own pages (URL built only from the site record and the SitePage path; 5 s timeout, 300 KB cap, 10 minute cache), sectioned by h1 to h3; with find, only the sections holding the phrase and the sentence it sits in. invoices need a billing role (403 otherwise).',
         ...authFields,
         queryParams: [
           { name: 'task_id', type: 'uuid', required: false, description: 'Task id' },
@@ -70,6 +70,9 @@ export const engineEndpoints: ApiEndpoint[] = [
           { name: 'days', type: 'number', required: false, description: 'Look-back window in days (max 120)' },
           { name: 'site_id', type: 'uuid', required: false, description: 'site_pages: one of the client\'s sites (404 for any other)' },
           { name: 'q', type: 'string', required: false, description: 'site_pages: search text' },
+          { name: 'page_id', type: 'uuid', required: false, description: 'page_text: a SitePage of one of the client\'s sites (404 for any other)' },
+          { name: 'path', type: 'string', required: false, description: 'page_text: with site_id, a known SitePage path on that site (never a URL elsewhere)' },
+          { name: 'find', type: 'string', required: false, description: 'page_text: a phrase to locate (case, quote and dash insensitive; 200 chars max)' },
         ],
         responseExample: { kind: 'string', data: 'object' },
       },
@@ -128,7 +131,7 @@ export const engineEndpoints: ApiEndpoint[] = [
         method: 'GET',
         summary: 'Preflight for a tool call: 200 { allowed: true } when the job has calls left and (for analytics tools) the client is under 40 a day; 429 otherwise; 409 when the job is not live. The tool server asks before it spends a Google call.',
         ...authFields,
-        queryParams: [{ name: 'tool', type: 'string', required: true, description: 'ga4_report | search_console | citadel_read | site_pages' }],
+        queryParams: [{ name: 'tool', type: 'string', required: true, description: 'ga4_report | search_console | citadel_read | site_pages | page_text' }],
         responseExample: { allowed: true },
       },
     ],
