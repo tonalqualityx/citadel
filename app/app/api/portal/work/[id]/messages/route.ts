@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { loadThread, MESSAGE_MAX_CHARS, postClientMessage, toThreadMessage } from '@/lib/portal/thread';
@@ -26,7 +26,7 @@ const idOr404 = (id: string) => {
 // the contact may not see. The work page polls this every 30 seconds with ?after=.
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const limited = rateLimit(request, 120);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 // POST /api/portal/work/:id/messages { client_ref, text }
 // The client writes in the thread. 201 with the message when new, 200 with the same message when
 // client_ref was already sent (a double send changes nothing). Any client role may write,
-// grant-only contacts included. 20 messages per 10 minutes and 200 a day per person (counted in
+// grant-only contacts included. 120 messages an hour and 200 a day per person (counted in
 // the database); past that, 429 with the plain-words limit message.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const viewAsRefusal = await refuseIfViewAs();

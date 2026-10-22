@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess, projectAccessWhere } from '@/lib/portal/access';
 import { OPEN_BUILD_STATUSES } from '@/lib/portal/intake/placement';
@@ -15,7 +15,7 @@ import { chatAvailability } from '@/lib/portal/chat/switches';
 // every id at filing, so nothing here is trusted. Allow-list only: no internal charter names.
 export async function GET(request: NextRequest) {
   try {
-    const limited = rateLimit(request, 120);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

@@ -207,11 +207,14 @@ describe('postClientMessage', () => {
     await expect(post('x'.repeat(4000))).resolves.toBeTruthy();
   });
 
-  it('rate limits per person from the database: 20 per 10 minutes, 200 a day', async () => {
-    comment.count.mockResolvedValueOnce(MESSAGE_LIMITS.per_ten_minutes).mockResolvedValueOnce(0);
-    await expect(post()).rejects.toMatchObject({ statusCode: 429, message: expect.stringContaining('support@becomeindelible.com') });
+  it('rate limits per person from the database: 120 an hour, 200 a day, and names the limiter', async () => {
+    expect(MESSAGE_LIMITS).toEqual({ per_hour: 120, per_day: 200 });
+    comment.count.mockResolvedValueOnce(MESSAGE_LIMITS.per_hour).mockResolvedValueOnce(0);
+    const err = await post().catch((e) => e);
+    expect(err).toMatchObject({ statusCode: 429, limit: 'messages_per_hour', message: 'You have sent a lot in a short time. Please try again in a few minutes.' });
+    expect(err.message).not.toContain('support@');
     comment.count.mockReset().mockResolvedValueOnce(0).mockResolvedValueOnce(MESSAGE_LIMITS.per_day);
-    await expect(post()).rejects.toMatchObject({ statusCode: 429 });
+    await expect(post()).rejects.toMatchObject({ statusCode: 429, limit: 'messages_per_day' });
     expect(comment.create).not.toHaveBeenCalled();
   });
 

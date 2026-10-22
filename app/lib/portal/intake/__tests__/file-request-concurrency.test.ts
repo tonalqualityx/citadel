@@ -91,13 +91,13 @@ beforeEach(() => {
 const settle = (ps: Array<Promise<unknown>>) => Promise.allSettled(ps);
 
 describe('parallel POSTs and the rate limits', () => {
-  it('ten parallel requests from one person: exactly six get through, four are 429', async () => {
+  it('thirty parallel requests from one person: exactly twenty get through, ten are 429', async () => {
     const access = { contactId: 'ct1', clientId: 'cl1', role: 'owner' as const };
-    const results = await settle(Array.from({ length: 10 }, (_, i) => fileRequest(access, contact, other(i + 1), { now: NOW })));
+    const results = await settle(Array.from({ length: 30 }, (_, i) => fileRequest(access, contact, other(i + 1), { now: NOW })));
     const ok = results.filter((r) => r.status === 'fulfilled');
     const bad = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
     expect(ok).toHaveLength(LIMITS.per_hour);
-    expect(bad).toHaveLength(4);
+    expect(bad).toHaveLength(10);
     for (const b of bad) expect(b.reason).toMatchObject({ statusCode: 429 });
     expect(store.rows).toHaveLength(LIMITS.per_hour);
   });
@@ -105,7 +105,7 @@ describe('parallel POSTs and the rate limits', () => {
   it('the harness is honest: without the locks the same burst overshoots the limit', async () => {
     store.useLocks = false;
     const access = { contactId: 'ct1', clientId: 'cl1', role: 'owner' as const };
-    await settle(Array.from({ length: 10 }, (_, i) => fileRequest(access, contact, other(i + 1), { now: NOW })));
+    await settle(Array.from({ length: 30 }, (_, i) => fileRequest(access, contact, other(i + 1), { now: NOW })));
     expect(store.rows.length).toBeGreaterThan(LIMITS.per_hour);
   });
 
@@ -118,8 +118,8 @@ describe('parallel POSTs and the rate limits', () => {
 
   it('a person with two contact rows is limited as one person', async () => {
     const results = await settle([
-      ...Array.from({ length: 5 }, (_, i) => fileRequest({ contactId: 'ct1', contactIds: ['ct1', 'ct2'], clientId: 'cl1', role: 'owner' }, contact, other(i + 1), { now: NOW })),
-      ...Array.from({ length: 5 }, (_, i) => fileRequest({ contactId: 'ct2', contactIds: ['ct1', 'ct2'], clientId: 'cl1', role: 'owner' }, { id: 'ct2', name: 'Dana' }, other(i + 11), { now: NOW })),
+      ...Array.from({ length: 15 }, (_, i) => fileRequest({ contactId: 'ct1', contactIds: ['ct1', 'ct2'], clientId: 'cl1', role: 'owner' }, contact, other(i + 1), { now: NOW })),
+      ...Array.from({ length: 15 }, (_, i) => fileRequest({ contactId: 'ct2', contactIds: ['ct1', 'ct2'], clientId: 'cl1', role: 'owner' }, { id: 'ct2', name: 'Dana' }, other(i + 101), { now: NOW })),
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(LIMITS.per_hour);
   });

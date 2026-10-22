@@ -32,10 +32,17 @@ import {
 } from './tree';
 
 export const LIMITS = {
-  per_hour: 6,
-  per_day: 20,
+  per_hour: 20,
+  per_day: 60,
   emergencies_per_day: 3,
 } as const;
+
+/** Which new-request limit a person has hit, or null. The name goes to the client as `limit`. */
+export function requestLimitName(lastHour: number, lastDay: number): 'requests_per_hour' | 'requests_per_day' | null {
+  if (lastHour >= LIMITS.per_hour) return 'requests_per_hour';
+  if (lastDay >= LIMITS.per_day) return 'requests_per_day';
+  return null;
+}
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -146,9 +153,8 @@ export async function fileRequest(
       tx.task.count({ where: { ...mine, created_at: { gte: new Date(now.getTime() - HOUR) } } }),
       tx.task.count({ where: { ...mine, created_at: { gte: new Date(now.getTime() - DAY) } } }),
     ]);
-    if (lastHour >= LIMITS.per_hour || lastDay >= LIMITS.per_day) {
-      throw new ApiError(RATE_LIMIT_MESSAGE, 429, 'rate_limited');
-    }
+    const requestLimit = requestLimitName(lastHour, lastDay);
+    if (requestLimit) throw new ApiError(RATE_LIMIT_MESSAGE, 429, 'rate_limited', requestLimit);
     let emergencyEffects = false;
     if (checked.urgent) {
       // The daily emergency count is per client, across people: its own lock.
