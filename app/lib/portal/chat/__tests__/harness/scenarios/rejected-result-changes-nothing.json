@@ -28,7 +28,7 @@
    "engine": [
     {
      "result": {
-      "reply": "I'm Indelible's AI assistant. Which page is the banner for?",
+      "reply": "Which page is the banner for?",
       "actions": [
        {
         "type": "record",

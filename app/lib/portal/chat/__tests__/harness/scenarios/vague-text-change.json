@@ -40,7 +40,7 @@
    "engine": [
     {
      "result": {
-      "reply": "I'm Indelible's AI assistant. Which page has the text?",
+      "reply": "Which page has the text?",
       "actions": [
        {
         "type": "record",

@@ -1,0 +1,114 @@
+{
+ "name": "simple change asked by Friday: the fixed timing line, no handoff",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/",
+    "sections": [
+     {
+      "key": "banner",
+      "heading": "Top banner"
+     }
+    ]
+   },
+   {
+    "title": "About",
+    "path": "/about/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "On the Home page, swap \"Order ahead\" for \"Order online\" in the top banner. Can you have it done by Friday?"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "For a change like this you will have a preview to approve within 48 hours, often sooner. Once you approve it, it usually goes live within the hour. Here's your request as I have it.",
+      "actions": [
+       {
+        "type": "record",
+        "site_id": "{{site:0}}",
+        "page_id": "{{page:Home}}",
+        "section_key": "banner",
+        "change": "Replace \"Order ahead\" with \"Order online\" in the top banner.",
+        "attachment_ids": [],
+        "request_type": "site_change"
+       },
+       {
+        "type": "propose_summary",
+        "summary": "On the Home page, in the top banner, replace \"Order ahead\" with \"Order online\".",
+        "request_type": "site_change",
+        "site_id": "{{site:0}}",
+        "page_id": "{{page:Home}}",
+        "section": "Top banner",
+        "change": "Replace \"Order ahead\" with \"Order online\" in the top banner.",
+        "attachment_ids": []
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "gate_result": "pass",
+    "runs": 1,
+    "reply": "For a change like this you will have a preview to approve within 48 hours, often sooner. Once you approve it, it usually goes live within the hour. Here's your request as I have it.",
+    "pending_kind": "summary",
+    "tags_exclude": [
+     "chat-handoff",
+     "needs-mike"
+    ],
+    "mode": "model"
+   }
+  },
+  {
+   "client": {
+    "text": "Can it be sooner, like tomorrow?"
+   },
+   "engine": [
+    {
+     "result": {
+      "reply": "Sure, it can be live tomorrow. Here's your request as I have it.",
+      "actions": [],
+      "sources": []
+     },
+     "expect_status": 422,
+     "expect_rule": "promise"
+    },
+    {
+     "result": {
+      "reply": "Timing other than that goes to the team, so I've passed this one along. A person on the team will read this and reply here.",
+      "actions": [
+       {
+        "type": "hand_to_person",
+        "reason": "date",
+        "draft_reply": "[TEAM NOTE: banner wording change; client asks for a faster turnaround]\nHi Dana, [TEAM: your answer on timing.]"
+       }
+      ],
+      "sources": []
+     }
+    }
+   ],
+   "expect": {
+    "gate_result": "regenerated",
+    "runs": 2,
+    "state": "with_person",
+    "reply_excludes": [
+     "live tomorrow"
+    ],
+    "tags_include": [
+     "chat-handoff"
+    ]
+   }
+  }
+ ]
+}

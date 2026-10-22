@@ -383,8 +383,9 @@ export const PROBE_G3: string[] = [
 ];
 
 export const PROBE_G4: Array<[string, string]> = [
-  ["I'm Indelible's AI assistant. Which page should this photo go on?", "reply"],
-  ["I'm an AI assistant. A person on the team reads every request.", "reply"],
+  ["Which page should this photo go on?", "reply"],
+  ["I'm an AI assistant. Ask for a person any time and I'll pass this to the team.", "reply"],
+  ["For a change like this you will have a preview to approve within 48 hours, often sooner. Once you approve it, it usually goes live within the hour.", "reply"],
   ["Pricing questions go to the team, so I've passed this one along. A person on the team will read this and reply here.", "reply"],
   ["[TEAM NOTE: new gallery page for cake photos; no photos attached yet, page placement not discussed]\nHi Dana, thanks for asking about a gallery page for your cake photos. [TEAM: your answer on pricing and what it would involve.] If you have the photos ready, you can attach them to this request in the portal.", "draft"],
   ["[TEAM NOTE: photo attached, page and section still unknown]\nHi Dana, [TEAM: confirm the price and when it will be done.]", "draft"],
@@ -406,7 +407,7 @@ export const PROBE_G3_PASS = ['Your About page had 600 sessions in Google Analyt
 
 // ---- false-positive corpus (confirmation review, 2026-10-21): ordinary clarifying replies, all must pass ----
 export const FP_EXAMPLES: Array<[string, string, "base" | "ga"]> = [
-  ["I'm Indelible's AI assistant. Which page should this photo go on?", "reply", "base"],
+  ["Which page should this photo go on?", "reply", "base"],
   ["Which page should this photo go on?", "ask", "base"],
   ["Where on the About page should it go?", "reply", "base"],
   ["Where on the About page should it go?", "ask", "base"],
@@ -418,7 +419,8 @@ export const FP_EXAMPLES: Array<[string, string, "base" | "ga"]> = [
   ["I only have your own sites and requests in front of me. Which page should the new hours go on?", "reply", "base"],
   ["Which page should the new hours go on?", "ask", "base"],
   ["That sounds urgent. Pick the choice below that fits best.", "reply", "base"],
-  ["I'm an AI assistant. A person on the team reads every request.", "reply", "base"],
+  ["I'm an AI assistant. Ask for a person any time and I'll pass this to the team.", "reply", "base"],
+  ["For a change like this you will have a preview to approve within 48 hours, often sooner. Once you approve it, it usually goes live within the hour.", "reply", "base"],
   ["I help get your requests clear for the team, and I can look up your site's visits and search numbers and the status of your work.", "reply", "base"],
   ["I do not have that number. Would you like me to pass the question to the team?", "reply", "base"],
   ["The team's reply above has the details.", "reply", "base"],

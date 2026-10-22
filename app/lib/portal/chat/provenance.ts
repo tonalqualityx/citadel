@@ -208,7 +208,10 @@ export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[]
 
 function sentenceSpans(text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
-  const re = /[^.!?\n]*(?:[.!?]+(?=\s|$)|\n|$)/g;
+  // A "." inside a number ("average position 4.3") does not end a sentence: only one followed by a
+  // space or the end does. Without that, a sentence holding a decimal had no span, so its source and
+  // dates went unseen (the 2026-10-21 rankings reply that fell to the canned handoff).
+  const re = /(?:[^.!?\n]|[.!?](?=[^\s.!?]))*(?:[.!?]+(?=\s|$)|\n|$)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m[0] === '') {

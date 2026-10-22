@@ -40,7 +40,7 @@
    "engine": [
     {
      "result": {
-      "reply": "I'm Indelible's AI assistant. What should the What we do section say instead?",
+      "reply": "What should the What we do section say instead?",
       "actions": [
        {
         "type": "record",

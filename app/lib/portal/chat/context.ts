@@ -43,6 +43,19 @@ export interface ContextSite {
   has_care_plan: boolean;
   analytics_connected: boolean;
   search_console_connected: boolean;
+  /**
+   * A simple change on this site (wording, a photo, a link on an existing page) is one the assistant may
+   * quote the fixed 48-hour preview line for: an Indelible-built (Bedrock: Eleventy on Cloudflare Pages)
+   * site the automated worker may change. Anything else hands timing to a person (pilot ruling 2026-10-21).
+   */
+  simple_changes: boolean;
+}
+
+/** Platform words Citadel stores for a Bedrock site (Eleventy on Cloudflare Pages). */
+const BEDROCK_PLATFORMS = new Set(['bedrock', 'eleventy', '11ty', 'cloudflare-pages', 'cloudflare pages']);
+
+export function simpleChangesOn(site: { platform: string | null; bast_enabled: boolean }): boolean {
+  return site.bast_enabled && BEDROCK_PLATFORMS.has((site.platform ?? '').trim().toLowerCase());
 }
 
 export interface ContextPage {
@@ -176,7 +189,7 @@ export async function buildContext(
     prisma.clientContact.findFirst({ where: { id: access.contactId }, select: { name: true } }),
     prisma.site.findMany({
       where: { client_id: access.clientId, is_deleted: false },
-      select: { id: true, name: true, url: true, platform: true, maintenance_plan_id: true, ga4_property: true, gsc_property: true },
+      select: { id: true, name: true, url: true, platform: true, bast_enabled: true, maintenance_plan_id: true, ga4_property: true, gsc_property: true },
       orderBy: { name: 'asc' },
     }),
     prisma.charter.findFirst({
@@ -231,6 +244,7 @@ export async function buildContext(
       has_care_plan: Boolean(s.maintenance_plan_id),
       analytics_connected: Boolean(s.ga4_property),
       search_console_connected: Boolean(s.gsc_property),
+      simple_changes: simpleChangesOn(s),
     })),
     pages: pageRows.map((p) => ({
       id: p.id,

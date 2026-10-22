@@ -9,7 +9,7 @@ import { OPENING_CHOICES, OPENING_PROMPT, SENT_DOWNGRADED, SENT_HEADING, SENT_UR
 export const ASSISTANT_NAME = 'Indelible assistant';
 export const CANNED_LINE = 'A person on the team will read this and reply here.';
 export const HANDOFF_BANNER = 'A person on the team will reply here. You can keep adding details while you wait.';
-export const DISCLOSURE_LINE = 'Replies marked Indelible assistant are written by an AI assistant. A person on the team reads every request.';
+export const DISCLOSURE_LINE = 'Replies marked Indelible assistant are written by an AI assistant.';
 
 export const WRITING_LABELS = { writing: 'Writing', still_writing: 'Still writing', checking_numbers: 'Checking your numbers' } as const;
 

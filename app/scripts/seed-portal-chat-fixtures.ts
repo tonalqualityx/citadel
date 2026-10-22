@@ -119,7 +119,7 @@ async function screens() {
     },
   });
   await say(t1.id, 'Can you add this picture to the website?', at('13:57'), mine);
-  await say(t1.id, "I'm Indelible's AI assistant. Which page should this photo go on?", at('13:57'), { ...bot, chat_meta: { fixed: false } });
+  await say(t1.id, "Which page should this photo go on?", at('13:57'), { ...bot, chat_meta: { fixed: false } });
 
   // 2. A filed request with a numbers reply and a team reply.
   const t2 = await mkTask(SCREEN_WORK_REF, 'Site change: team photo', 'Update the team photo');
