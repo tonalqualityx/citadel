@@ -234,6 +234,37 @@ test.describe('Portal chat (phase C slice 3)', () => {
     const banner = page.getByTestId('chat-handoff');
     await expect(banner).toContainText('A person on the team will reply here. You can keep adding details while you wait.');
     await expect(page.getByLabel('What do you need?')).toBeEnabled();
+    await expect(page.getByTestId('chat-person-mark')).toHaveCount(0);
+
+    // A staff reply lands while this view stays open: no reload, and the banner names the person.
+    const { first_name } = JSON.parse(run(`${CHAT} --staff-reply "We updated the hours on the Contact page."`).trim().split('\n').pop()!);
+    await expect(log(page)).toContainText('We updated the hours on the Contact page.', { timeout: 20_000 });
+    await expect(banner).toContainText(`${first_name} from Indelible replied.`);
+    await expect(banner).not.toContainText('A person on the team will reply here');
+    await expect(page.getByTestId('chat-person-mark')).toBeVisible();
+    await expect(log(page).getByText('Indelible team', { exact: true })).toBeVisible();
+    await context.close();
+  });
+
+  test('dragging a file over the box shows one steady drop overlay', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    await page.goto('/portal/requests/new');
+    const box = page.locator('form.chat-composer');
+    const textarea = page.getByLabel('What do you need?');
+    const dt = await page.evaluateHandle(() => {
+      const d = new DataTransfer();
+      d.items.add(new File(['x'], 'p.png', { type: 'image/png' }));
+      return d;
+    });
+    await box.dispatchEvent('dragenter', { dataTransfer: dt });
+    const overlay = page.getByTestId('chat-drop-active');
+    await expect(overlay).toBeVisible();
+    // The pointer crosses a child: enter the child, leave the form. The overlay stays.
+    await textarea.dispatchEvent('dragenter', { dataTransfer: dt });
+    await box.dispatchEvent('dragleave', { dataTransfer: dt });
+    await expect(overlay).toBeVisible();
+    await textarea.dispatchEvent('dragleave', { dataTransfer: dt });
+    await expect(overlay).toHaveCount(0);
     await context.close();
   });
 

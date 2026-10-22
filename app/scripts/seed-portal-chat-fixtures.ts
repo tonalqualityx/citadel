@@ -14,6 +14,9 @@
  *                   a numbers reply (with its source line) and a team reply. Prints their ids as JSON.
  *   --lazy-task     a filed portal request with NO conversation yet (a work page whose chat opens on the
  *                   first message); prints its id as JSON.
+ *   --staff-reply <text>  a client-visible staff comment (what "Reply to client" writes) on the fixture client's newest
+ *                   with_person conversation, from Mike. Playwright has no staff session, so this stands in for the
+ *                   comments route; prints the first name the client should see.
  *   --cleanup       removes the chat rows, pages and key this seed made, and sets mode off.
  *
  * Refuses to run unless the database name contains "scratch" or "dev".
@@ -56,6 +59,9 @@ async function setMode(mode: 'on' | 'off') {
 
 async function setup() {
   const client = await fixtureClient();
+  // Chat needs a live runner (a heartbeat inside three minutes) or it falls back to the stepper. The spec plays the
+  // runner over the engine routes, which do not post a heartbeat, so the fixture does.
+  await prisma.appSettings.upsert({ where: { id: 'singleton' }, update: { portal_chat_runner_seen_at: new Date() }, create: { id: 'singleton', portal_chat_runner_seen_at: new Date() } });
   const sites = await prisma.site.findMany({ where: { client_id: client.id, is_deleted: false }, orderBy: { name: 'asc' } });
   await prisma.site.updateMany({ where: { client_id: client.id }, data: { portal_chat_enabled: true } });
   const first = sites[0];
@@ -177,6 +183,15 @@ async function main() {
     const past = new Date(Date.now() - 70_000);
     const r = await prisma.engineJob.updateMany({ where: { client_id: client.id, status: 'queued' }, data: { queued_at: past } });
     console.log(JSON.stringify({ aged: r.count }));
+    return;
+  }
+  const sr = args.indexOf('--staff-reply');
+  if (sr >= 0) {
+    const client = await fixtureClient();
+    const convo = await prisma.chatConversation.findFirstOrThrow({ where: { client_id: client.id, state: 'with_person' }, orderBy: { created_at: 'desc' } });
+    const mike = await prisma.user.findFirstOrThrow({ where: { email: 'mike@becomeindelible.com' }, select: { id: true, name: true } });
+    await prisma.comment.create({ data: { task_id: convo.task_id, user_id: mike.id, content: args[sr + 1], client_visible: true } });
+    console.log(JSON.stringify({ first_name: mike.name.trim().split(/\s+/)[0] }));
     return;
   }
   const i = args.indexOf('--inspect');

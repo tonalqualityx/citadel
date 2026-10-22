@@ -18,6 +18,9 @@ interface ToolCall {
 }
 export interface TaskChat {
   state: string;
+  /** The client has the portal open now; no email goes out for a staff reply. */
+  client_present: boolean;
+  email_hold_seconds: number;
   mode: string;
   handoff_note: { id: string; content: string } | null;
   attachments: Array<{ id: string; name: string; type: string; size: number; url: string }>;
@@ -33,7 +36,7 @@ export function extractDraft(content: string): string | null {
   return draft && draft !== '(none)' ? draft : null;
 }
 
-export function useTaskChat(taskId: string) {
+export function useTaskChat(taskId: string, opts: { live?: boolean } = {}) {
   return useQuery({
     queryKey: ['task-chat', taskId],
     queryFn: async () => {
@@ -45,6 +48,8 @@ export function useTaskChat(taskId: string) {
     },
     retry: false,
     staleTime: 15_000,
+    // The reply hint reads presence, so while it is on screen the answer is refreshed.
+    refetchInterval: opts.live ? 20_000 : false,
   });
 }
 

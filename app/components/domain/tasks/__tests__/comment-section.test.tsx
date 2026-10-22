@@ -7,7 +7,8 @@ const updateMutateAsync = vi.fn(async (_input: Record<string, unknown>) => ({}))
 let role = 'pm';
 let comments: unknown[] = [];
 
-vi.mock('../chat-staff-panel', () => ({ ChatStaffPanel: () => null }));
+let chatData: { client_present: boolean; email_hold_seconds: number } | null = null;
+vi.mock('../chat-staff-panel', () => ({ ChatStaffPanel: () => null, useTaskChat: () => ({ data: chatData }) }));
 vi.mock('@/lib/hooks/use-auth', () => ({ useAuth: () => ({ user: { id: 'u1', role } }) }));
 vi.mock('@/lib/hooks/use-comments', () => ({
   useComments: () => ({ data: { comments, count: comments.length }, isLoading: false }),
@@ -29,6 +30,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   role = 'pm';
   comments = [];
+  chatData = null;
 });
 
 describe('commentFieldsFor', () => {
@@ -39,6 +41,32 @@ describe('commentFieldsFor', () => {
   it('on any other task nothing changes', () => {
     expect(commentFieldsFor('internal', false)).toEqual({});
     expect(commentFieldsFor('client', false)).toEqual({});
+  });
+});
+
+describe('Reply to client email hint', () => {
+  const pick = () => fireEvent.click(screen.getByLabelText('Reply to client'));
+  it('says no email goes out while the client is in the portal', () => {
+    chatData = { client_present: true, email_hold_seconds: 120 };
+    render(<CommentSection taskId="t" clientVisibleTask />);
+    pick();
+    expect(screen.getByTestId('client-email-hint')).toHaveTextContent('Client is in the portal now; no email will be sent.');
+  });
+  it('says the reply is also emailed in about two minutes when the client is away', () => {
+    chatData = { client_present: false, email_hold_seconds: 120 };
+    render(<CommentSection taskId="t" clientVisibleTask />);
+    pick();
+    expect(screen.getByTestId('client-email-hint')).toHaveTextContent('Client is away; this will also be emailed in about 2 minutes.');
+  });
+  it('shows nothing about email on an internal note or a task with no chat', () => {
+    chatData = { client_present: false, email_hold_seconds: 120 };
+    const { unmount } = render(<CommentSection taskId="t" clientVisibleTask />);
+    expect(screen.queryByTestId('client-email-hint')).toBeNull();
+    unmount();
+    chatData = null;
+    render(<CommentSection taskId="t" clientVisibleTask />);
+    pick();
+    expect(screen.queryByTestId('client-email-hint')).toBeNull();
   });
 });
 

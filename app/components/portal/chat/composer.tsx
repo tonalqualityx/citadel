@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Paperclip, Send as SendIcon, TriangleAlert, Upload } from 'lucide-react';
 import { PortalButton } from '@/components/portal/ui/button';
 import { Field } from '@/components/portal/ui/field';
@@ -14,6 +14,12 @@ import type { Draft } from './types';
 /** True on a phone or tablet: Enter there is a new line, as on every phone keyboard. */
 export function isCoarsePointer(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+/** True when the drag carries files (not selected text or a link being dragged around the page). */
+export function dragHasFiles(e: Pick<React.DragEvent, 'dataTransfer'>): boolean {
+  const types = e.dataTransfer?.types;
+  return !!types && Array.from(types).includes('Files');
 }
 
 export function Composer({
@@ -37,13 +43,29 @@ export function Composer({
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  // dragenter and dragleave also fire for every child the pointer crosses, so a plain on/off flag
+  // flickers. The depth counter goes up on each enter and down on each leave: dragging is true while it is above zero.
+  const depth = useRef(0);
+  function endDrag() {
+    depth.current = 0;
+    setDragging(false);
+  }
+  useEffect(() => {
+    // A drag that ends outside the page (Escape, dropped elsewhere) sends no leave to the form.
+    window.addEventListener('dragend', endDrag);
+    window.addEventListener('drop', endDrag);
+    return () => {
+      window.removeEventListener('dragend', endDrag);
+      window.removeEventListener('drop', endDrag);
+    };
+  }, []);
   const anyBusy = drafts.some((d) => !d.id && !d.error);
   const viewAs = useViewAs();
   const canSend = !viewAs && !disabled && !sending && !anyBusy && (value.trim().length > 0 || drafts.some((d) => d.id));
 
   function drop(e: React.DragEvent) {
     e.preventDefault();
-    setDragging(false);
+    endDrag();
     if (viewAs) return;
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length) onFiles(files);
@@ -57,17 +79,34 @@ export function Composer({
         e.preventDefault();
         if (canSend) onSend();
       }}
-      onDragOver={(e) => {
+      onDragEnter={(e) => {
+        if (!dragHasFiles(e)) return;
         e.preventDefault();
+        depth.current += 1;
         setDragging(true);
       }}
-      onDragLeave={() => setDragging(false)}
+      onDragOver={(e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+      }}
+      onDragLeave={(e) => {
+        if (!dragHasFiles(e)) return;
+        depth.current = Math.max(0, depth.current - 1);
+        if (depth.current === 0) setDragging(false);
+      }}
       onDrop={drop}
     >
-      {(wantsFile || dragging) && (
+      {wantsFile && (
         <div className="drop" data-testid="chat-drop">
           <Upload className="i" aria-hidden="true" focusable="false" />
-          <span>{dragging ? 'Drop your file to attach it.' : 'Drop a file here, or choose one with the paperclip.'}</span>
+          <span>Drop a file here, or choose one with the paperclip.</span>
+        </div>
+      )}
+      {/* One stable overlay: it sits over the box and ignores the pointer, so nothing moves under the cursor. */}
+      {dragging && (
+        <div className="drop-overlay" data-testid="chat-drop-active" aria-hidden="true">
+          <Upload className="i" aria-hidden="true" focusable="false" />
+          <span>Drop your file to attach it.</span>
         </div>
       )}
       {drafts.length > 0 && (

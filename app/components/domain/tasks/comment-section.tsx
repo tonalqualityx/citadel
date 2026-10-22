@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { MentionInput, MentionCandidate } from '@/components/ui/mention-input';
 import { useMentionSuggestions } from '@/lib/hooks/use-mention-suggestions';
-import { ChatStaffPanel } from './chat-staff-panel';
+import { ChatStaffPanel, useTaskChat } from './chat-staff-panel';
 import { findMentionedUserIds, renderMentionSegments } from '@/lib/utils/mentions';
 
 interface CommentSectionProps {
@@ -38,6 +38,24 @@ export type CommentAudience = 'internal' | 'client';
 export function commentFieldsFor(audience: CommentAudience, clientTask: boolean): { is_internal?: boolean; client_visible?: boolean } {
   if (!clientTask) return {};
   return audience === 'client' ? { client_visible: true } : { is_internal: true };
+}
+
+/**
+ * One line that says what a "Reply to client" will do about email, from the conversation's live
+ * presence: a staff reply is emailed after the hold only when the client is away at that moment.
+ * Shown only when the task has a portal chat.
+ */
+export function ClientEmailHint({ taskId }: { taskId: string }) {
+  const { data } = useTaskChat(taskId, { live: true });
+  if (!data) return null;
+  const minutes = Math.round((data.email_hold_seconds ?? 120) / 60);
+  return (
+    <p className="mt-0.5 text-xs text-text-sub" data-testid="client-email-hint" data-client-present={data.client_present}>
+      {data.client_present
+        ? 'Client is in the portal now; no email will be sent.'
+        : `Client is away; this will also be emailed in about ${minutes} minute${minutes === 1 ? '' : 's'}.`}
+    </p>
+  );
 }
 
 export function CommentSection({ taskId, defaultExpanded = true, variant = 'full', clientVisibleTask = false }: CommentSectionProps) {
@@ -430,9 +448,10 @@ export function CommentSection({ taskId, defaultExpanded = true, variant = 'full
                   </label>
                 </div>
                 {audience === 'client' && (
-                  <p className="mt-1 text-xs text-text-sub">
-                    The client sees this as Indelible, in the thread on their request, and gets an email after two minutes.
-                  </p>
+                  <>
+                    <p className="mt-1 text-xs text-text-sub">The client sees this as Indelible, in the thread on their request.</p>
+                    <ClientEmailHint taskId={taskId} />
+                  </>
                 )}
               </fieldset>
             )}
