@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { User } from 'lucide-react';
+import { IndelibleMark } from '@/components/portal/ui/indelible-mark';
 
-// One message. Indelible ("us") sits left with the navy I mark and a square top-left corner; the
+// One message. Indelible ("us") sits left with the Indelible logomark and a square top-left corner; the
 // person ("you") sits right on the tint. `current` is the prompt being asked now. `onChange` adds a
 // Change button under an answer.
 export function ChatBubble({
@@ -28,13 +29,13 @@ export function ChatBubble({
     <div className={`msg ${side}${current ? ' current' : ''}`} data-author={author}>
       {side === 'us' ? (
         author === 'team' ? (
-          // A person on the team: a person icon, distinct from the assistant's I mark.
+          // A person on the team: a person icon, distinct from the assistant's logomark.
           <span className="av av-person" aria-hidden="true" data-testid="chat-person-mark">
             <User className="i" focusable="false" />
           </span>
         ) : (
-          <span className="av" aria-hidden="true">
-            I
+          <span className="av av-mark" aria-hidden="true" data-testid="chat-assistant-mark">
+            <IndelibleMark size={28} />
           </span>
         )
       ) : null}
