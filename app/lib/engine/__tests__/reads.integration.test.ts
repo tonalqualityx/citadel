@@ -40,7 +40,8 @@ describe.skipIf(!SCRATCH)('engine reads (real database)', () => {
   const job = (s: Seeded, contactId: string) => ({ client_id: s.clientId, contact_id: contactId });
 
   it('knows the eight read kinds', () => {
-    expect(READ_KINDS).toHaveLength(9);
+    expect(READ_KINDS).toHaveLength(10);
+    expect(isReadKind('page_text')).toBe(true);
     expect(isReadKind('invoices')).toBe(true);
     expect(isReadKind('tasks')).toBe(false);
   });

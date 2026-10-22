@@ -12,6 +12,8 @@ const uuid = z.string().uuid();
 // The `citadel_read` tool: exactly what the portal shows the job's contact, from the portal's own
 // loaders, under that contact's own access. Valid only while the job is claimed and unexpired.
 // kind: requests | work_item (?task_id) | projects | project (?project_id) | retainer | history (?days) | reports | invoices | site_pages (?site_id, ?q)
+// | page_text (?page_id, or ?site_id + ?path; ?find): the live text of one of this client's own pages, fetched from
+//   the site record's address plus the SitePage path only (never a caller's URL).
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string; kind: string }> }) {
   try {
     await requireEngine();
@@ -34,8 +36,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (projectId && !uuid.safeParse(projectId).success) throw new ApiError('Invalid project_id', 400);
     const siteId = sp.get('site_id');
     if (siteId && !uuid.safeParse(siteId).success) throw new ApiError('Invalid site_id', 400);
+    const pageId = sp.get('page_id');
+    if (pageId && !uuid.safeParse(pageId).success) throw new ApiError('Invalid page_id', 400);
+    const path = sp.get('path');
+    if (path && path.length > 500) throw new ApiError('Invalid path', 400);
+    const find = sp.get('find');
+    if (find && find.length > 200) throw new ApiError('find is too long', 400);
     const days = sp.get('days');
-    const data = await runRead(access, p.kind, { task_id: taskId, project_id: projectId, days: days ? Number(days) : null, site_id: siteId, q: sp.get('q') });
+    const data = await runRead(access, p.kind, {
+      task_id: taskId, project_id: projectId, days: days ? Number(days) : null, site_id: siteId, q: sp.get('q'),
+      page_id: pageId, path, find,
+    });
     return NextResponse.json({ kind: p.kind, data });
   } catch (error) {
     return handleApiError(error);
