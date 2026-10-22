@@ -51,7 +51,10 @@ describe('CancelRequest', () => {
     render(<CancelRequest taskId="t1" title="Update hours" mode="live" />);
     expect(screen.queryByRole('button', { name: 'Cancel this request' })).toBeNull();
     const a = screen.getByRole('link', { name: /Ask for a change/ });
-    expect(a.getAttribute('href')).toBe(`/portal/requests/new?change=${encodeURIComponent('Change to: Update hours')}`);
+    const href = new URL(a.getAttribute('href') ?? '', 'http://x.test');
+    expect(href.pathname).toBe('/portal/requests/new');
+    expect(href.searchParams.get('change')).toBe('Change to: Update hours');
+    expect(href.searchParams.get('new')).toMatch(/^\d+$/);
   });
 
   it('approved and going live says so, and a cancelled request offers nothing', () => {

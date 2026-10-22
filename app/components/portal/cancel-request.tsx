@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { ActionLink } from '@/components/portal/ui/action-link';
+import { CHANGE_PARAM, REQUEST_NEW_PATH, withFreshToken } from '@/lib/portal/request-token';
 import { PortalButton } from '@/components/portal/ui/button';
 import { ASK_FOR_CHANGE, CANCEL_BUSY, CANCEL_CONFIRM, CANCEL_ERROR, CANCEL_KEEP, CANCEL_LINK, CANCEL_YES, GOING_LIVE_NOTE, changeToText } from '@/lib/portal/cancel-copy';
 import type { CancelMode } from '@/lib/portal/cancel-state';
@@ -28,7 +29,7 @@ export function CancelRequest({
   if (mode === 'live') {
     return (
       <p className="cancel-request" data-testid="ask-for-change">
-        <ActionLink href={`/portal/requests/new?change=${encodeURIComponent(changeToText(title))}`}>{ASK_FOR_CHANGE}</ActionLink>
+        <ActionLink href={withFreshToken(`${REQUEST_NEW_PATH}?${CHANGE_PARAM}=${encodeURIComponent(changeToText(title))}`)}>{ASK_FOR_CHANGE}</ActionLink>
       </p>
     );
   }

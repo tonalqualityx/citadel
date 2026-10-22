@@ -16,6 +16,7 @@
  *                   first message); prints its id as JSON.
  *   --staged-task   a portal request staged for the client (status review, a preview url) and assigned to Mike, so
  *                   a cancel has a person to tell; prints its id as JSON.
+ *   --live-task     a portal request that is live (status done), for the "Ask for a change" path; prints its id as JSON.
  *   --cancel-inspect <task id>  prints what a cancel left behind (status, tags, conversation state, open waits,
  *                   the assignee's notification rows and the cancel email rows) as one JSON line.
  *   --staff-reply <text>  a client-visible staff comment (what "Reply to client" writes) on the fixture client's newest
@@ -192,6 +193,19 @@ async function main() {
         title: 'Site change: staged for cancel', client_title: 'Staged hours change', client_id: client.id, site_id: site.id, requested_by_contact_id: owner.id,
         source: 'portal', source_ref: `portal-chat:e2e-staged-${Date.now()}`, status: 'review', tags: ['portal-chat'], assignee_id: mike.id,
         staging_preview_url: 'https://preview.e2e-portal-fixture.example/hours', staging_deployed_at: new Date(),
+      },
+    });
+    console.log(JSON.stringify({ task_id: task.id }));
+    return;
+  }
+  if (args.includes('--live-task')) {
+    const client = await fixtureClient();
+    const owner = await prisma.clientContact.findFirstOrThrow({ where: { client_id: client.id, email: 'contact@e2e-portal-fixture.example' } });
+    const site = await prisma.site.findFirstOrThrow({ where: { client_id: client.id, is_deleted: false }, orderBy: { name: 'asc' } });
+    const task = await prisma.task.create({
+      data: {
+        title: 'Site change: live hours', client_title: 'Live hours change', client_id: client.id, site_id: site.id, requested_by_contact_id: owner.id,
+        source: 'portal', source_ref: `portal-chat:e2e-live-${Date.now()}`, status: 'done', completed_at: new Date(), tags: ['portal-chat'], assignee_id: BAST_USER_ID,
       },
     });
     console.log(JSON.stringify({ task_id: task.id }));

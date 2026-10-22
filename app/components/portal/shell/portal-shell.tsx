@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { RequestLink } from '@/components/portal/request-link';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Menu, LogOut, Plus } from 'lucide-react';
@@ -59,10 +60,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <div className="side-in">
           <Wordmark />
           <AccountBlock name={session.name} canSwitch={session.canSwitch} />
-          <Link className="btn-nav" href="/portal/requests/new">
+          <RequestLink className="btn-nav" href="/portal/requests/new">
             <Plus className="i" aria-hidden="true" focusable="false" />
             Request work
-          </Link>
+          </RequestLink>
           <nav className="snav" aria-label="Main">
             {NAV.map(({ key, href, label, icon: Icon }) => (
               <Link key={key} href={href} aria-current={active === key ? 'page' : undefined}>
@@ -92,10 +93,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <span className="who" hidden={bare} aria-hidden={pending || undefined}>
             {session.name}
           </span>
-          <Link className="btn-nav" href="/portal/requests/new" hidden={bare} aria-hidden={pending || undefined} tabIndex={pending ? -1 : undefined}>
+          <RequestLink className="btn-nav" href="/portal/requests/new" hidden={bare} aria-hidden={pending || undefined} tabIndex={pending ? -1 : undefined}>
             <Plus className="i" aria-hidden="true" focusable="false" />
             Request
-          </Link>
+          </RequestLink>
         </header>
         <main className={`main${bare ? ' main-bare' : ''}`} id="main">
           {session.moved && !bare ? (

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { changePrefill, CHANGE_PARAM, decideTokenReset, EARLIER_REQUEST_NOTICE, NEW_REQUEST_PARAM, REQUEST_NEW_PATH } from '@/lib/portal/request-token';
 import { IntakeChat } from '@/components/portal/intake/intake-chat';
 import { PageHeader } from '@/components/portal/ui/page-header';
 import { Callout } from '@/components/portal/ui/callout';
@@ -14,6 +16,21 @@ import { RateLimited, type ChatSource, type StartResult } from './use-chat';
 // Request work. The chat when GET /api/portal/intake/context says chat.available (and the first
 // message does not come back 409 chat_unavailable), else the phase B stepper, unchanged.
 const KEY = 'portal-chat-resume';
+const TOKEN_KEY = 'portal-chat-token';
+function readHandled(): string | null {
+  try {
+    return window.sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+function writeHandled(t: string) {
+  try {
+    window.sessionStorage.setItem(TOKEN_KEY, t);
+  } catch {
+    /* blocked */
+  }
+}
 interface Resume {
   intakeId: string;
   conversationId: string | null;
@@ -41,11 +58,18 @@ const STEPPER_LEDE = 'A few short questions, then you check it and send. Nothing
 
 export function RequestEntry() {
   const router = useRouter();
+  const params = useSearchParams();
+  const token = params.get(NEW_REQUEST_PARAM);
+  const prefill = changePrefill(params.get(CHANGE_PARAM));
+  const resumeRef = useRef<Resume | null>(null);
+  const [notice, setNotice] = useState(false);
   const [mode, setMode] = useState<'loading' | 'chat' | 'stepper' | 'error' | 'no_permission'>('loading');
   const [resume, setResume] = useState<Resume | null>(null);
   const [carried, setCarried] = useState<{ text: string; files: number } | null>(null);
   const siteRef = useRef<string | null>(null);
   const filedRef = useRef(false);
+  // The "Change to: ..." prefill goes in the first chat of this visit only, never in one started after it.
+  const [prefillIntakeId, setPrefillIntakeId] = useState<string | null>(null);
 
   // A fresh request: forget the saved chat and remount the chat under a new intake id.
   const startFresh = useCallback(() => {
@@ -54,18 +78,9 @@ export function RequestEntry() {
     setResume({ intakeId: crypto.randomUUID(), conversationId: null });
   }, []);
 
-  // "Request work" while a filed request is still on screen starts a new one (same URL, so no remount).
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      const a = (e.target as HTMLElement | null)?.closest?.('a[href="/portal/requests/new"]');
-      if (a && filedRef.current) startFresh();
-    };
-    document.addEventListener('click', onClick, true);
-    return () => document.removeEventListener('click', onClick, true);
-  }, [startFresh]);
-
   useEffect(() => {
     let cancelled = false;
+    setMode('loading');
     (async () => {
       try {
         const res = await fetch('/api/portal/intake/context');
@@ -78,7 +93,16 @@ export function RequestEntry() {
           const chosen = wanted && ctx.sites.some((s) => s.id === wanted) ? wanted : ctx.sites.length === 1 ? ctx.sites[0].id : null;
           siteRef.current = chosen;
           // A saved chat is resumed only while it is still being clarified; a filed, closed or missing one starts fresh.
-          let r = readResume();
+          const stored = readResume();
+          const decision = decideTokenReset({ token, handledToken: readHandled(), hadConversation: !!(stored?.conversationId || resumeRef.current?.conversationId) });
+          if (token) writeHandled(token);
+          let r = stored;
+          if (decision.fresh) {
+            r = null;
+            filedRef.current = false;
+            writeResume(null);
+          }
+          setNotice(decision.notice);
           if (r?.conversationId) {
             try {
               const v = await fetch(`/api/portal/chat/${r.conversationId}`);
@@ -89,7 +113,9 @@ export function RequestEntry() {
             }
           }
           if (cancelled) return;
-          setResume(r && r.intakeId ? r : { intakeId: crypto.randomUUID(), conversationId: null });
+          const next = r && r.intakeId ? r : { intakeId: crypto.randomUUID(), conversationId: null };
+          setResume(next);
+          setPrefillIntakeId((id) => id ?? next.intakeId);
           setMode('chat');
         } else setMode(ctx.can_request ? 'stepper' : 'no_permission');
       } catch {
@@ -99,9 +125,10 @@ export function RequestEntry() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, token]);
 
   useEffect(() => {
+    resumeRef.current = resume;
     if (mode === 'chat' && resume) writeResume(resume);
   }, [mode, resume]);
 
@@ -145,7 +172,7 @@ export function RequestEntry() {
     return (
       <>
         {header(STEPPER_LEDE)}
-        <IntakeChat initialText={carried?.text} carriedFiles={carried?.files} />
+        <IntakeChat initialText={carried?.text ?? prefill} carriedFiles={carried?.files} />
       </>
     );
   }
@@ -197,8 +224,14 @@ export function RequestEntry() {
   return (
     <>
       {header(CHAT_LEDE)}
+      {notice ? (
+        <p role="status" className="note" data-earlier-request-notice>
+          {EARLIER_REQUEST_NOTICE} <Link href="/portal/requests">Requests</Link>
+        </p>
+      ) : null}
       <ChatView
         key={resume?.intakeId}
+        initialText={resume?.intakeId && resume.intakeId === prefillIntakeId ? prefill : undefined}
         source={source}
         intakeId={resume?.intakeId}
         composerLabel="What do you need?"

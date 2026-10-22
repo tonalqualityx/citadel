@@ -82,7 +82,7 @@ function MessageFiles({ files }: { files: ChatMessage['attachments'] }) {
 }
 
 export function ChatView({
-  source, intakeId, composerLabel, hint, emptyLine, viewRequestHref, showDisclosure = true, taskId, onStartAnother, onCancelled, noComposer = false,
+  source, intakeId, composerLabel, hint, emptyLine, viewRequestHref, showDisclosure = true, taskId, onStartAnother, onCancelled, noComposer = false, initialText,
 }: {
   source: ChatSource;
   intakeId?: string | null;
@@ -101,11 +101,13 @@ export function ChatView({
   onCancelled?: () => void;
   /** The request is cancelled before a conversation exists: nothing more can be sent. */
   noComposer?: boolean;
+  /** Text already in the box when the chat opens ("Change to: ..."). The person still presses Send. */
+  initialText?: string;
 }) {
   const chat = useChat(source);
   const ping = usePresence(chat.convId);
   const uploads = useUploads({ intakeId: chat.convId ? null : intakeId, conversationId: chat.convId, taskId: chat.convId ? null : taskId }, source.onAuthLost);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText ?? '');
   const [searching, setSearching] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
