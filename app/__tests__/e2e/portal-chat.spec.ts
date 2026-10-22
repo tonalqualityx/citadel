@@ -331,4 +331,38 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await expect(page.getByText(msg).first()).toBeVisible();
     await context.close();
   });
+
+  test('a conversation left clarifying with an open ask is never resumed by Request work; a plain refresh still resumes it', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    await ids(context);
+    // Drain jobs left queued by earlier tests so the scripted answer lands on this conversation.
+    for (;;) {
+      const claim = await engine.post('/api/engine/claim', { data: {} });
+      if (claim.status() !== 200) break;
+      const { job } = await claim.json();
+      await engine.post(`/api/engine/jobs/${job.id}/complete`, { data: { result: { reply: 'ok', actions: [], sources: [] }, runs: [] } });
+    }
+    await page.goto('/portal/requests/new');
+    const msg = `Stale ask check ${Date.now()}`;
+    await page.getByLabel('What do you need?').fill(msg);
+    await sendButton(page).click();
+    await engineAnswers({
+      reply: 'Which page is this about?',
+      actions: [{ type: 'ask', slot: 'page', question: 'Which page is this about?', choice_ids: [pages.About, pages.Home], allow_free_text: true, allow_upload: false }],
+      sources: [],
+    });
+    await expect(page.getByTestId('chat-choices-page')).toBeVisible();
+    // A plain refresh (the same URL) resumes the open conversation.
+    await page.reload();
+    await expect(log(page)).toContainText(msg);
+    await expect(page.getByTestId('chat-choices-page')).toBeVisible();
+    // An explicit click on Request work never does.
+    await page.locator('aside.sidebar').getByRole('link', { name: 'Request work' }).click();
+    await expect(page).toHaveURL(/\/portal\/requests\/new\?new=\d+/);
+    await expect(page.getByLabel('What do you need?')).toHaveValue('');
+    await expect(page.getByTestId('chat-choices-page')).toHaveCount(0);
+    await expect(log(page)).not.toContainText(msg);
+    await expect(page.locator('[data-earlier-request-notice]').getByRole('link', { name: 'Requests' })).toBeVisible();
+    await context.close();
+  });
 });
