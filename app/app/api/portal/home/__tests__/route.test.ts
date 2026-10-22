@@ -326,9 +326,29 @@ describe('GET /api/portal/home', () => {
     const pending = calls.find((a) => a.where.client_approved_at === null);
     expect(pending.where.AND).toEqual([clientVisibleTaskWhere(), stagedTaskWhere(), taskAccessWhere(OWNER_ACCESS)]);
     expect(pending.select).not.toHaveProperty('estimated_minutes');
+    // Approved but not live yet: never in Needs you, even when only the tag is set.
+    expect(pending.where.NOT).toEqual({ tags: { has: 'client-approved' } });
     // The activity query ANDs the visibility fragment next to the client scope.
     const activity = calls.find((a) => a !== pending);
     expect(activity.where.AND).toContainEqual(clientHistoryTaskWhere());
+  });
+
+  it('an approved, not-yet-live item is out of Needs you and shows under Moving now with the approved label', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    const row = {
+      id: 'task-approved', title: 'internal', client_title: 'Update the hours', status: 'review', tags: ['client-approved'],
+      staging_preview_url: 'https://staging.example.com', approved: false, client_approved_at: new Date('2026-10-21T15:00:00Z'),
+      created_at: new Date('2026-10-20T00:00:00Z'), updated_at: new Date('2026-10-21T15:00:00Z'),
+      project_id: null, charter_id: null, project: null, charter: null, site: { id: 's1', name: 'example.com' },
+    };
+    // The pending-approvals query excludes it in SQL (client_approved_at null + NOT tag); the requests loader returns it.
+    mockTaskFindMany.mockImplementation(async (a: { select?: Record<string, unknown> }) => (a.select && 'client_title' in a.select ? [row] : []));
+    const body = await (await GET(makeRequest())).json();
+    expect(body.pending_approvals.tasks).toEqual([]);
+    expect(body.summary.needs_count).toBe(0);
+    expect(body.requests.top).toHaveLength(1);
+    expect(body.requests.top[0].state).toEqual({ label: 'Approved. Going live soon.', tone: 'moving' });
   });
 
   it('home payload carries no estimated_minutes', async () => {

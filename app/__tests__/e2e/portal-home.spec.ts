@@ -124,6 +124,13 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
       page.locator('.tl li', { hasText: 'You approved' }).filter({ hasText: 'E2E: Homepage refresh (portal fixture)' })
     ).toBeVisible();
 
+    // After a reload the approved item has left Needs you (status stays review until it is live),
+    // and it reads "Approved. Going live soon." under Moving now.
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.ny li', { hasText: 'E2E: Homepage refresh (portal fixture)' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Moving now' }).getByText('Approved. Going live soon.')).toBeVisible();
+
     await context.close();
   });
 
