@@ -335,6 +335,17 @@ describe('pilot rulings 2026-10-21: timing, disclosure, rankings', () => {
     // Five sentences, but the Search Console sentence is a fixed line and does not count toward the cap.
     expect(gateReply(reply, gscCtx)).toEqual({ ok: true });
   });
+  it('a "nothing yet" answer to a follow-up passes with no numbers and no sources', () => {
+    expect(gateReply('Of the searches in that window, all of them contain the business name. Nothing outside the name shows up yet. Anything else?', ctx)).toEqual({ ok: true });
+  });
+  it('the 2026-10-21 follow-up reply that fell to the canned handoff now passes', () => {
+    const follow = fixtureContext({
+      provenance: buildProvenance([{ ...gsc('Sep 21'), result_numbers: extractResultNumbers({ rows: [{ query: 'cornish septic systems', impressions: 3, position: 6.7 }, { query: 'septic pumping near me', impressions: 5, position: 17.0 }, { query: 'septic pumping', impressions: 2, position: 1.0 }] }) }]),
+    });
+    const reply =
+      'Yes. In Google Search Console, Sep 21 to Oct 19, 2026, "cornish septic systems" had 3 impressions at average position 6.7, and "septic pumping near me" had 5 impressions at average position 17.0. "septic pumping" had 2 impressions at average position 1.0, and none of these brought a click. Search Console data runs about 2 days behind. Anything else?';
+    expect(gateReply(reply, follow)).toEqual({ ok: true });
+  });
   it('fixed lines do not use up the length cap; the model\'s own sentences still do', () => {
     expect(gateReply(`${FIXED_LINES.simpleTiming} Which page is it on? Is it the banner? Is it the photo? Is it the footer?`, ctx)).toEqual({ ok: true });
     const r = gateReply(`${FIXED_LINES.simpleTiming} Which page is it on? Is it the banner? Is it the photo? Is it the footer? Is it the menu?`, ctx);
