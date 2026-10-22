@@ -38,7 +38,7 @@ describe('portal task visibility', () => {
     expect(stagedTaskWhere()).toEqual({
       staging_preview_url: { not: null },
       NOT: { staging_preview_url: '' },
-      status: { in: ['review', 'done'] },
+      status: { in: ['review'] },
       approved: false,
     });
   });
@@ -64,8 +64,8 @@ describe('portal task visibility', () => {
       expect(matches(row, clientVisibleTaskWhere())).toBe(isClientVisibleTask(row));
       if (isStagedForApproval(row)) staged++;
     }
-    // review/done x one real url x not approved x 2 requesters x 2 client_visible
-    expect(staged).toBe(8);
+    // review only (done is finished work) x one real url x not approved x 2 requesters x 2 client_visible
+    expect(staged).toBe(4);
   });
 
   it('a staged, published task with no requester stays in history but never pending or actionable', () => {

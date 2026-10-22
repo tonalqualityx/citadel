@@ -112,6 +112,7 @@ test.describe('Portal v2 phase 1 — /portal/home', () => {
     await page.waitForLoadState('networkidle');
 
     const taskCard = page.locator('.ny li', { hasText: 'E2E: Homepage refresh (portal fixture)' });
+    await expect(page.locator('.ny li', { hasText: 'E2E: Stale finished preview (portal fixture)' })).toHaveCount(0);
     await expect(taskCard.getByRole('button', { name: 'Approve' })).toBeVisible();
     await taskCard.getByRole('button', { name: 'Approve' }).click();
 

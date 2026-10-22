@@ -181,7 +181,7 @@ describe('GET /api/portal/projects/:id payload', () => {
       T({
         id: 't3',
         title: 'Footer',
-        status: 'done',
+        status: 'review',
         staging_preview_url: 'https://preview.example/footer',
         staging_deployed_at: new Date('2026-10-12T00:00:00Z'),
       }),

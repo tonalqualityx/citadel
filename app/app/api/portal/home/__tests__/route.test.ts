@@ -316,6 +316,16 @@ describe('GET /api/portal/home', () => {
     expect(body.pending_approvals.tasks[0]).not.toHaveProperty('billing_amount');
   });
 
+  it('pending approvals require status review: done work with a leftover preview is excluded', async () => {
+    mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
+    setEmptyDefaults();
+    await GET(makeRequest());
+    const where = mockTaskFindMany.mock.calls[0][0].where;
+    const staged = where.AND.find((f: { status?: unknown }) => f.status);
+    expect(staged.status).toEqual({ in: ['review'] });
+    expect(staged.status.in).not.toContain('done');
+  });
+
   it('applies the visibility rule to pending approvals and the activity feed (Leak 1)', async () => {
     mockRequireClientAuth.mockResolvedValue({ clientId: 'client-acme', contactId: 'contact-1' });
     setEmptyDefaults();

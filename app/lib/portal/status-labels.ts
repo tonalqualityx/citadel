@@ -131,7 +131,7 @@ export function requestState(task: RequestStateFields): RequestState {
     task.staging_preview_url.length > 0 &&
     !task.approved &&
     !task.client_approved_at &&
-    (task.status === 'review' || task.status === 'done');
+    task.status === 'review';
 
   if (task.status === 'abandoned') return { label: REQUEST_LABELS.closed, tone: 'quiet' };
   if (staged) return { label: REQUEST_LABELS.review, tone: 'attention' };
