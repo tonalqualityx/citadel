@@ -40,7 +40,7 @@
    "engine": [
     {
      "result": {
-      "reply": "I'm Indelible's AI assistant. Which site is this for?",
+      "reply": "Which site is this for?",
       "actions": [
        {
         "type": "record",

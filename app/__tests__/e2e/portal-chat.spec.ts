@@ -92,7 +92,7 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await expect(page.getByTestId('chat-writing')).toBeVisible();
     await expect(page.getByTestId('chat-writing')).toContainText('Writing');
     await engineAnswers({
-      reply: "I'm Indelible's AI assistant. Which page should this photo go on?",
+      reply: "Which page should this photo go on?",
       actions: [
         { type: 'record', site_id: siteId, attachment_ids: [att.id], request_type: 'site_change' },
         { type: 'ask', slot: 'page', question: 'Which page should this photo go on?', choice_ids: [pages.About, pages.Home, pages.Menu], allow_free_text: true, allow_upload: false },
@@ -188,7 +188,7 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await box.press('Enter');
     await expect(page.getByTestId('chat-writing')).toBeVisible();
     await engineAnswers({
-      reply: "I'm Indelible's AI assistant. Which page should this photo go on?",
+      reply: "Which page should this photo go on?",
       actions: [
         { type: 'record', site_id: siteId, attachment_ids: [att.id], request_type: 'site_change' },
         { type: 'ask', slot: 'page', question: 'Which page should this photo go on?', choice_ids: [pages.Menu, pages.Home], allow_free_text: true, allow_upload: false },

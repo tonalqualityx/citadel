@@ -41,7 +41,7 @@
    "engine": [
     {
      "result": {
-      "reply": "I'm Indelible's AI assistant. Which page should this photo go on?",
+      "reply": "Which page should this photo go on?",
       "actions": [
        {
         "type": "record",

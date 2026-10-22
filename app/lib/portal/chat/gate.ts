@@ -15,7 +15,7 @@
  */
 import { PROMISES } from '@/lib/portal/intake/promises';
 import { bastWordError, foldForNameCheck } from '@/lib/portal/thread';
-import { maskText, SOURCE_PATTERN, type Provenance } from '@/lib/portal/chat/provenance';
+import { MASK, maskText, SOURCE_PATTERN, type Provenance } from '@/lib/portal/chat/provenance';
 import { FIXED_LINE_LIST } from '@/lib/portal/chat/fixed-lines';
 import { isCommonWord } from '@/lib/portal/chat/common-words';
 
@@ -152,9 +152,13 @@ const MONEY_WORDS = /\b(?:dollars?|bucks?|cents?|free|complimentary|on the house
 const TIME_WORDS = new RegExp(
   '\\b(?:today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tues|thurs?|' +
     '(?:this|next|last) (?:week|month|year|quarter|weekend)|the weekend|end of (?:the )?(?:day|week|month|year)|eod|eow|eom|asap|' +
-    'soon|shortly|fortnight|overnight|right away|immediately|' +
+    'soon|sooner|shortly|fortnight|overnight|right away|immediately|same[- ]day|next[- ]day|' +
     '(?:an? )?(?:day|week|month|hour|minute)s? or (?:two|so)|a few (?:days|weeks|hours|minutes|months)|' +
     '(?:within|in|under|inside|over) (?:an?|one) (?:hour|day|week|month|minute|year)|' +
+    // "within the hour", "in a couple of days": a time frame with no digit in it (pilot ruling 2026-10-21:
+    // the simple-change timing line is the only time promise, and it passes only word for word).
+    '(?:within|in|under|inside|before) the (?:hour|day|week|month|weekend)|' +
+    'a couple (?:of )?(?:days|weeks|hours|minutes|months)|' +
     'within \\d+|q[1-4])\\b|\\b\\d{1,2}(?:st|nd|rd|th)\\b',
   'i'
 );
@@ -552,22 +556,35 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
       spans.push([start, start + s.length]);
       cursor = start + s.length;
     }
+    const namesSource = (x: string) => SOURCE_ANY.some((re) => re.test(x));
     for (const a of analytics) {
       const i = spans.findIndex(([s, e]) => a.index >= s && a.index < e + 1);
-      const own = i >= 0 ? sentences[i] : masked;
-      const prev = i > 0 ? sentences[i - 1] : '';
-      const near = `${prev} ${own}`;
-      // The source named must be one of the tools that actually returned this number.
-      const named = a.tools.some((t) => SOURCE_PATTERN[t]?.test(near));
-      if (!named || !DATE_NAMED.test(near)) return fail('source', a.token);
+      if (i < 0) return fail('source', a.token);
+      // The sentence that governs this number: its own, when it names a source; otherwise the nearest
+      // earlier sentence that names one, reached through an unbroken run of sentences that carry sourced
+      // numbers ("Google Search Console, Sep 21 to Oct 19, 2026, counted 48 clicks. The top searches were
+      // ... 6.8."). That source must be one of the tools that returned the number, and the dates sit in
+      // that sentence or the one before it. A number no earlier sentence sources, one cut off from its
+      // source by a sentence without numbers, or one under another tool's source, still fails.
+      let j = i;
+      while (j >= 0 && !namesSource(sentences[j])) {
+        if (j < i && !sentences[j].includes(MASK)) return fail('source', a.token);
+        j--;
+      }
+      if (j < 0) return fail('source', a.token);
+      const named = a.tools.some((t) => SOURCE_PATTERN[t]?.test(sentences[j]));
+      const dated = sentences.slice(Math.max(0, j - 1), i + 1).some((x) => DATE_NAMED.test(x));
+      if (!named || !dated) return fail('source', a.token);
     }
   }
-  void SOURCE_ANY;
 
   if (kind === 'reply' || kind === 'ask') {
-    const n = wordCount(folded);
+    // The cap is on the model's own words: a fixed line (the timing line, the Search Console sentence)
+    // is our copy and does not use up the reply's budget.
+    const own = text.replace(/(^|\s)[.,;:!?()]+(?=\s|$)/g, ' ');
+    const n = wordCount(own);
     if (n > REPLY_MAX_WORDS) return fail('length', `${n} words`);
-    const s = sentencesOf(stripListNumbering(folded)).length;
+    const s = sentencesOf(stripListNumbering(own)).filter((x) => /[\p{L}\p{N}]/u.test(x)).length;
     if (s > REPLY_MAX_SENTENCES) return fail('length', `${s} sentences`);
   } else if (kind === 'summary') {
     const n = wordCount(folded);

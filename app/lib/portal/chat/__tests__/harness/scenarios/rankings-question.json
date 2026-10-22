@@ -1,0 +1,200 @@
+{
+ "name": "rankings, then a follow-up about terms that are not the business name (Search Console, sourced, no handoff)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/",
+    "sections": [
+     {
+      "key": "banner",
+      "heading": "Top banner"
+     }
+    ]
+   },
+   {
+    "title": "About",
+    "path": "/about/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ],
+  "analytics": true
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Can you tell me what we rank for?"
+   },
+   "engine": [
+    {
+     "tool_calls": [
+      {
+       "tool": "search_console",
+       "args": {
+        "site_id": "{{site:0}}",
+        "dimensions": [
+         "query"
+        ],
+        "start_date": "2026-09-21",
+        "end_date": "2026-10-19",
+        "limit": 5
+       },
+       "result": {
+        "label": "Google Search Console, Sep 21 to Oct 19, 2026 (Search Console data runs about 2 days behind)",
+        "totals": {
+         "clicks": 48,
+         "impressions": 1310,
+         "ctr": 0.0366,
+         "position": 11.2
+        },
+        "rows": [
+         {
+          "query": "maple street bakery",
+          "clicks": 31,
+          "impressions": 210,
+          "ctr": 0.1476,
+          "position": 1.4
+         },
+         {
+          "query": "maple street bakery hours",
+          "clicks": 4,
+          "impressions": 60,
+          "ctr": 0.0667,
+          "position": 1.1
+         }
+        ],
+        "row_count": 2
+       },
+       "row_count": 2
+      }
+     ],
+     "result": {
+      "reply": "Google Search Console, Sep 21 to Oct 19, 2026, counted 48 clicks from 1,310 search impressions. The top searches were \"maple street bakery\" with 31 clicks at average position 1.4, and \"maple street bakery hours\" with 4 clicks at average position 1.1. Search Console data runs about 2 days behind. Anything else?",
+      "actions": [
+       {
+        "type": "close_question"
+       }
+      ],
+      "sources": [
+       {
+        "tool_call_id": "{{tc:0}}",
+        "label": "Google Search Console, Sep 21 to Oct 19, 2026 (Search Console data runs about 2 days behind)",
+        "range": "2026-09-21 to 2026-10-19"
+       }
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "gate_result": "pass",
+    "runs": 1,
+    "tool_calls": 1,
+    "source_label": "Google Search Console, Sep 21 to Oct 19, 2026 (Search Console data runs about 2 days behind)",
+    "reply": "Google Search Console, Sep 21 to Oct 19, 2026, counted 48 clicks from 1,310 search impressions. The top searches were \"maple street bakery\" with 31 clicks at average position 1.4, and \"maple street bakery hours\" with 4 clicks at average position 1.1. Search Console data runs about 2 days behind. Anything else?",
+    "tags_include": [
+     "chat-question"
+    ],
+    "tags_exclude": [
+     "chat-handoff"
+    ],
+    "mode": "model"
+   }
+  },
+  {
+   "client": {
+    "text": "Are there any terms we rank for that aren't our name?"
+   },
+   "engine": [
+    {
+     "tool_calls": [
+      {
+       "tool": "search_console",
+       "args": {
+        "site_id": "{{site:0}}",
+        "dimensions": [
+         "query"
+        ],
+        "start_date": "2026-09-21",
+        "end_date": "2026-10-19",
+        "limit": 25
+       },
+       "result": {
+        "label": "Google Search Console, Sep 21 to Oct 19, 2026 (Search Console data runs about 2 days behind)",
+        "totals": {
+         "clicks": 48,
+         "impressions": 1310,
+         "ctr": 0.0366,
+         "position": 11.2
+        },
+        "rows": [
+         {
+          "query": "maple street bakery",
+          "clicks": 31,
+          "impressions": 210,
+          "ctr": 0.1476,
+          "position": 1.4
+         },
+         {
+          "query": "maple street bakery hours",
+          "clicks": 4,
+          "impressions": 60,
+          "ctr": 0.0667,
+          "position": 1.1
+         },
+         {
+          "query": "custom cakes burlington",
+          "clicks": 6,
+          "impressions": 190,
+          "ctr": 0.0316,
+          "position": 6.8
+         },
+         {
+          "query": "birthday cakes near me",
+          "clicks": 0,
+          "impressions": 44,
+          "ctr": 0,
+          "position": 18.2
+         }
+        ],
+        "row_count": 4
+       },
+       "row_count": 4
+      }
+     ],
+     "result": {
+      "reply": "Yes. Google Search Console, Sep 21 to Oct 19, 2026, shows \"custom cakes burlington\" with 6 clicks at average position 6.8, and \"birthday cakes near me\" with 44 impressions at average position 18.2. Search Console data runs about 2 days behind. Anything else?",
+      "actions": [
+       {
+        "type": "close_question"
+       }
+      ],
+      "sources": [
+       {
+        "tool_call_id": "{{tc:0}}",
+        "label": "Google Search Console, Sep 21 to Oct 19, 2026 (Search Console data runs about 2 days behind)",
+        "range": "2026-09-21 to 2026-10-19"
+       }
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "gate_result": "pass",
+    "runs": 1,
+    "tool_calls": 2,
+    "source_label": "Google Search Console, Sep 21 to Oct 19, 2026 (Search Console data runs about 2 days behind)",
+    "reply": "Yes. Google Search Console, Sep 21 to Oct 19, 2026, shows \"custom cakes burlington\" with 6 clicks at average position 6.8, and \"birthday cakes near me\" with 44 impressions at average position 18.2. Search Console data runs about 2 days behind. Anything else?",
+    "tags_exclude": [
+     "chat-handoff",
+     "needs-mike"
+    ],
+    "mode": "model"
+   }
+  }
+ ]
+}

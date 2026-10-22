@@ -256,7 +256,7 @@ describe('fixed lines (fixed-lines.ts)', () => {
     for (const line of FIXED_LINE_LIST) expect(gateReply(line, ctx), line).toEqual({ ok: true });
   });
   it('each fixed line passes inside a longer reply', () => {
-    expect(gateReply(`${FIXED_LINES.disclosure} Which page should this photo go on?`, ctx)).toEqual({ ok: true });
+    expect(gateReply(`${FIXED_LINES.aiAnswer} Which page should this photo go on?`, ctx)).toEqual({ ok: true });
     expect(gateReply(`Pricing questions go to the team, so I've passed this one along. ${FIXED_LINES.handoffPortal}`, ctx)).toEqual({ ok: true });
     expect(gateReply(`${FIXED_LINES.capability} Anything else?`, ctx)).toEqual({ ok: true });
   });
@@ -269,6 +269,99 @@ describe('fixed lines (fixed-lines.ts)', () => {
     if (!fs.existsSync(file)) return;
     const md = fs.readFileSync(file, 'utf8').replace(/[\u2018\u2019]/g, "'");
     for (const line of FIXED_LINE_LIST) expect(md.includes(line), line).toBe(true);
+  });
+});
+
+describe('pilot rulings 2026-10-21: timing, disclosure, rankings', () => {
+  const ctx = fixtureContext();
+  it('the simple-change timing line passes word for word, alone and after a sentence', () => {
+    expect(gateReply(FIXED_LINES.simpleTiming, ctx)).toEqual({ ok: true });
+    expect(gateReply(`That's a simple change. ${FIXED_LINES.simpleTiming}`, ctx)).toEqual({ ok: true });
+    expect(gateReply(FIXED_LINES.simpleTiming, ctx, 'email')).toEqual({ ok: true });
+  });
+  it('"by Friday" and every other time promise still fail', () => {
+    for (const bad of [
+      'We can have it done by Friday.',
+      'It will be live by Friday.',
+      'Yes, by Friday.',
+      `${FIXED_LINES.simpleTiming} It will be ready by Friday.`,
+    ]) {
+      expect(gateReply(bad, ctx).ok, bad).toBe(false);
+    }
+  });
+  it('a paraphrase of the timing line fails', () => {
+    for (const bad of [
+      'For a change like this you will have a preview to approve within 48 hours. Once you approve it, it usually goes live within the hour.',
+      'You will have a preview to approve within two days, often sooner.',
+      'You will have a preview within a couple of days. Once you approve it, it usually goes live within the hour.',
+      'Once you approve it, it usually goes live within the hour.',
+      'You should see a preview in 48 hours or less.',
+      'For a change like this you will have a preview to approve within 24 hours, often sooner.',
+      'A preview usually comes sooner than that.',
+    ]) {
+      expect(gateReply(bad, ctx).ok, bad).toBe(false);
+    }
+  });
+  it('no fixed line says a person reads every request, and the disclosure line does not either', () => {
+    for (const line of FIXED_LINE_LIST) expect(/reads every/i.test(line), line).toBe(false);
+    expect(Object.keys(FIXED_LINES)).not.toContain('disclosure');
+  });
+  // The rankings reply Mike saw fall to the canned handoff: a decimal position and a date in one sentence.
+  const gsc = (start: string) => {
+    const label = `Google Search Console, ${start} to Oct 19, 2026 (Search Console data runs about 2 days behind)`;
+    const rows = [
+      { query: 'septic pumping near me', clicks: 1, impressions: 20, ctr: 0.05, position: 4.3 },
+      { query: 'septic pumping', clicks: 2, impressions: 5, ctr: 0.4, position: 2.0 },
+      { query: 'septic tank repair', clicks: 0, impressions: 6, ctr: 0, position: 8.3 },
+    ];
+    return { tool: 'search_console', label, result_numbers: extractResultNumbers({ label, totals: { clicks: 5, impressions: 64, ctr: 0.0781, position: 9.7 }, rows, row_count: 3 }) };
+  };
+  const gscCtx = fixtureContext({ provenance: buildProvenance([gsc('Sep 21')]) });
+  it('a sourced rankings answer with decimal positions passes', () => {
+    const reply =
+      'Google Search Console, Sep 21 to Oct 19, 2026, counted 5 clicks from 64 impressions. The top search was "septic pumping near me" at average position 4.3, then "septic pumping" at 2 and "septic tank repair" at 8.3. Search Console data runs about 2 days behind. Anything else?';
+    expect(gateReply(reply, gscCtx)).toEqual({ ok: true });
+  });
+  it('the date in a sentence with a decimal is still read as the source date', () => {
+    expect(gateReply('Google Search Console, Sep 21 to Oct 19, 2026, shows "septic pumping near me" at average position 4.3, with 1 click. Anything else?', gscCtx)).toEqual({ ok: true });
+  });
+  it('the lag line is exempt only word for word', () => {
+    expect(gateReply('Search Console runs about 2 days behind.', gscCtx).ok).toBe(false);
+  });
+  it('a later sentence of numbers is governed by the nearest earlier source sentence', () => {
+    // The live reply of 2026-10-21: the third sentence carries positions under the first sentence's source.
+    const reply =
+      'Google Search Console, Sep 21 to Oct 19, 2026, counted 5 clicks from 64 search impressions. The only search with a click was "septic pumping near me", with 1 click at average position 4.3. Others were "septic tank repair" at average position 8.3 and "septic pumping" at average position 2.0. Search Console data runs about 2 days behind. Anything else?';
+    // Five sentences, but the Search Console sentence is a fixed line and does not count toward the cap.
+    expect(gateReply(reply, gscCtx)).toEqual({ ok: true });
+  });
+  it('a "nothing yet" answer to a follow-up passes with no numbers and no sources', () => {
+    expect(gateReply('Of the searches in that window, all of them contain the business name. Nothing outside the name shows up yet. Anything else?', ctx)).toEqual({ ok: true });
+  });
+  it('the 2026-10-21 follow-up reply that fell to the canned handoff now passes', () => {
+    const follow = fixtureContext({
+      provenance: buildProvenance([{ ...gsc('Sep 21'), result_numbers: extractResultNumbers({ rows: [{ query: 'cornish septic systems', impressions: 3, position: 6.7 }, { query: 'septic pumping near me', impressions: 5, position: 17.0 }, { query: 'septic pumping', impressions: 2, position: 1.0 }] }) }]),
+    });
+    const reply =
+      'Yes. In Google Search Console, Sep 21 to Oct 19, 2026, "cornish septic systems" had 3 impressions at average position 6.7, and "septic pumping near me" had 5 impressions at average position 17.0. "septic pumping" had 2 impressions at average position 1.0, and none of these brought a click. Search Console data runs about 2 days behind. Anything else?';
+    expect(gateReply(reply, follow)).toEqual({ ok: true });
+  });
+  it('fixed lines do not use up the length cap; the model\'s own sentences still do', () => {
+    expect(gateReply(`${FIXED_LINES.simpleTiming} Which page is it on? Is it the banner? Is it the photo? Is it the footer?`, ctx)).toEqual({ ok: true });
+    const r = gateReply(`${FIXED_LINES.simpleTiming} Which page is it on? Is it the banner? Is it the photo? Is it the footer? Is it the menu?`, ctx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.rule).toBe('length');
+  });
+  it('a rankings number with no source before it, or under another tool\'s source, still fails', () => {
+    for (const bad of [
+      'The top search sits at average position 4.3. Google Search Console, Sep 21 to Oct 19, 2026, counted 5 clicks.',
+      'Google Analytics, Sep 21 to Oct 19, 2026, counted 5 clicks. The top search sits at average position 8.3.',
+      'Google Search Console counted 5 clicks. The top search sits at average position 8.3.',
+    ]) {
+      const r = gateReply(bad, gscCtx);
+      expect(r.ok, bad).toBe(false);
+      if (!r.ok) expect(r.rule, bad).toBe('source');
+    }
   });
 });
 
