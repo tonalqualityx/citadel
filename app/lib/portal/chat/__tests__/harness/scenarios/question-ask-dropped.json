@@ -1,0 +1,128 @@
+{
+ "name": "an ask on a question chat is dropped and the reply stands as the answer (pilot 2026-10-21)",
+ "world": {
+  "sites": 1,
+  "role": "owner",
+  "pages": [
+   {
+    "title": "Home",
+    "path": "/"
+   },
+   {
+    "title": "About",
+    "path": "/about/"
+   },
+   {
+    "title": "Contact",
+    "path": "/contact/"
+   }
+  ],
+  "analytics": true
+ },
+ "steps": [
+  {
+   "client": {
+    "text": "Do you have traffic data from last month compared to this month?"
+   },
+   "engine": [
+    {
+     "tool_calls": [
+      {
+       "tool": "ga4_report",
+       "args": {
+        "site_id": "{{site:0}}",
+        "metrics": [
+         "totalUsers",
+         "sessions"
+        ],
+        "start_date": "2026-10-01",
+        "end_date": "2026-10-20"
+       },
+       "result": {
+        "label": "Google Analytics, Oct 1 to Oct 20, 2026 (data through Oct 20)",
+        "totals": {
+         "totalUsers": 26,
+         "sessions": 26
+        },
+        "rows": [
+         {
+          "totalUsers": 26,
+          "sessions": 26
+         }
+        ],
+        "row_count": 1
+       },
+       "row_count": 1
+      },
+      {
+       "tool": "ga4_report",
+       "args": {
+        "site_id": "{{site:0}}",
+        "metrics": [
+         "totalUsers",
+         "sessions"
+        ],
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-30"
+       },
+       "result": {
+        "label": "Google Analytics, Sep 1 to Sep 30, 2026 (data through Sep 30)",
+        "totals": {},
+        "rows": [],
+        "row_count": 0
+       },
+       "row_count": 0
+      }
+     ],
+     "result": {
+      "reply": "Google Analytics, Oct 1 to Oct 20, 2026, counted 26 people and 26 visits. For Sep 1 to Sep 30, 2026, Google Analytics returned nothing, so I do not have that number. Want me to pass the September question to the team?",
+      "actions": [
+       {
+        "type": "record",
+        "attachment_ids": [],
+        "request_type": "marketing_question"
+       },
+       {
+        "type": "ask",
+        "slot": "other",
+        "question": "Want me to pass the September question to the team?",
+        "choice_ids": [],
+        "allow_free_text": true,
+        "allow_upload": false
+       }
+      ],
+      "sources": [
+       {
+        "tool_call_id": "{{tc:0}}",
+        "label": "Google Analytics, Oct 1 to Oct 20, 2026 (data through Oct 20)",
+        "range": "2026-10-01 to 2026-10-20"
+       }
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "gate_result": "pass",
+    "action_errors": [
+     "ask_on_question"
+    ],
+    "pending_kind": null,
+    "tags_include": [
+     "chat-question"
+    ],
+    "tags_exclude": [
+     "awaiting-clarification"
+    ],
+    "state": "clarifying"
+   }
+  },
+  {
+   "sweep": {
+    "after_minutes": 30
+   },
+   "expect": {
+    "outbox_count": 0
+   }
+  }
+ ]
+}

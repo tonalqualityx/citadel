@@ -2,8 +2,9 @@
  * The chat sweep (phase C spec 7.2, 2.5, 7.3; slice C4). The runner calls `POST /api/portal-chat/sweep`
  * every 60 seconds; the pass is idempotent, so a missed or doubled call changes nothing.
  *
- * 1. Away email: a conversation whose latest client-visible message is Bast's own open question (or a
- *    summary waiting for a yes) and has gone quiet gets ONE email: 10 minutes after the reply and
+ * 1. Away email: a REQUEST blocked on the client (Bast's latest message carries an open ask in a request
+ *    slot, or a summary waiting for a yes; `awayEmailEligible`) that has gone quiet gets ONE email. A
+ *    question chat and an `other` ask never get one (pilot finding 2026-10-21). The email goes 10 minutes after the reply and
  *    after the last typing signal, or 3 minutes after the tab closed. One per reply
  *    (`away_sent_for_comment_id`), never a reminder.
  * 2. Staff replies: a staff reply on a chat task, after the same 120-second hold, goes by the same
@@ -22,7 +23,7 @@ import { handOff } from '@/lib/portal/chat/handoff';
 import { CANNED_LINE } from '@/lib/portal/chat/copy';
 import { chatSwitchesOn } from '@/lib/portal/chat/switches';
 import { closeUnconfirmed, sweepUnconfirmed, type UnconfirmedOutcome } from '@/lib/portal/chat/confirm';
-import { readSlots } from '@/lib/portal/chat/slots';
+import { awayEmailEligible, readSlots, REQUEST_ASK_SLOTS } from '@/lib/portal/chat/slots';
 import {
   AWAY_HIDDEN_MS, AWAY_SILENCE_MS, STAFF_HOLD_MS, awayKey, buildAwayBody, buildStaffBody, clientIsWatching, emailFixedLine, frameFor,
   loadContactRow, openAskForEmail, queueChatEmail,
@@ -97,7 +98,8 @@ async function awayCandidates(ids: string[] | null): Promise<ConvoFull[]> {
       LIMIT 1
     ) l ON true
     WHERE c.state IN ('clarifying', 'confirming')
-      AND (c.open_ask IS NOT NULL OR c.state = 'confirming')
+      AND (c.state = 'confirming' OR (c.open_ask ->> 'slot') = ANY(${[...REQUEST_ASK_SLOTS]}::text[]))
+      AND COALESCE(c.slots ->> 'request_type', c.slots -> 'summary' ->> 'request_type', '') <> 'marketing_question'
       AND l.author_contact_id IS NULL AND l.source = 'assistant'
       AND c.away_sent_for_comment_id IS DISTINCT FROM l.id
       ${scope}
@@ -113,7 +115,7 @@ async function awayPass(now: Date, ids: string[] | null): Promise<number> {
   const candidates = await awayCandidates(ids);
   let sent = 0;
   for (const c of candidates) {
-    if (!c.open_ask && c.state !== 'confirming') continue;
+    if (!awayEmailEligible(c)) continue;
     const latest = await prisma.comment.findFirst({
       where: { task_id: c.task_id, ...visibleCommentWhere },
       orderBy: { created_at: 'desc' },
@@ -133,7 +135,7 @@ async function awayPass(now: Date, ids: string[] | null): Promise<number> {
     const did = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-chat-convo:${c.id}`}))`;
       const fresh = await tx.chatConversation.findUnique({ where: { id: c.id } });
-      if (!fresh || !['clarifying', 'confirming'].includes(fresh.state) || fresh.away_sent_for_comment_id === latest.id) return false;
+      if (!fresh || !awayEmailEligible(fresh) || fresh.away_sent_for_comment_id === latest.id) return false;
       const newest = await tx.comment.findFirst({ where: { task_id: c.task_id, ...visibleCommentWhere }, orderBy: { created_at: 'desc' }, select: { id: true } });
       if (newest?.id !== latest.id) return false; // the client answered while we looked
       const contact = await contactFor(fresh);
@@ -142,8 +144,13 @@ async function awayPass(now: Date, ids: string[] | null): Promise<number> {
       const asked = await openAskForEmail(fresh);
       const summary = fresh.state === 'confirming' ? fresh.summary_text ?? readSlots(fresh.slots).summary?.text ?? null : null;
       if (!asked && !summary) return false;
-      const text = buildAwayBody({ ...frame, question: asked?.question ?? '', choices: asked?.choices ?? [], summary });
-      const res = await queueChatEmail(tx, { convo: fresh, contact, kind: 'away', clientTitle: frame.clientTitle, text, dedupeKey: awayKey(fresh.id, latest.id) });
+      const clientLast = await tx.comment.findFirst({
+        where: { task_id: c.task_id, author_contact_id: { not: null }, is_deleted: false, is_internal: false },
+        orderBy: { created_at: 'desc' },
+        select: { content: true },
+      });
+      const text = buildAwayBody({ ...frame, question: asked?.question ?? '', choices: asked?.choices ?? [], summary, clientLast: clientLast?.content ?? null });
+      const res = await queueChatEmail(tx, { convo: fresh, contact, kind: summary ? 'confirm' : 'away', clientTitle: frame.clientTitle, text, dedupeKey: awayKey(fresh.id, latest.id) });
       await tx.chatConversation.update({ where: { id: fresh.id }, data: { away_sent_for_comment_id: latest.id } });
       if (!res.queued) {
         if (res.reason !== 'duplicate') {

@@ -48,7 +48,6 @@ export interface FrameInput {
   token: string;
 }
 
-const youAsked = (f: FrameInput) => `You asked us for this in your Indelible portal: "${f.clientTitle}"${f.domain ? ` (${f.domain})` : ''}.`;
 const signature = (f: FrameInput) => ['Indelible Support', `Ref: ${chatRef(f.token)}`];
 
 /** Choices as a numbered list. "Another page" cannot be answered by email, so it is left out. */
@@ -61,20 +60,53 @@ export interface AwayInput extends FrameInput {
   choices: Array<Pick<Choice, 'label'>>;
   /** Set when a summary is waiting for a yes instead of a question. */
   summary?: string | null;
+  /** The client's own last message, quoted so the email stands alone (writing standard 4b). */
+  clientLast?: string | null;
 }
 
-/** The away email (spec 7.3): Bast's own question in the fixed frame. */
+const CLIENT_QUOTE_MAX = 400;
+const requestLine = (f: FrameInput) => `"${f.clientTitle}"${f.domain ? ` (${f.domain})` : ''}`;
+
+/** The client's words, quoted on one line and cut at a readable length. */
+export function quoteClient(text: string | null | undefined): string | null {
+  const t = oneLine(text ?? '');
+  if (!t) return null;
+  return `"${t.length > CLIENT_QUOTE_MAX ? `${t.slice(0, CLIENT_QUOTE_MAX).trimEnd()}...` : t}"`;
+}
+
+/** The answer line: "the number" only when there are numbered choices to pick from. */
+export const answerLine = (hasChoices: boolean) =>
+  hasChoices ? 'Reply with the number, or answer in the portal:' : 'Reply to this email with your answer, or answer in the portal:';
+
+/**
+ * The away email (spec 7.3, amended 2026-10-21). It goes only for a request blocked on the client
+ * (`awayEmailEligible`). It stands alone: the request by name, the client's own last message, then
+ * the assistant's exact question (or the summary waiting for a yes). Only the question and the summary
+ * are model text, and both were gated when they were applied; the rest is this fixed frame and the
+ * client's own words.
+ */
 export function buildAwayBody(i: AwayInput): string {
+  const quoted = quoteClient(i.clientLast);
+  const wrote = quoted ? ['You wrote:', quoted, ''] : [];
   const head = i.summary
-    ? [youAsked(i), 'Here is your request as we have it:', '', i.summary.trim(), '', "Reply 'send' to send it to the team as written, or tell us what to change. You can also answer in the portal:"]
-    : [
-        youAsked(i),
-        'Before the team picks it up, one question:',
+    ? [
+        `Your request ${requestLine(i)} is written up and needs your check before it goes to the team.`,
         '',
+        ...wrote,
+        'Here is the request as we have it:',
+        i.summary.trim(),
+        '',
+        "Reply 'send' to send it to the team as written, or tell us what to change. You can also answer in the portal:",
+      ]
+    : [
+        `Your request ${requestLine(i)} needs one answer before the team can pick it up.`,
+        '',
+        ...wrote,
+        'Our question:',
         i.question.trim(),
         ...(i.choices.length ? ['', ...numberedChoices(i.choices)] : []),
         '',
-        'Reply to this email with your answer (the number is fine), or answer in the portal:',
+        answerLine(i.choices.length > 0),
       ];
   return [`Hi ${i.firstName},`, '', ...head, i.workUrl, '', ...signature(i)].join('\n');
 }
@@ -96,7 +128,7 @@ export function buildReplyBody(i: ReplyInput): string {
   if (i.choices?.length) lines.push('', ...numberedChoices(i.choices));
   if (i.summary) lines.push('', i.summary.trim(), '', "Reply 'send' to send it to the team as written, or tell us what to change.");
   const open = Boolean(asked || i.choices?.length || i.summary);
-  lines.push('', open ? 'Reply to this email with your answer (the number is fine), or answer in the portal:' : 'If you need anything else, reply to this email or open the portal:', i.workUrl, '', ...signature(i));
+  lines.push('', open ? answerLine(Boolean(i.choices?.length)) : 'If you need anything else, reply to this email or open the portal:', i.workUrl, '', ...signature(i));
   return lines.join('\n');
 }
 
@@ -151,7 +183,7 @@ export async function frameFor(db: Db, convo: ConvoRow, contact: { name: string 
 }
 
 const BASE_SUBJECT = (title: string) => `One question about your request: ${title}`.slice(0, 480);
-const FIRST_SUBJECT = { away: BASE_SUBJECT, reply: (t: string) => `Your request: ${t}`.slice(0, 480), staff: (t: string) => `New reply on your request: ${t}`.slice(0, 480) };
+const FIRST_SUBJECT = { away: BASE_SUBJECT, confirm: (t: string) => `Check your request before it goes to the team: ${t}`.slice(0, 480), reply: (t: string) => `Your request: ${t}`.slice(0, 480), staff: (t: string) => `New reply on your request: ${t}`.slice(0, 480) };
 
 /** The thread's subject: the first chat email's subject with "Re: ", so every message lands in one Gmail thread. */
 async function subjectFor(db: Db, convo: ConvoRow, kind: keyof typeof FIRST_SUBJECT, clientTitle: string): Promise<string> {

@@ -97,8 +97,16 @@ export async function loadJobProvenance(jobId: string, contextNumbers: string[] 
     kind: typeof (r.args as { kind?: unknown } | null)?.kind === 'string' ? ((r.args as { kind: string }).kind) : undefined,
     result_numbers: r.result_numbers,
     label: typeof (r.result as { label?: unknown } | null)?.label === 'string' ? ((r.result as { label: string }).label) : null,
+    dates: reportedDates(r.tool, r.result),
   }));
   return buildProvenance(calls, contextNumbers, clientTexts, pageTexts);
+}
+
+/** Whole dates a tool reported beyond its label: Google Analytics' first day of data (`data_starts`). */
+export function reportedDates(tool: string, result: unknown): string[] {
+  if (tool !== 'ga4_report') return [];
+  const v = (result as { data_starts?: unknown } | null)?.data_starts;
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? [v] : [];
 }
 
 /** The visible strings of a stored page_text result: headings, matched sentences and section text. */

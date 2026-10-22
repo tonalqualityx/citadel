@@ -190,3 +190,42 @@ export function rankPages<T extends { title: string; path: string; depth?: numbe
   };
   return [...pages].sort((a, b) => score(b) - score(a) || (a.depth ?? 0) - (b.depth ?? 0));
 }
+
+/**
+ * The asks that block a request from being filed: the five things the team needs (site, page, section,
+ * the change, the file). An `other` ask (what kind of request is this) is not one of them.
+ */
+export const REQUEST_ASK_SLOTS: readonly AskSlot[] = ['site', 'page', 'section', 'change', 'asset'];
+
+/**
+ * A question conversation: the client asked about their numbers, their work or their plan, so there is
+ * nothing to file and nothing to ask (pilot finding 2026-10-21, Abbott "September" email). The recorded
+ * request type decides; the summary's type counts when the slots have none.
+ */
+export function isQuestionConversation(slots: Slots): boolean {
+  const type = slots.request_type ?? slots.summary?.request_type ?? null;
+  return type === 'marketing_question';
+}
+
+/**
+ * May this conversation carry an open ask at all? Only a request (any type but a question) may, and the
+ * result that closes a question ("Anything else?") never does.
+ */
+export function askAllowed(slots: Slots, opts: { closesQuestion?: boolean } = {}): boolean {
+  return !opts.closesQuestion && !isQuestionConversation(slots);
+}
+
+/**
+ * Does the walk-away email go for this conversation (spec 7.2, as amended 2026-10-21)? Only for a
+ * request that is blocked on the client: clarifying with an open ask in one of the request slots, or
+ * confirming with a summary waiting for a yes. Never for a question conversation, never for an `other`
+ * ask, never in any other state.
+ */
+export function awayEmailEligible(c: { state: string; slots: unknown; open_ask: unknown; summary_text?: string | null }): boolean {
+  const slots = readSlots(c.slots);
+  if (isQuestionConversation(slots)) return false;
+  if (c.state === 'confirming') return Boolean(c.summary_text ?? slots.summary?.text);
+  if (c.state !== 'clarifying') return false;
+  const ask = readAsk(c.open_ask);
+  return Boolean(ask && REQUEST_ASK_SLOTS.includes(ask.slot) && ask.question.trim());
+}

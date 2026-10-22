@@ -40,7 +40,7 @@
       "actions": [
        {
         "type": "record",
-     "attachment_ids": [],
+        "attachment_ids": [],
         "site_id": "{{site:0}}",
         "request_type": "site_change"
        },
@@ -86,7 +86,8 @@
     "outbox_contains": [
      "Which page should this photo go on?",
      "1. About",
-     "Reply to this email with your answer",
+     "You wrote:\n\"Can you add this picture to the website?\"",
+     "Reply with the number, or answer in the portal:",
      "Indelible Support"
     ],
     "outbox_reply_to": true,
@@ -114,7 +115,7 @@
       "actions": [
        {
         "type": "record",
-     "attachment_ids": [],
+        "attachment_ids": [],
         "page_id": "{{page:About}}"
        },
        {

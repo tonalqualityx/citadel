@@ -10,6 +10,7 @@ import { chatRecipientAllowed, recordChatSend } from '../outbox-guard';
 import { chatReplyTo, chatRef, buildAwayBody, buildReplyBody, buildStaffBody } from '../mailer';
 import { allChatStrings } from '../copy';
 import { looksLikeYes } from '../confirm-text';
+import { clearQuestionAsk } from '../apply';
 import { queuePortalNotices } from '@/lib/portal/notices';
 
 // Phase C slice C4: the email leg against a real scratch Postgres (spec 7.2 to 7.4).
@@ -78,11 +79,57 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     expect(r.subject).toBe('One question about your request: Request: ' + tag);
     expect(r.text).toContain('Hi Olive');
     expect(r.text).toContain('Which page should it go on?');
+    // Standalone (4b): the client's own last message and the exact question, and no "number" without choices.
+    expect(r.text).toContain('You wrote:\n"Please add this picture"\n\nOur question:\nWhich page should it go on?');
+    expect(r.text).toContain('Reply to this email with your answer, or answer in the portal:');
+    expect(r.text).not.toMatch(/number/i);
     expect(r.text).toContain(`Ref: ${chatRef(token)}`);
     expect(r.text).toContain('Indelible Support');
     expect(r.text).not.toMatch(/[–—]/);
     const waits = await prisma.wait.findMany({ where: { task_id: a.taskId } });
     expect(waits.map((w) => w.template_key)).toContain('portal.awaiting_client');
+  });
+
+  it('a question chat never gets an away email, whatever ask it holds (pilot finding 2026-10-21)', async () => {
+    const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } });
+    await prisma.chatConversation.update({
+      where: { id: a.conversationId },
+      data: { slots: { request_type: 'marketing_question' }, open_ask: { ...(convo.open_ask as object), slot: 'other', question: 'Want me to pass the September question to the team?' } },
+    });
+    expect((await runSweep(at(30), scope())).away).toBe(0);
+    await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { open_ask: { ...(convo.open_ask as object), slot: 'page' } } });
+    expect((await runSweep(at(31), scope())).away).toBe(0);
+    expect((await outbox()).length).toBe(0);
+  });
+
+  it('clearQuestionAsk: a stale ask on a question chat goes, the chat stands answered; a request keeps its ask', async () => {
+    const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } });
+    await prisma.task.update({ where: { id: a.taskId }, data: { tags: ['portal-chat', 'awaiting-clarification'] } });
+    await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { slots: { request_type: 'site_change' } } });
+    expect(await clearQuestionAsk(a.taskId, { now: at(1) })).toEqual({ status: 'not_a_question' });
+    expect((await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } })).open_ask).not.toBeNull();
+
+    await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { slots: { request_type: 'marketing_question' }, open_ask: { ...(convo.open_ask as object), slot: 'other' } } });
+    expect(await clearQuestionAsk(a.taskId, { now: at(1), by: 'test' })).toEqual({ status: 'cleared', question_closed: true });
+    const after = await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } });
+    expect(after.open_ask).toBeNull();
+    expect((after.slots as { question_closed_at?: string }).question_closed_at).toBe(at(1).toISOString());
+    const task = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
+    expect(task.tags).not.toContain('awaiting-clarification');
+    expect(task.tags).toContain('chat-question');
+    const notes = await prisma.comment.findMany({ where: { task_id: a.taskId, is_internal: true } });
+    expect(notes.some((n) => n.content.includes('was cleared by test'))).toBe(true);
+    // Nothing reached the client, and the sweep sends nothing.
+    expect(await prisma.comment.count({ where: { task_id: a.taskId, source: 'assistant', is_internal: false } })).toBe(1);
+    expect((await runSweep(at(30), scope())).away).toBe(0);
+    expect(await clearQuestionAsk(a.taskId)).toEqual({ status: 'no_ask' });
+  });
+
+  it('an `other` ask on a request gets no away email', async () => {
+    const convo = await prisma.chatConversation.findUniqueOrThrow({ where: { id: a.conversationId } });
+    await prisma.chatConversation.update({ where: { id: a.conversationId }, data: { slots: { request_type: 'site_change' }, open_ask: { ...(convo.open_ask as object), slot: 'other' } } });
+    expect((await runSweep(at(30), scope())).away).toBe(0);
+    expect((await outbox()).length).toBe(0);
   });
 
   it('no reminders ever: later sweeps, an hour and a day on, send nothing more', async () => {
