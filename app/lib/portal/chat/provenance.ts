@@ -138,6 +138,18 @@ export function labelDates(label: string): ParsedDate[] {
   return ds.map((x) => ({ m: x.m, d: x.d, y: x.y ?? year }));
 }
 
+/** "2026-10-18" -> {m: 9, d: 18, y: 2026}; null for anything else. */
+export function isoDate(value: unknown): ParsedDate | null {
+  if (typeof value !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  if (mo < 0 || mo > 11 || d < 1 || d > 31) return null;
+  return { m: mo, d, y };
+}
+
 // ---- provenance -----------------------------------------------------------------------------
 
 export interface ProvenanceCall {
@@ -147,6 +159,12 @@ export interface ProvenanceCall {
   result_numbers: string[];
   /** The tool's own range label, when the result carried one. */
   label?: string | null;
+  /**
+   * Other whole dates the tool itself reported, as YYYY-MM-DD: Google Analytics' `data_starts`, the first
+   * day the property has any data. A reply may name it ("Google Analytics for this site starts on Oct 18,
+   * 2026") under the same rule as a label date: whole, and in a sentence that names the source.
+   */
+  dates?: string[];
 }
 
 export interface Provenance {
@@ -191,6 +209,10 @@ export function buildProvenance(calls: ProvenanceCall[], clientNumbers: string[]
     if (c.label) {
       p.labels.push(c.label);
       p.labelDates.push(...labelDates(c.label));
+    }
+    for (const iso of c.dates ?? []) {
+      const d = isoDate(iso);
+      if (d) p.labelDates.push(d);
     }
     for (const raw of c.result_numbers) {
       if (raw.startsWith(MONEY_PREFIX)) put(p.money, raw.slice(MONEY_PREFIX.length), tool);

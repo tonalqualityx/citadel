@@ -139,6 +139,18 @@ export const portalChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/{id}/chat/clear-ask',
+    group: 'portal-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Portal phase C: clear an open ask on a question chat (no away email; it closes as an answered question). Posts nothing to the client. 409 not_a_question for a request.',
+        auth: 'required',
+        responseExample: { ok: true, status: 'cleared', question_closed: true },
+      },
+    ],
+  },
+  {
     path: '/api/attachments/{id}',
     group: 'portal-chat',
     methods: [

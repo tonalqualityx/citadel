@@ -26,7 +26,7 @@ import { CANNED_LINE, NOTE } from '@/lib/portal/chat/copy';
 import { emailAssistantReply, emailFixedLine } from '@/lib/portal/chat/mailer';
 import { looksLikeYes } from '@/lib/portal/chat/confirm-text';
 import { syncProvisionalPlacement } from '@/lib/portal/chat/place';
-import { clientSites, conversationPages, rankPages, readAsk, readSlots, resolveChoices, sectionsOf, type OpenAsk, type Slots, type SummarySnap } from '@/lib/portal/chat/slots';
+import { askAllowed, clientSites, conversationPages, isQuestionConversation, rankPages, readAsk, readSlots, resolveChoices, sectionsOf, type OpenAsk, type Slots, type SummarySnap } from '@/lib/portal/chat/slots';
 import { z } from 'zod';
 
 export const runSchema = z
@@ -311,6 +311,7 @@ export async function applyResult(
   const hasHandoff = result.actions.some((a) => a.type === 'hand_to_person');
   const hasSummary = result.actions.some((a) => a.type === 'propose_summary');
   const hasUrgent = result.actions.some((a) => a.type === 'suggest_urgent');
+  const hasCloseQuestion = result.actions.some((a) => a.type === 'close_question');
 
   const ordered = [...result.actions].sort((a, b) => APPLY_ORDER.indexOf(a.type) - APPLY_ORDER.indexOf(b.type));
   const injections = injectionReports(result);
@@ -364,6 +365,14 @@ export async function applyResult(
       case 'ask': {
         if (hasHandoff || hasSummary || hasUrgent) {
           errors.push({ action: 'ask', error: 'not_with_other_action' });
+          break;
+        }
+        // A question conversation never carries an open ask (pilot finding 2026-10-21): the reply stands
+        // as the answer, and an "offer to pass it on" never becomes a question the sweep emails about.
+        if (!askAllowed(slots, { closesQuestion: hasCloseQuestion })) {
+          errors.push({ action: 'ask', error: 'ask_on_question', detail: a.slot });
+          console.warn(`portal chat: ask dropped on a question conversation (job ${job.id}, slot ${a.slot})`);
+          closeQuestion = true;
           break;
         }
         const effective = { id: convo.id, client_id: access.clientId, site_id: siteId };
@@ -504,4 +513,44 @@ export async function applyResult(
     }
   }
   return { status: 'applied', gate_result: gateResult, comment_id: commentId };
+}
+
+export type ClearAskOutcome = { status: 'cleared'; question_closed: boolean } | { status: 'no_ask' } | { status: 'not_a_question' } | { status: 'not_found' };
+
+/**
+ * Staff repair for a conversation left holding an ask it should never have had: the effect `applyResult`
+ * gives an ask on a question conversation, applied after the fact. The open ask goes, the
+ * awaiting-clarification tag goes, and the last reply stands as the answer (question_closed_at), so the
+ * sweep neither emails about it nor files it as a request; it closes as an answered question. Nothing is
+ * posted to the client. A request's ask is left alone: it may be a real one.
+ */
+export async function clearQuestionAsk(taskId: string, opts: { now?: Date; by?: string } = {}): Promise<ClearAskOutcome> {
+  const now = opts.now ?? new Date();
+  return prisma.$transaction(async (tx) => {
+    const pre = await tx.chatConversation.findUnique({ where: { task_id: taskId }, select: { id: true } });
+    if (!pre) return { status: 'not_found' as const };
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portal-chat-convo:${pre.id}`}))`;
+    const convo = await tx.chatConversation.findUniqueOrThrow({ where: { id: pre.id }, include: { task: { select: { tags: true } } } });
+    const ask = readAsk(convo.open_ask);
+    if (!ask) return { status: 'no_ask' as const };
+    const slots = readSlots(convo.slots);
+    if (!isQuestionConversation(slots)) return { status: 'not_a_question' as const };
+    const open = convo.state === 'clarifying' || convo.state === 'confirming';
+    const tags = new Set(convo.task.tags);
+    tags.delete('awaiting-clarification');
+    if (open) tags.add('chat-question');
+    await tx.task.update({ where: { id: convo.task_id }, data: { tags: [...tags] } });
+    await tx.chatConversation.update({
+      where: { id: convo.id },
+      data: { open_ask: Prisma.DbNull, ...(open ? { slots: { ...slots, question_closed_at: now.toISOString() } as Prisma.InputJsonValue } : {}) },
+    });
+    await postInternalNote(
+      tx,
+      convo.task_id,
+      `The assistant's open question on this question chat was cleared${opts.by ? ` by ${opts.by}` : ''}: "${ask.question.slice(0, 200)}". A question chat never waits on the client, so no away email goes and it closes as answered.`,
+      { cleared_ask: ask.slot }
+    );
+    await refreshTaskDescription(tx, convo.id);
+    return { status: 'cleared' as const, question_closed: open };
+  });
 }
