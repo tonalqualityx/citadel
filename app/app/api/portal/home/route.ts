@@ -107,7 +107,7 @@ export async function GET(_request: NextRequest) {
       // Pending approvals — tasks awaiting the client's own approval, with staging preview.
       prisma.task.findMany({
         // Leak 1: only client-visible AND staged work is "waiting on your review".
-        where: { ...taskScope, client_approved_at: null, AND: [clientVisibleTaskWhere(), stagedTaskWhere(), taskAccess] },
+        where: { ...taskScope, client_approved_at: null, NOT: { tags: { has: 'client-approved' } }, AND: [clientVisibleTaskWhere(), stagedTaskWhere(), taskAccess] },
         select: {
           id: true,
           title: true,

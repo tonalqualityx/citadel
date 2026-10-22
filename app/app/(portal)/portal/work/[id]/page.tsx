@@ -28,6 +28,7 @@ interface Work {
   site: { id: string; name: string } | null;
   requested_by: { first_name: string } | null;
   requested_at: string;
+  approved_at: string | null;
   answers: Array<{ prompt: string; value: string }>;
   staged: { preview_url: string; awaiting_approval: boolean } | null;
   can_act: boolean;
@@ -145,6 +146,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   const meta = [
     work.requested_by ? `Requested by ${work.requested_by.first_name} on ${formatDate(work.requested_at)}` : `Added ${formatDate(work.requested_at)}`,
+    work.approved_at && formatDate(work.approved_at) ? `You approved this on ${formatDate(work.approved_at)}.` : null,
     work.site?.name,
   ]
     .filter(Boolean)

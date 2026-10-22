@@ -35,12 +35,32 @@ const TASK_LABELS: Record<string, string> = {
 /** Label shown when a task is waiting on the client to approve it. */
 export const AWAITING_YOU_LABEL = 'Ready for your review';
 
+/** Label once the client has approved staged work that is not yet live (status stays `review`). */
+export const APPROVED_GOING_LIVE_LABEL = 'Approved. Going live soon.';
+
+/** Tag the approve routes stamp beside `client_approved_at` (mirrors CLIENT_APPROVED_TAG). */
+const APPROVED_TAG = 'client-approved';
+
+/** True when the client approved it and the change is not live yet: status `review` plus the approval. */
+export function isApprovedGoingLive(task: {
+  status?: string | null;
+  tags?: string[] | null;
+  client_approved_at?: Date | string | null;
+}): boolean {
+  return task.status === 'review' && (Boolean(task.client_approved_at) || (task.tags ?? []).includes(APPROVED_TAG));
+}
+
 /**
  * Client words for a task. `awaitingClient` is true when the task is staged and not yet approved:
  * the work is finished on our side, so it must not read as Complete.
  */
-export function taskStatusLabel(status: string | null | undefined, awaitingClient = false): string {
+export function taskStatusLabel(
+  status: string | null | undefined,
+  awaitingClient = false,
+  approvedGoingLive = false
+): string {
   if (awaitingClient) return AWAITING_YOU_LABEL;
+  if (approvedGoingLive && status === 'review') return APPROVED_GOING_LIVE_LABEL;
   return TASK_LABELS[status ?? ''] ?? FALLBACK_STATUS_LABEL;
 }
 
@@ -88,6 +108,7 @@ export interface RequestStateFields {
 export const REQUEST_LABELS = {
   closed: 'Closed',
   review: AWAITING_YOU_LABEL,
+  approved: APPROVED_GOING_LIVE_LABEL,
   done: 'Done',
   answer: 'Needs your answer',
   quote: 'We will quote this',
@@ -102,6 +123,9 @@ export const REQUEST_LABELS = {
  */
 export function requestState(task: RequestStateFields): RequestState {
   const tags = task.tags ?? [];
+  if (task.status !== 'abandoned' && isApprovedGoingLive(task)) {
+    return { label: REQUEST_LABELS.approved, tone: 'moving' };
+  }
   const staged =
     typeof task.staging_preview_url === 'string' &&
     task.staging_preview_url.length > 0 &&

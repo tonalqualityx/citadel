@@ -195,6 +195,7 @@ describe('loadWorkItem', () => {
       requested_by: { first_name: 'Dana' },
       answers: [{ prompt: 'What should change?', value: 'The hours' }],
       staged: null,
+      approved_at: null,
       can_act: true,
     });
     const text = JSON.stringify(w);
@@ -207,6 +208,16 @@ describe('loadWorkItem', () => {
     expect(w?.staged).toEqual({ preview_url: 'https://staging.example.com', awaiting_approval: true });
     expect(w?.state.label).toBe('Ready for your review');
     expect(w?.can_act).toBe(true);
+  });
+
+  it('approved and not live: Approved label, approval date, no review block', async () => {
+    findFirst.mockResolvedValue(
+      workRow({ status: 'review', staging_preview_url: 'https://staging.example.com', client_approved_at: new Date('2026-10-21T15:00:00Z'), tags: ['client-approved'] })
+    );
+    const w = await loadWorkItem(viewer, 't1');
+    expect(w?.state).toEqual({ label: 'Approved. Going live soon.', tone: 'moving' });
+    expect(w?.approved_at).toEqual(new Date('2026-10-21T15:00:00Z'));
+    expect(w?.staged?.awaiting_approval).toBe(false);
   });
 
   it('copes with work that has no intake block or no requester', async () => {

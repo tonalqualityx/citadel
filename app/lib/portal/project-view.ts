@@ -5,7 +5,7 @@
  * returns client-safe fields only. No estimates, no assignees, no tags, no internal notes.
  */
 import { isStagedForApproval } from '@/lib/portal/visibility';
-import { taskStatusLabel, type PhaseState } from '@/lib/portal/status-labels';
+import { isApprovedGoingLive, taskStatusLabel, type PhaseState } from '@/lib/portal/status-labels';
 
 /** Tag on a task that is waiting on the client for an answer (lib/utils/task-tags.ts). */
 export const AWAITING_CLARIFICATION_TAG = 'awaiting-clarification';
@@ -22,6 +22,7 @@ export interface ViewTask {
   staging_preview_url?: string | null;
   approved?: boolean | null;
   client_approved_at?: Date | string | null;
+  tags?: string[] | null;
 }
 
 /** True when the task is finished on our side and waiting for the client's yes. */
@@ -102,7 +103,7 @@ export function toClientTask(task: ViewTask, phaseName: string | null = null) {
   return {
     id: task.id,
     title: task.title,
-    status_label: taskStatusLabel(task.status, awaiting),
+    status_label: taskStatusLabel(task.status, awaiting, isApprovedGoingLive(task)),
     is_done: isTaskDone(task),
     awaiting_you: awaiting,
     phase: phaseName,

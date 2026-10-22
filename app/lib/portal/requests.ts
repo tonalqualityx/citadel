@@ -113,18 +113,27 @@ export function requestsScope(access: PortalAccess): Prisma.TaskWhereInput {
 }
 
 /** Prisma fragments for "still open" and "closed" from the client's side. */
+export function approvedGoingLiveWhere(): Prisma.TaskWhereInput {
+  return {
+    status: 'review',
+    OR: [{ client_approved_at: { not: null } }, { tags: { has: 'client-approved' } }],
+  };
+}
 export function openWhere(): Prisma.TaskWhereInput {
   return {
-    client_approved_at: null,
     status: { not: 'abandoned' },
-    OR: [{ status: { not: 'done' } }, stagedTaskWhere()],
+    OR: [
+      { client_approved_at: null, OR: [{ status: { not: 'done' } }, stagedTaskWhere()] },
+      // Approved by the client, not live yet: still moving, so still open.
+      approvedGoingLiveWhere(),
+    ],
   };
 }
 export function closedWhere(): Prisma.TaskWhereInput {
   return {
     OR: [
       { status: 'abandoned' },
-      { client_approved_at: { not: null } },
+      { client_approved_at: { not: null }, NOT: approvedGoingLiveWhere() },
       { status: 'done', NOT: stagedTaskWhere() },
     ],
   };
@@ -171,6 +180,8 @@ export interface WorkItem {
   site: { id: string; name: string } | null;
   requested_by: { first_name: string } | null;
   requested_at: Date | string;
+  /** When the client approved it, if they did. */
+  approved_at: Date | string | null;
   /** The intake answers, verbatim. Empty for work that did not come through the intake. */
   answers: Array<{ prompt: string; value: string }>;
   /** Set when the work is staged for the client. */
@@ -224,8 +235,9 @@ export async function loadWorkItem(access: PortalAccess, taskId: string): Promis
     site: base.site,
     requested_by: requester ? { first_name: requester } : null,
     requested_at: r.created_at,
+    approved_at: r.client_approved_at ?? null,
     answers: answersOf(r.client_intake),
-    staged: staged ? { preview_url: r.staging_preview_url as string, awaiting_approval: !r.client_approved_at } : null,
+    staged: staged ? { preview_url: r.staging_preview_url as string, awaiting_approval: !r.client_approved_at && !r.tags.includes('client-approved') } : null,
     // Mike's ruling: for now ANY portal user may approve or request changes (no role gate on the
     // approve routes), so the review block shows its buttons to everyone who can see the task.
     can_act: true,

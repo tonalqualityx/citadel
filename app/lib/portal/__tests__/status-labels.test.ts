@@ -70,10 +70,22 @@ describe('requestState (spec 2.6)', () => {
     expect(requestState({ ...staged, status: 'done', tags: ['quote'] })).toEqual({ label: 'Ready for your review', tone: 'attention' });
   });
 
+  it('approved and still in review reads Approved. Going live soon., moving tone', () => {
+    const want = { label: 'Approved. Going live soon.', tone: 'moving' };
+    expect(requestState({ ...staged, client_approved_at: '2026-10-21T00:00:00Z' })).toEqual(want);
+    expect(requestState({ ...staged, tags: ['client-approved'] })).toEqual(want);
+    expect(requestState({ status: 'review', client_approved_at: '2026-10-21T00:00:00Z' })).toEqual(want);
+    // Once it is live (done) it reads Done; abandoned stays Closed.
+    expect(requestState({ ...staged, status: 'done', client_approved_at: '2026-10-21T00:00:00Z' })).toEqual({ label: 'Done', tone: 'done' });
+    expect(requestState({ status: 'abandoned', client_approved_at: '2026-10-21T00:00:00Z' })).toEqual({ label: 'Closed', tone: 'quiet' });
+    expect(taskStatusLabel('review', false, true)).toBe('Approved. Going live soon.');
+    expect(isRequestClosed({ ...staged, client_approved_at: '2026-10-21T00:00:00Z' })).toBe(false);
+  });
+
   it('done, or client-approved, is Done', () => {
     expect(requestState({ status: 'done' })).toEqual({ label: 'Done', tone: 'done' });
     expect(requestState({ status: 'in_progress', client_approved_at: '2026-10-20T00:00:00Z' })).toEqual({ label: 'Done', tone: 'done' });
-    expect(requestState({ ...staged, client_approved_at: '2026-10-20T00:00:00Z' })).toEqual({ label: 'Done', tone: 'done' });
+    expect(requestState({ ...staged, status: 'done', client_approved_at: '2026-10-20T00:00:00Z' })).toEqual({ label: 'Done', tone: 'done' });
     // Already published (approved) work is no longer awaiting the client; a done task reads Done.
     expect(requestState({ ...staged, status: 'done', approved: true })).toEqual({ label: 'Done', tone: 'done' });
   });
