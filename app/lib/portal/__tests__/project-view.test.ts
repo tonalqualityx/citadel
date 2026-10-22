@@ -33,9 +33,15 @@ describe('computeProgress', () => {
   });
 
   it('does not count staged, unapproved work as done', () => {
-    const staged = task({ id: '1', status: 'done', staging_preview_url: 'https://p.example', approved: false });
+    const staged = task({ id: '1', status: 'review', staging_preview_url: 'https://p.example', approved: false });
     expect(isAwaitingClient(staged)).toBe(true);
     expect(computeProgress([staged])).toEqual({ done: 0, total: 1 });
+  });
+
+  it('a done task with a leftover preview is finished, not awaiting the client', () => {
+    const stale = task({ id: '1', status: 'done', staging_preview_url: 'https://p.example', approved: false });
+    expect(isAwaitingClient(stale)).toBe(false);
+    expect(computeProgress([stale])).toEqual({ done: 1, total: 1 });
   });
 
   it('shows an approved-then-abandoned task as Closed, not done, and leaves it out of the counts', () => {

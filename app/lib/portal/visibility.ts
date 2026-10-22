@@ -13,8 +13,8 @@
  * `client_visible` only widens LISTS: pending/approve/request-changes still require "staged".
  *
  * "Staged for approval" = `staging_preview_url` is a non-empty string AND status is `review`
- * or `done`. The worker finishes staged work as done + needs_review, and the portal fixtures
- * use `review`; `not_started` (sent back for changes), `in_progress`, `blocked` and `abandoned`
+ * only. A `done` task with a leftover preview is finished work (2026-10-21 Alder bug: it sat
+ * under "Needs you" forever), so it is never staged; `not_started` (sent back for changes), `in_progress`, `blocked` and `abandoned`
  * are not awaiting the client. Approve and request-changes require "staged" in addition to
  * "visible".
  *
@@ -28,7 +28,7 @@
  * predicates, so the rule cannot drift between routes.
  */
 
-export const PORTAL_STAGED_STATUSES = ['review', 'done'] as const;
+export const PORTAL_STAGED_STATUSES = ['review'] as const;
 
 /** Prisma where-fragment: task is staged for the client's approval. */
 export function stagedTaskWhere() {

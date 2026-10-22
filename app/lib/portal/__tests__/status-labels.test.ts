@@ -67,7 +67,16 @@ describe('requestState (spec 2.6)', () => {
 
   it('staged and not client-approved is Ready for your review, attention', () => {
     expect(requestState({ ...staged })).toEqual({ label: 'Ready for your review', tone: 'attention' });
-    expect(requestState({ ...staged, status: 'done', tags: ['quote'] })).toEqual({ label: 'Ready for your review', tone: 'attention' });
+    expect(requestState({ ...staged, tags: ['quote'] })).toEqual({ label: 'Ready for your review', tone: 'attention' });
+  });
+
+  it('a done task with a stale preview and no approval is Done, never Ready for your review', () => {
+    expect(requestState({ ...staged, status: 'done' })).toEqual({ label: 'Done', tone: 'done' });
+    expect(requestState({ ...staged, status: 'done', tags: ['quote'] })).toEqual({ label: 'Done', tone: 'done' });
+  });
+
+  it('a review task without a preview is not Ready for your review', () => {
+    expect(requestState({ status: 'review' }).label).not.toBe('Ready for your review');
   });
 
   it('approved and still in review reads Approved. Going live soon., moving tone', () => {

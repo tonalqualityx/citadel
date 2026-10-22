@@ -182,6 +182,21 @@ async function seedPopulatedClient() {
     },
   });
 
+  // Stale task — finished (done) with a leftover preview and no approval. It must never read as
+  // awaiting the client (Alder bug, 2026-10-21).
+  await prisma.task.deleteMany({ where: { title: 'E2E: Stale finished preview (portal fixture)' } });
+  await prisma.task.create({
+    data: {
+      title: 'E2E: Stale finished preview (portal fixture)',
+      status: 'done',
+      client_id: client.id,
+      site_id: site.id,
+      requested_by_contact_id: contact.id,
+      completed_at: new Date(),
+      staging_preview_url: 'https://staging.e2e-portal-fixture.example/stale',
+    },
+  });
+
   // Completed task — feeds the activity feed.
   await prisma.task.deleteMany({ where: { title: 'E2E: Fixed broken link (portal fixture)' } });
   await prisma.task.create({
