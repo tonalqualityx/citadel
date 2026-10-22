@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { QueryProvider } from '@/lib/providers/query-provider';
+import { ChunkRecovery } from '@/components/layout/chunk-recovery';
 import './globals.css';
 
 const inter = Inter({
@@ -36,6 +37,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
+        <ChunkRecovery />
         <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
