@@ -133,3 +133,128 @@ describe('stepper fallback keeps what was typed', () => {
     expect(carried.textContent).toContain('Your files were not sent');
   });
 });
+
+describe('Drop area does not flicker', () => {
+  const props = () => ({
+    label: 'Message', hint: 'h', value: '', onChange: () => {}, onTyping: () => {}, onSend: () => {}, sending: false, error: null,
+    drafts: [], onFiles: vi.fn(), onRemoveFile: () => {}, filesProblem: null, wantsFile: false, textareaRef: { current: null },
+  });
+  const files = { types: ['Files'], files: [] as File[] };
+
+  it('crossing child elements (leave then enter) keeps one overlay up, and it ignores the pointer', () => {
+    const { container } = render(<Composer {...(props() as React.ComponentProps<typeof Composer>)} />);
+    const form = container.querySelector('form')!;
+    const child = screen.getByLabelText('Message');
+    const states: boolean[] = [];
+    const seen = () => states.push(Boolean(screen.queryByTestId('chat-drop-active')));
+
+    fireEvent.dragEnter(form, { dataTransfer: files });
+    seen();
+    // The browser order when the pointer moves onto a child: enter the child first, then leave the form.
+    fireEvent.dragEnter(child, { dataTransfer: files });
+    seen();
+    fireEvent.dragLeave(form, { dataTransfer: files });
+    seen();
+    fireEvent.dragOver(child, { dataTransfer: files });
+    seen();
+    // And back out over the child, into the form, out of the child.
+    fireEvent.dragEnter(form, { dataTransfer: files });
+    fireEvent.dragLeave(child, { dataTransfer: files });
+    seen();
+    expect(states).toEqual([true, true, true, true, true]); // never off between enter and leave: no flicker
+
+    fireEvent.dragLeave(form, { dataTransfer: files });
+    expect(screen.queryByTestId('chat-drop-active')).toBeNull(); // the last leave closes it once
+  });
+
+  it('the overlay is mounted once, never replaced, while the drag moves around', () => {
+    const { container } = render(<Composer {...(props() as React.ComponentProps<typeof Composer>)} />);
+    const form = container.querySelector('form')!;
+    fireEvent.dragEnter(form, { dataTransfer: files });
+    const first = screen.getByTestId('chat-drop-active');
+    fireEvent.dragEnter(screen.getByLabelText('Message'), { dataTransfer: files });
+    fireEvent.dragLeave(form, { dataTransfer: files });
+    expect(screen.getByTestId('chat-drop-active')).toBe(first);
+  });
+
+  it('a drop attaches the files and closes the overlay; a drag end does too', () => {
+    const p = props();
+    const { container } = render(<Composer {...(p as React.ComponentProps<typeof Composer>)} />);
+    const form = container.querySelector('form')!;
+    const file = new File(['x'], 'a.png', { type: 'image/png' });
+    fireEvent.dragEnter(form, { dataTransfer: files });
+    fireEvent.dragEnter(screen.getByLabelText('Message'), { dataTransfer: files });
+    fireEvent.drop(form, { dataTransfer: { types: ['Files'], files: [file] } });
+    expect(p.onFiles).toHaveBeenCalledWith([file]);
+    expect(screen.queryByTestId('chat-drop-active')).toBeNull();
+
+    fireEvent.dragEnter(form, { dataTransfer: files });
+    expect(screen.getByTestId('chat-drop-active')).toBeTruthy();
+    fireEvent(window, new Event('dragend'));
+    expect(screen.queryByTestId('chat-drop-active')).toBeNull();
+    // The counter was reset: one new enter and one leave is a clean open and close.
+    fireEvent.dragEnter(form, { dataTransfer: files });
+    fireEvent.dragLeave(form, { dataTransfer: files });
+    expect(screen.queryByTestId('chat-drop-active')).toBeNull();
+  });
+
+  it('ignores drags that carry no files (selected text)', () => {
+    const { container } = render(<Composer {...(props() as React.ComponentProps<typeof Composer>)} />);
+    fireEvent.dragEnter(container.querySelector('form')!, { dataTransfer: { types: ['text/plain'] } });
+    expect(screen.queryByTestId('chat-drop-active')).toBeNull();
+  });
+});
+
+describe('A staff reply while a person has the conversation', () => {
+  const withPersonBase = { ...base, state: 'with_person', banner: 'A person on the team will reply here. You can keep adding details while you wait.', staff_reply: null };
+  const mk = (id: string, who: string, name: string, text: string, at: string) => ({ id, who, mine: false, name, text, created_at: at, sources: [], attachments: [] });
+
+  it('keeps polling in with_person, and the banner turns into "<First> from Indelible replied." with a person mark on the bubble', async () => {
+    vi.useFakeTimers();
+    let replied = false;
+    let polls = 0;
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      if (!String(url).includes('/api/portal/chat/c1')) return json({});
+      polls++;
+      return json(
+        replied
+          ? { ...withPersonBase, banner: 'Mike from Indelible replied.', staff_reply: { first_name: 'Mike', at: '2026-10-22T01:43:00Z' }, messages: [mk('m2', 'team', 'Indelible team', 'We fixed the hours.', '2026-10-22T01:43:00.000Z')] }
+          : { ...withPersonBase, messages: [mk('m1', 'assistant', 'Indelible assistant', 'A person will reply.', '2026-10-22T01:00:00.000Z')] }
+      );
+    }) as unknown as typeof fetch;
+    render(<ChatView source={{ conversationId: 'c1' }} composerLabel="Add a message" hint="x" />);
+    await act(async () => {});
+    expect(screen.getByTestId('chat-handoff')).toHaveTextContent('A person on the team will reply here.');
+    expect(screen.queryByTestId('chat-person-mark')).toBeNull();
+
+    replied = true;
+    const before = polls;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_000); // one person-rate poll, no reload
+    });
+    expect(polls).toBeGreaterThan(before);
+    const banner = screen.getByTestId('chat-handoff');
+    expect(banner).toHaveTextContent('Mike from Indelible replied.');
+    expect(banner).not.toHaveTextContent('A person on the team will reply here');
+    expect(screen.getByText('Indelible team')).toBeTruthy();
+    expect(screen.getByTestId('chat-person-mark')).toBeTruthy();
+    expect(screen.getByText('We fixed the hours.')).toBeTruthy();
+  });
+
+  it('does not poll while the tab is hidden', async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    global.fetch = vi.fn(async () => {
+      polls++;
+      return json({ ...withPersonBase, messages: [] });
+    }) as unknown as typeof fetch;
+    renderHook(() => useChat({ conversationId: 'c1' }));
+    await act(async () => {});
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const before = polls;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(polls).toBe(before);
+  });
+});

@@ -21,6 +21,13 @@ export const STILL_WRITING_MS = 15_000;
 export const CHECKING_WINDOW_MS = 12_000;
 const MAX_MESSAGES = 500;
 
+export const STAFF_REPLIED_LINE = (firstName: string | null) => `${firstName ?? 'A person'} from Indelible replied.`;
+
+/** First word of a staff user's name, or null when there is none. */
+export function firstNameOf(name: string | null | undefined): string | null {
+  return (name ?? '').trim().split(/\s+/)[0] || null;
+}
+
 export interface ViewMessage {
   id: string;
   who: 'client' | 'assistant' | 'team';
@@ -69,7 +76,7 @@ export async function loadChatView(access: PortalAccess, conversationId: string,
       id: r.id,
       who,
       mine: Boolean(r.author_contact_id && ids.includes(r.author_contact_id)),
-      name: who === 'client' ? r.author_contact?.name?.trim() || 'A member of your team' : who === 'assistant' ? ASSISTANT_NAME : 'Indelible',
+      name: who === 'client' ? r.author_contact?.name?.trim() || 'A member of your team' : who === 'assistant' ? ASSISTANT_NAME : 'Indelible team',
       text: r.content,
       created_at: r.created_at.toISOString(),
       sources: who === 'assistant' ? (meta.sources ?? []).filter((s) => s.label).map((s) => ({ label: String(s.label), range: String(s.range ?? '') })) : [],
@@ -96,6 +103,25 @@ export async function loadChatView(access: PortalAccess, conversationId: string,
   }
 
   const withPerson = convo.state === 'with_person';
+  // Has a person on the team answered since the handoff? Read apart from `after`, so a poll that
+  // carries no new messages still knows. Staff replies are signed "Indelible"; only this callout names the person.
+  let staffReply: { first_name: string | null; at: string } | null = null;
+  if (withPerson) {
+    const note = await prisma.comment.findFirst({
+      where: { task_id: convo.task_id, is_internal: true, chat_meta: { path: ['handoff'], equals: true } },
+      orderBy: { created_at: 'desc' },
+      select: { created_at: true },
+    });
+    const reply = await prisma.comment.findFirst({
+      where: {
+        task_id: convo.task_id,
+        AND: [threadCommentWhere(), { author_contact_id: null }, { OR: [{ source: null }, { source: { not: 'assistant' } }] }, note ? { created_at: { gt: note.created_at } } : {}],
+      },
+      orderBy: { created_at: 'desc' },
+      select: { created_at: true, user: { select: { name: true } } },
+    });
+    if (reply) staffReply = { first_name: firstNameOf(reply.user?.name), at: reply.created_at.toISOString() };
+  }
   const urgent = !writing && slots.urgent_offered && !slots.urgent_answered ? { prompt: URGENT_PROMPT, choices: URGENT_CHOICES.map((c) => ({ id: c.id, label: c.label })) } : null;
 
   let pending: unknown = null;
@@ -131,8 +157,9 @@ export async function loadChatView(access: PortalAccess, conversationId: string,
     writing_label: writing_note ? WRITING_LABELS[writing_note] : null,
     pending,
     urgent,
-    banner: withPerson ? HANDOFF_BANNER : convo.state === 'filed' ? `${SENT_LINES.heading} ${SENT_LINES.more}` : null,
-    poll_seconds: writing ? 3 : 30,
+    staff_reply: staffReply,
+    banner: withPerson ? (staffReply ? STAFF_REPLIED_LINE(staffReply.first_name) : HANDOFF_BANNER) : convo.state === 'filed' ? `${SENT_LINES.heading} ${SENT_LINES.more}` : null,
+    poll_seconds: writing ? 3 : withPerson ? 8 : 30,
   };
 }
 

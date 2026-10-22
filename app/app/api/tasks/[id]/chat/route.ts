@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { readSlots } from '@/lib/portal/chat/slots';
+import { clientIsWatching, STAFF_HOLD_MS } from '@/lib/portal/chat/mailer';
 
 // GET /api/tasks/:id/chat (portal phase C; staff)
 // The chat on a task: state, the drafted handoff reply, jobs, runs, tool calls (arguments and totals),
@@ -24,6 +25,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const cost = jobs.reduce((sum, j) => sum + j.runs.reduce((s, r) => s + Number(r.cost_usd), 0), 0);
     return NextResponse.json({
       state: convo.state,
+      // Is the client in the portal right now (a visible tab seen in the last two minutes)? The staff reply
+      // rule: a reply is emailed after the hold only when this is false at that moment.
+      client_present: clientIsWatching(convo, new Date()),
+      email_hold_seconds: STAFF_HOLD_MS / 1000,
       mode: convo.mode,
       summary_version: convo.summary_version,
       slots: readSlots(convo.slots),

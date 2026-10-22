@@ -5,11 +5,14 @@ import type { ChatMessage, ChatPayload } from './types';
 import { useViewAs } from '../view-as-context';
 
 // The chat's data: the polled view, the merged messages, sending and confirming. Polls every 3
-// seconds while the assistant is writing (and for two minutes after a send), every 30 otherwise,
+// seconds while the assistant is writing (and for two minutes after a send), every 8 while a person
+// has the conversation (so a staff reply appears live), every 30 otherwise,
 // and not at all while the tab is hidden. Presence pings are in usePresence.
 
 const FAST_MS = 3_000;
 const SLOW_MS = 30_000;
+// A person has the conversation: their reply should show up while the tab is open, so poll closer than the idle rate.
+const PERSON_MS = 8_000;
 const AFTER_SEND_MS = 2 * 60_000;
 
 export type StartResult = { conversation_id: string; task_id?: string | null; route?: string } | { unavailable: true };
@@ -142,7 +145,7 @@ export function useChat(src: ChatSource) {
       if (stop || mine !== gen.current) return;
       const fast = writingRef.current || Date.now() < fastUntil.current;
       window.clearTimeout(timer);
-      timer = window.setTimeout(tick, fast ? FAST_MS : SLOW_MS);
+      timer = window.setTimeout(tick, fast ? FAST_MS : stateRef.current === 'with_person' ? PERSON_MS : SLOW_MS);
     };
     wake.current = () => {
       window.clearTimeout(timer);

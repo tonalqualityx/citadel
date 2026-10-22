@@ -255,7 +255,7 @@ export function ChatView({
             {chat.alreadyFiled.taskId ? <a href={`/portal/work/${chat.alreadyFiled.taskId}`}>View your request</a> : null}
           </p>
         )}
-        {withPerson && p?.banner ? <HandoffBanner text={p.banner} /> : null}
+        {withPerson && p?.banner ? <HandoffBanner text={p.banner} replied={Boolean(p.staff_reply)} /> : null}
         {filed && !fullCard && (
           <p className="sent-chip" data-testid="chat-sent-chip">
             <Check className="i" aria-hidden="true" focusable="false" />
