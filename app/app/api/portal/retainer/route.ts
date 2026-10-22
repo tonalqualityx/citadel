@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { loadRetainers } from '@/lib/portal/retainer';
@@ -11,7 +11,7 @@ import { loadRetainers } from '@/lib/portal/retainer';
 // role but none may read it; a grant-only contact gets an empty list.
 export async function GET(request: NextRequest) {
   try {
-    const limited = rateLimit(request, 120);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

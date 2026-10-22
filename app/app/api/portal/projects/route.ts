@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { loadProjectList } from '@/lib/portal/projects-list';
@@ -10,7 +10,7 @@ import { loadProjectList } from '@/lib/portal/projects-list';
 // rule as the project page, so hidden, restricted and pre-kickoff projects never appear.
 export async function GET(request: NextRequest) {
   try {
-    const limited = rateLimit(request, 120);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

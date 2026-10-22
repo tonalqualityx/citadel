@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { rateLimit, portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { fileRequest } from '@/lib/portal/intake/file-request';
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 // Open requests (attention first, then newest) and what closed recently, in client words.
 export async function GET(request: NextRequest) {
   try {
-    const limited = rateLimit(request, 120);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

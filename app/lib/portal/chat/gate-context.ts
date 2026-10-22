@@ -12,16 +12,17 @@ import type { GateContext } from '@/lib/portal/chat/gate';
 /** First names that are also plain English words: staff with these names are not matched as names. */
 const ENGLISH_NAMES = new Set(['will', 'mark', 'grant', 'art', 'bill', 'rob', 'hope', 'grace', 'joy', 'may', 'june', 'april', 'august', 'summer', 'dawn', 'faith', 'rose', 'lily', 'ivy', 'amber', 'sky', 'bob', 'pat', 'rich', 'sue', 'jack', 'drew', 'case', 'major', 'frank', 'chase', 'guy', 'sandy']);
 const TTL_MS = 5 * 60_000;
-let cache: { at: number; staff: string[]; clients: Array<{ id: string; name: string }> } | null = null;
+let cache: { at: number; staff: string[]; clients: Array<{ id: string; name: string }>; sites: Array<{ client_id: string | null; url: string | null }> } | null = null;
 
 async function lists(now: number) {
   if (cache && now - cache.at < TTL_MS) return cache;
-  const [users, clients] = await Promise.all([
+  const [users, clients, allSites] = await Promise.all([
     prisma.user.findMany({ where: { is_active: true }, select: { name: true } }),
     prisma.client.findMany({ where: { is_deleted: false }, select: { id: true, name: true } }),
+    prisma.site.findMany({ where: { is_deleted: false }, select: { client_id: true, url: true } }),
   ]);
   const staff = [...new Set(users.map((u) => (u.name ?? '').trim().split(/\s+/)[0]).filter((n) => n.length >= 3 && !ENGLISH_NAMES.has(n.toLowerCase())))];
-  cache = { at: now, staff, clients };
+  cache = { at: now, staff, clients, sites: allSites };
   return cache;
 }
 
@@ -65,6 +66,11 @@ export async function loadGateContext(input: {
     provenance,
     staffNames: l.staff.filter((n) => n.toLowerCase() !== own),
     otherClientNames: l.clients.filter((c) => c.id !== input.clientId && c.name.trim().length >= 4).map((c) => c.name.trim()),
+    otherClientDomains: l.sites.filter((x) => x.client_id !== input.clientId).map((x) => domainOf(x.url)).filter((d): d is string => Boolean(d)),
+    ownClientNames: [
+      ...l.clients.filter((c) => c.id === input.clientId).map((c) => c.name.trim()),
+      ...sites.map((x) => domainOf(x.url)).filter((d): d is string => Boolean(d)),
+    ],
     pageNames: await loadPageNames(sites.map((s) => s.id)),
     clientDomains: sites.map((s) => domainOf(s.url)).filter((d): d is string => Boolean(d)),
     portalOrigins: [portalBaseUrl()],

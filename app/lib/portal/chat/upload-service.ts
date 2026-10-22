@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import type { PortalAccess } from '@/lib/portal/access';
-import { MAX_BYTES_PER_CONVERSATION, MAX_UPLOADS_PER_CONTACT_DAY, validateUpload } from '@/lib/services/uploads';
+import { MAX_BYTES_PER_CONVERSATION, MAX_UPLOADS_PER_CONTACT_DAY, MAX_UPLOADS_PER_CONTACT_HOUR, validateUpload } from '@/lib/services/uploads';
 import { putPrivate, storageKey } from '@/lib/services/private-storage';
 import { threadTaskWhere } from '@/lib/portal/thread';
 
@@ -39,8 +39,9 @@ export async function stageUpload(
   }
   const ids = access.contactIds && access.contactIds.length > 0 ? access.contactIds : [access.contactId];
   const since = new Date(now.getTime() - DAY);
-  const [today, used] = await Promise.all([
+  const [today, lastHour, used] = await Promise.all([
     prisma.portalAttachment.count({ where: { uploaded_by_contact_id: { in: ids }, created_at: { gte: since } } }),
+    prisma.portalAttachment.count({ where: { uploaded_by_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - 60 * 60 * 1000) } } }),
     prisma.portalAttachment.aggregate({
       where: conversationId
         ? { conversation_id: conversationId, is_deleted: false }
@@ -50,7 +51,8 @@ export async function stageUpload(
       _sum: { size_bytes: true },
     }),
   ]);
-  if (today >= MAX_UPLOADS_PER_CONTACT_DAY) throw new ApiError('You have uploaded a lot of files today. Please try again tomorrow.', 429, 'rate_limited');
+  if (lastHour >= MAX_UPLOADS_PER_CONTACT_HOUR) throw new ApiError('You have uploaded a lot of files in a short time. Please try again in a few minutes.', 429, 'rate_limited', 'uploads_per_hour');
+  if (today >= MAX_UPLOADS_PER_CONTACT_DAY) throw new ApiError('You have uploaded a lot of files today. Please try again tomorrow.', 429, 'rate_limited', 'uploads_per_day');
   if ((used._sum.size_bytes ?? 0) + checked.file.size_bytes > MAX_BYTES_PER_CONVERSATION) throw new ApiError('This conversation has reached its file limit.', 400, 'conversation_files_full');
 
   const id = crypto.randomUUID();

@@ -1,3 +1,4 @@
+import { IndelibleMark } from '@/components/portal/ui/indelible-mark';
 import { ASSISTANT_NAME } from '@/lib/portal/chat/copy';
 
 // The assistant is writing. The words come from the server (Writing, Still writing, Checking your
@@ -5,8 +6,8 @@ import { ASSISTANT_NAME } from '@/lib/portal/chat/copy';
 export function WritingBubble({ label }: { label: string }) {
   return (
     <div className="msg us writing" data-testid="chat-writing">
-      <span className="av" aria-hidden="true">
-        I
+      <span className="av av-mark" aria-hidden="true">
+        <IndelibleMark size={28} />
       </span>
       <span className="who">{ASSISTANT_NAME}</span>
       <div className="bub">

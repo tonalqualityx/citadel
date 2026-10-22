@@ -231,14 +231,16 @@ describe('fileRequest: rate limits', () => {
     tx.task.count.mockResolvedValueOnce(LIMITS.per_hour).mockResolvedValueOnce(LIMITS.per_hour);
     const err = await fileRequest(access, contact, siteChange, { now: NOW }).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ statusCode: 429, code: 'rate_limited', message: RATE_LIMIT_MESSAGE });
+    expect(err).toMatchObject({ statusCode: 429, code: 'rate_limited', limit: 'requests_per_hour', message: RATE_LIMIT_MESSAGE });
+    expect(RATE_LIMIT_MESSAGE).toBe('You have sent a lot in a short time. Please try again in a few minutes.');
+    expect([LIMITS.per_hour, LIMITS.per_day, LIMITS.emergencies_per_day]).toEqual([20, 60, 3]);
     expect(tx.task.create).not.toHaveBeenCalled();
   });
-  it('429s at 20 a day', async () => {
+  it('429s at 60 a day', async () => {
     tx.task.count.mockResolvedValueOnce(2).mockResolvedValueOnce(LIMITS.per_day);
-    await expect(fileRequest(access, contact, siteChange, { now: NOW })).rejects.toMatchObject({ statusCode: 429 });
+    await expect(fileRequest(access, contact, siteChange, { now: NOW })).rejects.toMatchObject({ statusCode: 429, limit: 'requests_per_day' });
   });
-  it('lets 5 an hour and 19 a day through', async () => {
+  it('lets 19 an hour and 59 a day through', async () => {
     tx.task.count.mockResolvedValueOnce(LIMITS.per_hour - 1).mockResolvedValueOnce(LIMITS.per_day - 1);
     await expect(fileRequest(access, contact, siteChange, { now: NOW })).resolves.toMatchObject({ created: true });
   });

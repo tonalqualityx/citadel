@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { searchSitePages } from '@/lib/portal/chat/site-pages-read';
@@ -12,7 +12,7 @@ import { searchSitePages } from '@/lib/portal/chat/site-pages-read';
 // role and get a 404 too.
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const limited = rateLimit(request, 120);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

@@ -22,11 +22,18 @@ import { emailClientMessage, staffQuietLastHour } from '@/lib/portal/staff-notif
 
 export const STAFF_AUTHOR_NAME = 'Indelible';
 export const MESSAGE_MAX_CHARS = 4000;
-export const MESSAGE_LIMITS = { per_ten_minutes: 20, per_day: 200 } as const;
-export const MESSAGE_RATE_LIMIT_MESSAGE =
-  'You have sent a lot in a short time. Please try again in a few minutes, or email support@becomeindelible.com.';
+export const MESSAGE_LIMITS = { per_hour: 120, per_day: 200 } as const;
 
-const TEN_MINUTES = 10 * 60 * 1000;
+/** Which message limit a contact has hit, or null. The name goes to the client as `limit`. */
+export function messageLimitName(lastHour: number, lastDay: number): 'messages_per_hour' | 'messages_per_day' | null {
+  if (lastHour >= MESSAGE_LIMITS.per_hour) return 'messages_per_hour';
+  if (lastDay >= MESSAGE_LIMITS.per_day) return 'messages_per_day';
+  return null;
+}
+export const MESSAGE_RATE_LIMIT_MESSAGE =
+  'You have sent a lot in a short time. Please try again in a few minutes.';
+
+const HOUR = 60 * 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
 const THREAD_LIMIT = 500;
 
@@ -207,12 +214,11 @@ export async function postClientMessage(
     }
 
     const [recent, today] = await Promise.all([
-      tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - TEN_MINUTES) } } }),
+      tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - HOUR) } } }),
       tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - DAY) } } }),
     ]);
-    if (recent >= MESSAGE_LIMITS.per_ten_minutes || today >= MESSAGE_LIMITS.per_day) {
-      throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited');
-    }
+    const messageLimit = messageLimitName(recent, today);
+    if (messageLimit) throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited', messageLimit);
 
     const row = await tx.comment.create({
       data: {

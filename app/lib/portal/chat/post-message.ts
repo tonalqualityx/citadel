@@ -12,7 +12,7 @@ import { ApiError } from '@/lib/api/errors';
 import type { PortalAccess } from '@/lib/portal/access';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { createNotification } from '@/lib/services/notifications';
-import { MESSAGE_LIMITS, MESSAGE_MAX_CHARS, MESSAGE_RATE_LIMIT_MESSAGE, threadTaskWhere } from '@/lib/portal/thread';
+import { messageLimitName, MESSAGE_MAX_CHARS, MESSAGE_RATE_LIMIT_MESSAGE, threadTaskWhere } from '@/lib/portal/thread';
 import { onClientMessage } from '@/lib/portal/waits';
 import { bindAttachments, FILES_ONLY_TEXT } from '@/lib/portal/chat/attachments';
 import { applyUrgentChoice, isUrgentText, type UrgentChoice, type UrgentOutcome } from '@/lib/portal/chat/urgent';
@@ -26,7 +26,7 @@ import { routeTurn, type TurnRoute } from '@/lib/portal/chat/jobs';
 import { newEmailToken } from '@/lib/portal/chat/file-early';
 import { chatAvailability } from '@/lib/portal/chat/switches';
 
-const TEN_MINUTES = 10 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
 
 export interface MessageBody {
@@ -122,10 +122,11 @@ export async function postChatMessage(
     }
 
     const [recent, today] = await Promise.all([
-      tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - TEN_MINUTES) } } }),
+      tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - HOUR) } } }),
       tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - DAY) } } }),
     ]);
-    if (recent >= MESSAGE_LIMITS.per_ten_minutes || today >= MESSAGE_LIMITS.per_day) throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited');
+    const messageLimit = messageLimitName(recent, today);
+    if (messageLimit) throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited', messageLimit);
 
     let slots = readSlots(convo.slots);
     const ask = readAsk(convo.open_ask);

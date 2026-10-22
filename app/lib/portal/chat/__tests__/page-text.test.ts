@@ -115,10 +115,10 @@ describe('the name rule and sourced quotes', () => {
     contactEmail: null,
   });
 
-  it('an ordinary word that is another client\'s short name passes inside a sourced quote, and still fails outside one', () => {
+  it('an ordinary word that is part of another client\'s name passes anywhere; the full name still fails', () => {
     const summary = 'Remove "done right the first time" from the What we do section on the Home page.';
     expect(gateReply(summary, ctx([]), 'summary')).toEqual({ ok: true });
-    expect(gateReply('Remove "first rate" from the Home page.', ctx([]), 'summary')).toMatchObject({ ok: false, rule: 'name' });
+    expect(gateReply('Remove "first rate" from the Home page.', ctx([]), 'summary')).toEqual({ ok: true });
     expect(gateReply('First Congregational Church asked too.', ctx([]), 'reply')).toMatchObject({ ok: false, rule: 'name' });
   });
 });
