@@ -355,7 +355,7 @@ export const SENT_DOWNGRADED = 'Received. We will look at it in order.';
 export const SENT_LINK_LABEL = 'View your request';
 
 export const RATE_LIMIT_MESSAGE =
-  'You have sent a lot in a short time. Please try again in a few minutes, or email support@becomeindelible.com.';
+  'You have sent a lot in a short time. Please try again in a few minutes.';
 export const NO_PERMISSION_MESSAGE = 'Your account can look at requests but not send them. Please ask the account owner.';
 
 /** Client words for the preset "where does it live" labels, used in the summary. */

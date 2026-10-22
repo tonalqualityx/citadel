@@ -70,7 +70,7 @@ async function siteIdByName(context: BrowserContext, name: string): Promise<stri
 let ownerTaskId = '';
 
 test.describe('Portal phase B slice 1: requests', () => {
-  test('files each kind of request with the right chain, tags and client label, then rate-limits the 7th', async ({ browser }) => {
+  test('files each kind of request with the right chain, tags and client label, then rate-limits the 21st', async ({ browser }) => {
     const context = await browser.newContext();
     await loginAs(context, OWNER_TOKEN);
     const siteOne = await siteIdByName(context, SITE_ONE);
@@ -164,10 +164,17 @@ test.describe('Portal phase B slice 1: requests', () => {
     expect((await again.json()).task.id).toBe(ia.task?.id);
     expect(inspect(a.intake_id).waits).toHaveLength(1);
 
-    // Six distinct requests an hour is the limit; the seventh says so in plain words.
-    const seventh = await file({ type: 'other', site_id: siteOne, answers: [{ key: 'q1', value: 'One more thing' }, { key: 'q2', value: 'not_really' }] });
-    expect(seventh.res.status()).toBe(429);
-    expect((await seventh.res.json()).error).toContain('You have sent a lot in a short time');
+    // Twenty distinct requests an hour is the limit (six are filed above); the twenty-first says so
+    // in plain words, without the support address, and names the limiter that fired.
+    for (let n = 7; n <= 20; n++) {
+      const filler = await file({ type: 'other', site_id: siteOne, answers: [{ key: 'q1', value: `Another thing ${n}` }, { key: 'q2', value: 'not_really' }] });
+      expect(filler.res.status()).toBe(201);
+    }
+    const over = await file({ type: 'other', site_id: siteOne, answers: [{ key: 'q1', value: 'One more thing' }, { key: 'q2', value: 'not_really' }] });
+    expect(over.res.status()).toBe(429);
+    const overBody = await over.res.json();
+    expect(overBody.error).toBe('You have sent a lot in a short time. Please try again in a few minutes.');
+    expect(overBody.limit).toBe('requests_per_hour');
 
     await context.close();
   });
@@ -242,12 +249,12 @@ test.describe('Portal phase B slice 1: requests', () => {
   });
 
   test('a burst of parallel requests cannot beat the hourly limit', async ({ browser }) => {
-    // The viewer filed one request in the chat test above; six an hour leaves room for five.
+    // The viewer filed one request in the chat test above; twenty an hour leaves room for nineteen.
     const context = await browser.newContext();
     await loginAs(context, VIEWER_TOKEN);
     const siteOne = await siteIdByName(context, SITE_ONE);
     const statuses = await Promise.all(
-      Array.from({ length: 8 }, (_, i) =>
+      Array.from({ length: 25 }, (_, i) =>
         context.request
           .post('/api/portal/requests', {
             data: { intake_id: uuid(), type: 'other', site_id: siteOne, answers: [{ key: 'q1', value: `Burst ${i}` }, { key: 'q2', value: 'not_really' }] },
@@ -255,8 +262,8 @@ test.describe('Portal phase B slice 1: requests', () => {
           .then((r) => r.status())
       )
     );
-    expect(statuses.filter((s) => s === 201)).toHaveLength(5);
-    expect(statuses.filter((s) => s === 429)).toHaveLength(3);
+    expect(statuses.filter((s) => s === 201)).toHaveLength(19);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(6);
     await context.close();
   });
 

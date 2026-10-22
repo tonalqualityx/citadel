@@ -11,7 +11,7 @@ vi.mock('@/lib/db/prisma', () => ({ prisma: { clientContact: { findFirst: vi.fn(
 vi.mock('@/lib/portal/intake/file-request', () => ({ fileRequest: vi.fn() }));
 vi.mock('@/lib/api/rate-limit', async () => {
   const { NextResponse } = await import('next/server');
-  return { rateLimit: vi.fn(() => null), tooMany: () => NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 }) };
+  return { rateLimit: vi.fn(() => null), portalReadRateLimit: vi.fn(() => null), tooMany: () => NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 }) };
 });
 vi.mock('@/lib/portal/requests', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/portal/requests')>();

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { Notification } from '@/lib/hooks/use-notifications';
 import { notificationTarget } from './notification-target';
+import { isUrgentNotification } from './urgent';
 
 interface NotificationItemProps {
   notification: Notification;
@@ -56,7 +57,8 @@ export function NotificationItem({
 }: NotificationItemProps) {
   const router = useRouter();
   const Icon = typeIcons[notification.type] || Bell;
-  const iconColor = typeColors[notification.type] || 'text-gray-500';
+  const urgent = isUrgentNotification(notification);
+  const iconColor = urgent ? 'text-error' : typeColors[notification.type] || 'text-gray-500';
 
   function handleClick() {
     if (!notification.is_read) {
@@ -73,8 +75,13 @@ export function NotificationItem({
   return (
     <div
       className={`group flex items-start gap-3 p-3 hover:bg-background-light cursor-pointer transition-colors ${
-        !notification.is_read ? 'bg-primary/5' : ''
+        urgent ? 'm-1 rounded-md border-2' : !notification.is_read ? 'bg-primary/5' : ''
       }`}
+      // Urgent items (the urgent email alert) carry a red outline and a faint red tint so they
+      // catch the eye in the bell list. Same error tokens as the Oracle crisis strip.
+      style={urgent ? { borderColor: 'var(--error)', backgroundColor: 'var(--error-subtle)' } : undefined}
+      data-urgent={urgent ? 'true' : undefined}
+      data-testid="notification-item"
       onClick={handleClick}
     >
       <div className={`mt-0.5 ${iconColor}`}>

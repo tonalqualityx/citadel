@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ApiError, handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { loadChatView } from '@/lib/portal/chat/view';
@@ -12,7 +12,7 @@ import { loadChatView } from '@/lib/portal/chat/view';
 // without a result) and answers the turn from the question tree. 404 for anything not theirs.
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const limited = rateLimit(request, 240);
+    const limited = portalReadRateLimit(request);
     if (limited) return limited;
     const session = await requireClientAuth();
     const access = await loadPortalAccess(session);

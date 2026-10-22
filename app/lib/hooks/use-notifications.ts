@@ -4,6 +4,8 @@ import { apiClient } from '@/lib/api/client';
 export interface Notification {
   id: string;
   type: string;
+  /** low | normal | high | critical. Optional so older cached rows still type-check. */
+  priority?: string;
   title: string;
   message: string | null;
   entity_type: string | null;

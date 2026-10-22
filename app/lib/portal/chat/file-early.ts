@@ -14,9 +14,9 @@ import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { MIKE_USER_ID } from '@/lib/waits/owner';
 import type { PortalAccess } from '@/lib/portal/access';
 import { composeTitle, TITLE_MAX, CLIENT_INPUT_HEADER } from '@/lib/portal/intake/compose';
-import { LIMITS, WORDPRESS_ASSIGNEE_EMAIL } from '@/lib/portal/intake/file-request';
+import { LIMITS, requestLimitName, WORDPRESS_ASSIGNEE_EMAIL } from '@/lib/portal/intake/file-request';
 import { NO_PERMISSION_MESSAGE, RATE_LIMIT_MESSAGE } from '@/lib/portal/intake/tree';
-import { MESSAGE_LIMITS, MESSAGE_MAX_CHARS, MESSAGE_RATE_LIMIT_MESSAGE } from '@/lib/portal/thread';
+import { messageLimitName, MESSAGE_MAX_CHARS, MESSAGE_RATE_LIMIT_MESSAGE } from '@/lib/portal/thread';
 import { bindAttachments, FILES_ONLY_TEXT } from '@/lib/portal/chat/attachments';
 import { isUrgentText } from '@/lib/portal/chat/urgent';
 import { refreshTaskDescription } from '@/lib/portal/chat/description';
@@ -26,7 +26,6 @@ import { routeTurn, type TurnRoute } from '@/lib/portal/chat/jobs';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
-const TEN_MINUTES = 10 * 60 * 1000;
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
 
 /** 12 characters of base32 from crypto.randomBytes. */
@@ -97,11 +96,13 @@ export async function startChat(
     const [lastHour, lastDay, recent, today] = await Promise.all([
       tx.task.count({ where: { ...mine, created_at: { gte: new Date(now.getTime() - HOUR) } } }),
       tx.task.count({ where: { ...mine, created_at: { gte: new Date(now.getTime() - DAY) } } }),
-      tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - TEN_MINUTES) } } }),
+      tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - HOUR) } } }),
       tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - DAY) } } }),
     ]);
-    if (lastHour >= LIMITS.per_hour || lastDay >= LIMITS.per_day) throw new ApiError(RATE_LIMIT_MESSAGE, 429, 'rate_limited');
-    if (recent >= MESSAGE_LIMITS.per_ten_minutes || today >= MESSAGE_LIMITS.per_day) throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited');
+    const requestLimit = requestLimitName(lastHour, lastDay);
+    if (requestLimit) throw new ApiError(RATE_LIMIT_MESSAGE, 429, 'rate_limited', requestLimit);
+    const messageLimit = messageLimitName(recent, today);
+    if (messageLimit) throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited', messageLimit);
 
     const sites = await tx.site.findMany({
       where: { client_id: access.clientId, is_deleted: false },

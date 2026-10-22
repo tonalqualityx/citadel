@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/services/client-auth', () => ({ requireClientAuth: vi.fn() }));
-vi.mock('@/lib/api/rate-limit', () => ({ rateLimit: () => null }));
+vi.mock('@/lib/api/rate-limit', () => ({ rateLimit: () => null, portalReadRateLimit: () => null }));
 
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { prisma } from '@/lib/db/prisma';

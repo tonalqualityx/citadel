@@ -40,3 +40,33 @@ describe('NotificationItem click', () => {
     expect(push).toHaveBeenCalledWith(`/tasks/${T}`);
   });
 });
+
+describe('NotificationItem urgent outline', () => {
+  const render1 = (over: Record<string, unknown>) =>
+    render(
+      <NotificationItem
+        notification={{ ...base, type: 'system_alert', title: 'A title', entity_type: null, entity_id: null, ...over } as never}
+        onMarkAsRead={vi.fn()}
+        onDelete={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+  it('outlines an urgent email alert in the error color with a tint', () => {
+    const { getByTestId } = render1({ type: 'oracle_urgent_email', title: 'Urgent: site down' });
+    const el = getByTestId('notification-item');
+    expect(el.getAttribute('data-urgent')).toBe('true');
+    expect(el.className).toContain('border-2');
+    expect(el.style.borderColor).toBe('var(--error)');
+    expect(el.style.backgroundColor).toBe('var(--error-subtle)');
+  });
+  it('outlines any critical-priority alert', () => {
+    const { getByTestId } = render1({ priority: 'critical' });
+    expect(getByTestId('notification-item').getAttribute('data-urgent')).toBe('true');
+  });
+  it('leaves ordinary alerts alone', () => {
+    const { getByTestId } = render1({ priority: 'high' });
+    const el = getByTestId('notification-item');
+    expect(el.getAttribute('data-urgent')).toBeNull();
+    expect(el.style.borderColor).toBe('');
+  });
+});

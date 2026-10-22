@@ -11,6 +11,7 @@ import crypto from 'crypto';
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
 export const MAX_BYTES_PER_CONVERSATION = 150 * 1024 * 1024;
+export const MAX_UPLOADS_PER_CONTACT_HOUR = 30;
 export const MAX_UPLOADS_PER_CONTACT_DAY = 60;
 export const FILENAME_MAX = 120;
 
