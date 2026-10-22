@@ -1,5 +1,5 @@
 import {
-  BadgeCheck, CalendarDays, Check, CircleCheck, CircleDashed, Contrast, FileText, Flag, Folder, History,
+  BadgeCheck, CalendarDays, Check, CircleCheck, CircleX, CircleDashed, Contrast, FileText, Flag, Folder, History,
   MessageSquareText, PenLine, Tag, TriangleAlert, type LucideIcon,
 } from 'lucide-react';
 import type { ChipTone } from '@/lib/portal/status-labels';
@@ -23,11 +23,12 @@ export const KIND_ICON: Record<Kind, LucideIcon> = {
   history: History,
 };
 
-export type HistoryType = 'completed' | 'approved' | 'published' | 'milestone';
+export type HistoryType = 'completed' | 'approved' | 'cancelled' | 'published' | 'milestone';
 
 export const TYPE_ICON: Record<HistoryType, LucideIcon> = {
   completed: Check,
   approved: BadgeCheck,
+  cancelled: CircleX,
   published: FileText,
   milestone: Flag,
 };

@@ -313,6 +313,131 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await context.close();
   });
 
+  // Cancel this request (Mike's ruling, 2026-10-21).
+  const inspectCancel = (taskId: string) =>
+    JSON.parse(run(`${CHAT} --cancel-inspect ${taskId}`).trim().split('\n').filter((l) => l.startsWith('{')).pop()!) as {
+      task: { status: string; tags: string[] };
+      convo: { state: string } | null;
+      waits: Array<{ state: string; resolution: string | null }>;
+      notifications: number;
+      emails: number;
+      lines: number;
+    };
+
+  test('cancel from the chat mid-clarification: the chip, no composer, History lists it, a second cancel is a no-op', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    await ids(context);
+    await page.goto('/portal/requests/new');
+    const started = page.waitForResponse((r) => r.url().endsWith('/api/portal/chat') && r.request().method() === 'POST' && r.status() < 300);
+    await page.getByLabel('What do you need?').fill('Please cancel-test the opening hours on the website.');
+    await sendButton(page).click();
+    const taskId = ((await (await started).json()) as { task_id: string }).task_id;
+    await engineAnswers({
+      reply: 'Which page should this go on?',
+      actions: [
+        { type: 'record', site_id: siteId, attachment_ids: [], request_type: 'site_change' },
+        { type: 'ask', slot: 'page', question: 'Which page should this go on?', choice_ids: [pages.About, pages.Home], allow_free_text: true, allow_upload: false },
+      ],
+      sources: [],
+    });
+    await expect(page.getByTestId('chat-choices-page')).toBeVisible();
+
+    // A quiet text button first, then the inline confirm. Keep it puts it back and cancels nothing.
+    const link = page.getByRole('button', { name: 'Cancel this request' });
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveClass(/btn-quiet/);
+    await link.click();
+    await expect(page.getByText('Cancel it? This cannot be undone from here.')).toBeVisible();
+    await page.getByRole('button', { name: 'Keep it' }).click();
+    await expect(page.getByText('Cancel it? This cannot be undone from here.')).toHaveCount(0);
+    expect(inspectCancel(taskId).task.status).not.toBe('abandoned');
+
+    await link.click();
+    await page.getByRole('button', { name: 'Yes, cancel' }).click();
+    await expect(page.getByTestId('chat-cancelled-chip')).toContainText('Cancelled by you');
+    await expect(log(page)).toContainText('You cancelled this request.');
+    await expect(page.getByLabel('What do you need?')).toHaveCount(0);
+    await expect(page.getByTestId('chat-choices-page')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Cancel this request' })).toHaveCount(0);
+
+    let seen = inspectCancel(taskId);
+    expect(seen.task.status).toBe('abandoned');
+    expect(seen.task.tags).toContain('client-cancelled');
+    expect(seen.convo?.state).toBe('closed');
+    expect(seen.waits.filter((w) => w.state !== 'done')).toEqual([]);
+    expect(seen.lines).toBe(1);
+    expect(seen.notifications).toBe(0);
+    expect(seen.emails).toBe(0);
+
+    // A second cancel is a no-op: 200, nothing new.
+    const again = await context.request.post(`/api/portal/work/${taskId}/cancel`);
+    expect(again.status()).toBe(200);
+    expect(await again.json()).toMatchObject({ cancelled: false, already_cancelled: true });
+    seen = inspectCancel(taskId);
+    expect(seen.lines).toBe(1);
+
+    // The work page: the chip, no composer, no cancel link.
+    const title = ((await (await context.request.get(`/api/portal/work/${taskId}`)).json()) as { work: { title: string } }).work.title;
+    await page.goto(`/portal/work/${taskId}`);
+    await expect(page.locator('.chip').filter({ hasText: 'Cancelled by you' })).toBeVisible();
+    await expect(page.getByLabel('Add a message')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Cancel this request' })).toHaveCount(0);
+
+    // Needs you and Moving now leave it out; Requests lists it as closed.
+    await page.goto('/portal/home');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByText(title)).toHaveCount(0);
+    await page.goto('/portal/requests');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.locator('#requests-needs-you', { hasText: title })).toHaveCount(0);
+    await expect(page.locator('#requests-moving', { hasText: title })).toHaveCount(0);
+
+    // History lists it under the Cancelled filter.
+    await page.goto('/portal/history');
+    await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Cancelled' }).click();
+    await expect(page.getByText(title).first()).toBeVisible();
+    await expect(page.getByText('You cancelled').first()).toBeVisible();
+    await context.close();
+  });
+
+  test('live work offers Ask for a change, not Cancel, and opens a fresh request with the title in the box', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    const live = JSON.parse(run(`${CHAT} --live-task`).trim().split('\n').filter((l) => l.startsWith('{')).pop()!) as { task_id: string };
+    await page.goto(`/portal/work/${live.task_id}`);
+    await expect(page.locator('.chip').filter({ hasText: 'Done' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel this request' })).toHaveCount(0);
+    expect((await context.request.post(`/api/portal/work/${live.task_id}/cancel`)).status()).toBe(409);
+    await page.getByRole('link', { name: /Ask for a change/ }).first().click();
+    await expect(page).toHaveURL(/\/portal\/requests\/new\?change=/);
+    await expect(page.getByLabel('What do you need?')).toHaveValue('Change to: Live hours change');
+    // The person still presses Send: nothing was filed by arriving.
+    expect(inspectCancel(live.task_id).task.status).toBe('done');
+    await context.close();
+  });
+
+  test('cancel a staged request from its work page: the assignee gets a notification and one email', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    const staged = JSON.parse(run(`${CHAT} --staged-task`).trim().split('\n').filter((l) => l.startsWith('{')).pop()!) as { task_id: string };
+    await page.goto(`/portal/work/${staged.task_id}`);
+    await expect(page.getByText('Ready for your review').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel this request' }).first().click();
+    await page.getByRole('button', { name: 'Yes, cancel' }).click();
+    await expect(page.locator('.chip').filter({ hasText: 'Cancelled by you' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Approve' })).toHaveCount(0);
+    const seen = inspectCancel(staged.task_id);
+    expect(seen.task.status).toBe('abandoned');
+    expect(seen.task.tags).toContain('client-cancelled');
+    expect(seen.notifications).toBe(1);
+    expect(seen.emails).toBe(1);
+    expect(seen.lines).toBe(1);
+    // A repeat adds nothing.
+    await context.request.post(`/api/portal/work/${staged.task_id}/cancel`);
+    const after = inspectCancel(staged.task_id);
+    expect(after.notifications).toBe(1);
+    expect(after.emails).toBe(1);
+    await context.close();
+  });
+
   test('Request work in the nav always opens a fresh screen, with a notice and the earlier request saved', async ({ browser }) => {
     const { context, page } = await owner(browser);
     await page.goto('/portal/requests/new');

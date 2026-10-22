@@ -53,7 +53,7 @@ function Linked({ text }: { text: string }) {
   );
 }
 
-export function Thread({ taskId, onAuthLost }: { taskId: string; onAuthLost?: () => void }) {
+export function Thread({ taskId, onAuthLost, closed = false }: { taskId: string; onAuthLost?: () => void; /** A cancelled request takes no new messages. */ closed?: boolean }) {
   const viewAs = useViewAs();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -182,7 +182,7 @@ export function Thread({ taskId, onAuthLost }: { taskId: string; onAuthLost?: ()
         </ol>
       )}
 
-      <form onSubmit={send} className="composer">
+      {!closed && <form onSubmit={send} className="composer">
         <Field id="thread-message" label="Add a message" hint="Your message goes to the team working on this." error={error}>
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={4000} readOnly={!!viewAs} />
         </Field>
@@ -191,7 +191,7 @@ export function Thread({ taskId, onAuthLost }: { taskId: string; onAuthLost?: ()
             Send
           </PortalButton>
         </div>
-      </form>
+      </form>}
     </section>
   );
 }

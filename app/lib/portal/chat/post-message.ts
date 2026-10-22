@@ -25,6 +25,8 @@ import { syncProvisionalPlacement } from '@/lib/portal/chat/place';
 import { routeTurn, type TurnRoute } from '@/lib/portal/chat/jobs';
 import { newEmailToken } from '@/lib/portal/chat/file-early';
 import { chatAvailability } from '@/lib/portal/chat/switches';
+import { wasCancelledByClient } from '@/lib/portal/cancel-state';
+import { MESSAGE_AFTER_CANCEL_ERROR } from '@/lib/portal/cancel-copy';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -111,7 +113,7 @@ export async function postChatMessage(
     if (!convo || convo.client_id !== access.clientId) throw new ApiError('Not found', 404);
     const task = await tx.task.findFirst({
       where: threadTaskWhere(access, convo.task_id),
-      select: { id: true, title: true, client_title: true, assignee_id: true, client_id: true, project_id: true, charter_id: true, site_id: true, tags: true, client: { select: { name: true } } },
+      select: { id: true, title: true, client_title: true, assignee_id: true, client_id: true, project_id: true, charter_id: true, site_id: true, tags: true, status: true, client: { select: { name: true } } },
     });
     if (!task) throw new ApiError('Not found', 404);
 
@@ -120,6 +122,8 @@ export async function postChatMessage(
       if (dup.task_id !== convo.task_id || !dup.author_contact_id || !ids.includes(dup.author_contact_id)) throw new ApiError('Not found', 404);
       return { repeat: true as const, commentId: dup.id, convo, task, urgentChoice: null as UrgentChoice | null, state: convo.state };
     }
+    // A cancelled request stays cancelled: new words go in a new request.
+    if (task.status === 'abandoned' && wasCancelledByClient(task)) throw new ApiError(MESSAGE_AFTER_CANCEL_ERROR, 409, 'cancelled');
 
     const [recent, today] = await Promise.all([
       tx.comment.count({ where: { author_contact_id: { in: ids }, created_at: { gte: new Date(now.getTime() - HOUR) } } }),

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { decideTokenReset, EARLIER_REQUEST_NOTICE, NEW_REQUEST_PARAM, REQUEST_NEW_PATH } from '@/lib/portal/request-token';
+import { changePrefill, CHANGE_PARAM, decideTokenReset, EARLIER_REQUEST_NOTICE, NEW_REQUEST_PARAM, REQUEST_NEW_PATH } from '@/lib/portal/request-token';
 import { IntakeChat } from '@/components/portal/intake/intake-chat';
 import { PageHeader } from '@/components/portal/ui/page-header';
 import { Callout } from '@/components/portal/ui/callout';
@@ -58,7 +58,9 @@ const STEPPER_LEDE = 'A few short questions, then you check it and send. Nothing
 
 export function RequestEntry() {
   const router = useRouter();
-  const token = useSearchParams().get(NEW_REQUEST_PARAM);
+  const params = useSearchParams();
+  const token = params.get(NEW_REQUEST_PARAM);
+  const prefill = changePrefill(params.get(CHANGE_PARAM));
   const resumeRef = useRef<Resume | null>(null);
   const [notice, setNotice] = useState(false);
   const [mode, setMode] = useState<'loading' | 'chat' | 'stepper' | 'error' | 'no_permission'>('loading');
@@ -66,6 +68,8 @@ export function RequestEntry() {
   const [carried, setCarried] = useState<{ text: string; files: number } | null>(null);
   const siteRef = useRef<string | null>(null);
   const filedRef = useRef(false);
+  // The "Change to: ..." prefill goes in the first chat of this visit only, never in one started after it.
+  const [prefillIntakeId, setPrefillIntakeId] = useState<string | null>(null);
 
   // A fresh request: forget the saved chat and remount the chat under a new intake id.
   const startFresh = useCallback(() => {
@@ -109,7 +113,9 @@ export function RequestEntry() {
             }
           }
           if (cancelled) return;
-          setResume(r && r.intakeId ? r : { intakeId: crypto.randomUUID(), conversationId: null });
+          const next = r && r.intakeId ? r : { intakeId: crypto.randomUUID(), conversationId: null };
+          setResume(next);
+          setPrefillIntakeId((id) => id ?? next.intakeId);
           setMode('chat');
         } else setMode(ctx.can_request ? 'stepper' : 'no_permission');
       } catch {
@@ -166,7 +172,7 @@ export function RequestEntry() {
     return (
       <>
         {header(STEPPER_LEDE)}
-        <IntakeChat initialText={carried?.text} carriedFiles={carried?.files} />
+        <IntakeChat initialText={carried?.text ?? prefill} carriedFiles={carried?.files} />
       </>
     );
   }
@@ -225,6 +231,7 @@ export function RequestEntry() {
       ) : null}
       <ChatView
         key={resume?.intakeId}
+        initialText={resume?.intakeId && resume.intakeId === prefillIntakeId ? prefill : undefined}
         source={source}
         intakeId={resume?.intakeId}
         composerLabel="What do you need?"

@@ -13,9 +13,11 @@ import { PortalButton } from '@/components/portal/ui/button';
 import { ActionLink } from '@/components/portal/ui/action-link';
 import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { Thread } from '@/components/portal/thread';
+import { CancelRequest } from '@/components/portal/cancel-request';
 import { WorkChat } from '@/components/portal/chat/work-chat';
 import type { Engagement } from '@/lib/portal/engagement';
-import type { ChipTone } from '@/lib/portal/status-labels';
+import { REQUEST_LABELS, type ChipTone } from '@/lib/portal/status-labels';
+import type { CancelMode } from '@/lib/portal/cancel-state';
 
 // One piece of work in client words (portal phase B slice 1): read-only, plus the review block
 // when it is staged for the client, then the conversation (slice 2).
@@ -32,6 +34,7 @@ interface Work {
   answers: Array<{ prompt: string; value: string }>;
   staged: { preview_url: string; awaiting_approval: boolean } | null;
   can_act: boolean;
+  cancel: CancelMode;
 }
 
 function formatDate(iso: string): string {
@@ -144,6 +147,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
+  const cancelledByYou = work.state.label === REQUEST_LABELS.cancelled;
   const meta = [
     work.requested_by ? `Requested by ${work.requested_by.first_name} on ${formatDate(work.requested_at)}` : `Added ${formatDate(work.requested_at)}`,
     work.approved_at && formatDate(work.approved_at) ? `You approved this on ${formatDate(work.approved_at)}.` : null,
@@ -161,6 +165,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         lede={meta}
         motif="contours"
       />
+
+      <CancelRequest taskId={work.id} title={work.title} mode={work.cancel} onCancelled={load} onAuthLost={() => router.replace('/portal/login')} />
 
       {work.staged?.awaiting_approval && (
         <Callout icon={PenLine} title="Ready for your review" id="review">
@@ -227,9 +233,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           conversationId={chat.conversation_id}
           onAuthLost={() => router.replace('/portal/login')}
           reloadConversationId={load}
+          onCancelled={load}
+          cancelled={cancelledByYou}
         />
       ) : (
-        <Thread taskId={work.id} onAuthLost={() => router.replace('/portal/login')} />
+        <Thread taskId={work.id} onAuthLost={() => router.replace('/portal/login')} closed={cancelledByYou} />
       )}
     </>
   );

@@ -11,7 +11,7 @@ import { prisma } from '@/lib/db/prisma';
 import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { clientHistoryTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import { engagementOf, type Engagement } from '@/lib/portal/engagement';
-import type { ActivityType } from '@/lib/portal/status-labels';
+import { CLIENT_CANCELLED_TAG, type ActivityType } from '@/lib/portal/status-labels';
 
 export const HISTORY_DEFAULT_PAGE_SIZE = 20;
 export const HISTORY_MAX_PAGE_SIZE = 50;
@@ -108,7 +108,7 @@ export async function loadHistory(
   // Sort key is COALESCE(client_approved_at, completed_at), then id. Prisma cannot order by a
   // coalesce, so the two halves are queried apart (each ordered by its own column) and merged
   // with the same key. The merge is exact because each half is a sorted prefix.
-  const [approved, completed, articles] = await Promise.all([
+  const [approved, completed, cancelled, articles] = await Promise.all([
     prisma.task.findMany({
       where: { is_deleted: false, AND: [...base, { client_approved_at: { not: null } }] },
       select,
@@ -125,6 +125,14 @@ export async function loadHistory(
       orderBy: [{ completed_at: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
       take,
     }),
+    // Requests the client cancelled. The sort key is updated_at: the cancel is the last thing that
+    // happened to the task, and the task has no cancelled_at column.
+    prisma.task.findMany({
+      where: { is_deleted: false, AND: [...base, { status: 'abandoned', tags: { has: CLIENT_CANCELLED_TAG } }] },
+      select,
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }],
+      take,
+    }),
     clientLevel
       ? prisma.article.findMany({
           where: { client_id: access.clientId, status: 'published', is_deleted: false },
@@ -136,11 +144,11 @@ export async function loadHistory(
   ]);
 
   type Row = Sortable & { item: HistoryItem };
-  const taskRow = (t: (typeof approved)[number]): Row => ({
-    sortAt: t.client_approved_at ?? t.completed_at,
+  const taskRow = (t: (typeof approved)[number], cancelledRow = false): Row => ({
+    sortAt: cancelledRow ? t.updated_at : t.client_approved_at ?? t.completed_at,
     id: t.id,
     item: {
-      type: t.client_approved_at ? 'task_approved' : 'task_completed',
+      type: cancelledRow ? 'task_cancelled' : t.client_approved_at ? 'task_approved' : 'task_completed',
       id: t.id,
       title: t.client_title ?? t.title,
       url: null,
@@ -154,7 +162,7 @@ export async function loadHistory(
           : null,
         site: t.site,
       }),
-      at: t.client_approved_at ?? t.completed_at ?? t.updated_at,
+      at: cancelledRow ? t.updated_at : t.client_approved_at ?? t.completed_at ?? t.updated_at,
     },
   });
   const articleRows = articles.map(
@@ -165,6 +173,6 @@ export async function loadHistory(
     })
   );
 
-  const { items, hasMore } = pageMerged([approved.map(taskRow), completed.map(taskRow), articleRows], page, pageSize);
+  const { items, hasMore } = pageMerged([approved.map((t) => taskRow(t)), completed.map((t) => taskRow(t)), cancelled.map((t) => taskRow(t, true)), articleRows], page, pageSize);
   return { items: items.map((i) => i.item), hasMore };
 }

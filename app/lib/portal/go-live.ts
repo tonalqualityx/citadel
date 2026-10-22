@@ -183,6 +183,8 @@ export async function markLive(input: {
     },
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
+  // A cancelled request is not published, even with force: staff reopen it first.
+  if (task.status === 'abandoned') throw new ApiError('This task was abandoned, so it cannot go live. Reopen it first.', 409, 'abandoned');
   if (!isApprovedState(task) && !input.force) {
     throw new ApiError('The client has not approved this task yet. Nothing was published to them.', 409, 'not_approved');
   }

@@ -14,6 +14,11 @@
  *                   a numbers reply (with its source line) and a team reply. Prints their ids as JSON.
  *   --lazy-task     a filed portal request with NO conversation yet (a work page whose chat opens on the
  *                   first message); prints its id as JSON.
+ *   --staged-task   a portal request staged for the client (status review, a preview url) and assigned to Mike, so
+ *                   a cancel has a person to tell; prints its id as JSON.
+ *   --live-task     a portal request that is live (status done), for the "Ask for a change" path; prints its id as JSON.
+ *   --cancel-inspect <task id>  prints what a cancel left behind (status, tags, conversation state, open waits,
+ *                   the assignee's notification rows and the cancel email rows) as one JSON line.
  *   --staff-reply <text>  a client-visible staff comment (what "Reply to client" writes) on the fixture client's newest
  *                   with_person conversation, from Mike. Playwright has no staff session, so this stands in for the
  *                   comments route; prints the first name the client should see.
@@ -150,6 +155,7 @@ async function cleanup() {
   await prisma.waitEvent.deleteMany({ where: { wait: { task_id: { in: taskIds } } } });
   await prisma.wait.deleteMany({ where: { task_id: { in: taskIds } } });
   await prisma.notification.deleteMany({ where: { entity_id: { in: taskIds } } });
+  await prisma.emailOutbox.deleteMany({ where: { dedupe_key: { in: taskIds.map((id) => `portal-cancel:${id}`) } } });
   await prisma.portalAttachment.deleteMany({ where: { client_id: client.id } });
   await prisma.chatConversation.deleteMany({ where: { client_id: client.id } });
   await prisma.comment.deleteMany({ where: { task_id: { in: taskIds } } });
@@ -175,6 +181,46 @@ async function main() {
       },
     });
     console.log(JSON.stringify({ task_id: task.id }));
+    return;
+  }
+  if (args.includes('--staged-task')) {
+    const client = await fixtureClient();
+    const owner = await prisma.clientContact.findFirstOrThrow({ where: { client_id: client.id, email: 'contact@e2e-portal-fixture.example' } });
+    const site = await prisma.site.findFirstOrThrow({ where: { client_id: client.id, is_deleted: false }, orderBy: { name: 'asc' } });
+    const mike = await prisma.user.findFirstOrThrow({ where: { email: 'mike@becomeindelible.com' }, select: { id: true } });
+    const task = await prisma.task.create({
+      data: {
+        title: 'Site change: staged for cancel', client_title: 'Staged hours change', client_id: client.id, site_id: site.id, requested_by_contact_id: owner.id,
+        source: 'portal', source_ref: `portal-chat:e2e-staged-${Date.now()}`, status: 'review', tags: ['portal-chat'], assignee_id: mike.id,
+        staging_preview_url: 'https://preview.e2e-portal-fixture.example/hours', staging_deployed_at: new Date(),
+      },
+    });
+    console.log(JSON.stringify({ task_id: task.id }));
+    return;
+  }
+  if (args.includes('--live-task')) {
+    const client = await fixtureClient();
+    const owner = await prisma.clientContact.findFirstOrThrow({ where: { client_id: client.id, email: 'contact@e2e-portal-fixture.example' } });
+    const site = await prisma.site.findFirstOrThrow({ where: { client_id: client.id, is_deleted: false }, orderBy: { name: 'asc' } });
+    const task = await prisma.task.create({
+      data: {
+        title: 'Site change: live hours', client_title: 'Live hours change', client_id: client.id, site_id: site.id, requested_by_contact_id: owner.id,
+        source: 'portal', source_ref: `portal-chat:e2e-live-${Date.now()}`, status: 'done', completed_at: new Date(), tags: ['portal-chat'], assignee_id: BAST_USER_ID,
+      },
+    });
+    console.log(JSON.stringify({ task_id: task.id }));
+    return;
+  }
+  const ci = args.indexOf('--cancel-inspect');
+  if (ci >= 0) {
+    const id = args[ci + 1];
+    const task = await prisma.task.findUniqueOrThrow({ where: { id }, select: { status: true, tags: true, assignee_id: true } });
+    const convo = await prisma.chatConversation.findUnique({ where: { task_id: id }, select: { state: true } });
+    const waits = await prisma.wait.findMany({ where: { task_id: id }, select: { state: true, resolution: true } });
+    const notifications = task.assignee_id ? await prisma.notification.count({ where: { entity_type: 'task', entity_id: id, user_id: task.assignee_id, title: { startsWith: 'Client cancelled a request' } } }) : 0;
+    const emails = await prisma.emailOutbox.count({ where: { dedupe_key: `portal-cancel:${id}` } });
+    const lines = await prisma.comment.count({ where: { task_id: id, content: 'You cancelled this request.' } });
+    console.log(JSON.stringify({ task, convo, waits, notifications, emails, lines }));
     return;
   }
   if (args.includes('--screens')) return screens();

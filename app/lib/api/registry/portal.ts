@@ -700,8 +700,22 @@ export const portalEndpoints: ApiEndpoint[] = [
             answers: [{ prompt: 'string', value: 'string' }],
             staged: '{ preview_url, awaiting_approval }|null',
             can_act: 'boolean',
+            cancel: 'allowed|going_live|live|cancelled',
           },
         },
+      },
+    ],
+  },
+  {
+    path: '/api/portal/work/:id/cancel',
+    group: 'portal',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'The client cancels a request. Any portal user who can see the request may (the approve rule). Sets the task abandoned and tags it client-cancelled in one conditional UPDATE, posts the client-visible line "You cancelled this request." signed Indelible (marked so the chat sweep never emails it), closes the chat conversation (state closed), expires queued reply jobs and closes every open wait with the resolution cancelled. When work may be under way (in_progress, blocked or review) the assignee also gets a Citadel notification and one email (dedupe key portal-cancel:<task id>); an unstarted request tells nobody. Idempotent: a repeat answers 200 with already_cancelled true. 409 with code live when the change is done, 409 with code going_live when the client approved it and it is not live yet. 404 for work the contact may not see. A view-as session is refused with 403 first. Rate limited to 120 a minute. Staff reopen a cancelled request in Citadel; there is no un-cancel for the client, and new messages on it are refused (409 cancelled).',
+        auth: 'session',
+        responseExample: { cancelled: 'boolean', already_cancelled: 'boolean', staff_notified: 'boolean' },
       },
     ],
   },

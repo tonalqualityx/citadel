@@ -9,7 +9,7 @@ vi.mock('@/lib/services/client-auth', async (importOriginal) => {
 });
 // Portal phase C: the chat opens lazily; with chat off for the contact the phase B path runs unchanged.
 vi.mock('@/lib/portal/chat/post-message', () => ({ ensureConversation: vi.fn().mockResolvedValue(null), postChatMessage: vi.fn() }));
-vi.mock('@/lib/db/prisma', () => ({ prisma: { clientContact: { findFirst: vi.fn() } } }));
+vi.mock('@/lib/db/prisma', () => ({ prisma: { clientContact: { findFirst: vi.fn() }, task: { findFirst: vi.fn() } } }));
 vi.mock('@/lib/portal/thread', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/portal/thread')>();
   return { ...actual, loadThread: vi.fn(), postClientMessage: vi.fn() };
@@ -33,6 +33,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   (requireClientAuth as Mock).mockResolvedValue({ clientId: 'cl1', contactId: 'c1', role: 'viewer' });
   (prisma.clientContact.findFirst as Mock).mockResolvedValue({ id: 'c1', name: 'Dana' });
+  (prisma.task.findFirst as Mock).mockResolvedValue({ status: 'in_progress', tags: [] });
+});
+
+describe('POST after a cancel', () => {
+  it('409s a message on a request the client cancelled, before anything is saved', async () => {
+    (prisma.task.findFirst as Mock).mockResolvedValue({ status: 'abandoned', tags: ['client-cancelled'] });
+    const res = await post({ client_ref: REF, text: 'hi' });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('cancelled');
+    expect(postClientMessage).not.toHaveBeenCalled();
+  });
+  it('still takes a message on work staff closed', async () => {
+    (prisma.task.findFirst as Mock).mockResolvedValue({ status: 'abandoned', tags: [] });
+    (postClientMessage as Mock).mockResolvedValueOnce({ message: { id: 'm1' }, created: true });
+    expect((await post({ client_ref: REF, text: 'hi' })).status).toBe(201);
+  });
 });
 
 describe('GET /api/portal/work/:id/messages', () => {

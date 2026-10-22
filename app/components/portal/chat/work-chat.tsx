@@ -8,13 +8,15 @@ import { RateLimited, type ChatSource, type StartResult } from './use-chat';
 // conversation is not open yet), then the same chat as the request page. Sending the first message
 // opens the conversation (POST /api/portal/work/:id/messages), then the page asks for its id.
 export function WorkChat({
-  taskId, conversationId, onAuthLost, reloadConversationId,
+  taskId, conversationId, onAuthLost, reloadConversationId, onCancelled, cancelled = false,
 }: {
   taskId: string;
   conversationId: string | null;
   onAuthLost: () => void;
   /** Re-reads the work item and returns the conversation id it now has. */
   reloadConversationId: () => Promise<string | null>;
+  onCancelled?: () => void;
+  cancelled?: boolean;
 }) {
   const source: ChatSource = {
     conversationId,
@@ -68,6 +70,8 @@ export function WorkChat({
         hint="Your message goes to the team working on this. It is saved as soon as you send it."
         emptyLine="No messages yet. Add details, links or questions here and the team will see them on this request."
         taskId={taskId}
+        onCancelled={onCancelled}
+        noComposer={cancelled}
       />
     </section>
   );
