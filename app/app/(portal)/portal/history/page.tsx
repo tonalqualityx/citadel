@@ -41,6 +41,7 @@ type Entry = GroupableItem & { item: HistoryItem };
 const TYPE_OF: Record<ActivityType, HistoryType> = {
   task_completed: 'completed',
   task_approved: 'approved',
+  task_cancelled: 'cancelled',
   article_published: 'published',
 };
 
@@ -49,6 +50,7 @@ const FILTER_OPTIONS: { value: HistoryFilter; label: string }[] = [
   { value: 'site', label: 'Site work' },
   { value: 'article', label: 'Articles' },
   { value: 'approval', label: 'Your approvals' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 function swatch(label: string, kind: string) {
@@ -181,6 +183,7 @@ export default function ClientHistoryPage() {
             <span className="sep" aria-hidden="true" />
             {typeKey('Completed', 'completed')}
             {typeKey('You approved', 'approved')}
+            {typeKey('Cancelled', 'cancelled')}
             {typeKey('Published', 'published')}
             {typeKey('Milestone', 'milestone')}
           </div>

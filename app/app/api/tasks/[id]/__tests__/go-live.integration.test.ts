@@ -115,6 +115,18 @@ describe.skipIf(!SCRATCH)('staged -> approved -> live (real database)', () => {
     expect(await prisma.comment.count({ where: { task_id: a.taskId } })).toBe(1);
   });
 
+  it('a cancelled request cannot go live, even forced: 409 abandoned, nothing changes, nothing sent', async () => {
+    await prisma.task.update({ where: { id: a.taskId }, data: { status: 'abandoned', tags: ['client-cancelled'] } });
+    for (const body of [{ live_url: 'https://live.example.test/x' }, { live_url: 'https://live.example.test/x', force: true }]) {
+      const res = await live(body);
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('abandoned');
+    }
+    expect((await task()).status).toBe('abandoned');
+    expect(await outbox()).toHaveLength(0);
+    expect(await prisma.comment.count({ where: { task_id: a.taskId } })).toBe(0);
+  });
+
   it('live after approval: done + completed_at, one client-visible line, one email to the requester only; repeat sends nothing', async () => {
     await staged({ preview_url: 'https://preview.example.test/p6' });
     await approve();

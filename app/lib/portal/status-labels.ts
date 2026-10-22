@@ -76,11 +76,12 @@ export function phaseStateLabel(state: PhaseState): string {
   return PHASE_LABELS[state];
 }
 
-export type ActivityType = 'task_completed' | 'task_approved' | 'article_published';
+export type ActivityType = 'task_completed' | 'task_approved' | 'task_cancelled' | 'article_published';
 
 const ACTIVITY_PREFIX: Record<ActivityType, string> = {
   task_completed: 'Completed',
   task_approved: 'You approved',
+  task_cancelled: 'You cancelled',
   article_published: 'Published',
 };
 
@@ -105,8 +106,12 @@ export interface RequestStateFields {
   client_approved_at?: Date | string | null;
 }
 
+/** Tag the cancel route stamps beside status `abandoned` (the client ended the request). */
+export const CLIENT_CANCELLED_TAG = 'client-cancelled';
+
 export const REQUEST_LABELS = {
   closed: 'Closed',
+  cancelled: 'Cancelled by you',
   review: AWAITING_YOU_LABEL,
   approved: APPROVED_GOING_LIVE_LABEL,
   done: 'Done',
@@ -133,7 +138,9 @@ export function requestState(task: RequestStateFields): RequestState {
     !task.client_approved_at &&
     task.status === 'review';
 
-  if (task.status === 'abandoned') return { label: REQUEST_LABELS.closed, tone: 'quiet' };
+  if (task.status === 'abandoned') {
+    return { label: tags.includes(CLIENT_CANCELLED_TAG) ? REQUEST_LABELS.cancelled : REQUEST_LABELS.closed, tone: 'quiet' };
+  }
   if (staged) return { label: REQUEST_LABELS.review, tone: 'attention' };
   if (task.status === 'done' || task.client_approved_at) return { label: REQUEST_LABELS.done, tone: 'done' };
   if (tags.includes('awaiting-clarification')) return { label: REQUEST_LABELS.answer, tone: 'attention' };
@@ -148,5 +155,5 @@ export function requestState(task: RequestStateFields): RequestState {
 /** True when a request is finished from the client's side (it belongs under "closed"). */
 export function isRequestClosed(task: RequestStateFields): boolean {
   const s = requestState(task);
-  return s.label === REQUEST_LABELS.closed || s.label === REQUEST_LABELS.done;
+  return s.label === REQUEST_LABELS.closed || s.label === REQUEST_LABELS.cancelled || s.label === REQUEST_LABELS.done;
 }

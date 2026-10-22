@@ -43,7 +43,7 @@ const PAGES = [
 const LIB_FILES = [
   'headline.ts', 'history-group.ts', 'retainer.ts', 'status-labels.ts', 'engagement.ts', 'projects-list.ts',
   'project-view.ts', 'requests.ts', 'thread.ts', 'history.ts', 'booking.ts', 'waits.ts', 'share-reply.ts', 'notices.ts',
-  'intake/file-request.ts', 'view-as-copy.ts',
+  'intake/file-request.ts', 'view-as-copy.ts', 'cancel-copy.ts', 'cancel-state.ts', 'cancel.ts',
 ].map((f) => path.join(APP, 'lib/portal', f));
 
 const FILES = [...walk(path.join(APP, 'components/portal')), ...LIB_FILES, ...PAGES];

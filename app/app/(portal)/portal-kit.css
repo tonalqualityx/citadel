@@ -521,6 +521,13 @@ details.month[open] > summary .chev .close-t, details.month:not([open]) > summar
 [data-portal] .chat .err { font-size: var(--pk-fs-meta); color: var(--p-chip-urgent-fg); background: var(--p-chip-urgent-bg); padding: 8px 10px; border-radius: var(--p-radius); display: flex; gap: 8px; align-items: center; }
 [data-portal] .sent-chip { display: flex; gap: 8px; align-items: center; font-size: var(--pk-fs-meta); color: var(--p-ink-2); }
 [data-portal] .sent-chip svg.i { color: var(--p-done-icon); width: 18px; height: 18px; }
+
+/* Cancel this request: a quiet link, then an inline confirm. Never a primary button. */
+[data-portal] .cancel-request { margin: 8px 0; display: grid; gap: 8px; justify-items: start; }
+[data-portal] .cancel-request .btn-quiet { padding: 0 2px; font-size: var(--pk-fs-meta); text-decoration: underline; }
+[data-portal] .cancel-confirm { display: grid; gap: 8px; }
+[data-portal] .cancel-confirm p { margin: 0; }
+[data-portal] .cancel-request .err { font-size: var(--pk-fs-meta); color: var(--p-chip-urgent-fg); background: var(--p-chip-urgent-bg); padding: 8px 10px; border-radius: var(--p-radius); display: flex; gap: 8px; align-items: center; margin: 0; }
 [data-portal] .kbd-hint { display: none; }
 @media (hover: hover) and (pointer: fine) { [data-portal] .kbd-hint { display: block; } }
 [data-portal] .carried { margin-bottom: 16px; }

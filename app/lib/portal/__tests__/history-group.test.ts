@@ -34,7 +34,7 @@ describe('history-group', () => {
       item('5', '2026-10-16T15:00:00Z', 'task_approved', 'retainer'),
     ];
     const [g] = groupByMonth(items, NOW);
-    expect(g.byType).toEqual({ task_completed: 3, task_approved: 1, article_published: 1 });
+    expect(g.byType).toEqual({ task_completed: 3, task_approved: 1, task_cancelled: 0, article_published: 1 });
     expect(g.byKind).toEqual({ project: 1, retainer: 2, request: 2 });
     expect(g.summary).toBe('5 finished: 3 site changes, 1 article, 1 approval.');
   });
@@ -59,8 +59,23 @@ describe('history-group', () => {
   });
 
   it('summarizes singular and zero', () => {
-    expect(summarize({ task_completed: 1, task_approved: 0, article_published: 0 }, 1)).toBe('1 finished: 1 site change.');
-    expect(summarize({ task_completed: 0, task_approved: 0, article_published: 0 }, 0)).toBe(EMPTY_MONTH_LINE);
+    expect(summarize({ task_completed: 1, task_approved: 0, task_cancelled: 0, article_published: 0 }, 1)).toBe('1 finished: 1 site change.');
+    expect(summarize({ task_completed: 0, task_approved: 0, task_cancelled: 0, article_published: 0 }, 0)).toBe(EMPTY_MONTH_LINE);
+  });
+
+  it('lists cancelled requests under their own filter and says so in the month summary', () => {
+    const items = [
+      item('1', '2026-10-20T15:00:00Z', 'task_completed', 'request'),
+      item('2', '2026-10-19T15:00:00Z', 'task_cancelled', 'request'),
+    ];
+    const [all] = groupByMonth(items, NOW);
+    expect(all.items.map((i) => i.id)).toEqual(['1', '2']);
+    expect(all.summary).toBe('1 finished: 1 site change, 1 cancelled.');
+    const [only] = groupByMonth(items, NOW, { filter: 'cancelled' });
+    expect(only.items.map((i) => i.id)).toEqual(['2']);
+    expect(only.summary).toBe('1 cancelled.');
+    // The other filters leave it out.
+    expect(groupByMonth(items, NOW, { filter: 'site' })[0].items.map((i) => i.id)).toEqual(['1']);
   });
 
   it('ignores items with an invalid date', () => {

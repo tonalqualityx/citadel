@@ -229,3 +229,80 @@ export async function emailClientMessage(input: {
     return false;
   }
 }
+
+// ---- The client cancelled a request ------------------------------------------------------------
+
+export const CANCEL_NOTIFICATION_PREFIX = 'Client cancelled a request';
+
+export function buildCancelEmail(input: { clientName: string; contactName: string | null; requestTitle: string; taskId: string }): RequestEmail {
+  const who = input.contactName?.trim() || 'a contact';
+  return {
+    subject: `${input.clientName}: request cancelled in the portal`,
+    text: [
+      `${input.clientName} cancelled a request in the client portal. It is assigned to you. Please stop work on it.`,
+      '',
+      `Request: ${input.requestTitle}`,
+      `Cancelled by: ${who}`,
+      '',
+      'The task is now abandoned. If the client cancelled by mistake, reopen it in Citadel.',
+      '',
+      `Open the task: ${staffTaskUrl(input.taskId)}`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Work was under way when the client cancelled: tell the person on it. One in-app notification and
+ * one email, both idempotent per task. A task held by Bast (or nobody) has no person to tell; the
+ * worker's spawn gate never picks up an abandoned card. Best effort, like the rest of this module.
+ */
+export async function notifyClientCancelled(taskId: string, contactId: string | null): Promise<{ notified: boolean; emailed: boolean; reason?: string }> {
+  try {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: {
+        id: true,
+        title: true,
+        client_title: true,
+        assignee_id: true,
+        client: { select: { name: true } },
+        site: { select: { client: { select: { name: true } } } },
+        assignee: { select: { email: true, is_active: true } },
+      },
+    });
+    if (!task) return { notified: false, emailed: false, reason: 'no task' };
+    if (!task.assignee_id || task.assignee_id === BAST_USER_ID) return { notified: false, emailed: false, reason: 'assignee is Bast or empty' };
+    const contact = contactId ? await prisma.clientContact.findUnique({ where: { id: contactId }, select: { name: true } }) : null;
+    const clientName = task.client?.name ?? task.site?.client?.name ?? 'A client';
+    const requestTitle = task.client_title ?? task.title;
+
+    let notified = false;
+    const already = await prisma.notification.findFirst({
+      where: { user_id: task.assignee_id, entity_type: 'task', entity_id: task.id, type: 'system_alert', title: { startsWith: CANCEL_NOTIFICATION_PREFIX } },
+      select: { id: true },
+    });
+    if (!already) {
+      await createInAppNotificationOnly({
+        userId: task.assignee_id,
+        type: 'system_alert',
+        title: `${CANCEL_NOTIFICATION_PREFIX} from ${clientName}: ${requestTitle}`.slice(0, 255),
+        message: `Stop work on it. Open the task: ${staffTaskUrl(task.id)}`,
+        entityType: 'task',
+        entityId: task.id,
+        priority: 'high',
+      });
+      notified = true;
+    }
+
+    let emailed = false;
+    if (task.assignee?.email && task.assignee.is_active !== false) {
+      const mail = buildCancelEmail({ clientName, contactName: contact?.name ?? null, requestTitle, taskId: task.id });
+      await sendEmail({ to: task.assignee.email, subject: mail.subject, text: mail.text, kind: 'notification', dedupeKey: `portal-cancel:${task.id}` });
+      emailed = true;
+    }
+    return { notified, emailed };
+  } catch (error) {
+    console.error('portal cancel staff notification failed', error);
+    return { notified: false, emailed: false, reason: 'error' };
+  }
+}

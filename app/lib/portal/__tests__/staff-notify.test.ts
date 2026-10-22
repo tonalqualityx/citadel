@@ -16,7 +16,7 @@ vi.mock('@/lib/services/email', () => ({ sendEmail: vi.fn(async () => undefined)
 import { prisma } from '@/lib/db/prisma';
 import { createInAppNotificationOnly } from '@/lib/services/notifications';
 import { sendEmail } from '@/lib/services/email';
-import { buildRequestEmail, emailClientMessage, formatEastern, notifyNewPortalRequest, staffQuietLastHour } from '../staff-notify';
+import { buildCancelEmail, buildRequestEmail, emailClientMessage, formatEastern, notifyNewPortalRequest, staffQuietLastHour } from '../staff-notify';
 
 const TASK = '14d1ef50-0000-4000-8000-000000000000';
 const row = {
@@ -119,5 +119,21 @@ describe('client message helpers', () => {
     expect(ok).toBe(true);
     expect((sendEmail as Mock).mock.calls[0][0]).toMatchObject({ subject: 'Crappy Music: new message in the portal', kind: 'notification', dedupeKey: 'portal-message:c1' });
     expect((sendEmail as Mock).mock.calls[0][0].text).toContain('> Any news?');
+  });
+});
+
+describe('buildCancelEmail', () => {
+  it('says the client cancelled, asks the person to stop, and links the task', () => {
+    const mail = buildCancelEmail({ clientName: 'Crappy Music', contactName: 'Dana Fox', requestTitle: 'Update the hours', taskId: TASK });
+    expect(mail.subject).toBe('Crappy Music: request cancelled in the portal');
+    expect(mail.text).toContain('Crappy Music cancelled a request in the client portal');
+    expect(mail.text).toContain('Please stop work on it.');
+    expect(mail.text).toContain('Request: Update the hours');
+    expect(mail.text).toContain('Cancelled by: Dana Fox');
+    expect(mail.text).toContain(`/tasks/${TASK}`);
+    expect(mail.text).not.toMatch(/[—–]/);
+  });
+  it('names no one when the contact is unknown', () => {
+    expect(buildCancelEmail({ clientName: 'X', contactName: null, requestTitle: 'T', taskId: TASK }).text).toContain('Cancelled by: a contact');
   });
 });

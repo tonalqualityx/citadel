@@ -13,6 +13,7 @@ import { threadCommentWhere, threadTaskWhere } from '@/lib/portal/thread';
 import { destinationLine, EMERGENCY_LINE, QUOTE_LINE, type IntakeType } from '@/lib/portal/intake/tree';
 import { planLabel } from '@/lib/portal/engagement';
 import { ASSISTANT_NAME, BUTTONS, HANDOFF_BANNER, SENT_LINES, SUMMARY_LABELS, URGENT_CHOICES, URGENT_PROMPT, WRITING_LABELS } from '@/lib/portal/chat/copy';
+import { cancelMode, wasCancelledByClient } from '@/lib/portal/cancel-state';
 import { expireAndAdvance } from '@/lib/portal/chat/jobs';
 import { placeFor } from '@/lib/portal/chat/place';
 import { clientSites, conversationPages, pageLabel, readAsk, readSlots, resolveChoices, sectionsOf, siteLabel } from '@/lib/portal/chat/slots';
@@ -43,7 +44,7 @@ export async function loadChatView(access: PortalAccess, conversationId: string,
   const now = opts.now ?? new Date();
   const convoRow = await prisma.chatConversation.findUnique({ where: { id: conversationId }, select: { id: true, client_id: true, task_id: true } });
   if (!convoRow || convoRow.client_id !== access.clientId) throw new ApiError('Not found', 404);
-  const task0 = await prisma.task.findFirst({ where: threadTaskWhere(access, convoRow.task_id), select: { id: true } });
+  const task0 = await prisma.task.findFirst({ where: threadTaskWhere(access, convoRow.task_id), select: { id: true, title: true, client_title: true, status: true, tags: true, client_approved_at: true } });
   if (!task0) throw new ApiError('Not found', 404);
 
   await expireAndAdvance(conversationId, now);
@@ -159,6 +160,10 @@ export async function loadChatView(access: PortalAccess, conversationId: string,
     urgent,
     staff_reply: staffReply,
     banner: withPerson ? (staffReply ? STAFF_REPLIED_LINE(staffReply.first_name) : HANDOFF_BANNER) : convo.state === 'filed' ? `${SENT_LINES.heading} ${SENT_LINES.more}` : null,
+    // Whether the client may cancel this request, and the title a "change to" request carries.
+    cancel: cancelMode(task0),
+    cancelled_by_client: wasCancelledByClient(task0) && task0.status === 'abandoned',
+    task_title: task0.client_title ?? task0.title,
     poll_seconds: writing ? 3 : withPerson ? 8 : 30,
   };
 }

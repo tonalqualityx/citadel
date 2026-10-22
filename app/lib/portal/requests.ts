@@ -11,6 +11,7 @@ import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import { engagementOf, type Engagement } from '@/lib/portal/engagement';
 import { requestState, type RequestState } from '@/lib/portal/status-labels';
+import { cancelMode, type CancelMode } from '@/lib/portal/cancel-state';
 
 export const DEFAULT_CLOSED_DAYS = 30;
 export const MAX_CLOSED_DAYS = 365;
@@ -187,6 +188,8 @@ export interface WorkItem {
   /** Set when the work is staged for the client. */
   staged: { preview_url: string; awaiting_approval: boolean } | null;
   can_act: boolean;
+  /** Whether the client may cancel it: allowed, going_live, live (offer "Ask for a change") or cancelled. */
+  cancel: CancelMode;
 }
 
 function answersOf(intake: unknown): Array<{ prompt: string; value: string }> {
@@ -241,5 +244,6 @@ export async function loadWorkItem(access: PortalAccess, taskId: string): Promis
     // Mike's ruling: for now ANY portal user may approve or request changes (no role gate on the
     // approve routes), so the review block shows its buttons to everyone who can see the task.
     can_act: true,
+    cancel: cancelMode(r),
   };
 }

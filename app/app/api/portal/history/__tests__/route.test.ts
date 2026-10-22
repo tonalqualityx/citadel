@@ -64,11 +64,12 @@ const ms = (d: Date | null) => (d ? d.getTime() : -Infinity);
  * client_approved_at desc, id desc), the completed half (completed_at desc nulls last, id desc)
  * and articles (updated_at desc, id desc), each honoring `take`.
  */
-function serveTasks(approved: Row[], completed: Row[]) {
+function serveTasks(approved: Row[], completed: Row[], cancelled: Row[] = []) {
   mockTasks.mockImplementation(async (args: { orderBy: Record<string, unknown>[]; take: number }) => {
     const byApproved = 'client_approved_at' in args.orderBy[0];
-    const rows = [...(byApproved ? approved : completed)];
-    const key = (r: Row) => ms(byApproved ? r.client_approved_at : r.completed_at);
+    const byCancelled = 'updated_at' in args.orderBy[0];
+    const rows = [...(byCancelled ? cancelled : byApproved ? approved : completed)];
+    const key = (r: Row) => ms(byCancelled ? r.updated_at : byApproved ? r.client_approved_at : r.completed_at);
     rows.sort((a, b) => key(b) - key(a) || (a.id < b.id ? 1 : -1));
     return rows.slice(0, args.take);
   });
@@ -106,6 +107,17 @@ describe('GET /api/portal/history', () => {
     const body = await (await GET(req())).json();
     expect(body.items.map((i: { id: string }) => i.id)).toEqual(['c2', 'a1', 'art1', 'c1']);
     expect(body.items[1]).toMatchObject({ type: 'task_approved' });
+  });
+
+  it('lists a request the client cancelled as task_cancelled, dated by its last update, and queries only abandoned work with the tag', async () => {
+    serveTasks([], [taskRow('c1', { completed_at: day(10) })], [taskRow('x1', { completed_at: null, updated_at: day(20) })]);
+    const body = await (await GET(req())).json();
+    expect(body.items.map((i: { id: string; type: string }) => [i.id, i.type])).toEqual([['x1', 'task_cancelled'], ['c1', 'task_completed']]);
+    expect(body.items[0].at).toBe(day(20).toISOString());
+    const cancelledCall = mockTasks.mock.calls.map((c) => c[0]).find((c) => 'updated_at' in c.orderBy[0]);
+    expect(cancelledCall.where.AND).toContainEqual({ status: 'abandoned', tags: { has: 'client-cancelled' } });
+    expect(cancelledCall.where.AND).toContainEqual(clientHistoryTaskWhere());
+    expect(cancelledCall.where.AND).toContainEqual(taskAccessWhere({ contactId: 'contact-1', clientId: 'client-acme', role: 'owner' }));
   });
 
   it('pages with no duplicates and no gaps, even with identical timestamps', async () => {

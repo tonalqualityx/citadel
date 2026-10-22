@@ -7,7 +7,7 @@ import type { ActivityType } from '@/lib/portal/status-labels';
 
 export const HISTORY_TZ = 'America/New_York';
 
-export type HistoryFilter = 'all' | 'site' | 'article' | 'approval';
+export type HistoryFilter = 'all' | 'site' | 'article' | 'approval' | 'cancelled';
 export type HistoryKind = 'project' | 'retainer' | 'request';
 
 export interface GroupableItem {
@@ -70,6 +70,7 @@ export function matchesFilter(type: ActivityType, filter: HistoryFilter): boolea
   if (filter === 'all') return true;
   if (filter === 'site') return type === 'task_completed';
   if (filter === 'article') return type === 'article_published';
+  if (filter === 'cancelled') return type === 'task_cancelled';
   return type === 'task_approved';
 }
 
@@ -85,7 +86,9 @@ export function summarize(byType: Record<ActivityType, number>, total: number): 
   if (byType.task_completed) parts.push(plural(byType.task_completed, 'site change', 'site changes'));
   if (byType.article_published) parts.push(plural(byType.article_published, 'article', 'articles'));
   if (byType.task_approved) parts.push(plural(byType.task_approved, 'approval', 'approvals'));
-  return `${total} finished: ${parts.join(', ')}.`;
+  const finished = total - byType.task_cancelled;
+  if (byType.task_cancelled) parts.push(`${byType.task_cancelled} cancelled`);
+  return finished > 0 ? `${finished} finished: ${parts.join(', ')}.` : `${parts.join(', ')}.`;
 }
 
 export interface GroupOptions {
@@ -112,7 +115,7 @@ export function groupByMonth<T extends GroupableItem>(items: T[], now: Date, opt
     const visible = all
       .filter((it) => matchesFilter(it.type, filter) && (site === null || !it.site || it.site === site))
       .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    const byType: Record<ActivityType, number> = { task_completed: 0, task_approved: 0, article_published: 0 };
+    const byType: Record<ActivityType, number> = { task_completed: 0, task_approved: 0, task_cancelled: 0, article_published: 0 };
     const byKind: Record<HistoryKind, number> = { project: 0, retainer: 0, request: 0 };
     for (const it of visible) {
       byType[it.type] += 1;

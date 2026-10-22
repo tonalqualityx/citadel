@@ -5,8 +5,10 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { portalReadRateLimit } from '@/lib/api/rate-limit';
 import { requireClientAuth } from '@/lib/services/client-auth';
 import { loadPortalAccess } from '@/lib/portal/access';
-import { loadThread, MESSAGE_MAX_CHARS, postClientMessage, toThreadMessage } from '@/lib/portal/thread';
+import { loadThread, MESSAGE_MAX_CHARS, postClientMessage, threadTaskWhere, toThreadMessage } from '@/lib/portal/thread';
 import { ensureConversation, postChatMessage } from '@/lib/portal/chat/post-message';
+import { wasCancelledByClient } from '@/lib/portal/cancel-state';
+import { MESSAGE_AFTER_CANCEL_ERROR } from '@/lib/portal/cancel-copy';
 import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 
 const bodySchema = z.object({
@@ -61,6 +63,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       select: { id: true, name: true },
     });
     if (!contact) throw new ApiError('Not found', 404);
+    // A cancelled request stays cancelled: no new conversation, no new message.
+    const state = await prisma.task.findFirst({ where: threadTaskWhere(access, id), select: { status: true, tags: true } });
+    if (state && state.status === 'abandoned' && wasCancelledByClient(state)) throw new ApiError(MESSAGE_AFTER_CANCEL_ERROR, 409, 'cancelled');
     // Portal phase C: a task with a conversation (or one chat is available for) goes through the chat,
     // which opens the conversation lazily on the first client message and queues the reply job.
     const conversationId = await ensureConversation(access, id);

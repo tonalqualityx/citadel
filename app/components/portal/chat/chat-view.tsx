@@ -5,6 +5,9 @@ import { Check, FileText } from 'lucide-react';
 import { ChatBubble } from '@/components/portal/intake/chat-bubble';
 import { Skeleton } from '@/components/portal/ui/skeleton';
 import { PortalButton } from '@/components/portal/ui/button';
+import { CancelRequest } from '@/components/portal/cancel-request';
+import { StatusChip } from '@/components/portal/ui/status-chip';
+import { REQUEST_LABELS } from '@/lib/portal/status-labels';
 import { splitLinks } from '@/lib/portal/linkify';
 import { SENT_LINES } from '@/lib/portal/chat/copy';
 import { SENT_HEADING } from '@/lib/portal/intake/tree';
@@ -79,7 +82,7 @@ function MessageFiles({ files }: { files: ChatMessage['attachments'] }) {
 }
 
 export function ChatView({
-  source, intakeId, composerLabel, hint, emptyLine, viewRequestHref, showDisclosure = true, taskId, onStartAnother,
+  source, intakeId, composerLabel, hint, emptyLine, viewRequestHref, showDisclosure = true, taskId, onStartAnother, onCancelled, noComposer = false,
 }: {
   source: ChatSource;
   intakeId?: string | null;
@@ -94,6 +97,10 @@ export function ChatView({
   taskId?: string | null;
   /** On the request page: start a fresh request once this one is filed. */
   onStartAnother?: () => void;
+  /** The work page re-reads the request when it is cancelled from here. */
+  onCancelled?: () => void;
+  /** The request is cancelled before a conversation exists: nothing more can be sent. */
+  noComposer?: boolean;
 }) {
   const chat = useChat(source);
   const ping = usePresence(chat.convId);
@@ -281,7 +288,7 @@ export function ChatView({
           </section>
         )}
 
-        {!closed && (
+        {!closed && !noComposer && (
           <Composer
             label={composerLabel}
             hint={hint}
@@ -297,6 +304,24 @@ export function ChatView({
             filesProblem={uploads.problem}
             wantsFile={Boolean(ask?.allow_upload)}
             textareaRef={textareaRef}
+          />
+        )}
+        {/* On the work page the header chip already says it; the request page has no header chip. */}
+        {p?.cancelled_by_client && !taskId && (
+          <p className="sent-chip" data-testid="chat-cancelled-chip">
+            <StatusChip label={REQUEST_LABELS.cancelled} tone="quiet" />
+          </p>
+        )}
+        {p && (
+          <CancelRequest
+            taskId={p.task_id}
+            title={p.task_title}
+            mode={p.cancel}
+            onAuthLost={source.onAuthLost}
+            onCancelled={() => {
+              chat.refresh();
+              onCancelled?.();
+            }}
           />
         )}
         <div ref={endRef} />
