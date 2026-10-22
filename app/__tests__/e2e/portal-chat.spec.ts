@@ -312,4 +312,23 @@ test.describe('Portal chat (phase C slice 3)', () => {
     await expect(page.locator('[data-testid^="chat-choices-"]').first()).toBeVisible();
     await context.close();
   });
+
+  test('Request work in the nav always opens a fresh screen, with a notice and the earlier request saved', async ({ browser }) => {
+    const { context, page } = await owner(browser);
+    await page.goto('/portal/requests/new');
+    const msg = `Fresh-start check ${Date.now()}`;
+    await page.getByLabel('What do you need?').fill(msg);
+    await sendButton(page).click();
+    await expect(log(page)).toContainText(msg);
+    await page.locator('aside.sidebar').getByRole('link', { name: 'Request work' }).click();
+    await expect(page).toHaveURL(/\/portal\/requests\/new\?new=\d+/);
+    await expect(page.getByLabel('What do you need?')).toHaveValue('');
+    await expect(log(page)).not.toContainText(msg);
+    const notice = page.locator('[data-earlier-request-notice]');
+    await expect(notice).toContainText('Your earlier request is saved under Requests.');
+    await notice.getByRole('link', { name: 'Requests' }).click();
+    await expect(page).toHaveURL(/\/portal\/requests$/);
+    await expect(page.getByText(msg).first()).toBeVisible();
+    await context.close();
+  });
 });

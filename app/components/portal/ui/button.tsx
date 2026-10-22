@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import type { LucideIcon } from 'lucide-react';
 import { useViewAs } from '@/components/portal/view-as-context';
+import { RequestLink } from '@/components/portal/request-link';
+import { isRequestNewHref } from '@/lib/portal/request-token';
 import { VIEW_AS_READ_ONLY_LINE } from '@/lib/portal/view-as-copy';
 
 type Variant = 'primary' | 'secondary' | 'quiet';
@@ -38,10 +40,11 @@ export function PortalButton(
   );
   if ('href' in rest && rest.href !== undefined) {
     const { href, ...a } = rest as { href: string } & React.AnchorHTMLAttributes<HTMLAnchorElement>;
+    const L = isRequestNewHref(href) ? RequestLink : Link;
     return (
-      <Link href={href} className={cls} {...a}>
+      <L href={href} className={cls} {...a}>
         {content}
-      </Link>
+      </L>
     );
   }
   const { type = 'button', disabled, ...b } = rest as React.ButtonHTMLAttributes<HTMLButtonElement>;
