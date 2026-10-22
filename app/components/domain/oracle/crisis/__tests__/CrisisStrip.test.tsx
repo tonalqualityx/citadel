@@ -56,6 +56,15 @@ describe('CrisisStrip', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('keeps the red outline and red tint (Mike 2026-10-21: urgent must stay red-outlined)', () => {
+    renderWithClient(<CrisisStrip crisis={[ask()]} />);
+    const strip = screen.getByTestId('crisis-strip');
+    expect(strip.className).toContain('border-2');
+    expect(strip.style.borderColor).toBe('var(--error)');
+    expect(strip.style.backgroundColor).toBe('var(--error-subtle)');
+    expect(screen.getByTestId('crisis-card').style.borderColor).toBe('var(--error)');
+  });
+
   it('renders from, subject, gist, and a severity chip for a crisis ask', () => {
     renderWithClient(<CrisisStrip crisis={[ask()]} />);
 

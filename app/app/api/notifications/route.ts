@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       notifications: notifications.map((n) => ({
         id: n.id,
         type: n.type,
+        priority: n.priority,
         title: n.title,
         message: n.message,
         entity_type: n.entity_type,
