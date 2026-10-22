@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { execSync } from "node:child_process";
 
 const securityHeaders = [
   {
@@ -27,12 +28,33 @@ const securityHeaders = [
   },
 ];
 
+// Build id = git sha, so it is stable and known (CI sets GITHUB_SHA; local builds ask git).
+// Exposed to the client as NEXT_PUBLIC_BUILD_ID for the stale-chunk reload guard.
+function resolveBuildId(): string | null {
+  const fromEnv = process.env.GITHUB_SHA?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+const buildId = resolveBuildId();
+
 const nextConfig: NextConfig = {
+  generateBuildId: async () => buildId,
+  env: buildId ? { NEXT_PUBLIC_BUILD_ID: buildId } : {},
   async headers() {
     return [
       {
         source: '/:path*',
         headers: securityHeaders,
+      },
+      // Documents must never be cached (prerendered pages ship s-maxage=31536000, so a stale HTML
+      // shell would keep pointing at chunk hashes of an old build). /_next/static stays immutable.
+      {
+        source: '/((?!_next/).*)',
+        headers: [{ key: 'Cache-Control', value: 'private, no-cache, must-revalidate' }],
       },
     ];
   },

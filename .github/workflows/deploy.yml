@@ -5,6 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:  # Allow manual trigger
 
+# Two pushes must never deploy at once; the second waits for the first.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -30,6 +35,27 @@ jobs:
         env:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
 
+      # STALE-CHUNK PROTECTION (build runs here in CI; .next is scp'd to the server).
+      # A deploy replaces .next, so a tab (or cached HTML) from the previous build would request
+      # chunk hashes that no longer exist (404 -> ChunkLoadError). To prevent that:
+      #   1. "Ship deploy helper" copies app/scripts/deploy-static-archive.sh to the server.
+      #   2. "Clean remote directory" first runs `archive`: the OLD build's own .next/static files
+      #      are copied to /var/www/citadel/app/.next-archive/<build id>/static (newest 2 kept;
+      #      only that folder is ever pruned), and only then is .next removed.
+      #   3. "Restart application" runs `merge` after the new .next has landed and before
+      #      `pm2 restart`: archived static files are copied into the new .next/static with
+      #      cp -n, so a file the new build has is never overwritten.
+      # Build id = git sha (next.config.ts generateBuildId), exposed as NEXT_PUBLIC_BUILD_ID.
+      - name: Ship deploy helper
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "app/scripts/deploy-static-archive.sh"
+          target: "/var/www/citadel/"
+          strip_components: 0
+
       - name: Clean remote directory
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -37,6 +63,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            bash /var/www/citadel/app/scripts/deploy-static-archive.sh archive
             sudo rm -rf /var/www/citadel/app/.next
             sudo mkdir -p /var/www/citadel/app
             sudo chown -R ubuntu:ubuntu /var/www/citadel
@@ -60,6 +87,7 @@ jobs:
           script: |
             set -e
             cd /var/www/citadel/app
+            bash /var/www/citadel/app/scripts/deploy-static-archive.sh merge
             npm ci --production
             npx prisma generate
             npx prisma migrate deploy
