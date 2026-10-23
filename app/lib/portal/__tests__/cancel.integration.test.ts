@@ -27,7 +27,7 @@ import { loadChatView } from '@/lib/portal/chat/view';
 import { loadPortalAccess } from '@/lib/portal/access';
 import { CANCEL_LINE } from '@/lib/portal/cancel-copy';
 import { onRequestFiled } from '@/lib/portal/waits';
-import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const post = (id: string) => cancelRoute(new NextRequest(`http://localhost/api/portal/work/${id}/cancel`, { method: 'POST' }), ctx(id));
@@ -190,12 +190,45 @@ describe.skipIf(!SCRATCH)('POST /api/portal/work/:id/cancel (real database)', ()
     expect(work.work.cancel).toBe('live');
   });
 
-  it('approved and going live: 409 going_live, nothing changes', async () => {
-    const task = await makeTask('review', { staging_preview_url: 'https://staging.example.test/x', client_approved_at: new Date(), tags: ['portal-chat', 'client-approved'] });
+  it('approved and not live: cancels, drops client-approved, closes the chat, tells the assignee once (Mike, 2026-10-23)', async () => {
+    const task = await makeTask('review', { staging_preview_url: 'https://staging.example.test/x', client_approved_at: new Date(), tags: ['portal-chat', 'client-approved'] }, { convo: 'filed' });
     const res = await post(task.id);
-    expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe('going_live');
-    expect((await row(task.id)).status).toBe('review');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ cancelled: true, staff_notified: true });
+    const after = await row(task.id);
+    expect(after.status).toBe('abandoned');
+    expect(after.tags).toContain('client-cancelled');
+    expect(after.tags).not.toContain('client-approved');
+    expect(await lines(task.id)).toHaveLength(1);
+    expect((await prisma.chatConversation.findUniqueOrThrow({ where: { task_id: task.id } })).state).toBe('closed');
+    const notes = await bell(task.id);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].message).toContain('do not publish');
+    const mail = await outbox(task.id);
+    expect(mail).toHaveLength(1);
+    expect(mail[0].to).toBe(staffEmail);
+    expect(mail[0].text).toContain('Do not publish it');
+    const again = await post(task.id);
+    expect(await again.json()).toMatchObject({ already_cancelled: true });
+    expect(await outbox(task.id)).toHaveLength(1);
+  });
+
+  it('approved and not live, held by Bast: Mike is told instead, since a publish pass may be mid-run', async () => {
+    const task = await makeTask('review', { client_approved_at: new Date(), tags: ['portal-chat', 'client-approved'] }, { assignee: BAST_USER_ID });
+    const res = await post(task.id);
+    expect(res.status).toBe(200);
+    expect((await row(task.id)).status).toBe('abandoned');
+    const mikeNotes = await prisma.notification.findMany({ where: { entity_id: task.id, user_id: MIKE_USER_ID } });
+    expect(mikeNotes).toHaveLength(1);
+    expect(await prisma.notification.count({ where: { entity_id: task.id, user_id: staffId } })).toBe(0);
+    const mikeRow = await prisma.user.findUnique({ where: { id: MIKE_USER_ID }, select: { email: true } });
+    const mail = await outbox(task.id);
+    if (mikeRow?.email) {
+      expect(mail).toHaveLength(1);
+      expect(mail[0].to).toBe(mikeRow.email);
+      expect(mail[0].text).toContain('Bast');
+    }
+    await prisma.notification.deleteMany({ where: { entity_id: task.id, user_id: MIKE_USER_ID } });
   });
 
   it('cannot be un-cancelled by the client: the chip, the closed chat, no more messages, history and the lists', async () => {

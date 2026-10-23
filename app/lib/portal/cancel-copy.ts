@@ -11,9 +11,7 @@ export const CANCEL_ERROR = 'We could not cancel this request. Please try again.
 /** The line posted in the conversation, signed Indelible. */
 export const CANCEL_LINE = 'You cancelled this request.';
 export const ASK_FOR_CHANGE = 'Ask for a change';
-export const GOING_LIVE_NOTE = 'You approved this, so it is going live. Write to us here if you need it stopped.';
 export const CANCEL_LIVE_ERROR = 'This change is already live, so it cannot be cancelled. Use Ask for a change instead.';
-export const CANCEL_GOING_LIVE_ERROR = 'You approved this change, so it is going live. Write to us in the conversation if you need it stopped.';
 export const MESSAGE_AFTER_CANCEL_ERROR = 'This request was cancelled. Start a new request to ask for something else.';
 
 /** The prefill for a fresh request about work that is already live. */

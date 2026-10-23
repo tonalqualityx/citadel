@@ -5,7 +5,7 @@ import { TriangleAlert } from 'lucide-react';
 import { ActionLink } from '@/components/portal/ui/action-link';
 import { CHANGE_PARAM, REQUEST_NEW_PATH, withFreshToken } from '@/lib/portal/request-token';
 import { PortalButton } from '@/components/portal/ui/button';
-import { ASK_FOR_CHANGE, CANCEL_BUSY, CANCEL_CONFIRM, CANCEL_ERROR, CANCEL_KEEP, CANCEL_LINK, CANCEL_YES, GOING_LIVE_NOTE, changeToText } from '@/lib/portal/cancel-copy';
+import { ASK_FOR_CHANGE, CANCEL_BUSY, CANCEL_CONFIRM, CANCEL_ERROR, CANCEL_KEEP, CANCEL_LINK, CANCEL_YES, changeToText } from '@/lib/portal/cancel-copy';
 import type { CancelMode } from '@/lib/portal/cancel-state';
 
 // "Cancel this request" (Mike's ruling, 2026-10-21): a quiet text button, never a primary one, then
@@ -33,14 +33,6 @@ export function CancelRequest({
       </p>
     );
   }
-  if (mode === 'going_live') {
-    return (
-      <p className="meta cancel-request" data-testid="going-live-note">
-        {GOING_LIVE_NOTE}
-      </p>
-    );
-  }
-
   async function cancel() {
     setBusy(true);
     setError(null);

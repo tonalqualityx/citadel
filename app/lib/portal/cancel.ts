@@ -11,8 +11,11 @@
  *  - when work may be under way (in progress, blocked or in review) the assignee gets a Citadel
  *    notification and one email, so the person stops (staff-notify.notifyClientCancelled).
  *
- * Not cancellable: live work (status done, 409 `live`: the page offers "Ask for a change") and
- * approved work that is going live (409 `going_live`: the publish pass owns it). A cancelled
+ * Approved work that is not live yet is cancellable too (Mike, 2026-10-23): the client-approved tag
+ * is removed so the publish pass never picks it up, and when the assignee is Bast, Mike is told
+ * instead because a publish pass may be mid-run.
+ *
+ * Not cancellable: live work (status done, 409 `live`: the page offers "Ask for a change"). A cancelled
  * request stays cancelled for the client; staff reopen it in Citadel. A repeat is a no-op.
  */
 import { Prisma, type PrismaClient } from '@prisma/client';
@@ -22,8 +25,8 @@ import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { clientVisibleTaskWhere } from '@/lib/portal/visibility';
 import { CLIENT_CANCELLED_TAG } from '@/lib/portal/status-labels';
-import { cancelMode, workMayBeUnderWay } from '@/lib/portal/cancel-state';
-import { CANCEL_GOING_LIVE_ERROR, CANCEL_LINE, CANCEL_LIVE_ERROR } from '@/lib/portal/cancel-copy';
+import { cancelMode, isApprovedNotLive, workMayBeUnderWay } from '@/lib/portal/cancel-state';
+import { CANCEL_LINE, CANCEL_LIVE_ERROR } from '@/lib/portal/cancel-copy';
 import { notifyClientCancelled } from '@/lib/portal/staff-notify';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { OPEN_STATES, resolveWait } from '@/lib/waits/sweeper';
@@ -55,7 +58,7 @@ export async function cancelRequest(access: PortalAccess, taskId: string, now: D
   const mode = cancelMode(task);
   if (mode === 'cancelled') return { cancelled: false, already_cancelled: true, staff_notified: false };
   if (mode === 'live') throw new ApiError(CANCEL_LIVE_ERROR, 409, 'live');
-  if (mode === 'going_live') throw new ApiError(CANCEL_GOING_LIVE_ERROR, 409, 'going_live');
+  const approved = isApprovedNotLive(task);
   const underWay = workMayBeUnderWay(task.status);
 
   const won = await prisma.$transaction(async (tx) => {
@@ -63,12 +66,10 @@ export async function cancelRequest(access: PortalAccess, taskId: string, now: D
     const n = await tx.$executeRaw`
       UPDATE tasks
          SET status = 'abandoned'::"TaskStatus",
-             tags = array_append(array_remove(array_remove(tags, 'awaiting-clarification'), 'chat-clarifying'), ${CLIENT_CANCELLED_TAG}),
+             tags = array_append(array_remove(array_remove(array_remove(tags, 'awaiting-clarification'), 'chat-clarifying'), 'client-approved'), ${CLIENT_CANCELLED_TAG}),
              updated_at = ${now}
        WHERE id = ${taskId}::uuid
-         AND status NOT IN ('abandoned', 'done')
-         AND client_approved_at IS NULL
-         AND NOT ('client-approved' = ANY(tags))`;
+         AND status NOT IN ('abandoned', 'done')`;
     if (n !== 1) return false;
 
     // chat_meta marks the line as already shown, so the chat sweep never emails it.
@@ -106,12 +107,12 @@ export async function cancelRequest(access: PortalAccess, taskId: string, now: D
     if (!fresh) throw new ApiError('Not found', 404);
     const m = cancelMode(fresh);
     if (m === 'cancelled') return { cancelled: false, already_cancelled: true, staff_notified: false };
-    throw new ApiError(m === 'live' ? CANCEL_LIVE_ERROR : CANCEL_GOING_LIVE_ERROR, 409, m);
+    throw new ApiError(CANCEL_LIVE_ERROR, 409, 'live');
   }
 
   let staffNotified = false;
-  if (underWay) {
-    const sent = await notifyClientCancelled(taskId, access.contactId);
+  if (underWay || approved) {
+    const sent = await notifyClientCancelled(taskId, access.contactId, { approved });
     staffNotified = sent.notified || sent.emailed;
   }
   return { cancelled: true, already_cancelled: false, staff_notified: staffNotified };

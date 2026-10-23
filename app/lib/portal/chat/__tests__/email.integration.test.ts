@@ -56,7 +56,7 @@ describe.skipIf(!SCRATCH)('chat email leg (real database)', () => {
     await prisma.chatConversation.update({
       where: { id: a.conversationId },
       data: {
-        state: 'clarifying', mode: 'model', away_sent_for_comment_id: null, last_seen_at: null, last_typing_at: null, page_hidden_at: null, last_outbound_gmail_id: null, gmail_thread_id: null,
+        created_at: at(-60), state: 'clarifying', mode: 'model', away_sent_for_comment_id: null, last_seen_at: null, last_typing_at: null, page_hidden_at: null, last_outbound_gmail_id: null, gmail_thread_id: null,
         slots: {}, open_ask: { slot: 'change', question: 'Which page should it go on?', choice_ids: [], allow_free_text: true, allow_upload: false, comment_id: q.id },
       },
     });
