@@ -19,6 +19,8 @@ import { POST as claimPOST } from '@/app/api/email-outbox/[id]/claim/route';
 import { GET as listGET } from '@/app/api/email-outbox/route';
 import { PUT as sendingPUT } from '@/app/api/approval-requests/[id]/sending/route';
 import { POST as recheckPOST } from '@/app/api/sends/recheck/route';
+import { POST as failedPOST } from '@/app/api/email-outbox/[id]/failed/route';
+import { PATCH as taskPATCH } from '@/app/api/tasks/[id]/route';
 
 const authMock = requireAuth as Mock;
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -277,14 +279,14 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
 
   describe('claimNotice and POST /api/sends/recheck', () => {
     it('claimNotice live is true only for the first caller', async () => {
-      expect(await claimNotice(a.taskId, 'live')).toBe(true);
-      expect(await claimNotice(a.taskId, 'live')).toBe(false);
+      expect(await claimNotice(a.taskId, 'live')).toMatch(/^[0-9a-f]{12}$/);
+      expect(await claimNotice(a.taskId, 'live')).toBeNull();
       expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags.filter((t) => t === 'go-live-notified')).toHaveLength(1);
     });
     it('claimNotice preview is per url', async () => {
-      expect(await claimNotice(a.taskId, 'preview', 'https://p.example.test/1')).toBe(true);
-      expect(await claimNotice(a.taskId, 'preview', 'https://p.example.test/1')).toBe(false);
-      expect(await claimNotice(a.taskId, 'preview', 'https://p.example.test/2')).toBe(true);
+      expect(await claimNotice(a.taskId, 'preview', 'https://p.example.test/1')).toBeTruthy();
+      expect(await claimNotice(a.taskId, 'preview', 'https://p.example.test/1')).toBeNull();
+      expect(await claimNotice(a.taskId, 'preview', 'https://p.example.test/2')).toBeTruthy();
       const t = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
       expect(t.tags).toContain(previewTag('https://p.example.test/1'));
       expect(previewTag('https://p.example.test/1')).toMatch(/^preview-notified:[0-9a-f]{10}$/);
@@ -326,16 +328,24 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
       expect(await reason({ intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: url, claimed: true } })).toBe('ok');
     });
     it('releaseNotice gives the claim back once', async () => {
-      expect(await claimNotice(a.taskId, 'live')).toBe(true);
-      expect(await releaseNotice(a.taskId, 'live')).toBe(true);
-      expect(await releaseNotice(a.taskId, 'live')).toBe(false);
-      expect(await claimNotice(a.taskId, 'live')).toBe(true);
+      const holder = await claimNotice(a.taskId, 'live');
+      expect(holder).toBeTruthy();
+      expect(await releaseNotice(a.taskId, 'live', null, 'wrongholder')).toBe(false);
+      expect(await releaseNotice(a.taskId, 'live', null, null)).toBe(false);
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags).toContain('go-live-notified');
+      expect(await releaseNotice(a.taskId, 'live', null, holder)).toBe(true);
+      expect(await releaseNotice(a.taskId, 'live', null, holder)).toBe(false);
+      const tags = (await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags;
+      expect(tags.filter((t) => t.startsWith('go-live') || t.startsWith('cl:'))).toEqual([]);
+      expect(await claimNotice(a.taskId, 'live')).toBeTruthy();
     });
     it('the route releases a claim, and a released claim can be taken again', async () => {
       await reset({ tags: ['client-approved'] });
       const body = { govern: { intent: 'golive', task_id: a.taskId, snapshot: { before_live: true } }, claim: 'live' };
-      expect((await (await recheckPOST(jsonReq(body))).json()).claimed).toBe(true);
-      expect(await (await recheckPOST(jsonReq({ ...body, release: true }))).json()).toMatchObject({ ok: true, released: true });
+      const first = await (await recheckPOST(jsonReq(body))).json();
+      expect(first.claimed).toBe(true);
+      expect(await (await recheckPOST(jsonReq({ ...body, release: true, claim_holder: 'someoneelse' }))).json()).toMatchObject({ ok: true, released: false });
+      expect(await (await recheckPOST(jsonReq({ ...body, release: true, claim_holder: first.claim_holder }))).json()).toMatchObject({ ok: true, released: true });
       expect((await (await recheckPOST(jsonReq(body))).json()).claimed).toBe(true);
       expect((await recheckPOST(jsonReq({ govern: body.govern, release: true }))).status).toBe(400);
     });
@@ -355,6 +365,59 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
       expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags).not.toContain('go-live-notified');
       const guard = await (await recheckPOST(jsonReq({ govern: { intent: 'golive', task_id: a.taskId, snapshot: { before_live: true } }, claim: 'live' }))).json();
       expect(guard).toMatchObject({ ok: true, claimed: true });
+    });
+    it('N1: an email-sourced revision round at the same URL is told afresh once the task leaves review', async () => {
+      const url = 'https://preview.example.test/same';
+      await reset({ status: 'review', staging_preview_url: url, source: 'email' });
+      expect(await claimNotice(a.taskId, 'preview', url)).toBeTruthy();
+      const g: Govern = { intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: url } };
+      expect(await reason(g)).toBe('already_notified/definitive');
+      const res = await taskPATCH(new NextRequest(new URL('http://localhost/api/tasks/x'), { method: 'PATCH', body: JSON.stringify({ status: 'in_progress' }) } as never), params(a.taskId));
+      expect(res.status).toBe(200);
+      const tags = (await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags;
+      expect(tags.filter((t) => t.includes('preview-notified'))).toEqual([]);
+      await reset({ status: 'review', staging_preview_url: url, source: 'email' });
+      expect(await reason(g)).toBe('ok');
+      expect(await claimNotice(a.taskId, 'preview', url)).toBeTruthy();
+    });
+    it('N1: portal re-stage after a send-back mails exactly once, even with two concurrent markStaged calls', async () => {
+      const url = 'https://preview.example.test/restage';
+      await reset({ status: 'in_progress', staging_preview_url: null });
+      await markStaged({ taskId: a.taskId, authorId: BAST_USER_ID, previewUrl: url });
+      const mails = () => prisma.emailOutbox.count({ where: { to: `olive-${tag}@example.test`, kind: 'other', govern: { path: ['intent'], equals: 'approval_request' } } });
+      expect(await mails()).toBe(1);
+      const { clearPreviewClaims } = await import('../claims');
+      await clearPreviewClaims(a.taskId); // what a send-back does
+      await reset({ status: 'in_progress', tags: ['client-sent-back'], staging_preview_url: null });
+      await Promise.all([
+        markStaged({ taskId: a.taskId, authorId: BAST_USER_ID, previewUrl: url }),
+        markStaged({ taskId: a.taskId, authorId: BAST_USER_ID, previewUrl: url }),
+      ]);
+      expect(await mails()).toBe(2);
+    });
+    it('N2: a superseded row gives back the claim it held, unless a sibling row was sent', async () => {
+      const mk = async (holder: string) => queueInOutbox(prisma, { to: `g-${tag}-${Math.random().toString(36).slice(2, 7)}@example.test`, subject: 'live', text: 't', kind: 'portal_golive', allow_external: true, task_id: a.taskId }, { intent: 'golive', task_id: a.taskId, snapshot: { claimed: true, holder } });
+      await reset({ status: 'in_progress' }); // reopened: the go-live rows are wrong now
+      let holder = (await claimNotice(a.taskId, 'live')) as string;
+      const row = await mk(holder);
+      expect((await claimPOST(jsonReq({}), params(row.id))).status).toBe(409);
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags.filter((t) => t.includes('go-live-notified'))).toEqual([]);
+      // with a sent sibling the client was told, so the claim stands
+      await prisma.emailOutbox.deleteMany({ where: { task_id: a.taskId } });
+      holder = (await claimNotice(a.taskId, 'live')) as string;
+      const sibling = await mk(holder);
+      await prisma.emailOutbox.update({ where: { id: sibling.id }, data: { sent_at: new Date() } });
+      const row2 = await mk(holder);
+      expect((await claimPOST(jsonReq({}), params(row2.id))).status).toBe(409);
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags).toContain('go-live-notified');
+    });
+    it('N2: a row out of attempts gives back its claim', async () => {
+      await reset({ status: 'done', client_approved_at: new Date() });
+      const holder = (await claimNotice(a.taskId, 'live')) as string;
+      const row = await queueInOutbox(prisma, { to: `f-${tag}@example.test`, subject: 'live', text: 't', kind: 'portal_golive', allow_external: true, task_id: a.taskId }, { intent: 'golive', task_id: a.taskId, snapshot: { claimed: true, holder } });
+      await prisma.emailOutbox.update({ where: { id: row.id }, data: { attempts: 4 } });
+      await failedPOST(jsonReq({ last_error: 'boom' }), params(row.id));
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags).not.toContain('go-live-notified');
     });
     it('markStaged skips the mail when the preview was already claimed, and re-sends after a send-back', async () => {
       const url = 'https://preview.example.test/claimed';

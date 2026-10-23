@@ -1708,7 +1708,7 @@ model AppSettings {
   bug_report_notify_user User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
 
   // Fleet item 4
-  send_recheck_mode       String @default("enforce") @db.VarChar(10) // off | shadow | enforce
+  send_recheck_mode       String @default("shadow") @db.VarChar(10) // off | shadow | enforce
   send_recheck_heuristics String @default("shadow") @db.VarChar(10) // shadow | enforce
 
   @@map("app_settings")

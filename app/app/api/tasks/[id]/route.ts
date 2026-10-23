@@ -16,6 +16,7 @@ import {
 } from '@/lib/services/dependencies';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
+import { clearPreviewClaims } from '@/lib/sends/claims';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Schema for requirement items (flat items)
@@ -398,6 +399,9 @@ export async function PATCH(
         },
       });
 
+      // A task leaving review for rework spends its preview notice claims (a revised preview is told afresh).
+      if (existingTask.status === 'review' && statusData.status !== 'review' && statusData.status !== 'done') await clearPreviewClaims(id);
+
       const completionNudge = await afterStatusChange(
         auth.userId,
         existingTask,
@@ -664,6 +668,8 @@ export async function PATCH(
           : {}),
       };
     }
+
+    if (existingTask.status === 'review' && updateData.status && updateData.status !== 'review' && updateData.status !== 'done') await clearPreviewClaims(id);
 
     const task = await prisma.task.update({
       where: { id },

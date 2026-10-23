@@ -23,7 +23,8 @@ vi.mock('@/lib/db/prisma', () => {
     approvalRequest: { findUnique: async () => null },
     $executeRaw: async (strings: TemplateStringsArray, ...vals: any[]) => {
       const sql = strings.join('?');
-      if (sql.includes('array_append')) { const [tag, id] = vals; const t = db.tasks.get(id)!; if (t.tags.includes(tag)) return 0; t.tags = [...t.tags, tag]; return 1; }
+      if (sql.includes('tags || ')) { const [both, id, tag] = vals; const t = db.tasks.get(id)!; if (t.tags.includes(tag)) return 0; t.tags = [...t.tags, ...both]; return 1; }
+      if (sql.includes('array_remove(array_remove')) { const [tag, ht, id] = vals; const t = db.tasks.get(id); if (!t || !t.tags.includes(ht)) return 0; t.tags = t.tags.filter((x) => x !== tag && x !== ht); return 1; }
       if (sql.includes('array_remove')) { const [tag, id] = vals; const t = db.tasks.get(id); if (!t || !t.tags.includes(tag)) return 0; t.tags = t.tags.filter((x) => x !== tag); return 1; }
       return 0;
     },
@@ -89,7 +90,7 @@ describe('executed replay, 19 drain sends 2026-10-21', () => {
     db.tasks.set(GENRE, task(GENRE, { status: 'review', client_approved_at: new Date('2026-10-21T22:52:52Z'), tags: ['portal-chat', 'kind:site-change', 'client-approved'], title: 'Genre', requested_by_contact_id: 'c1' }));
     const g: Govern = { intent: 'golive', task_id: GENRE, snapshot: { before_live: true } }; // what send_guard builds
     const d = await decideSend(g); expect(d.ok).toBe(true);
-    expect(await claimNotice(GENRE, 'live')).toBe(true);
+    expect(await claimNotice(GENRE, 'live')).toBeTruthy();
     vi.setSystemTime(new Date('2026-10-21T23:51:15Z'));
     const res = await markLive({ taskId: GENRE, authorId: '00000000-0000-4000-8000-000000000000', liveUrl: 'https://crappymusic.io/', force: true });
     table.push(`PAIR\tworker 19:45 ok=${d.ok}; markLive 19:51 already_notified=${res.already_notified} lane=${res.lane} outbox_rows=${db.outbox.length} visible_live_lines=${db.comments.filter((c) => c.client_visible).length}`);
@@ -103,7 +104,7 @@ describe('executed replay, 19 drain sends 2026-10-21', () => {
     expect(db.tasks.get(GENRE)!.tags).not.toContain('go-live-notified');
     const d = await decideSend({ intent: 'golive', task_id: GENRE, snapshot: { before_live: true } });
     expect(d.ok).toBe(true);
-    expect(await claimNotice(GENRE, 'live')).toBe(true);
+    expect(await claimNotice(GENRE, 'live')).toBeTruthy();
     recipients.list = [{ id: 'c1', email: 'mike@becomeindelible.com', name: 'Mike Dion' }];
     console.log('\n' + table.join('\n'));
   });

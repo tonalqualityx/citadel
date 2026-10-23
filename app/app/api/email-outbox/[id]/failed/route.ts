@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { MAX_SEND_ATTEMPTS, releaseClaimForRow } from '@/lib/sends/release';
 
 const failedSchema = z.object({
   last_error: z.string().min(1).max(4000),
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       where: { id },
       data: { last_error: data.last_error, attempts: { increment: 1 }, claimed_at: null },
     });
+    // Out of attempts: nobody was told, so a claim this row held goes back.
+    if (updated.attempts >= MAX_SEND_ATTEMPTS) await releaseClaimForRow(updated);
     return NextResponse.json({ id, attempts: updated.attempts, last_error: updated.last_error });
   } catch (error) {
     return handleApiError(error);

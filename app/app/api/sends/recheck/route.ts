@@ -5,7 +5,7 @@ import { parseGovern } from '@/lib/sends/govern';
 import { decideSend } from '@/lib/sends/policy';
 import { claimNotice, releaseNotice } from '@/lib/sends/recheck';
 
-// release:true (with claim and claim_token) gives a claim back when the guarded send did not go out.
+// release:true (with claim, claim_token and the claim_holder the claim returned) gives a claim back when the guarded send did not go out.
 // probe:true leaves no 'Send dropped' comment (post-deploy probes). send_recheck_mode=off skips the check
 // but NOT claims; turning claims off means reverting the deploy.
 // POST: the send-time recheck for a send that does not go through the outbox (a worker's reply on the
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
 
-    const body = (await request.json().catch(() => null)) as { govern?: unknown; claim?: unknown; claim_token?: unknown; release?: unknown; probe?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as { govern?: unknown; claim?: unknown; claim_token?: unknown; release?: unknown; probe?: unknown; claim_holder?: unknown } | null;
     const govern = parseGovern(body?.govern);
     if (!govern) throw new ApiError('A valid govern block is required', 400, 'bad_govern');
     const claim = body?.claim;
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
 
     if (body?.release === true) {
       if (!claim || !('task_id' in govern)) throw new ApiError('release needs claim and a govern block with a task_id', 400, 'bad_claim');
-      const released = await releaseNotice(govern.task_id, claim, token);
+      const released = await releaseNotice(govern.task_id, claim, token, typeof body?.claim_holder === 'string' ? body.claim_holder : null);
       return NextResponse.json({ ok: true, released });
     }
 
@@ -41,9 +41,10 @@ export async function POST(request: NextRequest) {
     const out: Record<string, unknown> = { ok: true, mode: decision.mode };
     if (decision.would_drop) out.would_drop = decision.would_drop;
     if (claim && 'task_id' in govern) {
-      const claimed = await claimNotice(govern.task_id, claim, token);
-      out.claimed = claimed;
-      if (!claimed) {
+      const holder = await claimNotice(govern.task_id, claim, token);
+      out.claimed = holder !== null;
+      if (holder) out.claim_holder = holder;
+      if (!holder) {
         out.ok = false;
         out.reason = 'already_notified';
         out.severity = 'definitive';

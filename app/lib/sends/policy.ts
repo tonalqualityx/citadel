@@ -1,6 +1,6 @@
 /**
  * The mode switches around recheckSend (Fleet item 4): AppSettings.send_recheck_mode (off | shadow |
- * enforce, default enforce) and send_recheck_heuristics (shadow | enforce, default shadow). Every
+ * enforce, default shadow for this deploy; Bast flips it to enforce after reading the shadow log) and send_recheck_heuristics (shadow | enforce, default shadow). Every
  * decision is logged as one JSON line; every real drop leaves one internal comment on the governing task
  * (at most one per task per intent per day).
  */
@@ -22,7 +22,7 @@ export interface SendDecision {
 
 export async function recheckSettings(): Promise<{ mode: RecheckMode; heuristics: 'shadow' | 'enforce' }> {
   const s = await prisma.appSettings.findUnique({ where: { id: 'singleton' }, select: { send_recheck_mode: true, send_recheck_heuristics: true } });
-  const mode = s?.send_recheck_mode === 'off' || s?.send_recheck_mode === 'shadow' ? s.send_recheck_mode : 'enforce';
+  const mode = s?.send_recheck_mode === 'off' || s?.send_recheck_mode === 'enforce' ? s.send_recheck_mode : 'shadow';
   const heuristics = s?.send_recheck_heuristics === 'enforce' ? 'enforce' : 'shadow';
   return { mode, heuristics };
 }

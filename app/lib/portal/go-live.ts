@@ -156,7 +156,7 @@ export async function markStaged(input: {
   ]);
 
   let approvalEmail: 'sent' | 'skipped' = 'skipped';
-  let holdsPreviewClaim = false;
+  let previewHolder: string | null = null;
   // Email-sourced work gets its preview on the client's own thread from the worker; only portal requests are mailed here.
   if (task.source === 'portal' && task.requested_by_contact_id) {
     try {
@@ -167,13 +167,12 @@ export async function markStaged(input: {
       const contact = full ? await resolveTaskContact(full) : null;
       const link = await ensureTaskPortalToken(task.id);
       if (full && contact?.email && link) {
-        // One notice per preview address across channels. A send-back clears the claim: the client asked for changes
-        // and is owed a fresh notice even when the preview address is unchanged.
-        if (task.tags.includes(SEND_BACK_TAG)) await releaseNotice(task.id, 'preview', input.previewUrl);
-        if (!(await claimNotice(task.id, 'preview', input.previewUrl))) {
+        // One notice per preview address across channels. A rework (send-back, request changes, leaving review)
+        // clears the preview claims, so a revised preview at the same address is told afresh.
+        previewHolder = await claimNotice(task.id, 'preview', input.previewUrl);
+        if (!previewHolder) {
           return { status: 'review', preview_url: input.previewUrl, already_staged: false, approval_email: 'skipped' };
         }
-        holdsPreviewClaim = true;
         await sendTaskApprovalRequestEmail({
           to: contact.email,
           approvalUrl: link.url,
@@ -182,12 +181,13 @@ export async function markStaged(input: {
           stagingUrl: full.staging_preview_url,
           taskId: task.id,
           claimed: true,
+          claimHolder: previewHolder,
         });
         approvalEmail = 'sent';
       }
     } catch (error) {
       // The mail did not go: give the preview claim back so a retry or the worker's own note can still tell the client.
-      if (holdsPreviewClaim) await releaseNotice(task.id, 'preview', input.previewUrl).catch(() => undefined);
+      if (previewHolder) await releaseNotice(task.id, 'preview', input.previewUrl, previewHolder).catch(() => undefined);
       console.error('staged approval email failed', error);
     }
   }
@@ -244,7 +244,8 @@ export async function markLive(input: {
   }
 
   // One send per task: the tag is claimed before anything is posted or mailed.
-  if (!(await claimNotice(task.id, 'live'))) {
+  const liveHolder = await claimNotice(task.id, 'live');
+  if (!liveHolder) {
     await ensureLiveLine(task.id, input.authorId, line);
     return { status: 'done', already_notified: true, lane: 'none', emailed: [] };
   }
@@ -277,17 +278,17 @@ export async function markLive(input: {
           dedupe_key: `golive:${task.id}:${r.id}`,
           task_id: task.id,
         },
-        { intent: 'golive', task_id: task.id, snapshot: { claimed: true } }
+        { intent: 'golive', task_id: task.id, snapshot: { claimed: true, holder: liveHolder } }
       );
       emailed.push(r.email);
     }
     if (emailed.length === 0) {
       // Nobody was told. Give the claim back so the worker's own note (or a later call) can still tell the client.
-      await removeTaskTagQuery(task.id, GO_LIVE_TAG);
+      await releaseNotice(task.id, 'live', null, liveHolder);
     }
     return { status: 'done', already_notified: false, lane: emailed.length ? 'email' : 'none', emailed };
   } catch (error) {
-    await removeTaskTagQuery(task.id, GO_LIVE_TAG);
+    await releaseNotice(task.id, 'live', null, liveHolder);
     throw error;
   }
 }

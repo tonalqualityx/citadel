@@ -6,6 +6,7 @@ import { chatRecipientAllowed } from '@/lib/portal/chat/outbox-guard';
 import { PRICE_REVIEW_MAIL_KIND, priceReviewRecipientAllowed } from '@/lib/price-review/outbox-guard';
 import { parseGovern } from '@/lib/sends/govern';
 import { decideSend } from '@/lib/sends/policy';
+import { releaseClaimForRow } from '@/lib/sends/release';
 
 function supersededResponse(reason: string) {
   return NextResponse.json({ error: 'superseded', code: 'superseded', reason }, { status: 409 });
@@ -59,6 +60,7 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
       if (!decision.ok) {
         const reason = (decision.reason ?? 'superseded').slice(0, 64);
         await prisma.emailOutbox.update({ where: { id }, data: { superseded_at: new Date(), superseded_reason: reason, last_error: `superseded: ${reason}` } });
+        await releaseClaimForRow(row);
         return supersededResponse(reason);
       }
     }

@@ -11,6 +11,7 @@ vi.mock('@/lib/db/prisma', () => ({
     $executeRaw: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ sql: strings.join('?'), values })),
   },
 }));
+vi.mock('@/lib/sends/claims', () => ({ clearPreviewClaims: vi.fn(async () => undefined) }));
 vi.mock('@/lib/portal/staff-alert', () => ({ alertTaskOwner: vi.fn(async () => undefined) }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 

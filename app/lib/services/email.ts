@@ -165,6 +165,20 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const config = await getSendGridConfig();
 
   if (config) {
+    // Send-time recheck on the direct path too (it is normally inactive in production: mail goes through the
+    // outbox). Imported lazily to keep the import graph acyclic. Fail open: the check must not stop mail when it errors.
+    if (options.govern.intent !== 'none') {
+      try {
+        const { decideSend } = await import('@/lib/sends/policy');
+        const decision = await decideSend(options.govern, null);
+        if (!decision.ok) {
+          console.log(`Email to ${options.to} dropped at send time (${decision.reason})`);
+          return;
+        }
+      } catch (error) {
+        console.error('send recheck failed on the SendGrid path, sending anyway', error);
+      }
+    }
     const sent = await sendViaSendGrid(config, options);
     if (sent) {
       console.log(`Email sent via SendGrid to ${options.to}`);
@@ -199,6 +213,8 @@ export async function sendTaskApprovalRequestEmail(options: {
   taskId: string;
   /** True when the caller holds the preview claim or is an explicit staff resend (the recheck then skips already_notified). */
   claimed?: boolean;
+  /** The holder id of the preview claim, so a superseded or failed row can give it back. */
+  claimHolder?: string | null;
 }): Promise<void> {
   const { to, approvalUrl, taskTitle, contactName, stagingUrl } = options;
   const greetingName = contactName ? ` ${contactName}` : '';
@@ -257,7 +273,7 @@ The Indelible Team
 </html>
 `.trim();
 
-  await sendEmail({ to, subject, text, html, govern: { intent: 'approval_request', task_id: options.taskId, snapshot: { preview_url: stagingUrl ?? null, claimed: options.claimed === true } } });
+  await sendEmail({ to, subject, text, html, govern: { intent: 'approval_request', task_id: options.taskId, snapshot: { preview_url: stagingUrl ?? null, claimed: options.claimed === true, ...(options.claimHolder ? { holder: options.claimHolder } : {}) } } });
 }
 
 /**

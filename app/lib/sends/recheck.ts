@@ -5,13 +5,13 @@
  *   definitive  the fact is certain (the task is closed, the client already approved, the link expired)
  *   heuristic   a good guess (the preview address changed); policy.ts can run these in shadow only
  */
-import { createHash } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { CLIENT_APPROVED_TAG } from '@/lib/services/portal';
 import type { Govern } from './govern';
+import { GO_LIVE_TAG, previewTag } from './claims';
 
-export const GO_LIVE_TAG = 'go-live-notified';
-export const PREVIEW_TAG_PREFIX = 'preview-notified:';
+export { GO_LIVE_TAG, PREVIEW_TAG_PREFIX, previewTag, claimNotice, releaseNotice, clearPreviewClaims } from './claims';
+
 
 export type Severity = 'definitive' | 'heuristic';
 export type RecheckResult = { ok: true } | { ok: false; reason: string; severity: Severity };
@@ -97,29 +97,3 @@ export async function recheckSend(govern: Govern, now: Date = new Date()): Promi
   }
 }
 
-/** The tag a preview notice claims: one per distinct preview address. */
-export const previewTag = (url: string) => `${PREVIEW_TAG_PREFIX}${createHash('sha1').update(url).digest('hex').slice(0, 10)}`;
-
-/**
- * Claim "the client was told this fact" in one UPDATE. True only for the first caller; every later
- * caller, on any channel, gets false and must not send. `live` claims go-live-notified; `preview`
- * claims preview-notified:<sha1(url)[0:10]>.
- */
-export async function claimNotice(taskId: string, kind: 'live' | 'preview', previewUrl?: string | null): Promise<boolean> {
-  if (kind === 'preview' && !previewUrl) throw new Error('claimNotice preview needs the preview url');
-  const tag = kind === 'live' ? GO_LIVE_TAG : previewTag(previewUrl as string);
-  const n = await prisma.$executeRaw`UPDATE tasks SET tags = array_append(tags, ${tag}) WHERE id = ${taskId}::uuid AND NOT (${tag} = ANY(tags))`;
-  return n === 1;
-}
-
-/**
- * Give a claim back (the send it guarded did not go out). Removes the tag in one UPDATE; true when the
- * tag was there. Releasing a claim somebody else holds is the caller's mistake, so callers only release
- * what their own claimNotice returned true for.
- */
-export async function releaseNotice(taskId: string, kind: 'live' | 'preview', previewUrl?: string | null): Promise<boolean> {
-  if (kind === 'preview' && !previewUrl) throw new Error('releaseNotice preview needs the preview url');
-  const tag = kind === 'live' ? GO_LIVE_TAG : previewTag(previewUrl as string);
-  const n = await prisma.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${tag}) WHERE id = ${taskId}::uuid AND ${tag} = ANY(tags)`;
-  return n === 1;
-}

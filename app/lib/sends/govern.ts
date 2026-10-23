@@ -17,14 +17,14 @@ export type GovernIntent =
 
 export type Govern =
   /** `snapshot.claimed` is true when the producer holds the preview claim (or is an explicit staff resend). */
-  | { intent: 'approval_request'; task_id: string; snapshot: { preview_url: string | null; claimed?: boolean } }
+  | { intent: 'approval_request'; task_id: string; snapshot: { preview_url: string | null; claimed?: boolean; holder?: string } }
   | { intent: 'approval_mail'; task_id: string; approval_request_id?: string }
   /**
    * `snapshot.claimed` is true when the producer already took the go-live-notified claim for this row.
    * `snapshot.before_live` is true for a worker's own note sent before it calls /live: the task is then
    * approved but not yet done, which is the right state for that note.
    */
-  | { intent: 'golive'; task_id: string; snapshot?: { claimed?: boolean; before_live?: boolean } }
+  | { intent: 'golive'; task_id: string; snapshot?: { claimed?: boolean; before_live?: boolean; holder?: string } }
   | { intent: 'magic_link' | 'invite'; snapshot: { expires_at: string } }
   | { intent: 'proposal'; proposal_id: string }
   | { intent: 'contract'; contract_id: string }
@@ -48,13 +48,13 @@ export function parseGovern(raw: unknown): Govern | null {
   switch (intent) {
     case 'approval_request':
       if (!isUuid(g.task_id)) return null;
-      return { intent, task_id: g.task_id, snapshot: { preview_url: typeof snap.preview_url === 'string' ? snap.preview_url : null, claimed: snap.claimed === true } };
+      return { intent, task_id: g.task_id, snapshot: { preview_url: typeof snap.preview_url === 'string' ? snap.preview_url : null, claimed: snap.claimed === true, ...(typeof snap.holder === 'string' ? { holder: snap.holder } : {}) } };
     case 'approval_mail':
       if (!isUuid(g.task_id)) return null;
       return { intent, task_id: g.task_id, ...(isUuid(g.approval_request_id) ? { approval_request_id: g.approval_request_id } : {}) };
     case 'golive':
       if (!isUuid(g.task_id)) return null;
-      return { intent, task_id: g.task_id, snapshot: { claimed: snap.claimed === true, before_live: snap.before_live === true } };
+      return { intent, task_id: g.task_id, snapshot: { claimed: snap.claimed === true, before_live: snap.before_live === true, ...(typeof snap.holder === 'string' ? { holder: snap.holder } : {}) } };
     case 'magic_link':
     case 'invite':
       if (typeof snap.expires_at !== 'string' || Number.isNaN(Date.parse(snap.expires_at))) return null;
