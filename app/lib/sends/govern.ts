@@ -16,7 +16,8 @@ export type GovernIntent =
   | 'none';
 
 export type Govern =
-  | { intent: 'approval_request'; task_id: string; snapshot: { preview_url: string | null } }
+  /** `snapshot.claimed` is true when the producer holds the preview claim (or is an explicit staff resend). */
+  | { intent: 'approval_request'; task_id: string; snapshot: { preview_url: string | null; claimed?: boolean } }
   | { intent: 'approval_mail'; task_id: string; approval_request_id?: string }
   /**
    * `snapshot.claimed` is true when the producer already took the go-live-notified claim for this row.
@@ -27,7 +28,8 @@ export type Govern =
   | { intent: 'magic_link' | 'invite'; snapshot: { expires_at: string } }
   | { intent: 'proposal'; proposal_id: string }
   | { intent: 'contract'; contract_id: string }
-  | { intent: 'chat'; task_id: string }
+  /** `staff` marks a message a person wrote; it still goes after the conversation is closed. */
+  | { intent: 'chat'; task_id: string; snapshot?: { staff?: boolean } }
   | { intent: 'notice_internal'; task_id: string }
   | { intent: 'none'; reason: string };
 
@@ -46,7 +48,7 @@ export function parseGovern(raw: unknown): Govern | null {
   switch (intent) {
     case 'approval_request':
       if (!isUuid(g.task_id)) return null;
-      return { intent, task_id: g.task_id, snapshot: { preview_url: typeof snap.preview_url === 'string' ? snap.preview_url : null } };
+      return { intent, task_id: g.task_id, snapshot: { preview_url: typeof snap.preview_url === 'string' ? snap.preview_url : null, claimed: snap.claimed === true } };
     case 'approval_mail':
       if (!isUuid(g.task_id)) return null;
       return { intent, task_id: g.task_id, ...(isUuid(g.approval_request_id) ? { approval_request_id: g.approval_request_id } : {}) };
@@ -62,6 +64,7 @@ export function parseGovern(raw: unknown): Govern | null {
     case 'contract':
       return isUuid(g.contract_id) ? { intent, contract_id: g.contract_id } : null;
     case 'chat':
+      return isUuid(g.task_id) ? { intent, task_id: g.task_id, ...(snap.staff === true ? { snapshot: { staff: true } } : {}) } : null;
     case 'notice_internal':
       return isUuid(g.task_id) ? { intent, task_id: g.task_id } : null;
     case 'none':

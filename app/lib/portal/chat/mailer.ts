@@ -224,7 +224,7 @@ export async function queueChatEmail(
       dedupe_key: input.dedupeKey.slice(0, 128),
       task_id: input.convo.task_id,
     },
-    { intent: 'chat', task_id: input.convo.task_id }
+    { intent: 'chat', task_id: input.convo.task_id, ...(input.kind === 'staff' ? { snapshot: { staff: true } } : {}) }
   );
   return { queued: true, id: row.id };
 }

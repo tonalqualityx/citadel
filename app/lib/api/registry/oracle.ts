@@ -701,11 +701,11 @@ export const oracleEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['pm', 'admin'],
         responseNotes:
-          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin only (H2 security fix), approval-sender.py already runs on a key whose user has " +
           "pm/admin. 409 if the row isn't currently 'queued'. Stamps " +
           'send_attempt_at. A row not claimed here is never sent; GET ?status=queued naturally excludes ' +
           "a claimed row (a plain status equality filter). A row stuck in 'sending' for more than 30 " +
-          'minutes with no PUT .../sent on file surfaces to Mike as a blocker — never auto-resent. ' +
+          'minutes with no PUT .../sent on file surfaces to Mike as a blocker, never auto-resent. ' +
           'Fleet item 4: the send-time recheck runs here; the answer carries the fresh to_email, subject and body, ' +
           'and the sender sends THAT copy. When the task moved on (closed, already approved, already live) the row is ' +
           'cancelled, stamped superseded_at/superseded_reason, and the answer is 409 with code superseded.',
@@ -724,7 +724,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['pm', 'admin'],
         responseNotes:
-          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin only (H2 security fix), approval-sender.py already runs on a key whose user has " +
           "pm/admin. Requires the row be 'sending' (claimed via PUT .../sending " +
           "before gog was invoked); idempotent (200, no-op) when the row is already 'sent' — the " +
           'sender retries this same call on a later tick after a transport failure that happened AFTER ' +
@@ -759,7 +759,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['pm', 'admin'],
         responseNotes:
-          "pm/admin only (H2 security fix) — approval-sender.py already runs on a key whose user has " +
+          "pm/admin only (H2 security fix), approval-sender.py already runs on a key whose user has " +
           "pm/admin. Requires the row be 'sending' OR 'queued' (409 for any other " +
           "status). From 'sending' (an ordinary gog send failure): releases back to 'queued' (the next " +
           'poll reclaims and retries) unless this is the 3rd recorded error, in which case status falls ' +

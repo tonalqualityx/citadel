@@ -19,7 +19,7 @@ export type RecheckResult = { ok: true } | { ok: false; reason: string; severity
 const OK: RecheckResult = { ok: true };
 const drop = (reason: string, severity: Severity = 'definitive'): RecheckResult => ({ ok: false, reason, severity });
 
-const taskSelect = { id: true, is_deleted: true, status: true, client_approved_at: true, tags: true, staging_preview_url: true } as const;
+const taskSelect = { id: true, is_deleted: true, status: true, client_approved_at: true, approved: true, tags: true, staging_preview_url: true } as const;
 
 export async function recheckSend(govern: Govern, now: Date = new Date()): Promise<RecheckResult> {
   switch (govern.intent) {
@@ -32,6 +32,8 @@ export async function recheckSend(govern: Govern, now: Date = new Date()): Promi
       if (t.client_approved_at || t.tags.includes(CLIENT_APPROVED_TAG)) return drop('already_approved');
       if (t.status === 'done') return drop('already_live');
       const was = govern.snapshot?.preview_url ?? null;
+      // Another channel already told the client about this preview (a producer holding the claim is exempt).
+      if (was && !govern.snapshot?.claimed && t.tags.includes(previewTag(was))) return drop('already_notified');
       if (was && t.staging_preview_url && t.staging_preview_url !== was) return drop('preview_changed', 'heuristic');
       return OK;
     }
@@ -41,7 +43,7 @@ export async function recheckSend(govern: Govern, now: Date = new Date()): Promi
       if (!t || t.is_deleted || t.status === 'abandoned') return drop('task_reopened');
       if (govern.snapshot?.before_live) {
         // A worker's own note ahead of /live: the right state is "client approved" (or already done).
-        if (t.status !== 'done' && !t.client_approved_at && !t.tags.includes(CLIENT_APPROVED_TAG)) return drop('not_approved');
+        if (t.status !== 'done' && !t.client_approved_at && !t.approved && !t.tags.includes(CLIENT_APPROVED_TAG)) return drop('not_approved');
       } else if (t.status !== 'done') return drop('task_reopened');
       // A row queued by the producer that took the claim is not "already notified" by its own claim.
       if (!govern.snapshot?.claimed && t.tags.includes(GO_LIVE_TAG)) return drop('already_notified');
@@ -71,7 +73,9 @@ export async function recheckSend(govern: Govern, now: Date = new Date()): Promi
 
     case 'chat': {
       const convo = await prisma.chatConversation.findUnique({ where: { task_id: govern.task_id }, select: { state: true } });
-      return !convo || convo.state === 'closed' ? drop('conversation_closed') : OK;
+      if (!convo) return drop('conversation_closed');
+      // A person's own message is still delivered after the conversation closes; only automated mail is held back.
+      return convo.state === 'closed' && !govern.snapshot?.staff ? drop('conversation_closed') : OK;
     }
 
     case 'approval_mail': {
@@ -105,5 +109,17 @@ export async function claimNotice(taskId: string, kind: 'live' | 'preview', prev
   if (kind === 'preview' && !previewUrl) throw new Error('claimNotice preview needs the preview url');
   const tag = kind === 'live' ? GO_LIVE_TAG : previewTag(previewUrl as string);
   const n = await prisma.$executeRaw`UPDATE tasks SET tags = array_append(tags, ${tag}) WHERE id = ${taskId}::uuid AND NOT (${tag} = ANY(tags))`;
+  return n === 1;
+}
+
+/**
+ * Give a claim back (the send it guarded did not go out). Removes the tag in one UPDATE; true when the
+ * tag was there. Releasing a claim somebody else holds is the caller's mistake, so callers only release
+ * what their own claimNotice returned true for.
+ */
+export async function releaseNotice(taskId: string, kind: 'live' | 'preview', previewUrl?: string | null): Promise<boolean> {
+  if (kind === 'preview' && !previewUrl) throw new Error('releaseNotice preview needs the preview url');
+  const tag = kind === 'live' ? GO_LIVE_TAG : previewTag(previewUrl as string);
+  const n = await prisma.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${tag}) WHERE id = ${taskId}::uuid AND ${tag} = ANY(tags)`;
   return n === 1;
 }

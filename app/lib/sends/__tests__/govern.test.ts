@@ -5,7 +5,7 @@ const U = '11111111-1111-4111-8111-111111111111';
 
 describe('parseGovern', () => {
   it('accepts every intent with its fields', () => {
-    expect(parseGovern({ intent: 'approval_request', task_id: U, snapshot: { preview_url: 'https://p.test/x' } })).toEqual({ intent: 'approval_request', task_id: U, snapshot: { preview_url: 'https://p.test/x' } });
+    expect(parseGovern({ intent: 'approval_request', task_id: U, snapshot: { preview_url: 'https://p.test/x' } })).toEqual({ intent: 'approval_request', task_id: U, snapshot: { preview_url: 'https://p.test/x', claimed: false } });
     expect(parseGovern({ intent: 'approval_mail', task_id: U, approval_request_id: U })).toMatchObject({ intent: 'approval_mail', approval_request_id: U });
     expect(parseGovern({ intent: 'golive', task_id: U, snapshot: { before_live: true } })).toMatchObject({ snapshot: { claimed: false, before_live: true } });
     expect(parseGovern({ intent: 'magic_link', snapshot: { expires_at: '2026-10-23T00:00:00Z' } })).toBeTruthy();

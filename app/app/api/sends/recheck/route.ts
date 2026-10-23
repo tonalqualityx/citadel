@@ -3,8 +3,11 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { parseGovern } from '@/lib/sends/govern';
 import { decideSend } from '@/lib/sends/policy';
-import { claimNotice } from '@/lib/sends/recheck';
+import { claimNotice, releaseNotice } from '@/lib/sends/recheck';
 
+// release:true (with claim and claim_token) gives a claim back when the guarded send did not go out.
+// probe:true leaves no 'Send dropped' comment (post-deploy probes). send_recheck_mode=off skips the check
+// but NOT claims; turning claims off means reverting the deploy.
 // POST: the send-time recheck for a send that does not go through the outbox (a worker's reply on the
 // client's own email thread, a preview note). Body: { govern, claim?: 'live'|'preview', claim_token?: string }.
 // Returns { ok, reason, severity, claimed? }. When `claim` is passed and the check passes, the notice is
@@ -16,7 +19,7 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
 
-    const body = (await request.json().catch(() => null)) as { govern?: unknown; claim?: unknown; claim_token?: unknown } | null;
+    const body = (await request.json().catch(() => null)) as { govern?: unknown; claim?: unknown; claim_token?: unknown; release?: unknown; probe?: unknown } | null;
     const govern = parseGovern(body?.govern);
     if (!govern) throw new ApiError('A valid govern block is required', 400, 'bad_govern');
     const claim = body?.claim;
@@ -25,7 +28,13 @@ export async function POST(request: NextRequest) {
     if (claim === 'preview' && !token) throw new ApiError('claim_token (the preview url) is required for claim preview', 400, 'bad_claim');
     if (claim && !('task_id' in govern)) throw new ApiError('A claim needs a govern block with a task_id', 400, 'bad_claim');
 
-    const decision = await decideSend(govern, null);
+    if (body?.release === true) {
+      if (!claim || !('task_id' in govern)) throw new ApiError('release needs claim and a govern block with a task_id', 400, 'bad_claim');
+      const released = await releaseNotice(govern.task_id, claim, token);
+      return NextResponse.json({ ok: true, released });
+    }
+
+    const decision = await decideSend(govern, null, { probe: body?.probe === true });
     if (!decision.ok) {
       return NextResponse.json({ ok: false, reason: decision.reason, severity: decision.severity, mode: decision.mode, ...(claim ? { claimed: false } : {}) });
     }

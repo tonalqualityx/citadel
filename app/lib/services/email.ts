@@ -197,6 +197,8 @@ export async function sendTaskApprovalRequestEmail(options: {
   stagingUrl?: string | null;
   /** The task whose review this mail asks for; checked again at send time. */
   taskId: string;
+  /** True when the caller holds the preview claim or is an explicit staff resend (the recheck then skips already_notified). */
+  claimed?: boolean;
 }): Promise<void> {
   const { to, approvalUrl, taskTitle, contactName, stagingUrl } = options;
   const greetingName = contactName ? ` ${contactName}` : '';
@@ -255,7 +257,7 @@ The Indelible Team
 </html>
 `.trim();
 
-  await sendEmail({ to, subject, text, html, govern: { intent: 'approval_request', task_id: options.taskId, snapshot: { preview_url: stagingUrl ?? null } } });
+  await sendEmail({ to, subject, text, html, govern: { intent: 'approval_request', task_id: options.taskId, snapshot: { preview_url: stagingUrl ?? null, claimed: options.claimed === true } } });
 }
 
 /**

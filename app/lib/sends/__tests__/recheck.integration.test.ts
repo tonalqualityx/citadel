@@ -12,7 +12,7 @@ import { cleanup, SCRATCH, seedClient, type Seeded } from '@/lib/engine/__tests_
 import { recordTaskClientApproval } from '@/lib/services/portal';
 import { markStaged, markLive } from '@/lib/portal/go-live';
 import { queueInOutbox } from '../outbox';
-import { recheckSend, claimNotice, previewTag } from '../recheck';
+import { recheckSend, claimNotice, releaseNotice, previewTag } from '../recheck';
 import { decideSend } from '../policy';
 import type { Govern } from '../govern';
 import { POST as claimPOST } from '@/app/api/email-outbox/[id]/claim/route';
@@ -306,6 +306,65 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
     it('the route refuses a bad govern block and a preview claim without a url', async () => {
       expect((await recheckPOST(jsonReq({ govern: { intent: 'nope' } }))).status).toBe(400);
       expect((await recheckPOST(jsonReq({ govern: { intent: 'chat', task_id: a.taskId }, claim: 'preview' }))).status).toBe(400);
+    });
+  });
+
+  describe('review fixes', () => {
+    it('before_live accepts the staff approval flag', async () => {
+      await reset({ approved: true });
+      expect(await reason({ intent: 'golive', task_id: a.taskId, snapshot: { before_live: true } })).toBe('ok');
+    });
+    it('a closed conversation drops automated mail but not a staff reply', async () => {
+      await prisma.chatConversation.update({ where: { task_id: a.taskId }, data: { state: 'closed' } });
+      expect(await reason({ intent: 'chat', task_id: a.taskId })).toBe('conversation_closed/definitive');
+      expect(await reason({ intent: 'chat', task_id: a.taskId, snapshot: { staff: true } })).toBe('ok');
+    });
+    it('approval_request reads the preview claim; a claim holder and a staff resend are exempt', async () => {
+      const url = 'https://preview.example.test/a';
+      await claimNotice(a.taskId, 'preview', url);
+      expect(await reason({ intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: url } })).toBe('already_notified/definitive');
+      expect(await reason({ intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: url, claimed: true } })).toBe('ok');
+    });
+    it('releaseNotice gives the claim back once', async () => {
+      expect(await claimNotice(a.taskId, 'live')).toBe(true);
+      expect(await releaseNotice(a.taskId, 'live')).toBe(true);
+      expect(await releaseNotice(a.taskId, 'live')).toBe(false);
+      expect(await claimNotice(a.taskId, 'live')).toBe(true);
+    });
+    it('the route releases a claim, and a released claim can be taken again', async () => {
+      await reset({ tags: ['client-approved'] });
+      const body = { govern: { intent: 'golive', task_id: a.taskId, snapshot: { before_live: true } }, claim: 'live' };
+      expect((await (await recheckPOST(jsonReq(body))).json()).claimed).toBe(true);
+      expect(await (await recheckPOST(jsonReq({ ...body, release: true }))).json()).toMatchObject({ ok: true, released: true });
+      expect((await (await recheckPOST(jsonReq(body))).json()).claimed).toBe(true);
+      expect((await recheckPOST(jsonReq({ govern: body.govern, release: true }))).status).toBe(400);
+    });
+    it('a probe drop leaves no Send dropped comment', async () => {
+      await reset({ status: 'abandoned' });
+      const res = await (await recheckPOST(jsonReq({ govern: { intent: 'approval_mail', task_id: a.taskId }, probe: true }))).json();
+      expect(res).toMatchObject({ ok: false, reason: 'task_closed' });
+      expect(await prisma.comment.count({ where: { task_id: a.taskId, content: { startsWith: 'Send dropped' } } })).toBe(0);
+      await recheckPOST(jsonReq({ govern: { intent: 'approval_mail', task_id: a.taskId } }));
+      expect(await prisma.comment.count({ where: { task_id: a.taskId, content: { startsWith: 'Send dropped' } } })).toBe(1);
+    });
+    it('markLive with nobody to tell gives the claim back, so the worker note still sends (control)', async () => {
+      await reset({ tags: ['client-approved'], client_approved_at: new Date(), source: 'email', requested_by_contact_id: null });
+      await prisma.chatConversation.deleteMany({ where: { task_id: a.taskId } });
+      const res = await markLive({ taskId: a.taskId, authorId: BAST_USER_ID, liveUrl: 'https://site.example.test/' });
+      expect(res.lane).toBe('none');
+      expect((await prisma.task.findUniqueOrThrow({ where: { id: a.taskId } })).tags).not.toContain('go-live-notified');
+      const guard = await (await recheckPOST(jsonReq({ govern: { intent: 'golive', task_id: a.taskId, snapshot: { before_live: true } }, claim: 'live' }))).json();
+      expect(guard).toMatchObject({ ok: true, claimed: true });
+    });
+    it('markStaged skips the mail when the preview was already claimed, and re-sends after a send-back', async () => {
+      const url = 'https://preview.example.test/claimed';
+      await reset({ status: 'in_progress', staging_preview_url: null });
+      await claimNotice(a.taskId, 'preview', url);
+      const first = await markStaged({ taskId: a.taskId, authorId: BAST_USER_ID, previewUrl: url });
+      expect(first.approval_email).toBe('skipped');
+      await reset({ status: 'in_progress', staging_preview_url: null, tags: ['client-sent-back'] });
+      const second = await markStaged({ taskId: a.taskId, authorId: BAST_USER_ID, previewUrl: url });
+      expect(second.approval_email).toBe('sent');
     });
   });
 

@@ -54,7 +54,7 @@ async function noteDrop(govern: Govern, reason: string, ref: string | null): Pro
 }
 
 /** Run the recheck under the current mode and log the decision. `ref` is an outbox or approval id for the log. */
-export async function decideSend(govern: Govern, ref: string | null = null): Promise<SendDecision> {
+export async function decideSend(govern: Govern, ref: string | null = null, opts: { probe?: boolean } = {}): Promise<SendDecision> {
   const { mode, heuristics } = await recheckSettings();
   if (mode === 'off') return { ok: true, mode };
   const r = await recheckSend(govern);
@@ -68,6 +68,6 @@ export async function decideSend(govern: Govern, ref: string | null = null): Pro
       : { ok: true, mode, would_drop: { reason: r.reason, severity: r.severity } };
   }
   console.log(JSON.stringify({ event: 'send_recheck', intent: govern.intent, ref, mode, ok: decision.ok, reason: decision.reason ?? decision.would_drop?.reason ?? null, severity: decision.severity ?? decision.would_drop?.severity ?? null, shadow: Boolean(decision.would_drop) }));
-  if (!decision.ok && decision.reason) await noteDrop(govern, decision.reason, ref);
+  if (!decision.ok && decision.reason && !opts.probe) await noteDrop(govern, decision.reason, ref);
   return decision;
 }
