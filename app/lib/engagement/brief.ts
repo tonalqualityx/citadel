@@ -15,6 +15,7 @@
 
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
+import path from 'node:path';
 
 export const OWNER_MODES = ['off', 'dry', 'live'] as const;
 export const ENGAGEMENT_ACTIONS = ['close', 'file_task', 'comment_internal', 'mike_item', 'note'] as const;
@@ -62,13 +63,25 @@ export type StallRules = z.infer<typeof stallRulesSchema>;
  *   threads  { ids[] }                     Gmail thread ids of open asks
  * Other kinds are pointers the pass cannot read.
  */
+const REPO_ROOTS = ['/home/mike/Documents', '/home/mike/.openclaw/workspace'];
+export function repoPathOk(p: string): boolean {
+  const n = path.posix.normalize(p);
+  return !p.split('/').includes('..') && REPO_ROOTS.some((r) => n.startsWith(r + '/') && n.length > r.length + 1);
+}
+export function domainOk(h: string): boolean {
+  return /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(h.trim().replace(/^\./, ''));
+}
+
 const sourceSchema = z.record(z.string(), z.unknown()).superRefine((s, ctx) => {
   const strs = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string' && x.length > 0 && x.length < 300);
   const bad = (m: string) => ctx.addIssue({ code: 'custom', message: m });
   if (s.kind === 'contacts' && !(strs(s.addresses ?? []) && strs(s.domains ?? []))) bad('contacts needs addresses[] and domains[] of strings');
   if (s.kind === 'threads' && !strs(s.ids)) bad('threads needs ids[] of strings');
   if ((s.kind === 'repo' || s.kind === 'file') && typeof s.path !== 'string') bad(`${String(s.kind)} needs a path`);
-  if (s.kind === 'domain' && typeof s.host !== 'string') bad('domain needs a host');
+  if (s.kind === 'repo' && typeof s.path === 'string' && !repoPathOk(s.path)) {
+    bad('a repo must sit under /home/mike/Documents or /home/mike/.openclaw/workspace, and not be either of them');
+  }
+  if (s.kind === 'domain' && !(typeof s.host === 'string' && domainOk(s.host))) bad('a domain needs a real host name with at least one dot');
 });
 
 export const ROLE_KEYS = ['pm', 'design', 'content', 'liaison', 'wordpress', 'billing', 'social'] as const;

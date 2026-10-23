@@ -30,6 +30,19 @@ describe('sources', () => {
     ];
     expect(briefInputSchema.safeParse({ ...base, sources }).success).toBe(true);
   });
+  it('refuses repos outside or at the allowed roots and bare or dotless domains', () => {
+    for (const bad of [
+      { kind: 'repo', path: '/home/mike/Documents' },
+      { kind: 'repo', path: '/home/mike/.openclaw/workspace' },
+      { kind: 'repo', path: '/etc' },
+      { kind: 'repo', path: '/home/mike/Documents/../.ssh' },
+      { kind: 'domain', host: 'com' },
+      { kind: 'domain', host: 'localhost' },
+    ]) {
+      expect(briefInputSchema.safeParse({ ...base, sources: [bad] }).success).toBe(false);
+    }
+    expect(briefInputSchema.safeParse({ ...base, sources: [{ kind: 'repo', path: '/home/mike/Documents/repos/vcdp' }, { kind: 'domain', host: 'vcdp.org' }] }).success).toBe(true);
+  });
   it('refuses malformed contacts, threads, repo and domain entries', () => {
     for (const bad of [{ kind: 'contacts', addresses: 'dan@x' }, { kind: 'threads' }, { kind: 'repo' }, { kind: 'domain', host: 3 }]) {
       expect(briefInputSchema.safeParse({ ...base, sources: [bad] }).success).toBe(false);
