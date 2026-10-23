@@ -7,6 +7,7 @@ vi.mock('@/lib/db/prisma', () => {
   const decision = { findMany: vi.fn(), findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() };
   return {
     prisma: {
+      apiKey: { findUnique: vi.fn() },
       decision,
       decisionSource: { findUnique: vi.fn(), create: vi.fn() },
       decisionLink: { findUnique: vi.fn(), create: vi.fn() },
@@ -28,6 +29,7 @@ import { POST as rejectPOST } from '../[id]/reject/route';
 import { POST as retractPOST } from '../[id]/retract/route';
 import { POST as supersedePOST } from '../[id]/supersede/route';
 import { POST as sourcesPOST } from '../[id]/sources/route';
+import { POST as linksPOST } from '../[id]/links/route';
 import { POST as importPOST } from '../import/route';
 
 const mockAuth = vi.mocked(requireAuth);
@@ -37,8 +39,10 @@ const dUpdate = prisma.decision.update as Mock;
 const srcFindUnique = prisma.decisionSource.findUnique as Mock;
 const srcCreate = prisma.decisionSource.create as Mock;
 
-const BOT = { userId: 'bot-1', role: 'pm', email: 'bast@example.com' };
-const ADMIN = { userId: 'admin-1', role: 'admin', email: 'mike@example.com' };
+const BOT = { userId: 'bot-1', role: 'pm', email: 'bast@example.com', via: 'api_key' as const, apiKeyId: 'key-1' };
+const ADMIN = { userId: 'admin-1', role: 'admin', email: 'mike@example.com', via: 'session' as const };
+const TECH = { userId: 'tech-1', role: 'tech', email: 't@example.com', via: 'session' as const };
+const apiKeyFindUnique = prisma.apiKey.findUnique as Mock;
 const UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -76,7 +80,7 @@ describe('POST /api/decisions', () => {
 
   it('lets a bot write recorded_from_source', async () => {
     dCreate.mockResolvedValue(dec({ status: 'recorded_from_source' }));
-    const res = await createPOST(req('/api/decisions', { title: 't', text: 'x', status: 'recorded_from_source' }));
+    const res = await createPOST(req('/api/decisions', { title: 't', text: 'x', status: 'recorded_from_source', sources: [{ kind: 'doc', ref: 'r', quote: 'q' }] }));
     expect(res.status).toBe(201);
   });
 
@@ -89,6 +93,19 @@ describe('POST /api/decisions', () => {
     expect(dCreate).not.toHaveBeenCalled();
   });
 
+  it('a tech user cannot write decisions, sources or links', async () => {
+    mockAuth.mockResolvedValue(TECH);
+    expect((await createPOST(req('/api/decisions', { title: 't', text: 'x' }))).status).toBe(403);
+    expect((await sourcesPOST(req(`/api/decisions/${UUID_A}/sources`, { kind: 'doc', ref: 'r' }), params(UUID_A))).status).toBe(403);
+    expect((await linksPOST(req(`/api/decisions/${UUID_A}/links`, { entity_kind: 'task', entity_id: 'x' }), params(UUID_A))).status).toBe(403);
+    expect(dCreate).not.toHaveBeenCalled();
+  });
+
+  it('recorded_from_source without a quoted source is a 400', async () => {
+    const res = await createPOST(req('/api/decisions', { title: 't', text: 'x', status: 'recorded_from_source' }));
+    expect(res.status).toBe(400);
+  });
+
   it('requires auth', async () => {
     mockAuth.mockRejectedValue(new AuthError('Authentication required', 401));
     const res = await createPOST(req('/api/decisions', { title: 't', text: 'x' }));
@@ -98,6 +115,7 @@ describe('POST /api/decisions', () => {
 
 describe('admin-only routes', () => {
   it('a bot cannot confirm, reject, retract, supersede or import', async () => {
+    apiKeyFindUnique.mockResolvedValue({ scopes: [] });
     const calls = [
       () => confirmPOST(req(`/api/decisions/${UUID_A}/confirm`, {}), params(UUID_A)),
       () => rejectPOST(req(`/api/decisions/${UUID_A}/reject`, {}), params(UUID_A)),
@@ -110,6 +128,22 @@ describe('admin-only routes', () => {
       expect(res.status).toBe(403);
     }
     expect(dUpdate).not.toHaveBeenCalled();
+  });
+
+  it('an API key without the decisions:admin scope is refused even if its user is an admin', async () => {
+    mockAuth.mockResolvedValue({ ...ADMIN, via: 'api_key', apiKeyId: 'key-2' } as never);
+    apiKeyFindUnique.mockResolvedValue({ scopes: ['engine'] });
+    const res = await confirmPOST(req(`/api/decisions/${UUID_A}/confirm`, {}), params(UUID_A));
+    expect(res.status).toBe(403);
+  });
+
+  it('an API key with the decisions:admin scope can confirm', async () => {
+    mockAuth.mockResolvedValue(BOT as never);
+    apiKeyFindUnique.mockResolvedValue({ scopes: ['decisions:admin'] });
+    dFindUnique.mockResolvedValue(dec());
+    dUpdate.mockResolvedValue(dec({ status: 'confirmed' }));
+    const res = await confirmPOST(req(`/api/decisions/${UUID_A}/confirm`, {}), params(UUID_A));
+    expect(res.status).toBe(200);
   });
 
   it('an admin can confirm a proposed decision and is recorded as the confirmer', async () => {
@@ -170,6 +204,10 @@ describe('GET routes', () => {
       in: ['recorded_from_source', 'confirmed'],
     });
   });
+  it('in-scope with a non-uuid id is a 400', async () => {
+    const res = await inScopeGET(req('/api/decisions/in-scope?client=Herba'));
+    expect(res.status).toBe(400);
+  });
   it('in-scope with no scope is a 400', async () => {
     const res = await inScopeGET(req('/api/decisions/in-scope'));
     expect(res.status).toBe(400);
@@ -179,7 +217,8 @@ describe('GET routes', () => {
     const res = await inScopeGET(req('/api/decisions/in-scope?lane=wright'));
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.decisions).toHaveLength(1);
+    expect(body.fleet_rows).toHaveLength(1);
     expect(body.truncated).toBe(false);
+    expect(body.total_matched).toBe(1);
   });
 });

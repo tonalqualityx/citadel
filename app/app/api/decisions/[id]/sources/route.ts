@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { sourceSchema } from '@/lib/decisions';
+import { requireWriter, sourceSchema } from '@/lib/decisions';
 
 // Attach another source to a decision. The same kind + ref twice is a 200 no-op.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth();
+    requireWriter(await requireAuth());
     const { id } = await params;
     const s = sourceSchema.parse(await request.json());
     const decision = await prisma.decision.findUnique({ where: { id }, select: { id: true } });

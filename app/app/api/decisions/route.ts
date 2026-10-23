@@ -12,6 +12,7 @@ import {
   POSTABLE_STATUSES,
   createDecisionSchema,
   formatDecision,
+  requireWriter,
 } from '@/lib/decisions';
 
 // Fleet item 2: the decision record. GET lists with filters (status=active means
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireAuth();
+    requireWriter(user);
     const data = createDecisionSchema.parse(await request.json());
 
     if (!(POSTABLE_STATUSES as readonly string[]).includes(data.status)) {

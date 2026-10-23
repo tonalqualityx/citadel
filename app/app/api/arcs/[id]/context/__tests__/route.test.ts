@@ -101,7 +101,8 @@ describe('GET /api/arcs/[id]/context', () => {
     const res = await GET(getRequest(), { params });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.decisions.items).toHaveLength(1);
+    expect(body.decisions.fleet_rows).toHaveLength(1);
+    expect(body.decisions.total_matched).toBe(1);
     expect(body.decisions.truncated).toBe(false);
   });
 
@@ -111,7 +112,7 @@ describe('GET /api/arcs/[id]/context', () => {
     const res = await GET(getRequest(), { params });
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.decisions).toEqual({ items: [], truncated: false });
+    expect(body.decisions).toEqual({ items: [], fleet_rows: [], truncated: false, total_matched: 0 });
   });
 
   it('404s when the arc does not exist', async () => {

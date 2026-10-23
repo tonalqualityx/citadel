@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { linkSchema } from '@/lib/decisions';
+import { linkSchema, requireWriter } from '@/lib/decisions';
 
 // Link a decision to a task, project, client or other entity. Duplicates are a 200 no-op.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAuth();
+    requireWriter(await requireAuth());
     const { id } = await params;
     const l = linkSchema.parse(await request.json());
     const decision = await prisma.decision.findUnique({ where: { id }, select: { id: true } });

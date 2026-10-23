@@ -191,8 +191,13 @@ export async function GET(
           }
         : null,
       decisions: decisions
-        ? { items: decisions.decisions, truncated: decisions.truncated }
-        : { items: [], truncated: false },
+        ? {
+            items: decisions.decisions,
+            fleet_rows: decisions.fleet_rows,
+            truncated: decisions.truncated,
+            total_matched: decisions.total_matched,
+          }
+        : { items: [], fleet_rows: [], truncated: false, total_matched: 0 },
       tasks: {
         open: openTasks,
         recent: recentTasks,

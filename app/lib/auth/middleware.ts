@@ -5,7 +5,10 @@ import { prisma } from '@/lib/db/prisma';
 import { UserRole } from '@prisma/client';
 import { AuthError } from '@/lib/api/errors';
 
-export async function requireAuth(): Promise<TokenPayload> {
+/** How the caller authenticated. `via` and `apiKeyId` are additive; existing callers ignore them. */
+export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string };
+
+export async function requireAuth(): Promise<AuthPayload> {
   // Try cookie-based JWT auth first (existing browser flow)
   const cookieStore = await cookies();
   const token = cookieStore.get('access_token')?.value;
@@ -43,7 +46,7 @@ export async function requireAuth(): Promise<TokenPayload> {
   throw new AuthError('Authentication required', 401);
 }
 
-async function authenticateApiKey(rawKey: string): Promise<TokenPayload> {
+async function authenticateApiKey(rawKey: string): Promise<AuthPayload> {
   const keyHash = hashApiKey(rawKey);
 
   const apiKey = await prisma.apiKey.findFirst({

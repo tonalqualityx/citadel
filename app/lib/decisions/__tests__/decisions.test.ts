@@ -8,7 +8,7 @@ vi.mock('@/lib/db/prisma', () => {
   const task = { findUnique: vi.fn() };
   const project = { findUnique: vi.fn() };
   const charter = { findUnique: vi.fn() };
-  const tx = { decision };
+  const tx = { decision, decisionSource, decisionLink };
   return {
     prisma: {
       decision,
@@ -23,7 +23,7 @@ vi.mock('@/lib/db/prisma', () => {
 });
 
 import { prisma } from '@/lib/db/prisma';
-import { findInScope, importDecisions, supersede, IN_SCOPE_CAP, importItemSchema } from '../index';
+import { findInScope, importDecisions, supersede, IN_SCOPE_CAP, FLEET_ROWS_CAP, importItemSchema, createDecisionSchema } from '../index';
 
 const dFindMany = prisma.decision.findMany as Mock;
 const dFindUnique = prisma.decision.findUnique as Mock;
@@ -76,7 +76,9 @@ function row(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  txMock.mockImplementation(async (fn: (t: unknown) => unknown) => fn({ decision: prisma.decision }));
+  txMock.mockImplementation(async (fn: (t: unknown) => unknown) =>
+    fn({ decision: prisma.decision, decisionSource: prisma.decisionSource, decisionLink: prisma.decisionLink })
+  );
 });
 
 describe('findInScope', () => {
@@ -123,11 +125,12 @@ describe('findInScope', () => {
     ]);
     taskFindUnique.mockResolvedValue({ project_id: PROJECT, client_id: CLIENT, charter_id: null, site_id: null, accord_id: null });
     const r = await findInScope({ task: TASK });
-    expect(r.decisions.map((d) => d.id)).toEqual(['linked', 'project', 'client', 'fleet']);
+    expect(r.decisions.map((d) => d.id)).toEqual(['linked', 'project', 'client']);
+    expect(r.fleet_rows.map((d) => d.id)).toEqual(['fleet']);
   });
 
   it('caps at 60 and says so', async () => {
-    dFindMany.mockResolvedValue(Array.from({ length: 75 }, (_, i) => row({ id: `d${i}` })));
+    dFindMany.mockResolvedValue(Array.from({ length: 75 }, (_, i) => row({ id: `d${i}`, scope: 'lane', lane: 'wright' })));
     const r = await findInScope({ lane: 'wright' });
     expect(r.decisions).toHaveLength(IN_SCOPE_CAP);
     expect(r.truncated).toBe(true);
@@ -135,9 +138,27 @@ describe('findInScope', () => {
   });
 
   it('is not truncated at exactly 60', async () => {
-    dFindMany.mockResolvedValue(Array.from({ length: 60 }, (_, i) => row({ id: `d${i}` })));
+    dFindMany.mockResolvedValue(Array.from({ length: 60 }, (_, i) => row({ id: `d${i}`, scope: 'lane', lane: 'wright' })));
     const r = await findInScope({ lane: 'wright' });
     expect(r.truncated).toBe(false);
+  });
+
+  it('keeps fleet rows out of the 60 cap, caps them at 150, and returns compact rows', async () => {
+    const fleet = Array.from({ length: 160 }, (_, i) => row({ id: `f${i}`, scope: 'fleet', text: 'y '.repeat(300) }));
+    const lane = Array.from({ length: 5 }, (_, i) => row({ id: `l${i}`, scope: 'lane', lane: 'wright' }));
+    dFindMany.mockResolvedValue([...fleet, ...lane]);
+    const r = await findInScope({ lane: 'wright' });
+    expect(r.decisions).toHaveLength(5);
+    expect(r.fleet_rows).toHaveLength(FLEET_ROWS_CAP);
+    expect(r.fleet_truncated).toBe(true);
+    expect(r.total_matched).toBe(165);
+    expect(Object.keys(r.fleet_rows[0]).sort()).toEqual(['id', 'key', 'lane', 'quote', 'scope', 'status', 'title']);
+    expect(r.fleet_rows[0].quote.length).toBeLessThanOrEqual(200);
+  });
+
+  it('rejects a non-uuid id param with a 400', async () => {
+    await expect(findInScope({ client: 'Herba' })).rejects.toMatchObject({ statusCode: 400 });
+    expect(dFindMany).not.toHaveBeenCalled();
   });
 });
 
@@ -189,7 +210,8 @@ describe('importDecisions', () => {
 
   it('a second identical run changes nothing', async () => {
     dFindUnique.mockResolvedValue(
-      row({ id: 'n1', key: 'pipeline.1', title: 'T', text: 'Body', lane: null, conflict_note: null })
+      row({ id: 'n1', key: 'pipeline.1', title: 'T', text: 'Body', lane: null, conflict_note: null,
+            sources: [{ kind: 'doc', ref: '/a.md#L1' }] })
     );
     srcCreateMany.mockResolvedValue({ count: 0 });
     linkCreateMany.mockResolvedValue({ count: 0 });
@@ -201,9 +223,77 @@ describe('importDecisions', () => {
   });
 
   it('never rewrites the status of an existing row', async () => {
-    dFindUnique.mockResolvedValue(row({ id: 'n1', key: 'pipeline.1', title: 'Old title', text: 'Body', status: 'retracted' }));
+    dFindUnique.mockResolvedValue(row({ id: 'n1', key: 'pipeline.1', title: 'Old title', text: 'Body', status: 'retracted', sources: [] }));
     srcCreateMany.mockResolvedValue({ count: 0 });
     await importDecisions([item], 'user-1');
     expect(dUpdate).not.toHaveBeenCalled();
+  });
+
+  it('runs the whole import in one transaction', async () => {
+    dFindUnique.mockResolvedValue(null);
+    dCreate.mockResolvedValue(row({ id: 'n1' }));
+    srcCreateMany.mockResolvedValue({ count: 1 });
+    await importDecisions([item, { ...item, key: 'pipeline.2' }], 'user-1');
+    expect(txMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a changed row with no new source writes nothing and is flagged', async () => {
+    dFindUnique.mockResolvedValue(
+      row({ id: 'n1', key: 'pipeline.1', title: 'T', text: 'Different text', status: 'confirmed',
+            sources: [{ kind: 'doc', ref: '/a.md#L1' }] })
+    );
+    srcCreateMany.mockResolvedValue({ count: 0 });
+    const r = await importDecisions([item], 'user-1');
+    expect(r.flagged).toBe(1);
+    expect(dUpdate).not.toHaveBeenCalled();
+  });
+
+  it('a changed confirmed row with a new source bumps the revision and keeps both sources', async () => {
+    dFindUnique.mockResolvedValue(
+      row({ id: 'n1', key: 'pipeline.1', title: 'T', text: 'Different text', status: 'confirmed',
+            sources: [{ kind: 'doc', ref: '/a.md#L99' }] })
+    );
+    srcCreateMany.mockResolvedValue({ count: 1 });
+    const r = await importDecisions([item], 'user-1');
+    expect(r.updated).toBe(1);
+    expect(dUpdate.mock.calls[0][0].data.revision).toEqual({ increment: 1 });
+    expect(dUpdate.mock.calls[0][0].data.status).toBeUndefined();
+  });
+
+  it('a supersedes relation links the rows and marks the old one superseded; refines leaves it active', async () => {
+    const withRel = importItemSchema.parse({
+      key: 'new', title: 'N', text: 'n', status: 'confirmed',
+      sources: [{ kind: 'doc', ref: '/a.md#L2', quote: 'n' }],
+      relations: [{ relation: 'supersedes', key: 'old' }, { relation: 'refines', key: 'ref' }],
+    });
+    dFindUnique.mockImplementation(async ({ where }: { where: { key?: string; id?: string } }) => {
+      if (where.key === 'new') return null;
+      if (where.key === 'old') return { id: 'old-id' };
+      if (where.key === 'ref') return { id: 'ref-id' };
+      if (where.id === 'old-id') return { status: 'confirmed' };
+      if (where.id === 'ref-id') return { status: 'confirmed' };
+      return null;
+    });
+    dCreate.mockResolvedValue(row({ id: 'new-id' }));
+    srcCreateMany.mockResolvedValue({ count: 1 });
+    linkCreateMany.mockResolvedValue({ count: 1 });
+    await importDecisions([withRel], 'user-1');
+    const rels = linkCreateMany.mock.calls.map((c) => c[0].data[0]).filter((d) => d.entity_kind === 'decision');
+    expect(rels).toEqual([
+      expect.objectContaining({ entity_id: 'old-id', relation: 'supersedes' }),
+      expect.objectContaining({ entity_id: 'ref-id', relation: 'refines' }),
+    ]);
+    expect(dUpdate).toHaveBeenCalledWith({ where: { id: 'old-id' }, data: { status: 'superseded' } });
+    expect(dUpdate).not.toHaveBeenCalledWith({ where: { id: 'ref-id' }, data: { status: 'superseded' } });
+  });
+});
+
+describe('quote rule', () => {
+  it('recorded_from_source needs a source with a non-empty quote', () => {
+    const base = { title: 't', text: 'x', status: 'recorded_from_source' };
+    expect(createDecisionSchema.safeParse(base).success).toBe(false);
+    expect(createDecisionSchema.safeParse({ ...base, sources: [{ kind: 'doc', ref: 'r', quote: '  ' }] }).success).toBe(false);
+    expect(createDecisionSchema.safeParse({ ...base, sources: [{ kind: 'doc', ref: 'r', quote: 'said so' }] }).success).toBe(true);
+    expect(createDecisionSchema.safeParse({ title: 't', text: 'x' }).success).toBe(true);
   });
 });
