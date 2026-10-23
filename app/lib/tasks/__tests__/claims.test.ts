@@ -56,19 +56,22 @@ describe('assertClaimHeld', () => {
     await assertClaimHeld('t', null, { mode: 'warn', caller: { userId: 'u1', role: 'pm', via: 'api_key' } }, dbWith(live));
     expect(activity.logActivity).toHaveBeenCalledWith(expect.objectContaining({ action: 'claim_warn', entityId: 't', userId: 'u1' }));
   });
-  it('a pm or admin on a browser session moves it: claim released, activity line written, even in enforce', async () => {
-    for (const role of ['pm', 'admin']) {
+  it('any person on a browser session (pm, admin, tech) moves it: claim released, activity line written only when logOverride runs, even in enforce', async () => {
+    for (const role of ['pm', 'admin', 'tech']) {
       activity.logActivity.mockClear();
       const r = await assertClaimHeld('t', null, { mode: 'enforce', caller: { userId: 'u1', role, via: 'session' } }, dbWith(live));
       expect(r.overridden_holder).toBe('worker:a');
+      expect(activity.logActivity).not.toHaveBeenCalled();
+      await r.logOverride();
       const call = activity.logActivity.mock.calls[0][0];
       expect(call.action).toBe('claim_override');
       expect(call.changes.message.to).toBe('Moved by Mike while worker:a held it; claim released.');
     }
   });
-  it('API keys and techs stay under the check in enforce', async () => {
-    await expect(assertClaimHeld('t', null, { mode: 'enforce', caller: { userId: 'u1', role: 'admin', via: 'api_key' } }, dbWith(live))).rejects.toMatchObject({ code: 'claim_lost' });
-    await expect(assertClaimHeld('t', null, { mode: 'enforce', caller: { userId: 'u1', role: 'tech', via: 'session' } }, dbWith(live))).rejects.toMatchObject({ code: 'claim_lost' });
+  it('API keys stay under the check in enforce, whatever their role', async () => {
+    for (const role of ['admin', 'tech']) {
+      await expect(assertClaimHeld('t', null, { mode: 'enforce', caller: { userId: 'u1', role, via: 'api_key' } }, dbWith(live))).rejects.toMatchObject({ code: 'claim_lost' });
+    }
   });
   it('reads the mode from settings, defaulting to warn', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

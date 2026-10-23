@@ -149,12 +149,14 @@ export interface ClaimCaller {
 export interface ClaimCheck {
   /** Set when a person moved a task that another holder had leased: the caller must add CLEAR_CLAIM_DATA to its write. */
   overridden_holder: string | null;
+  /** Writes the claim_override activity line. Call it after the caller's write has succeeded; a no-op when nothing was overridden. */
+  logOverride: () => Promise<void>;
 }
 
 /**
  * The ownership check before a publish, a send or a status move. No lease or an expired lease means nobody
  * owns the task, so it is allowed (today's behavior). A live lease needs the matching token.
- *  - A pm or admin on a browser session is a person: the move proceeds, and the caller clears the lease in
+ *  - Any person on a browser session (pm, admin, tech) is a person: the move proceeds, and the caller clears the lease in
  *    the same write (CLEAR_CLAIM_DATA) so the worker's next token call gets claim_lost. Logged as claim_override.
  *  - mode off allows everything; warn logs (console and an ActivityLog row, action claim_warn) and allows;
  *    enforce throws 409 claim_lost. API keys always stay under the check.
@@ -165,7 +167,7 @@ export async function assertClaimHeld(
   opts: { action?: string; mode?: ClaimMode; caller?: ClaimCaller } = {},
   db: Db = defaultDb,
 ): Promise<ClaimCheck> {
-  const none: ClaimCheck = { overridden_holder: null };
+  const none: ClaimCheck = { overridden_holder: null, logOverride: async () => undefined };
   const t = await db.task.findUnique({ where: { id: taskId }, select: { title: true, claim_holder: true, claim_token: true, lease_until: true } });
   // The common case (nobody holds the task) costs one read and never touches settings.
   if (!t || !t.lease_until || !isLeaseLive(t)) return none;
@@ -174,17 +176,22 @@ export async function assertClaimHeld(
   if (token && t.claim_token === token.trim().toLowerCase()) return none;
   const what = opts.action ?? 'change';
   const c = opts.caller;
-  if (c && c.via === 'session' && (c.role === 'pm' || c.role === 'admin')) {
-    const u = await db.user.findUnique({ where: { id: c.userId }, select: { name: true } }).catch(() => null);
-    await logActivity({
-      userId: c.userId,
-      action: 'claim_override',
-      entityType: 'task',
-      entityId: taskId,
-      entityName: t.title,
-      changes: { message: { from: null, to: `Moved by ${u?.name ?? 'a team member'} while ${t.claim_holder} held it; claim released.` }, action: { from: null, to: what } },
-    });
-    return { overridden_holder: t.claim_holder };
+  // Any person on a browser session (pm, admin or tech) wins over a bot lease. API keys never do.
+  if (c && c.via === 'session') {
+    return {
+      overridden_holder: t.claim_holder,
+      logOverride: async () => {
+        const u = await db.user.findUnique({ where: { id: c.userId }, select: { name: true } }).catch(() => null);
+        await logActivity({
+          userId: c.userId,
+          action: 'claim_override',
+          entityType: 'task',
+          entityId: taskId,
+          entityName: t.title,
+          changes: { message: { from: null, to: `Moved by ${u?.name ?? 'a team member'} while ${t.claim_holder} held it; claim released.` }, action: { from: null, to: what } },
+        });
+      },
+    };
   }
   if (mode === 'warn') {
     console.warn(`claim check (warn): ${what} on task ${taskId} without the live claim held by ${t.claim_holder}`);

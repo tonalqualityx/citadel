@@ -80,6 +80,24 @@ describe.skipIf(!SCRATCH)('task claims on PATCH (real database)', () => {
     expect(JSON.stringify(log?.changes)).toContain('while worker:w1 held it; claim released.');
   });
 
+  it('a tech on a browser session also wins over a bot lease', async () => {
+    await claimTask({ taskId: a.taskId, holder: 'worker:w1' });
+    authMock.mockResolvedValue({ userId, role: 'tech', email: 't@test', via: 'session' });
+    // checkTaskAccess lets a tech see the task only as assignee.
+    await prisma.task.update({ where: { id: a.taskId }, data: { assignee_id: userId } });
+    expect((await patch(a.taskId, { status: 'in_progress' })).status).toBe(200);
+    expect((await row()).lease_until).toBeNull();
+    await prisma.task.update({ where: { id: a.taskId }, data: { assignee_id: null } });
+  });
+
+  it('a rejected body writes no override line and keeps the lease', async () => {
+    await claimTask({ taskId: a.taskId, holder: 'worker:w1' });
+    session();
+    expect((await patch(a.taskId, { status: 'in_progress', title: '' })).status).toBe(400);
+    expect((await row()).claim_holder).toBe('worker:w1');
+    expect(await prisma.activityLog.count({ where: { entity_id: a.taskId, action: 'claim_override' } })).toBe(0);
+  });
+
   it('staged: no token is refused while a lease is live; the lease holder passes', async () => {
     const c = await claimTask({ taskId: a.taskId, holder: 'worker:w1' });
     if (!c.ok) throw new Error('claim');

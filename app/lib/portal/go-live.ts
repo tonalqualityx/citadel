@@ -160,6 +160,7 @@ export async function markStaged(input: {
       data: { task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: 'approval_email' } },
     }),
   ]);
+  await claimCheck.logOverride();
 
   let approvalEmail: 'sent' | 'skipped' = 'skipped';
   let previewHolder: string | null = null;
@@ -249,6 +250,7 @@ export async function markLive(input: {
       ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}),
     },
   });
+  await claimCheck.logOverride();
   if (task.status !== 'done') {
     await logStatusChange(input.authorId, 'task', task.id, task.title, task.status, 'done').catch(() => undefined);
     await unblockEligibleDependents(task.id).catch((e: unknown) => console.error('unblock after go-live failed', e));
