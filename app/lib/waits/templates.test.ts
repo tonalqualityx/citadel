@@ -15,7 +15,7 @@ describe('template table', () => {
   it('registers the 29 clocks from the spec plus the generic handoff and the portal clocks', () => {
     const keys = WAIT_TEMPLATES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys.filter((k) => k !== 'handoff.generic' && !k.startsWith('portal.'))).toHaveLength(29);
+    expect(keys.filter((k) => k !== 'handoff.generic' && !k.startsWith('portal.') && !k.startsWith('engagement.'))).toHaveLength(29);
     // Portal phase B: slice 1 adds first_response and emergency; slice 2 adds client_reply and awaiting_client.
     expect(keys.filter((k) => k.startsWith('portal.')).sort()).toEqual([
       'portal.awaiting_client',
@@ -32,6 +32,7 @@ describe('template table', () => {
         'build.review_internal',
         'change.needs_human',
         'charter.price_review',
+        'engagement.stalled',
         'handoff.generic',
         'meeting.type_unclear',
         'portal.awaiting_client',

@@ -18,6 +18,10 @@ export class MemStore implements SweepStore, EventsStore {
   /** Test hook: runs inside claim() before the conditional check, to land a write between list and claim. */
   beforeClaim: ((w: WaitRow) => void) | null = null;
   taskRefs = new Map<string, string>();
+  notifications: Array<{ user_id: string; title: string; message: string; wait_id: string }> = [];
+  async notify(n: { user_id: string; title: string; message: string; wait_id: string }) {
+    this.notifications.push(n);
+  }
 
   add(data: WaitData, extra: Partial<WaitRow> = {}): WaitRow {
     const id = `00000000-0000-4000-8000-${String(++this.seq).padStart(12, '0')}`;

@@ -4311,3 +4311,46 @@ model TaskReceipt {
   @@index([task_id, created_at])
   @@map("task_receipts")
 }
+
+// Fleet item 1: engagement owner. One brief per engagement (a project or a charter); plain uuids,
+// no relations, so a brief can never block a delete of the thing it describes.
+model EngagementBrief {
+  id                 String    @id @default(uuid()) @db.Uuid
+  client_id          String?   @db.Uuid
+  project_id         String?   @unique @db.Uuid
+  charter_id         String?   @unique @db.Uuid
+  label              String    @db.VarChar(120)
+  goal               String    @default("") @db.Text
+  sources            Json      @default("[]")
+  scope              Json      @default("{}")
+  allowed_actions    String[]  @default([])
+  release_owner_role String    @default("pm") @db.VarChar(40)
+  stall_rules        Json      @default("{}")
+  owner_mode         String    @default("off") @db.VarChar(10) // off | dry | live
+  cadence            String    @default("weekly") @db.VarChar(40)
+  version            Int       @default(1)
+  last_pass_at       DateTime?
+  created_by_id      String?   @db.Uuid
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  @@index([owner_mode])
+  @@map("engagement_briefs")
+}
+
+model EngagementPass {
+  id          String    @id @default(uuid()) @db.Uuid
+  brief_id    String    @db.Uuid
+  mode        String    @db.VarChar(10) // dry | live
+  started_at  DateTime  @default(now())
+  finished_at DateTime?
+  model       String?   @db.VarChar(80)
+  cost_usd    Decimal?  @db.Decimal(8, 4)
+  tasks_read  Int       @default(0)
+  actions     Json      @default("[]")
+  mike_items  Json      @default("[]")
+  error       String?   @db.Text
+
+  @@index([brief_id, started_at])
+  @@map("engagement_passes")
+}

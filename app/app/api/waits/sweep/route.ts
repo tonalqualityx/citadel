@@ -5,6 +5,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { prismaOwnerLookups } from '@/lib/waits/owner';
 import { prismaAwayLookups } from '@/lib/waits/away';
+import { prismaStallStore } from '@/lib/waits/stalls';
 import { runSweep, type WaitRow } from '@/lib/waits/sweeper';
 import { sendSlackNotification } from '@/lib/services/slack-notifications';
 import { calendarDaysSince } from '@/lib/waits/business-days';
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
         notifyMike: slackNagOn() ? notifyMike : undefined,
         applyProceed: makeApplyProceed(prisma),
         sendHandlers: { 'charter.price_review': makePriceReviewSendHandler(prisma, { switchIsOn }) },
+        stalls: prismaStallStore(prisma),
       },
       { dryRun }
     );

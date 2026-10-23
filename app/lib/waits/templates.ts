@@ -100,6 +100,8 @@ export interface WaitTemplate {
   switch_key?: string;
   /** More switches that must ALL be on before a send step runs (the first one that is off holds it). */
   extra_switch_keys?: string[];
+  /** Each escalation rung also drops one in-app notification on the rung's target (no mail, no Slack). */
+  notify_on_escalate?: boolean;
   /** The row in the spec's table, for the reviewer. */
   spec: string;
 }
@@ -684,6 +686,20 @@ export const WAIT_TEMPLATES: WaitTemplate[] = [
     caller_duration: true,
     on_reply: null,
     spec: 'phase 1 addition: a plain handoff with a dated clock, for the backfill and for hand-opened waits',
+  },
+  // ----- Engagement owner (Fleet item 1) -----
+  {
+    key: 'engagement.stalled',
+    kind: 'handoff',
+    enabled: true,
+    sends: false,
+    owner: 'pm',
+    blocks_client: false,
+    title: 'Task stalled: {subject}',
+    steps: [{ duration: bd(0), action: 'escalate', note: 'Climb the ladder: role holder, then the PM, then Mike, one business day each.' }],
+    on_reply: null,
+    notify_on_escalate: true,
+    spec: 'Fleet item 1: opened by lib/waits/stalls.ts when a stall rule in an engagement brief holds; one in-app notice per rung',
   },
 ];
 

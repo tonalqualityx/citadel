@@ -175,6 +175,19 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
     getWait(id: string) {
       return db.wait.findUnique({ where: { id } });
     },
+    async notify(n) {
+      await db.notification.create({
+        data: {
+          user_id: n.user_id,
+          type: 'system_alert',
+          title: n.title,
+          message: n.message,
+          entity_type: 'wait',
+          entity_id: n.wait_id,
+          priority: 'normal',
+        },
+      });
+    },
     async eventSeenForWait(eventId: string, waitId: string) {
       const hit = await db.waitEvent.findUnique({ where: { event_id: `${eventId}:${waitId}` }, select: { id: true } });
       return !!hit;

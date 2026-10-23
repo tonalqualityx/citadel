@@ -22,6 +22,7 @@ vi.mock('@/lib/db/prisma', () => ({
     // The price review opener runs at the top of every sweep; no charters here, so it opens nothing.
     charter: { findMany: vi.fn(async () => []) },
     wait: { findMany: vi.fn(async () => []) },
+    engagementBrief: { findMany: vi.fn(async () => []) },
   },
 }));
 
