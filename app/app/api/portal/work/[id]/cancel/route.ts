@@ -10,7 +10,7 @@ import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
 // POST /api/portal/work/:id/cancel
 // The client cancels a request. Any portal user who can see the request may (the approve rule).
 // Idempotent: a repeat answers 200 with already_cancelled. 409 when the change is live (code
-// `live`) or approved and going live (code `going_live`). 404 for work the contact may not see.
+// `live`). Approved-not-live work is cancellable (Mike, 2026-10-23). 404 for work the contact may not see.
 // Staff reopen a cancelled request in Citadel; there is no un-cancel here.
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const viewAsRefusal = await refuseIfViewAs();

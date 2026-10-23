@@ -188,7 +188,7 @@ export interface WorkItem {
   /** Set when the work is staged for the client. */
   staged: { preview_url: string; awaiting_approval: boolean } | null;
   can_act: boolean;
-  /** Whether the client may cancel it: allowed, going_live, live (offer "Ask for a change") or cancelled. */
+  /** Whether the client may cancel it: allowed, live (offer "Ask for a change") or cancelled. */
   cancel: CancelMode;
 }
 

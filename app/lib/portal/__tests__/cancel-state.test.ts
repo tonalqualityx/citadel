@@ -12,9 +12,10 @@ describe('cancelMode', () => {
     expect(cancelMode({ status: 'done', tags: [] })).toBe('live');
     expect(cancelMode({ status: 'done', client_approved_at: '2026-10-21T00:00:00Z' })).toBe('live');
   });
-  it('leaves approved, not yet live work to the publish pass', () => {
-    expect(cancelMode({ status: 'review', tags: ['client-approved'] })).toBe('going_live');
-    expect(cancelMode({ status: 'review', client_approved_at: new Date() })).toBe('going_live');
+  it('approved, not yet live work can still be cancelled; only done is live', () => {
+    expect(cancelMode({ status: 'review', tags: ['client-approved'] })).toBe('allowed');
+    expect(cancelMode({ status: 'review', client_approved_at: new Date() })).toBe('allowed');
+    expect(cancelMode({ status: 'done', tags: ['client-approved'] })).toBe('live');
   });
   it('a cancelled request stays cancelled', () => {
     expect(cancelMode({ status: 'abandoned', tags: [CLIENT_CANCELLED_TAG] })).toBe('cancelled');

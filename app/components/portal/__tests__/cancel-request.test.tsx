@@ -57,10 +57,9 @@ describe('CancelRequest', () => {
     expect(href.searchParams.get('new')).toMatch(/^\d+$/);
   });
 
-  it('approved and going live says so, and a cancelled request offers nothing', () => {
-    const { rerender, container } = render(<CancelRequest taskId="t1" title="T" mode="going_live" />);
-    expect(screen.getByTestId('going-live-note').textContent).toContain('going live');
-    expect(screen.queryByRole('button')).toBeNull();
+  it('an approved, not yet live request still offers the cancel button, and a cancelled request offers nothing', () => {
+    const { rerender, container } = render(<CancelRequest taskId="t1" title="T" mode="allowed" />);
+    expect(screen.getByRole('button')).toBeTruthy();
     rerender(<CancelRequest taskId="t1" title="T" mode="cancelled" />);
     expect(container.textContent).toBe('');
   });
