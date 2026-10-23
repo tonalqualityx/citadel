@@ -12,16 +12,18 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
+import { logActivity } from '@/lib/services/activity';
 
 export const TTL_MIN_SECONDS = 60;
 export const TTL_MAX_SECONDS = 21600;
 export const TTL_DEFAULT_SECONDS = 1800;
 export const CLAIM_MODES = ['off', 'warn', 'enforce'] as const;
 export type ClaimMode = (typeof CLAIM_MODES)[number];
-/** Statuses a release may move a task to. done and abandoned go through their own routes (side effects). */
-export const RELEASE_STATUSES = ['not_started', 'in_progress', 'review', 'blocked'] as const;
 
-type Db = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | 'task' | 'appSettings'>;
+type Db = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | 'task' | 'appSettings' | 'user'>;
+
+/** Spread into a task update to clear the claim in the same write (a person moved the task). */
+export const CLEAR_CLAIM_DATA = { claim_holder: null, claim_token: null, claimed_at: null, lease_until: null } as const;
 
 // The columns are `timestamp without time zone` holding UTC (Prisma writes UTC), so compare against UTC now.
 const NOW = Prisma.sql`(now() AT TIME ZONE 'UTC')`;
@@ -60,22 +62,19 @@ export function isLeaseLive(task: { lease_until: Date | null }, now: Date = new 
 /**
  * Claim a task. Wins when the task is open and (nobody holds it, the lease ran out, or the caller already
  * holds it). The same holder with a live lease keeps its token (a retry is not a new claim); anyone else
- * gets a fresh token. With setInProgress a not_started or blocked task becomes in_progress.
+ * gets a fresh token. A claim never changes the task's status: the holder moves it through the normal route.
  */
 export async function claimTask(
-  input: { taskId: string; holder: string; ttlSeconds?: number | null; setInProgress?: boolean },
+  input: { taskId: string; holder: string; ttlSeconds?: number | null },
   db: Db = defaultDb,
 ): Promise<ClaimResult> {
   const ttl = clampTtl(input.ttlSeconds);
-  const setIp = input.setInProgress === true;
   const rows = await db.$queryRaw<ClaimRow[]>`
     UPDATE tasks SET
       claim_token = CASE WHEN claim_holder = ${input.holder} AND lease_until > ${NOW} THEN claim_token ELSE gen_random_uuid() END,
       claimed_at  = CASE WHEN claim_holder = ${input.holder} AND lease_until > ${NOW} THEN claimed_at ELSE ${NOW} END,
       claim_holder = ${input.holder},
-      lease_until = ${NOW} + make_interval(secs => ${ttl}::int),
-      status = CASE WHEN ${setIp}::boolean AND status IN ('not_started', 'blocked') THEN 'in_progress'::"TaskStatus" ELSE status END,
-      started_at = CASE WHEN ${setIp}::boolean AND status IN ('not_started', 'blocked') THEN COALESCE(started_at, ${NOW}) ELSE started_at END
+      lease_until = ${NOW} + make_interval(secs => ${ttl}::int)
     WHERE id = ${input.taskId}::uuid
       AND is_deleted = false
       AND status NOT IN ('done', 'abandoned')
@@ -109,16 +108,13 @@ export async function renewHolder(input: { holder: string; ttlSeconds?: number |
 }
 
 /**
- * Give a claim up. A wrong token changes nothing (returns false). With a status the task moves there in the
- * same statement. done and abandoned are refused here: those go through their routes, which carry side effects.
+ * Give a claim up. A wrong token changes nothing (returns false). It clears the claim and nothing else: the
+ * task's status is never touched here (the holder moves it through the normal route, with the token).
  */
-export async function releaseClaim(input: { taskId: string; token: string; status?: (typeof RELEASE_STATUSES)[number] | null }, db: Db = defaultDb): Promise<boolean> {
+export async function releaseClaim(input: { taskId: string; token: string }, db: Db = defaultDb): Promise<boolean> {
   if (!isUuid(input.token)) return false;
-  if (input.status && !(RELEASE_STATUSES as readonly string[]).includes(input.status)) throw new ApiError(`status must be one of ${RELEASE_STATUSES.join(', ')}`, 400, 'bad_status');
-  const status = input.status ?? null;
   const n = await db.$executeRaw`
-    UPDATE tasks SET claim_holder = NULL, claim_token = NULL, claimed_at = NULL, lease_until = NULL,
-      status = COALESCE(${status}::"TaskStatus", status)
+    UPDATE tasks SET claim_holder = NULL, claim_token = NULL, claimed_at = NULL, lease_until = NULL
     WHERE id = ${input.taskId}::uuid AND claim_token = ${input.token}::uuid`;
   return n === 1;
 }
@@ -144,29 +140,67 @@ export async function getClaimsMode(db: Db = defaultDb): Promise<ClaimMode> {
   return (CLAIM_MODES as readonly string[]).includes(m ?? '') ? (m as ClaimMode) : 'warn';
 }
 
+export interface ClaimCaller {
+  userId: string;
+  role?: string;
+  via?: 'session' | 'api_key';
+}
+
+export interface ClaimCheck {
+  /** Set when a person moved a task that another holder had leased: the caller must add CLEAR_CLAIM_DATA to its write. */
+  overridden_holder: string | null;
+}
+
 /**
  * The ownership check before a publish, a send or a status move. No lease or an expired lease means nobody
- * owns the task, so it is allowed (today's behavior). A live lease needs the matching token. Mode off allows
- * everything, warn logs and allows, enforce throws 409 claim_lost.
+ * owns the task, so it is allowed (today's behavior). A live lease needs the matching token.
+ *  - A pm or admin on a browser session is a person: the move proceeds, and the caller clears the lease in
+ *    the same write (CLEAR_CLAIM_DATA) so the worker's next token call gets claim_lost. Logged as claim_override.
+ *  - mode off allows everything; warn logs (console and an ActivityLog row, action claim_warn) and allows;
+ *    enforce throws 409 claim_lost. API keys always stay under the check.
  */
 export async function assertClaimHeld(
   taskId: string,
   token: string | null | undefined,
-  opts: { action?: string; mode?: ClaimMode } = {},
+  opts: { action?: string; mode?: ClaimMode; caller?: ClaimCaller } = {},
   db: Db = defaultDb,
-): Promise<void> {
-  const t = await db.task.findUnique({ where: { id: taskId }, select: { claim_holder: true, claim_token: true, lease_until: true } });
+): Promise<ClaimCheck> {
+  const none: ClaimCheck = { overridden_holder: null };
+  const t = await db.task.findUnique({ where: { id: taskId }, select: { title: true, claim_holder: true, claim_token: true, lease_until: true } });
   // The common case (nobody holds the task) costs one read and never touches settings.
-  if (!t || !t.lease_until || !isLeaseLive(t)) return;
+  if (!t || !t.lease_until || !isLeaseLive(t)) return none;
   const mode = opts.mode ?? (await getClaimsMode(db));
-  if (mode === 'off') return;
-  if (token && t.claim_token === token.trim().toLowerCase()) return;
+  if (mode === 'off') return none;
+  if (token && t.claim_token === token.trim().toLowerCase()) return none;
   const what = opts.action ?? 'change';
+  const c = opts.caller;
+  if (c && c.via === 'session' && (c.role === 'pm' || c.role === 'admin')) {
+    const u = await db.user.findUnique({ where: { id: c.userId }, select: { name: true } }).catch(() => null);
+    await logActivity({
+      userId: c.userId,
+      action: 'claim_override',
+      entityType: 'task',
+      entityId: taskId,
+      entityName: t.title,
+      changes: { message: { from: null, to: `Moved by ${u?.name ?? 'a team member'} while ${t.claim_holder} held it; claim released.` }, action: { from: null, to: what } },
+    });
+    return { overridden_holder: t.claim_holder };
+  }
   if (mode === 'warn') {
     console.warn(`claim check (warn): ${what} on task ${taskId} without the live claim held by ${t.claim_holder}`);
-    return;
+    if (c) {
+      await logActivity({
+        userId: c.userId,
+        action: 'claim_warn',
+        entityType: 'task',
+        entityId: taskId,
+        entityName: t.title,
+        changes: { holder: { from: null, to: t.claim_holder }, action: { from: null, to: what } },
+      });
+    }
+    return none;
   }
-  throw new ApiError(`Another worker holds this task (${t.claim_holder}) until ${t.lease_until!.toISOString()}. The ${what} was not applied.`, 409, 'claim_lost');
+  throw new ApiError(`Another worker holds this task (${t.claim_holder}) until ${t.lease_until.toISOString()}. The ${what} was not applied.`, 409, 'claim_lost');
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

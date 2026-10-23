@@ -34,7 +34,7 @@ import { logStatusChange } from '@/lib/services/activity';
 import { unblockEligibleDependents } from '@/lib/services/dependencies';
 import { queueInOutbox } from '@/lib/sends/outbox';
 import { claimNotice, releaseNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
-import { assertClaimHeld } from '@/lib/tasks/claims';
+import { assertClaimHeld, CLEAR_CLAIM_DATA, type ClaimCaller } from '@/lib/tasks/claims';
 
 export { GO_LIVE_TAG };
 export const GO_LIVE_KIND = 'portal_golive';
@@ -132,6 +132,8 @@ export async function markStaged(input: {
   note?: string | null;
   /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
   claimToken?: string | null;
+  /** Who is calling; a person on a browser session may override another worker's lease (fleet item 3). */
+  claimCaller?: ClaimCaller;
 }): Promise<StagedResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
@@ -139,7 +141,7 @@ export async function markStaged(input: {
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned', 409);
-  await assertClaimHeld(task.id, input.claimToken, { action: 'staging' });
+  const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'staging', caller: input.claimCaller });
   if (task.client_approved_at || task.tags.includes(CLIENT_APPROVED_TAG)) {
     throw new ApiError('The client already approved this task. Publish it with the live call.', 409);
   }
@@ -151,7 +153,7 @@ export async function markStaged(input: {
 
   const now = new Date();
   await prisma.$transaction([
-    prisma.task.update({ where: { id: task.id }, data: { status: 'review', staging_preview_url: input.previewUrl, staging_deployed_at: now, completed_at: null } }),
+    prisma.task.update({ where: { id: task.id }, data: { status: 'review', staging_preview_url: input.previewUrl, staging_deployed_at: now, completed_at: null, ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}) } }),
     removeTaskTagQuery(task.id, SEND_BACK_TAG),
     // chat_meta marks the line as already carried by the approval email, so the chat sweep does not mail it again.
     prisma.comment.create({
@@ -213,6 +215,7 @@ export async function markLive(input: {
   force?: boolean;
   /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
   claimToken?: string | null;
+  claimCaller?: ClaimCaller;
 }): Promise<LiveResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
@@ -226,7 +229,7 @@ export async function markLive(input: {
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   // A cancelled request is not published, even with force: staff reopen it first.
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned, so it cannot go live. Reopen it first.', 409, 'abandoned');
-  await assertClaimHeld(task.id, input.claimToken, { action: 'go-live' });
+  const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'go-live', caller: input.claimCaller });
   if (!isApprovedState(task) && !input.force) {
     throw new ApiError('The client has not approved this task yet. Nothing was published to them.', 409, 'not_approved');
   }
@@ -243,6 +246,7 @@ export async function markLive(input: {
       approved: true,
       approved_at: now,
       approved_by_id: input.authorId,
+      ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}),
     },
   });
   if (task.status !== 'done') {

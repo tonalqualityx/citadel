@@ -25,6 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       previewUrl: parseHttpUrl('preview_url', body.preview_url),
       note: body.note ?? null,
       claimToken: request.headers.get('x-claim-token'),
+      claimCaller: { userId: auth.userId, role: auth.role, via: auth.via },
     });
     return NextResponse.json(result);
   } catch (error) {

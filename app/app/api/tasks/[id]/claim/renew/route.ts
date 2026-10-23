@@ -11,7 +11,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
-    const { id } = await params;
+    const id = z.string().uuid().parse((await params).id);
     const body = bodySchema.parse(await request.json());
     const claim = await renewClaim({ taskId: id, token: body.token, ttlSeconds: body.ttl_seconds });
     if (!claim) throw new ApiError('The claim is not live or the token does not match.', 409, 'claim_lost');

@@ -17,7 +17,7 @@ describe.skipIf(!RUN)(`task claims (real database, ${NAIVE ? 'NAIVE variant' : '
   const tag = `claimrace${Date.now()}`;
 
   const claim = (db: PrismaClient, taskId: string, holder: string, ttlSeconds?: number): Promise<ClaimResult> =>
-    NAIVE ? claimTaskNaive({ taskId, holder, ttlSeconds }, db) : claimTask({ taskId, holder, ttlSeconds, setInProgress: true }, db);
+    NAIVE ? claimTaskNaive({ taskId, holder, ttlSeconds }, db) : claimTask({ taskId, holder, ttlSeconds }, db);
   const mk = async (n: number) => {
     const rows = await a.task.createManyAndReturn({ data: Array.from({ length: n }, (_, i) => ({ title: `${tag} ${i}` })), select: { id: true } });
     taskIds.push(...rows.map((r) => r.id));
@@ -88,15 +88,14 @@ describe.skipIf(!RUN)(`task claims (real database, ${NAIVE ? 'NAIVE variant' : '
     expect(await renewClaim({ taskId: id, token: first.claim.token }, a)).toBeNull();
   });
 
-  it.skipIf(NAIVE)('same holder retries keep the token; closed tasks refuse; setInProgress moves status', async () => {
+  it.skipIf(NAIVE)('same holder retries keep the token; a claim leaves the status alone; closed tasks refuse', async () => {
     const [id] = await mk(1);
-    const one = await claimTask({ taskId: id, holder: 'A', setInProgress: true }, a);
+    const one = await claimTask({ taskId: id, holder: 'A' }, a);
     const two = await claimTask({ taskId: id, holder: 'A' }, b);
     if (!one.ok || !two.ok) throw new Error('claim failed');
     expect(two.claim.token).toBe(one.claim.token);
-    const row = await a.task.findUniqueOrThrow({ where: { id } });
-    expect(row.status).toBe('in_progress');
-    expect(row.started_at).not.toBeNull();
+    // A claim never touches the status.
+    expect((await a.task.findUniqueOrThrow({ where: { id } })).status).toBe('not_started');
     await a.task.update({ where: { id }, data: { status: 'done' } });
     const closed = await claimTask({ taskId: id, holder: 'C' }, b);
     expect(closed.ok).toBe(false);

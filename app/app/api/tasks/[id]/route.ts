@@ -17,7 +17,7 @@ import {
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
-import { assertClaimHeld } from '@/lib/tasks/claims';
+import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Schema for requirement items (flat items)
@@ -367,18 +367,22 @@ export async function PATCH(
     const existingTask = await checkTaskAccess(id, auth);
     const body = await request.json();
 
+    // Fleet item 3: wherever `status` appears in the body (status-only or mixed), moves to in_progress,
+    // review or done need the claim token while another worker holds a live lease. A person on a browser
+    // session may move it anyway; the lease is then cleared in the same write below. No live lease, or
+    // mode off, behaves exactly as before.
+    let claimCleared: Record<string, null> = {};
+    if (typeof body.status === 'string' && ['in_progress', 'review', 'done'].includes(body.status)) {
+      const check = await assertClaimHeld(id, request.headers.get('x-claim-token'), { action: `move to ${body.status}`, caller: { userId: auth.userId, role: auth.role, via: auth.via } });
+      if (check.overridden_holder) claimCleared = { ...CLEAR_CLAIM_DATA };
+    }
+
     // Check if this is a status-only update
     if (body.status && Object.keys(body).length === 1) {
       const statusData = updateStatusSchema.parse(body);
 
       assertStatusTransition(existingTask.status, statusData.status);
-      const updateData = statusTransitionData(existingTask, statusData.status);
-
-      // Fleet item 3: while another worker holds a live lease, these moves need its claim token
-      // (X-Claim-Token). No live lease, or mode off/warn, behaves exactly as before.
-      if (['in_progress', 'review', 'done'].includes(statusData.status)) {
-        await assertClaimHeld(id, request.headers.get('x-claim-token'), { action: `move to ${statusData.status}` });
-      }
+      const updateData = { ...statusTransitionData(existingTask, statusData.status), ...claimCleared };
 
       const task = await prisma.task.update({
         where: { id },
@@ -551,6 +555,7 @@ export async function PATCH(
       estimated_minutes: estimatedMinutes,
       // Applied first so an explicit field in the same body (e.g. is_focus) wins.
       ...(newStatus !== undefined ? statusTransitionData(existingTask, newStatus) : {}),
+      ...claimCleared,
     };
 
     if (data.title !== undefined) updateData.title = data.title;

@@ -81,6 +81,7 @@ async function authenticateApiKey(rawKey: string): Promise<TokenPayload> {
     email: apiKey.user.email,
     role: apiKey.user.role,
     via: 'api_key',
+    apiKeyId: apiKey.id,
   };
 }
 

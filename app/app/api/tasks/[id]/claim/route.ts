@@ -4,10 +4,10 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { claimTask, getClaim } from '@/lib/tasks/claims';
 
+const idSchema = z.string().uuid();
 const bodySchema = z.object({
   holder: z.string().trim().min(1).max(200),
   ttl_seconds: z.number().int().optional().nullable(),
-  set_in_progress: z.boolean().optional(),
 });
 
 // POST /api/tasks/:id/claim - take the task (fleet item 3). One compare-and-set UPDATE: exactly one caller
@@ -17,9 +17,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
-    const { id } = await params;
+    const id = idSchema.parse((await params).id);
     const body = bodySchema.parse(await request.json());
-    const r = await claimTask({ taskId: id, holder: body.holder, ttlSeconds: body.ttl_seconds, setInProgress: body.set_in_progress === true });
+    const r = await claimTask({ taskId: id, holder: body.holder, ttlSeconds: body.ttl_seconds });
     if (r.ok) return NextResponse.json(r.claim);
     if (r.reason === 'not_found') throw new ApiError('Task not found', 404);
     if (r.reason === 'closed') throw new ApiError('This task is done or abandoned, so it cannot be claimed.', 409, 'closed');
@@ -34,7 +34,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
-    const { id } = await params;
+    const id = idSchema.parse((await params).id);
     const claim = await getClaim(id);
     if (!claim) throw new ApiError('Task not found', 404);
     return NextResponse.json(claim);
