@@ -109,7 +109,7 @@ export default function TaskApprovalPortalPage() {
         setActionError(body.error || 'Something went wrong. Please try again.');
         // Fleet item 5: the preview changed under the client. Show the new address; nothing was approved.
         if (body.code === 'preview_changed') {
-          setData((prev) => (prev ? { ...prev, staging_preview_url: body.staging_preview_url ?? prev.staging_preview_url } : prev));
+          setData((prev) => (prev ? { ...prev, staging_preview_url: body.staging_preview_url ?? prev.staging_preview_url, staging_deployed_at: body.staging_deployed_at ?? prev.staging_deployed_at } : prev));
           setPendingAction(null);
         }
         return false;
@@ -124,7 +124,7 @@ export default function TaskApprovalPortalPage() {
   }
 
   async function handleApprove() {
-    if (await postAction('approve', { preview_url: data?.staging_preview_url ?? undefined })) {
+    if (await postAction('approve', { preview_url: data?.staging_preview_url ?? undefined, staging_deployed_at: data?.staging_deployed_at ?? undefined })) {
       setDone('Thank you, your approval has been recorded.');
       setPendingAction(null);
     }

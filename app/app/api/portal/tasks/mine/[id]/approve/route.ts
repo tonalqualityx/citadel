@@ -57,9 +57,10 @@ export async function POST(
       throw new ApiError('Task not found', 404);
     }
 
-    const result = await recordTaskClientApproval(task, session.contactId, 'portal', await expectedPreview(request));
+    const seen = await expectedPreview(request);
+    const result = await recordTaskClientApproval(task, session.contactId, 'portal', seen.previewUrl, seen.deployedAt);
 
-    if (result.preview_changed) return previewChangedResponse(result.staging_preview_url ?? null);
+    if (result.preview_changed) return previewChangedResponse(result.staging_preview_url ?? null, result.staging_deployed_at ?? null);
 
     if (result.already_approved) {
       return NextResponse.json({

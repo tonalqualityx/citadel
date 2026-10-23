@@ -38,7 +38,12 @@ describe.skipIf(!SCRATCH)('staged -> approved -> live (real database)', () => {
   const live = (body: unknown, id = a.taskId) => livePOST(req('live', body), params(id));
   const outbox = () => prisma.emailOutbox.findMany({ where: { task_id: a.taskId, kind: 'portal_golive' }, orderBy: { created_at: 'asc' } });
   const task = () => prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
-  const approve = async () => recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId);
+  // The approval page sends the preview address and deploy time it loaded; this is that page, loaded just now.
+  const seenApprove = async () => {
+    const t = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId }, select: { staging_preview_url: true, staging_deployed_at: true } });
+    return recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', t.staging_preview_url, t.staging_deployed_at?.toISOString() ?? null);
+  };
+  const approve = async () => seenApprove();
 
   beforeAll(async () => {
     await prisma.user.upsert({

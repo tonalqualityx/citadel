@@ -44,7 +44,12 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
   const patch = (body: unknown) => taskPATCH(req('', body, 'PATCH'), params(a.taskId));
   const task = () => prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
   const receipts = (step?: string) => prisma.taskReceipt.findMany({ where: { task_id: a.taskId, ...(step ? { step: step as never } : {}) }, orderBy: { created_at: 'asc' } });
-  const approve = () => recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId);
+  // The approval page sends the preview address and deploy time it loaded; this is that page, loaded just now.
+  const seenApprove = async () => {
+    const t = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId }, select: { staging_preview_url: true, staging_deployed_at: true } });
+    return recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', t.staging_preview_url, t.staging_deployed_at?.toISOString() ?? null);
+  };
+  const approve = () => seenApprove();
   const setMode = (m: string) => prisma.appSettings.upsert({ where: { id: 'singleton' }, update: { approval_binding_mode: m }, create: { id: 'singleton', approval_binding_mode: m } });
   const stage = (url: string, sha: string | null = SHA1) => staged({ preview_url: url, ...(sha ? { commit_sha: sha, deploy_url: 'https://abc123.proj.pages.dev', deploy_id: 'dep-1' } : {}) });
 
@@ -401,6 +406,24 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
     expect(ok.preview_changed).toBeUndefined();
     expect(await task()).toMatchObject({ approved_preview_url: 'https://p.example.test/26b', approved_commit_sha: SHA2 });
     expect((await receipts('approved'))[0].approval_source).toBe('approval_link');
+  });
+
+  it('a new commit staged to the same address after the page loaded is not approved unseen', async () => {
+    await stage('https://p.example.test/27', SHA1);
+    const loaded = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId }, select: { staging_deployed_at: true } });
+    await new Promise((r) => setTimeout(r, 15));
+    await stage('https://p.example.test/27', SHA2); // same alias, new build, new deploy time
+    const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', 'https://p.example.test/27', loaded.staging_deployed_at!.toISOString());
+    expect(r).toMatchObject({ preview_changed: true, already_approved: false });
+    expect((await task()).client_approved_at).toBeNull();
+    expect(await receipts('approved')).toHaveLength(0);
+  });
+
+  it('a request that names no preview when the task has one is not approved', async () => {
+    await stage('https://p.example.test/28');
+    const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', null, null);
+    expect(r).toMatchObject({ preview_changed: true, staging_preview_url: 'https://p.example.test/28' });
+    expect((await task()).client_approved_at).toBeNull();
   });
 
   it('GET receipts returns the trail for staff', async () => {

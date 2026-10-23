@@ -409,50 +409,41 @@ export async function recordTaskClientApproval(
   /** Fleet item 5: which door the yes came through (portal | approval_link). */
   approvalSource: 'portal' | 'approval_link' = 'portal',
   /** Fleet item 5: the preview address the client was looking at. A yes is only recorded for that address. */
-  expectedPreviewUrl: string | null = null
-): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean; preview_changed?: boolean; staging_preview_url?: string | null }> {
+  expectedPreviewUrl: string | null = null,
+  /** Fleet item 5: the staging_deployed_at the page loaded (ISO). A new build on the same address changes it. */
+  expectedDeployedAt: string | null = null
+): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean; preview_changed?: boolean; staging_preview_url?: string | null; staging_deployed_at?: Date | null }> {
   if (task.client_approved_at) {
     return { already_approved: true, approved_at: task.client_approved_at, promotion_pending: false };
   }
 
   const approvedAt = new Date();
-  if (expectedPreviewUrl) {
-    // The yes and the build it covers are written together, and only if the preview is still the one on screen.
-    const outcome = await prisma.$transaction(async (tx) => {
-      const n = await tx.task.updateMany({
-        where: { id: task.id, client_approved_at: null, staging_preview_url: expectedPreviewUrl },
-        data: { client_approved_at: approvedAt, approved_by_contact_id: contactId },
-      });
-      if (n.count !== 1) {
-        const cur = await tx.task.findUnique({ where: { id: task.id }, select: { client_approved_at: true, staging_preview_url: true } });
-        return { ok: false as const, cur };
-      }
-      await tx.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${SEND_BACK_TAG}) WHERE id = ${task.id}::uuid`;
-      await tx.$executeRaw`UPDATE tasks SET tags = CASE WHEN ${CLIENT_APPROVED_TAG} = ANY(tags) THEN tags ELSE array_append(tags, ${CLIENT_APPROVED_TAG}) END WHERE id = ${task.id}::uuid`;
-      await stampApproval(task.id, approvalSource, tx as never);
-      return { ok: true as const };
-    });
-    if (!outcome.ok) {
-      if (outcome.cur?.client_approved_at) return { already_approved: true, approved_at: outcome.cur.client_approved_at, promotion_pending: false };
-      return { already_approved: false, approved_at: approvedAt, promotion_pending: false, preview_changed: true, staging_preview_url: outcome.cur?.staging_preview_url ?? null };
+  const deployedAt = expectedDeployedAt ? new Date(expectedDeployedAt) : null;
+  const deployedAtOk = !deployedAt || !Number.isNaN(deployedAt.getTime());
+  // The yes and the build it covers are written together, and only if the task still shows what the client saw:
+  // the same preview address (a request that names none only matches a task that has none) and, when the page
+  // sent it, the same deploy time. The approval also clears the send-back marker (single array_remove UPDATEs,
+  // never read-modify-write, so a tag added at the same moment by another writer is not lost).
+  const outcome = await prisma.$transaction(async (tx) => {
+    const n = deployedAtOk
+      ? await tx.task.updateMany({
+          where: { id: task.id, client_approved_at: null, staging_preview_url: expectedPreviewUrl, ...(deployedAt ? { staging_deployed_at: deployedAt } : {}) },
+          data: { client_approved_at: approvedAt, approved_by_contact_id: contactId },
+        })
+      : { count: 0 };
+    if (n.count !== 1) {
+      const cur = await tx.task.findUnique({ where: { id: task.id }, select: { client_approved_at: true, staging_preview_url: true, staging_deployed_at: true } });
+      return { ok: false as const, cur };
     }
-  } else {
-    // The approval also clears the send-back marker: the work is accepted, so it is no longer "sent
-    // back". The tag is removed by a single UPDATE (array_remove), never read-modify-write, so a tag
-    // added at the same moment by another writer is not lost.
-    await prisma.$transaction([
-      prisma.task.update({
-        where: { id: task.id },
-        data: {
-          client_approved_at: approvedAt,
-          approved_by_contact_id: contactId,
-        },
-      }),
-      removeTaskTagQuery(task.id, SEND_BACK_TAG),
-      // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
-      addTaskTagQuery(task.id, CLIENT_APPROVED_TAG),
-    ]);
-    await stampApproval(task.id, approvalSource); // Fleet item 5: the yes is bound to the build on the preview
+    await tx.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${SEND_BACK_TAG}) WHERE id = ${task.id}::uuid`;
+    // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
+    await tx.$executeRaw`UPDATE tasks SET tags = CASE WHEN ${CLIENT_APPROVED_TAG} = ANY(tags) THEN tags ELSE array_append(tags, ${CLIENT_APPROVED_TAG}) END WHERE id = ${task.id}::uuid`;
+    await stampApproval(task.id, approvalSource, tx as never);
+    return { ok: true as const };
+  });
+  if (!outcome.ok) {
+    if (outcome.cur?.client_approved_at) return { already_approved: true, approved_at: outcome.cur.client_approved_at, promotion_pending: false };
+    return { already_approved: false, approved_at: approvedAt, promotion_pending: false, preview_changed: true, staging_preview_url: outcome.cur?.staging_preview_url ?? null, staging_deployed_at: outcome.cur?.staging_deployed_at ?? null };
   }
 
   const promotionPending = task.site?.auto_deploy === false;
