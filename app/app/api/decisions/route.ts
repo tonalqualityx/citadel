@@ -13,6 +13,7 @@ import {
   createDecisionSchema,
   formatDecision,
   requireWriter,
+  assertUuid,
 } from '@/lib/decisions';
 
 // Fleet item 2: the decision record. GET lists with filters (status=active means
@@ -47,7 +48,10 @@ export async function GET(request: NextRequest) {
     }
     for (const f of ['client_id', 'project_id', 'charter_id', 'site_id', 'accord_id'] as const) {
       const v = sp.get(f);
-      if (v) where[f] = v;
+      if (v) {
+        assertUuid(v, f);
+        where[f] = v;
+      }
     }
     const q = sp.get('q');
     if (q) {

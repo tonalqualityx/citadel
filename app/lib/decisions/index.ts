@@ -269,6 +269,15 @@ export function oneLine(text: string | null | undefined, max = QUOTE_LINE_MAX): 
   return t.length <= max ? t : t.slice(0, max - 3).trimEnd() + '...';
 }
 
+export function assertUuid(v: string, name = 'id'): void {
+  if (!UUID_RE.test(v)) throw new ApiError(`${name} must be a uuid`, 400);
+}
+
+/** Fleet-wide rows ship as id, key and title only. */
+export function compactFleet(d: DecisionWithRels) {
+  return { id: d.id, key: d.key, title: d.title };
+}
+
 export function compactDecision(d: DecisionWithRels) {
   const quote = d.sources.find((s) => (s.quote ?? '').trim())?.quote ?? d.text;
   return {
@@ -289,7 +298,7 @@ export function compactDecision(d: DecisionWithRels) {
  * `decisions` holds everything narrower than fleet (plus fleet rows linked to this task),
  * most specific first, capped at IN_SCOPE_CAP. Fleet-wide rows come back separately in
  * `fleet_rows` (capped at FLEET_ROWS_CAP) so they never crowd the specific ones out.
- * Both lists are compact: id, key, title, status, scope, lane, one-line quote.
+ * `decisions` rows are compact (id, key, title, status, scope, lane, one-line quote); `fleet_rows` are id, key, title.
  */
 export async function findInScope(params: InScopeParams) {
   assertScopeUuids(params);
@@ -331,7 +340,7 @@ export async function findInScope(params: InScopeParams) {
     scope: s,
     decisions: specific.slice(0, IN_SCOPE_CAP).map(compactDecision),
     truncated: specific.length > IN_SCOPE_CAP,
-    fleet_rows: fleet.slice(0, FLEET_ROWS_CAP).map(compactDecision),
+    fleet_rows: fleet.slice(0, FLEET_ROWS_CAP).map(compactFleet),
     fleet_truncated: fleet.length > FLEET_ROWS_CAP,
     total_matched: rows.length,
   };

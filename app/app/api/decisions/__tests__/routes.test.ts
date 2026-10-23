@@ -29,6 +29,7 @@ import { POST as rejectPOST } from '../[id]/reject/route';
 import { POST as retractPOST } from '../[id]/retract/route';
 import { POST as supersedePOST } from '../[id]/supersede/route';
 import { POST as sourcesPOST } from '../[id]/sources/route';
+import { GET as getOne } from '../[id]/route';
 import { POST as linksPOST } from '../[id]/links/route';
 import { POST as importPOST } from '../import/route';
 
@@ -193,6 +194,17 @@ describe('POST /api/decisions/[id]/sources', () => {
     const res = await sourcesPOST(req(`/api/decisions/${UUID_A}/sources`, body), params(UUID_A));
     expect(res.status).toBe(200);
     expect(srcCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('uuid validation', () => {
+  it('a non-uuid id is a 400 on get, sources, confirm and the list filters', async () => {
+    mockAuth.mockResolvedValue(ADMIN);
+    expect((await getOne(req('/api/decisions/nope'), params('nope'))).status).toBe(400);
+    expect((await sourcesPOST(req('/api/decisions/nope/sources', { kind: 'doc', ref: 'r' }), params('nope'))).status).toBe(400);
+    expect((await confirmPOST(req('/api/decisions/nope/confirm', {}), params('nope'))).status).toBe(400);
+    expect((await listGET(req('/api/decisions?client_id=Herba'))).status).toBe(400);
+    expect(dFindUnique).not.toHaveBeenCalled();
   });
 });
 

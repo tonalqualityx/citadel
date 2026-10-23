@@ -152,8 +152,7 @@ describe('findInScope', () => {
     expect(r.fleet_rows).toHaveLength(FLEET_ROWS_CAP);
     expect(r.fleet_truncated).toBe(true);
     expect(r.total_matched).toBe(165);
-    expect(Object.keys(r.fleet_rows[0]).sort()).toEqual(['id', 'key', 'lane', 'quote', 'scope', 'status', 'title']);
-    expect(r.fleet_rows[0].quote.length).toBeLessThanOrEqual(200);
+    expect(Object.keys(r.fleet_rows[0]).sort()).toEqual(['id', 'key', 'title']);
   });
 
   it('rejects a non-uuid id param with a 400', async () => {
