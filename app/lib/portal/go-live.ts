@@ -34,6 +34,7 @@ import { logStatusChange } from '@/lib/services/activity';
 import { unblockEligibleDependents } from '@/lib/services/dependencies';
 import { queueInOutbox } from '@/lib/sends/outbox';
 import { claimNotice, releaseNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
+import { assertClaimHeld } from '@/lib/tasks/claims';
 
 export { GO_LIVE_TAG };
 export const GO_LIVE_KIND = 'portal_golive';
@@ -129,6 +130,8 @@ export async function markStaged(input: {
   authorId: string;
   previewUrl: string;
   note?: string | null;
+  /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
+  claimToken?: string | null;
 }): Promise<StagedResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
@@ -136,6 +139,7 @@ export async function markStaged(input: {
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned', 409);
+  await assertClaimHeld(task.id, input.claimToken, { action: 'staging' });
   if (task.client_approved_at || task.tags.includes(CLIENT_APPROVED_TAG)) {
     throw new ApiError('The client already approved this task. Publish it with the live call.', 409);
   }
@@ -207,6 +211,8 @@ export async function markLive(input: {
   liveUrl: string;
   summary?: string | null;
   force?: boolean;
+  /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
+  claimToken?: string | null;
 }): Promise<LiveResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
@@ -220,6 +226,7 @@ export async function markLive(input: {
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   // A cancelled request is not published, even with force: staff reopen it first.
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned, so it cannot go live. Reopen it first.', 409, 'abandoned');
+  await assertClaimHeld(task.id, input.claimToken, { action: 'go-live' });
   if (!isApprovedState(task) && !input.force) {
     throw new ApiError('The client has not approved this task yet. Nothing was published to them.', 409, 'not_approved');
   }

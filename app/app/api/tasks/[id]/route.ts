@@ -17,6 +17,7 @@ import {
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
+import { assertClaimHeld } from '@/lib/tasks/claims';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Schema for requirement items (flat items)
@@ -372,6 +373,12 @@ export async function PATCH(
 
       assertStatusTransition(existingTask.status, statusData.status);
       const updateData = statusTransitionData(existingTask, statusData.status);
+
+      // Fleet item 3: while another worker holds a live lease, these moves need its claim token
+      // (X-Claim-Token). No live lease, or mode off/warn, behaves exactly as before.
+      if (['in_progress', 'review', 'done'].includes(statusData.status)) {
+        await assertClaimHeld(id, request.headers.get('x-claim-token'), { action: `move to ${statusData.status}` });
+      }
 
       const task = await prisma.task.update({
         where: { id },

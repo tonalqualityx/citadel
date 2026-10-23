@@ -27,6 +27,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       liveUrl: parseHttpUrl('live_url', body.live_url),
       summary: body.summary ?? null,
       force: body.force === true,
+      claimToken: request.headers.get('x-claim-token'),
     });
     return NextResponse.json(result);
   } catch (error) {
