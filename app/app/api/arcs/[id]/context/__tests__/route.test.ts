@@ -27,6 +27,9 @@ vi.mock('@/lib/db/prisma', () => ({
       findMany: vi.fn(),
       findFirst: vi.fn(),
     },
+    decision: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 
@@ -84,6 +87,33 @@ beforeEach(() => {
 });
 
 describe('GET /api/arcs/[id]/context', () => {
+  it('carries a decisions field with the active fleet decisions (additive)', async () => {
+    mockArcFindUnique.mockResolvedValue(arc());
+    (prisma.decision.findMany as Mock).mockResolvedValue([
+      {
+        id: 'd1', key: 'pipeline.1', title: 'T', text: 'x', kind: 'ruling', status: 'confirmed', scope: 'fleet', lane: null,
+        client_id: null, project_id: null, charter_id: null, site_id: null, accord_id: null, author_user_id: null,
+        author_contact_id: null, ruled_at: null, revision: 1, supersedes_id: null, conflict_note: null, confidence: null,
+        confirmed_by_user_id: null, confirmed_at: null, created_by_id: null, tags: [],
+        created_at: new Date('2026-10-01'), updated_at: new Date('2026-10-01'), sources: [], links: [],
+      },
+    ]);
+    const res = await GET(getRequest(), { params });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.decisions.items).toHaveLength(1);
+    expect(body.decisions.truncated).toBe(false);
+  });
+
+  it('still answers when the decisions lookup fails', async () => {
+    mockArcFindUnique.mockResolvedValue(arc());
+    (prisma.decision.findMany as Mock).mockRejectedValue(new Error('boom'));
+    const res = await GET(getRequest(), { params });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.decisions).toEqual({ items: [], truncated: false });
+  });
+
   it('404s when the arc does not exist', async () => {
     mockArcFindUnique.mockResolvedValue(null);
     const res = await GET(getRequest(), { params });
