@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { writeReceipt } from '@/lib/portal/receipts'; // Fleet item 5
 import { recordChatSend } from '@/lib/portal/chat/outbox-guard';
 
 const sentSchema = z.object({
@@ -44,6 +45,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
     if (existing.kind === 'portal_chat' && existing.task_id) {
       await recordChatSend(existing.task_id, data.message_id ?? null, data.gmail_thread_id ?? null);
+    }
+    if (existing.task_id) {
+      // Fleet item 5: a delivered mail is a step in the task's trail. The receipt never fails the sent call.
+      await writeReceipt({
+        task_id: existing.task_id, step: 'send', outbox_ids: [id],
+        message_ids: [data.message_id, data.rfc_message_id].filter((m): m is string => Boolean(m)),
+        actor_user_id: auth.userId,
+      }).catch((e: unknown) => console.error('send receipt failed', e));
     }
     return NextResponse.json({ id, sent_at: updated.sent_at, message_id: updated.message_id });
   } catch (error) {

@@ -40,7 +40,7 @@ export async function POST(
     const contact = await resolveTaskContact(task);
 
     // Mike's ruling (overrides spec decision 11): no role gate on approval links for now.
-    const result = await recordTaskClientApproval(task, contact?.id ?? null);
+    const result = await recordTaskClientApproval(task, contact?.id ?? null, 'approval_link');
 
     if (result.already_approved) {
       return NextResponse.json({

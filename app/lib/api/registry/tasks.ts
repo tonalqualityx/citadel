@@ -111,6 +111,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'staging_deployed_at', type: 'ISO-8601', required: false, description: 'When the staging build was deployed' },
           { name: 'client_approved_at', type: 'ISO-8601', required: false, description: 'When the authorized contact signed off on staging' },
           { name: 'approved_by_contact_id', type: 'uuid', required: false, description: 'ClientContact who approved staging→prod promotion' },
+          { name: 'approval_source', type: 'string', required: false, description: 'Fleet item 5: where a client yes came from (portal | approval_link | email:<Message-ID>), recorded on the approved receipt' },
         ],
         responseExample: {
           id: 'uuid',
@@ -408,10 +409,27 @@ export const taskEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'preview_url', type: 'string', required: true, description: 'http(s) preview link the client opens' },
           { name: 'note', type: 'string', required: false, description: 'One short client-visible line under the preview link (no dashes, no Bast)' },
+          { name: 'commit_sha', type: 'string', required: false, description: 'Fleet item 5: git commit behind the preview (7 to 64 hex). Required in enforce mode.' },
+          { name: 'deploy_id', type: 'string', required: false, description: 'Fleet item 5: the immutable deploy id' },
+          { name: 'deploy_url', type: 'string', required: false, description: 'Fleet item 5: the immutable deploy url. Required in enforce mode.' },
+          { name: 'checks', type: 'object', required: false, description: 'Fleet item 5: [{name, ok, exit_code?, detail?}] from the gate log (receipt_args.py)' },
         ],
         responseExample: { status: 'review', preview_url: 'string', already_staged: false, approval_email: 'sent|skipped' },
         responseNotes:
-          'The Bast token is accepted as well as pm/admin (403 otherwise). 409 when the client already approved the task or it is abandoned. The client approval (portal or approval link) stamps client_approved_at and the client-approved tag; the status stays review until the live call.',
+          'The Bast token is accepted as well as pm/admin (403 otherwise). 409 when the task is abandoned, or already approved and live (done), or approval binding is off. Otherwise a stage of a different preview url or commit after the client yes VOIDS the yes (clears client_approved_at, the tag and approved_*, writes an approval_voided receipt and an internal comment) and stages the work as new. The same url and commit is a no-op. 400 receipt_required in enforce mode without commit_sha and deploy_url. The client approval (portal or approval link) stamps client_approved_at and the client-approved tag; the status stays review until the live call.',
+      },
+    ],
+  },
+  {
+    path: '/api/tasks/:id/receipts',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Fleet item 5: the trail of a staged change, oldest first: staged, approved, approval_voided, live, send. Staff only.',
+        auth: 'required',
+        roles: ['pm', 'admin'],
+        responseExample: { task_id: 'uuid', staging: { preview_url: 'string|null', commit_sha: 'string|null' }, approved: { preview_url: 'string|null', commit_sha: 'string|null' }, receipts: ['TaskReceipt'] },
       },
     ],
   },
@@ -428,7 +446,12 @@ export const taskEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'live_url', type: 'string', required: true, description: 'http(s) link to the live change' },
           { name: 'summary', type: 'string', required: false, description: 'What changed, one line (defaults to the client title). Max 300, no dashes, no Bast.' },
-          { name: 'force', type: 'boolean', required: false, description: 'Skip the approval check (staff and Bast only), for work approved outside the portal' },
+          { name: 'force', type: 'boolean', required: false, description: 'Skip the approval check (staff and Bast only), for work approved outside the portal. In enforce mode it is also how an admin publishes a build that is not the approved one, with force_reason.' },
+          { name: 'commit_sha', type: 'string', required: false, description: 'Fleet item 5: the production commit. Compared with approved_commit_sha: warn mode records a mismatch and goes live, enforce mode answers 409 build_not_approved.' },
+          { name: 'deploy_id', type: 'string', required: false, description: 'Fleet item 5: the production deploy id' },
+          { name: 'checks', type: 'object', required: false, description: 'Fleet item 5: [{name, ok, exit_code?, detail?}]' },
+          { name: 'live_check', type: 'object', required: false, description: 'Fleet item 5: what was checked on the live url (status, text found, and so on)' },
+          { name: 'force_reason', type: 'string', required: false, description: 'Fleet item 5: required with force on a build mismatch in enforce mode (admin only)' },
         ],
         responseExample: { status: 'done', already_notified: false, lane: 'chat|email|none', emailed: ['string'] },
         responseNotes:

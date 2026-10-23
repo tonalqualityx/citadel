@@ -12,6 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 vi.mock('@/lib/sends/claims', () => ({ clearPreviewClaims: vi.fn(async () => undefined) }));
+vi.mock('@/lib/portal/receipts', () => ({ stampApproval: vi.fn(async () => null) })); // Fleet item 5: the receipt is tested in receipts.integration.test.ts
 vi.mock('@/lib/portal/staff-alert', () => ({ alertTaskOwner: vi.fn(async () => undefined) }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 

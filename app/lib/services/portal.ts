@@ -8,6 +8,7 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { clearPreviewClaims } from '@/lib/sends/claims';
+import { stampApproval } from '@/lib/portal/receipts'; // Fleet item 5
 import { ApiError } from '@/lib/api/errors';
 import { PORTAL_HIDDEN_PROJECT_STATUSES } from '@/lib/portal/access';
 import { onClientMessage } from '@/lib/portal/waits';
@@ -404,7 +405,9 @@ export async function recordArticleClientApproval(
  */
 export async function recordTaskClientApproval(
   task: { id: string; client_approved_at: Date | null; site?: { auto_deploy: boolean } | null },
-  contactId: string | null
+  contactId: string | null,
+  /** Fleet item 5: which door the yes came through (portal | approval_link). */
+  approvalSource: 'portal' | 'approval_link' = 'portal'
 ): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean }> {
   if (task.client_approved_at) {
     return { already_approved: true, approved_at: task.client_approved_at, promotion_pending: false };
@@ -426,6 +429,7 @@ export async function recordTaskClientApproval(
     // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
     addTaskTagQuery(task.id, CLIENT_APPROVED_TAG),
   ]);
+  await stampApproval(task.id, approvalSource); // Fleet item 5: the yes is bound to the build on the preview
 
   const promotionPending = task.site?.auto_deploy === false;
   if (promotionPending) {

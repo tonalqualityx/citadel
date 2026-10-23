@@ -1258,6 +1258,13 @@ model Task {
   // Client staging approval (clients are not Users — approval is by ClientContact)
   staging_preview_url    String?        @db.VarChar(500)
   staging_deployed_at    DateTime?
+  // Fleet item 5: the build the preview shows, and the build the client said yes to
+  staging_commit_sha     String?        @db.VarChar(64)
+  staging_deploy_id      String?        @db.VarChar(128)
+  staging_deploy_url     String?        @db.VarChar(500)
+  approved_preview_url   String?        @db.VarChar(500)
+  approved_commit_sha    String?        @db.VarChar(64)
+  approved_deploy_id     String?        @db.VarChar(128)
   client_approved_at     DateTime?
   approved_by_contact_id String?        @db.Uuid
   approved_by_contact    ClientContact? @relation("TaskApprovedByContact", fields: [approved_by_contact_id], references: [id])
@@ -1271,6 +1278,7 @@ model Task {
   claim_token  String?   @db.Uuid
   claimed_at   DateTime?
   lease_until  DateTime?
+  receipts     TaskReceipt[]
 
   // Metadata
   is_deleted    Boolean  @default(false)
@@ -1730,6 +1738,9 @@ model AppSettings {
 
   // Fleet item 3: task claims mode (off | warn | enforce)
   task_claims_mode String @default("warn")
+
+  // Fleet item 5: approval bound to the preview (off | warn | enforce)
+  approval_binding_mode String @default("warn")
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -4263,4 +4274,40 @@ model DecisionLink {
   @@unique([decision_id, entity_kind, entity_id, relation])
   @@index([entity_kind, entity_id])
   @@map("decision_links")
+}
+
+// Fleet item 5: one row per step of a staged change's life, so "what did the client approve, and what went live" is a query.
+enum TaskReceiptStep {
+  staged
+  approved
+  approval_voided
+  live
+  send
+  send_dropped
+
+  @@map("task_receipt_step")
+}
+
+model TaskReceipt {
+  id              String          @id @default(uuid()) @db.Uuid
+  task_id         String          @db.Uuid
+  task            Task            @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  step            TaskReceiptStep
+  commit_sha      String?         @db.VarChar(64)
+  deploy_id       String?         @db.VarChar(128)
+  deploy_url      String?         @db.VarChar(500)
+  preview_url     String?         @db.VarChar(500)
+  live_url        String?         @db.VarChar(500)
+  live_check      Json?
+  checks          Json            @default("[]")
+  message_ids     String[]        @default([])
+  outbox_ids      String[]        @default([])
+  approval_source String?         @db.VarChar(300)
+  mismatch        Boolean         @default(false)
+  actor_user_id   String?         @db.Uuid
+  claim_holder    String?         @db.VarChar(200)
+  created_at      DateTime        @default(now())
+
+  @@index([task_id, created_at])
+  @@map("task_receipts")
 }
