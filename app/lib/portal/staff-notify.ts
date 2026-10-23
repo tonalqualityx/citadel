@@ -168,6 +168,7 @@ export async function notifyNewPortalRequest(
         text: mail.text,
         kind: 'notification',
         dedupeKey: `portal-request:${task.id}`,
+        govern: { intent: 'notice_internal', task_id: task.id },
       });
       emailed = true;
     }
@@ -222,6 +223,7 @@ export async function emailClientMessage(input: {
       text: body,
       kind: 'notification',
       dedupeKey: `portal-message:${input.commentId}`,
+      govern: { intent: 'notice_internal', task_id: input.taskId },
     });
     return true;
   } catch (error) {
@@ -303,7 +305,7 @@ export async function notifyClientCancelled(taskId: string, contactId: string | 
     let emailed = false;
     if (recipient?.email && recipient.is_active !== false) {
       const mail = buildCancelEmail({ clientName, contactName: contact?.name ?? null, requestTitle, taskId: task.id, approved: opts.approved, viaBast: heldByBast });
-      await sendEmail({ to: recipient.email, subject: mail.subject, text: mail.text, kind: 'notification', dedupeKey: `portal-cancel:${task.id}` });
+      await sendEmail({ to: recipient.email, subject: mail.subject, text: mail.text, kind: 'notification', dedupeKey: `portal-cancel:${task.id}`, govern: { intent: 'none', reason: 'the cancelled request is the news itself' } });
       emailed = true;
     }
     return { notified, emailed };

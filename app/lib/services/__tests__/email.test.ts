@@ -37,6 +37,7 @@ const defaultEmailOptions = {
   to: 'recipient@test.com',
   subject: 'Test Subject',
   text: 'Test body content',
+  govern: { intent: 'none' as const, reason: 'test' },
 };
 
 describe('sendEmail', () => {
@@ -75,16 +76,15 @@ describe('sendEmail', () => {
     await sendEmail({ ...defaultEmailOptions, html: '<p>hi</p>', kind: 'magic_link', dedupeKey: 'magic:abc', allowExternal: true });
 
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(mockOutboxCreate).toHaveBeenCalledWith({
-      data: {
-        to: 'recipient@test.com',
-        subject: 'Test Subject',
-        text: 'Test body content',
-        html: '<p>hi</p>',
-        kind: 'magic_link',
-        allow_external: true,
-        dedupe_key: 'magic:abc',
-      },
+    expect(mockOutboxCreate.mock.calls[0][0].data).toMatchObject({
+      to: 'recipient@test.com',
+      subject: 'Test Subject',
+      text: 'Test body content',
+      html: '<p>hi</p>',
+      kind: 'magic_link',
+      allow_external: true,
+      dedupe_key: 'magic:abc',
+      govern: { intent: 'none', reason: 'test' },
     });
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Test body content'));
     logSpy.mockRestore();
@@ -248,6 +248,7 @@ describe('sendTaskApprovalRequestEmail', () => {
     taskTitle: 'Homepage hero update',
     contactName: 'Jane',
     stagingUrl: 'https://staging.acme.com/preview',
+    taskId: '11111111-1111-4111-8111-111111111111',
   };
 
   it('includes both the preview link and the approval link', async () => {

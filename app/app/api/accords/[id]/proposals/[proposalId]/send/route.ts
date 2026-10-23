@@ -75,6 +75,7 @@ export async function POST(
     // Fires only on an internal user's explicit send; queued to the outbox when no provider is set.
     await sendEmail({
       kind: 'proposal',
+      govern: { intent: 'proposal', proposal_id: proposalId },
       allowExternal: true,
       dedupeKey: `proposal:${proposalId}`,
       to: recipientEmail,

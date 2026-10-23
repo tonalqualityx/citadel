@@ -32,8 +32,10 @@ import { CLIENT_APPROVED_TAG, SEND_BACK_TAG, removeTaskTagQuery, resolveTaskCont
 import { sendTaskApprovalRequestEmail } from '@/lib/services/email';
 import { logStatusChange } from '@/lib/services/activity';
 import { unblockEligibleDependents } from '@/lib/services/dependencies';
+import { queueInOutbox } from '@/lib/sends/outbox';
+import { claimNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
 
-export const GO_LIVE_TAG = 'go-live-notified';
+export { GO_LIVE_TAG };
 export const GO_LIVE_KIND = 'portal_golive';
 export const STAGED_NOTE_MAX = 500;
 export const SUMMARY_MAX = 300;
@@ -64,7 +66,8 @@ const firstNameOf = (name: string | null | undefined) => (name ?? '').trim().spl
 export const stagedLine = (previewUrl: string, note?: string | null) =>
   `Ready for your review: ${previewUrl}. Open it, then approve it or tell us what to change.${note ? `\n\n${oneLine(note)}` : ''}`;
 
-export const liveLine = (liveUrl: string) => `This is live now: ${liveUrl}. Reply here if anything looks off.`;
+const LIVE_LINE_PREFIX = 'This is live now:';
+export const liveLine = (liveUrl: string) => `${LIVE_LINE_PREFIX} ${liveUrl}. Reply here if anything looks off.`;
 
 export const goLiveSubject = (clientName: string) => `${clientName}: your change is live`.slice(0, 480);
 
@@ -88,10 +91,30 @@ export function buildGoLiveBody(i: { firstName: string; what: string; liveUrl: s
 export const isApprovedState = (t: { client_approved_at: Date | null; tags: string[]; approved?: boolean }) =>
   Boolean(t.client_approved_at) || t.tags.includes(CLIENT_APPROVED_TAG) || Boolean(t.approved);
 
-/** Claim a tag in one UPDATE. True only for the caller that added it. */
-async function claimTag(taskId: string, tag: string): Promise<boolean> {
-  const n = await prisma.$executeRaw`UPDATE tasks SET tags = array_append(tags, ${tag}) WHERE id = ${taskId}::uuid AND NOT (${tag} = ANY(tags))`;
-  return n === 1;
+/** The marker on a go-live line posted while another channel already told the client (no chat sweep email, no second notice). */
+const GO_LIVE_CLAIMED_ELSEWHERE = 'go_live_claimed_elsewhere';
+
+/**
+ * The go-live notice was already claimed (a worker's own email reached the client first, or this is a repeat).
+ * Make sure the client-visible thread line exists once, marked as already carried so no second email follows.
+ */
+async function ensureLiveLine(taskId: string, authorId: string, line: string): Promise<void> {
+  const existing = await prisma.comment.findFirst({
+    where: {
+      task_id: taskId,
+      is_deleted: false,
+      OR: [
+        { content: { startsWith: LIVE_LINE_PREFIX }, client_visible: true },
+        { chat_meta: { path: ['email_notice'], equals: 'go_live_email' } },
+        { chat_meta: { path: ['email_notice'], equals: GO_LIVE_CLAIMED_ELSEWHERE } },
+      ],
+    },
+    select: { id: true },
+  });
+  if (existing) return;
+  await prisma.comment.create({
+    data: { task_id: taskId, user_id: authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: GO_LIVE_CLAIMED_ELSEWHERE } },
+  });
 }
 
 export interface StagedResult {
@@ -149,6 +172,7 @@ export async function markStaged(input: {
           taskTitle: full.client_title ?? full.title,
           contactName: contact.name,
           stagingUrl: full.staging_preview_url,
+          taskId: task.id,
         });
         approvalEmail = 'sent';
       }
@@ -209,7 +233,8 @@ export async function markLive(input: {
   }
 
   // One send per task: the tag is claimed before anything is posted or mailed.
-  if (!(await claimTag(task.id, GO_LIVE_TAG))) {
+  if (!(await claimNotice(task.id, 'live'))) {
+    await ensureLiveLine(task.id, input.authorId, line);
     return { status: 'done', already_notified: true, lane: 'none', emailed: [] };
   }
 
@@ -229,8 +254,9 @@ export async function markLive(input: {
     const clientName = task.client?.name ?? task.site?.client?.name ?? 'Your site';
     const emailed: string[] = [];
     for (const r of recipients) {
-      await prisma.emailOutbox.create({
-        data: {
+      await queueInOutbox(
+        prisma,
+        {
           to: r.email,
           subject: goLiveSubject(clientName),
           text: buildGoLiveBody({ firstName: firstNameOf(r.name), what, liveUrl: input.liveUrl, workUrl: workPageUrl(task.id) }),
@@ -240,7 +266,8 @@ export async function markLive(input: {
           dedupe_key: `golive:${task.id}:${r.id}`,
           task_id: task.id,
         },
-      });
+        { intent: 'golive', task_id: task.id, snapshot: { claimed: true } }
+      );
       emailed.push(r.email);
     }
     return { status: 'done', already_notified: false, lane: emailed.length ? 'email' : 'none', emailed };

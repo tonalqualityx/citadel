@@ -17,7 +17,10 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+vi.mock('@/lib/sends/policy', () => ({ decideSend: vi.fn() }));
+
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { decideSend } from '@/lib/sends/policy';
 import { AuthError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
 
@@ -38,7 +41,7 @@ describe('GET /api/email-outbox', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).items).toEqual([{ id: 'row-1' }]);
     const arg = box.findMany.mock.calls[0][0];
-    expect(arg.where).toEqual({ sent_at: null });
+    expect(arg.where).toEqual({ sent_at: null, superseded_at: null });
     expect(arg.orderBy).toEqual({ created_at: 'asc' });
     expect(arg.take).toBe(50);
     expect(arg.select.text).toBeUndefined();
@@ -82,6 +85,44 @@ describe('POST claim', () => {
     box.updateMany.mockResolvedValue({ count: 0 });
     box.findUnique.mockResolvedValue(null);
     expect((await claim(req(), ctx)).status).toBe(404);
+  });
+
+  // Fleet item 4: the send-time recheck.
+  const T = '11111111-1111-4111-8111-111111111111';
+  it('never claims a row that was already superseded', async () => {
+    box.updateMany.mockResolvedValue({ count: 0 });
+    box.findUnique.mockResolvedValue({ id: 'row-1', sent_at: null, superseded_at: new Date(), superseded_reason: 'already_approved' });
+    const res = await claim(req(), ctx);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'superseded', reason: 'already_approved' });
+    expect(box.updateMany.mock.calls[0][0].where.superseded_at).toBeNull();
+  });
+
+  it('a governed row the recheck drops is stamped superseded and answered 409 superseded', async () => {
+    box.updateMany.mockResolvedValue({ count: 1 });
+    box.findUnique.mockResolvedValue({ id: 'row-1', text: 'body', sent_at: null, govern: { intent: 'chat', task_id: T } });
+    (decideSend as Mock).mockResolvedValue({ ok: false, reason: 'conversation_closed', severity: 'definitive', mode: 'enforce' });
+    const res = await claim(req(), ctx);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'superseded', reason: 'conversation_closed' });
+    expect(decideSend).toHaveBeenCalledWith({ intent: 'chat', task_id: T }, 'row-1');
+    const data = box.update.mock.calls[0][0].data;
+    expect(data.superseded_reason).toBe('conversation_closed');
+    expect(data.superseded_at).toBeInstanceOf(Date);
+  });
+
+  it('a governed row that passes the recheck is returned', async () => {
+    box.updateMany.mockResolvedValue({ count: 1 });
+    box.findUnique.mockResolvedValue({ id: 'row-1', text: 'body', sent_at: null, govern: { intent: 'chat', task_id: T } });
+    (decideSend as Mock).mockResolvedValue({ ok: true, mode: 'enforce' });
+    expect((await claim(req(), ctx)).status).toBe(200);
+  });
+
+  it('a row without govern passes and the recheck is not run', async () => {
+    box.updateMany.mockResolvedValue({ count: 1 });
+    box.findUnique.mockResolvedValue({ id: 'row-1', text: 'body', sent_at: null, govern: null });
+    expect((await claim(req(), ctx)).status).toBe(200);
+    expect(decideSend).not.toHaveBeenCalled();
   });
 });
 

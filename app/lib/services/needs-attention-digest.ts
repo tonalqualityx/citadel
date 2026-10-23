@@ -314,7 +314,7 @@ export async function sendNeedsAttentionDigest(): Promise<DigestSummary> {
   const { subject, text, html } = buildDigestEmail(data);
   const recipient = getRecipient();
 
-  await sendEmail({ to: recipient, subject, text, html });
+  await sendEmail({ to: recipient, subject, text, html, govern: { intent: 'none', reason: 'daily needs-attention digest to Mike' } });
 
   return {
     recipient,

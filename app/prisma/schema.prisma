@@ -1707,6 +1707,10 @@ model AppSettings {
   bug_report_phase       ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
   bug_report_notify_user User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
 
+  // Fleet item 4
+  send_recheck_mode       String @default("enforce") @db.VarChar(10) // off | shadow | enforce
+  send_recheck_heuristics String @default("shadow") @db.VarChar(10) // shadow | enforce
+
   @@map("app_settings")
 }
 
@@ -3438,6 +3442,10 @@ model ApprovalRequest {
   // auto-resent) — see lib/oracle/projects/blockers.ts's classifyClientApprovals.
   send_attempt_at DateTime?
 
+  // Fleet item 4: stamped when the send-time recheck drops the row (PUT .../sending 409 superseded).
+  superseded_at     DateTime?
+  superseded_reason String?   @db.VarChar(64)
+
   // Phase 5 — set by PUT .../send-error when the machine-side sender fails to send a
   // queued row; cleared on a subsequent successful send. After 3 recorded errors the
   // sender's own PUT flips status back to 'draft' (see approval-sender.py) rather than
@@ -3818,6 +3826,11 @@ model EmailOutbox {
   rfc_message_id    String?   @db.VarChar(255)
   gmail_thread_id   String?   @db.VarChar(64)
   task_id           String?   @db.Uuid
+  // Fleet item 4: the governing record the send is checked against at claim time (lib/sends/recheck.ts),
+  // and the stamp a dropped row carries. A superseded row is never listed or claimed again.
+  govern            Json?
+  superseded_at     DateTime?
+  superseded_reason String?   @db.VarChar(64)
 
   @@index([sent_at, created_at])
   @@map("email_outbox")

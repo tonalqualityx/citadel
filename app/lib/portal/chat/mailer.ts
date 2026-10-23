@@ -17,6 +17,7 @@
  */
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
+import { queueInOutbox } from '@/lib/sends/outbox';
 import { contactCanOpen, workPageUrl, type ContactRow } from '@/lib/portal/notices';
 import { readAsk, readSlots, resolveChoices, type Choice } from '@/lib/portal/chat/slots';
 
@@ -209,8 +210,9 @@ export async function queueChatEmail(
   const dup = await db.emailOutbox.findUnique({ where: { dedupe_key: input.dedupeKey }, select: { id: true } });
   if (dup) return { queued: false, reason: 'duplicate' };
   const subject = await subjectFor(db, input.convo, input.kind, input.clientTitle);
-  const row = await db.emailOutbox.create({
-    data: {
+  const row = await queueInOutbox(
+    db,
+    {
       to,
       subject,
       text: input.text,
@@ -222,8 +224,8 @@ export async function queueChatEmail(
       dedupe_key: input.dedupeKey.slice(0, 128),
       task_id: input.convo.task_id,
     },
-    select: { id: true },
-  });
+    { intent: 'chat', task_id: input.convo.task_id }
+  );
   return { queued: true, id: row.id };
 }
 

@@ -10,7 +10,7 @@ export const emailOutboxEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'List unsent outbox mail, oldest first (max 50). Bodies are not included; claim returns the full row.',
+        summary: 'List unsent outbox mail, oldest first (max 50). Bodies are not included; claim returns the full row. Superseded rows are not listed.',
         ...authFields,
         responseExample: {
           items: [{
@@ -29,7 +29,7 @@ export const emailOutboxEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Claim one unsent row (sets claimed_at) and return it with its body (including reply_to and reply_to_gmail_id for portal_chat rows). 409 if already claimed in the last 10 minutes, already sent, or a portal_chat recipient is no longer a person on that chat.',
+        summary: 'Claim one unsent row (sets claimed_at) and return it with its body (including reply_to and reply_to_gmail_id for portal_chat rows). 409 if already claimed in the last 10 minutes, already sent, or a portal_chat recipient is no longer a person on that chat. After the claim the send-time recheck reads the govern block of the row again: when the governing record made the send wrong, the row is stamped superseded and the answer is 409 with code superseded and a reason. That is final; never retry it. Rows without govern pass and are logged as ungoverned.',
         ...authFields,
         responseExample: {
           id: 'uuid', to: 'string', cc: 'string|null', subject: 'string', text: 'string', html: 'string|null',
@@ -65,6 +65,24 @@ export const emailOutboxEndpoints: ApiEndpoint[] = [
         ...authFields,
         bodySchema: [{ name: 'last_error', type: 'string', required: true, description: 'Why the send failed' }],
         responseExample: { id: 'uuid', attempts: 'number', last_error: 'string' },
+      },
+    ],
+  },
+  {
+    path: '/api/sends/recheck',
+    group: 'email-outbox',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Send-time recheck for a send outside the outbox (a worker reply on the client\'s own email thread). Reads the governing record again and says whether the send is still right; with claim it also claims the notice so only the first channel tells the client.',
+        ...authFields,
+        bodySchema: [
+          { name: 'govern', type: 'object', required: true, description: 'The governing record: {intent, task_id|proposal_id|contract_id, snapshot}. Intents: approval_request, approval_mail, golive, magic_link, invite, proposal, contract, chat, notice_internal, none.' },
+          { name: 'claim', type: 'string', required: false, description: "'live' (go-live-notified) or 'preview' (preview-notified:<sha1 of the url>). Claimed only when the check passes." },
+          { name: 'claim_token', type: 'string', required: false, description: "The preview url, required for claim 'preview'." },
+        ],
+        responseExample: { ok: true, reason: 'string (when ok is false)', severity: 'definitive|heuristic', mode: 'off|shadow|enforce', claimed: true },
+        responseNotes: 'ok:false with reason already_notified and claimed:false means another channel told the client first. Heuristic rules (preview_changed) only drop when AppSettings.send_recheck_heuristics is enforce; in shadow they pass with would_drop.',
       },
     ],
   },
