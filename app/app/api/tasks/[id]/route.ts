@@ -42,7 +42,12 @@ const requirementSectionSchema = z.object({
 // Combined schema for requirements - can be items or sections
 const requirementEntrySchema = z.union([requirementSectionSchema, requirementItemSchema]);
 
+const taskStatusSchema = z.enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']);
+
 const updateTaskSchema = z.object({
+  // Accepted alongside other fields and held to the same transition rules and side effects
+  // as a status-only PATCH (it used to be absent here, so a combined body dropped it silently).
+  status: taskStatusSchema.optional(),
   title: z.string().min(1).max(500).optional(),
   description: z.any().optional(), // BlockNote JSON content
   priority: z.number().min(1).max(5).optional(),
@@ -105,8 +110,102 @@ const updateTaskSchema = z.object({
 });
 
 const updateStatusSchema = z.object({
-  status: z.enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']),
+  status: taskStatusSchema,
 });
+
+function assertStatusTransition(from: TaskStatus, to: TaskStatus) {
+  if (!canTransitionTaskStatus(from, to)) {
+    throw new ApiError(`Cannot transition from ${from} to ${to}`, 400);
+  }
+}
+
+type StatusTransitionData = {
+  status: TaskStatus;
+  started_at?: Date;
+  is_focus?: boolean;
+  completed_at?: Date | null;
+};
+
+/** The fields a move into `newStatus` writes besides the status itself. */
+function statusTransitionData(
+  existingTask: { status: TaskStatus; started_at: Date | null },
+  newStatus: TaskStatus
+): StatusTransitionData {
+  const updateData: StatusTransitionData = { status: newStatus };
+
+  // Set timestamps and focus based on status
+  if (newStatus === 'in_progress') {
+    if (!existingTask.started_at) {
+      updateData.started_at = new Date();
+    }
+    // Auto-focus tasks when moved to in_progress
+    updateData.is_focus = true;
+  }
+  if (newStatus === 'done') {
+    updateData.completed_at = new Date();
+  }
+  // Clear completed_at when reopening
+  if (existingTask.status === 'done' && newStatus !== 'done') {
+    updateData.completed_at = null;
+  }
+
+  return updateData;
+}
+
+type CompletionNudge = { thread_id: string | null; subject: string; from_email: string };
+
+/**
+ * Side effects of a status write, shared by the status-only and combined PATCH paths:
+ * activity log, dependent propagation, portal first-response, and the completion nudge.
+ */
+async function afterStatusChange(
+  userId: string,
+  existingTask: { status: TaskStatus },
+  task: {
+    id: string;
+    title: string;
+    arc_id: string | null;
+    source: string;
+    status: string;
+    staging_preview_url: string | null;
+  },
+  newStatus: TaskStatus
+): Promise<CompletionNudge | null> {
+  await logStatusChange(userId, 'task', task.id, task.title, existingTask.status, newStatus);
+
+  // Propagate blocking status to dependent tasks
+  await propagateBlockingStatus(task.id, newStatus, existingTask.status);
+  await resolvePortalFirstResponse(task);
+
+  // Clarity Phase 7 — the completion-nudge hook: closing a task that has an
+  // attached email (directly, or via its arc) prompts the follow-through — Bast
+  // drafts "work is done" on the original thread for Mike's send (draft-only,
+  // forever; SOUL law). Fires only on the transition INTO done, never on a no-op
+  // re-PATCH of an already-done task. Direct task attachment wins over the arc's
+  // when both exist (the more specific link).
+  if (newStatus !== 'done' || existingTask.status === 'done') return null;
+
+  const attachedEmail =
+    (await prisma.emailAsk.findFirst({
+      where: { task_id: task.id },
+      orderBy: { received_at: 'desc' },
+      select: { thread_id: true, subject: true, from_email: true },
+    })) ??
+    (task.arc_id
+      ? await prisma.emailAsk.findFirst({
+          where: { arc_id: task.arc_id },
+          orderBy: { received_at: 'desc' },
+          select: { thread_id: true, subject: true, from_email: true },
+        })
+      : null);
+
+  if (!attachedEmail) return null;
+  return {
+    thread_id: attachedEmail.thread_id ?? null,
+    subject: attachedEmail.subject,
+    from_email: attachedEmail.from_email,
+  };
+}
 
 async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
   const task = await prisma.task.findUnique({
@@ -270,30 +369,8 @@ export async function PATCH(
     if (body.status && Object.keys(body).length === 1) {
       const statusData = updateStatusSchema.parse(body);
 
-      if (!canTransitionTaskStatus(existingTask.status, statusData.status)) {
-        throw new ApiError(
-          `Cannot transition from ${existingTask.status} to ${statusData.status}`,
-          400
-        );
-      }
-
-      const updateData: any = { status: statusData.status };
-
-      // Set timestamps and focus based on status
-      if (statusData.status === 'in_progress') {
-        if (!existingTask.started_at) {
-          updateData.started_at = new Date();
-        }
-        // Auto-focus tasks when moved to in_progress
-        updateData.is_focus = true;
-      }
-      if (statusData.status === 'done') {
-        updateData.completed_at = new Date();
-      }
-      // Clear completed_at when reopening
-      if (existingTask.status === 'done' && statusData.status !== 'done') {
-        updateData.completed_at = null;
-      }
+      assertStatusTransition(existingTask.status, statusData.status);
+      const updateData = statusTransitionData(existingTask, statusData.status);
 
       const task = await prisma.task.update({
         where: { id },
@@ -321,50 +398,12 @@ export async function PATCH(
         },
       });
 
-      // Log status change activity
-      await logStatusChange(
+      const completionNudge = await afterStatusChange(
         auth.userId,
-        'task',
-        task.id,
-        task.title,
-        existingTask.status,
+        existingTask,
+        task,
         statusData.status
       );
-
-      // Propagate blocking status to dependent tasks
-      await propagateBlockingStatus(id, statusData.status, existingTask.status);
-      await resolvePortalFirstResponse(task);
-
-      // Clarity Phase 7 — the completion-nudge hook: closing a task that has an
-      // attached email (directly, or via its arc) prompts the follow-through — Bast
-      // drafts "work is done" on the original thread for Mike's send (draft-only,
-      // forever; SOUL law). Fires only on the transition INTO done, never on a no-op
-      // re-PATCH of an already-done task. Direct task attachment wins over the arc's
-      // when both exist (the more specific link).
-      let completionNudge: { thread_id: string | null; subject: string; from_email: string } | null = null;
-      if (statusData.status === 'done' && existingTask.status !== 'done') {
-        const attachedEmail =
-          (await prisma.emailAsk.findFirst({
-            where: { task_id: id },
-            orderBy: { received_at: 'desc' },
-            select: { thread_id: true, subject: true, from_email: true },
-          })) ??
-          (task.arc_id
-            ? await prisma.emailAsk.findFirst({
-                where: { arc_id: task.arc_id },
-                orderBy: { received_at: 'desc' },
-                select: { thread_id: true, subject: true, from_email: true },
-              })
-            : null);
-
-        if (attachedEmail) {
-          completionNudge = {
-            thread_id: attachedEmail.thread_id ?? null,
-            subject: attachedEmail.subject,
-            from_email: attachedEmail.from_email,
-          };
-        }
-      }
 
       return NextResponse.json({
         ...formatTaskResponse(task),
@@ -405,6 +444,13 @@ export async function PATCH(
     }
 
     const data = updateTaskSchema.parse(body);
+    if (data.status !== undefined) {
+      assertStatusTransition(existingTask.status, data.status);
+    }
+    // A combined body that re-sends the current status (a retried close-out, a full-form save)
+    // is not a status change: no completed_at reset, no re-focus, no activity entry.
+    const statusChange =
+      data.status !== undefined && data.status !== existingTask.status ? data.status : undefined;
 
     // Calculate estimated minutes if energy estimate, mystery, or battery changes
     let estimatedMinutes = existingTask.estimated_minutes;
@@ -480,9 +526,20 @@ export async function PATCH(
       }
     }
 
+    // A connect with an unsatisfied blocker forces the dependent to `blocked`, never on a task
+    // that is (or is being moved to) done/abandoned: completed work doesn't get resurrected by
+    // a later dependency edit.
+    const requestedStatus: TaskStatus = statusChange ?? existingTask.status;
+    const newStatus: TaskStatus | undefined =
+      forceBlockedStatus && !['done', 'abandoned'].includes(requestedStatus)
+        ? 'blocked'
+        : statusChange;
+
     // Build update data explicitly to avoid Prisma type conflicts
     const updateData: Record<string, any> = {
       estimated_minutes: estimatedMinutes,
+      // Applied first so an explicit field in the same body (e.g. is_focus) wins.
+      ...(newStatus !== undefined ? statusTransitionData(existingTask, newStatus) : {}),
     };
 
     if (data.title !== undefined) updateData.title = data.title;
@@ -595,10 +652,8 @@ export async function PATCH(
     }
     if (data.approved_by_contact_id !== undefined) updateData.approved_by_contact_id = data.approved_by_contact_id;
 
-    // project-record-citadel-changes.md addendum (ruling 32) — apply the dependency edit and,
-    // on a connect with an unsatisfied blocker, force the dependent to `blocked` (never on a
-    // task that's already done/abandoned — completed work doesn't get resurrected by a later
-    // dependency edit).
+    // project-record-citadel-changes.md addendum (ruling 32) — apply the dependency edit (the
+    // forced `blocked` it can cause is folded into newStatus above).
     if (data.blocked_by_ids?.connect?.length || data.blocked_by_ids?.disconnect?.length) {
       updateData.blocked_by = {
         ...(data.blocked_by_ids.connect?.length
@@ -608,9 +663,6 @@ export async function PATCH(
           ? { disconnect: data.blocked_by_ids.disconnect.map((bid) => ({ id: bid })) }
           : {}),
       };
-    }
-    if (forceBlockedStatus && !['done', 'abandoned'].includes(existingTask.status)) {
-      updateData.status = 'blocked';
     }
 
     const task = await prisma.task.update({
@@ -644,7 +696,14 @@ export async function PATCH(
       },
     });
 
-    await resolvePortalFirstResponse(task);
+    // A requested status change gets the status-only side effects. A forced `blocked` from a
+    // dependency connect alone keeps its existing behavior (no activity entry).
+    let completionNudge: CompletionNudge | null = null;
+    if (statusChange !== undefined && newStatus !== undefined) {
+      completionNudge = await afterStatusChange(auth.userId, existingTask, task, newStatus);
+    } else {
+      await resolvePortalFirstResponse(task);
+    }
 
     // When a blocker is newly approved, approval-gated dependents become workable — unblock them.
     // (ordering-only dependents were already unblocked when the blocker hit `done`.)
@@ -665,7 +724,10 @@ export async function PATCH(
       await notifyTaskAssigned(task.id, task.assignee_id, updater?.name || 'Someone');
     }
 
-    return NextResponse.json(formatTaskResponse(task));
+    return NextResponse.json({
+      ...formatTaskResponse(task),
+      ...(completionNudge ? { completion_nudge: completionNudge } : {}),
+    });
   } catch (error) {
     return handleApiError(error);
   }

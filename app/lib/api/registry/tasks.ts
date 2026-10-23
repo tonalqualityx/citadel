@@ -211,13 +211,14 @@ export const taskEndpoints: ApiEndpoint[] = [
         summary: 'Update task fields. Handles status changes, assignment, and focus toggling.',
         auth: 'required',
         bodySchema: [
+          { name: 'status', type: 'string', required: false, description: 'not_started|in_progress|review|done|blocked|abandoned. Applied alone or together with other fields, through the same transition rules and side effects either way (timestamps, auto-focus on in_progress, activity log, dependent unblocking). A disallowed transition or unknown value returns 400 and writes nothing. An explicit is_focus in the same body wins over the auto-focus.' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 4b — attach to an arc (404 if the arc does not exist); pass null to explicitly detach; omit to leave untouched. PM/Admin only.' },
           { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — omit to leave untouched, null to clear back to internal/target, a name to set promised-to.' },
           { name: 'client_visible', type: 'boolean', required: false, description: 'Client portal A3 — share this task in the client portal task lists (default false = private). Does not make it approvable: approve/request-changes still need a staged preview. PM/Admin only.' },
         ],
         responseNotes:
-          'Clarity Phase 7 — the completion-nudge hook: a status-only PATCH ({ status: ' +
-          '"done" }) that transitions the task INTO done (never on a no-op re-PATCH of an ' +
+          'Clarity Phase 7 — the completion-nudge hook: a PATCH carrying { status: ' +
+          '"done" } (alone or with other fields) that transitions the task INTO done (never on a no-op re-PATCH of an ' +
           'already-done task) includes `completion_nudge: { thread_id, subject, from_email }` ' +
           'in the response when the task has an attached email — checked directly ' +
           '(EmailAsk.task_id) first, falling back to the task\'s arc (EmailAsk.arc_id) if the ' +
