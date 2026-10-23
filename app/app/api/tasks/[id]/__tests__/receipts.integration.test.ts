@@ -18,7 +18,7 @@ import { sendTaskApprovalRequestEmail } from '@/lib/services/email';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { cleanup, SCRATCH, seedClient, type Seeded } from '@/lib/engine/__tests__/seed';
 import { recordTaskClientApproval } from '@/lib/services/portal';
-import { voidApprovalIfRestaged } from '@/lib/portal/receipts';
+import { voidApprovalIfRestaged, sameSha } from '@/lib/portal/receipts';
 import { POST as stagedPOST } from '../staged/route';
 import { POST as livePOST } from '../live/route';
 import { PATCH as taskPATCH } from '../route';
@@ -65,7 +65,7 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
   });
 
   beforeEach(async () => {
-    authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'admin', email: 'bast@test' });
+    authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'admin', email: 'bast@test', via: 'session' });
     approvalMail.mockClear();
     await setMode('warn');
     await prisma.taskReceipt.deleteMany({ where: { task_id: a.taskId } });
@@ -293,7 +293,7 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
     authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'pm', email: 'bast@test' });
     expect((await live({ live_url: 'https://site.example.test/', commit_sha: SHA2, force: true, force_reason: 'Hotfix agreed with the client' })).status).toBe(403);
     expect((await task()).status).toBe('review');
-    authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'admin', email: 'bast@test' });
+    authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'admin', email: 'bast@test', via: 'session' });
     const ok = await live({ live_url: 'https://site.example.test/', commit_sha: SHA2, force: true, force_reason: 'Hotfix agreed with the client' });
     expect(ok.status).toBe(200);
     const [r] = await receipts('live');
@@ -314,6 +314,93 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
     await setMode('off');
     expect((await live({ live_url: 'https://site.example.test/', commit_sha: SHA2 })).status).toBe(200);
     expect((await receipts('live'))[0].mismatch).toBe(false);
+  });
+
+  it('PATCH carrying a tag list with client-approved plus a new preview url leaves the task not approved', async () => {
+    await stage('https://p.example.test/21');
+    await approve();
+    const res = await patch({ staging_preview_url: 'https://p.example.test/21b', tags: ['client-approved', 'cp:abc', 'preview-notified:x', 'keep-me'] });
+    expect(res.status).toBe(200);
+    const t = await task();
+    expect(t.client_approved_at).toBeNull();
+    expect(t.tags).toEqual(['keep-me']);
+  });
+
+  it('same url after a yes: a missing incoming commit, a missing approved commit, or different commits all void; the same commit is a no-op', async () => {
+    // incoming commit missing
+    await stage('https://p.example.test/22', SHA1);
+    await approve();
+    await stage('https://p.example.test/22', null);
+    expect((await task()).client_approved_at).toBeNull();
+    // approved commit missing
+    await prisma.task.update({ where: { id: a.taskId }, data: { client_approved_at: new Date(), tags: ['client-approved'], approved_commit_sha: null, approved_preview_url: 'https://p.example.test/22' } });
+    await stage('https://p.example.test/22', SHA1);
+    expect((await task()).client_approved_at).toBeNull();
+    // different commits
+    await prisma.task.update({ where: { id: a.taskId }, data: { client_approved_at: new Date(), tags: ['client-approved'], approved_commit_sha: SHA1, approved_preview_url: 'https://p.example.test/22' } });
+    await stage('https://p.example.test/22', SHA2);
+    expect((await task()).client_approved_at).toBeNull();
+    // same commit, both present: no-op
+    await prisma.task.update({ where: { id: a.taskId }, data: { client_approved_at: new Date(), tags: ['client-approved'], approved_commit_sha: SHA2, approved_preview_url: 'https://p.example.test/22' } });
+    const res = await stage('https://p.example.test/22', SHA2.toUpperCase());
+    expect((await res.json()).already_staged).toBe(true);
+    expect((await task()).client_approved_at).not.toBeNull();
+  });
+
+  it('a PATCH of the preview url then a stage call records the commit and deploy; a new commit on an unapproved review task is recorded', async () => {
+    await patch({ staging_preview_url: 'https://p.example.test/23' });
+    const first = await stage('https://p.example.test/23', SHA1);
+    expect((await first.json()).already_staged).toBe(false);
+    expect((await task()).staging_commit_sha).toBe(SHA1);
+    const again = await stage('https://p.example.test/23', SHA2);
+    expect((await again.json()).already_staged).toBe(false);
+    expect((await task()).staging_commit_sha).toBe(SHA2);
+    expect((await (await stage('https://p.example.test/23', SHA2)).json()).already_staged).toBe(true);
+  });
+
+  it('enforce: an approval with no recorded build is refused; only an admin on a browser session can force it, with a reason', async () => {
+    await stage('https://p.example.test/24');
+    await approve();
+    await prisma.task.update({ where: { id: a.taskId }, data: { approved_commit_sha: null } });
+    await setMode('enforce');
+    const refused = await live({ live_url: 'https://site.example.test/', commit_sha: SHA1 });
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).code).toBe('build_not_approved');
+    authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'admin', email: 'bast@test', via: 'api_key' });
+    expect((await live({ live_url: 'https://site.example.test/', commit_sha: SHA1, force: true, force_reason: 'Approved by phone' })).status).toBe(403);
+    authMock.mockResolvedValue({ userId: BAST_USER_ID, role: 'admin', email: 'bast@test', via: 'session' });
+    expect((await live({ live_url: 'https://site.example.test/', commit_sha: SHA1, force: true, force_reason: 'Approved by phone' })).status).toBe(200);
+    expect((await receipts('live'))[0].mismatch).toBe(true);
+  });
+
+  it('warn: an approval with no recorded build goes live without a mismatch', async () => {
+    await stage('https://p.example.test/25');
+    await approve();
+    await prisma.task.update({ where: { id: a.taskId }, data: { approved_commit_sha: null } });
+    expect((await live({ live_url: 'https://site.example.test/', commit_sha: SHA1 })).status).toBe(200);
+    expect((await receipts('live'))[0].mismatch).toBe(false);
+  });
+
+  it('commit compare ignores case and accepts a short sha as a prefix', () => {
+    expect(sameSha(SHA1.toUpperCase(), SHA1)).toBe(true);
+    expect(sameSha(SHA1.slice(0, 8), SHA1)).toBe(true);
+    expect(sameSha(SHA2.slice(0, 8), SHA1)).toBe(false);
+    expect(sameSha('abc', 'abcdef0')).toBe(false);
+  });
+
+  it('the yes is recorded only for the preview the client saw: if it changed, nothing is approved and the new address comes back', async () => {
+    await stage('https://p.example.test/26a');
+    await stage('https://p.example.test/26b', SHA2); // restaged while the client looked at 26a
+    const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'approval_link', 'https://p.example.test/26a');
+    expect(r).toMatchObject({ preview_changed: true, already_approved: false, staging_preview_url: 'https://p.example.test/26b' });
+    const t = await task();
+    expect(t.client_approved_at).toBeNull();
+    expect(t.tags).not.toContain('client-approved');
+    expect(await receipts('approved')).toHaveLength(0);
+    const ok = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'approval_link', 'https://p.example.test/26b');
+    expect(ok.preview_changed).toBeUndefined();
+    expect(await task()).toMatchObject({ approved_preview_url: 'https://p.example.test/26b', approved_commit_sha: SHA2 });
+    expect((await receipts('approved'))[0].approval_source).toBe('approval_link');
   });
 
   it('GET receipts returns the trail for staff', async () => {

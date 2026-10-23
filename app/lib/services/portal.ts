@@ -407,29 +407,53 @@ export async function recordTaskClientApproval(
   task: { id: string; client_approved_at: Date | null; site?: { auto_deploy: boolean } | null },
   contactId: string | null,
   /** Fleet item 5: which door the yes came through (portal | approval_link). */
-  approvalSource: 'portal' | 'approval_link' = 'portal'
-): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean }> {
+  approvalSource: 'portal' | 'approval_link' = 'portal',
+  /** Fleet item 5: the preview address the client was looking at. A yes is only recorded for that address. */
+  expectedPreviewUrl: string | null = null
+): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean; preview_changed?: boolean; staging_preview_url?: string | null }> {
   if (task.client_approved_at) {
     return { already_approved: true, approved_at: task.client_approved_at, promotion_pending: false };
   }
 
   const approvedAt = new Date();
-  // The approval also clears the send-back marker: the work is accepted, so it is no longer "sent
-  // back". The tag is removed by a single UPDATE (array_remove), never read-modify-write, so a tag
-  // added at the same moment by another writer is not lost.
-  await prisma.$transaction([
-    prisma.task.update({
-      where: { id: task.id },
-      data: {
-        client_approved_at: approvedAt,
-        approved_by_contact_id: contactId,
-      },
-    }),
-    removeTaskTagQuery(task.id, SEND_BACK_TAG),
-    // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
-    addTaskTagQuery(task.id, CLIENT_APPROVED_TAG),
-  ]);
-  await stampApproval(task.id, approvalSource); // Fleet item 5: the yes is bound to the build on the preview
+  if (expectedPreviewUrl) {
+    // The yes and the build it covers are written together, and only if the preview is still the one on screen.
+    const outcome = await prisma.$transaction(async (tx) => {
+      const n = await tx.task.updateMany({
+        where: { id: task.id, client_approved_at: null, staging_preview_url: expectedPreviewUrl },
+        data: { client_approved_at: approvedAt, approved_by_contact_id: contactId },
+      });
+      if (n.count !== 1) {
+        const cur = await tx.task.findUnique({ where: { id: task.id }, select: { client_approved_at: true, staging_preview_url: true } });
+        return { ok: false as const, cur };
+      }
+      await tx.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${SEND_BACK_TAG}) WHERE id = ${task.id}::uuid`;
+      await tx.$executeRaw`UPDATE tasks SET tags = CASE WHEN ${CLIENT_APPROVED_TAG} = ANY(tags) THEN tags ELSE array_append(tags, ${CLIENT_APPROVED_TAG}) END WHERE id = ${task.id}::uuid`;
+      await stampApproval(task.id, approvalSource, tx as never);
+      return { ok: true as const };
+    });
+    if (!outcome.ok) {
+      if (outcome.cur?.client_approved_at) return { already_approved: true, approved_at: outcome.cur.client_approved_at, promotion_pending: false };
+      return { already_approved: false, approved_at: approvedAt, promotion_pending: false, preview_changed: true, staging_preview_url: outcome.cur?.staging_preview_url ?? null };
+    }
+  } else {
+    // The approval also clears the send-back marker: the work is accepted, so it is no longer "sent
+    // back". The tag is removed by a single UPDATE (array_remove), never read-modify-write, so a tag
+    // added at the same moment by another writer is not lost.
+    await prisma.$transaction([
+      prisma.task.update({
+        where: { id: task.id },
+        data: {
+          client_approved_at: approvedAt,
+          approved_by_contact_id: contactId,
+        },
+      }),
+      removeTaskTagQuery(task.id, SEND_BACK_TAG),
+      // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
+      addTaskTagQuery(task.id, CLIENT_APPROVED_TAG),
+    ]);
+    await stampApproval(task.id, approvalSource); // Fleet item 5: the yes is bound to the build on the preview
+  }
 
   const promotionPending = task.site?.auto_deploy === false;
   if (promotionPending) {

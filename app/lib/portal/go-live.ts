@@ -35,7 +35,7 @@ import { unblockEligibleDependents } from '@/lib/services/dependencies';
 import { queueInOutbox } from '@/lib/sends/outbox';
 import { claimNotice, releaseNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
 // Fleet item 5
-import { getApprovalBindingMode, isRestage, voidApprovalIfRestaged, writeReceipt, compareBuild, type CheckEntry } from '@/lib/portal/receipts';
+import { getApprovalBindingMode, isRestage, sameSha, voidApprovalIfRestaged, writeReceipt, compareBuild, type CheckEntry } from '@/lib/portal/receipts';
 import { assertClaimHeld, CLEAR_CLAIM_DATA, type ClaimCaller } from '@/lib/tasks/claims';
 import { actorLaneField } from '@/lib/auth/actor-lane';
 
@@ -145,7 +145,7 @@ export async function markStaged(input: {
 }): Promise<StagedResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
-    select: { id: true, is_deleted: true, status: true, source: true, staging_preview_url: true, client_approved_at: true, tags: true, requested_by_contact_id: true, approved: true, approved_preview_url: true, approved_commit_sha: true, claim_holder: true },
+    select: { id: true, is_deleted: true, status: true, source: true, staging_preview_url: true, client_approved_at: true, tags: true, requested_by_contact_id: true, approved: true, approved_preview_url: true, approved_commit_sha: true, staging_commit_sha: true, claim_holder: true },
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned', 409);
@@ -164,7 +164,8 @@ export async function markStaged(input: {
   if (wasApproved && !isRestage(task, { previewUrl: input.previewUrl, commitSha: input.commitSha })) {
     return { status: 'review', preview_url: input.previewUrl, already_staged: true, approval_email: 'skipped' };
   }
-  if (!wasApproved && task.status === 'review' && task.staging_preview_url === input.previewUrl) {
+  // A repeat is only a repeat when it names the same build (or none): a new commit on the same address is recorded.
+  if (!wasApproved && task.status === 'review' && task.staging_preview_url === input.previewUrl && (!input.commitSha || (task.staging_commit_sha !== null && sameSha(input.commitSha, task.staging_commit_sha)))) {
     return { status: 'review', preview_url: input.previewUrl, already_staged: true, approval_email: 'skipped' };
   }
   const line = stagedLine(input.previewUrl, input.note);
@@ -243,6 +244,7 @@ export async function markLive(input: {
   forceReason?: string | null;
   /** The caller's role: only an admin may force a build that is not the approved one. */
   callerRole?: string;
+  callerVia?: 'session' | 'api_key';
   /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
   claimToken?: string | null;
   claimCaller?: ClaimCaller;
@@ -269,11 +271,14 @@ export async function markLive(input: {
 
   // Fleet item 5: is this the build the client approved? Only a task being published for the first time is judged.
   const bindingMode = await getApprovalBindingMode();
-  const build = bindingMode === 'off' || task.status === 'done' ? { mismatch: false, unbound: true } : compareBuild(task.approved_commit_sha, input.commitSha);
+  const judged = bindingMode === 'off' || task.status === 'done' ? { mismatch: false, unbound: true } : compareBuild(task.approved_commit_sha, input.commitSha);
+  // Enforce: a yes that never recorded its build cannot show this is the build the client saw, so it is treated as a mismatch.
+  const build = bindingMode === 'enforce' && task.status !== 'done' && judged.unbound ? { mismatch: true, unbound: true } : judged;
   let forcedPastMismatch = false;
   if (build.mismatch && bindingMode === 'enforce') {
     if (!input.force) throw new ApiError('The build going live is not the build the client approved. Nothing was published to them.', 409, 'build_not_approved');
-    if (input.callerRole !== 'admin') throw new ApiError('Only an admin can publish a build the client did not approve.', 403, 'forbidden');
+    // Only an admin on a browser session may force (not an API key, not a worker token).
+    if (input.callerRole !== 'admin' || input.callerVia !== 'session') throw new ApiError('Only an admin on a browser session can publish a build the client did not approve.', 403, 'forbidden');
     if (!oneLine(input.forceReason ?? '')) throw new ApiError('Forcing a build the client did not approve needs force_reason.', 400, 'force_reason_required');
     forcedPastMismatch = true;
   }

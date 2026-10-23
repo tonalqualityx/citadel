@@ -40,6 +40,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       liveCheck: body.live_check ?? null,
       forceReason: body.force_reason ?? null,
       callerRole: auth.role,
+      callerVia: auth.via,
       claimToken: request.headers.get('x-claim-token'),
       claimCaller: { userId: auth.userId, role: auth.role, via: auth.via },
     });

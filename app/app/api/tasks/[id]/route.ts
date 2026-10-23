@@ -699,6 +699,11 @@ export async function PATCH(
         // The yes is gone: the update below must not write it back.
         delete updateData.client_approved_at;
         delete updateData.approved_by_contact_id;
+        // A tag list in the same request replaces the tags AFTER the void, so it must not bring the yes (or spent
+        // notice claims) back.
+        if (Array.isArray(updateData.tags)) {
+          updateData.tags = (updateData.tags as string[]).filter((t) => t !== 'client-approved' && !t.startsWith('cp:') && !t.startsWith('preview-notified:'));
+        }
       }
     }
 

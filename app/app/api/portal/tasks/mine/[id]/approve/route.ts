@@ -12,6 +12,7 @@ import {
 } from '@/lib/portal/visibility';
 import { recordTaskClientApproval, logPortalSession, getClientIp } from '@/lib/services/portal';
 import { refuseIfViewAs } from '@/lib/portal/view-as-guard';
+import { expectedPreview, previewChangedResponse } from '@/lib/portal/approval-preview';
 
 // POST /api/portal/tasks/mine/:id/approve (Portal v2 phase 1)
 // Session-scoped equivalent of POST /api/portal/tasks/:token/approve. Same mutation
@@ -56,7 +57,9 @@ export async function POST(
       throw new ApiError('Task not found', 404);
     }
 
-    const result = await recordTaskClientApproval(task, session.contactId);
+    const result = await recordTaskClientApproval(task, session.contactId, 'portal', await expectedPreview(request));
+
+    if (result.preview_changed) return previewChangedResponse(result.staging_preview_url ?? null);
 
     if (result.already_approved) {
       return NextResponse.json({

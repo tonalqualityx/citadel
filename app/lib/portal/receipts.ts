@@ -133,8 +133,18 @@ export function isRestage(
 ): boolean {
   const baseUrl = t.approved_preview_url ?? t.staging_preview_url;
   if (baseUrl !== null && baseUrl !== next.previewUrl) return true;
-  if (next.commitSha && t.approved_commit_sha && next.commitSha !== t.approved_commit_sha) return true;
-  return false;
+  // Same address: it is only the same build when BOTH commits are known and equal. A stage that does not say
+  // which build it is, or an approval that never recorded one, cannot be shown to be the build the client saw.
+  if (!next.commitSha || !t.approved_commit_sha) return true;
+  return !sameSha(next.commitSha, t.approved_commit_sha);
+}
+
+/** Case-insensitive commit compare; when one side is a short sha, compare as a prefix (7 characters at least). */
+export function sameSha(a: string, b: string): boolean {
+  const x = a.trim().toLowerCase();
+  const y = b.trim().toLowerCase();
+  if (x.length < 7 || y.length < 7) return x === y;
+  return x.length <= y.length ? y.startsWith(x) : x.startsWith(y);
 }
 
 /**
@@ -222,7 +232,7 @@ export async function voidApprovalIfRestaged(
 export function compareBuild(approvedCommit: string | null, liveCommit: string | null | undefined): { mismatch: boolean; unbound: boolean } {
   if (!approvedCommit) return { mismatch: false, unbound: true };
   if (!liveCommit) return { mismatch: true, unbound: false };
-  return { mismatch: liveCommit !== approvedCommit, unbound: false };
+  return { mismatch: !sameSha(liveCommit, approvedCommit), unbound: false };
 }
 
 /** Request-body shape for a checks[] list (staged and live calls). */
