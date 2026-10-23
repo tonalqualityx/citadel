@@ -150,16 +150,49 @@ describe('PATCH /api/email-asks/[id]', () => {
       expect((await res.json()).ignored_fields).toBeUndefined();
     });
 
-    it('may not write training_note or calendar_requested (dropped, reported back)', async () => {
+    it('writes an [auto] note when the stored note is empty', async () => {
+      mockRequireAuth.mockResolvedValue(porter as never);
+      mockFindUnique.mockResolvedValue(ask({ training_note: null }));
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+      const res = await PATCH(req({ state: 'handled', training_note: '[auto] Mike replied in 4m' }), ctx());
+      expect(res.status).toBe(200);
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ training_note: '[auto] Mike replied in 4m' });
+      expect((await res.json()).ignored_fields).toBeUndefined();
+    });
+
+    it('never overwrites a note Mike typed (dropped, ignored_fields)', async () => {
+      mockRequireAuth.mockResolvedValue(porter as never);
+      mockFindUnique.mockResolvedValue(ask({ training_note: 'Wrong queue: this is a lead' }));
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+      const res = await PATCH(req({ state: 'handled', training_note: '[auto] Mike replied' }), ctx());
+      expect(mockUpdate.mock.calls[0][0].data).not.toHaveProperty('training_note');
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ state: 'handled' });
+      expect((await res.json()).ignored_fields).toEqual(['training_note']);
+    });
+
+    it('never writes a note without the [auto] prefix, nor clears one', async () => {
+      mockRequireAuth.mockResolvedValue(porter as never);
+      for (const note of ['Looks like a lead', null, '']) {
+        mockUpdate.mockClear();
+        mockFindUnique.mockResolvedValue(ask({ training_note: null }));
+        mockUpdate.mockResolvedValue(ask());
+        const res = await PATCH(req({ training_note: note }), ctx());
+        expect(mockUpdate.mock.calls[0][0].data).not.toHaveProperty('training_note');
+        expect((await res.json()).ignored_fields).toEqual(['training_note']);
+      }
+    });
+
+    it('may clear calendar_requested (false) but never set it (true)', async () => {
       mockRequireAuth.mockResolvedValue(porter as never);
       mockFindUnique.mockResolvedValue(ask());
-      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
-      const res = await PATCH(req({ state: 'handled', training_note: 'auto: replied', calendar_requested: true }), ctx());
-      expect(res.status).toBe(200);
-      const data = mockUpdate.mock.calls[0][0].data;
-      expect(data).not.toHaveProperty('training_note');
-      expect(data).not.toHaveProperty('calendar_requested');
-      expect((await res.json()).ignored_fields).toEqual(['training_note', 'calendar_requested']);
+      mockUpdate.mockResolvedValue(ask());
+      let res = await PATCH(req({ calendar_requested: false }), ctx());
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ calendar_requested: false });
+      expect((await res.json()).ignored_fields).toBeUndefined();
+      mockUpdate.mockClear();
+      res = await PATCH(req({ calendar_requested: true }), ctx());
+      expect(mockUpdate.mock.calls[0][0].data).not.toHaveProperty('calendar_requested');
+      expect((await res.json()).ignored_fields).toEqual(['calendar_requested']);
     });
 
     it('may record the executed calendar event (that clears Mike\'s request as before)', async () => {
