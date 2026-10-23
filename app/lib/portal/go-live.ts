@@ -35,6 +35,7 @@ import { unblockEligibleDependents } from '@/lib/services/dependencies';
 import { queueInOutbox } from '@/lib/sends/outbox';
 import { claimNotice, releaseNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
 import { assertClaimHeld, CLEAR_CLAIM_DATA, type ClaimCaller } from '@/lib/tasks/claims';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 export { GO_LIVE_TAG };
 export const GO_LIVE_KIND = 'portal_golive';
@@ -157,7 +158,7 @@ export async function markStaged(input: {
     removeTaskTagQuery(task.id, SEND_BACK_TAG),
     // chat_meta marks the line as already carried by the approval email, so the chat sweep does not mail it again.
     prisma.comment.create({
-      data: { task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: 'approval_email' } },
+      data: { ...(await actorLaneField()), task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: 'approval_email' } },
     }),
   ]);
   await claimCheck.logOverride();
@@ -271,7 +272,7 @@ export async function markLive(input: {
     // The thread line. In a chat task it carries no marker, so the chat sweep emails it when the client is away.
     if (chat || recipients.length > 0) {
       await prisma.comment.create({
-        data: { task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, ...(chat ? {} : { chat_meta: { email_notice: 'go_live_email' } }) },
+        data: { ...(await actorLaneField()), task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, ...(chat ? {} : { chat_meta: { email_notice: 'go_live_email' } }) },
       });
     }
     if (chat) return { status: 'done', already_notified: false, lane: 'chat', emailed: [] };

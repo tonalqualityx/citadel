@@ -19,6 +19,7 @@ import { clientVisibleTaskWhere } from '@/lib/portal/visibility';
 import { onClientMessage } from '@/lib/portal/waits';
 import { createNotification } from '@/lib/services/notifications';
 import { emailClientMessage, staffQuietLastHour } from '@/lib/portal/staff-notify';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 export const STAFF_AUTHOR_NAME = 'Indelible';
 export const MESSAGE_MAX_CHARS = 4000;
@@ -221,7 +222,7 @@ export async function postClientMessage(
     if (messageLimit) throw new ApiError(MESSAGE_RATE_LIMIT_MESSAGE, 429, 'rate_limited', messageLimit);
 
     const row = await tx.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: taskId,
         // No staff or bot author: the client is the author (author_contact_id), user_id stays null.
         user_id: null,

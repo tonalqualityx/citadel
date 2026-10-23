@@ -4,9 +4,12 @@ import { hashApiKey } from './api-keys';
 import { prisma } from '@/lib/db/prisma';
 import { UserRole } from '@prisma/client';
 import { AuthError } from '@/lib/api/errors';
+import { ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader } from './lane-scopes';
+import { recordKeyViolation } from './key-violations';
+import { rememberKeyLane } from './actor-lane';
 
-/** How the caller authenticated. `via` and `apiKeyId` are additive; existing callers ignore them. */
-export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string };
+/** How the caller authenticated. `via` and `apiKeyId` are additive; API-key callers on a lane key also carry the lane. */
+export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string; lane?: string };
 
 export async function requireAuth(): Promise<AuthPayload> {
   // Try cookie-based JWT auth first (existing browser flow)
@@ -40,13 +43,15 @@ export async function requireAuth(): Promise<AuthPayload> {
 
   if (authHeader?.startsWith('Bearer ')) {
     const rawKey = authHeader.slice(7);
-    return authenticateApiKey(rawKey);
+    return authenticateApiKey(rawKey, headerStore);
   }
 
   throw new AuthError('Authentication required', 401);
 }
 
-async function authenticateApiKey(rawKey: string): Promise<AuthPayload> {
+type HeaderReader = { get(name: string): string | null };
+
+async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Promise<AuthPayload> {
   const keyHash = hashApiKey(rawKey);
 
   const apiKey = await prisma.apiKey.findFirst({
@@ -73,6 +78,31 @@ async function authenticateApiKey(rawKey: string): Promise<AuthPayload> {
     throw new AuthError('User account is inactive', 401);
   }
 
+  // Fleet item 6: a key with a lane:<name> scope may call only its lane's routes. The route comes
+  // from x-citadel-route, which proxy.ts always overwrites. No header means the proxy did not run,
+  // so the call is refused (fail closed). Keys with no lane scope skip all of this.
+  const lanes = laneScopesOf(apiKey.scopes);
+  const lane = lanes.length > 0 ? lanes.join(',') : undefined;
+  rememberKeyLane(keyHash, lane ? lane.slice(0, 40) : null);
+  if (lane) {
+    const enforced = (apiKey.scopes ?? []).includes(ENFORCE_SCOPE);
+    const route = parseRouteHeader(headerStore.get(ROUTE_HEADER));
+    if (!route) {
+      recordKeyViolation({
+        apiKeyId: apiKey.id, keyPrefix: apiKey.key_prefix, lane,
+        method: '-', path: '(no route header)', enforced: true,
+      });
+      throw new AuthError('This key needs a route header', 403);
+    }
+    if (!lanes.some((l) => laneAllows(l, route.method, route.path))) {
+      recordKeyViolation({
+        apiKeyId: apiKey.id, keyPrefix: apiKey.key_prefix, lane,
+        method: route.method, path: route.path, enforced,
+      });
+      if (enforced) throw new AuthError('This key cannot use this route', 403);
+    }
+  }
+
   // Fire-and-forget: update last_used_at
   prisma.apiKey.update({
     where: { id: apiKey.id },
@@ -85,6 +115,7 @@ async function authenticateApiKey(rawKey: string): Promise<AuthPayload> {
     role: apiKey.user.role,
     via: 'api_key',
     apiKeyId: apiKey.id,
+    ...(lane ? { lane } : {}),
   };
 }
 
@@ -94,7 +125,7 @@ export function requireRole(user: TokenPayload, allowedRoles: UserRole[]): void 
   }
 }
 
-export async function getOptionalAuth(): Promise<TokenPayload | null> {
+export async function getOptionalAuth(): Promise<AuthPayload | null> {
   try {
     return await requireAuth();
   } catch {

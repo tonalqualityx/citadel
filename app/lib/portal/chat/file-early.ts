@@ -23,6 +23,7 @@ import { refreshTaskDescription } from '@/lib/portal/chat/description';
 import { clientSites, type Slots } from '@/lib/portal/chat/slots';
 import { placeFor } from '@/lib/portal/chat/place';
 import { routeTurn, type TurnRoute } from '@/lib/portal/chat/jobs';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -167,7 +168,7 @@ export async function startChat(
       },
     });
     const comment = await tx.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: task.id,
         user_id: null,
         content: text,

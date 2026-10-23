@@ -23,6 +23,7 @@ import { chatAvailability } from '@/lib/portal/chat/switches';
 import { CANNED_LINE } from '@/lib/portal/chat/copy';
 import { emailFixedLine } from '@/lib/portal/chat/mailer';
 import { readSlots } from '@/lib/portal/chat/slots';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 /** Google delivers mail inside the Workspace domain without Authentication-Results (spec 7.4, C4 ruling). */
 export const INTERNAL_DOMAIN = 'becomeindelible.com';
@@ -105,7 +106,7 @@ export async function ingestEmailReply(raw: InboundInput, opts: { now?: Date } =
     const note = await prisma.$transaction(async (tx) => {
       const task = await tx.task.findUniqueOrThrow({ where: { id: convo.task_id }, select: { tags: true } });
       const created = await tx.comment.create({
-        data: {
+        data: { ...(await actorLaneField()),
           task_id: convo.task_id,
           user_id: BAST_USER_ID,
           content: `Reply from ${input.from_email.slice(0, 200)} on a client chat, not shown to the client (${reason === 'auth' ? 'the sender could not be verified' : 'the address is not a person on this request'}).\n${text.slice(0, 1500) || '(no text)'}`,
@@ -134,7 +135,7 @@ export async function ingestEmailReply(raw: InboundInput, opts: { now?: Date } =
       select: { id: true, title: true, client_title: true, assignee_id: true, client_id: true, project_id: true, charter_id: true, site_id: true, tags: true },
     });
     const comment = await tx.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: convo.task_id,
         user_id: null,
         content: text || '(attachment)',

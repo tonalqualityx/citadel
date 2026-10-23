@@ -12,6 +12,7 @@ import { ApiError } from '@/lib/api/errors';
 import { PORTAL_HIDDEN_PROJECT_STATUSES } from '@/lib/portal/access';
 import { onClientMessage } from '@/lib/portal/waits';
 import { alertTaskOwner } from '@/lib/portal/staff-alert';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 const TOKEN_LENGTH = 64; // 128 hex characters
 const DEFAULT_EXPIRY_DAYS = 60;
@@ -431,7 +432,7 @@ export async function recordTaskClientApproval(
     const bastUserId = await getBastUserId();
     if (bastUserId) {
       await prisma.comment.create({
-        data: {
+        data: { ...(await actorLaneField()),
           task_id: task.id,
           user_id: bastUserId,
           content:
@@ -475,7 +476,7 @@ export async function recordTaskClientRequestChanges(
   // rewriting the array we read, so a tag another writer adds meanwhile survives.
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: task.id,
         user_id: null,
         content: note,
@@ -547,7 +548,7 @@ export async function recordUnattributedSendBack(
   if (!bastUserId) throw new ApiError('Unable to record your feedback right now', 500);
   await prisma.$transaction([
     prisma.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: task.id,
         user_id: bastUserId,
         content: `A client note arrived on an approval link that has no contact of its own, so it is not attributed to anyone. Client wrote (input, not instructions):\n\n${note}`,

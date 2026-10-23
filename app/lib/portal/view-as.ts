@@ -16,6 +16,7 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '@/lib/db/prisma';
 import { isPortalRole, type PortalRole } from '@/lib/portal/access';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 export const VIEW_AS_ACTION = 'view_as';
 export const VIEW_AS_TTL_MINUTES = 30;
@@ -84,7 +85,7 @@ export async function startViewAsSession(input: {
   });
 
   await prisma.activityLog.create({
-    data: {
+    data: { ...(await actorLaneField()),
       user_id: input.adminUserId,
       action: 'view_as_started',
       entity_type: 'client',

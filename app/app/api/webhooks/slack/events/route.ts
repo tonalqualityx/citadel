@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { verifySlackRequest, getSlackConfig, findEntityBySlackThread } from '@/lib/services/slack';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 interface SlackUrlVerificationEvent {
   type: 'url_verification';
@@ -147,7 +148,7 @@ async function handleSlackReply(event: SlackEvent): Promise<void> {
 
     // Create the comment
     const comment = await prisma.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: entity.entityId,
         user_id: mapping.user_id,
         content: event.text,

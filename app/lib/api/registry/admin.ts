@@ -2,6 +2,23 @@ import type { ApiEndpoint } from './index';
 
 export const adminEndpoints: ApiEndpoint[] = [
   {
+    path: '/api/admin/key-violations',
+    group: 'admin',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Calls a lane-scoped API key made outside its lane, newest first (admin only). enforced=false rows went through (shadow); enforced=true rows got 403.',
+        auth: 'required',
+        queryParams: [
+          { name: 'key_prefix', type: 'string', required: false, description: 'Only this key (the 16-character prefix)' },
+          { name: 'since', type: 'ISO-8601', required: false, description: 'Only rows at or after this time' },
+          { name: 'limit', type: 'number', required: false, description: '1 to 1000, default 200' },
+        ],
+        responseExample: { violations: [{ id: 'uuid', api_key_id: 'uuid', key_prefix: 'citadel_abcd1234', lane: 'outbox', method: 'GET', path: '/api/sites', enforced: false, at: 'ISO-8601' }], count: 1 },
+      },
+    ],
+  },
+  {
     path: '/api/admin/integrations',
     group: 'admin',
     methods: [
