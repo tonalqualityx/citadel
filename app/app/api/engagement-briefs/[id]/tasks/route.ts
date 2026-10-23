@@ -6,20 +6,58 @@ import { OPEN_TASK_STATUSES, scopeWhere } from '@/lib/engagement/brief';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COMMENT_CHARS = 1200;
+const OLDEST = 25;
+const NEWEST = 15;
+
+const TASK_SELECT = {
+  id: true,
+  title: true,
+  status: true,
+  priority: true,
+  client_visible: true,
+  source: true,
+  requested_by_contact_id: true,
+  needs_review: true,
+  approved: true,
+  client_id: true,
+  project_id: true,
+  charter_id: true,
+  assignee_id: true,
+  tags: true,
+  requirements: true,
+  source_ref: true,
+  due_date: true,
+  started_at: true,
+  completed_at: true,
+  created_at: true,
+  updated_at: true,
+  client_approved_at: true,
+  staging_preview_url: true,
+  claim_holder: true,
+  lease_until: true,
+  // Links the executor needs: what may count as evidence, and who is waiting on this task.
+  blocked_by: { select: { id: true, status: true } },
+  blocking: { select: { id: true, status: true, client_visible: true } },
+  comments: {
+    where: { is_deleted: false },
+    orderBy: { created_at: 'desc' as const },
+    take: 10,
+    select: { id: true, user_id: true, content: true, is_internal: true, client_visible: true, author_contact_id: true, created_at: true },
+  },
+} as const;
 
 /**
- * GET /api/engagement-briefs/[id]/tasks: the open tasks the brief's scope resolves to, least
- * recently touched first, capped (?limit=, default 40, max 100), each with its last 10 comments
+ * GET /api/engagement-briefs/[id]/tasks: the open tasks the brief's scope resolves to, 25 least and 15 most
+ * recently touched (no repeats), each with its last 10 comments
  * and open waits; plus counts of the rest and the project / charter state the pass needs. The one
  * place scope is resolved, so the machine side never re-implements it. pm or admin.
  */
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
     if (!UUID.test(id)) throw new ApiError('Bad id', 400);
-    const limit = Math.min(100, Math.max(1, parseInt(new URL(request.url).searchParams.get('limit') || '40', 10) || 40));
     const brief = await prisma.engagementBrief.findUnique({ where: { id } });
     if (!brief) throw new ApiError('Brief not found', 404);
 
@@ -38,48 +76,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const where = scopeWhere(brief);
     if (!where) return NextResponse.json({ brief_id: id, project, charter, total_open: 0, returned: 0, rest_by_status: {}, tasks: [] });
     const open = { AND: [where, { status: { in: [...OPEN_TASK_STATUSES] } }] };
-    const [total, byStatus, rows] = await Promise.all([
+    const [total, byStatus, oldestRows, newestRows] = await Promise.all([
       prisma.task.count({ where: open }),
       prisma.task.groupBy({ by: ['status'], where: open, _count: { _all: true } }),
-      prisma.task.findMany({
-        where: open,
-        orderBy: { updated_at: 'asc' },
-        take: limit,
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          priority: true,
-          client_visible: true,
-          source: true,
-          requested_by_contact_id: true,
-          needs_review: true,
-          approved: true,
-          client_id: true,
-          project_id: true,
-          charter_id: true,
-          assignee_id: true,
-          tags: true,
-          requirements: true,
-          source_ref: true,
-          due_date: true,
-          started_at: true,
-          completed_at: true,
-          created_at: true,
-          updated_at: true,
-          client_approved_at: true,
-          staging_preview_url: true,
-          claim_holder: true,
-          lease_until: true,
-          comments: {
-            where: { is_deleted: false },
-            orderBy: { created_at: 'desc' },
-            take: 10,
-            select: { id: true, user_id: true, content: true, is_internal: true, client_visible: true, author_contact_id: true, created_at: true },
-          },
-        },
-      }),
+      prisma.task.findMany({ where: open, orderBy: { updated_at: 'asc' }, take: OLDEST, select: TASK_SELECT }),
+      prisma.task.findMany({ where: open, orderBy: { updated_at: 'desc' }, take: NEWEST, select: TASK_SELECT }),
     ]);
+
+    // 25 least recently touched plus 15 most recently touched, no repeats: the stale ones and the live edge.
+    const seen = new Set(oldestRows.map((r) => r.id));
+    const rows = [...oldestRows, ...newestRows.filter((r) => !seen.has(r.id))];
 
     const taskIds = rows.map((r) => r.id);
     const waits = taskIds.length
@@ -106,6 +112,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       rest_by_status: restByStatus,
       tasks: rows.map((r) => ({
         ...r,
+        blocked_by: r.blocked_by.map((b) => b.id),
+        blocking: r.blocking,
         comments: r.comments.map((c) => ({ ...c, content: c.content.slice(0, COMMENT_CHARS), author_is_client: !!c.author_contact_id })),
         waits: waits.filter((w) => w.task_id === r.id),
       })),

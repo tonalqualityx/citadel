@@ -18,6 +18,25 @@ describe('briefInputSchema', () => {
   });
 });
 
+describe('sources', () => {
+  const base = { label: 'x', project_id: U(1) };
+  it('accepts contacts, threads, repo and domain entries and unknown pointers', () => {
+    const sources = [
+      { kind: 'contacts', addresses: ['dan@vcdp.example'], domains: ['vcdp.example'] },
+      { kind: 'threads', ids: ['19a1b2c3'] },
+      { kind: 'repo', path: '/home/mike/Documents/repos/vcdp' },
+      { kind: 'domain', host: 'vcdp.example' },
+      { kind: 'drive', label: 'Content Round 1' },
+    ];
+    expect(briefInputSchema.safeParse({ ...base, sources }).success).toBe(true);
+  });
+  it('refuses malformed contacts, threads, repo and domain entries', () => {
+    for (const bad of [{ kind: 'contacts', addresses: 'dan@x' }, { kind: 'threads' }, { kind: 'repo' }, { kind: 'domain', host: 3 }]) {
+      expect(briefInputSchema.safeParse({ ...base, sources: [bad] }).success).toBe(false);
+    }
+  });
+});
+
 describe('scopeWhere (Herba-shaped)', () => {
   const herba = {
     client_id: U(10),

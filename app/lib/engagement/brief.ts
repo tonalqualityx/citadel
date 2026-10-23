@@ -53,6 +53,24 @@ export const stallRulesSchema = z
   .strict();
 export type StallRules = z.infer<typeof stallRulesSchema>;
 
+/**
+ * A source is a free-form record with a `kind`. Four kinds carry meaning to the owner pass:
+ *   file     { path }                      read-only excerpt, under the Wright clients or ops docs folders
+ *   repo     { path }                      a git repo whose commits may count as close evidence
+ *   domain   { host }                      a site whose pages may count as close evidence
+ *   contacts { addresses[], domains[] }    people to pull mail state for (30 days, read-only mirror)
+ *   threads  { ids[] }                     Gmail thread ids of open asks
+ * Other kinds are pointers the pass cannot read.
+ */
+const sourceSchema = z.record(z.string(), z.unknown()).superRefine((s, ctx) => {
+  const strs = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string' && x.length > 0 && x.length < 300);
+  const bad = (m: string) => ctx.addIssue({ code: 'custom', message: m });
+  if (s.kind === 'contacts' && !(strs(s.addresses ?? []) && strs(s.domains ?? []))) bad('contacts needs addresses[] and domains[] of strings');
+  if (s.kind === 'threads' && !strs(s.ids)) bad('threads needs ids[] of strings');
+  if ((s.kind === 'repo' || s.kind === 'file') && typeof s.path !== 'string') bad(`${String(s.kind)} needs a path`);
+  if (s.kind === 'domain' && typeof s.host !== 'string') bad('domain needs a host');
+});
+
 export const ROLE_KEYS = ['pm', 'design', 'content', 'liaison', 'wordpress', 'billing', 'social'] as const;
 
 export const briefInputSchema = z
@@ -62,7 +80,7 @@ export const briefInputSchema = z
     charter_id: uuid.nullable().optional(),
     label: z.string().min(1).max(120),
     goal: z.string().max(5000).optional(),
-    sources: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
+    sources: z.array(sourceSchema).max(100).optional(),
     scope: scopeSchema.optional(),
     allowed_actions: z.array(z.enum(ENGAGEMENT_ACTIONS)).max(10).optional(),
     release_owner_role: z.enum(ROLE_KEYS).optional(),
