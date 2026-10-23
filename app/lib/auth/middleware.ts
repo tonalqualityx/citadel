@@ -8,8 +8,17 @@ import { ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader
 import { recordKeyViolation } from './key-violations';
 import { rememberKeyLane } from './actor-lane';
 
-/** How the caller authenticated. `via` and `apiKeyId` are additive; API-key callers on a lane key also carry the lane. */
+/**
+ * What requireAuth returns. `via` says how the caller signed in; API-key callers also carry the key
+ * id, and the lane for a lane key. Field names shared with fleet items 2a and 3 (via, apiKeyId).
+ */
 export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string; lane?: string };
+
+/** Routes a lane key may never call, shadow or enforce: key minting and the admin surface. */
+export function laneForbiddenPath(path: string): boolean {
+  const p = path.split('?')[0];
+  return p === '/api/api-keys' || p.startsWith('/api/api-keys/') || p === '/api/admin' || p.startsWith('/api/admin/');
+}
 
 export async function requireAuth(): Promise<AuthPayload> {
   // Try cookie-based JWT auth first (existing browser flow)
@@ -93,6 +102,13 @@ async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Pr
         method: '-', path: '(no route header)', enforced: true,
       });
       throw new AuthError('This key needs a route header', 403);
+    }
+    if (laneForbiddenPath(route.path)) {
+      recordKeyViolation({
+        apiKeyId: apiKey.id, keyPrefix: apiKey.key_prefix, lane,
+        method: route.method, path: route.path, enforced: true,
+      });
+      throw new AuthError('A lane key cannot use this route', 403);
     }
     if (!lanes.some((l) => laneAllows(l, route.method, route.path))) {
       recordKeyViolation({

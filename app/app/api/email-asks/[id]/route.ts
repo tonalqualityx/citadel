@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth, requireRole } from '@/lib/auth/middleware';
-import { handleApiError, ApiError } from '@/lib/api/errors';
+import { requireAuth } from '@/lib/auth/middleware';
+import { handleApiError, ApiError, AuthError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { EmailAskState } from '@prisma/client';
 
@@ -49,11 +49,19 @@ const patchSchema = z.object({
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['admin']);
+    // Admin, or the Porter lane key (the email classifier, fleet item 6). Porter may not write
+    // Mike's own fields (training_note, calendar_requested): they are dropped and reported back.
+    const porter = auth.role !== 'admin' && auth.lane === 'porter';
+    if (auth.role !== 'admin' && !porter) throw new AuthError('Insufficient permissions', 403);
     const { id } = await params;
 
     const body = await request.json();
     const data = patchSchema.parse(body);
+    const ignored_fields: string[] = [];
+    if (porter) {
+      if (data.training_note !== undefined) { ignored_fields.push('training_note'); delete data.training_note; }
+      if (data.calendar_requested !== undefined) { ignored_fields.push('calendar_requested'); delete data.calendar_requested; }
+    }
 
     const existing = await prisma.emailAsk.findUnique({ where: { id } });
     if (!existing) {
@@ -92,7 +100,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       },
     });
 
-    return NextResponse.json(formatEmailAskResponse(updated));
+    return NextResponse.json(
+      ignored_fields.length > 0 ? { ...formatEmailAskResponse(updated), ignored_fields } : formatEmailAskResponse(updated)
+    );
   } catch (error) {
     return handleApiError(error);
   }

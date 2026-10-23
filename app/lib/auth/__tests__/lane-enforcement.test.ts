@@ -8,7 +8,7 @@ vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     user: { findUnique: vi.fn() },
     apiKey: { findFirst: vi.fn(), update: vi.fn() },
-    apiKeyViolation: { create: vi.fn() },
+    apiKeyViolation: { create: vi.fn(), deleteMany: vi.fn() },
     emailOutbox: { findMany: vi.fn() },
   },
 }));
@@ -16,7 +16,7 @@ vi.mock('@/lib/db/prisma', () => ({
 import { cookies, headers } from 'next/headers';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '../middleware';
-import { resetKeyViolationThrottle } from '../key-violations';
+import { recordKeyViolation, resetKeyViolationThrottle, KEY_CAP_PER_MINUTE } from '../key-violations';
 import { requireEngine } from '@/lib/engine/auth';
 import { GET as outboxGET } from '@/app/api/email-outbox/route';
 
@@ -25,6 +25,7 @@ const mockHeaders = headers as Mock;
 const findKey = prisma.apiKey.findFirst as Mock;
 const updateKey = prisma.apiKey.update as Mock;
 const createViolation = prisma.apiKeyViolation.create as Mock;
+const deleteOld = prisma.apiKeyViolation.deleteMany as Mock;
 const outboxRows = prisma.emailOutbox.findMany as Mock;
 
 const USER = { id: 'user-mike', email: 'mike@example.test', role: 'admin', is_active: true };
@@ -54,6 +55,7 @@ beforeEach(() => {
   mockCookies.mockResolvedValue({ get: () => undefined });
   updateKey.mockResolvedValue({});
   createViolation.mockResolvedValue({});
+  deleteOld.mockResolvedValue({ count: 0 });
   outboxRows.mockResolvedValue([]);
 });
 
@@ -129,7 +131,7 @@ describe('payload', () => {
     findKey.mockResolvedValue(keyRow(['lane:courier']));
     request('GET /api/email-outbox');
     expect(await requireAuth()).toEqual({
-      userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', lane: 'courier',
+      userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', via: 'api_key', lane: 'courier',
     });
   });
 });
@@ -181,9 +183,9 @@ describe('keys without a lane scope are unchanged', () => {
   it.each(SAMPLED_ROUTES)('unscoped key on %s: same payload, no violation', async (route) => {
     findKey.mockResolvedValue(keyRow([]));
     request(route);
-    expect(await requireAuth()).toEqual({ userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1' });
+    expect(await requireAuth()).toEqual({ userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', via: 'api_key' });
     request(null);
-    expect(await requireAuth()).toEqual({ userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1' });
+    expect(await requireAuth()).toEqual({ userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', via: 'api_key' });
     expect(createViolation).not.toHaveBeenCalled();
   });
 
@@ -194,7 +196,7 @@ describe('keys without a lane scope are unchanged', () => {
   it('an engine key passes requireAuth exactly as before (no lane check)', async () => {
     findKey.mockResolvedValue(keyRow(['engine']));
     request('GET /api/email-outbox');
-    expect(await requireAuth()).toEqual({ userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1' });
+    expect(await requireAuth()).toEqual({ userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', via: 'api_key' });
     request(null);
     expect((await outboxGET()).status).toBe(200);
     expect(createViolation).not.toHaveBeenCalled();
@@ -214,5 +216,60 @@ describe('requireEngine is unchanged', () => {
     findKey.mockResolvedValue(keyRow(['lane:bast']));
     request('POST /api/engine/claim');
     await expect(requireEngine()).rejects.toMatchObject({ statusCode: 403 });
+  });
+});
+
+describe('lane keys never reach key minting or the admin surface', () => {
+  const forbidden = [
+    'GET /api/api-keys', 'POST /api/api-keys', 'PATCH /api/api-keys/abc', 'DELETE /api/api-keys/abc',
+    'GET /api/admin/key-violations', 'POST /api/admin/portal-request-notice', 'GET /api/admin/integrations',
+  ];
+  it.each(forbidden)('shadow lane key on %s: 403 with an enforced violation row', async (route) => {
+    findKey.mockResolvedValue(keyRow(['lane:porter']));
+    request(route);
+    await expect(requireAuth()).rejects.toMatchObject({ statusCode: 403 });
+    expect(createViolation).toHaveBeenCalledWith({ data: expect.objectContaining({ enforced: true, lane: 'porter' }) });
+  });
+  it('enforce lane key is refused the same way', async () => {
+    findKey.mockResolvedValue(keyRow(['lane:bast', 'scope-mode:enforce']));
+    request('POST /api/api-keys');
+    await expect(requireAuth()).rejects.toMatchObject({ statusCode: 403 });
+  });
+  it('an unscoped admin key still reaches them', async () => {
+    findKey.mockResolvedValue(keyRow([]));
+    request('POST /api/api-keys');
+    await expect(requireAuth()).resolves.toMatchObject({ userId: 'user-mike' });
+    request('GET /api/admin/key-violations');
+    await expect(requireAuth()).resolves.toMatchObject({ userId: 'user-mike' });
+  });
+  it('a lookalike path is not caught by the prefix rule', async () => {
+    findKey.mockResolvedValue(keyRow(['lane:porter', 'scope-mode:enforce']));
+    request('GET /api/api-keysX');
+    await expect(requireAuth()).rejects.toMatchObject({ statusCode: 403 }); // not in the lane either
+    expect(createViolation).toHaveBeenCalledWith({ data: expect.objectContaining({ path: '/api/api-keysX', enforced: true }) });
+  });
+});
+
+describe('violation cap and retention', () => {
+  const v = (path: string) => ({ apiKeyId: 'key-cap', keyPrefix: 'citadel_0123abcd', lane: 'qbo', method: 'GET', path, enforced: false });
+
+  it(`writes at most ${KEY_CAP_PER_MINUTE} rows per key per minute across distinct paths`, () => {
+    const t = 1_000_000;
+    let written = 0;
+    for (let i = 0; i < 200; i++) if (recordKeyViolation(v(`/api/x/${i}`), t + i)) written++;
+    expect(written).toBe(KEY_CAP_PER_MINUTE);
+    expect(createViolation).toHaveBeenCalledTimes(KEY_CAP_PER_MINUTE);
+    expect(recordKeyViolation(v('/api/x/new'), t + 61_000)).toBe(true);
+    expect(recordKeyViolation({ ...v('/api/x/other'), apiKeyId: 'key-other' }, t + 100)).toBe(true);
+  });
+
+  it('deletes rows older than 30 days, at most once an hour', () => {
+    const t = Date.parse('2026-11-30T12:00:00Z');
+    recordKeyViolation(v('/api/a'), t);
+    recordKeyViolation(v('/api/b'), t + 1000);
+    expect(deleteOld).toHaveBeenCalledTimes(1);
+    expect(deleteOld).toHaveBeenCalledWith({ where: { at: { lt: new Date(t - 30 * 24 * 60 * 60_000) } } });
+    recordKeyViolation(v('/api/c'), t + 61 * 60_000);
+    expect(deleteOld).toHaveBeenCalledTimes(2);
   });
 });

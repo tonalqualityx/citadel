@@ -130,14 +130,60 @@ describe('PATCH /api/email-asks/[id]', () => {
     expect(res.status).toBe(400);
   });
 
-  it('requires admin role', async () => {
-    const { AuthError } = await import('@/lib/api/errors');
-    mockRequireRole.mockImplementation(() => {
-      throw new AuthError('Insufficient permissions', 403);
-    });
-
+  it('requires admin role (or the Porter lane): a plain pm gets 403', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'pm-1', role: 'pm', email: 'pm@example.com' });
     const res = await PATCH(req({ state: 'handled' }), ctx());
     expect(res.status).toBe(403);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  describe('fleet item 6: the Porter lane key (email classifier)', () => {
+    const porter = { userId: 'bast', role: 'pm', email: 'bast@example.com', via: 'api_key', apiKeyId: 'k', lane: 'porter' };
+
+    it('may resolve an ask', async () => {
+      mockRequireAuth.mockResolvedValue(porter as never);
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+      const res = await PATCH(req({ state: 'handled' }), ctx());
+      expect(res.status).toBe(200);
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ state: 'handled' });
+      expect((await res.json()).ignored_fields).toBeUndefined();
+    });
+
+    it('may not write training_note or calendar_requested (dropped, reported back)', async () => {
+      mockRequireAuth.mockResolvedValue(porter as never);
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask({ state: 'handled' }));
+      const res = await PATCH(req({ state: 'handled', training_note: 'auto: replied', calendar_requested: true }), ctx());
+      expect(res.status).toBe(200);
+      const data = mockUpdate.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('training_note');
+      expect(data).not.toHaveProperty('calendar_requested');
+      expect((await res.json()).ignored_fields).toEqual(['training_note', 'calendar_requested']);
+    });
+
+    it('may record the executed calendar event (that clears Mike\'s request as before)', async () => {
+      mockRequireAuth.mockResolvedValue(porter as never);
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask());
+      await PATCH(req({ calendar_event_id: 'evt-1' }), ctx());
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ calendar_event_id: 'evt-1', calendar_requested: false });
+    });
+
+    it('no other lane may use it', async () => {
+      for (const lane of ['bast', 'courier', 'clarity', 'wright']) {
+        mockRequireAuth.mockResolvedValue({ ...porter, lane } as never);
+        expect((await PATCH(req({ state: 'handled' }), ctx())).status).toBe(403);
+      }
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    it('an admin still writes training_note', async () => {
+      mockFindUnique.mockResolvedValue(ask());
+      mockUpdate.mockResolvedValue(ask());
+      await PATCH(req({ training_note: 'Mike typed this' }), ctx());
+      expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ training_note: 'Mike typed this' });
+    });
   });
 
   describe('Clarity Phase 4b — archive_requested + training_note', () => {

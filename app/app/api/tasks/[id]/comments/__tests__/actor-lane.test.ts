@@ -50,15 +50,25 @@ beforeEach(() => {
   create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'c1', task_id: 'task-1', user_id: BAST, content: data.content, mentioned_user_ids: [], is_internal: false,
     client_visible: false, client_question: false, created_at: new Date(), updated_at: new Date(),
+    actor_lane: data.actor_lane ?? null,
     user: { id: BAST, name: 'Bast', email: 'b@x', avatar_url: null },
   }));
 });
 
 describe('comment actor_lane', () => {
+  it('the staff comment output carries actor_lane', async () => {
+    rememberKeyLane(hashApiKey('citadel_fake_porter2'), 'porter');
+    as('citadel_fake_porter2');
+    expect((await (await post({ content: 'x' })).json()).actor_lane).toBe('porter');
+    as(null, 'jwt');
+    expect((await (await post({ content: 'y' })).json()).actor_lane).toBeNull();
+  });
+
   it('a lane key stamps its lane (from the key, cached by authenticateApiKey)', async () => {
     rememberKeyLane(hashApiKey('citadel_fake_porter'), 'porter');
     as('citadel_fake_porter');
-    expect((await post({ content: 'filed from intake' })).status).toBe(201);
+    const res = await post({ content: 'filed from intake' });
+    expect(res.status).toBe(201);
     expect(create.mock.calls[0][0].data.actor_lane).toBe('porter');
     expect(findKey).not.toHaveBeenCalled();
   });

@@ -21,7 +21,7 @@ import { prisma } from '@/lib/db/prisma';
 import { generateApiKey } from '@/lib/auth/api-keys';
 import { logUpdate } from '@/lib/services/activity';
 import { POST } from '../route';
-import { PATCH } from '../[id]/route';
+import { PATCH, DELETE } from '../[id]/route';
 
 const auth = requireAuth as Mock;
 const findUser = prisma.user.findUnique as Mock;
@@ -147,5 +147,28 @@ describe('PATCH /api/api-keys/:id', () => {
     expect((await patch('k1', { scopes: ['lane:bogus'] })).status).toBe(400);
     expect((await patch('k1', { scopes: ['lane:courier'], user_id: BAST_ID })).status).toBe(400);
     expect(updateKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/api-keys/:id (revoke)', () => {
+  const del = (id: string) =>
+    DELETE(new NextRequest(`http://localhost:3000/api/api-keys/${id}`, { method: 'DELETE' }), { params: Promise.resolve({ id }) });
+
+  it('an admin may revoke any key, including a service user\'s lane key', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findKey.mockResolvedValue({ id: 'k-bast', user_id: BAST_ID, name: 'lane:courier (bast)' });
+    updateKey.mockResolvedValue({});
+    expect((await del('k-bast')).status).toBe(200);
+    expect(updateKey).toHaveBeenCalledWith({ where: { id: 'k-bast' }, data: { is_revoked: true } });
+  });
+
+  it('a pm may revoke only its own keys', async () => {
+    auth.mockResolvedValue(PM);
+    findKey.mockResolvedValue({ id: 'k-bast', user_id: BAST_ID, name: 'x' });
+    expect((await del('k-bast')).status).toBe(403);
+    expect(updateKey).not.toHaveBeenCalled();
+    findKey.mockResolvedValue({ id: 'k-own', user_id: 'pm-1', name: 'mine' });
+    updateKey.mockResolvedValue({});
+    expect((await del('k-own')).status).toBe(200);
   });
 });

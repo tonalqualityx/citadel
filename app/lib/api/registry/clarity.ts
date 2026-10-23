@@ -450,7 +450,8 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'Clarity Phase 4a/4b/6: the crisis strip\'s "Handled" action, the intake drawer\'s ' +
           'Dismiss/Open/Archive/Add-to-calendar actions, Mike\'s calibration note on a ' +
           'classification, and (Phase 6 addendum) the machine-side calendar executor\'s ' +
-          'completion write. Admin-only.',
+          'completion write. Admin, or the Porter lane key (the email classifier), which may not write ' +
+          'training_note or calendar_requested: those are dropped and listed in ignored_fields.',
         auth: 'required',
         roles: ['admin'],
         bodySchema: [

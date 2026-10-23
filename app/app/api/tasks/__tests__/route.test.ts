@@ -168,6 +168,23 @@ describe('POST /api/tasks', () => {
     mockTaskCreate.mockResolvedValue(mockCreatedTask);
   });
 
+  describe('fleet item 6: default reviewer for a task Bast files', () => {
+    const BAST = 'ca5335e7-a374-4eff-92dc-fd67ceef2297';
+    const MIKE = '3ecfb7be-20bb-43cb-9b4d-31c44337dc81';
+    it('a standalone task created by Bast (any lane) is reviewed by Mike', async () => {
+      for (const lane of ['porter', 'bellringer', undefined]) {
+        mockTaskCreate.mockClear();
+        mockRequireAuth.mockResolvedValue({ userId: BAST, role: 'pm', email: 'bast@becomeindelible.com', via: 'api_key', ...(lane ? { lane } : {}) } as never);
+        expect((await POST(createPostRequest({ title: 'Filed by a lane' }))).status).toBe(201);
+        expect(mockTaskCreate.mock.calls[0][0].data.reviewer_id).toBe(MIKE);
+      }
+    });
+    it('a standalone task created by anyone else is still reviewed by its creator', async () => {
+      await POST(createPostRequest({ title: 'Mine' }));
+      expect(mockTaskCreate.mock.calls[0][0].data.reviewer_id).toBe('user-123');
+    });
+  });
+
   describe('Minimal data - required fields only', () => {
     it('creates a task with only title provided', async () => {
       const request = createPostRequest({ title: 'New Task' });

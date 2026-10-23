@@ -140,7 +140,7 @@ export const authEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'DELETE',
-        summary: 'Revoke an API key (soft delete). Key immediately stops working.',
+        summary: 'Revoke an API key (soft delete). Key immediately stops working. The owner may revoke their own keys; an admin may revoke any key.',
         auth: 'required',
         responseExample: { success: true },
       },

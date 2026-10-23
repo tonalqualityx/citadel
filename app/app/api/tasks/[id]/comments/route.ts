@@ -37,6 +37,8 @@ function formatComment(comment: any) {
         }
       : null,
     content: comment.content,
+    // Fleet item 6: the machine lane that wrote it (staff view only; shown as "Bast · <lane>").
+    actor_lane: comment.actor_lane ?? null,
     mentioned_user_ids: comment.mentioned_user_ids ?? [],
     is_internal: comment.is_internal ?? false,
     client_visible: comment.client_visible ?? false,

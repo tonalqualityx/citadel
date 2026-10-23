@@ -61,7 +61,9 @@ export async function DELETE(
       throw new ApiError('API key not found', 404);
     }
 
-    if (apiKey.user_id !== auth.userId) {
+    // The owner may revoke their own key; an admin may revoke any key (fleet item 6: lane keys
+    // live on service users, and a lost or leaked one must be revocable at once).
+    if (apiKey.user_id !== auth.userId && auth.role !== 'admin') {
       throw new ApiError('Not authorized to revoke this key', 403);
     }
 
