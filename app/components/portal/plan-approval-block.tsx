@@ -9,6 +9,7 @@ export interface PlanReady {
   task_id: string;
   title: string;
   preview_url: string;
+  staging_deployed_at?: string | null;
   book_href: string;
 }
 
@@ -24,10 +25,11 @@ export function PlanApprovalBlock({ plan, monthName, onChanged }: { plan: PlanRe
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/portal/tasks/mine/${plan.task_id}/approve`, { method: 'POST' });
+      const res = await fetch(`/api/portal/tasks/mine/${plan.task_id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preview_url: plan.preview_url, staging_deployed_at: plan.staging_deployed_at ?? undefined }) });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setErr(body.error || 'Something went wrong. Please try again.');
+        if (body.code === 'preview_changed') onChanged();
         return;
       }
       onChanged();

@@ -35,6 +35,7 @@ const ITEM_SELECT = {
   status: true,
   tags: true,
   staging_preview_url: true,
+  staging_deployed_at: true,
   approved: true,
   client_approved_at: true,
   created_at: true,
@@ -53,6 +54,7 @@ interface ItemRow {
   status: string;
   tags: string[];
   staging_preview_url: string | null;
+  staging_deployed_at?: Date | string | null;
   approved: boolean;
   client_approved_at: Date | string | null;
   created_at: Date | string;
@@ -186,7 +188,7 @@ export interface WorkItem {
   /** The intake answers, verbatim. Empty for work that did not come through the intake. */
   answers: Array<{ prompt: string; value: string }>;
   /** Set when the work is staged for the client. */
-  staged: { preview_url: string; awaiting_approval: boolean } | null;
+  staged: { preview_url: string; staging_deployed_at: string | null; awaiting_approval: boolean } | null;
   can_act: boolean;
   /** Whether the client may cancel it: allowed, live (offer "Ask for a change") or cancelled. */
   cancel: CancelMode;
@@ -240,7 +242,7 @@ export async function loadWorkItem(access: PortalAccess, taskId: string): Promis
     requested_at: r.created_at,
     approved_at: r.client_approved_at ?? null,
     answers: answersOf(r.client_intake),
-    staged: staged ? { preview_url: r.staging_preview_url as string, awaiting_approval: !r.client_approved_at && !r.tags.includes('client-approved') } : null,
+    staged: staged ? { preview_url: r.staging_preview_url as string, staging_deployed_at: r.staging_deployed_at ? new Date(r.staging_deployed_at).toISOString() : null, awaiting_approval: !r.client_approved_at && !r.tags.includes('client-approved') } : null,
     // Mike's ruling: for now ANY portal user may approve or request changes (no role gate on the
     // approve routes), so the review block shows its buttons to everyone who can see the task.
     can_act: true,

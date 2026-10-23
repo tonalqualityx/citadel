@@ -166,7 +166,7 @@ describe('loadRetainers', () => {
     p.task.findFirst.mockResolvedValue({ id: 'plan1', title: 'Plan', client_title: 'November plan', staging_preview_url: 'https://preview.example.com/plan' });
     p.task.findMany.mockResolvedValueOnce([item('plan1', { status: 'review' }), item('t1')]).mockResolvedValueOnce([]);
     const [card] = await loadRetainers(owner, { now: NOW });
-    expect(card.plan_ready).toEqual({ task_id: 'plan1', title: 'November plan', preview_url: 'https://preview.example.com/plan', book_href: '/portal/book?type=marketing' });
+    expect(card.plan_ready).toEqual({ task_id: 'plan1', title: 'November plan', preview_url: 'https://preview.example.com/plan', staging_deployed_at: null, book_href: '/portal/book?type=marketing' });
     expect(card.this_month.open.map((i) => i.id)).toEqual(['t1']);
     const where = JSON.stringify(p.task.findFirst.mock.calls[0][0].where);
     expect(where).toContain('marketing-plan');
