@@ -163,6 +163,28 @@ export const MUST_FAIL: FailFixture[] = [
   { text: words(71), rule: 'length', kind: 'ask' },
   { text: words(81), rule: 'length', kind: 'summary' },
   { text: 'Alpha. Beta. Gamma. Delta. Epsilon.', rule: 'length' },
+  // 10-24 tightening: money nouns about our own billing, capacity claims, money promises with no money word
+  { text: "Your monthly fee stays the same.", rule: 'promise' },
+  { text: "Your monthly fee will not go up.", rule: 'promise' },
+  { text: "The late fee is removed.", rule: 'promise' },
+  { text: "There is no late fee on this invoice.", rule: 'promise' },
+  { text: "Your annual fee is lower now.", rule: 'promise' },
+  { text: "The service fee is removed for you.", rule: 'promise' },
+  { text: "Your service fees stay where they are.", rule: 'promise' },
+  { text: "The monthly price stays the same.", rule: 'promise' },
+  { text: "The monthly rate does not change for this.", rule: 'promise' },
+  { text: "The team has hours for next week.", rule: 'promise' },
+  { text: "We have hours for this week.", rule: 'promise' },
+  { text: "We won't charge you for this.", rule: 'promise' },
+  { text: "We wouldn't bill you for this.", rule: 'promise' },
+  { text: "You won't be charged for that.", rule: 'promise' },
+  { text: "You will not pay extra.", rule: 'promise' },
+  { text: "Nothing to pay.", rule: 'promise' },
+  { text: "You do not owe anything for this.", rule: 'promise' },
+  { text: "This won't add to your bill.", rule: 'promise' },
+  { text: "Our prices will not go up.", rule: 'promise' },
+  { text: "Your rate stays the same.", rule: 'promise' },
+  { text: "Your invoice will not change.", rule: 'promise' },
 ];
 
 export const MUST_PASS: Array<{ text: string; kind?: GateKind }> = [
@@ -213,6 +235,22 @@ export const MUST_PASS: Array<{ text: string; kind?: GateKind }> = [
   { text: 'Which page has the old phone number?' },
   { text: 'Here is a summary. Site: herbapumps.com. Page: Home. Change: swap the banner photo.', kind: 'summary' },
   { text: 'Dear team, please add the new photo to the About page, in the team section, under Dana. The old photo can stay in the library.', kind: 'draft' },
+  // 10-24: ordinary site wording about the client's own prices and fees (pageNames empty)
+  { text: "Should the price list go on the Menu page?" },
+  { text: "Is the pricing page the one with the old menu?" },
+  { text: "Should the new membership fees go on the Join page?" },
+  { text: "Should the fees section move up the page?" },
+  { text: "Should the registration fee go on the Join page?" },
+  { text: "Which prices should change on the Menu page?" },
+  { text: "Should the prices stay the same on the Menu page?" },
+  { text: "Should your prices stay the same on the Menu page?" },
+  { text: "Is the checkout not charging shipping?" },
+  { text: "Should customers pay extra for delivery?" },
+  { text: "Which rates should the page show?" },
+  { text: "What should the hours for next week say?" },
+  { text: "Update the hours for next week on the Home page.", kind: 'summary' },
+  { text: "Update the price list on the Menu page.", kind: 'summary' },
+  { text: "Add the new membership fees to the Join page.", kind: 'summary' },
 ];
 
 
