@@ -76,6 +76,11 @@ model User {
   waits_created      Wait[] @relation("WaitCreatedBy")
   waits_resolved     Wait[] @relation("WaitResolvedBy")
 
+  // Out of office stand-ins (Saturday 10-24 run, item 11; inert behind OOO_STANDINS)
+  away_windows       AwayWindow[]
+  stand_ins_for      StandIn[]    @relation("StandInFor")
+  stand_ins_covering StandIn[]    @relation("StandInCovering")
+
   @@map("users")
 }
 
@@ -3653,6 +3658,10 @@ model Wait {
   created_at            DateTime  @default(now())
   updated_at            DateTime  @updatedAt
 
+  // Out of office (Saturday 10-24 run, item 11). Any opener may set true to mark a wait Mike-only
+  // (a live plugin update, a client exit): it is paused while he is away, never routed. Null = ask the template.
+  mike_only Boolean?
+
   events WaitEvent[]
 
   @@index([state, due_at])
@@ -3665,6 +3674,35 @@ model Wait {
   @@index([email_thread_id])
   @@index([switch_key, state])
   @@map("waits")
+}
+
+// Out of office stand-ins (specs/citadel-shape-SPEC.md 3.2 and 3.15). Inert: nothing reads these
+// two tables unless the OOO_STANDINS flag is on, and no rows are seeded until Mike rules.
+model AwayWindow {
+  id           String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  user         User      @relation(fields: [user_id], references: [id])
+  starts_at    DateTime
+  ends_at      DateTime
+  source       String    @db.VarChar(20) // manual calendar
+  confirmed_at DateTime?
+  note         String?   @db.Text
+  created_at   DateTime  @default(now())
+
+  @@index([user_id, starts_at])
+  @@map("away_windows")
+}
+
+model StandIn {
+  id               String @id @default(uuid()) @db.Uuid
+  for_user_id      String @db.Uuid
+  for_user         User   @relation("StandInFor", fields: [for_user_id], references: [id])
+  role_key         String @db.VarChar(40)
+  stand_in_user_id String @db.Uuid
+  stand_in_user    User   @relation("StandInCovering", fields: [stand_in_user_id], references: [id])
+
+  @@unique([for_user_id, role_key])
+  @@map("stand_ins")
 }
 
 // The pause and extend log. Every state change, extension, reassignment and firing writes a row.

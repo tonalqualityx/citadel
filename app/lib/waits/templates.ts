@@ -753,6 +753,8 @@ export interface WaitInput {
   created_by_id?: string | null;
   created_by_automation?: string | null;
   idempotency_key?: string | null;
+  /** Marks the wait Mike-only (a live plugin update, a client exit). Null/absent = ask the template. */
+  mike_only?: boolean | null;
 }
 
 /**
@@ -846,6 +848,7 @@ export function buildWaitData(input: WaitInput, opts: { allowDisabled?: boolean 
     created_by_id: input.created_by_id ?? null,
     created_by_automation: input.created_by_automation ?? null,
     idempotency_key: input.idempotency_key ?? null,
+    mike_only: input.mike_only ?? null,
   };
 }
 
@@ -876,6 +879,7 @@ export function buildNextStepData(
     blocks_client: boolean;
     client_waiting_since: Date | null;
     action_payload: unknown;
+    mike_only?: boolean | null;
   },
   now: Date
 ) {
@@ -916,6 +920,7 @@ export function buildNextStepData(
       client_waiting_since: prev.client_waiting_since,
       created_by_automation: 'sweeper',
       idempotency_key: `${prev.id}:next`,
+      mike_only: prev.mike_only ?? null,
     },
     { allowDisabled: true }
   );

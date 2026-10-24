@@ -41,6 +41,7 @@ const createSchema = z.object({
   action_payload: z.record(z.string(), z.unknown()).nullable().optional(),
   created_by_automation: z.string().max(80).optional(),
   idempotency_key: z.string().max(255).optional(),
+  mike_only: z.boolean().nullable().optional(),
 });
 
 /**

@@ -68,6 +68,7 @@ export class MemStore implements SweepStore, EventsStore {
       created_by_id: null,
       created_by_automation: data.created_by_automation,
       idempotency_key: data.idempotency_key,
+      mike_only: data.mike_only ?? null,
       resolved_at: null,
       resolved_by_id: null,
       resolution: null,

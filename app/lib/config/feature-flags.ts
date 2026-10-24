@@ -85,3 +85,15 @@ export function PORTAL_ONBOARD_CHECKLIST(): boolean {
 export function PRICE_REVIEW_SEND(): boolean {
   return process.env.PRICE_REVIEW_SEND === 'true';
 }
+
+/**
+ * Out of office stand-ins (Saturday 10-24 run, item 11). When on, the wait sweeper reads the
+ * AwayWindow and StandIn tables: it hands an away person's waits to the stand-in for the wait's
+ * role (same due date), pauses Mike-only waits until he is back plus one business day, and clears
+ * the stand-in when the window ends. Also makes PATCH /api/waits/:id refuse to hand a Mike-only
+ * wait to anyone. Read from process.env on every call so a test can flip it. Only the literal
+ * string 'true' turns it on. Default OFF; when off, neither table is read and nothing changes.
+ */
+export function OOO_STANDINS(): boolean {
+  return process.env.OOO_STANDINS === 'true';
+}
