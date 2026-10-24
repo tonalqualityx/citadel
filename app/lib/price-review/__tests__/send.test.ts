@@ -9,7 +9,7 @@ const APPROVAL_ID = '22222222-2222-4222-8222-222222222222';
 const SEND_ID = '33333333-3333-4333-8333-333333333333';
 const CONTACT = '44444444-4444-4444-8444-444444444444';
 
-const terms = { new_amount_cents: 15000, period: 'monthly', effective_on: '2026-11-01' };
+const terms = { new_amount_cents: 15000, period: 'monthly', effective_on: '2026-12-01' };
 
 function approvalWait(over: Record<string, unknown> = {}) {
   return {
@@ -20,19 +20,19 @@ function approvalWait(over: Record<string, unknown> = {}) {
     resolution: 'approved',
     resolved_by_id: MIKE_USER_ID,
     charter_id: CHARTER,
-    action_payload: { approved_terms: { ...terms, approved_by: MIKE_USER_ID, approved_at: '2026-10-30T12:00:00.000Z' } },
+    action_payload: { approved_terms: { ...terms, approved_by: MIKE_USER_ID, approved_via: 'session', approved_at: '2026-10-30T12:00:00.000Z' } },
     ...over,
   };
 }
 
 const sendWait = { id: SEND_ID, charter_id: CHARTER, idempotency_key: `${APPROVAL_ID}:next` } as unknown as WaitRow;
 
-function fakeDb(opts: { approval?: Record<string, unknown> | null; contacts?: unknown[]; existingKey?: boolean } = {}) {
+function fakeDb(opts: { approval?: Record<string, unknown> | null; contacts?: unknown[]; existingKey?: boolean; agency?: boolean; label?: string | null } = {}) {
   const created: Array<Record<string, unknown>> = [];
   const db = {
     wait: { findUnique: vi.fn(async () => (opts.approval === null ? null : (opts.approval ?? approvalWait()))) },
     charter: {
-      findUnique: vi.fn(async () => ({ id: CHARTER, client_id: 'c1', client_label: 'Care plan', is_deleted: false, status: 'active', client: { name: 'Acme' } })),
+      findUnique: vi.fn(async () => ({ id: CHARTER, client_id: 'c1', client_label: opts.label === undefined ? 'Care plan' : opts.label, is_deleted: false, status: 'active', client: { name: 'Acme', parent_agency_id: opts.agency ? 'agency1' : null } })),
     },
     clientContact: { findMany: vi.fn(async () => opts.contacts ?? [{ id: CONTACT, name: 'Dana Reed', email: 'dana@acme.example' }]) },
     emailOutbox: {
@@ -46,6 +46,7 @@ function fakeDb(opts: { approval?: Record<string, unknown> | null; contacts?: un
   return { db: db as never, created, raw: db };
 }
 
+const NOW = () => new Date('2026-10-24T15:00:00Z');
 const on = async () => true;
 const off = async () => false;
 
@@ -64,7 +65,7 @@ describe('price review send', () => {
         { id: '55555555-5555-4555-8555-555555555555', name: null, email: 'lee@acme.example' },
       ],
     });
-    const r = await queuePriceReviewSend(db, sendWait, { switchIsOn: on });
+    const r = await queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW });
     expect(r.queued).toHaveLength(2);
     expect(created).toHaveLength(2);
     expect(created[0]).toMatchObject({
@@ -84,23 +85,23 @@ describe('price review send', () => {
       if (v === undefined) delete process.env.PRICE_REVIEW_SEND;
       else process.env.PRICE_REVIEW_SEND = v;
       const { db, raw } = fakeDb();
-      await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on })).rejects.toThrow(/switch is off/);
+      await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW })).rejects.toThrow(/switch is off/);
       expect(raw.emailOutbox.create).not.toHaveBeenCalled();
     }
   });
 
   it('queues nothing with WAIT_SENDERS off', async () => {
     const { db, raw } = fakeDb();
-    await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: off })).rejects.toThrow(/switch is off/);
+    await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: off, now: NOW })).rejects.toThrow(/switch is off/);
     expect(raw.emailOutbox.create).not.toHaveBeenCalled();
   });
 
   it('refuses to render without an approval amount', async () => {
     const noTerms = fakeDb({ approval: approvalWait({ action_payload: {} }) });
-    await expect(queuePriceReviewSend(noTerms.db, sendWait, { switchIsOn: on })).rejects.toBeInstanceOf(PriceReviewRenderError);
+    await expect(queuePriceReviewSend(noTerms.db, sendWait, { switchIsOn: on, now: NOW })).rejects.toBeInstanceOf(PriceReviewRenderError);
     expect(noTerms.created).toHaveLength(0);
     const none = fakeDb({ approval: null });
-    await expect(queuePriceReviewSend(none.db, sendWait, { switchIsOn: on })).rejects.toBeInstanceOf(PriceReviewRenderError);
+    await expect(queuePriceReviewSend(none.db, sendWait, { switchIsOn: on, now: NOW })).rejects.toBeInstanceOf(PriceReviewRenderError);
     expect(none.created).toHaveLength(0);
   });
 
@@ -112,12 +113,15 @@ describe('price review send', () => {
       { step: 3 },
       { template_key: 'handoff.generic' },
       { charter_id: '66666666-6666-4666-8666-666666666666' },
-      { action_payload: { approved_terms: { ...terms, approved_by: '99999999-9999-4999-8999-999999999999' } } },
+      { action_payload: { approved_terms: { ...terms, approved_by: '99999999-9999-4999-8999-999999999999', approved_via: 'session' } } },
+      // Approved by Mike's key, not his session; or by an older record with no source at all.
+      { action_payload: { approved_terms: { ...terms, approved_by: MIKE_USER_ID, approved_via: 'api_key' } } },
+      { action_payload: { approved_terms: { ...terms, approved_by: MIKE_USER_ID } } },
     ];
     for (const c of cases) {
       const { db, created } = fakeDb({ approval: approvalWait(c) });
       expect(await loadApprovalFor(db as never, sendWait)).toBeNull();
-      await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on })).rejects.toBeInstanceOf(PriceReviewRenderError);
+      await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW })).rejects.toBeInstanceOf(PriceReviewRenderError);
       expect(created).toHaveLength(0);
     }
   });
@@ -129,14 +133,38 @@ describe('price review send', () => {
 
   it('queues nothing when the client has no portal owner address', async () => {
     const { db, created } = fakeDb({ contacts: [] });
-    await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on })).rejects.toThrow(/no portal owner/);
+    await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW })).rejects.toThrow(/no portal owner/);
     expect(created).toHaveLength(0);
   });
 
   it('a repeat adds no second row', async () => {
     const { db, created } = fakeDb({ existingKey: true });
-    const r = await queuePriceReviewSend(db, sendWait, { switchIsOn: on });
+    const r = await queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW });
     expect(r.queued).toEqual(['existing']);
     expect(created).toHaveLength(0);
+  });
+
+  it('never queues to the contacts of an agency sub-client', async () => {
+    const { db, created, raw } = fakeDb({ agency: true });
+    await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW })).rejects.toThrow(/agency sub-client/);
+    expect(created).toHaveLength(0);
+    expect(raw.clientContact.findMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses at send time when the start date has passed or is too near, and queues nothing', async () => {
+    for (const effective_on of ['2026-10-01', '2026-11-10']) {
+      const { db, created } = fakeDb({
+        approval: approvalWait({ action_payload: { approved_terms: { ...terms, effective_on, approved_by: MIKE_USER_ID, approved_via: 'session' } } }),
+      });
+      await expect(queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW })).rejects.toBeInstanceOf(PriceReviewRenderError);
+      expect(created).toHaveLength(0);
+    }
+  });
+
+  it('uses "your marketing plan" when the charter has no client label, never the business name', async () => {
+    const { db, created } = fakeDb({ label: null });
+    await queuePriceReviewSend(db, sendWait, { switchIsOn: on, now: NOW });
+    expect(String(created[0].text)).toContain('the price of your marketing plan');
+    expect(String(created[0].text)).not.toContain('Acme');
   });
 });

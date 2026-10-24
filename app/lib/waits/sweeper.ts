@@ -24,6 +24,7 @@ import {
   isWithinSendWindow,
   sameZonedDay,
 } from './business-days';
+import { assertPriceReviewResolution } from '@/lib/price-review/guard';
 import { MIKE_USER_ID, resolveOwner, type OwnerLookups, type ResolvedOwner } from './owner';
 import {
   buildNextStepData,
@@ -243,6 +244,8 @@ export async function resolveWait(
     email_message_id?: string | null;
   }
 ): Promise<WaitRow> {
+  // The price review approval ends only by Mike's approval with terms or his denial.
+  assertPriceReviewResolution(wait, resolution);
   const updated = await store.update(wait.id, {
     state: 'done',
     resolved_at: opts.now,
@@ -356,8 +359,10 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     if (subject === 'task_done') {
       report.closed_with_task.push(w.id);
       if (!dryRun) {
-        await resolveWait(store, w, 'task_done', { now, source: 'sweeper', reason: 'The task it points at is done.' });
+        // Open the next step first (idempotent on <parent id>:next), then close the handoff, so a
+        // failure in between leaves the handoff open and the next pass retries.
         await openStepAfterTask(store, w, now);
+        await resolveWait(store, w, 'task_done', { now, source: 'sweeper', reason: 'The task it points at is done.' });
       }
       continue;
     }

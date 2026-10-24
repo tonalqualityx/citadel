@@ -6,7 +6,7 @@
  * Writing rules (writing-standard): plain words, short sentences, no dashes used as punctuation,
  * no discount language, no promises beyond the date and the amount Mike approved.
  */
-import { approvedTermsSchema, type ApprovedTerms } from './terms';
+import { approvedTermsSchema, startDateProblem, type ApprovedTerms } from './terms';
 
 export class PriceReviewRenderError extends Error {
   constructor(message: string) {
@@ -39,8 +39,14 @@ export function moneyText(cents: number): string {
 export interface PriceReviewMailInput {
   /** First name of the person it goes to, or null for a plain greeting. */
   firstName: string | null;
-  /** The plan name the client already sees (Charter.client_label, else the client name). */
-  planLabel: string;
+  /**
+   * The plan name the client already sees (Charter.client_label). Null or blank when the client
+   * has no label for the plan: the note then says "your marketing plan". The business name is
+   * never used, because it is not the name of a plan.
+   */
+  planLabel: string | null;
+  /** Today. The note refuses to render when the start date is past or too near (terms.ts). */
+  now: Date;
   /** Mike's approval record, as stored. Anything missing or malformed refuses the render. */
   approval: unknown;
 }
@@ -59,17 +65,18 @@ export function renderPriceReviewMail(input: PriceReviewMailInput): PriceReviewM
   if (!terms) {
     throw new PriceReviewRenderError('No approved amount and start date from Mike. Nothing was rendered.');
   }
-  const plan = input.planLabel.replace(/\s+/g, ' ').trim();
-  if (!plan) throw new PriceReviewRenderError('The plan name is empty.');
+  const tooSoon = startDateProblem(terms.effective_on, input.now);
+  if (tooSoon) throw new PriceReviewRenderError(`${tooSoon} Nothing was rendered.`);
+  const label = (input.planLabel ?? '').replace(/\s+/g, ' ').trim();
+  const plan = label ? `the price of ${label}` : 'the price of your marketing plan';
   const when = longDate(terms.effective_on);
   const per = terms.period === 'monthly' ? 'month' : 'year';
   const greeting = input.firstName?.trim() ? `Hello ${input.firstName.trim()},` : 'Hello,';
 
   const text = [
     greeting,
-    `We review the price of each plan on a set date, and the review for ${plan} is done.`,
-    `Starting ${when}, the price of ${plan} will be ${moneyText(terms.new_amount_cents)} per ${per}.`,
-    'Until then, nothing changes. Your plan, your site care and your reports stay as they are.',
+    `Starting ${when}, ${plan} will be ${moneyText(terms.new_amount_cents)} per ${per}.`,
+    'Until then, nothing changes.',
     'If you have a question about this, reply to this email and we will answer it.',
     'Thank you for working with us.',
     'Indelible',

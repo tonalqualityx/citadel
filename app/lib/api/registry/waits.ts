@@ -46,7 +46,7 @@ export const waitEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['pm', 'admin'],
         bodySchema: [
-          { name: 'template_key', type: 'string', required: true, description: 'Phase 1 opens only build.gate_mike, build.review_internal, change.needs_human, meeting.type_unclear, switch.off, handoff.generic. Any other registered template answers 409 template_disabled.' },
+          { name: 'template_key', type: 'string', required: true, description: 'Phase 1 opens only build.gate_mike, build.review_internal, change.needs_human, meeting.type_unclear, switch.off, handoff.generic, and charter.price_review (step 1 only). Any other registered template answers 409 template_disabled.' },
           { name: 'subject', type: 'string', required: false, description: 'Fills the template title: "Approve {subject}". Give subject or title.' },
           { name: 'title', type: 'string', required: false, description: 'The action, standalone (names the person, the thing and the date). Overrides the template title.' },
           { name: 'detail', type: 'string', required: false, description: 'Context for whoever picks it up' },
@@ -95,7 +95,7 @@ export const waitEndpoints: ApiEndpoint[] = [
           { name: 'stand_in_user_id', type: 'uuid', required: false, description: 'stand_in: null clears it' },
           { name: 'note', type: 'string', required: false, description: 'needs_human: what the person must decide' },
           { name: 'resolution', type: 'string', required: false, description: 'resolve: approved, completed, cancelled, sent, booked, signed, declined. approved/sent/completed/booked/signed open the next step of the chain.' },
-          { name: 'approved_terms', type: 'object', required: false, description: 'resolve + approved on the charter.price_review approval step (step 2) only, and Mike only: { new_amount_cents: integer above 0, period: monthly|annually, effective_on: YYYY-MM-DD }. Required there. It is the only source of a number in the client price note.' },
+          { name: 'approved_terms', type: 'object', required: false, description: 'resolve + approved on the charter.price_review approval step (step 2) only, and only from Mike signed-in browser session (a Bearer token or API key is refused, even one that belongs to Mike): { new_amount_cents: integer above 0, period: monthly|annually, effective_on: YYYY-MM-DD, at least 30 days after today }. Required there. It is the only source of a number in the client price note. On that step only approved (with terms) and declined (from the same session) end the wait; every other resolution answers 409. Declining stamps the review done and sends nothing.' },
         ],
         responseExample: waitExample,
         responseNotes: 'Extending past two extensions or 15 business days returns 409 code "cap" and the wait becomes needs_human. A done or expired wait only accepts resolve. A wait is never deleted; cancel it with resolve + cancelled.',

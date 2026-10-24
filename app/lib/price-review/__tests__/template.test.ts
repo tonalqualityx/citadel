@@ -1,16 +1,28 @@
 import { describe, it, expect } from 'vitest';
+import { PRICE_REVIEW_MIN_NOTICE_DAYS } from '../terms';
 import { longDate, moneyText, PriceReviewRenderError, renderPriceReviewMail } from '../template';
 
-const approval = { new_amount_cents: 15000, period: 'monthly', effective_on: '2026-11-01' };
+const NOW = new Date('2026-10-24T15:00:00Z');
+const approval = { new_amount_cents: 15000, period: 'monthly', effective_on: '2026-12-01' };
 const render = (over: Record<string, unknown> = {}) =>
-  renderPriceReviewMail({ firstName: 'Dana', planLabel: 'Herba ReLeaf care plan', approval: { ...approval, ...over } });
+  renderPriceReviewMail({ firstName: 'Dana', planLabel: 'Herba ReLeaf care plan', now: NOW, approval: { ...approval, ...over } });
 
 describe('price review note template', () => {
   it('renders the approved amount and date, signed Indelible', () => {
     const m = render();
-    expect(m.subject).toBe('Your Indelible plan: new price from November 1, 2026');
+    expect(m.subject).toBe('Your Indelible plan: new price from December 1, 2026');
     expect(m.text).toContain('Hello Dana,');
-    expect(m.text).toContain('Starting November 1, 2026, the price of Herba ReLeaf care plan will be $150 per month.');
+    expect(m.text).toContain('Starting December 1, 2026, the price of Herba ReLeaf care plan will be $150 per month.');
+    expect(m.text).toBe(
+      [
+        'Hello Dana,',
+        'Starting December 1, 2026, the price of Herba ReLeaf care plan will be $150 per month.',
+        'Until then, nothing changes.',
+        'If you have a question about this, reply to this email and we will answer it.',
+        'Thank you for working with us.',
+        'Indelible',
+      ].join('\n\n') + '\n'
+    );
     expect(m.text.trimEnd().endsWith('\n\nIndelible')).toBe(true);
   });
 
@@ -22,7 +34,7 @@ describe('price review note template', () => {
   });
 
   it('greets plainly with no first name', () => {
-    expect(renderPriceReviewMail({ firstName: null, planLabel: 'Plan', approval }).text.startsWith('Hello,\n')).toBe(true);
+    expect(renderPriceReviewMail({ firstName: null, planLabel: 'Plan', now: NOW, approval }).text.startsWith('Hello,\n')).toBe(true);
   });
 
   it('uses no dashes as punctuation and no discount language', () => {
@@ -37,7 +49,7 @@ describe('price review note template', () => {
 
   it('takes every number from the approval record and from nowhere else', () => {
     const m = render();
-    const stripped = `${m.subject}\n${m.text}`.replace('$150', '').replaceAll('November 1, 2026', '');
+    const stripped = `${m.subject}\n${m.text}`.replace('$150', '').replaceAll('December 1, 2026', '');
     expect(stripped).not.toMatch(/\d/);
   });
 
@@ -47,22 +59,40 @@ describe('price review note template', () => {
       null,
       {},
       'approved',
-      { period: 'monthly', effective_on: '2026-11-01' },
-      { new_amount_cents: 15000, effective_on: '2026-11-01' },
+      { period: 'monthly', effective_on: '2026-12-01' },
+      { new_amount_cents: 15000, effective_on: '2026-12-01' },
       { new_amount_cents: 15000, period: 'monthly' },
-      { new_amount_cents: 0, period: 'monthly', effective_on: '2026-11-01' },
-      { new_amount_cents: -5, period: 'monthly', effective_on: '2026-11-01' },
-      { new_amount_cents: 150.5, period: 'monthly', effective_on: '2026-11-01' },
-      { new_amount_cents: 15000, period: 'weekly', effective_on: '2026-11-01' },
+      { new_amount_cents: 0, period: 'monthly', effective_on: '2026-12-01' },
+      { new_amount_cents: -5, period: 'monthly', effective_on: '2026-12-01' },
+      { new_amount_cents: 150.5, period: 'monthly', effective_on: '2026-12-01' },
+      { new_amount_cents: 15000, period: 'weekly', effective_on: '2026-12-01' },
       { new_amount_cents: 15000, period: 'monthly', effective_on: '2026-02-30' },
       { new_amount_cents: 15000, period: 'monthly', effective_on: 'next month' },
     ];
     for (const a of bad) {
-      expect(() => renderPriceReviewMail({ firstName: 'Dana', planLabel: 'Plan', approval: a })).toThrow(PriceReviewRenderError);
+      expect(() => renderPriceReviewMail({ firstName: 'Dana', planLabel: 'Plan', now: NOW, approval: a })).toThrow(PriceReviewRenderError);
     }
   });
 
-  it('refuses an empty plan name', () => {
-    expect(() => renderPriceReviewMail({ firstName: null, planLabel: '  ', approval })).toThrow(PriceReviewRenderError);
+  it('claims nothing the client may not have', () => {
+    const t = render().text;
+    expect(t).not.toMatch(/site care|report|we review|set date|each plan/i);
+  });
+
+  it('says "your marketing plan" with no plan label, and never the business name', () => {
+    for (const label of [null, '', '   ']) {
+      const t = renderPriceReviewMail({ firstName: 'Dana', planLabel: label, now: NOW, approval }).text;
+      expect(t).toContain('the price of your marketing plan will be $150 per month');
+    }
+  });
+
+  it('refuses a start date in the past or less than the minimum notice after today', () => {
+    expect(PRICE_REVIEW_MIN_NOTICE_DAYS).toBe(30);
+    // 2026-10-24 + 30 days = 2026-11-23.
+    for (const effective_on of ['2026-10-01', '2026-10-24', '2026-11-01', '2026-11-22']) {
+      expect(() => render({ effective_on })).toThrow(PriceReviewRenderError);
+    }
+    expect(() => render({ effective_on: '2026-11-23' })).not.toThrow();
+    expect(() => render({ effective_on: '2026-12-01' })).not.toThrow();
   });
 });

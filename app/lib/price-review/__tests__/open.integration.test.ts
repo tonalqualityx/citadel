@@ -17,6 +17,7 @@ describe.skipIf(!SCRATCH)('price review opener (real database)', () => {
   const tag = `pr-${Date.now()}`;
   let userId = '';
   let clientId = '';
+  let subClientId = '';
   let siteId = '';
   const charters: Record<string, string> = {};
   const cleanup: { tasks: string[] } = { tasks: [] };
@@ -39,12 +40,15 @@ describe.skipIf(!SCRATCH)('price review opener (real database)', () => {
   beforeAll(async () => {
     userId = (await prisma.user.create({ data: { email: `${tag}@example.test`, password_hash: 'x', name: 'PR Test', role: 'admin' } })).id;
     clientId = (await prisma.client.create({ data: { name: `Price client ${tag}`, type: 'direct', status: 'active' } })).id;
+    subClientId = (await prisma.client.create({ data: { name: `Sub client ${tag}`, type: 'direct', status: 'active', parent_agency_id: clientId } })).id;
     siteId = (await prisma.site.create({ data: { name: `${tag}.example`, client_id: clientId, url: `https://${tag}.example` } })).id;
     await mkCharter('soon', { client_label: `Plan ${tag}`, price_review_on: dateOnly(10), site_id: siteId });
     await mkCharter('later', { price_review_on: dateOnly(30) });
     await mkCharter('done', { price_review_on: dateOnly(5), price_review_done_at: new Date() });
     await mkCharter('paused', { price_review_on: dateOnly(5), status: 'paused' });
     await mkCharter('nodate', {});
+    // A charter on an agency sub-client, inside its window: never opened, reported as skipped.
+    await mkCharter('agency', { client_id: subClientId, price_review_on: dateOnly(5) });
     // Inputs the draft must list: a client-visible done task, and a confirmed KPI. An internal task must not appear.
     const visible = await prisma.task.create({
       data: { title: `Internal title ${tag}`, client_title: `Visible work ${tag}`, status: 'done', completed_at: new Date(), client_id: clientId, client_visible: true },
@@ -69,6 +73,7 @@ describe.skipIf(!SCRATCH)('price review opener (real database)', () => {
     await prisma.siteKpi.deleteMany({ where: { client_id: clientId } });
     await prisma.charter.deleteMany({ where: { id: { in: ids } } });
     await prisma.site.deleteMany({ where: { id: siteId } });
+    await prisma.client.deleteMany({ where: { id: subClientId } });
     await prisma.client.deleteMany({ where: { id: clientId } });
     await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();
@@ -99,7 +104,7 @@ describe.skipIf(!SCRATCH)('price review opener (real database)', () => {
       client_id: clientId,
       site_id: siteId,
       idempotency_key: waitKeyFor(charters.soon, reviewOn),
-      title: `Draft the price review note for Plan ${tag}`,
+      title: `Propose the price review for Plan ${tag}`,
     });
     expect(wait.due_at.getTime()).toBe(firstStepDueAt(reviewOn).getTime());
     // The draft inputs are in the wait detail: visible work and the confirmed goal, not the internal task.
@@ -107,7 +112,10 @@ describe.skipIf(!SCRATCH)('price review opener (real database)', () => {
     expect(wait.detail).not.toContain(`Secret internal ${tag}`);
     expect(wait.detail).not.toContain(`Internal title ${tag}`);
     expect(wait.detail).toContain(`More visits ${tag}`);
-    expect(wait.detail).toContain('Never state a number Mike has not approved');
+    expect(wait.detail).toContain('Never state to the client a number Mike has not approved');
+    // The task asks for a proposal for Mike: an increase with reasoning, or no change.
+    expect(wait.detail).toContain('propose to Mike either a price increase or no change');
+    expect(wait.detail).toContain('Put the proposal in this task for Mike');
     expect(wait.detail).toContain('Never offer a discount');
     expect(wait.detail).not.toContain(`Internal name ${tag}`);
 
@@ -115,6 +123,15 @@ describe.skipIf(!SCRATCH)('price review opener (real database)', () => {
     expect(mine(again.opened)).toHaveLength(0);
     expect(mine(again.already_open).map((x) => x.charter_id)).toEqual([charters.soon]);
     expect(await waitCount()).toBe(1);
+  });
+
+  it('skips a charter on an agency sub-client and says why, in a dry run and a real run', async () => {
+    for (const dryRun of [true, false]) {
+      const r = await openPriceReviews(prisma, { dryRun });
+      expect(mine(r.opened).map((x) => x.charter_id)).not.toContain(charters.agency);
+      expect(mine(r.skipped)).toEqual([expect.objectContaining({ charter_id: charters.agency, reason: 'agency sub-client: billing goes to the agency' })]);
+    }
+    expect(await prisma.wait.count({ where: { charter_id: charters.agency } })).toBe(0);
   });
 
   it('two runs at once still open one wait', async () => {

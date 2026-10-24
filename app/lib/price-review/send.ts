@@ -16,7 +16,7 @@ import { MIKE_USER_ID } from '@/lib/waits/owner';
 import type { WaitRow } from '@/lib/waits/sweeper';
 import { PRICE_REVIEW_MAIL_KIND } from './outbox-guard';
 import { PriceReviewRenderError, renderPriceReviewMail } from './template';
-import { PRICE_REVIEW_APPROVAL_STEP, PRICE_REVIEW_TEMPLATE_KEY, readApprovedTerms } from './terms';
+import { AGENCY_SUB_CLIENT_REASON, PRICE_REVIEW_APPROVAL_STEP, PRICE_REVIEW_TEMPLATE_KEY, readApprovedTerms } from './terms';
 
 
 type Db = Pick<PrismaClient, 'wait' | 'charter' | 'clientContact' | 'emailOutbox'>;
@@ -24,6 +24,8 @@ type Db = Pick<PrismaClient, 'wait' | 'charter' | 'clientContact' | 'emailOutbox
 export interface SendDeps {
   /** The sweeper's switch reader. */
   switchIsOn: (key: string) => Promise<boolean>;
+  /** Today. Defaults to the real clock; tests pass a fixed one. */
+  now?: () => Date;
 }
 
 /** Mike's approval record for this send wait: the approval step that opened it. Null when there is none. */
@@ -38,8 +40,9 @@ export async function loadApprovalFor(db: Pick<PrismaClient, 'wait'>, send: Wait
   if (approval.resolved_by_id !== MIKE_USER_ID) return null;
   if (approval.charter_id !== send.charter_id) return null;
   const terms = readApprovedTerms(approval.action_payload);
-  const raw = (approval.action_payload as Record<string, unknown> | null)?.approved_terms as { approved_by?: unknown } | undefined;
-  if (!terms || raw?.approved_by !== MIKE_USER_ID) return null;
+  const raw = (approval.action_payload as Record<string, unknown> | null)?.approved_terms as { approved_by?: unknown; approved_via?: unknown } | undefined;
+  // Written from Mike's signed-in session only (a token or API key never counts).
+  if (!terms || raw?.approved_by !== MIKE_USER_ID || raw?.approved_via !== 'session') return null;
   return terms;
 }
 
@@ -59,10 +62,14 @@ export async function queuePriceReviewSend(db: Db, wait: WaitRow, deps: SendDeps
 
   const charter = await db.charter.findUnique({
     where: { id: wait.charter_id },
-    select: { id: true, client_id: true, client_label: true, is_deleted: true, status: true, client: { select: { name: true } } },
+    select: { id: true, client_id: true, client_label: true, is_deleted: true, status: true, client: { select: { parent_agency_id: true } } },
   });
   if (!charter || charter.is_deleted || charter.status !== 'active') throw new Error('The charter is no longer active. Nothing was queued.');
-  const planLabel = (charter.client_label ?? charter.client.name).trim();
+  // An agency sub-client is billed through the agency. The end client never gets this note.
+  if (charter.client.parent_agency_id) throw new Error(AGENCY_SUB_CLIENT_REASON + ' Nothing was queued.');
+  // The plan name the client sees, or null (the note then says "your marketing plan").
+  const planLabel = charter.client_label?.trim() || null;
+  const now = (deps.now ?? (() => new Date()))();
 
   const contacts = await db.clientContact.findMany({
     where: { client_id: charter.client_id, is_deleted: false, portal_role: 'owner', email: { not: '' } },
@@ -72,7 +79,7 @@ export async function queuePriceReviewSend(db: Db, wait: WaitRow, deps: SendDeps
   if (contacts.length === 0) throw new Error('The client has no portal owner with an email address. Nothing was queued.');
 
   // Render every message first: a failure on any of them queues none.
-  const mails = contacts.map((c) => ({ c, mail: renderPriceReviewMail({ firstName: firstNameOf(c.name), planLabel, approval }) }));
+  const mails = contacts.map((c) => ({ c, mail: renderPriceReviewMail({ firstName: firstNameOf(c.name), planLabel, approval, now }) }));
 
   const queued: string[] = [];
   for (const { c, mail } of mails) {

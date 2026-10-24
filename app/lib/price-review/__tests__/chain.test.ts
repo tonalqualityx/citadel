@@ -110,6 +110,22 @@ describe('charter.price_review through the sweeper', () => {
     expect((approvals[0].action_payload as Record<string, unknown>).owner_role).toBe('mike');
   });
 
+  it('a failure opening the approval leaves the draft handoff open, so the next pass retries', async () => {
+    const h = harness();
+    openFirst(h.store);
+    await h.run(et(2026, 11, 3, 10));
+    const handoff = h.store.all().find((x) => x.template_key === 'handoff.generic')!;
+    h.store.subject[handoff.id] = 'task_done';
+    const spy = vi.spyOn(h.store, 'getWait').mockRejectedValueOnce(new Error('db hiccup'));
+    await expect(h.run(et(2026, 11, 4, 10))).rejects.toThrow('db hiccup');
+    spy.mockRestore();
+    expect(h.store.get(handoff.id).state).toBe('waiting');
+    expect(h.store.all().filter((x) => x.step === 2)).toHaveLength(0);
+    await h.run(et(2026, 11, 4, 11));
+    expect(h.store.get(handoff.id).state).toBe('done');
+    expect(h.store.all().filter((x) => x.step === 2)).toHaveLength(1);
+  });
+
   it('a hand-opened wait cannot start the chain by naming a wait', async () => {
     const h = harness();
     const first = openFirst(h.store);
@@ -129,6 +145,14 @@ describe('charter.price_review through the sweeper', () => {
     h.store.subject[handoff.id] = 'task_done';
     await h.run(et(2026, 11, 4, 10));
     const approval = h.store.all().find((x) => x.step === 2)!;
+    // Mike's approval, as the PATCH route records it from his session.
+    h.store.waits.set(approval.id, {
+      ...approval,
+      action_payload: {
+        ...(approval.action_payload as object),
+        approved_terms: { new_amount_cents: 15000, period: 'monthly', effective_on: '2026-12-15', approved_by: MIKE_USER_ID, approved_via: 'session', approved_at: '2026-11-05T15:00:00.000Z' },
+      },
+    } as WaitRow);
     await resolveWait(h.store, h.store.get(approval.id), 'approved', { now: et(2026, 11, 5, 10), source: 'user', actor_user_id: MIKE_USER_ID });
     return h.store.all().find((x) => x.step === 3)!;
   }

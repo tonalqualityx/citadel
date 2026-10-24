@@ -152,11 +152,11 @@ describe('applyWaitEvent', () => {
 
   it('approval and booking close and advance the chain', async () => {
     const store = new MemStore();
-    const w = open(store, { template_key: 'charter.price_review', subject: 'Herba', due_at: et(2026, 10, 25, 9), step: 2, charter_id: UUID(3) });
+    const w = open(store, { template_key: 'marketing.plan_approval', subject: 'Herba', due_at: et(2026, 10, 25, 9), step: 1, charter_id: UUID(3) });
     const r = await applyWaitEvent(store, { event_id: 'e4', kind: 'stop', target: w.id, payload: { reason: 'approval' } }, NOW);
     expect(r.applied[0].action).toBe('stopped');
     expect(store.get(w.id).resolution).toBe('approved');
-    expect(store.all().filter((x) => x.step === 3)).toHaveLength(1);
+    expect(store.all().filter((x) => x.step === 2)).toHaveLength(1);
   });
 
   it('place attaches the thread and fills empty chain links only', async () => {

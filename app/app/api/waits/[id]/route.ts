@@ -5,11 +5,9 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { MIKE_USER_ID, prismaOwnerLookups } from '@/lib/waits/owner';
-import {
-  approvedTermsSchema,
-  PRICE_REVIEW_APPROVAL_STEP,
-  PRICE_REVIEW_TEMPLATE_KEY,
-} from '@/lib/price-review/terms';
+import { stampPriceReviewDone } from '@/lib/price-review/apply';
+import { isPriceReviewApproval, NOT_JUST_MARKED_HANDLED, PriceReviewResolutionRefused } from '@/lib/price-review/guard';
+import { approvedTermsSchema, startDateProblem } from '@/lib/price-review/terms';
 import { resolveWaitOwner, type WaitRow } from '@/lib/waits/sweeper';
 import { serializeWait } from '@/lib/waits/serialize';
 import {
@@ -53,7 +51,8 @@ const patchSchema = z.discriminatedUnion('action', [
     reason: reason.optional(),
     source,
     // Mike's approval of a price review note: the new amount, billing period and start date. The
-    // only way a number reaches the client note. Required to approve a price review, Mike only.
+    // only way a number reaches the client note. Required to approve a price review, and only from
+    // Mike's signed-in session (never a token or API key).
     approved_terms: approvedTermsSchema.optional(),
   }),
 ]);
@@ -157,26 +156,63 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         next = await needsHuman(store, w, { ...common, note: body.note });
         break;
       case 'resolve': {
-        const isPriceApproval =
-          w.template_key === PRICE_REVIEW_TEMPLATE_KEY && w.step === PRICE_REVIEW_APPROVAL_STEP && body.resolution === 'approved';
-        if (body.approved_terms && !isPriceApproval) {
+        const onApprovalStep = isPriceReviewApproval(w);
+        if (body.approved_terms && !(onApprovalStep && body.resolution === 'approved')) {
           throw new ApiError('approved_terms only applies when approving a price review note.', 400);
         }
         let waitToResolve: WaitRow = w;
-        if (isPriceApproval) {
-          // The number in a client note is Mike's. Nobody else can record it, and an approval
-          // without it would leave the send step with nothing to say.
-          if (auth.userId !== MIKE_USER_ID) throw new ApiError('Only Mike approves a price review note.', 403);
-          if (!body.approved_terms) throw new ApiError('Give approved_terms: the new amount in cents, the billing period and the start date.', 400);
+        let denied = false;
+        if (onApprovalStep) {
+          // The price review approval ends only by Mike's approval with terms or his denial. Any
+          // other resolution (completed, sent, "Mark handled" and the rest) is refused.
+          if (body.resolution !== 'approved' && body.resolution !== 'declined') {
+            throw new ApiError(NOT_JUST_MARKED_HANDLED, 409);
+          }
+          // The number in a client note is Mike's, and so is the denial. Nobody else can record
+          // either. A Bearer token or API key is refused even when it is Mike's, because the
+          // machine token acts as Mike. There is no approval screen yet, so the chain stops here
+          // until one exists.
+          if (auth.userId !== MIKE_USER_ID) throw new ApiError('Only Mike approves or denies a price review note.', 403);
+          if (auth.via !== 'session') {
+            throw new ApiError(
+              'A price review is approved or denied only from Mike\'s signed-in session, never with a token or API key. There is no approval screen yet, so this step waits for Mike.',
+              403
+            );
+          }
           const payload = w.action_payload && typeof w.action_payload === 'object' ? (w.action_payload as Record<string, unknown>) : {};
-          waitToResolve = await store.update(w.id, {
-            action_payload: {
-              ...payload,
-              approved_terms: { ...body.approved_terms, approved_by: auth.userId, approved_at: now.toISOString() },
-            } as WaitRow['action_payload'],
-          });
+          if (body.resolution === 'approved') {
+            if (!body.approved_terms) throw new ApiError('Give approved_terms: the new amount in cents, the billing period and the start date.', 400);
+            const problem = startDateProblem(body.approved_terms.effective_on, now);
+            if (problem) throw new ApiError(problem, 400);
+            waitToResolve = await store.update(w.id, {
+              action_payload: {
+                ...payload,
+                approved_terms: { ...body.approved_terms, approved_by: auth.userId, approved_via: 'session', approved_at: now.toISOString() },
+              } as WaitRow['action_payload'],
+            });
+          } else {
+            denied = true;
+            waitToResolve = await store.update(w.id, {
+              action_payload: {
+                ...payload,
+                price_review_denial: { denied_by: auth.userId, denied_via: 'session', denied_at: now.toISOString() },
+              } as WaitRow['action_payload'],
+            });
+          }
         }
-        next = await resolveByPerson(store, waitToResolve, body.resolution, { ...common, reason: body.reason });
+        try {
+          next = await resolveByPerson(store, waitToResolve, body.resolution, {
+            ...common,
+            reason: denied
+              ? `Mike denied the price review. No price change; nothing was sent.${body.reason ? ` ${body.reason}` : ''}`
+              : body.reason,
+          });
+        } catch (e) {
+          if (e instanceof PriceReviewResolutionRefused) throw new ApiError(e.message, 409);
+          throw e;
+        }
+        // A denied review is finished: stamp it so it cannot be mistaken for one nobody touched.
+        if (denied && w.charter_id) await stampPriceReviewDone(prisma, w.charter_id, now);
         break;
       }
     }

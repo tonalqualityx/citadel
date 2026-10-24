@@ -18,6 +18,7 @@ import {
   needsHuman,
   resolveByPerson,
 } from './actions';
+import { PriceReviewResolutionRefused } from '@/lib/price-review/guard';
 import { getTemplate } from './templates';
 import type { SweepStore, WaitRow } from './sweeper';
 
@@ -245,6 +246,11 @@ export async function applyWaitEvent(store: EventsStore, input: unknown, now = n
     } catch (e) {
       if (isUniqueViolation(e)) {
         seen++; // a concurrent replay got there first
+        continue;
+      }
+      if (e instanceof PriceReviewResolutionRefused) {
+        // The price review approval ends only by Mike's approval or denial. Report it; do not fail the batch.
+        result.applied.push({ wait_id: w.id, action: 'refused', detail: e.message });
         continue;
       }
       throw e;

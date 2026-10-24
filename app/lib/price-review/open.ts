@@ -20,6 +20,7 @@ import { goalValueText, toClientGoal } from '@/lib/kpis/client-goals';
 import { zonedTimeToUtc } from '@/lib/waits/business-days';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { buildWaitData } from '@/lib/waits/templates';
+import { AGENCY_SUB_CLIENT_REASON } from './terms';
 
 export const PRICE_REVIEW_TEMPLATE = 'charter.price_review';
 export const PRICE_REVIEW_LEAD_DAYS = 14;
@@ -61,6 +62,10 @@ export interface OpenReport {
   already_open: OpenedItem[];
   /** The 14 day window has not begun. */
   not_yet: OpenedItem[];
+  /** Charters left alone on purpose, with the reason (for example an agency sub-client). */
+  skipped: Array<OpenedItem & { reason: string }>;
+  /** A charter that threw. The pass carries on with the next one. */
+  errors: Array<{ charter_id: string; error: string }>;
   /** Open waits for a date the charter no longer has. Left alone; a person closes them. */
   stale_waits: Array<{ wait_id: string; charter_id: string; review_on: string }>;
   note: string;
@@ -78,7 +83,7 @@ interface CharterRow {
   client_label: string | null;
   start_date: Date;
   price_review_on: Date;
-  client: { name: string };
+  client: { name: string; parent_agency_id?: string | null };
 }
 
 /**
@@ -125,11 +130,14 @@ export async function buildDraftDescription(db: Db, c: CharterRow, label: string
     : ['- No confirmed goals for this client. Leave goals out of the draft.'];
 
   return [
-    `Draft the price review note for ${label}. The review date is ${shortDate(c.price_review_on)}.`,
-    'The draft goes to Mike for approval first. You do not send it and you do not email the client.',
+    `Price review for ${label}. The review date is ${shortDate(c.price_review_on)}.`,
+    'Your job: propose to Mike either a price increase or no change. Put the proposal in this task for Mike.',
+    '- For an increase, give the amount you suggest and the reasoning: the work done in the term and where the goals landed (the inputs are below).',
+    '- For no change, say so and give the reasoning the same way.',
+    'You do not send anything and you do not email the client. Mike decides, and the client note is written only after he approves.',
     '',
     'The law, in plain words:',
-    '- Never state a number Mike has not approved. Leave the new amount and the start date as blanks for Mike to fill.',
+    '- Never state to the client a number Mike has not approved. Your proposed amount is for Mike only; the amount and start date that go to the client are the ones Mike approves.',
     '- Never offer a discount, a credit or a waived fee.',
     '- The note goes to Mike for approval before anything reaches the client.',
     '',
@@ -140,7 +148,7 @@ export async function buildDraftDescription(db: Db, c: CharterRow, label: string
     ...kpiLines,
     '3. The charter page for the current plan and price. Read it; do not quote a new number from it.',
     '',
-    'When the draft is ready, put it in a comment on this task and mark the task done. Marking it done opens the approval step for Mike.',
+    'When the proposal is ready, put it in a comment on this task and mark the task done. Marking it done opens the approval step for Mike. He reads your proposal on this task.',
   ].join('\n');
 }
 
@@ -156,6 +164,8 @@ export async function openPriceReviews(
     opened: [],
     already_open: [],
     not_yet: [],
+    skipped: [],
+    errors: [],
     stale_waits: [],
     note: HOSTING_CHARTERS_NOTE,
   };
@@ -165,13 +175,13 @@ export async function openPriceReviews(
     where: { status: 'active', is_deleted: false, price_review_on: { not: null }, price_review_done_at: null },
     select: {
       id: true, client_id: true, site_id: true, client_label: true, start_date: true, price_review_on: true,
-      client: { select: { name: true } },
+      client: { select: { name: true, parent_agency_id: true } },
     },
     orderBy: { price_review_on: 'asc' },
   });
 
-  for (const row of charters) {
-    if (!row.price_review_on) continue;
+  const openOne = async (row: (typeof charters)[number]): Promise<void> => {
+    if (!row.price_review_on) return;
     const c: CharterRow = { ...row, price_review_on: row.price_review_on };
     const label = (c.client_label ?? c.client.name).trim();
     const key = waitKeyFor(c.id, c.price_review_on);
@@ -184,25 +194,31 @@ export async function openPriceReviews(
       key,
     };
 
+    // An agency sub-client is billed through the agency. Never queue to the end client.
+    if (row.client.parent_agency_id) {
+      report.skipped.push({ ...item, reason: AGENCY_SUB_CLIENT_REASON });
+      return;
+    }
+
     const existing = await db.wait.findUnique({ where: { idempotency_key: key }, select: { id: true } });
     if (existing) {
       report.already_open.push({ ...item, wait_id: existing.id });
-      continue;
+      return;
     }
     if (now.getTime() < dueAt.getTime()) {
       report.not_yet.push(item);
-      continue;
+      return;
     }
     if (dryRun) {
       report.opened.push(item);
-      continue;
+      return;
     }
 
     const detail = await buildDraftDescription(db, c, label);
     const data = buildWaitData({
       template_key: PRICE_REVIEW_TEMPLATE,
       subject: label,
-      title: `Draft the price review note for ${label}`,
+      title: `Propose the price review for ${label}`,
       detail,
       due_at: dueAt,
       started_at: dueAt,
@@ -215,7 +231,7 @@ export async function openPriceReviews(
     const { wait, created } = await store.insertIdempotent(data);
     if (!created) {
       report.already_open.push({ ...item, wait_id: wait.id });
-      continue;
+      return;
     }
     await store.addEvent({
       wait_id: wait.id,
@@ -226,6 +242,14 @@ export async function openPriceReviews(
       source: 'api',
     });
     report.opened.push({ ...item, wait_id: wait.id });
+  };
+
+  for (const row of charters) {
+    try {
+      await openOne(row);
+    } catch (e) {
+      report.errors.push({ charter_id: row.id, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   // Open waits whose date is no longer the charter's date (staff moved it). Report only.
