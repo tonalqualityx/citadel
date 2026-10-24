@@ -64,7 +64,7 @@ import { contactEndpoints } from './contacts';
 import { brandProfileEndpoints } from './brand-profiles';
 import { oracleEndpoints } from './oracle';
 import { clarityEndpoints } from './clarity';
-import { waitEndpoints } from './waits';
+import { waitEndpoints, awayEndpoints } from './waits';
 import { emailOutboxEndpoints } from './email-outbox';
 import { engineEndpoints } from './engine';
 import { portalChatEndpoints } from './portal-chat';
@@ -101,6 +101,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...oracleEndpoints,
   ...clarityEndpoints,
   ...waitEndpoints,
+  ...awayEndpoints,
   ...emailOutboxEndpoints,
   ...engineEndpoints,
   ...portalChatEndpoints,

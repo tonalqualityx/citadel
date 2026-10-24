@@ -5,6 +5,8 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { MIKE_USER_ID, prismaOwnerLookups } from '@/lib/waits/owner';
+import { OOO_STANDINS } from '@/lib/config/feature-flags';
+import { isMikeOnlyWait } from '@/lib/waits/away';
 import { stampPriceReviewDone } from '@/lib/price-review/apply';
 import { isPriceReviewApproval, NOT_JUST_MARKED_HANDLED, PriceReviewResolutionRefused } from '@/lib/price-review/guard';
 import { approvedTermsSchema, startDateProblem } from '@/lib/price-review/terms';
@@ -150,6 +152,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         });
         break;
       case 'stand_in':
+        // Out of office (item 11): with OOO_STANDINS on, a Mike-only wait is never handed to anyone.
+        // Clearing a stand-in is always allowed. With the flag off this check does not run.
+        if (OOO_STANDINS() && body.stand_in_user_id && isMikeOnlyWait(w)) {
+          throw new ApiError('This wait is Mike-only (money, contracts, proposals, ending a client or a live plugin update). It cannot be handed to a stand-in.', 409);
+        }
         next = await standInWait(store, w, { ...common, stand_in_user_id: body.stand_in_user_id, reason: body.reason });
         break;
       case 'needs_human':

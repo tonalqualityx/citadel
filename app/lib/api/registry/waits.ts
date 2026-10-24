@@ -17,6 +17,117 @@ const waitExample = {
   terminal_action: 'proceed|send|escalate|task',
 };
 
+// Out of office stand-ins (Saturday 10-24 run, item 11). Inert: nothing reads these two tables
+// unless the OOO_STANDINS flag is on, and no rows are seeded until Mike rules.
+const awayWindowExample = {
+  id: 'uuid',
+  user_id: 'uuid',
+  starts_at: 'ISO-8601',
+  ends_at: 'ISO-8601',
+  source: 'manual|calendar',
+  confirmed_at: 'ISO-8601|null',
+  note: 'string|null',
+  created_at: 'ISO-8601',
+};
+const standInExample = { id: 'uuid', for_user_id: 'uuid', role_key: 'wordpress|content|pm|liaison|...', stand_in_user_id: 'uuid' };
+
+export const awayEndpoints: ApiEndpoint[] = [
+  {
+    path: '/api/away-windows',
+    group: 'waits',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List away windows, newest first. Admin only.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [{ name: 'user_id', type: 'uuid', required: false, description: 'Only this person' }],
+        responseExample: { data: [awayWindowExample], meta: { count: 'number' } },
+      },
+      {
+        method: 'POST',
+        summary: 'Record dates a person is away. Admin only. Read by the sweeper only while OOO_STANDINS is on.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'user_id', type: 'uuid', required: true, description: 'The person who is away' },
+          { name: 'starts_at', type: 'ISO-8601', required: true, description: 'First moment away' },
+          { name: 'ends_at', type: 'ISO-8601', required: true, description: 'The moment they are back. Must be after starts_at.' },
+          { name: 'source', type: 'string', required: false, description: 'manual (default) or calendar. A calendar proposal counts only after confirmed_at is set.' },
+          { name: 'confirmed_at', type: 'ISO-8601', required: false, description: 'When a calendar proposal was confirmed' },
+          { name: 'note', type: 'string', required: false, description: 'Context, up to 2000 characters' },
+        ],
+        responseExample: awayWindowExample,
+        responseNotes: '201 when created.',
+      },
+    ],
+  },
+  {
+    path: '/api/away-windows/{id}',
+    group: 'waits',
+    methods: [
+      { method: 'GET', summary: 'One away window. Admin only.', auth: 'required', roles: ['admin'], responseExample: awayWindowExample },
+      {
+        method: 'PATCH',
+        summary: 'Change the dates, confirm a calendar proposal, or edit the note. Admin only.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'starts_at', type: 'ISO-8601', required: false, description: 'New start' },
+          { name: 'ends_at', type: 'ISO-8601', required: false, description: 'New end; must stay after the start' },
+          { name: 'confirmed_at', type: 'ISO-8601', required: false, description: 'null un-confirms' },
+          { name: 'note', type: 'string', required: false, description: 'null clears it' },
+        ],
+        responseExample: awayWindowExample,
+      },
+      { method: 'DELETE', summary: 'Remove an away window. Admin only.', auth: 'required', roles: ['admin'], responseExample: { ok: true } },
+    ],
+  },
+  {
+    path: '/api/stand-ins',
+    group: 'waits',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'List who covers which role for whom. Admin only.',
+        auth: 'required',
+        roles: ['admin'],
+        queryParams: [{ name: 'for_user_id', type: 'uuid', required: false, description: 'Only this person' }],
+        responseExample: { data: [standInExample], meta: { count: 'number' } },
+      },
+      {
+        method: 'POST',
+        summary: 'Name the stand-in for one role of one person. Admin only. Read by the sweeper only while OOO_STANDINS is on.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'for_user_id', type: 'uuid', required: true, description: 'The person who will be away' },
+          { name: 'role_key', type: 'string', required: true, description: 'mike, pm, design, content, liaison, wordpress, billing, social, sales or bast' },
+          { name: 'stand_in_user_id', type: 'uuid', required: true, description: 'Who covers; not the same person' },
+        ],
+        responseExample: standInExample,
+        responseNotes: '201 when created. 409 when that person already has a stand-in for the role.',
+      },
+    ],
+  },
+  {
+    path: '/api/stand-ins/{id}',
+    group: 'waits',
+    methods: [
+      { method: 'GET', summary: 'One stand-in mapping. Admin only.', auth: 'required', roles: ['admin'], responseExample: standInExample },
+      {
+        method: 'PATCH',
+        summary: 'Name a different person for the same role. Admin only.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [{ name: 'stand_in_user_id', type: 'uuid', required: true, description: 'The new stand-in' }],
+        responseExample: standInExample,
+      },
+      { method: 'DELETE', summary: 'Remove a stand-in mapping. Admin only.', auth: 'required', roles: ['admin'], responseExample: { ok: true } },
+    ],
+  },
+];
+
 export const waitEndpoints: ApiEndpoint[] = [
   {
     path: '/api/waits',
@@ -61,6 +172,7 @@ export const waitEndpoints: ApiEndpoint[] = [
           { name: 'blocks_client', type: 'boolean', required: false, description: 'Defaults from the template' },
           { name: 'client_waiting_since', type: 'ISO-8601', required: false, description: 'Defaults to now when it blocks a client' },
           { name: 'idempotency_key', type: 'string', required: false, description: 'A repeat returns the existing wait with 200' },
+          { name: 'mike_only', type: 'boolean', required: false, description: 'true marks the wait Mike-only (a live plugin update, a client exit). While OOO_STANDINS is on, it is never handed to a stand-in and pauses while Mike is away. Leave out to follow the template.' },
         ],
         responseExample: waitExample,
         responseNotes: '201 when created, 200 for an idempotent repeat, 409 for a disabled template.',
@@ -92,7 +204,7 @@ export const waitEndpoints: ApiEndpoint[] = [
           { name: 'source', type: 'string', required: false, description: 'user (default) or ritual' },
           { name: 'owner_user_id', type: 'uuid', required: false, description: 'reassign' },
           { name: 'owner_function_id', type: 'uuid', required: false, description: 'reassign' },
-          { name: 'stand_in_user_id', type: 'uuid', required: false, description: 'stand_in: null clears it' },
+          { name: 'stand_in_user_id', type: 'uuid', required: false, description: 'stand_in: null clears it. While OOO_STANDINS is on, a Mike-only wait answers 409 and cannot be handed to anyone.' },
           { name: 'note', type: 'string', required: false, description: 'needs_human: what the person must decide' },
           { name: 'resolution', type: 'string', required: false, description: 'resolve: approved, completed, cancelled, sent, booked, signed, declined. approved/sent/completed/booked/signed open the next step of the chain.' },
           { name: 'approved_terms', type: 'object', required: false, description: 'resolve + approved on the charter.price_review approval step (step 2) only, and only from Mike signed-in browser session (a Bearer token or API key is refused, even one that belongs to Mike): { new_amount_cents: integer above 0, period: monthly|annually, effective_on: YYYY-MM-DD, at least 30 days after today }. Required there. It is the only source of a number in the client price note. On that step only approved (with terms) and declined (from the same session) end the wait; every other resolution answers 409. Declining stamps the review done and sends nothing.' },

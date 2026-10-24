@@ -25,6 +25,16 @@ import {
   sameZonedDay,
 } from './business-days';
 import { assertPriceReviewResolution } from '@/lib/price-review/guard';
+import { OOO_STANDINS } from '@/lib/config/feature-flags';
+import {
+  awayRoleForWait,
+  awayUntil,
+  isAway,
+  isMikeOnlyWait,
+  resumeAfterWindow,
+  standInForRole,
+  type AwayLookups,
+} from './away';
 import { MIKE_USER_ID, resolveOwner, type OwnerLookups, type ResolvedOwner } from './owner';
 import {
   buildNextStepData,
@@ -119,6 +129,11 @@ export interface SweepDeps {
    * behaviour: stamp `fired_at` for the machine-side outbox.
    */
   sendHandlers?: Record<string, (wait: WaitRow, now: Date) => Promise<void>>;
+  /**
+   * Away windows and stand-ins (item 11 of the 10-24 run). Read ONLY when the OOO_STANDINS flag is
+   * on; with it off the sweeper never touches this, so neither table is queried.
+   */
+  away?: AwayLookups;
   now?: () => Date;
 }
 
@@ -141,6 +156,12 @@ export interface SweepReport {
   needs_human: string[];
   errors: Array<{ id: string; error: string; count: number }>;
   counts: Record<string, number>;
+  /** Present only while OOO_STANDINS is on. */
+  away?: {
+    routed: Array<{ id: string; to: string; role: string }>;
+    paused: Array<{ id: string; until: string; why: 'mike_only' | 'no_stand_in' }>;
+    cleared: string[];
+  };
 }
 
 function emptyReport(dryRun: boolean, at: Date): SweepReport {
@@ -338,7 +359,7 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
 
   // 3. Expire waits whose subject is gone; close waits whose task is finished.
   const open = await store.listOpen();
-  const stillOpen: WaitRow[] = [];
+  let stillOpen: WaitRow[] = [];
   for (const w of open) {
     const subject = await store.subjectState(w);
     if (subject === 'gone') {
@@ -367,6 +388,11 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
       continue;
     }
     stillOpen.push(w);
+  }
+
+  // 3b. Out of office (flag OFF by default: this block does not run and reads neither table).
+  if (OOO_STANDINS() && deps.away) {
+    stillOpen = await awayPass(deps, deps.away, stillOpen, now, dryRun, report);
   }
 
   // 4. Fire what is due.
@@ -452,6 +478,144 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     errors: report.errors.length,
   };
   return report;
+}
+
+/**
+ * Out of office pass (specs/citadel-shape-SPEC.md 3.2). For each open wait whose natural owner
+ * (resolved with no stand-in) is away: a Mike-only wait of an away Mike pauses until the window's
+ * end plus one business day; any other wait gets `stand_in_user_id` set to the stand-in for its
+ * role, due date kept. A wait on Mike's own role with no stand-in named pauses the same way.
+ * When the window has ended, a stand-in this pass set is cleared. A stand-in someone set by hand
+ * is left alone. Returns the rows as they now stand (paused rows drop out of firing).
+ */
+async function awayPass(
+  deps: SweepDeps,
+  away: AwayLookups,
+  rows: WaitRow[],
+  now: Date,
+  dryRun: boolean,
+  report: SweepReport
+): Promise<WaitRow[]> {
+  const { store } = deps;
+  type AwayReport = NonNullable<SweepReport['away']>;
+  const rep: AwayReport = { routed: [], paused: [], cleared: [] };
+  report.away = rep;
+
+  const windows = await away.windowsActiveAt(now);
+  const standIns = await away.standIns();
+  const result: WaitRow[] = [];
+
+  for (const w of rows) {
+    const natural = await resolveOwner({ ...ownerInput(w), stand_in_user_id: null }, deps.owner);
+
+    // A stand-in is set: clear it once its owner is back, but only if this feature set it.
+    if (w.stand_in_user_id) {
+      const last = await store.lastEvent(w.id, 'stand_in');
+      if (last?.source === 'ooo' && !isAway(windows, natural.user_id, now)) {
+        rep.cleared.push(w.id);
+        if (dryRun) {
+          result.push(w);
+          continue;
+        }
+        const updated = await store.update(w.id, { stand_in_user_id: null });
+        await store.addEvent({
+          wait_id: w.id,
+          kind: 'stand_in',
+          reason: `The away window for ${natural.user_id} has ended; stand-in ${w.stand_in_user_id} cleared.`,
+          source: 'ooo',
+        });
+        result.push(updated);
+        continue;
+      }
+      result.push(w);
+      continue;
+    }
+
+    if (w.state === 'paused' || !isAway(windows, natural.user_id, now)) {
+      result.push(w);
+      continue;
+    }
+
+    const windowEnd = awayUntil(windows, natural.user_id, now)!;
+    const pauseUntil = resumeAfterWindow(windowEnd);
+    const pause = async (why: 'mike_only' | 'no_stand_in'): Promise<WaitRow | null> => {
+      rep.paused.push({ id: w.id, until: pauseUntil.toISOString(), why });
+      if (dryRun) return null;
+      // Read before the update: a store may hand back the same object it mutates.
+      const fromState = w.state;
+      const fromDue = w.due_at;
+      const remaining = Math.max(0, fromDue.getTime() - now.getTime());
+      const updated = await store.update(w.id, {
+        state: 'paused',
+        paused_until: pauseUntil,
+        paused_remaining_ms: BigInt(remaining) as unknown as WaitRow['paused_remaining_ms'],
+        claimed_at: null,
+      });
+      await store.addEvent({
+        wait_id: w.id,
+        kind: 'paused',
+        from_state: fromState,
+        to_state: 'paused',
+        from_due_at: fromDue,
+        reason:
+          why === 'mike_only'
+            ? `Mike-only wait while ${natural.user_id} is away; paused until ${pauseUntil.toISOString()} (back plus one business day).`
+            : `${natural.user_id} is away and has named no stand-in for this role; paused until ${pauseUntil.toISOString()}.`,
+        source: 'ooo',
+      });
+      return updated;
+    };
+
+    // Mike-only: never routed. It pauses only when the away person is Mike.
+    if (isMikeOnlyWait(w)) {
+      if (natural.user_id === MIKE_USER_ID) {
+        const paused = await pause('mike_only');
+        if (!paused && dryRun) continue; // would pause: leave it out of the dry-run firing preview
+        if (paused) {
+          result.push(paused);
+          continue;
+        }
+      }
+      result.push(w);
+      continue;
+    }
+
+    const role = awayRoleForWait(w, natural.role_key);
+    const standIn = standInForRole(standIns, natural.user_id, role);
+    if (
+      standIn &&
+      standIn !== natural.user_id &&
+      !isAway(windows, standIn, now) &&
+      (await deps.owner.isActiveUser(standIn))
+    ) {
+      rep.routed.push({ id: w.id, to: standIn, role: role! });
+      if (dryRun) {
+        result.push(w);
+        continue;
+      }
+      const updated = await store.update(w.id, { stand_in_user_id: standIn });
+      await store.addEvent({
+        wait_id: w.id,
+        kind: 'stand_in',
+        reason: `${natural.user_id} is away until ${windowEnd.toISOString()}; ${role} stand-in ${standIn}. Due date kept.`,
+        source: 'ooo',
+      });
+      result.push(updated);
+      continue;
+    }
+
+    // Mike's own role with no one named: pause unless he picks someone.
+    if (role === 'mike' && natural.user_id === MIKE_USER_ID) {
+      const paused = await pause('no_stand_in');
+      if (paused) {
+        result.push(paused);
+        continue;
+      }
+      if (dryRun) continue;
+    }
+    result.push(w);
+  }
+  return result;
 }
 
 async function fireOne(
