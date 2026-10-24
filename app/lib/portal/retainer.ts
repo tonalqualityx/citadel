@@ -21,6 +21,7 @@ import { taskAccessWhere, type PortalAccess } from '@/lib/portal/access';
 import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility';
 import { DEFAULT_PLAN_LABEL, planLabel } from '@/lib/portal/engagement';
 import { requestState, type RequestState } from '@/lib/portal/status-labels';
+import { approvedGoingLiveWhere } from '@/lib/portal/requests';
 
 export const PLAN_TAG = 'marketing-plan';
 export const BOOK_MARKETING_HREF = '/portal/book?type=marketing';
@@ -260,7 +261,13 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
         where: {
           AND: [
             taskBase,
-            { client_approved_at: null, status: { notIn: ['abandoned', 'done'] } },
+            {
+              OR: [
+                { client_approved_at: null, status: { notIn: ['abandoned', 'done'] } },
+                // Approved by the client, not live yet: still moving, so still on the card.
+                approvedGoingLiveWhere(),
+              ],
+            },
           ],
         },
         select: ITEM_SELECT,

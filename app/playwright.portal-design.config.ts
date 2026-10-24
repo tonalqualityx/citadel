@@ -6,6 +6,8 @@ import base from './playwright.config';
 export default defineConfig({
   ...base,
   fullyParallel: false,
-  snapshotPathTemplate: '/home/mike/Documents/indelible-ops/docs/overnight/portal-redesign/screens/{arg}{ext}',
+  // PORTAL_SCREENS_DIR writes a separate set of screens (used with PORTAL_RETAINER_APPROVED=1 so the
+  // baselines in screens/ are never overwritten by a run that seeds extra content).
+  snapshotPathTemplate: `${process.env.PORTAL_SCREENS_DIR ?? '/home/mike/Documents/indelible-ops/docs/overnight/portal-redesign/screens'}/{arg}{ext}`,
   reporter: [['list']],
 });

@@ -20,6 +20,10 @@ let taskId = '';
 let chatIds: { request_intake: string; request_conversation_id: string; work_task_id: string } | null = null;
 const CHAT_SEED = `${TS} scripts/seed-portal-chat-fixtures.ts`;
 const CHAT_SCREENS = ['request-new-chat', 'work-chat'];
+// Opt-in: PORTAL_RETAINER_APPROVED=1 seeds an approved-not-live charter item for the Retainer screen only,
+// so the shared baselines are untouched unless this is set (point PORTAL_SCREENS_DIR elsewhere with it).
+const WITH_APPROVED_ITEM = process.env.PORTAL_RETAINER_APPROVED === '1';
+const B2_SEED = `${TS} scripts/seed-portal-b2-fixtures.ts`;
 
 test.beforeAll(() => {
   execSync(`${TS} scripts/seed-portal-v2-phase1-fixtures.ts`, { cwd: APP_ROOT, stdio: 'inherit' });
@@ -78,6 +82,8 @@ for (const size of SIZES) {
           // The account picker only shows with two accounts; give the owner one for this screen only.
           if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --second-account`, { cwd: APP_ROOT, stdio: 'inherit' });
           const isChat = CHAT_SCREENS.includes(screen.name);
+          const withApproved = WITH_APPROVED_ITEM && screen.name === 'retainer';
+          if (withApproved) execSync(`${B2_SEED} --approved-retainer-item`, { cwd: APP_ROOT, stdio: 'inherit' });
           if (isChat) {
             const out = execSync(`${CHAT_SEED} --screens`, { cwd: APP_ROOT, encoding: 'utf8' });
             chatIds = JSON.parse(out.trim().split('\n').filter((l) => l.startsWith('{')).pop() ?? '{}');
@@ -96,6 +102,12 @@ for (const size of SIZES) {
           await page.clock.setFixedTime('2026-10-21T14:00:00-04:00');
           await page.goto(screen.url());
           await settle(page, screen.ready);
+          if (withApproved) {
+            // An approved item that is not live yet stays on the card, and never reads as finished.
+            const row = page.getByRole('listitem').filter({ hasText: 'Add the spring offer banner' });
+            await expect(row).toContainText('Approved. Going live soon.');
+            await expect(row).not.toContainText(/Done|Complete/);
+          }
           if (isChat) await expect(page.getByRole('log', { name: 'Conversation' })).toContainText(/photo|Google Analytics/);
 
           // No horizontal scroll.
@@ -148,6 +160,7 @@ for (const size of SIZES) {
           await expect(page).toHaveScreenshot(`${screen.name}-${size.tag}-${scheme}.png`, { fullPage: true, maxDiffPixelRatio: 0.01 });
           await context.close();
           } finally {
+            if (withApproved) execSync(`${B2_SEED} --cleanup-approved-retainer-item`, { cwd: APP_ROOT, stdio: 'inherit' });
             if (screen.name === 'select') execSync(`${TS} scripts/seed-portal-b3-fixtures.ts --cleanup-second-account`, { cwd: APP_ROOT, stdio: 'inherit' });
             if (CHAT_SCREENS.includes(screen.name)) execSync(`${CHAT_SEED} --cleanup`, { cwd: APP_ROOT, stdio: 'inherit' });
           }

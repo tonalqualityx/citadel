@@ -104,7 +104,8 @@ export function toClientTask(task: ViewTask, phaseName: string | null = null) {
     id: task.id,
     title: task.title,
     status_label: taskStatusLabel(task.status, awaiting, isApprovedGoingLive(task)),
-    is_done: isTaskDone(task),
+    // Approved but not live yet reads as moving, never as done (the label says "Approved. Going live soon.").
+    is_done: isTaskDone(task) && !isApprovedGoingLive(task),
     awaiting_you: awaiting,
     phase: phaseName,
     completed_at: task.client_approved_at ?? task.completed_at ?? null,
