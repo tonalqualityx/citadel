@@ -67,6 +67,11 @@ export interface TemplateStep {
   blocks_client?: boolean;
   /** Merged into action_payload. */
   payload?: Record<string, unknown>;
+  /**
+   * For a `task` step: the next step opens when the task it made is done, not when the task is
+   * made. The draft task has to finish before the person who approves it has anything to approve.
+   */
+  next_on_task_done?: boolean;
 }
 
 export interface WaitTemplate {
@@ -93,6 +98,8 @@ export interface WaitTemplate {
   on_reply: 'stop' | 'needs_human' | null;
   /** Switch that holds the sends back while OFF. */
   switch_key?: string;
+  /** More switches that must ALL be on before a send step runs (the first one that is off holds it). */
+  extra_switch_keys?: string[];
   /** The row in the spec's table, for the reviewer. */
   spec: string;
 }
@@ -485,20 +492,45 @@ export const WAIT_TEMPLATES: WaitTemplate[] = [
   {
     key: 'charter.price_review',
     kind: 'clock',
-    enabled: false,
+    enabled: true,
     sends: true,
     owner: 'bast',
     blocks_client: false,
     title: 'Review the price of the charter {subject}',
     steps: [
-      { duration: cd(14), action: 'task', note: 'Fourteen days before the review date, open a task to draft the price note.' },
-      { duration: bd(3), action: 'escalate', owner: 'mike', kind: 'approval', note: 'Mike approves the draft within three business days.' },
-      { duration: hrs(0), action: 'send', note: 'Send the approved price note.' },
-      { duration: hrs(0), action: 'proceed', note: 'Stamp the review done.', payload: { effect: 'price_review_done' } },
+      {
+        duration: cd(14),
+        action: 'task',
+        next_on_task_done: true,
+        note: 'Fourteen days before the review date, open a task to draft the price note.',
+      },
+      {
+        duration: bd(3),
+        action: 'escalate',
+        owner: 'mike',
+        kind: 'approval',
+        note: 'Mike approves the draft within three business days.',
+        payload: { title: 'Approve the price review note for {subject}' },
+      },
+      {
+        duration: hrs(0),
+        action: 'send',
+        note: 'Send the approved price note.',
+        payload: { title: 'Send the approved price review note to {subject}' },
+      },
+      {
+        duration: hrs(0),
+        action: 'proceed',
+        note: 'Stamp the review done.',
+        payload: { effect: 'price_review_done', title: 'Record the price review for {subject} as done' },
+      },
     ],
     fixed_due: true,
     on_reply: null,
     switch_key: SEND_SWITCH,
+    // The price note is a client-facing price statement, so it has its own switch on top of the
+    // general sender switch (Saturday 10-24 run, item 4). Both must be on.
+    extra_switch_keys: ['PRICE_REVIEW_SEND'],
     spec: 'charter.price_review | clock | Bast, then Mike | 14 days before date | task to draft; Mike approval 3 bd; send; stamp done | no',
   },
   {

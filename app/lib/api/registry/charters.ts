@@ -57,6 +57,7 @@ export const charterEndpoints: ApiEndpoint[] = [
           { name: 'budget_hours', type: 'number', required: false, description: 'Budget hours' },
           { name: 'hourly_rate', type: 'number', required: false, description: 'Hourly rate' },
           { name: 'budget_amount', type: 'number', required: false, description: 'Budget amount' },
+          { name: 'price_review_on', type: 'string', required: false, description: 'The date the price is reviewed, YYYY-MM-DD, or null to clear. A new date clears price_review_done_at and starts a new review: the charter.price_review wait opens 14 days before the date.' },
         ],
       },
       { method: 'DELETE', summary: 'Soft delete a charter.', auth: 'required', roles: ['admin'] },

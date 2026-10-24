@@ -172,6 +172,9 @@ export function prismaSweepStore(db: PrismaClient): SweepStore & EventsStore {
         source: e.source as WaitEventInput['source'],
       };
     },
+    getWait(id: string) {
+      return db.wait.findUnique({ where: { id } });
+    },
     async eventSeenForWait(eventId: string, waitId: string) {
       const hit = await db.waitEvent.findUnique({ where: { event_id: `${eventId}:${waitId}` }, select: { id: true } });
       return !!hit;

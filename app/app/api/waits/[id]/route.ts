@@ -4,7 +4,12 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
-import { prismaOwnerLookups } from '@/lib/waits/owner';
+import { MIKE_USER_ID, prismaOwnerLookups } from '@/lib/waits/owner';
+import {
+  approvedTermsSchema,
+  PRICE_REVIEW_APPROVAL_STEP,
+  PRICE_REVIEW_TEMPLATE_KEY,
+} from '@/lib/price-review/terms';
 import { resolveWaitOwner, type WaitRow } from '@/lib/waits/sweeper';
 import { serializeWait } from '@/lib/waits/serialize';
 import {
@@ -47,6 +52,9 @@ const patchSchema = z.discriminatedUnion('action', [
     resolution: z.enum(['approved', 'completed', 'cancelled', 'sent', 'booked', 'signed', 'declined']),
     reason: reason.optional(),
     source,
+    // Mike's approval of a price review note: the new amount, billing period and start date. The
+    // only way a number reaches the client note. Required to approve a price review, Mike only.
+    approved_terms: approvedTermsSchema.optional(),
   }),
 ]);
 
@@ -148,9 +156,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       case 'needs_human':
         next = await needsHuman(store, w, { ...common, note: body.note });
         break;
-      case 'resolve':
-        next = await resolveByPerson(store, w, body.resolution, { ...common, reason: body.reason });
+      case 'resolve': {
+        const isPriceApproval =
+          w.template_key === PRICE_REVIEW_TEMPLATE_KEY && w.step === PRICE_REVIEW_APPROVAL_STEP && body.resolution === 'approved';
+        if (body.approved_terms && !isPriceApproval) {
+          throw new ApiError('approved_terms only applies when approving a price review note.', 400);
+        }
+        let waitToResolve: WaitRow = w;
+        if (isPriceApproval) {
+          // The number in a client note is Mike's. Nobody else can record it, and an approval
+          // without it would leave the send step with nothing to say.
+          if (auth.userId !== MIKE_USER_ID) throw new ApiError('Only Mike approves a price review note.', 403);
+          if (!body.approved_terms) throw new ApiError('Give approved_terms: the new amount in cents, the billing period and the start date.', 400);
+          const payload = w.action_payload && typeof w.action_payload === 'object' ? (w.action_payload as Record<string, unknown>) : {};
+          waitToResolve = await store.update(w.id, {
+            action_payload: {
+              ...payload,
+              approved_terms: { ...body.approved_terms, approved_by: auth.userId, approved_at: now.toISOString() },
+            } as WaitRow['action_payload'],
+          });
+        }
+        next = await resolveByPerson(store, waitToResolve, body.resolution, { ...common, reason: body.reason });
         break;
+      }
     }
     const resolved = await resolveWaitOwner(next, prismaOwnerLookups(prisma as unknown as Parameters<typeof prismaOwnerLookups>[0]));
     return NextResponse.json(serializeWait(next, resolved));
