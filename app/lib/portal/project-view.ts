@@ -78,7 +78,8 @@ export function buildPhaseList(phases: ViewPhase[], tasks: ViewTask[]): PhaseEnt
   for (const phase of ordered) {
     const own = tasks.filter((t) => t.phase_id === phase.id && !isAbandoned(t));
     if (own.length === 0) continue;
-    const allDone = own.every(isTaskDone);
+    // Approved but not live yet still reads as moving, so a phase is not Done until its work is live.
+    const allDone = own.every((t) => isTaskDone(t) && !isApprovedGoingLive(t));
     let state: PhaseState;
     if (allDone) state = 'done';
     else if (!currentAssigned) {
@@ -104,7 +105,8 @@ export function toClientTask(task: ViewTask, phaseName: string | null = null) {
     id: task.id,
     title: task.title,
     status_label: taskStatusLabel(task.status, awaiting, isApprovedGoingLive(task)),
-    is_done: isTaskDone(task),
+    // Approved but not live yet reads as moving, never as done (the label says "Approved. Going live soon.").
+    is_done: isTaskDone(task) && !isApprovedGoingLive(task),
     awaiting_you: awaiting,
     phase: phaseName,
     completed_at: task.client_approved_at ?? task.completed_at ?? null,

@@ -7,6 +7,7 @@
  *  - the retainer fixture charter gets a client_label and an allowance (budget_hours), an open
  *    client-visible charter task, a staged unapproved marketing-plan task, and a published
  *    ClientReport;
+ *  - `--approved-retainer-item` adds a charter item the client approved that is not live yet (opt-in);
  *  - `--inspect-thread <task_id>` prints the task's comments, notices and waits as one JSON line
  *    (Playwright has no database access); `--mint-link` prints a fresh single-use sign-in token for the fixture owner; `--cleanup` retires the fixture tasks (the staged plan would
  *    otherwise show up as a second "View preview" on the slice 1 home spec); `--reset-thread` clears the thread task's comments,
@@ -25,6 +26,7 @@ export const CHARTER_NAME = 'E2E: Marketing retainer (portal fixture)';
 export const CHARTER_CLIENT_LABEL = 'E2E Growth plan';
 export const CHARTER_OPEN_TASK = 'E2E: Retainer open item (portal fixture)';
 export const CHARTER_PLAN_TASK = 'E2E: November marketing plan (portal fixture)';
+export const CHARTER_APPROVED_TASK = 'E2E: Approved retainer item, not live yet (portal fixture)';
 export const APPROVAL_TOKEN = 'e2e-b2-approval-page-token';
 export const APPROVAL_TASK_TITLE = 'E2E: Homepage refresh (portal fixture)';
 export const NOCONTACT_TOKEN = 'e2e-b2-approval-nocontact-token';
@@ -102,6 +104,31 @@ async function seed() {
   console.log(JSON.stringify({ thread_task_id: thread.id, client_id: client.id, nocontact_task_id: bareTask.id }));
 }
 
+/**
+ * `--approved-retainer-item`: a charter item the client approved that is not live yet (status
+ * `review`, `client_approved_at` set, tag `client-approved`). Opt-in, so the shared baselines keep
+ * their usual content; the portal design spec adds it only for the Retainer screen when asked.
+ */
+async function seedApprovedRetainerItem() {
+  const client = await prisma.client.findFirstOrThrow({ where: { name: 'E2E Portal Client (fixture)' } });
+  const charter = await prisma.charter.findFirstOrThrow({ where: { client_id: client.id, name: CHARTER_NAME } });
+  const data = {
+    client_title: 'Add the spring offer banner',
+    status: 'review' as const,
+    tags: ['client-approved'],
+    is_deleted: false,
+    charter_id: charter.id,
+    client_id: client.id,
+    client_visible: true,
+    approved: false,
+    client_approved_at: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    staging_preview_url: 'https://staging.e2e-portal-fixture.example/banner',
+  };
+  const existing = await prisma.task.findFirst({ where: { title: CHARTER_APPROVED_TASK, client_id: client.id } });
+  if (existing) await prisma.task.update({ where: { id: existing.id }, data });
+  else await prisma.task.create({ data: { title: CHARTER_APPROVED_TASK, ...data } });
+}
+
 /** Retire this slice's fixture tasks so the slice 1 specs see the same client they always did. */
 /** A single-use sign-in link for the fixture owner, as the emailed one would be (no mail is sent). */
 async function mintLink() {
@@ -125,7 +152,7 @@ async function mintLink() {
 async function cleanup() {
   await prisma.task.updateMany({ where: { title: APPROVAL_TASK_TITLE }, data: { portal_token: null, portal_token_expires_at: null } });
   await prisma.task.updateMany({
-    where: { title: { in: [THREAD_TASK_TITLE, CHARTER_OPEN_TASK, CHARTER_PLAN_TASK, NOCONTACT_TITLE] } },
+    where: { title: { in: [THREAD_TASK_TITLE, CHARTER_OPEN_TASK, CHARTER_PLAN_TASK, CHARTER_APPROVED_TASK, NOCONTACT_TITLE] } },
     data: { is_deleted: true, portal_token: null, portal_token_expires_at: null },
   });
 }
@@ -156,6 +183,11 @@ async function main() {
     const i = process.argv.indexOf(name);
     return i === -1 ? null : process.argv[i + 1];
   };
+  if (process.argv.includes('--approved-retainer-item')) return seedApprovedRetainerItem();
+  if (process.argv.includes('--cleanup-approved-retainer-item')) {
+    await prisma.task.updateMany({ where: { title: CHARTER_APPROVED_TASK }, data: { is_deleted: true } });
+    return;
+  }
   if (process.argv.includes('--cleanup')) return cleanup();
   if (process.argv.includes('--mint-link')) return mintLink();
   if (flag('--inspect-thread')) return inspectThread(flag('--inspect-thread')!);

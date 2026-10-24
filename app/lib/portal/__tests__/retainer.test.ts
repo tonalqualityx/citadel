@@ -12,6 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
 
 import { prisma } from '@/lib/db/prisma';
 import { allowanceText, buildYearMonths, loadRetainers, periodOf, retainerHeading, safeHttpUrl } from '../retainer';
+import { approvedGoingLiveWhere } from '../requests';
 import type { PortalAccess } from '../access';
 
 const p = prisma as unknown as Record<string, Record<string, Mock>>;
@@ -171,6 +172,52 @@ describe('loadRetainers', () => {
     expect(where).toContain('marketing-plan');
     expect(where).toContain('"client_approved_at":null');
     expect(where).toContain('staging_preview_url');
+  });
+
+  it('the open query keeps approved-not-live work (the shared rule), and still drops done and abandoned', async () => {
+    await loadRetainers(owner, { now: NOW });
+    const where = p.task.findMany.mock.calls[0][0].where;
+    expect(where.AND[1]).toEqual({
+      OR: [{ client_approved_at: null, status: { notIn: ['abandoned', 'done'] } }, approvedGoingLiveWhere()],
+    });
+    // The done query is unchanged: finished work only, in the period.
+    expect(JSON.stringify(p.task.findMany.mock.calls[1][0].where)).toContain('"status":"done"');
+  });
+
+  it('lists an approved-not-live item as open, "Approved. Going live soon.", moving', async () => {
+    const approved = item('t1', { status: 'review', client_approved_at: new Date('2026-10-20T15:00:00Z'), tags: ['client-approved'] });
+    p.task.findMany.mockResolvedValueOnce([approved, item('t2')]).mockResolvedValueOnce([]);
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.this_month.open.map((i) => i.id)).toEqual(['t1', 't2']);
+    expect(card.this_month.open[0].state).toEqual({ label: 'Approved. Going live soon.', tone: 'moving' });
+    expect(card.this_month.done).toEqual([]);
+  });
+
+  it('an item approved by tag alone is still listed with the same label', async () => {
+    p.task.findMany.mockResolvedValueOnce([item('t1', { status: 'review', tags: ['client-approved'], client_approved_at: null })]).mockResolvedValueOnce([]);
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.this_month.open[0].state).toEqual({ label: 'Approved. Going live soon.', tone: 'moving' });
+  });
+
+  it('an approved item that went live is under done, not open', async () => {
+    const live = item('t3', { status: 'done', client_approved_at: new Date('2026-10-20T15:00:00Z'), completed_at: NOW });
+    p.task.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([live]);
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.this_month.open).toEqual([]);
+    expect(card.this_month.done.map((i) => i.id)).toEqual(['t3']);
+    expect(card.this_month.done[0].state.tone).toBe('done');
+  });
+
+  it('an approved plan is not "plan ready" (query keeps client_approved_at null) and is listed once as an open item', async () => {
+    // The plan query finds nothing because the plan is approved; the open query returns it.
+    p.task.findFirst.mockResolvedValue(null);
+    const plan = item('plan1', { status: 'review', tags: ['marketing-plan', 'client-approved'], client_approved_at: new Date('2026-10-20T15:00:00Z'), staging_preview_url: 'https://preview.example.com/plan' });
+    p.task.findMany.mockResolvedValueOnce([plan]).mockResolvedValueOnce([]);
+    const [card] = await loadRetainers(owner, { now: NOW });
+    expect(card.plan_ready).toBeNull();
+    expect(card.this_month.open.map((i) => i.id)).toEqual(['plan1']);
+    expect(card.this_month.open[0].state.label).toBe('Approved. Going live soon.');
+    expect(JSON.stringify(p.task.findFirst.mock.calls[0][0].where)).toContain('"client_approved_at":null');
   });
 
   it('shows the newest published report for the charter or a covered site; unsafe links are dropped', async () => {

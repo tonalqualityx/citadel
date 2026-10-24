@@ -51,6 +51,17 @@ describe('computeProgress', () => {
     expect(computeProgress([t])).toEqual({ done: 0, total: 0 });
   });
 
+  it('an approved task that is not live yet reads as moving with the approved label, never as done', () => {
+    const t = task({ id: '1', status: 'review', client_approved_at: new Date(), staging_preview_url: 'https://p.example', approved: false });
+    expect(toClientTask(t)).toMatchObject({ status_label: 'Approved. Going live soon.', is_done: false, awaiting_you: false });
+    const tagOnly = task({ id: '2', status: 'review', tags: ['client-approved'] });
+    expect(toClientTask(tagOnly)).toMatchObject({ status_label: 'Approved. Going live soon.', is_done: false });
+    // Once it is live (status done) it reads Complete and done.
+    expect(toClientTask(task({ id: '3', status: 'done', client_approved_at: new Date() }))).toMatchObject({ status_label: 'Complete', is_done: true });
+    // The count stays as it was.
+    expect(computeProgress([t])).toEqual({ done: 1, total: 1 });
+  });
+
   it('counts a client-approved task as done', () => {
     const t = task({ id: '1', status: 'in_progress', client_approved_at: new Date() });
     expect(computeProgress([t])).toEqual({ done: 1, total: 1 });
@@ -78,6 +89,20 @@ describe('buildPhaseList', () => {
       ['Launch', 'upcoming'],
     ]);
     expect(currentPhaseName(list)).toBe('Build');
+  });
+
+  it('keeps a phase current while its approved work is not live yet', () => {
+    const approved = [
+      task({ id: '1', status: 'done', phase_id: 'p1' }),
+      task({ id: '2', status: 'review', phase_id: 'p2', client_approved_at: new Date('2026-10-20'), tags: ['client-approved'] }),
+      task({ id: '3', status: 'not_started', phase_id: 'p3' }),
+    ];
+    const list = buildPhaseList(phases, approved);
+    expect(list.map((p) => [p.name, p.state])).toEqual([
+      ['Design', 'done'],
+      ['Build', 'current'],
+      ['Launch', 'upcoming'],
+    ]);
   });
 
   it('reports the last phase when everything is done and null with no phases', () => {
