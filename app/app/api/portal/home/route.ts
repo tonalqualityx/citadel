@@ -14,6 +14,9 @@ import { clientHistoryTaskWhere, clientVisibleTaskWhere, stagedTaskWhere } from 
 import { projectStatusLabel, REQUEST_LABELS } from '@/lib/portal/status-labels';
 import { loadRequests } from '@/lib/portal/requests';
 import { loadRetainers } from '@/lib/portal/retainer';
+import { PORTAL_KPI_VIEWS, PORTAL_ONBOARD_CHECKLIST } from '@/lib/config/feature-flags';
+import { loadSiteGoals } from '@/lib/portal/goals';
+import { loadStillNeeded } from '@/lib/portal/onboarding';
 import { CLIENT_VISIBLE_COMMENT_WHERE } from '@/lib/comments/visibility';
 import {
   AWAITING_CLARIFICATION_TAG,
@@ -228,6 +231,10 @@ export async function GET(_request: NextRequest) {
     // Retainers (slice 2): one summary row per active or paused plan, the three newest open items.
     const retainerCards = await loadRetainers(access);
 
+    // Behind switches (both default OFF). When off, none of these keys is added to the JSON.
+    const siteGoals = PORTAL_KPI_VIEWS() ? await loadSiteGoals(access, sites.map((s) => s.id)) : null;
+    const stillNeeded = PORTAL_ONBOARD_CHECKLIST() ? await loadStillNeeded(access) : null;
+
     // Per-project progress, current phase and client links. One query each for all open projects.
     const projectIds = openProjects.map((p) => p.id);
     const [progressRows, phaseRows, linkRows] = projectIds.length
@@ -413,7 +420,8 @@ export async function GET(_request: NextRequest) {
           pendingTasks.length +
           questionTasks.length +
           projectCards.filter((p) => p.review_link).length +
-          (billing && billing.open_count > 0 ? 1 : 0),
+          (billing && billing.open_count > 0 ? 1 : 0) +
+          (stillNeeded && stillNeeded.length > 0 ? 1 : 0),
         moving: { projects: projectCards.length, retainers: retainerCards.length, requests: requests.open.length },
       },
       requests: {
@@ -425,6 +433,14 @@ export async function GET(_request: NextRequest) {
       billing,
       activity,
       stats,
+      ...(siteGoals
+        ? {
+            site_goals: sites
+              .filter((s) => (siteGoals.get(s.id) ?? []).length > 0)
+              .map((s) => ({ site: { id: s.id, name: s.name }, goals: siteGoals.get(s.id) ?? [] })),
+          }
+        : {}),
+      ...(stillNeeded ? { onboarding: { still_need: stillNeeded } } : {}),
     });
   } catch (error) {
     return handleApiError(error);

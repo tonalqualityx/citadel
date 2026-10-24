@@ -22,6 +22,9 @@ import { clientVisibleTaskWhere, stagedTaskWhere } from '@/lib/portal/visibility
 import { DEFAULT_PLAN_LABEL, planLabel } from '@/lib/portal/engagement';
 import { requestState, type RequestState } from '@/lib/portal/status-labels';
 import { approvedGoingLiveWhere } from '@/lib/portal/requests';
+import { PORTAL_KPI_VIEWS } from '@/lib/config/feature-flags';
+import { loadCharterGoals } from '@/lib/portal/goals';
+import type { ClientGoal } from '@/lib/kpis/client-goals';
 
 export const PLAN_TAG = 'marketing-plan';
 export const BOOK_MARKETING_HREF = '/portal/book?type=marketing';
@@ -57,6 +60,11 @@ export interface RetainerCard {
   /** The contract year, up to twelve months. Empty when the charter has no usable start date. */
   year_label: string | null;
   months: RetainerMonth[];
+  /**
+   * Confirmed KPI goals in client words. Present ONLY when PORTAL_KPI_VIEWS is on; the key is
+   * absent (not null) when it is off.
+   */
+  goals?: ClientGoal[];
 }
 
 // ---- pure helpers -----------------------------------------------------------------------
@@ -237,6 +245,13 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
     }),
   ]);
 
+  const goalsByCharter = PORTAL_KPI_VIEWS()
+    ? await loadCharterGoals(
+        access,
+        charters.map((c) => ({ id: c.id, covered_site_ids: (c.site ? [c.site] : clientSites).map((s) => s.id) }))
+      )
+    : null;
+
   const cards: RetainerCard[] = [];
   for (const c of charters) {
     const period = periodOf(c, now);
@@ -330,6 +345,7 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
       latest_report: report && reportUrl ? { title: report.title, headline: report.headline, period: report.period, url: reportUrl } : null,
       year_label: year.label,
       months: year.months,
+      ...(goalsByCharter ? { goals: goalsByCharter.get(c.id) ?? [] } : {}),
     });
   }
   return cards;

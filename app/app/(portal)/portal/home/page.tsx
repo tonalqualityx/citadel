@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Check, CircleCheck, ClipboardList, ExternalLink, Eye, FileText, MessageSquareText, PenLine, Plus, Receipt,
+  Check, CircleCheck, ClipboardList, ExternalLink, Eye, FileText, ListChecks, MessageSquareText, PenLine, Plus, Receipt,
   TriangleAlert, Video,
 } from 'lucide-react';
 import { activityLabel, type ChipTone } from '@/lib/portal/status-labels';
@@ -28,6 +28,7 @@ import { Field } from '@/components/portal/ui/field';
 import { EmptyState } from '@/components/portal/ui/empty-state';
 import { Skeleton, SkeletonRegion } from '@/components/portal/ui/skeleton';
 import { KIND_ICON } from '@/components/portal/ui/icons';
+import { GoalRows, type GoalView } from '@/components/portal/goal-rows';
 import Link from 'next/link';
 
 // Client account home (Portal v2 phase 1, redesigned in portal redesign slice 3). Order: header
@@ -149,6 +150,10 @@ interface HomePayload {
   } | null;
   activity: ActivityItem[];
   stats: SiteStats[];
+  // Present only when the portal KPI switch is on.
+  site_goals?: { site: { id: string; name: string }; goals: GoalView[] }[];
+  // Present only when the portal onboarding switch is on.
+  onboarding?: { still_need: { label: string }[] };
   summary?: { needs_count: number; moving: { projects: number; retainers: number; requests: number } };
 }
 
@@ -327,6 +332,8 @@ export default function ClientHomePage() {
 
   const { client, pending_approvals, needs_from_you, projects, billing, activity, stats, requests } = data;
   const hasBalance = Boolean(billing && billing.open_count > 0);
+  const stillNeed = data.onboarding?.still_need ?? [];
+  const siteGoals = data.site_goals ?? [];
   const plansReady = data.retainers.filter((r) => r.plan_ready);
   const needsCount =
     pending_approvals.articles.length +
@@ -334,6 +341,7 @@ export default function ClientHomePage() {
     plansReady.length +
     needs_from_you.questions.length +
     needs_from_you.review_links.length +
+    (stillNeed.length > 0 ? 1 : 0) +
     (hasBalance ? 1 : 0);
   const showCallout = needsCount > 0 || approvedDone.length > 0;
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -497,6 +505,21 @@ export default function ClientHomePage() {
                 }
               />
             ))}
+
+            {stillNeed.length > 0 ? (
+              <NeedsYouItem
+                icon={ListChecks}
+                title="What we still need from you"
+                chip={{ label: 'Still needed', tone: 'attention' }}
+                actions={
+                  <div className="still-need">
+                    {stillNeed.map((n) => (
+                      <p key={n.label}>{n.label}</p>
+                    ))}
+                  </div>
+                }
+              />
+            ) : null}
 
             {billing && billing.open_count > 0 ? (
               <NeedsYouItem
@@ -705,6 +728,14 @@ export default function ClientHomePage() {
             })}
           </div>
         )}
+        {siteGoals.map((g) => (
+          <div key={g.site.id} className="rcard" data-goals-site>
+            <p className="groupname">
+              <SiteMark name={g.site.name} />
+            </p>
+            <GoalRows goals={g.goals} />
+          </div>
+        ))}
       </Section>
 
       {billing ? (

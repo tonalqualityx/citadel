@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarDays, CircleCheck, Clock, Contrast, BarChart3 } from 'lucide-react';
+import { CalendarDays, CircleCheck, Clock, Contrast, BarChart3, Target } from 'lucide-react';
 import { PageHeader } from '@/components/portal/ui/page-header';
 import { Section } from '@/components/portal/ui/section';
 import { StatusChip } from '@/components/portal/ui/status-chip';
@@ -12,6 +12,7 @@ import { Legend } from '@/components/portal/ui/legend';
 import { PortalButton } from '@/components/portal/ui/button';
 import { PlanApprovalBlock, type PlanReady } from '@/components/portal/plan-approval-block';
 import { ReportLink, type LatestReport } from '@/components/portal/report-link';
+import { GoalRows, type GoalView } from '@/components/portal/goal-rows';
 import type { ChipTone } from '@/lib/portal/status-labels';
 
 export interface RetainerItemView {
@@ -34,6 +35,8 @@ export interface RetainerCardView {
   latest_report: LatestReport | null;
   year_label?: string | null;
   months?: YearMonth[];
+  /** Present only when the portal KPI switch is on. */
+  goals?: GoalView[];
 }
 
 const FULL: Record<string, string> = {
@@ -141,6 +144,14 @@ export function RetainerCard({ card, primary, onChanged }: { card: RetainerCardV
           )}
         </div>
       </Section>
+
+      {card.goals && card.goals.length > 0 ? (
+        <Section id={`goals-${card.id}`} title="Your goals" icon={Target} kind="retainer">
+          <div className="rcard" data-kind="retainer">
+            <GoalRows goals={card.goals} />
+          </div>
+        </Section>
+      ) : null}
 
       {months.length > 0 ? (
         <Section id={`year-${card.id}`} title="Your plan year" icon={CalendarDays} kind="retainer" aside={card.year_label ?? undefined}>

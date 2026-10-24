@@ -618,7 +618,10 @@ model Client {
   invoices              ClientInvoice[]
 
   // Wait record phase 1 (back-relations)
-  waits Wait[]
+  waits      Wait[]
+  // KPIs and checklists (back-relations)
+  site_kpis  SiteKpi[]
+  checklists Checklist[]
 
   @@index([type])
   @@index([status])
@@ -774,7 +777,9 @@ model Site {
   stats_snapshots             SiteStatsSnapshot[]
 
   // Wait record phase 1 (back-relations)
-  waits Wait[]
+  waits     Wait[]
+  // KPIs (back-relation)
+  site_kpis SiteKpi[]
 
   @@index([client_id])
   @@index([hosting_plan_id])
@@ -976,7 +981,9 @@ model Project {
   email_asks              EmailAsk[]
 
   // Wait record phase 1 (back-relations)
-  waits Wait[]
+  waits      Wait[]
+  // Checklists (back-relation)
+  checklists Checklist[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -1741,6 +1748,8 @@ model Accord {
   client                    Client?      @relation(fields: [client_id], references: [id])
   owner_id                  String       @db.Uuid
   owner                     User         @relation("AccordOwner", fields: [owner_id], references: [id])
+  // KPIs proposed with the accord; a staff route confirms them into SiteKpi rows.
+  kpi_proposal              Json?
   lead_name                 String?      @db.VarChar(255)
   lead_business_name        String?      @db.VarChar(255)
   lead_email                String?      @db.VarChar(255)
@@ -1793,7 +1802,10 @@ model Accord {
   scheduled_invoices   ScheduledInvoice[]
 
   // Wait record phase 1 (back-relations)
-  waits Wait[]
+  waits      Wait[]
+  // KPIs and checklists (back-relations)
+  site_kpis  SiteKpi[]
+  checklists Checklist[]
 
   @@index([client_id])
   @@index([owner_id])
@@ -2241,7 +2253,10 @@ model Charter {
   scheduled_invoices  ScheduledInvoice[]
 
   // Wait record phase 1 (back-relations)
-  waits Wait[]
+  waits      Wait[]
+  // KPIs and checklists (back-relations)
+  site_kpis  SiteKpi[]
+  checklists Checklist[]
 
   @@index([client_id])
   @@index([accord_id])
@@ -3967,4 +3982,80 @@ model SitePage {
 
   @@unique([site_id, path])
   @@map("site_pages")
+}
+
+// KPIs per site (specs/citadel-shape-SPEC.md 3.4 and 3.15). Proposed on the accord, confirmed
+// into rows, read against SiteStatsSnapshot. A KPI is retired, never hard-deleted.
+model SiteKpi {
+  id              String    @id @default(uuid()) @db.Uuid
+  client_id       String    @db.Uuid
+  client          Client    @relation(fields: [client_id], references: [id])
+  site_id         String?   @db.Uuid
+  site            Site?     @relation(fields: [site_id], references: [id])
+  accord_id       String?   @db.Uuid
+  accord          Accord?   @relation(fields: [accord_id], references: [id])
+  charter_id      String?   @db.Uuid
+  charter         Charter?  @relation(fields: [charter_id], references: [id])
+  metric          String    @db.VarChar(60) // sessions leads revenue rank:<keyword> uptime
+  label           String    @db.VarChar(200)
+  direction       String    @db.VarChar(4) // up down
+  baseline_value  Decimal?  @db.Decimal(14, 2)
+  baseline_at     DateTime?
+  target_value    Decimal?  @db.Decimal(14, 2)
+  target_by       DateTime? @db.Date
+  source          String    @db.VarChar(30) // ga4 gsc kuma manual
+  status          String    @default("proposed") @db.VarChar(12) // proposed confirmed retired
+  confirmed_at    DateTime?
+  last_value      Decimal?  @db.Decimal(14, 2)
+  last_checked_at DateTime?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  @@index([client_id])
+  @@index([site_id])
+  @@index([accord_id])
+  @@map("site_kpis")
+}
+
+enum ChecklistKind {
+  onboarding
+  offboarding
+  takeover
+}
+
+// A checklist for a client's start or end (specs/citadel-shape-SPEC.md 3.12 and 3.15).
+model Checklist {
+  id         String          @id @default(uuid()) @db.Uuid
+  kind       ChecklistKind
+  client_id  String          @db.Uuid
+  client     Client          @relation(fields: [client_id], references: [id])
+  accord_id  String?         @db.Uuid
+  accord     Accord?         @relation(fields: [accord_id], references: [id])
+  charter_id String?         @db.Uuid
+  charter    Charter?        @relation(fields: [charter_id], references: [id])
+  project_id String?         @db.Uuid
+  project    Project?        @relation(fields: [project_id], references: [id])
+  started_at DateTime        @default(now())
+  done_at    DateTime?
+  items      ChecklistItem[]
+
+  @@index([client_id])
+  @@map("checklists")
+}
+
+model ChecklistItem {
+  id             String    @id @default(uuid()) @db.Uuid
+  checklist_id   String    @db.Uuid
+  checklist      Checklist @relation(fields: [checklist_id], references: [id], onDelete: Cascade)
+  key            String    @db.VarChar(60)
+  label          String    @db.VarChar(255)
+  group          String    @db.VarChar(20) // access assets people reference billing data revoke
+  required       Boolean   @default(true)
+  state          String    @default("missing") @db.VarChar(14) // missing received verified waived not_applicable
+  verified_by_id String?   @db.Uuid
+  verified_at    DateTime?
+  evidence       String?   @db.Text
+
+  @@unique([checklist_id, key])
+  @@map("checklist_items")
 }

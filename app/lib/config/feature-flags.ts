@@ -55,3 +55,23 @@ export const ORACLE_WORK_DOORS = process.env.NEXT_PUBLIC_ORACLE_WORK_DOORS === '
  * changes placement. Plain const, ships OFF.
  */
 export const PORTAL_INTAKE_LLM = false;
+
+/**
+ * Portal KPI goals (Saturday 10-24 run, item 3). When on, the Retainer card and the Home site
+ * tiles carry the confirmed KPI goals in client words. Read from process.env on every call so
+ * a test can flip it. Only the literal string 'true' turns it on. Default OFF; when off, the
+ * `goals` / `site_goals` fields are absent from the portal JSON (not null) and nothing renders.
+ */
+export function PORTAL_KPI_VIEWS(): boolean {
+  return process.env.PORTAL_KPI_VIEWS === 'true';
+}
+
+/**
+ * Portal onboarding checklist (Saturday 10-24 run, item 3). When on, Home's Needs-you box lists
+ * what we still need from the client (open onboarding items, client wording only). Read at call
+ * time; only the literal string 'true' turns it on. Default OFF; when off, the `onboarding`
+ * field is absent from the Home JSON and nothing renders.
+ */
+export function PORTAL_ONBOARD_CHECKLIST(): boolean {
+  return process.env.PORTAL_ONBOARD_CHECKLIST === 'true';
+}
