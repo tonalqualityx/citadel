@@ -185,9 +185,24 @@ export const MUST_FAIL: FailFixture[] = [
   { text: "Our prices will not go up.", rule: 'promise' },
   { text: "Your rate stays the same.", rule: 'promise' },
   { text: "Your invoice will not change.", rule: 'promise' },
+  { text: "We have the hours for next week.", rule: 'promise' },
 ];
 
 export const MUST_PASS: Array<{ text: string; kind?: GateKind }> = [
+  // fix round 10-24: questions about the client's own site must not read as our promise
+  { text: 'Should the product page say you do not charge for shipping?' },
+  { text: "Should the page say you don't charge shipping on orders over the limit?" },
+  { text: 'Should the Shop page say you never charge a restocking charge?' },
+  { text: 'Should the Services page say you never charge for estimates?' },
+  { text: "Should the page say you don't bill until the job is done?" },
+  { text: 'Update hours for next week on the Home page.', kind: 'summary' },
+  { text: 'Should I post hours for next week on the Home page?' },
+  { text: 'Can you send me hours for next week?' },
+  { text: 'Should the Home page show special hours for next week?' },
+  { text: 'Should these hours for next week go on the Home page?' },
+  { text: 'Should the monthly rates stay on the Subscribe page?' },
+  { text: 'Should the annual rates stay on the Maintenance Plan page?' },
+  { text: 'You need to pay more attention to the Home page photos.' },
   { text: 'Which page is the photo for?' },
   { text: 'Thanks. Is it the team section or the top banner?' },
   { text: 'The team will review this.' },
