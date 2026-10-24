@@ -103,6 +103,8 @@ export const portalEndpoints: ApiEndpoint[] = [
           requests: { open_count: 'number', top: '[request item, see GET /api/portal/requests] (attention first, at most 3)' },
           retainers: '[{ id, heading, status, period, plan_ready: boolean, open: [at most 3 request items] }] (slice 2)',
           summary: '{ needs_count: number, moving: { projects, retainers, requests } } (slice 2; the home summary line)',
+          site_goals: '[{ site: { id, name }, goals: [{ label, target_text, direction: up|down, last_text: string|null }] }] (ABSENT unless the PORTAL_KPI_VIEWS switch is on; confirmed KPIs in client words, no source, baseline or status)',
+          onboarding: '{ still_need: [{ label }] } (ABSENT unless the PORTAL_ONBOARD_CHECKLIST switch is on; open required onboarding items in client words, owners and members only)',
           pending_approvals: {
             articles: [
               {
@@ -778,6 +780,7 @@ export const portalEndpoints: ApiEndpoint[] = [
               plan_ready: '{ task_id, title, preview_url, book_href }|null',
               this_month: { open: ['request item'], done: ['request item'] },
               latest_report: '{ title, headline, period, url }|null',
+              goals: '[{ label, target_text, direction: up|down, last_text: string|null }] (ABSENT unless the PORTAL_KPI_VIEWS switch is on; confirmed KPIs for the sites the plan covers, in client words)',
             },
           ],
         },

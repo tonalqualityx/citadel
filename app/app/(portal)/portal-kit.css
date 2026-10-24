@@ -144,6 +144,8 @@
 .ny .q { color: var(--p-ink-2); font-size: var(--pk-fs-small); }
 .ny .body { display: grid; gap: 8px; min-width: 0; }
 .ny .actions { margin-top: 2px; }
+.still-need { display: grid; gap: 2px; }
+.still-need p { color: var(--p-ink-2); font-size: var(--pk-fs-small); line-height: 1.5; }
 .changes { display: grid; gap: 8px; max-width: 34rem; }
 .changes label { font-weight: 700; font-size: var(--pk-fs-small); }
 textarea, input[type="text"], select { font: inherit; color: var(--p-ink); background: var(--p-surface); border: 1px solid var(--p-line-strong); border-radius: var(--p-radius); padding: 10px 12px; width: 100%; }

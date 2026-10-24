@@ -68,6 +68,7 @@ import { waitEndpoints } from './waits';
 import { emailOutboxEndpoints } from './email-outbox';
 import { engineEndpoints } from './engine';
 import { portalChatEndpoints } from './portal-chat';
+import { kpiChecklistEndpoints } from './kpis-checklists';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -103,6 +104,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...emailOutboxEndpoints,
   ...engineEndpoints,
   ...portalChatEndpoints,
+  ...kpiChecklistEndpoints,
 ];
 
 /**

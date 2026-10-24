@@ -44,6 +44,8 @@ const LIB_FILES = [
   'headline.ts', 'history-group.ts', 'retainer.ts', 'status-labels.ts', 'engagement.ts', 'projects-list.ts',
   'project-view.ts', 'requests.ts', 'thread.ts', 'history.ts', 'booking.ts', 'waits.ts', 'share-reply.ts', 'notices.ts',
   'intake/file-request.ts', 'view-as-copy.ts', 'cancel-copy.ts', 'cancel-state.ts', 'cancel.ts',
+  // KPI goals and onboarding "what we still need" (Saturday 10-24 run, item 3): the files that hold client words.
+  'goals.ts', 'onboarding.ts', '../kpis/client-goals.ts', '../checklists/templates.ts',
 ].map((f) => path.join(APP, 'lib/portal', f));
 
 const FILES = [...walk(path.join(APP, 'components/portal')), ...LIB_FILES, ...PAGES];
