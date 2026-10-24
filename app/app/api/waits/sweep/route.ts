@@ -7,6 +7,10 @@ import { prismaOwnerLookups } from '@/lib/waits/owner';
 import { runSweep, type WaitRow } from '@/lib/waits/sweeper';
 import { sendSlackNotification } from '@/lib/services/slack-notifications';
 import { calendarDaysSince } from '@/lib/waits/business-days';
+import { PRICE_REVIEW_SEND } from '@/lib/config/feature-flags';
+import { makeApplyProceed } from '@/lib/price-review/apply';
+import { openPriceReviews, type OpenReport } from '@/lib/price-review/open';
+import { makePriceReviewSendHandler } from '@/lib/price-review/send';
 
 /**
  * Switches the sweeper may read in phase 1. There is no Switch table yet (phase 2), so the
@@ -14,6 +18,8 @@ import { calendarDaysSince } from '@/lib/waits/business-days';
  * Empty means everything is off, which holds every send. Phase 1 opens no sender anyway.
  */
 function switchIsOn(key: string): Promise<boolean> {
+  // PRICE_REVIEW_SEND is a feature flag read at call time (default OFF), not a list entry.
+  if (key === 'PRICE_REVIEW_SEND') return Promise.resolve(PRICE_REVIEW_SEND());
   const on = (process.env.WAIT_SWITCHES_ON ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   return Promise.resolve(on.includes(key));
 }
@@ -49,16 +55,26 @@ export async function POST(request: NextRequest) {
     // pm or admin, like the other sweeps (tasks/unblock-sweep): the machine-side API key may belong to either.
     requireRole(auth, ['pm', 'admin']);
     const dryRun = new URL(request.url).searchParams.get('dry_run') === '1';
+    // Open the price review waits that are now inside their 14 day window, so this pass can fire
+    // them. A failure here never stops the sweep. On a dry run nothing is written.
+    let price_review: OpenReport | { error: string };
+    try {
+      price_review = await openPriceReviews(prisma, { dryRun });
+    } catch (e) {
+      price_review = { error: e instanceof Error ? e.message : String(e) };
+    }
     const report = await runSweep(
       {
         store: prismaSweepStore(prisma),
         owner: prismaOwnerLookups(prisma as unknown as Parameters<typeof prismaOwnerLookups>[0]),
         switchIsOn,
         notifyMike: slackNagOn() ? notifyMike : undefined,
+        applyProceed: makeApplyProceed(prisma),
+        sendHandlers: { 'charter.price_review': makePriceReviewSendHandler(prisma, { switchIsOn }) },
       },
       { dryRun }
     );
-    return NextResponse.json(report);
+    return NextResponse.json({ ...report, price_review });
   } catch (error) {
     return handleApiError(error);
   }

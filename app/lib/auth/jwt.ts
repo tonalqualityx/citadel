@@ -8,6 +8,12 @@ export interface TokenPayload extends JWTPayload {
   userId: string;
   email: string;
   role: string;
+  /**
+   * How this request signed in, set by requireAuth and never read from a token: 'session' is the
+   * browser login cookie, 'api_key' is a Bearer API key (including the machine token). Optional so
+   * the signing helpers do not need it.
+   */
+  via?: 'session' | 'api_key';
 }
 
 export async function signAccessToken(payload: Omit<TokenPayload, 'iat' | 'exp'>): Promise<string> {

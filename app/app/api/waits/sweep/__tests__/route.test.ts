@@ -19,6 +19,9 @@ vi.mock('@/lib/db/prisma', () => ({
     function: { findUnique: vi.fn(async () => null) },
     projectTeamAssignment: { findMany: vi.fn(async () => []) },
     accord: { findUnique: vi.fn(async () => null) },
+    // The price review opener runs at the top of every sweep; no charters here, so it opens nothing.
+    charter: { findMany: vi.fn(async () => []) },
+    wait: { findMany: vi.fn(async () => []) },
   },
 }));
 

@@ -780,6 +780,8 @@ export function formatCharterResponse(charter: any) {
     budget_amount: charter.budget_amount ? Number(charter.budget_amount) : null,
     start_date: charter.start_date,
     end_date: charter.end_date,
+    price_review_on: charter.price_review_on ?? null,
+    price_review_done_at: charter.price_review_done_at ?? null,
     paused_at: charter.paused_at,
     cancelled_at: charter.cancelled_at,
     cancellation_reason: charter.cancellation_reason,

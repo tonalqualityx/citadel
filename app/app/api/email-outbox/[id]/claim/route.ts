@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { chatRecipientAllowed } from '@/lib/portal/chat/outbox-guard';
+import { PRICE_REVIEW_MAIL_KIND, priceReviewRecipientAllowed } from '@/lib/price-review/outbox-guard';
 
 const CLAIM_WINDOW_MS = 10 * 60 * 1000;
 
@@ -34,6 +35,11 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     // the request. Checked again here, at the moment of sending (portal phase C, slice C4).
     if (row.kind === 'portal_chat' && !(await chatRecipientAllowed(row))) {
       await prisma.emailOutbox.update({ where: { id }, data: { attempts: 99, last_error: 'refused: recipient is not a person on this chat or lost access' } });
+      throw new ApiError('Recipient not allowed', 409);
+    }
+    // A price note goes only to one portal owner of a client that still has an active charter.
+    if (row.kind === PRICE_REVIEW_MAIL_KIND && !(await priceReviewRecipientAllowed(row))) {
+      await prisma.emailOutbox.update({ where: { id }, data: { attempts: 99, last_error: 'refused: recipient is not a portal owner of a client with an active charter' } });
       throw new ApiError('Recipient not allowed', 409);
     }
     return NextResponse.json(row);

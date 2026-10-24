@@ -163,6 +163,9 @@ export class MemStore implements SweepStore, EventsStore {
       throw e;
     }
   }
+  async getWait(id: string) {
+    return this.waits.get(id) ?? null;
+  }
   async lastEvent(waitId: string, kind: string) {
     return [...this.events].reverse().find((e) => e.wait_id === waitId && e.kind === kind) ?? null;
   }

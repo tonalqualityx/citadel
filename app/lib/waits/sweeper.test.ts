@@ -371,13 +371,13 @@ describe('lifecycle', () => {
 
   it('resolveWait advances a chain on approval and not on cancel', async () => {
     const store = new MemStore();
-    enable('charter.price_review');
-    const w = open(store, { template_key: 'charter.price_review', subject: 'Herba', due_at: et(2026, 10, 1, 9), step: 2 });
+    enable('marketing.plan_approval');
+    const w = open(store, { template_key: 'marketing.plan_approval', subject: 'Herba', due_at: et(2026, 10, 1, 9), step: 1 });
     await resolveWait(store, store.get(w.id), 'approved', { now: NOW, source: 'user', actor_user_id: MIKE_USER_ID });
-    expect(store.all().filter((x) => x.step === 3)).toHaveLength(1);
-    const w2 = open(store, { template_key: 'charter.price_review', subject: 'Herba', due_at: et(2026, 10, 1, 9), step: 2 });
+    expect(store.all().filter((x) => x.step === 2)).toHaveLength(1);
+    const w2 = open(store, { template_key: 'marketing.plan_approval', subject: 'Herba', due_at: et(2026, 10, 1, 9), step: 1 });
     await resolveWait(store, store.get(w2.id), 'cancelled', { now: NOW, source: 'user' });
-    expect(store.all().filter((x) => x.step === 3)).toHaveLength(1);
+    expect(store.all().filter((x) => x.step === 2)).toHaveLength(1);
   });
 });
 

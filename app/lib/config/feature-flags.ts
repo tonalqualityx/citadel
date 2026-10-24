@@ -75,3 +75,13 @@ export function PORTAL_KPI_VIEWS(): boolean {
 export function PORTAL_ONBOARD_CHECKLIST(): boolean {
   return process.env.PORTAL_ONBOARD_CHECKLIST === 'true';
 }
+
+/**
+ * Price review send (Saturday 10-24 run, item 4). The charter.price_review send step queues the
+ * approved price note through EmailOutbox only when this is on AND the WAIT_SENDERS switch is on.
+ * Read from process.env on every call so a test can flip it. Only the literal string 'true' turns
+ * it on. Default OFF; when off, the step records blocked_by_switch and queues nothing.
+ */
+export function PRICE_REVIEW_SEND(): boolean {
+  return process.env.PRICE_REVIEW_SEND === 'true';
+}

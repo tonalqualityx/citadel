@@ -92,8 +92,14 @@ describe('requireAuth', () => {
 
       const result = await requireAuth();
 
-      expect(result).toEqual(validTokenPayload);
+      expect(result).toEqual({ ...validTokenPayload, via: 'session' });
       expect(mockVerifyAccessToken).toHaveBeenCalledWith('valid-jwt-token');
+    });
+
+    it('marks a cookie login as via session, whatever the token claims', async () => {
+      mockVerifyAccessToken.mockResolvedValue({ ...validTokenPayload, via: 'api_key' });
+      mockUserFindUnique.mockResolvedValue({ id: 'user-123', is_active: true });
+      expect((await requireAuth()).via).toBe('session');
     });
 
     it('throws AuthError when user not found', async () => {
@@ -139,6 +145,7 @@ describe('requireAuth', () => {
         userId: 'user-123',
         email: 'test@example.com',
         role: 'pm',
+        via: 'api_key',
       });
       expect(mockHashApiKey).toHaveBeenCalledWith('citadel_testapikey123');
     });
@@ -197,7 +204,7 @@ describe('requireAuth', () => {
 
       const result = await requireAuth();
 
-      expect(result).toEqual(validTokenPayload);
+      expect(result).toEqual({ ...validTokenPayload, via: 'session' });
       expect(mockVerifyAccessToken).toHaveBeenCalledWith('valid-jwt-token');
       // API key path should not be reached
       expect(mockHashApiKey).not.toHaveBeenCalled();
@@ -219,6 +226,7 @@ describe('requireAuth', () => {
         userId: 'user-123',
         email: 'test@example.com',
         role: 'pm',
+        via: 'api_key',
       });
     });
 
@@ -252,6 +260,6 @@ describe('getOptionalAuth', () => {
 
     const result = await getOptionalAuth();
 
-    expect(result).toEqual(validTokenPayload);
+    expect(result).toEqual({ ...validTokenPayload, via: 'session' });
   });
 });

@@ -25,12 +25,13 @@ describe('template table', () => {
     ]);
   });
 
-  it('opens the six phase 1 templates plus the four portal clocks', () => {
+  it('opens the six phase 1 templates, the four portal clocks and the price review', () => {
     expect(liveTemplateKeys().sort()).toEqual(
       [
         'build.gate_mike',
         'build.review_internal',
         'change.needs_human',
+        'charter.price_review',
         'handoff.generic',
         'meeting.type_unclear',
         'portal.awaiting_client',
@@ -61,9 +62,14 @@ describe('template table', () => {
     expect(awaiting.title).toBe('Client has not answered {subject}; follow up by email or call');
   });
 
-  it('never enables a template that sends', () => {
+  it('never enables a template that sends, except the price review behind two switches', () => {
     for (const t of WAIT_TEMPLATES) {
-      if (t.enabled) expect(t.sends).toBe(false);
+      if (t.enabled && t.key === 'charter.price_review') {
+        // Item 4 of the 10-24 run: it queues its own mail, only with BOTH switches on.
+        expect(t.sends).toBe(true);
+        expect(t.switch_key).toBe('WAIT_SENDERS');
+        expect(t.extra_switch_keys).toEqual(['PRICE_REVIEW_SEND']);
+      } else if (t.enabled) expect(t.sends).toBe(false);
       const anySendStep = t.steps.some((s) => s.action === 'send');
       expect(t.sends).toBe(anySendStep);
     }

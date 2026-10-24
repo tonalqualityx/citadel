@@ -2240,6 +2240,11 @@ model Charter {
   created_at          DateTime             @default(now())
   updated_at          DateTime             @updatedAt
 
+  // Price review (Saturday 10-24 run, item 4; specs/citadel-shape-SPEC.md 3.5). The date the price
+  // is reviewed, and the moment the review finished. charter.price_review waits run off these.
+  price_review_on      DateTime? @db.Date
+  price_review_done_at DateTime?
+
   // Relations
   charter_wares       CharterWare[]
   scheduled_tasks     CharterScheduledTask[]

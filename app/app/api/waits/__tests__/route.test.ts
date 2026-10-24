@@ -52,6 +52,16 @@ describe('POST /api/waits', () => {
     expect(store.events.map((e) => e.kind)).toEqual(['created']);
   });
 
+  it('opens a price review at step 1 only; a later step by hand is refused', async () => {
+    const ok = await POST(post({ template_key: 'charter.price_review', subject: 'Acme', due_at: '2026-11-02T14:00:00Z', charter_id: '11111111-1111-4111-8111-111111111111' }));
+    expect(ok.status).toBe(201);
+    for (const step of [2, 3, 4]) {
+      const res = await POST(post({ template_key: 'charter.price_review', subject: 'Acme', step, due_at: '2026-11-02T14:00:00Z', charter_id: '11111111-1111-4111-8111-111111111111' }));
+      expect(res.status).toBe(400);
+    }
+    expect(store.all()).toHaveLength(1);
+  });
+
   it('refuses a registered-but-disabled template with 409', async () => {
     const res = await POST(post({ template_key: 'sales.proposal_unopened', subject: 'x' }));
     expect(res.status).toBe(409);

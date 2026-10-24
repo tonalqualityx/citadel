@@ -91,7 +91,8 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/waits: open a wait from a template. Phase 1 opens only the live templates
  * (build.gate_mike, build.review_internal, change.needs_human, meeting.type_unclear,
- * switch.off, handoff.generic); every other template is registered but refused. Idempotent on
+ * switch.off, handoff.generic) plus charter.price_review (step 1 only; the sweeper opens it too);
+ * every other template is registered but refused. Idempotent on
  * idempotency_key: a repeat returns the existing wait with 200.
  */
 export async function POST(request: NextRequest) {
@@ -99,6 +100,11 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
     requireRole(auth, ['pm', 'admin']);
     const body = createSchema.parse(await request.json());
+    // A price review chain starts at step 1 and moves on by itself. Opening a later step by hand
+    // could skip Mike's approval or stamp a review done.
+    if (body.template_key === 'charter.price_review' && (body.step ?? 1) !== 1) {
+      throw new ApiError('A price review can only be opened at step 1. The later steps open themselves.', 400);
+    }
 
     let data;
     try {

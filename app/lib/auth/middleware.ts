@@ -23,7 +23,8 @@ export async function requireAuth(): Promise<TokenPayload> {
         throw new AuthError('User not found or inactive', 401);
       }
 
-      return payload;
+      // Overwrite, never trust: a signed token cannot claim to be anything but a session here.
+      return { ...payload, via: 'session' };
     } catch (error) {
       if (error instanceof AuthError) throw error;
       throw new AuthError('Invalid token', 401);
@@ -79,6 +80,7 @@ async function authenticateApiKey(rawKey: string): Promise<TokenPayload> {
     userId: apiKey.user.id,
     email: apiKey.user.email,
     role: apiKey.user.role,
+    via: 'api_key',
   };
 }
 

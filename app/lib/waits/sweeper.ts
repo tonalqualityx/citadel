@@ -24,6 +24,7 @@ import {
   isWithinSendWindow,
   sameZonedDay,
 } from './business-days';
+import { assertPriceReviewResolution } from '@/lib/price-review/guard';
 import { MIKE_USER_ID, resolveOwner, type OwnerLookups, type ResolvedOwner } from './owner';
 import {
   buildNextStepData,
@@ -95,6 +96,8 @@ export interface SweepStore {
   transaction<T>(fn: (tx: SweepStore) => Promise<T>): Promise<T>;
   /** The newest event of a kind on a wait, or null. */
   lastEvent(waitId: string, kind: string): Promise<WaitEventInput | null>;
+  /** One wait by id, or null. Used to open the step after a draft task is done. */
+  getWait(id: string): Promise<WaitRow | null>;
 }
 
 export interface SweepDeps {
@@ -104,8 +107,18 @@ export interface SweepDeps {
   switchIsOn: (key: string) => Promise<boolean>;
   /** One Slack DM to Mike for a wait three business days late. Returns true when sent. */
   notifyMike?: (wait: WaitRow, resolved: ResolvedOwner) => Promise<boolean>;
-  /** Applies a `proceed` effect (accord dormant, publish staged change, ...). Phase 1: none. */
+  /**
+   * Applies a `proceed` effect. Phase 1 applied none. Item 4 of the 10-24 run applies one:
+   * `price_review_done` stamps Charter.price_review_done_at (lib/price-review/apply.ts).
+   */
   applyProceed?: (wait: WaitRow, effect: string | null) => Promise<void>;
+  /**
+   * Performs a send for the templates that queue their own mail (keyed by template key). Called
+   * only after every switch is on and the send window is open, never on a dry run. It throws when
+   * it cannot send, which counts as a firing error. Templates without a handler keep the phase 1
+   * behaviour: stamp `fired_at` for the machine-side outbox.
+   */
+  sendHandlers?: Record<string, (wait: WaitRow, now: Date) => Promise<void>>;
   now?: () => Date;
 }
 
@@ -231,6 +244,8 @@ export async function resolveWait(
     email_message_id?: string | null;
   }
 ): Promise<WaitRow> {
+  // The price review approval ends only by Mike's approval with terms or his denial.
+  assertPriceReviewResolution(wait, resolution);
   const updated = await store.update(wait.id, {
     state: 'done',
     resolved_at: opts.now,
@@ -253,6 +268,28 @@ export async function resolveWait(
     await spawnNextStep(store, updated, opts.now);
   }
   return updated;
+}
+
+/**
+ * A handoff wait on a task that a `next_on_task_done` step made has just closed because the task
+ * is done: open the step that follows the one that made the task. The handoff names its parent in
+ * `from_wait_id`; the link only counts when that parent really created this task, so a hand-opened
+ * wait cannot start another wait's chain. Idempotent on `<parent id>:next`.
+ */
+async function openStepAfterTask(store: SweepStore, handoff: WaitRow, now: Date): Promise<void> {
+  const fromId = payloadOf(handoff).from_wait_id;
+  if (typeof fromId !== 'string' || !handoff.task_id) return;
+  const parent = await store.getWait(fromId);
+  if (!parent) return;
+  if (payloadOf(parent).created_task_id !== handoff.task_id) return;
+  const step = getTemplate(parent.template_key)?.steps[parent.step - 1];
+  if (!step?.next_on_task_done) return;
+  await spawnNextStep(store, parent, now);
+}
+
+/** The switches a send step needs: the template's own, then any extras. */
+export function sendSwitchKeys(template: { switch_key?: string; extra_switch_keys?: string[] }): string[] {
+  return [...(template.switch_key ? [template.switch_key] : []), ...(template.extra_switch_keys ?? [])];
 }
 
 async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
@@ -322,6 +359,9 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     if (subject === 'task_done') {
       report.closed_with_task.push(w.id);
       if (!dryRun) {
+        // Open the next step first (idempotent on <parent id>:next), then close the handoff, so a
+        // failure in between leaves the handoff open and the next pass retries.
+        await openStepAfterTask(store, w, now);
         await resolveWait(store, w, 'task_done', { now, source: 'sweeper', reason: 'The task it points at is done.' });
       }
       continue;
@@ -463,8 +503,15 @@ async function fireOne(
     }
 
     if (action === 'send') {
-      const switchKey = template.switch_key ?? null;
-      if (switchKey && !(await deps.switchIsOn(switchKey))) {
+      // Every switch must be on. The first one that is off holds the send and names itself.
+      let switchKey: string | null = null;
+      for (const key of sendSwitchKeys(template)) {
+        if (!(await deps.switchIsOn(key))) {
+          switchKey = key;
+          break;
+        }
+      }
+      if (switchKey) {
         report.blocked_by_switch.push(wait.id);
         if (!dryRun) {
           await store.update(wait.id, { state: 'blocked_by_switch', switch_key: switchKey, claimed_at: null });
@@ -486,6 +533,15 @@ async function fireOne(
       }
       report.fired.push({ id: wait.id, template_key: wait.template_key, step: wait.step, action, note: step?.note });
       if (dryRun) return;
+      const handler = deps.sendHandlers?.[wait.template_key];
+      if (handler) {
+        // The template queues its own mail. Dedupe keys make a retry after a partial failure safe.
+        await handler(wait, now);
+        await store.update(wait.id, { fired_at: now, claimed_at: null });
+        await store.addEvent({ wait_id: wait.id, kind: 'fired', reason: step?.note ?? 'Queued in the outbox.', source: 'sweeper' });
+        await resolveWait(store, { ...wait, fired_at: now }, 'sent', { now, source: 'sweeper', reason: 'Queued in the outbox.' });
+        return;
+      }
       // Stamp for the machine-side outbox; the sender confirms with PUT /api/waits/:id/sent.
       // Next step first (idempotent on <id>:next), stamp last, so a failure retries cleanly.
       await spawnNextStep(store, wait, now);
