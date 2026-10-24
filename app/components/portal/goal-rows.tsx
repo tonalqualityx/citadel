@@ -18,8 +18,9 @@ export function GoalRows({ goals }: { goals: GoalView[] }) {
           <li key={`${g.label}-${i}`}>
             <span className="t">{g.label}</span>
             <span className="meta">
-              <span>
-                <Arrow className="i" aria-hidden="true" focusable="false" /> {g.target_text}
+              <span className="goal-target">
+                <Arrow className="i" aria-hidden="true" focusable="false" />
+                <span>{g.target_text}</span>
               </span>
               {g.last_text ? <span className="num">{g.last_text}</span> : null}
             </span>
