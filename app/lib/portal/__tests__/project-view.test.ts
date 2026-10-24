@@ -91,6 +91,20 @@ describe('buildPhaseList', () => {
     expect(currentPhaseName(list)).toBe('Build');
   });
 
+  it('keeps a phase current while its approved work is not live yet', () => {
+    const approved = [
+      task({ id: '1', status: 'done', phase_id: 'p1' }),
+      task({ id: '2', status: 'review', phase_id: 'p2', client_approved_at: new Date('2026-10-20'), tags: ['client-approved'] }),
+      task({ id: '3', status: 'not_started', phase_id: 'p3' }),
+    ];
+    const list = buildPhaseList(phases, approved);
+    expect(list.map((p) => [p.name, p.state])).toEqual([
+      ['Design', 'done'],
+      ['Build', 'current'],
+      ['Launch', 'upcoming'],
+    ]);
+  });
+
   it('reports the last phase when everything is done and null with no phases', () => {
     const done = tasks.map((t) => ({ ...t, status: 'done' }));
     expect(currentPhaseName(buildPhaseList(phases, done))).toBe('Launch');
