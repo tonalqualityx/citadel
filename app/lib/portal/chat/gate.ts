@@ -149,6 +149,9 @@ function numberWordProblem(text: string): string | null {
 
 const MONEY_WORDS = /\b(?:dollars?|bucks?|cents?|free|complimentary|on the house|no (?:extra |additional )?charge|costs?|costing|discounts?|percent off|refunds?|waive[ds]?|fees?|comp(?:ed)?|gratis)\b|\bnothing extra\b/i;
 
+/** Money promises with no money word in them: "we won't charge you", "nothing to pay", "your rate stays the same". */
+const MONEY_PROMISE = /\b(?:we|i|indelible)\s+(?:won't|will not|will never|wouldn't|would not|don't|do not|never)\s+(?:be\s+)?(?:charg|bill|invoic)\w*|\byou\s+(?:won't|will not|will never|wouldn't|would not|don't|do not|never)\s+be\s+(?:charg|bill|invoic)\w*|\byou\s+(?:(?:won't|will not|wouldn't|would not|don't|do not|never)\s+)?(?:(?:have|need) to\s+)?(?:pay|owe)\s+(?:anything|nothing|extra|more)\b(?!\s+attention)|\bnothing to pay\b|\b(?:add|added|adds)\s+to\s+your\s+(?:bill|invoice)\b|\b(?:our\s+(?:prices|pricing|rates?)|your\s+(?:bill|invoices?|rate)|(?:monthly|annual)\s+(?:rates?|prices|pricing))\s+(?:(?:stays?|remains?)\s+(?:the same|unchanged|as is|flat|where)|(?:will not|won't|would not|wouldn't|does not|doesn't|do not|don't)\s+(?:change|go up|increase|rise))\b/i;
+
 const TIME_WORDS = new RegExp(
   '\\b(?:today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tues|thurs?|' +
     '(?:this|next|last) (?:week|month|year|quarter|weekend)|the weekend|end of (?:the )?(?:day|week|month|year)|eod|eow|eom|asap|' +
@@ -430,11 +433,11 @@ const ORDINARY_PHRASES: RegExp[] = [
   /\bcover (?:photos?|images?|pictures?|pages?|letters?|art|stor(?:y|ies)|songs?)\b/gi,
   /\b(?:mon|tues?|wednes|thurs?|fri|satur|sun)day'?s? hours\b/gi,
   /\b(?:weekday|weekend|opening|business|store|holiday) hours\b/gi,
-  /\b(?:specials|menu|events|classes|deals|hours|schedule|lineup|offers|hours of operation)\s+(?:for|of)\s+(?:this|next)\s+week\b/gi,
+  /(?<!\b(?:have|has|had|got|free|open|spare|extra|more|some|enough|book|booked|block|blocked)\s+(?:(?:the|some|any)\s+)?)\b(?:specials|menu|events|classes|deals|hours|schedule|lineup|offers|hours of operation)\s+(?:for|of)\s+(?:this|next)\s+week\b/gi,
   /\b(?:this|next)\s+week's\s+(?:specials|menu|events|classes|deals|hours|schedule|lineup|offers)\b/gi,
   // a price list, a pricing page, membership fees: names of things on a site
   /\b(?:price|pricing|rate|rates|fee|fees|menu)\s+(?:list|page|section|table|chart|sheet|schedule)\b/gi,
-  /\b(?:membership|registration|tuition|class|admission|entry|enrollment|application|annual|monthly|event|late|service)\s+(?:fees?|rates?|prices?)\b/gi,
+  /\b(?:membership|registration|tuition|class|admission|entry|enrollment|application|event)\s+(?:fees?|rates?|prices?)\b/gi,
 ];
 
 function hideOrdinaryPhrases(text: string): string {
@@ -523,7 +526,7 @@ export function gateReply(input: string, ctx: GateContext, kind: GateKind = 'rep
     const m = re.exec(promiseText);
     if (m) return fail('promise', `${name}: ${m[0].trim()}`);
   }
-  for (const re of [MONEY_WORDS, TIME_WORDS]) {
+  for (const re of [MONEY_WORDS, MONEY_PROMISE, TIME_WORDS]) {
     const m = re.exec(promiseText);
     if (m) return fail('promise', m[0].trim());
   }
