@@ -273,7 +273,7 @@ const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/projects/:id': ['wizard'],
   '/api/sites/:id': ['bulk'],
   '/api/sops/:id': ['bulk', 'tags'],
-  '/api/tasks/:id': ['bulk', 'unblock-sweep'],
+  '/api/tasks/:id': ['bulk', 'claims', 'unblock-sweep'],
 };
 
 export function paramExceptions(prefix: string): readonly string[] {
