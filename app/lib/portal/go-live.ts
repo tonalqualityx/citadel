@@ -32,8 +32,11 @@ import { CLIENT_APPROVED_TAG, SEND_BACK_TAG, removeTaskTagQuery, resolveTaskCont
 import { sendTaskApprovalRequestEmail } from '@/lib/services/email';
 import { logStatusChange } from '@/lib/services/activity';
 import { unblockEligibleDependents } from '@/lib/services/dependencies';
+import { queueInOutbox } from '@/lib/sends/outbox';
+import { claimNotice, releaseNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
+import { assertClaimHeld, CLEAR_CLAIM_DATA, type ClaimCaller } from '@/lib/tasks/claims';
 
-export const GO_LIVE_TAG = 'go-live-notified';
+export { GO_LIVE_TAG };
 export const GO_LIVE_KIND = 'portal_golive';
 export const STAGED_NOTE_MAX = 500;
 export const SUMMARY_MAX = 300;
@@ -64,7 +67,8 @@ const firstNameOf = (name: string | null | undefined) => (name ?? '').trim().spl
 export const stagedLine = (previewUrl: string, note?: string | null) =>
   `Ready for your review: ${previewUrl}. Open it, then approve it or tell us what to change.${note ? `\n\n${oneLine(note)}` : ''}`;
 
-export const liveLine = (liveUrl: string) => `This is live now: ${liveUrl}. Reply here if anything looks off.`;
+const LIVE_LINE_PREFIX = 'This is live now:';
+export const liveLine = (liveUrl: string) => `${LIVE_LINE_PREFIX} ${liveUrl}. Reply here if anything looks off.`;
 
 export const goLiveSubject = (clientName: string) => `${clientName}: your change is live`.slice(0, 480);
 
@@ -88,10 +92,30 @@ export function buildGoLiveBody(i: { firstName: string; what: string; liveUrl: s
 export const isApprovedState = (t: { client_approved_at: Date | null; tags: string[]; approved?: boolean }) =>
   Boolean(t.client_approved_at) || t.tags.includes(CLIENT_APPROVED_TAG) || Boolean(t.approved);
 
-/** Claim a tag in one UPDATE. True only for the caller that added it. */
-async function claimTag(taskId: string, tag: string): Promise<boolean> {
-  const n = await prisma.$executeRaw`UPDATE tasks SET tags = array_append(tags, ${tag}) WHERE id = ${taskId}::uuid AND NOT (${tag} = ANY(tags))`;
-  return n === 1;
+/** The marker on a go-live line posted while another channel already told the client (no chat sweep email, no second notice). */
+const GO_LIVE_CLAIMED_ELSEWHERE = 'go_live_claimed_elsewhere';
+
+/**
+ * The go-live notice was already claimed (a worker's own email reached the client first, or this is a repeat).
+ * Make sure the client-visible thread line exists once, marked as already carried so no second email follows.
+ */
+async function ensureLiveLine(taskId: string, authorId: string, line: string): Promise<void> {
+  const existing = await prisma.comment.findFirst({
+    where: {
+      task_id: taskId,
+      is_deleted: false,
+      OR: [
+        { content: { startsWith: LIVE_LINE_PREFIX }, client_visible: true },
+        { chat_meta: { path: ['email_notice'], equals: 'go_live_email' } },
+        { chat_meta: { path: ['email_notice'], equals: GO_LIVE_CLAIMED_ELSEWHERE } },
+      ],
+    },
+    select: { id: true },
+  });
+  if (existing) return;
+  await prisma.comment.create({
+    data: { task_id: taskId, user_id: authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: GO_LIVE_CLAIMED_ELSEWHERE } },
+  });
 }
 
 export interface StagedResult {
@@ -106,6 +130,10 @@ export async function markStaged(input: {
   authorId: string;
   previewUrl: string;
   note?: string | null;
+  /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
+  claimToken?: string | null;
+  /** Who is calling; a person on a browser session may override another worker's lease (fleet item 3). */
+  claimCaller?: ClaimCaller;
 }): Promise<StagedResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
@@ -113,6 +141,7 @@ export async function markStaged(input: {
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned', 409);
+  const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'staging', caller: input.claimCaller });
   if (task.client_approved_at || task.tags.includes(CLIENT_APPROVED_TAG)) {
     throw new ApiError('The client already approved this task. Publish it with the live call.', 409);
   }
@@ -124,15 +153,17 @@ export async function markStaged(input: {
 
   const now = new Date();
   await prisma.$transaction([
-    prisma.task.update({ where: { id: task.id }, data: { status: 'review', staging_preview_url: input.previewUrl, staging_deployed_at: now, completed_at: null } }),
+    prisma.task.update({ where: { id: task.id }, data: { status: 'review', staging_preview_url: input.previewUrl, staging_deployed_at: now, completed_at: null, ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}) } }),
     removeTaskTagQuery(task.id, SEND_BACK_TAG),
     // chat_meta marks the line as already carried by the approval email, so the chat sweep does not mail it again.
     prisma.comment.create({
       data: { task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: 'approval_email' } },
     }),
   ]);
+  await claimCheck.logOverride();
 
   let approvalEmail: 'sent' | 'skipped' = 'skipped';
+  let previewHolder: string | null = null;
   // Email-sourced work gets its preview on the client's own thread from the worker; only portal requests are mailed here.
   if (task.source === 'portal' && task.requested_by_contact_id) {
     try {
@@ -143,16 +174,27 @@ export async function markStaged(input: {
       const contact = full ? await resolveTaskContact(full) : null;
       const link = await ensureTaskPortalToken(task.id);
       if (full && contact?.email && link) {
+        // One notice per preview address across channels. A rework (send-back, request changes, leaving review)
+        // clears the preview claims, so a revised preview at the same address is told afresh.
+        previewHolder = await claimNotice(task.id, 'preview', input.previewUrl);
+        if (!previewHolder) {
+          return { status: 'review', preview_url: input.previewUrl, already_staged: false, approval_email: 'skipped' };
+        }
         await sendTaskApprovalRequestEmail({
           to: contact.email,
           approvalUrl: link.url,
           taskTitle: full.client_title ?? full.title,
           contactName: contact.name,
           stagingUrl: full.staging_preview_url,
+          taskId: task.id,
+          claimed: true,
+          claimHolder: previewHolder,
         });
         approvalEmail = 'sent';
       }
     } catch (error) {
+      // The mail did not go: give the preview claim back so a retry or the worker's own note can still tell the client.
+      if (previewHolder) await releaseNotice(task.id, 'preview', input.previewUrl, previewHolder).catch(() => undefined);
       console.error('staged approval email failed', error);
     }
   }
@@ -172,6 +214,9 @@ export async function markLive(input: {
   liveUrl: string;
   summary?: string | null;
   force?: boolean;
+  /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
+  claimToken?: string | null;
+  claimCaller?: ClaimCaller;
 }): Promise<LiveResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
@@ -185,6 +230,7 @@ export async function markLive(input: {
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   // A cancelled request is not published, even with force: staff reopen it first.
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned, so it cannot go live. Reopen it first.', 409, 'abandoned');
+  const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'go-live', caller: input.claimCaller });
   if (!isApprovedState(task) && !input.force) {
     throw new ApiError('The client has not approved this task yet. Nothing was published to them.', 409, 'not_approved');
   }
@@ -201,15 +247,19 @@ export async function markLive(input: {
       approved: true,
       approved_at: now,
       approved_by_id: input.authorId,
+      ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}),
     },
   });
+  await claimCheck.logOverride();
   if (task.status !== 'done') {
     await logStatusChange(input.authorId, 'task', task.id, task.title, task.status, 'done').catch(() => undefined);
     await unblockEligibleDependents(task.id).catch((e: unknown) => console.error('unblock after go-live failed', e));
   }
 
   // One send per task: the tag is claimed before anything is posted or mailed.
-  if (!(await claimTag(task.id, GO_LIVE_TAG))) {
+  const liveHolder = await claimNotice(task.id, 'live');
+  if (!liveHolder) {
+    await ensureLiveLine(task.id, input.authorId, line);
     return { status: 'done', already_notified: true, lane: 'none', emailed: [] };
   }
 
@@ -229,8 +279,9 @@ export async function markLive(input: {
     const clientName = task.client?.name ?? task.site?.client?.name ?? 'Your site';
     const emailed: string[] = [];
     for (const r of recipients) {
-      await prisma.emailOutbox.create({
-        data: {
+      await queueInOutbox(
+        prisma,
+        {
           to: r.email,
           subject: goLiveSubject(clientName),
           text: buildGoLiveBody({ firstName: firstNameOf(r.name), what, liveUrl: input.liveUrl, workUrl: workPageUrl(task.id) }),
@@ -240,12 +291,17 @@ export async function markLive(input: {
           dedupe_key: `golive:${task.id}:${r.id}`,
           task_id: task.id,
         },
-      });
+        { intent: 'golive', task_id: task.id, snapshot: { claimed: true, holder: liveHolder } }
+      );
       emailed.push(r.email);
+    }
+    if (emailed.length === 0) {
+      // Nobody was told. Give the claim back so the worker's own note (or a later call) can still tell the client.
+      await releaseNotice(task.id, 'live', null, liveHolder);
     }
     return { status: 'done', already_notified: false, lane: emailed.length ? 'email' : 'none', emailed };
   } catch (error) {
-    await removeTaskTagQuery(task.id, GO_LIVE_TAG);
+    await releaseNotice(task.id, 'live', null, liveHolder);
     throw error;
   }
 }

@@ -136,13 +136,14 @@ export async function requestClientMagicLink(input: {
 
   for (const contact of contacts) {
     const magicToken = generateToken();
+    const magicExpiresAt = minutesFromNow(MAGIC_LINK_TTL_MINUTES);
     await prisma.portalSession.create({
       data: {
         token_type: TOKEN_TYPE,
         entity_id: contact.client_id,
         contact_id: contact.id,
         magic_token_hash: hashMagicToken(magicToken),
-        magic_token_expires_at: minutesFromNow(MAGIC_LINK_TTL_MINUTES),
+        magic_token_expires_at: magicExpiresAt,
         ip_address: input.ipAddress,
         user_agent: input.userAgent,
         action: 'request',
@@ -156,6 +157,7 @@ export async function requestClientMagicLink(input: {
       loginUrl: verifyUrl(baseUrl, magicToken),
       contactName: contact.name,
       expiresLabel: `${MAGIC_LINK_TTL_MINUTES} minutes`,
+      expiresAt: magicExpiresAt,
     });
   }
 
@@ -217,6 +219,7 @@ export async function createContactPortalLoginLink(input: {
       loginUrl: url,
       contactName: contact.name,
       expiresLabel: `${TEAM_INVITE_TTL_DAYS} days`,
+      expiresAt,
     });
   }
 

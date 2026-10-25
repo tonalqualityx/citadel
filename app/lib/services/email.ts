@@ -5,6 +5,8 @@
  */
 
 import { prisma } from '@/lib/db/prisma';
+import { queueInOutbox } from '@/lib/sends/outbox';
+import type { Govern } from '@/lib/sends/govern';
 
 export type OutboxKind = 'magic_link' | 'invite' | 'proposal' | 'contract' | 'notification' | 'portal_chat' | 'other';
 
@@ -19,6 +21,8 @@ interface SendEmailOptions {
   dedupeKey?: string;
   /** Marks a system message the drain may send to an address outside becomeindelible.com. */
   allowExternal?: boolean;
+  /** REQUIRED: the fact this message reports, re-read at send time (lib/sends/recheck.ts). */
+  govern: Govern;
 }
 
 interface SendGridConfig {
@@ -122,11 +126,13 @@ function logToConsole(options: SendEmailOptions): void {
 /**
  * Queue the message in EmailOutbox. The drain on the Bast machine sends it from bast@.
  * Returns false if the row could not be written. A duplicate dedupe_key counts as queued.
+ * The row itself is written by lib/sends/outbox.ts, the only writer, with the govern block.
  */
-async function queueInOutbox(options: SendEmailOptions): Promise<boolean> {
+async function queueOptionsInOutbox(options: SendEmailOptions): Promise<boolean> {
   try {
-    await prisma.emailOutbox.create({
-      data: {
+    await queueInOutbox(
+      prisma,
+      {
         to: options.to,
         subject: options.subject,
         text: options.text,
@@ -135,7 +141,8 @@ async function queueInOutbox(options: SendEmailOptions): Promise<boolean> {
         allow_external: options.allowExternal ?? false,
         dedupe_key: options.dedupeKey ?? null,
       },
-    });
+      options.govern
+    );
     console.log(`Email queued in outbox for ${options.to} (${options.kind ?? 'other'})`);
     return true;
   } catch (error) {
@@ -158,6 +165,20 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const config = await getSendGridConfig();
 
   if (config) {
+    // Send-time recheck on the direct path too (it is normally inactive in production: mail goes through the
+    // outbox). Imported lazily to keep the import graph acyclic. Fail open: the check must not stop mail when it errors.
+    if (options.govern.intent !== 'none') {
+      try {
+        const { decideSend } = await import('@/lib/sends/policy');
+        const decision = await decideSend(options.govern, null);
+        if (!decision.ok) {
+          console.log(`Email to ${options.to} dropped at send time (${decision.reason})`);
+          return;
+        }
+      } catch (error) {
+        console.error('send recheck failed on the SendGrid path, sending anyway', error);
+      }
+    }
     const sent = await sendViaSendGrid(config, options);
     if (sent) {
       console.log(`Email sent via SendGrid to ${options.to}`);
@@ -171,7 +192,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
     return;
   }
 
-  if (await queueInOutbox(options)) return;
+  if (await queueOptionsInOutbox(options)) return;
   logToConsole(options);
 }
 
@@ -188,6 +209,12 @@ export async function sendTaskApprovalRequestEmail(options: {
   taskTitle: string;
   contactName?: string | null;
   stagingUrl?: string | null;
+  /** The task whose review this mail asks for; checked again at send time. */
+  taskId: string;
+  /** True when the caller holds the preview claim or is an explicit staff resend (the recheck then skips already_notified). */
+  claimed?: boolean;
+  /** The holder id of the preview claim, so a superseded or failed row can give it back. */
+  claimHolder?: string | null;
 }): Promise<void> {
   const { to, approvalUrl, taskTitle, contactName, stagingUrl } = options;
   const greetingName = contactName ? ` ${contactName}` : '';
@@ -246,7 +273,7 @@ The Indelible Team
 </html>
 `.trim();
 
-  await sendEmail({ to, subject, text, html });
+  await sendEmail({ to, subject, text, html, govern: { intent: 'approval_request', task_id: options.taskId, snapshot: { preview_url: stagingUrl ?? null, claimed: options.claimed === true, ...(options.claimHolder ? { holder: options.claimHolder } : {}) } } });
 }
 
 /**
@@ -305,7 +332,7 @@ If you didn't request this, you can safely ignore this email.
 </html>
 `.trim();
 
-  await sendEmail({ to: email, subject, text, html });
+  await sendEmail({ to: email, subject, text, html, govern: { intent: 'none', reason: 'password reset the user asked for' } });
 }
 
 /**
@@ -326,6 +353,8 @@ export async function sendClientMagicLinkEmail(options: {
   kind?: 'magic_link' | 'invite';
   /** Dedupe key for the outbox (hash of the login token). */
   dedupeKey?: string;
+  /** When the link stops working; the send is dropped if the clock passes it before the mail goes out. */
+  expiresAt: Date;
 }): Promise<void> {
   const { to, loginUrl, contactName, expiresMinutes, expiresLabel } = options;
   const greeting = contactName ? ` ${contactName}` : '';
@@ -382,5 +411,6 @@ If you didn't request this, you can safely ignore this email.
     kind: options.kind ?? 'magic_link',
     dedupeKey: options.dedupeKey,
     allowExternal: true,
+    govern: { intent: options.kind ?? 'magic_link', snapshot: { expires_at: options.expiresAt.toISOString() } },
   });
 }

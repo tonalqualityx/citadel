@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { logUpdate } from '@/lib/services/activity';
+import { decideSend } from '@/lib/sends/policy';
 
 // Oracle Projects Tab Phase 5 fixes (HIGH-1/MEDIUM-1, layer 2 — the server claim) —
 // PUT used ONLY by the machine-side sender (approval-sender.py), called BEFORE gog is
@@ -41,6 +42,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       );
     }
 
+    // Send-time recheck (Fleet item 4): the task may have moved on since this was queued.
+    const decision = await decideSend({ intent: 'approval_mail', task_id: existing.task_id, approval_request_id: id }, id);
+    if (!decision.ok) {
+      const reason = (decision.reason ?? 'superseded').slice(0, 64);
+      const now = new Date();
+      await prisma.approvalRequest.update({ where: { id }, data: { status: 'cancelled', cancelled_at: now, superseded_at: now, superseded_reason: reason } });
+      await logUpdate(auth.userId, 'task', existing.task_id, 'Approval request', { approval_status: { from: 'queued', to: 'cancelled' } });
+      return NextResponse.json({ error: 'superseded', code: 'superseded', reason }, { status: 409 });
+    }
+
     const sendAttemptAt = new Date();
     const updated = await prisma.approvalRequest.update({
       where: { id },
@@ -54,10 +65,16 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       approval_status: { from: 'queued', to: 'sending' },
     });
 
+    // The fresh row: the sender sends THIS copy (to, subject, body as they stand now), not its earlier list copy.
     return NextResponse.json({
       id: updated.id,
       status: updated.status,
       send_attempt_at: updated.send_attempt_at,
+      to_email: updated.to_email,
+      subject: updated.subject,
+      body: updated.body,
+      task_id: updated.task_id,
+      contact_id: updated.contact_id,
     });
   } catch (error) {
     return handleApiError(error);

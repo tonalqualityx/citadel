@@ -16,6 +16,8 @@ import {
 } from '@/lib/services/dependencies';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
+import { clearPreviewClaims } from '@/lib/sends/claims';
+import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 
 // Schema for requirement items (flat items)
@@ -365,12 +367,24 @@ export async function PATCH(
     const existingTask = await checkTaskAccess(id, auth);
     const body = await request.json();
 
+    // Fleet item 3: wherever `status` appears in the body (status-only or mixed), moves to in_progress,
+    // review or done need the claim token while another worker holds a live lease. A person on a browser
+    // session may move it anyway; the lease is then cleared in the same write below. No live lease, or
+    // mode off, behaves exactly as before.
+    let claimCleared: Record<string, null> = {};
+    let claimCheck: Awaited<ReturnType<typeof assertClaimHeld>> | null = null;
+    if (typeof body.status === 'string' && body.status !== existingTask.status && ['in_progress', 'review', 'done'].includes(body.status)) {
+      const check = await assertClaimHeld(id, request.headers.get('x-claim-token'), { action: `move to ${body.status}`, caller: { userId: auth.userId, role: auth.role, via: auth.via } });
+      claimCheck = check;
+      if (check.overridden_holder) claimCleared = { ...CLEAR_CLAIM_DATA };
+    }
+
     // Check if this is a status-only update
     if (body.status && Object.keys(body).length === 1) {
       const statusData = updateStatusSchema.parse(body);
 
       assertStatusTransition(existingTask.status, statusData.status);
-      const updateData = statusTransitionData(existingTask, statusData.status);
+      const updateData = { ...statusTransitionData(existingTask, statusData.status), ...claimCleared };
 
       const task = await prisma.task.update({
         where: { id },
@@ -397,6 +411,11 @@ export async function PATCH(
           blocking: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } } },
         },
       });
+
+      await claimCheck?.logOverride();
+
+      // A task leaving review for rework spends its preview notice claims (a revised preview is told afresh).
+      if (existingTask.status === 'review' && statusData.status !== 'review' && statusData.status !== 'done') await clearPreviewClaims(id);
 
       const completionNudge = await afterStatusChange(
         auth.userId,
@@ -540,6 +559,7 @@ export async function PATCH(
       estimated_minutes: estimatedMinutes,
       // Applied first so an explicit field in the same body (e.g. is_focus) wins.
       ...(newStatus !== undefined ? statusTransitionData(existingTask, newStatus) : {}),
+      ...claimCleared,
     };
 
     if (data.title !== undefined) updateData.title = data.title;
@@ -695,6 +715,8 @@ export async function PATCH(
         },
       },
     });
+    if (existingTask.status === 'review' && updateData.status && updateData.status !== 'review' && updateData.status !== 'done') await clearPreviewClaims(id);
+    await claimCheck?.logOverride();
 
     // A requested status change gets the status-only side effects. A forced `blocked` from a
     // dependency connect alone keeps its existing behavior (no activity entry).

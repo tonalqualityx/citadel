@@ -1249,6 +1249,12 @@ model Task {
   portal_token            String?   @db.VarChar(128)
   portal_token_expires_at DateTime?
 
+  // Fleet item 3: claims with leases
+  claim_holder String?   @db.VarChar(200)
+  claim_token  String?   @db.Uuid
+  claimed_at   DateTime?
+  lease_until  DateTime?
+
   // Metadata
   is_deleted    Boolean  @default(false)
   created_at    DateTime @default(now())
@@ -1293,6 +1299,7 @@ model Task {
   @@index([portal_token])
   @@index([arc_id])
   @@index([source_session_external_id])
+  @@index([lease_until])
   @@map("tasks")
 }
 
@@ -1699,6 +1706,9 @@ model AppSettings {
   // The chat runner posts a heartbeat every 60 s while it is alive, idle or not (POST /api/engine/runner/heartbeat).
   portal_chat_runner_seen_at    DateTime?
 
+  // Fleet item 3: task claims mode (off | warn | enforce)
+  task_claims_mode String @default("warn")
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -1706,6 +1716,10 @@ model AppSettings {
   bug_report_project     Project?      @relation(fields: [bug_report_project_id], references: [id])
   bug_report_phase       ProjectPhase? @relation(fields: [bug_report_phase_id], references: [id])
   bug_report_notify_user User?         @relation("BugReportNotifyUser", fields: [bug_report_notify_user_id], references: [id])
+
+  // Fleet item 4
+  send_recheck_mode       String @default("shadow") @db.VarChar(10) // off | shadow | enforce
+  send_recheck_heuristics String @default("shadow") @db.VarChar(10) // shadow | enforce
 
   @@map("app_settings")
 }
@@ -3438,6 +3452,10 @@ model ApprovalRequest {
   // auto-resent) — see lib/oracle/projects/blockers.ts's classifyClientApprovals.
   send_attempt_at DateTime?
 
+  // Fleet item 4: stamped when the send-time recheck drops the row (PUT .../sending 409 superseded).
+  superseded_at     DateTime?
+  superseded_reason String?   @db.VarChar(64)
+
   // Phase 5 — set by PUT .../send-error when the machine-side sender fails to send a
   // queued row; cleared on a subsequent successful send. After 3 recorded errors the
   // sender's own PUT flips status back to 'draft' (see approval-sender.py) rather than
@@ -3818,6 +3836,11 @@ model EmailOutbox {
   rfc_message_id    String?   @db.VarChar(255)
   gmail_thread_id   String?   @db.VarChar(64)
   task_id           String?   @db.Uuid
+  // Fleet item 4: the governing record the send is checked against at claim time (lib/sends/recheck.ts),
+  // and the stamp a dropped row carries. A superseded row is never listed or claimed again.
+  govern            Json?
+  superseded_at     DateTime?
+  superseded_reason String?   @db.VarChar(64)
 
   @@index([sent_at, created_at])
   @@map("email_outbox")
@@ -4101,4 +4124,121 @@ model ChecklistItem {
 
   @@unique([checklist_id, key])
   @@map("checklist_items")
+}
+
+// ===== Fleet item 2 =====
+// The decision record: rulings, client decisions and policies, each with its sources.
+// Scope ids are plain indexed uuids on purpose (no relations to other models), so a
+// decision can outlive or precede the thing it governs and the record never blocks a delete.
+
+enum DecisionKind {
+  ruling
+  client_decision
+  policy
+}
+
+enum DecisionStatus {
+  proposed
+  recorded_from_source
+  confirmed
+  superseded
+  retracted
+  rejected
+}
+
+enum DecisionScope {
+  fleet
+  lane
+  client
+  project
+  charter
+  site
+  accord
+}
+
+enum DecisionSourceKind {
+  session
+  transcript
+  email
+  doc
+  memory
+  portal
+}
+
+model Decision {
+  id                   String         @id @default(uuid()) @db.Uuid
+  key                  String?        @unique @db.VarChar(200)
+  title                String         @db.VarChar(300)
+  text                 String         @db.Text
+  kind                 DecisionKind   @default(ruling)
+  status               DecisionStatus @default(proposed)
+  scope                DecisionScope  @default(fleet)
+  lane                 String?        @db.VarChar(100)
+  client_id            String?        @db.Uuid
+  project_id           String?        @db.Uuid
+  charter_id           String?        @db.Uuid
+  site_id              String?        @db.Uuid
+  accord_id            String?        @db.Uuid
+  author_user_id       String?        @db.Uuid
+  author_contact_id    String?        @db.Uuid
+  ruled_at             DateTime?
+  revision             Int            @default(1)
+  supersedes_id        String?        @unique @db.Uuid
+  supersedes           Decision?      @relation("DecisionSupersession", fields: [supersedes_id], references: [id])
+  superseded_by        Decision?      @relation("DecisionSupersession")
+  conflict_note        String?        @db.Text
+  confidence           Decimal?       @db.Decimal(3, 2)
+  confirmed_by_user_id String?        @db.Uuid
+  confirmed_at         DateTime?
+  created_by_id        String?        @db.Uuid
+  tags                 String[]       @default([])
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @updatedAt
+
+  sources DecisionSource[]
+  links   DecisionLink[]
+
+  @@index([status])
+  @@index([scope])
+  @@index([lane])
+  @@index([client_id])
+  @@index([project_id])
+  @@index([charter_id])
+  @@index([site_id])
+  @@index([accord_id])
+  @@map("decisions")
+}
+
+model DecisionSource {
+  id                String             @id @default(uuid()) @db.Uuid
+  decision_id       String             @db.Uuid
+  decision          Decision           @relation(fields: [decision_id], references: [id], onDelete: Cascade)
+  kind              DecisionSourceKind
+  ref               String             @db.VarChar(1000)
+  thread_ref        String?            @db.VarChar(1000)
+  quote             String?            @db.Text
+  author_label      String?            @db.VarChar(200)
+  author_user_id    String?            @db.Uuid
+  author_contact_id String?            @db.Uuid
+  at                DateTime?
+  extracted_by      String?            @db.VarChar(100)
+  created_at        DateTime           @default(now())
+
+  @@unique([decision_id, kind, ref])
+  @@index([decision_id])
+  @@map("decision_sources")
+}
+
+model DecisionLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  decision_id String   @db.Uuid
+  decision    Decision @relation(fields: [decision_id], references: [id], onDelete: Cascade)
+  entity_kind String   @db.VarChar(50)
+  entity_id   String   @db.VarChar(500)
+  relation    String   @default("governs") @db.VarChar(50)
+  created_at  DateTime @default(now())
+
+  @@unique([decision_id, entity_kind, entity_id, relation])
+  @@index([entity_kind, entity_id])
+  @@map("decision_links")
 }

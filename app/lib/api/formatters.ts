@@ -997,6 +997,10 @@ export function formatTaskResponse(task: any) {
     promised_to: task.promised_to ?? null,
     started_at: task.started_at,
     completed_at: task.completed_at,
+    // Fleet item 3: claims with leases (the token is never listed; spawn-gate reads lease_until)
+    claim_holder: task.claim_holder ?? null,
+    claimed_at: task.claimed_at ?? null,
+    lease_until: task.lease_until ?? null,
     requirements: task.requirements,
     review_requirements: task.review_requirements, // PM/Admin-only, filtered by API
     // Review workflow

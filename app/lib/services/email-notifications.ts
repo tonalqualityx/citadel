@@ -202,6 +202,7 @@ export async function sendNotificationEmail(
     await sendEmail({
       to: user.email,
       ...emailContent,
+      govern: { intent: 'none', reason: 'internal notification email' },
     });
 
     return true;
@@ -376,6 +377,7 @@ export async function sendDigestEmail(
     await sendEmail({
       to: user.email,
       ...emailContent,
+      govern: { intent: 'none', reason: 'internal digest email' },
     });
 
     return true;

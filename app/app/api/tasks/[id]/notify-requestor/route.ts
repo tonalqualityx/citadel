@@ -53,6 +53,8 @@ export async function POST(
       taskTitle: task.title,
       contactName: contact.name,
       stagingUrl: task.staging_preview_url,
+      taskId: task.id,
+      claimed: true, // an explicit staff resend is never held back by an earlier notice
     });
 
     return NextResponse.json({

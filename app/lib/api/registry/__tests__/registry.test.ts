@@ -55,7 +55,7 @@ describe('API Registry', () => {
       'proposals', 'msa', 'portal', 'contracts', 'onboarding', 'charter',
       'automation', 'addendums', 'meetings', 'troubador', 'contacts',
       'brand-profiles', 'oracle', 'clarity', 'waits', 'email-outbox',
-      'engine', 'portal-chat', 'kpis', 'checklists',
+      'engine', 'portal-chat', 'kpis', 'checklists', 'task-claims',
     ];
 
     it('contains all expected groups', () => {

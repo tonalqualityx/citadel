@@ -9,6 +9,7 @@
  * (lib/price-review/terms.ts). No record, or one Mike did not write, means nothing is rendered
  * and nothing is queued. Citadel never sends mail: the Bast machine drains the outbox.
  */
+import { queueInOutbox, type OutboxDb } from '@/lib/sends/outbox';
 import type { PrismaClient } from '@prisma/client';
 import { PRICE_REVIEW_SEND } from '@/lib/config/feature-flags';
 import { BAST_ACCOUNT } from '@/lib/portal/chat/mailer';
@@ -89,8 +90,9 @@ export async function queuePriceReviewSend(db: Db, wait: WaitRow, deps: SendDeps
       queued.push(existing.id);
       continue;
     }
-    const row = await db.emailOutbox.create({
-      data: {
+    const row = await queueInOutbox(
+      db as OutboxDb,
+      {
         to: c.email.trim(),
         subject: mail.subject,
         text: mail.text,
@@ -99,8 +101,9 @@ export async function queuePriceReviewSend(db: Db, wait: WaitRow, deps: SendDeps
         allow_external: true,
         dedupe_key,
       },
-      select: { id: true },
-    });
+      // Approved by Mike on the wait step; the claim route re-checks the recipient and the charter (price-review/outbox-guard).
+      { intent: 'none', reason: 'price review note approved by Mike on the wait; recipient and charter checked at claim' }
+    );
     queued.push(row.id);
   }
   return { queued };

@@ -4,6 +4,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { getArcStatus } from '@/lib/arc-status';
 import { normalizeGmailDeepLink } from '@/lib/email-asks';
+import { findInScope } from '@/lib/decisions';
 
 // Clarity Phase 7 (Seeing Stone Reckoning P1) — the session-briefing endpoint. A Claude
 // Code session declaring this arc at birth (singleton->session promotion, and any
@@ -147,6 +148,19 @@ export async function GET(
       deep_link: normalizeGmailDeepLink(rest.deep_link, account),
     }));
 
+    // Fleet item 2: the decisions in force for this arc's client, project and accord
+    // (plus fleet-wide ones). Additive; a failure here never breaks the briefing.
+    let decisions: Awaited<ReturnType<typeof findInScope>> | null = null;
+    try {
+      decisions = await findInScope({
+        client: arc.client_id,
+        project: arc.project_id,
+        accord: arc.accord_id,
+      });
+    } catch (err) {
+      console.error('arc context: decisions lookup failed', err);
+    }
+
     return NextResponse.json({
       arc: {
         id: arc.id,
@@ -176,6 +190,14 @@ export async function GET(
             other_arcs: siblingArcs.map((a) => ({ id: a.id, name: a.name, closed_at: a.closed_at ?? null })),
           }
         : null,
+      decisions: decisions
+        ? {
+            items: decisions.decisions,
+            fleet_rows: decisions.fleet_rows,
+            truncated: decisions.truncated,
+            total_matched: decisions.total_matched,
+          }
+        : { items: [], fleet_rows: [], truncated: false, total_matched: 0 },
       tasks: {
         open: openTasks,
         recent: recentTasks,

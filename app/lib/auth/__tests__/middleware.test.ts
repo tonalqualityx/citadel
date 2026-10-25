@@ -146,6 +146,7 @@ describe('requireAuth', () => {
         email: 'test@example.com',
         role: 'pm',
         via: 'api_key',
+        apiKeyId: 'key-1',
       });
       expect(mockHashApiKey).toHaveBeenCalledWith('citadel_testapikey123');
     });
@@ -227,6 +228,7 @@ describe('requireAuth', () => {
         email: 'test@example.com',
         role: 'pm',
         via: 'api_key',
+        apiKeyId: 'key-1',
       });
     });
 

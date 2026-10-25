@@ -11,7 +11,7 @@ export async function GET() {
     requireRole(auth, ['pm', 'admin']);
 
     const rows = await prisma.emailOutbox.findMany({
-      where: { sent_at: null },
+      where: { sent_at: null, superseded_at: null },
       orderBy: { created_at: 'asc' },
       take: 50,
       select: {

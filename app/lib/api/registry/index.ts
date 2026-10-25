@@ -69,6 +69,7 @@ import { emailOutboxEndpoints } from './email-outbox';
 import { engineEndpoints } from './engine';
 import { portalChatEndpoints } from './portal-chat';
 import { kpiChecklistEndpoints } from './kpis-checklists';
+import { taskClaimEndpoints } from './task-claims';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -106,6 +107,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...engineEndpoints,
   ...portalChatEndpoints,
   ...kpiChecklistEndpoints,
+  ...taskClaimEndpoints,
 ];
 
 /**

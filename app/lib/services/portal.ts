@@ -7,6 +7,7 @@
 
 import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
+import { clearPreviewClaims } from '@/lib/sends/claims';
 import { ApiError } from '@/lib/api/errors';
 import { PORTAL_HIDDEN_PROJECT_STATUSES } from '@/lib/portal/access';
 import { onClientMessage } from '@/lib/portal/waits';
@@ -489,6 +490,7 @@ export async function recordTaskClientRequestChanges(
     }),
     addTaskTagQuery(task.id, SEND_BACK_TAG),
   ]);
+  await clearPreviewClaims(task.id); // reworked: the revised preview is told afresh, even at the same address
 
   // Wait effects (spec 3.5): a send-back is a client message. Best-effort: the note is saved.
   if (comment?.id) {
@@ -556,6 +558,7 @@ export async function recordUnattributedSendBack(
     addTaskTagQuery(task.id, SEND_BACK_TAG),
     addTaskTagQuery(task.id, 'needs-mike'),
   ]);
+  await clearPreviewClaims(task.id);
   await alertTaskOwner(task.id, 'A client sent work back from an unattributed link', 'The note is saved as an internal comment on the task. Read it and answer the client.');
 }
 

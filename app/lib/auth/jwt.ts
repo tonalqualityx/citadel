@@ -14,6 +14,8 @@ export interface TokenPayload extends JWTPayload {
    * the signing helpers do not need it.
    */
   via?: 'session' | 'api_key';
+  /** The API key row id when via is 'api_key'. */
+  apiKeyId?: string;
 }
 
 export async function signAccessToken(payload: Omit<TokenPayload, 'iat' | 'exp'>): Promise<string> {
