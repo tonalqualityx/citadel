@@ -110,7 +110,7 @@ export const authEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'name', type: 'string', required: true, description: 'Descriptive name for the key (max 100 chars)' },
           { name: 'expires_at', type: 'ISO-8601', required: false, description: 'Optional expiration date' },
-          { name: 'scopes', type: 'string[]', required: false, description: "Optional, admin only (a pm gets 403). Values: 'engine' (lets the key use /api/engine/*), 'lane:<name>' (limits the key to one machine lane's routes, see lib/auth/lane-scopes.ts; shadow by default), 'scope-mode:enforce' (a lane key outside its lane gets 403), 'decisions:admin' (decisions admin routes). At most one lane; engine and lane do not combine." },
+          { name: 'scopes', type: 'string[]', required: false, description: "Optional, admin only (a pm gets 403). Values: 'engine' (lets the key use /api/engine/*), 'lane:<name>' (limits the key to one machine lane's routes, see lib/auth/lane-scopes.ts; shadow by default), 'scope-mode:enforce' (a lane key outside its lane gets 403), 'decisions:admin' (decisions admin routes; only on a key with no lane, for a user with the admin role). At most one lane; engine and lane do not combine." },
           { name: 'user_id', type: 'uuid', required: false, description: 'Admin only: mint the key for this (service) user instead of the caller.' },
         ],
         responseExample: {

@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
+import { laneScopesOf } from '@/lib/auth/lane-scopes';
 
 // Fleet item 2: the decision record. Shared pieces for the /api/decisions routes.
 // Scope ids are plain uuids (no relations), so nothing here can block a delete elsewhere.
@@ -35,7 +36,9 @@ export function requireWriter(user: AuthPayload): void {
 
 /**
  * confirm, reject, retract, supersede, import: an admin browser session, or an API key that
- * carries the scope 'decisions:admin'. A plain admin-role API key is not enough.
+ * carries the scope 'decisions:admin'. A plain admin-role API key is not enough, and the scope only
+ * counts on a key with no lane (a lane key never holds it, even if one was minted by mistake) whose
+ * user has the admin role.
  */
 export async function requireDecisionAdmin(user: AuthPayload): Promise<void> {
   if (user.via === 'api_key') {
@@ -43,6 +46,8 @@ export async function requireDecisionAdmin(user: AuthPayload): Promise<void> {
       ? await prisma.apiKey.findUnique({ where: { id: user.apiKeyId }, select: { scopes: true } })
       : null;
     if (!key || !key.scopes.includes(ADMIN_SCOPE)) throw new ApiError(`Admin key scope ${ADMIN_SCOPE} required`, 403);
+    if (laneScopesOf(key.scopes).length > 0) throw new ApiError(`${ADMIN_SCOPE} does not work on a lane key`, 403);
+    if (user.role !== 'admin') throw new ApiError('Admin only', 403);
     return;
   }
   if (user.role !== 'admin') throw new ApiError('Admin only', 403);

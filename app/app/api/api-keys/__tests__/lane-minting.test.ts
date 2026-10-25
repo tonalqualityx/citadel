@@ -85,6 +85,37 @@ describe('POST /api/api-keys lane scopes', () => {
 });
 
 describe('POST /api/api-keys user_id', () => {
+  // Fleet wave B (item 6 finding 4): decisions:admin only on a no-lane key for an admin user.
+  it('decisions:admin: allowed on a no-lane key for an admin; refused beside a lane or for a non-admin user', async () => {
+    auth.mockResolvedValue(ADMIN);
+    const ok = await post({ name: 'plain admin', scopes: ['decisions:admin'] });
+    expect(ok.status).toBe(201);
+    expect(createKey.mock.calls[0][0].data.scopes).toEqual(['decisions:admin']);
+
+    createKey.mockClear();
+    const lane = await post({ name: 'lane', scopes: ['lane:bast', 'decisions:admin'] });
+    expect(lane.status).toBe(400);
+    const enforced = await post({ name: 'lane', scopes: ['lane:bast', 'scope-mode:enforce', 'decisions:admin'] });
+    expect(enforced.status).toBe(400);
+
+    findUser.mockResolvedValue({ id: BAST_ID, is_active: true, role: 'pm' });
+    const forBast = await post({ name: 'bast admin', scopes: ['decisions:admin'], user_id: BAST_ID });
+    expect(forBast.status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+
+  it('decisions:admin: PATCH refuses a lane key and a non-admin key owner, allows an admin owner', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findKey.mockResolvedValue({ id: 'k1', name: 'n', scopes: [], is_revoked: false, user: { role: 'admin' } });
+    updateKey.mockResolvedValue({ id: 'k1' });
+    expect((await patch('k1', { scopes: ['lane:bast', 'decisions:admin'] })).status).toBe(400);
+    expect((await patch('k1', { scopes: ['decisions:admin'] })).status).toBe(200);
+    updateKey.mockClear();
+    findKey.mockResolvedValue({ id: 'k2', name: 'n', scopes: [], is_revoked: false, user: { role: 'pm' } });
+    expect((await patch('k2', { scopes: ['decisions:admin'] })).status).toBe(400);
+    expect(updateKey).not.toHaveBeenCalled();
+  });
+
   it('admin mints a key for an active service user', async () => {
     auth.mockResolvedValue(ADMIN);
     findUser.mockResolvedValue({ id: BAST_ID, is_active: true });

@@ -138,8 +138,25 @@ describe('admin-only routes', () => {
     expect(res.status).toBe(403);
   });
 
+  // Fleet wave B (item 6 finding 4): the scope counts only on a no-lane key whose user is an admin.
+  it('a lane key carrying decisions:admin is refused, even for an admin user', async () => {
+    mockAuth.mockResolvedValue({ ...ADMIN, via: 'api_key', apiKeyId: 'key-3', lane: 'bast' } as never);
+    apiKeyFindUnique.mockResolvedValue({ scopes: ['decisions:admin', 'lane:bast'] });
+    const res = await confirmPOST(req(`/api/decisions/${UUID_A}/confirm`, {}), params(UUID_A));
+    expect(res.status).toBe(403);
+    expect(dUpdate).not.toHaveBeenCalled();
+  });
+
+  it('a no-lane decisions:admin key whose user is not an admin is refused', async () => {
+    mockAuth.mockResolvedValue(BOT as never); // role pm
+    apiKeyFindUnique.mockResolvedValue({ scopes: ['decisions:admin'] });
+    const res = await confirmPOST(req(`/api/decisions/${UUID_A}/confirm`, {}), params(UUID_A));
+    expect(res.status).toBe(403);
+    expect(dUpdate).not.toHaveBeenCalled();
+  });
+
   it('an API key with the decisions:admin scope can confirm', async () => {
-    mockAuth.mockResolvedValue(BOT as never);
+    mockAuth.mockResolvedValue({ ...ADMIN, via: 'api_key', apiKeyId: 'key-1' } as never);
     apiKeyFindUnique.mockResolvedValue({ scopes: ['decisions:admin'] });
     dFindUnique.mockResolvedValue(dec());
     dUpdate.mockResolvedValue(dec({ status: 'confirmed' }));

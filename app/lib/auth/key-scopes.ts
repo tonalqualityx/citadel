@@ -3,7 +3,9 @@
  *   engine              lets the key use /api/engine/* (requireEngine)
  *   lane:<name>         limits the key to one lane's routes (lib/auth/lane-scopes.ts)
  *   scope-mode:enforce  a lane key outside its lane gets 403 instead of a shadow violation row
- *   decisions:admin     item 2a: lets the key use the decisions admin routes
+ *   decisions:admin     item 2a: lets the key use the decisions admin routes. Only on a key with NO lane (the
+ *                       plain admin key), and only for a user with the admin role (checked at mint and PATCH;
+ *                       requireDecisionAdmin checks both again on every call)
  */
 import { z } from 'zod';
 import { ENFORCE_SCOPE, LANE_SCOPE_PREFIX, isLane } from './lane-scopes';
@@ -30,6 +32,9 @@ export const keyScopesSchema = z
     if (lanes.length > 1) ctx.addIssue({ code: 'custom', message: 'A key carries at most one lane' });
     if (scopes.includes(ENFORCE_SCOPE) && lanes.length === 0) {
       ctx.addIssue({ code: 'custom', message: `${ENFORCE_SCOPE} needs a lane scope` });
+    }
+    if (scopes.includes(DECISIONS_ADMIN_SCOPE) && lanes.length > 0) {
+      ctx.addIssue({ code: 'custom', message: `${DECISIONS_ADMIN_SCOPE} cannot be granted on a lane key` });
     }
     if (scopes.includes(ENGINE_SCOPE) && lanes.length > 0) {
       ctx.addIssue({ code: 'custom', message: 'An engine key cannot also be a lane key' });

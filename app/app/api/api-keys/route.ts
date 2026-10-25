@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { generateApiKey } from '@/lib/auth/api-keys';
-import { keyScopesSchema } from '@/lib/auth/key-scopes';
+import { keyScopesSchema, DECISIONS_ADMIN_SCOPE } from '@/lib/auth/key-scopes';
 import { logCreate } from '@/lib/services/activity';
 
 const createApiKeySchema = z.object({
@@ -53,13 +53,19 @@ export async function POST(request: NextRequest) {
     if (data.user_id !== undefined) requireRole(auth, ['admin']);
 
     let ownerId = auth.userId;
+    let ownerRole: string = auth.role;
     if (data.user_id !== undefined && data.user_id !== auth.userId) {
       const owner = await prisma.user.findUnique({
         where: { id: data.user_id },
-        select: { id: true, is_active: true },
+        select: { id: true, is_active: true, role: true },
       });
       if (!owner || !owner.is_active) throw new ApiError('User not found or inactive', 404);
       ownerId = owner.id;
+      ownerRole = owner.role;
+    }
+    // decisions:admin goes only on a key whose user is an admin (the no-lane rule is in keyScopesSchema).
+    if (data.scopes?.includes(DECISIONS_ADMIN_SCOPE) && ownerRole !== 'admin') {
+      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted on a key for an admin user`, 400);
     }
 
     const { rawKey, keyHash, keyPrefix } = generateApiKey();
