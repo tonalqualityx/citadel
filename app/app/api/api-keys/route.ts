@@ -63,6 +63,11 @@ export async function POST(request: NextRequest) {
       ownerId = owner.id;
       ownerRole = owner.role;
     }
+    // decisions:admin is granted only by a signed-in human admin, never by an API key (an admin key could
+    // otherwise mint itself the right to record decisions).
+    if (data.scopes?.includes(DECISIONS_ADMIN_SCOPE) && auth.via !== 'session') {
+      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted from a signed-in admin session`, 403);
+    }
     // decisions:admin goes only on a key whose user is an admin (the no-lane rule is in keyScopesSchema).
     if (data.scopes?.includes(DECISIONS_ADMIN_SCOPE) && ownerRole !== 'admin') {
       throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted on a key for an admin user`, 400);

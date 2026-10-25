@@ -29,7 +29,9 @@ const createKey = prisma.apiKey.create as Mock;
 const findKey = prisma.apiKey.findUnique as Mock;
 const updateKey = prisma.apiKey.update as Mock;
 
-const ADMIN = { userId: 'admin-1', email: 'mike@example.test', role: 'admin' };
+const ADMIN = { userId: 'admin-1', email: 'mike@example.test', role: 'admin', via: 'session' };
+// The same admin user calling with an API key instead of a signed-in session.
+const ADMIN_KEY = { userId: 'admin-1', email: 'mike@example.test', role: 'admin', via: 'api_key', apiKeyId: 'k-admin' };
 const PM = { userId: 'pm-1', email: 'bast@example.test', role: 'pm' };
 const BAST_ID = '0b6e1c2a-1111-4222-8333-444455556666';
 
@@ -114,6 +116,38 @@ describe('POST /api/api-keys user_id', () => {
     findKey.mockResolvedValue({ id: 'k2', name: 'n', scopes: [], is_revoked: false, user: { role: 'pm' } });
     expect((await patch('k2', { scopes: ['decisions:admin'] })).status).toBe(400);
     expect(updateKey).not.toHaveBeenCalled();
+  });
+
+  // Review finding: an admin API key must not grant decisions:admin, to itself or to any other key.
+  it('decisions:admin: an admin API key cannot mint it (403, nothing created); other scopes still mint', async () => {
+    auth.mockResolvedValue(ADMIN_KEY);
+    const res = await post({ name: 'self grant', scopes: ['decisions:admin'] });
+    expect(res.status).toBe(403);
+    expect(createKey).not.toHaveBeenCalled();
+    findUser.mockResolvedValue({ id: BAST_ID, is_active: true, role: 'admin' });
+    expect((await post({ name: 'for other', scopes: ['decisions:admin'], user_id: BAST_ID })).status).toBe(403);
+    expect(createKey).not.toHaveBeenCalled();
+    expect((await post({ name: 'courier', scopes: ['lane:courier'] })).status).toBe(201);
+  });
+
+  it('decisions:admin: an admin API key cannot PATCH it onto itself or another key (403, nothing updated)', async () => {
+    auth.mockResolvedValue(ADMIN_KEY);
+    updateKey.mockResolvedValue({ id: 'k-admin' });
+    findKey.mockResolvedValue({ id: 'k-admin', name: 'self', scopes: [], is_revoked: false, user: { role: 'admin' } });
+    expect((await patch('k-admin', { scopes: ['decisions:admin'] })).status).toBe(403);
+    findKey.mockResolvedValue({ id: 'k-other', name: 'other', scopes: [], is_revoked: false, user: { role: 'admin' } });
+    expect((await patch('k-other', { scopes: ['decisions:admin'] })).status).toBe(403);
+    expect(updateKey).not.toHaveBeenCalled();
+    findKey.mockResolvedValue({ id: 'k-lane', name: 'lane', scopes: ['lane:bast'], is_revoked: false, user: { role: 'pm' } });
+    expect((await patch('k-lane', { scopes: ['lane:bast', 'scope-mode:enforce'] })).status).toBe(200);
+  });
+
+  it('decisions:admin: an admin session may PATCH it onto an admin user\'s key', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findKey.mockResolvedValue({ id: 'k-other', name: 'other', scopes: [], is_revoked: false, user: { role: 'admin' } });
+    updateKey.mockResolvedValue({ id: 'k-other', scopes: ['decisions:admin'] });
+    expect((await patch('k-other', { scopes: ['decisions:admin'] })).status).toBe(200);
+    expect(updateKey).toHaveBeenCalledWith(expect.objectContaining({ data: { scopes: ['decisions:admin'] } }));
   });
 
   it('admin mints a key for an active service user', async () => {

@@ -21,6 +21,10 @@ export async function PATCH(
     requireRole(auth, ['admin']);
     const { id } = await params;
     const { scopes } = patchSchema.parse(await request.json());
+    // decisions:admin is granted only by a signed-in human admin, never by an API key (to itself or another key).
+    if (scopes.includes(DECISIONS_ADMIN_SCOPE) && auth.via !== 'session') {
+      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted from a signed-in admin session`, 403);
+    }
 
     const apiKey = await prisma.apiKey.findUnique({
       where: { id },
