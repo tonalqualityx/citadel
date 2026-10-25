@@ -75,6 +75,7 @@ describe('price review send', () => {
       from_account: 'bast@becomeindelible.com',
       dedupe_key: `price-review:${SEND_ID}:${CONTACT}`,
     });
+    expect(created[0].govern).toMatchObject({ intent: 'none' });
     expect(String(created[0].text)).toContain('$150 per month');
     expect(String(created[0].text)).toContain('Hello Dana,');
     expect(String(created[1].text)).toContain('Hello,');

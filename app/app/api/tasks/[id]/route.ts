@@ -373,7 +373,7 @@ export async function PATCH(
     // mode off, behaves exactly as before.
     let claimCleared: Record<string, null> = {};
     let claimCheck: Awaited<ReturnType<typeof assertClaimHeld>> | null = null;
-    if (typeof body.status === 'string' && ['in_progress', 'review', 'done'].includes(body.status)) {
+    if (typeof body.status === 'string' && body.status !== existingTask.status && ['in_progress', 'review', 'done'].includes(body.status)) {
       const check = await assertClaimHeld(id, request.headers.get('x-claim-token'), { action: `move to ${body.status}`, caller: { userId: auth.userId, role: auth.role, via: auth.via } });
       claimCheck = check;
       if (check.overridden_holder) claimCleared = { ...CLEAR_CLAIM_DATA };
@@ -685,8 +685,6 @@ export async function PATCH(
       };
     }
 
-    if (existingTask.status === 'review' && updateData.status && updateData.status !== 'review' && updateData.status !== 'done') await clearPreviewClaims(id);
-
     const task = await prisma.task.update({
       where: { id },
       data: updateData,
@@ -717,6 +715,7 @@ export async function PATCH(
         },
       },
     });
+    if (existingTask.status === 'review' && updateData.status && updateData.status !== 'review' && updateData.status !== 'done') await clearPreviewClaims(id);
     await claimCheck?.logOverride();
 
     // A requested status change gets the status-only side effects. A forced `blocked` from a
