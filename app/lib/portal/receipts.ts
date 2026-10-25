@@ -20,6 +20,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
+import { clearPreviewClaims } from '@/lib/sends/claims';
 
 export const BINDING_MODES = ['off', 'warn', 'enforce'] as const;
 export type BindingMode = (typeof BINDING_MODES)[number];
@@ -147,15 +148,6 @@ export function sameSha(a: string, b: string): boolean {
   return x.length <= y.length ? y.startsWith(x) : x.startsWith(y);
 }
 
-/**
- * Seam for item 4's notice claims: a voided approval means a new approval email must go out, even to the same
- * preview address (a new commit). Item 4's helper is `clearPreviewClaims(taskId)` in lib/sends/claims; when
- * fleet/4 merges, call it here. Until then there is nothing to clear.
- */
-async function clearPreviewNoticeClaims(_taskId: string): Promise<void> {
-  /* wired to item 4 at merge */
-}
-
 export interface VoidResult {
   voided: boolean;
   /** The task is approved, the build did not change, and nothing was voided. */
@@ -201,6 +193,9 @@ export async function voidApprovalIfRestaged(
     });
     if (n.count !== 1) return false;
     await tx.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${APPROVED_TAG}) WHERE id = ${taskId}::uuid`;
+    // A voided approval means a new approval email must go out, even to the same preview address (a new commit):
+    // spend the preview notice claims in the same transaction, so a rolled-back void leaves them alone.
+    await clearPreviewClaims(taskId, tx);
     await tx.taskReceipt.create({
       data: receiptData({
         task_id: taskId,
@@ -224,7 +219,6 @@ export async function voidApprovalIfRestaged(
     return true;
   });
   if (!voided) throw new ApiError('This task went live while it was being staged again. Nothing was changed.', 409, 'already_live');
-  await clearPreviewNoticeClaims(taskId);
   return { voided: true, unchanged: false };
 }
 

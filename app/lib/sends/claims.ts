@@ -43,6 +43,6 @@ export async function releaseNotice(taskId: string, kind: 'live' | 'preview', pr
 }
 
 /** A task left review for rework: every preview notice claim on it is spent, so a revised preview (even at the same address) is told afresh. */
-export async function clearPreviewClaims(taskId: string): Promise<void> {
-  await prisma.$executeRaw`UPDATE tasks SET tags = ARRAY(SELECT t FROM unnest(tags) AS t WHERE t NOT LIKE 'preview-notified:%' AND t NOT LIKE 'cp:%') WHERE id = ${taskId}::uuid AND EXISTS (SELECT 1 FROM unnest(tags) AS t WHERE t LIKE 'preview-notified:%')`;
+export async function clearPreviewClaims(taskId: string, db: Pick<typeof prisma, '$executeRaw'> = prisma): Promise<void> {
+  await db.$executeRaw`UPDATE tasks SET tags = ARRAY(SELECT t FROM unnest(tags) AS t WHERE t NOT LIKE 'preview-notified:%' AND t NOT LIKE 'cp:%') WHERE id = ${taskId}::uuid AND EXISTS (SELECT 1 FROM unnest(tags) AS t WHERE t LIKE 'preview-notified:%')`;
 }

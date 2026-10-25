@@ -130,6 +130,54 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
     expect((await receipts()).map((r) => r.step)).toEqual(['staged', 'approved', 'approval_voided', 'staged']);
   });
 
+  // Fleet wave B follow-up: the void spends the preview notice claims (item 4's clearPreviewClaims) inside its transaction.
+  describe('voiding an approval spends the preview notice claims', () => {
+    const claimTags = ['preview-notified:abc1234567', 'cp:abc1234567:holder1'];
+    const addTags = (tags: string[]) => prisma.task.update({ where: { id: a.taskId }, data: { tags: { push: tags } } });
+
+    it('a void removes every preview claim and keeps the go-live claim and other tags', async () => {
+      await stage('https://p.example.test/c1');
+      await approve();
+      await addTags([...claimTags, 'go-live-notified', 'cl:holder2', 'keep-me']);
+      const r = await voidApprovalIfRestaged(a.taskId, { previewUrl: 'https://p.example.test/c1', commitSha: SHA2 }, { actorUserId: BAST_USER_ID, mode: 'warn' });
+      expect(r.voided).toBe(true);
+      const t = await task();
+      expect(t.tags).not.toContain('client-approved');
+      expect(t.tags.filter((x) => x.startsWith('preview-notified:') || x.startsWith('cp:'))).toEqual([]);
+      expect(t.tags).toEqual(expect.arrayContaining(['go-live-notified', 'cl:holder2', 'keep-me']));
+    });
+
+    it('the same build (no void) leaves the claims alone', async () => {
+      await stage('https://p.example.test/c2');
+      await approve();
+      await addTags(claimTags);
+      const r = await voidApprovalIfRestaged(a.taskId, { previewUrl: 'https://p.example.test/c2', commitSha: SHA1 }, { actorUserId: BAST_USER_ID, mode: 'warn' });
+      expect(r).toEqual({ voided: false, unchanged: true });
+      expect((await task()).tags).toEqual(expect.arrayContaining(claimTags));
+    });
+
+    it('a void that rolls back leaves the claims in place', async () => {
+      await stage('https://p.example.test/c3');
+      await approve();
+      await addTags(claimTags);
+      // The comment insert (inside the transaction, after the claims are cleared) fails: everything rolls back, claims included.
+      const failing = new Proxy(prisma, {
+        get(target, key) {
+          if (key === '$transaction') {
+            return (fn: (tx: unknown) => Promise<unknown>) =>
+              target.$transaction((tx) => fn(new Proxy(tx, { get: (t, k) => (k === 'comment' ? { create: () => { throw new Error('boom'); } } : (t as never)[k]) })));
+          }
+          const v = (target as never)[key];
+          return typeof v === 'function' ? (v as (...x: unknown[]) => unknown).bind(target) : v;
+        },
+      });
+      await expect(voidApprovalIfRestaged(a.taskId, { previewUrl: 'https://p.example.test/c3b' }, { actorUserId: BAST_USER_ID, mode: 'warn' }, failing as never)).rejects.toThrow('boom');
+      const t = await task();
+      expect(t.client_approved_at).not.toBeNull();
+      expect(t.tags).toEqual(expect.arrayContaining(claimTags));
+    });
+  });
+
   it('the same preview url and commit after a yes is a no-op: the yes stands, nothing sent', async () => {
     await stage('https://p.example.test/4');
     await approve();
