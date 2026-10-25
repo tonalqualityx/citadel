@@ -175,6 +175,34 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/notifications'),
     r('POST', '/api/notifications/mark-all-read'),
     r('POST', '/api/time-entries'),
+    // Fleet wave B, added after wave A landed: routes the Bast-key tools call. Admin-only decision
+    // routes (confirm, reject, retract, supersede, import) and the sat/ admin surfaces (stand-ins,
+    // away-windows, checklists, site-kpis, price-review/open) are deliberately NOT here.
+    // citadel-claims/claim.py (item 3)
+    r('GET', '/api/tasks/:id/claim'),
+    r('POST', '/api/tasks/:id/claim'),
+    r('POST', '/api/tasks/:id/claim/renew'),
+    r('POST', '/api/tasks/:id/claim/release'),
+    r('POST', '/api/tasks/claims/renew-holder'),
+    r('POST', '/api/tasks/claims/release-holder'),
+    // fleet-send/send_guard.py (item 4)
+    r('POST', '/api/sends/recheck'),
+    // decisions/decisions_api.py reads and capture writes (item 2); never the admin routes
+    r('GET', '/api/decisions'),
+    r('POST', '/api/decisions'),
+    r('GET', '/api/decisions/in-scope'),
+    r('GET', '/api/decisions/:id'),
+    r('POST', '/api/decisions/:id/sources'),
+    r('POST', '/api/decisions/:id/links'),
+    // engagement-owner/owner_pass.py (item 1) and the receipts read (item 5)
+    r('GET', '/api/engagement-briefs/:id'),
+    r('GET', '/api/engagement-briefs/:id/tasks'),
+    r('POST', '/api/engagement-briefs/:id/passes'),
+    r('PATCH', '/api/engagement-passes/:id'),
+    r('GET', '/api/tasks/:id/receipts'),
+    r('GET', '/api/waits'),
+    r('GET', '/api/charters/:id'),
+    r('GET', '/api/clients'),
   ],
   // Audit lane (free-audit campaign). audit-lane/lane_citadel.py
   'audit-lane': [
@@ -239,6 +267,7 @@ export function normalizePath(pathname: string): string {
 /** Static sibling segments a `:param` must not stand in for (Next routes those to their own file). */
 const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/clients/:id': ['bulk'],
+  '/api/decisions/:id': ['import', 'in-scope'],
   '/api/meetings/:id': ['incomplete'],
   '/api/oracle/projects/:id': ['nudge-draft', 'refresh', 'refresh-requests'],
   '/api/projects/:id': ['wizard'],
