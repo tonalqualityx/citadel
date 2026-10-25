@@ -19,6 +19,7 @@ import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
 import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
+import { voidApprovalIfRestaged, stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts'; // Fleet item 5
 
 // Schema for requirement items (flat items)
 const requirementItemSchema = z.object({
@@ -100,6 +101,8 @@ const updateTaskSchema = z.object({
   staging_deployed_at: z.string().datetime().optional().nullable(),
   client_approved_at: z.string().datetime().optional().nullable(),
   approved_by_contact_id: z.string().uuid().optional().nullable(),
+  // Fleet item 5: where a client's yes came from (portal | approval_link | email:<Message-ID>)
+  approval_source: z.string().max(300).optional().nullable(),
   // project-record-citadel-changes.md addendum (ruling 32) — additive/removable dependency
   // editing. Not in allowedTechFields above, so tech users can't reach this (PM/Admin only,
   // same gating as the other planning-shaped fields on this route).
@@ -685,6 +688,25 @@ export async function PATCH(
       };
     }
 
+    // Fleet item 5: a new preview address on an approved task voids the yes (never on a done task; mode off keeps it).
+    // A request that also sets client_approved_at is a new yes for the new address, so nothing is voided then.
+    const wasApproved = Boolean(existingTask.client_approved_at) || (existingTask.tags ?? []).includes('client-approved');
+    let approvalVoided = false;
+    if (wasApproved && typeof data.staging_preview_url === 'string' && data.staging_preview_url !== existingTask.staging_preview_url && !data.client_approved_at) {
+      const r = await voidApprovalIfRestaged(id, { previewUrl: data.staging_preview_url }, { actorUserId: auth.userId, mode: await getApprovalBindingMode(), reason: 'preview address changed' });
+      approvalVoided = r.voided;
+      if (r.voided) {
+        // The yes is gone: the update below must not write it back.
+        delete updateData.client_approved_at;
+        delete updateData.approved_by_contact_id;
+        // A tag list in the same request replaces the tags AFTER the void, so it must not bring the yes (or spent
+        // notice claims) back.
+        if (Array.isArray(updateData.tags)) {
+          updateData.tags = (updateData.tags as string[]).filter((t) => t !== 'client-approved' && !t.startsWith('cp:') && !t.startsWith('preview-notified:'));
+        }
+      }
+    }
+
     const task = await prisma.task.update({
       where: { id },
       data: updateData,
@@ -717,6 +739,11 @@ export async function PATCH(
     });
     if (existingTask.status === 'review' && updateData.status && updateData.status !== 'review' && updateData.status !== 'done') await clearPreviewClaims(id);
     await claimCheck?.logOverride();
+
+    // Fleet item 5: a client yes written through this route is bound to the build on the preview, with its source.
+    if (data.client_approved_at && task.status !== 'done' && (!wasApproved || approvalVoided || existingTask.client_approved_at?.toISOString() !== task.client_approved_at?.toISOString())) {
+      await stampApproval(id, data.approval_source ?? 'api', undefined, auth.userId);
+    }
 
     // A requested status change gets the status-only side effects. A forced `blocked` from a
     // dependency connect alone keeps its existing behavior (no activity entry).

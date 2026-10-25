@@ -7,6 +7,8 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
     requireRole(auth, ['admin']);
+    // Whole-database read/write: a signed-in admin only, never an API key (fleet item 6 review).
+    if (auth.via !== 'session') throw new ApiError('Database import and export need a signed-in admin session', 403);
 
     // Parse multipart form data
     const formData = await request.formData();

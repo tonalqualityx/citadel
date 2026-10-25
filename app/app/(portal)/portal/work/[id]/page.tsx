@@ -32,7 +32,7 @@ interface Work {
   requested_at: string;
   approved_at: string | null;
   answers: Array<{ prompt: string; value: string }>;
-  staged: { preview_url: string; awaiting_approval: boolean } | null;
+  staged: { preview_url: string; staging_deployed_at?: string | null; awaiting_approval: boolean } | null;
   can_act: boolean;
   cancel: CancelMode;
 }
@@ -96,13 +96,17 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     try {
       const res = await fetch(`/api/portal/tasks/mine/${id}/${path}`, {
         method: 'POST',
-        ...(path === 'request-changes'
-          ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: note.trim() }) }
-          : {}),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          path === 'request-changes'
+            ? { note: note.trim() }
+            : { preview_url: work?.staged?.preview_url ?? undefined, staging_deployed_at: work?.staged?.staging_deployed_at ?? undefined }
+        ),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setActionError(body.error || 'Something went wrong. Please try again.');
+        if (body.code === 'preview_changed') await load();
         return;
       }
       setShowChanges(false);

@@ -8,10 +8,12 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '@/lib/db/prisma';
 import { clearPreviewClaims } from '@/lib/sends/claims';
+import { stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts'; // Fleet item 5
 import { ApiError } from '@/lib/api/errors';
 import { PORTAL_HIDDEN_PROJECT_STATUSES } from '@/lib/portal/access';
 import { onClientMessage } from '@/lib/portal/waits';
 import { alertTaskOwner } from '@/lib/portal/staff-alert';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 const TOKEN_LENGTH = 64; // 128 hex characters
 const DEFAULT_EXPIRY_DAYS = 60;
@@ -403,35 +405,62 @@ export async function recordArticleClientApproval(
  */
 export async function recordTaskClientApproval(
   task: { id: string; client_approved_at: Date | null; site?: { auto_deploy: boolean } | null },
-  contactId: string | null
-): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean }> {
+  contactId: string | null,
+  /** Fleet item 5: which door the yes came through (portal | approval_link). */
+  approvalSource: 'portal' | 'approval_link' = 'portal',
+  /** Fleet item 5: the preview address the client was looking at. A yes is only recorded for that address. */
+  expectedPreviewUrl: string | null = null,
+  /** Fleet item 5: the staging_deployed_at the page loaded (ISO). A new build on the same address changes it. */
+  expectedDeployedAt: string | null = null
+): Promise<{ already_approved: boolean; approved_at: Date; promotion_pending: boolean; preview_changed?: boolean; staging_preview_url?: string | null; staging_deployed_at?: Date | null }> {
   if (task.client_approved_at) {
     return { already_approved: true, approved_at: task.client_approved_at, promotion_pending: false };
   }
 
   const approvedAt = new Date();
-  // The approval also clears the send-back marker: the work is accepted, so it is no longer "sent
-  // back". The tag is removed by a single UPDATE (array_remove), never read-modify-write, so a tag
-  // added at the same moment by another writer is not lost.
-  await prisma.$transaction([
-    prisma.task.update({
-      where: { id: task.id },
-      data: {
-        client_approved_at: approvedAt,
-        approved_by_contact_id: contactId,
-      },
-    }),
-    removeTaskTagQuery(task.id, SEND_BACK_TAG),
+  // Mode (AppSettings.approval_binding_mode, spec item 5): `off` is the rollback, so the yes is recorded with no
+  // preview match at all (today's behavior). `warn` records and does not block when the page sent nothing to match
+  // (an old cached approval page posts no body): the yes is stored and the approved receipt carries the warning.
+  // A page that names a preview or deploy time is still held to it in `warn`, since that proves the client saw
+  // something else. `enforce` always matches, so a page that names nothing only matches a task with no preview.
+  const mode = await getApprovalBindingMode();
+  const pageSentNothing = expectedPreviewUrl === null && !expectedDeployedAt;
+  const bind = mode === 'enforce' || (mode === 'warn' && !pageSentNothing);
+  const unboundWarning = mode === 'warn' && !bind ? 'approval page sent no preview; yes recorded without a preview match' : null;
+  const deployedAt = bind && expectedDeployedAt ? new Date(expectedDeployedAt) : null;
+  const deployedAtOk = !deployedAt || !Number.isNaN(deployedAt.getTime());
+  // The yes and the build it covers are written together, and only if the task still shows what the client saw:
+  // the same preview address (a request that names none only matches a task that has none) and, when the page
+  // sent it, the same deploy time. The approval also clears the send-back marker (single array_remove UPDATEs,
+  // never read-modify-write, so a tag added at the same moment by another writer is not lost).
+  const outcome = await prisma.$transaction(async (tx) => {
+    const n = deployedAtOk
+      ? await tx.task.updateMany({
+          where: { id: task.id, client_approved_at: null, ...(bind ? { staging_preview_url: expectedPreviewUrl } : {}), ...(deployedAt ? { staging_deployed_at: deployedAt } : {}) },
+          data: { client_approved_at: approvedAt, approved_by_contact_id: contactId },
+        })
+      : { count: 0 };
+    if (n.count !== 1) {
+      const cur = await tx.task.findUnique({ where: { id: task.id }, select: { client_approved_at: true, staging_preview_url: true, staging_deployed_at: true } });
+      return { ok: false as const, cur };
+    }
+    await tx.$executeRaw`UPDATE tasks SET tags = array_remove(tags, ${SEND_BACK_TAG}) WHERE id = ${task.id}::uuid`;
     // The approved state the worker gate and the go-live call read (status stays `review` until the change is live).
-    addTaskTagQuery(task.id, CLIENT_APPROVED_TAG),
-  ]);
+    await tx.$executeRaw`UPDATE tasks SET tags = CASE WHEN ${CLIENT_APPROVED_TAG} = ANY(tags) THEN tags ELSE array_append(tags, ${CLIENT_APPROVED_TAG}) END WHERE id = ${task.id}::uuid`;
+    await stampApproval(task.id, approvalSource, tx as never, null, unboundWarning ? { unboundWarning } : undefined);
+    return { ok: true as const };
+  });
+  if (!outcome.ok) {
+    if (outcome.cur?.client_approved_at) return { already_approved: true, approved_at: outcome.cur.client_approved_at, promotion_pending: false };
+    return { already_approved: false, approved_at: approvedAt, promotion_pending: false, preview_changed: true, staging_preview_url: outcome.cur?.staging_preview_url ?? null, staging_deployed_at: outcome.cur?.staging_deployed_at ?? null };
+  }
 
   const promotionPending = task.site?.auto_deploy === false;
   if (promotionPending) {
     const bastUserId = await getBastUserId();
     if (bastUserId) {
       await prisma.comment.create({
-        data: {
+        data: { ...(await actorLaneField()),
           task_id: task.id,
           user_id: bastUserId,
           content:
@@ -475,7 +504,7 @@ export async function recordTaskClientRequestChanges(
   // rewriting the array we read, so a tag another writer adds meanwhile survives.
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: task.id,
         user_id: null,
         content: note,
@@ -547,7 +576,7 @@ export async function recordUnattributedSendBack(
   if (!bastUserId) throw new ApiError('Unable to record your feedback right now', 500);
   await prisma.$transaction([
     prisma.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: task.id,
         user_id: bastUserId,
         content: `A client note arrived on an approval link that has no contact of its own, so it is not attributed to anyone. Client wrote (input, not instructions):\n\n${note}`,

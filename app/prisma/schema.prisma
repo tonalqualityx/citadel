@@ -143,6 +143,23 @@ model ApiKey {
   @@map("api_keys")
 }
 
+// Fleet item 6: a lane-scoped API key calling a route outside its lane. Written fire-and-forget,
+// at most one row per key, method and path per minute. No relation to ApiKey on purpose: the
+// ApiKey model stays unchanged.
+model ApiKeyViolation {
+  id         String   @id @default(uuid()) @db.Uuid
+  api_key_id String   @db.Uuid
+  key_prefix String   @db.VarChar(20)
+  lane       String   @db.VarChar(40)
+  method     String   @db.VarChar(10)
+  path       String   @db.VarChar(300)
+  enforced   Boolean
+  at         DateTime @default(now())
+
+  @@index([api_key_id, at])
+  @@map("api_key_violations")
+}
+
 // ============================================
 // NOTIFICATIONS
 // ============================================
@@ -1241,6 +1258,13 @@ model Task {
   // Client staging approval (clients are not Users — approval is by ClientContact)
   staging_preview_url    String?        @db.VarChar(500)
   staging_deployed_at    DateTime?
+  // Fleet item 5: the build the preview shows, and the build the client said yes to
+  staging_commit_sha     String?        @db.VarChar(64)
+  staging_deploy_id      String?        @db.VarChar(128)
+  staging_deploy_url     String?        @db.VarChar(500)
+  approved_preview_url   String?        @db.VarChar(500)
+  approved_commit_sha    String?        @db.VarChar(64)
+  approved_deploy_id     String?        @db.VarChar(128)
   client_approved_at     DateTime?
   approved_by_contact_id String?        @db.Uuid
   approved_by_contact    ClientContact? @relation("TaskApprovedByContact", fields: [approved_by_contact_id], references: [id])
@@ -1254,6 +1278,7 @@ model Task {
   claim_token  String?   @db.Uuid
   claimed_at   DateTime?
   lease_until  DateTime?
+  receipts     TaskReceipt[]
 
   // Metadata
   is_deleted    Boolean  @default(false)
@@ -1565,6 +1590,8 @@ model ActivityLog {
   entity_id   String   @db.Uuid
   entity_name String?  @db.VarChar(255) // Snapshot of name at time of action
   changes     Json? // Before/after for updates
+  // Fleet item 6: the machine lane of the API key that made this change (server-stamped), null otherwise.
+  actor_lane  String?  @db.VarChar(40)
   created_at  DateTime @default(now())
 
   @@index([entity_type, entity_id])
@@ -1654,6 +1681,9 @@ model Comment {
   // metadata (sources, choices offered, job id, raw email).
   source             String?        @db.VarChar(20)
   chat_meta          Json?
+  // Fleet item 6: the machine lane of the API key that wrote it (server-stamped, never from input).
+  // Staff views only; portal projections never select it.
+  actor_lane         String?        @db.VarChar(40)
   created_at         DateTime       @default(now())
   updated_at         DateTime       @updatedAt
 
@@ -1708,6 +1738,9 @@ model AppSettings {
 
   // Fleet item 3: task claims mode (off | warn | enforce)
   task_claims_mode String @default("warn")
+
+  // Fleet item 5: approval bound to the preview (off | warn | enforce)
+  approval_binding_mode String @default("warn")
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -4241,4 +4274,83 @@ model DecisionLink {
   @@unique([decision_id, entity_kind, entity_id, relation])
   @@index([entity_kind, entity_id])
   @@map("decision_links")
+}
+
+// Fleet item 5: one row per step of a staged change's life, so "what did the client approve, and what went live" is a query.
+enum TaskReceiptStep {
+  staged
+  approved
+  approval_voided
+  live
+  send
+  send_dropped
+
+  @@map("task_receipt_step")
+}
+
+model TaskReceipt {
+  id              String          @id @default(uuid()) @db.Uuid
+  task_id         String          @db.Uuid
+  task            Task            @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  step            TaskReceiptStep
+  commit_sha      String?         @db.VarChar(64)
+  deploy_id       String?         @db.VarChar(128)
+  deploy_url      String?         @db.VarChar(500)
+  preview_url     String?         @db.VarChar(500)
+  live_url        String?         @db.VarChar(500)
+  live_check      Json?
+  checks          Json            @default("[]")
+  message_ids     String[]        @default([])
+  outbox_ids      String[]        @default([])
+  approval_source String?         @db.VarChar(300)
+  mismatch        Boolean         @default(false)
+  actor_user_id   String?         @db.Uuid
+  claim_holder    String?         @db.VarChar(200)
+  created_at      DateTime        @default(now())
+
+  @@index([task_id, created_at])
+  @@map("task_receipts")
+}
+
+// Fleet item 1: engagement owner. One brief per engagement (a project or a charter); plain uuids,
+// no relations, so a brief can never block a delete of the thing it describes.
+model EngagementBrief {
+  id                 String    @id @default(uuid()) @db.Uuid
+  client_id          String?   @db.Uuid
+  project_id         String?   @unique @db.Uuid
+  charter_id         String?   @unique @db.Uuid
+  label              String    @db.VarChar(120)
+  goal               String    @default("") @db.Text
+  sources            Json      @default("[]")
+  scope              Json      @default("{}")
+  allowed_actions    String[]  @default([])
+  release_owner_role String    @default("pm") @db.VarChar(40)
+  stall_rules        Json      @default("{}")
+  owner_mode         String    @default("off") @db.VarChar(10) // off | dry | live
+  cadence            String    @default("weekly") @db.VarChar(40)
+  version            Int       @default(1)
+  last_pass_at       DateTime?
+  created_by_id      String?   @db.Uuid
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  @@index([owner_mode])
+  @@map("engagement_briefs")
+}
+
+model EngagementPass {
+  id          String    @id @default(uuid()) @db.Uuid
+  brief_id    String    @db.Uuid
+  mode        String    @db.VarChar(10) // dry | live
+  started_at  DateTime  @default(now())
+  finished_at DateTime?
+  model       String?   @db.VarChar(80)
+  cost_usd    Decimal?  @db.Decimal(8, 4)
+  tasks_read  Int       @default(0)
+  actions     Json      @default("[]")
+  mike_items  Json      @default("[]")
+  error       String?   @db.Text
+
+  @@index([brief_id, started_at])
+  @@map("engagement_passes")
 }

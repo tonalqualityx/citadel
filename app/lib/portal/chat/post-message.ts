@@ -27,6 +27,7 @@ import { newEmailToken } from '@/lib/portal/chat/file-early';
 import { chatAvailability } from '@/lib/portal/chat/switches';
 import { wasCancelledByClient } from '@/lib/portal/cancel-state';
 import { MESSAGE_AFTER_CANCEL_ERROR } from '@/lib/portal/cancel-copy';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * 60 * 60 * 1000;
@@ -154,7 +155,7 @@ export async function postChatMessage(
 
     const content = rawText || label || FILES_ONLY_TEXT;
     const comment = await tx.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: convo.task_id,
         user_id: null,
         content,

@@ -3,15 +3,16 @@ import { ApiError } from '@/lib/api/errors';
 
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
-    task: { update: vi.fn() },
+    task: { update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn() },
     comment: { create: vi.fn() },
     user: { findFirst: vi.fn() },
-    $transaction: vi.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    $transaction: vi.fn((arg: unknown) => (typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as Promise<unknown>[]))),
     // Tag updates are raw single-statement UPDATEs; the mock keeps the SQL text and values to assert on.
     $executeRaw: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ sql: strings.join('?'), values })),
   },
 }));
 vi.mock('@/lib/sends/claims', () => ({ clearPreviewClaims: vi.fn(async () => undefined) }));
+vi.mock('@/lib/portal/receipts', () => ({ stampApproval: vi.fn(async () => null), getApprovalBindingMode: vi.fn(async () => 'enforce') })); // Fleet item 5: the receipt is tested in receipts.integration.test.ts
 vi.mock('@/lib/portal/staff-alert', () => ({ alertTaskOwner: vi.fn(async () => undefined) }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 
@@ -19,9 +20,12 @@ import { recordTaskClientApproval, recordTaskClientRequestChanges, recordUnattri
 import { alertTaskOwner } from '@/lib/portal/staff-alert';
 import { prisma } from '@/lib/db/prisma';
 import { onClientMessage } from '@/lib/portal/waits';
+import { stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts';
 import type { Mock } from 'vitest';
 
 const mockTaskUpdate = prisma.task.update as Mock;
+const mockUpdateMany = prisma.task.updateMany as Mock;
+const mockFindUnique = prisma.task.findUnique as Mock;
 const mockCommentCreate = prisma.comment.create as Mock;
 const mockUserFindFirst = prisma.user.findFirst as Mock;
 const mockExecuteRaw = prisma.$executeRaw as unknown as Mock;
@@ -30,6 +34,8 @@ const rawCalls = () => mockExecuteRaw.mock.calls.map(([strings, ...values]) => (
 beforeEach(() => {
   vi.clearAllMocks();
   mockUserFindFirst.mockResolvedValue({ id: 'bast-user' });
+  mockUpdateMany.mockResolvedValue({ count: 1 });
+  (getApprovalBindingMode as Mock).mockResolvedValue('enforce');
 });
 
 describe('recordTaskClientApproval', () => {
@@ -42,8 +48,8 @@ describe('recordTaskClientApproval', () => {
 
     expect(result.already_approved).toBe(false);
     expect(result.promotion_pending).toBe(false);
-    expect(mockTaskUpdate).toHaveBeenCalledWith({
-      where: { id: 'task-1' },
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'task-1', client_approved_at: null, staging_preview_url: null },
       data: expect.objectContaining({ approved_by_contact_id: 'contact-1' }),
     });
     expect(mockCommentCreate).not.toHaveBeenCalled();
@@ -57,7 +63,7 @@ describe('recordTaskClientApproval', () => {
     );
 
     expect(result).toEqual({ already_approved: true, approved_at: approvedAt, promotion_pending: false });
-    expect(mockTaskUpdate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
   it('flags promotion_pending and writes an internal note for staged client sites (auto_deploy=false)', async () => {
@@ -81,10 +87,72 @@ describe('recordTaskClientApproval', () => {
 
     await recordTaskClientApproval(baseTask, null);
 
-    expect(mockTaskUpdate).toHaveBeenCalledWith({
-      where: { id: 'task-1' },
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'task-1' }),
       data: expect.objectContaining({ approved_by_contact_id: null }),
     });
+  });
+});
+
+describe('recordTaskClientApproval: bound to what the client saw', () => {
+  const baseTask = { id: 'task-1', client_approved_at: null, site: { auto_deploy: true } };
+  const deployed = '2026-10-22T12:00:00.000Z';
+
+  it('guards the update on the preview address and the deploy time the page loaded', async () => {
+    await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/1', deployed);
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { id: 'task-1', client_approved_at: null, staging_preview_url: 'https://p.example/1', staging_deployed_at: new Date(deployed) },
+      data: expect.objectContaining({ approved_by_contact_id: 'contact-1' }),
+    });
+  });
+
+  it('a guard that matches nothing records nothing and reports the new preview', async () => {
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+    mockFindUnique.mockResolvedValue({ client_approved_at: null, staging_preview_url: 'https://p.example/2', staging_deployed_at: new Date(deployed) });
+    const r = await recordTaskClientApproval(baseTask, 'contact-1', 'portal', null, null);
+    expect(r).toMatchObject({ preview_changed: true, already_approved: false, staging_preview_url: 'https://p.example/2' });
+    expect(mockExecuteRaw).not.toHaveBeenCalled();
+  });
+
+  it('a task approved by someone else in the meantime reports already approved', async () => {
+    const at = new Date('2026-10-22T13:00:00Z');
+    mockUpdateMany.mockResolvedValue({ count: 0 });
+    mockFindUnique.mockResolvedValue({ client_approved_at: at, staging_preview_url: 'https://p.example/2', staging_deployed_at: null });
+    expect(await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/2', null)).toMatchObject({ already_approved: true, approved_at: at });
+  });
+});
+
+describe('recordTaskClientApproval: approval_binding_mode', () => {
+  const baseTask = { id: 'task-1', client_approved_at: null, site: { auto_deploy: true } };
+  const mode = (m: string) => (getApprovalBindingMode as Mock).mockResolvedValue(m);
+
+  it('off: no preview guard at all, even when the page names a preview and a deploy time; no warning', async () => {
+    mode('off');
+    const r = await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/old', '2026-10-22T12:00:00.000Z');
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null }, data: expect.anything() });
+    expect(r.preview_changed).toBeUndefined();
+    expect(stampApproval).toHaveBeenCalledWith('task-1', 'portal', expect.anything(), null, undefined);
+  });
+
+  it('warn: a page that sent no body is not guarded and the receipt is told to carry the warning', async () => {
+    mode('warn');
+    const r = await recordTaskClientApproval(baseTask, 'contact-1', 'portal', null, null);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null }, data: expect.anything() });
+    expect(r.preview_changed).toBeUndefined();
+    expect(stampApproval).toHaveBeenCalledWith('task-1', 'portal', expect.anything(), null, { unboundWarning: expect.stringContaining('no preview') });
+  });
+
+  it('warn: a page that names a preview is still held to it', async () => {
+    mode('warn');
+    await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/1', null);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null, staging_preview_url: 'https://p.example/1' }, data: expect.anything() });
+    expect(stampApproval).toHaveBeenCalledWith('task-1', 'portal', expect.anything(), null, undefined);
+  });
+
+  it('enforce: a page that sent no body only matches a task with no preview', async () => {
+    mode('enforce');
+    await recordTaskClientApproval(baseTask, 'contact-1', 'portal', null, null);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null, staging_preview_url: null }, data: expect.anything() });
   });
 });
 
@@ -159,7 +227,6 @@ describe('recordTaskClientRequestChanges', () => {
 
 describe('approval clears the send-back tag', () => {
   it('removes it with one array_remove UPDATE in the same transaction as the approval', async () => {
-    mockTaskUpdate.mockResolvedValue({});
     await recordTaskClientApproval({ id: 'task-1', client_approved_at: null, site: { auto_deploy: true } }, 'contact-1');
     const [raw] = rawCalls();
     expect(raw.sql).toContain('array_remove(tags');

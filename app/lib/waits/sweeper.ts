@@ -44,6 +44,7 @@ import {
   type GuardValues,
   type WaitActionName,
 } from './templates';
+import { detectStalls, type StallReport, type StallStore } from './stalls';
 
 export const MAX_FIRE_ERRORS = 3;
 /** A claim older than this is a crashed pass and may be taken over. */
@@ -108,6 +109,8 @@ export interface SweepStore {
   lastEvent(waitId: string, kind: string): Promise<WaitEventInput | null>;
   /** One wait by id, or null. Used to open the step after a draft task is done. */
   getWait(id: string): Promise<WaitRow | null>;
+  /** One in-app notice (no mail, no Slack). Only templates with notify_on_escalate call it. */
+  notify?(n: { user_id: string; title: string; message: string; wait_id: string }): Promise<void>;
 }
 
 export interface SweepDeps {
@@ -134,6 +137,8 @@ export interface SweepDeps {
    * on; with it off the sweeper never touches this, so neither table is queried.
    */
   away?: AwayLookups;
+  /** Engagement briefs: when present, one stall-detection pass runs per sweep (Fleet item 1). */
+  stalls?: StallStore;
   now?: () => Date;
 }
 
@@ -155,6 +160,8 @@ export interface SweepReport {
   nag_failed: string[];
   needs_human: string[];
   errors: Array<{ id: string; error: string; count: number }>;
+  /** Fleet item 1: what stall detection found (or would open, in dry runs). */
+  stalls?: StallReport;
   counts: Record<string, number>;
   /** Present only while OOO_STANDINS is on. */
   away?: {
@@ -395,6 +402,18 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     stillOpen = await awayPass(deps, deps.away, stillOpen, now, dryRun, report);
   }
 
+  // 3c. Engagement stalls: open engagement.stalled waits (due now) so they fire in this same pass.
+  if (deps.stalls) {
+    // A failure here must never stop the rest of the sweep.
+    try {
+      const stallReport = await detectStalls(now, { dryRun }, { store, stalls: deps.stalls });
+      report.stalls = stallReport;
+      stillOpen.push(...stallReport.opened);
+    } catch (err) {
+      report.errors.push({ id: 'engagement-stalls', error: err instanceof Error ? err.message : String(err), count: 1 });
+    }
+  }
+
   // 4. Fire what is due.
   const due = stillOpen.filter((w) => w.state === 'waiting' && !w.fired_at && w.due_at.getTime() <= now.getTime());
   due.sort((a, b) => a.due_at.getTime() - b.due_at.getTime());
@@ -476,6 +495,7 @@ async function runPass(deps: SweepDeps, dryRun: boolean): Promise<SweepReport> {
     nag_failed: report.nag_failed.length,
     needs_human: report.needs_human.length,
     errors: report.errors.length,
+    stalls: report.stalls?.findings.length ?? 0,
   };
   return report;
 }
@@ -877,6 +897,15 @@ async function escalate(deps: SweepDeps, wait: WaitRow, now: Date, dryRun: boole
     reason: `Escalation stage ${stage + 1}: ${label}${target ? ` (${target})` : ''}.`,
     source: 'sweeper',
   });
+  // One in-app notice per rung, for templates that ask for it. Each rung runs once, so this does too.
+  if (target && getTemplate(wait.template_key)?.notify_on_escalate && store.notify) {
+    await store.notify({
+      user_id: target,
+      title: wait.title.slice(0, 250),
+      message: `${wait.detail ? `${wait.detail} ` : ''}Escalation step ${stage + 1} of 3 (${label.replace(/_/g, ' ')}).`.slice(0, 1000),
+      wait_id: wait.id,
+    });
+  }
 }
 
 export function runSweep(deps: SweepDeps, opts: { dryRun?: boolean } = {}): Promise<SweepReport> {

@@ -34,7 +34,10 @@ import { logStatusChange } from '@/lib/services/activity';
 import { unblockEligibleDependents } from '@/lib/services/dependencies';
 import { queueInOutbox } from '@/lib/sends/outbox';
 import { claimNotice, releaseNotice, GO_LIVE_TAG } from '@/lib/sends/recheck';
+// Fleet item 5
+import { getApprovalBindingMode, isRestage, sameSha, voidApprovalIfRestaged, writeReceipt, compareBuild, type CheckEntry } from '@/lib/portal/receipts';
 import { assertClaimHeld, CLEAR_CLAIM_DATA, type ClaimCaller } from '@/lib/tasks/claims';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 export { GO_LIVE_TAG };
 export const GO_LIVE_KIND = 'portal_golive';
@@ -134,33 +137,52 @@ export async function markStaged(input: {
   claimToken?: string | null;
   /** Who is calling; a person on a browser session may override another worker's lease (fleet item 3). */
   claimCaller?: ClaimCaller;
+  // Fleet item 5: the build behind the preview
+  commitSha?: string | null;
+  deployId?: string | null;
+  deployUrl?: string | null;
+  checks?: CheckEntry[];
 }): Promise<StagedResult> {
   const task = await prisma.task.findUnique({
     where: { id: input.taskId },
-    select: { id: true, is_deleted: true, status: true, source: true, staging_preview_url: true, client_approved_at: true, tags: true, requested_by_contact_id: true },
+    select: { id: true, is_deleted: true, status: true, source: true, staging_preview_url: true, client_approved_at: true, tags: true, requested_by_contact_id: true, approved: true, approved_preview_url: true, approved_commit_sha: true, staging_commit_sha: true, claim_holder: true },
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned', 409);
   const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'staging', caller: input.claimCaller });
-  if (task.client_approved_at || task.tags.includes(CLIENT_APPROVED_TAG)) {
+  // Fleet item 5: in enforce mode a stage must say which build it is.
+  const bindingMode = await getApprovalBindingMode();
+  if (bindingMode === 'enforce' && (!input.commitSha || !input.deployUrl)) {
+    throw new ApiError('Staging needs commit_sha and deploy_url so the client approves a known build.', 400, 'receipt_required');
+  }
+  const wasApproved = Boolean(task.client_approved_at) || task.tags.includes(CLIENT_APPROVED_TAG);
+  // Fleet item 5: off, or a published task, keeps today's refusal. Otherwise a repeat of the same build is a no-op
+  // and a different build voids the yes (below, after the copy scan) and is staged as new work.
+  if (wasApproved && (bindingMode === 'off' || task.status === 'done' || task.approved)) {
     throw new ApiError('The client already approved this task. Publish it with the live call.', 409);
   }
-  if (task.status === 'review' && task.staging_preview_url === input.previewUrl) {
+  if (wasApproved && !isRestage(task, { previewUrl: input.previewUrl, commitSha: input.commitSha })) {
+    return { status: 'review', preview_url: input.previewUrl, already_staged: true, approval_email: 'skipped' };
+  }
+  // A repeat is only a repeat when it names the same build (or none): a new commit on the same address is recorded.
+  if (!wasApproved && task.status === 'review' && task.staging_preview_url === input.previewUrl && (!input.commitSha || (task.staging_commit_sha !== null && sameSha(input.commitSha, task.staging_commit_sha)))) {
     return { status: 'review', preview_url: input.previewUrl, already_staged: true, approval_email: 'skipped' };
   }
   const line = stagedLine(input.previewUrl, input.note);
   assertClientCopy('The staged note', line.replace(input.previewUrl, ''));
+  if (wasApproved) await voidApprovalIfRestaged(task.id, { previewUrl: input.previewUrl, commitSha: input.commitSha }, { actorUserId: input.authorId, mode: bindingMode, reason: 'staged again' });
 
   const now = new Date();
   await prisma.$transaction([
-    prisma.task.update({ where: { id: task.id }, data: { status: 'review', staging_preview_url: input.previewUrl, staging_deployed_at: now, completed_at: null, ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}) } }),
+    prisma.task.update({ where: { id: task.id }, data: { status: 'review', staging_preview_url: input.previewUrl, staging_deployed_at: now, staging_commit_sha: input.commitSha ?? null, staging_deploy_id: input.deployId ?? null, staging_deploy_url: input.deployUrl ?? null, completed_at: null, ...(claimCheck.overridden_holder ? CLEAR_CLAIM_DATA : {}) } }),
     removeTaskTagQuery(task.id, SEND_BACK_TAG),
     // chat_meta marks the line as already carried by the approval email, so the chat sweep does not mail it again.
     prisma.comment.create({
-      data: { task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: 'approval_email' } },
+      data: { ...(await actorLaneField()), task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, chat_meta: { email_notice: 'approval_email' } },
     }),
   ]);
   await claimCheck.logOverride();
+  await writeReceipt({ task_id: task.id, step: 'staged', commit_sha: input.commitSha, deploy_id: input.deployId, deploy_url: input.deployUrl, preview_url: input.previewUrl, checks: input.checks, actor_user_id: input.authorId, claim_holder: task.claim_holder });
 
   let approvalEmail: 'sent' | 'skipped' = 'skipped';
   let previewHolder: string | null = null;
@@ -214,6 +236,15 @@ export async function markLive(input: {
   liveUrl: string;
   summary?: string | null;
   force?: boolean;
+  // Fleet item 5: the production build, and the proof it was checked
+  commitSha?: string | null;
+  deployId?: string | null;
+  checks?: CheckEntry[];
+  liveCheck?: Record<string, unknown> | null;
+  forceReason?: string | null;
+  /** The caller's role: only an admin may force a build that is not the approved one. */
+  callerRole?: string;
+  callerVia?: 'session' | 'api_key';
   /** The X-Claim-Token header: proves the caller still owns the task (fleet item 3). */
   claimToken?: string | null;
   claimCaller?: ClaimCaller;
@@ -222,7 +253,7 @@ export async function markLive(input: {
     where: { id: input.taskId },
     select: {
       id: true, is_deleted: true, status: true, title: true, client_title: true, client_id: true, requested_by_contact_id: true,
-      client_approved_at: true, approved: true, completed_at: true, tags: true,
+      client_approved_at: true, approved: true, completed_at: true, tags: true, approved_commit_sha: true, approved_preview_url: true, claim_holder: true,
       client: { select: { name: true } },
       site: { select: { client_id: true, client: { select: { name: true } } } },
     },
@@ -238,6 +269,20 @@ export async function markLive(input: {
   const line = liveLine(input.liveUrl);
   assertClientCopy('The summary', what);
 
+  // Fleet item 5: is this the build the client approved? Only a task being published for the first time is judged.
+  const bindingMode = await getApprovalBindingMode();
+  const judged = bindingMode === 'off' || task.status === 'done' ? { mismatch: false, unbound: true } : compareBuild(task.approved_commit_sha, input.commitSha);
+  // Enforce: a yes that never recorded its build cannot show this is the build the client saw, so it is treated as a mismatch.
+  const build = bindingMode === 'enforce' && task.status !== 'done' && judged.unbound ? { mismatch: true, unbound: true } : judged;
+  let forcedPastMismatch = false;
+  if (build.mismatch && bindingMode === 'enforce') {
+    if (!input.force) throw new ApiError('The build going live is not the build the client approved. Nothing was published to them.', 409, 'build_not_approved');
+    // Only an admin on a browser session may force (not an API key, not a worker token).
+    if (input.callerRole !== 'admin' || input.callerVia !== 'session') throw new ApiError('Only an admin on a browser session can publish a build the client did not approve.', 403, 'forbidden');
+    if (!oneLine(input.forceReason ?? '')) throw new ApiError('Forcing a build the client did not approve needs force_reason.', 400, 'force_reason_required');
+    forcedPastMismatch = true;
+  }
+
   const now = new Date();
   await prisma.task.update({
     where: { id: task.id },
@@ -252,6 +297,19 @@ export async function markLive(input: {
   });
   await claimCheck.logOverride();
   if (task.status !== 'done') {
+    await writeReceipt({
+      task_id: task.id, step: 'live', commit_sha: input.commitSha, deploy_id: input.deployId, live_url: input.liveUrl, checks: input.checks,
+      live_check: { ...(input.liveCheck ?? {}), ...(forcedPastMismatch ? { forced: true, force_reason: oneLine(input.forceReason ?? '') } : {}), ...(build.unbound ? { approved_build: 'not recorded' } : {}) } as never,
+      mismatch: build.mismatch, actor_user_id: input.authorId, claim_holder: task.claim_holder,
+    });
+    if (build.mismatch) {
+      await prisma.comment.create({
+        data: {
+          task_id: task.id, user_id: input.authorId, is_internal: true,
+          content: `Build check: the commit going live (${input.commitSha ? input.commitSha.slice(0, 12) : 'not reported'}) is not the commit the client approved (${(task.approved_commit_sha ?? '').slice(0, 12)}).${forcedPastMismatch ? ` Forced by an admin: ${oneLine(input.forceReason ?? '')}.` : ' It went live anyway because approval binding is in warn mode.'}`,
+        },
+      }).catch((e: unknown) => console.error('build mismatch note failed', e));
+    }
     await logStatusChange(input.authorId, 'task', task.id, task.title, task.status, 'done').catch(() => undefined);
     await unblockEligibleDependents(task.id).catch((e: unknown) => console.error('unblock after go-live failed', e));
   }
@@ -271,7 +329,7 @@ export async function markLive(input: {
     // The thread line. In a chat task it carries no marker, so the chat sweep emails it when the client is away.
     if (chat || recipients.length > 0) {
       await prisma.comment.create({
-        data: { task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, ...(chat ? {} : { chat_meta: { email_notice: 'go_live_email' } }) },
+        data: { ...(await actorLaneField()), task_id: task.id, user_id: input.authorId, content: line, is_internal: false, client_visible: true, ...(chat ? {} : { chat_meta: { email_notice: 'go_live_email' } }) },
       });
     }
     if (chat) return { status: 'done', already_notified: false, lane: 'chat', emailed: [] };

@@ -205,7 +205,7 @@ describe('loadWorkItem', () => {
   it('shows the staged preview, and a viewer can act on it (any portal user may approve)', async () => {
     findFirst.mockResolvedValue(workRow({ status: 'review', staging_preview_url: 'https://staging.example.com' }));
     const w = await loadWorkItem(viewer, 't1');
-    expect(w?.staged).toEqual({ preview_url: 'https://staging.example.com', awaiting_approval: true });
+    expect(w?.staged).toEqual({ preview_url: 'https://staging.example.com', staging_deployed_at: null, awaiting_approval: true });
     expect(w?.state.label).toBe('Ready for your review');
     expect(w?.can_act).toBe(true);
   });

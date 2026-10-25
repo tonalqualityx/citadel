@@ -231,7 +231,7 @@ describe('POST /api/portal/tasks/:token/approve', () => {
     expect(response.status).toBe(200);
     expect(data.message).toBe('Approved');
     expect(data.promotion_pending).toBe(false);
-    expect(mockRecordTaskClientApproval).toHaveBeenCalledWith(mockPortalTask, 'contact-1');
+    expect(mockRecordTaskClientApproval).toHaveBeenCalledWith(mockPortalTask, 'contact-1', 'approval_link', null, null);
     expect(mockLogPortalSession).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept' }));
   });
 

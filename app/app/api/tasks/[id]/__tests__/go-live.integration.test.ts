@@ -38,7 +38,12 @@ describe.skipIf(!SCRATCH)('staged -> approved -> live (real database)', () => {
   const live = (body: unknown, id = a.taskId) => livePOST(req('live', body), params(id));
   const outbox = () => prisma.emailOutbox.findMany({ where: { task_id: a.taskId, kind: 'portal_golive' }, orderBy: { created_at: 'asc' } });
   const task = () => prisma.task.findUniqueOrThrow({ where: { id: a.taskId } });
-  const approve = async () => recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId);
+  // The approval page sends the preview address and deploy time it loaded; this is that page, loaded just now.
+  const seenApprove = async () => {
+    const t = await prisma.task.findUniqueOrThrow({ where: { id: a.taskId }, select: { staging_preview_url: true, staging_deployed_at: true } });
+    return recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', t.staging_preview_url, t.staging_deployed_at?.toISOString() ?? null);
+  };
+  const approve = async () => seenApprove();
 
   beforeAll(async () => {
     await prisma.user.upsert({
@@ -93,8 +98,14 @@ describe.skipIf(!SCRATCH)('staged -> approved -> live (real database)', () => {
     await staged({ preview_url: 'https://preview.example.test/p2' });
     expect((await task()).tags).not.toContain('client-sent-back');
     await approve();
-    const res = await staged({ preview_url: 'https://preview.example.test/p3' });
-    expect(res.status).toBe(409);
+    // Fleet item 5: with approval binding off, a re-stage after a yes is today's 409.
+    await prisma.appSettings.upsert({ where: { id: 'singleton' }, update: { approval_binding_mode: 'off' }, create: { id: 'singleton', approval_binding_mode: 'off' } });
+    try {
+      const res = await staged({ preview_url: 'https://preview.example.test/p3' });
+      expect(res.status).toBe(409);
+    } finally {
+      await prisma.appSettings.update({ where: { id: 'singleton' }, data: { approval_binding_mode: 'warn' } });
+    }
   });
 
   it('the client approval sets the approved state (timestamp + tag) and keeps the status review, not done', async () => {
@@ -227,7 +238,9 @@ describe.skipIf(!SCRATCH)('staged -> approved -> live (real database)', () => {
     }
     expect((await task()).status).toBe('review');
     expect(await outbox()).toHaveLength(0);
-    expect((await staged({ preview_url: 'https://preview.example.test/pa', note: 'Bast built this' })).status).toBe(409); // already approved: checked first
+    // Fleet item 5: the copy scan runs before an approval is voided, so a bad note leaves the yes in place.
+    expect((await staged({ preview_url: 'https://preview.example.test/pa', note: 'Bast built this' })).status).toBe(400);
+    expect((await task()).client_approved_at).not.toBeNull();
     await prisma.task.update({ where: { id: a.taskId }, data: { client_approved_at: null, tags: [] } });
     expect((await staged({ preview_url: 'https://preview.example.test/pa', note: 'Bast built this' })).status).toBe(400);
   });

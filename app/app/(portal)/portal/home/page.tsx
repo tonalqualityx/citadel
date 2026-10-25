@@ -271,14 +271,15 @@ export default function ClientHomePage() {
     fetchHome();
   }, [fetchHome]);
 
-  async function handleApproveTask(taskId: string, title: string) {
+  async function handleApproveTask(taskId: string, title: string, previewUrl?: string | null, deployedAt?: string | null) {
     setSubmittingId(taskId);
     setActionError(null);
     try {
-      const res = await fetch(`/api/portal/tasks/mine/${taskId}/approve`, { method: 'POST' });
+      const res = await fetch(`/api/portal/tasks/mine/${taskId}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preview_url: previewUrl ?? undefined, staging_deployed_at: deployedAt ?? undefined }) });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setActionError(body.error || 'Something went wrong. Please try again.');
+        if (body.code === 'preview_changed') await fetchHome();
         return;
       }
       setApprovedDone((prev) => [...prev, { id: taskId, title }]);
@@ -412,7 +413,7 @@ export default function ClientHomePage() {
                       icon={Check}
                       busy={submittingId === task.id}
                       busyLabel="Approving…"
-                      onClick={() => handleApproveTask(task.id, task.title)}
+                      onClick={() => handleApproveTask(task.id, task.title, task.staging_preview_url, task.staging_deployed_at)}
                     >
                       Approve
                     </PortalButton>

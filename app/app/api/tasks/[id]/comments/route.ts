@@ -6,6 +6,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 import { createNotification } from '@/lib/services/notifications';
 import { clientVisibleCommentWhere } from '@/lib/comments/visibility';
 import { afterReplyShared, assertShareable } from '@/lib/portal/share-reply';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 const createCommentSchema = z.object({
   content: z.string().min(1, 'Comment cannot be empty').max(10000),
@@ -36,6 +37,8 @@ function formatComment(comment: any) {
         }
       : null,
     content: comment.content,
+    // Fleet item 6: the machine lane that wrote it (staff view only; shown as "Bast · <lane>").
+    actor_lane: comment.actor_lane ?? null,
     mentioned_user_ids: comment.mentioned_user_ids ?? [],
     is_internal: comment.is_internal ?? false,
     client_visible: comment.client_visible ?? false,
@@ -214,7 +217,7 @@ export async function POST(
 
     // Create the comment
     const comment = await prisma.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: taskId,
         user_id: auth.userId,
         content: data.content,

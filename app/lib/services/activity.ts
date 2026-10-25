@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
 import { Prisma } from '@prisma/client';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 export type ActivityAction =
   | 'created'
@@ -31,7 +32,7 @@ export interface ActivityLogInput {
 export async function logActivity(input: ActivityLogInput): Promise<void> {
   try {
     await prisma.activityLog.create({
-      data: {
+      data: { ...(await actorLaneField()),
         user_id: input.userId,
         action: input.action,
         entity_type: input.entityType,

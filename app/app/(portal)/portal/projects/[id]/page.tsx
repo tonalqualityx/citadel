@@ -119,14 +119,15 @@ export default function ClientProjectPage() {
     load();
   }, [load]);
 
-  async function approve(taskId: string) {
+  async function approve(taskId: string, previewUrl: string | null, deployedAt: string | null) {
     setBusyId(taskId);
     setActionError(null);
     try {
-      const res = await fetch(`/api/portal/tasks/mine/${taskId}/approve`, { method: 'POST' });
+      const res = await fetch(`/api/portal/tasks/mine/${taskId}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ preview_url: previewUrl ?? undefined, staging_deployed_at: deployedAt ?? undefined }) });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setActionError(body.error || 'Something went wrong. Please try again.');
+        if (body.code === 'preview_changed') await load();
         return;
       }
       await load();
@@ -218,7 +219,7 @@ export default function ClientProjectPage() {
                         View preview
                       </ActionLink>
                     ) : null}
-                    <PortalButton writes variant="primary" icon={Check} busy={busyId === a.id} busyLabel="Approving…" onClick={() => approve(a.id)}>
+                    <PortalButton writes variant="primary" icon={Check} busy={busyId === a.id} busyLabel="Approving…" onClick={() => approve(a.id, a.staging_preview_url, a.staging_deployed_at)}>
                       Approve
                     </PortalButton>
                   </>

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
-import { requireAuth, requireRole } from '@/lib/auth/middleware';
-import { handleApiError, ApiError } from '@/lib/api/errors';
+import { requireAuth } from '@/lib/auth/middleware';
+import { handleApiError, ApiError, AuthError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { EmailAskState } from '@prisma/client';
+
+/** The email classifier marks the notes it writes with this prefix (email-classifier.py AUTO_NOTE_PREFIX). */
+const AUTO_NOTE_PREFIX = '[auto] ';
 
 // Clarity Phase 4a — the crisis-strip "Handled" action and the intake drawer's
 // Open/Dismiss actions both land here. Admin-only, same as the rest of the Oracle
@@ -49,15 +52,36 @@ const patchSchema = z.object({
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await requireAuth();
-    requireRole(auth, ['admin']);
+    // Admin, or the Porter lane key (the email classifier, fleet item 6). Porter never touches a note
+    // Mike typed: it may write training_note only over an empty note and only an AUTO_NOTE_PREFIX
+    // note, and it may set calendar_requested to false (clearing after the event) but never true.
+    // Anything else is dropped and reported back in ignored_fields.
+    const porter = auth.role !== 'admin' && auth.lane === 'porter';
+    if (auth.role !== 'admin' && !porter) throw new AuthError('Insufficient permissions', 403);
     const { id } = await params;
 
     const body = await request.json();
     const data = patchSchema.parse(body);
+    const ignored_fields: string[] = [];
 
     const existing = await prisma.emailAsk.findUnique({ where: { id } });
     if (!existing) {
       throw new ApiError('Email ask not found', 404);
+    }
+
+    if (porter) {
+      if (data.training_note !== undefined) {
+        const storedEmpty = !(existing.training_note ?? '').trim();
+        const isAuto = typeof data.training_note === 'string' && data.training_note.startsWith(AUTO_NOTE_PREFIX);
+        if (!storedEmpty || !isAuto) {
+          ignored_fields.push('training_note');
+          delete data.training_note;
+        }
+      }
+      if (data.calendar_requested !== undefined && data.calendar_requested !== false) {
+        ignored_fields.push('calendar_requested');
+        delete data.calendar_requested;
+      }
     }
 
     if (data.task_id) {
@@ -92,7 +116,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       },
     });
 
-    return NextResponse.json(formatEmailAskResponse(updated));
+    return NextResponse.json(
+      ignored_fields.length > 0 ? { ...formatEmailAskResponse(updated), ignored_fields } : formatEmailAskResponse(updated)
+    );
   } catch (error) {
     return handleApiError(error);
   }

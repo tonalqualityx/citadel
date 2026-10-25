@@ -8,6 +8,7 @@ import { prisma } from '@/lib/db/prisma';
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { governTaskId, type Govern } from './govern';
 import { recheckSend, type Severity } from './recheck';
+import { writeSendDroppedReceipt } from '@/lib/portal/receipts'; // Fleet item 5
 
 export type RecheckMode = 'off' | 'shadow' | 'enforce';
 
@@ -68,6 +69,14 @@ export async function decideSend(govern: Govern, ref: string | null = null, opts
       : { ok: true, mode, would_drop: { reason: r.reason, severity: r.severity } };
   }
   console.log(JSON.stringify({ event: 'send_recheck', intent: govern.intent, ref, mode, ok: decision.ok, reason: decision.reason ?? decision.would_drop?.reason ?? null, severity: decision.severity ?? decision.would_drop?.severity ?? null, shadow: Boolean(decision.would_drop) }));
-  if (!decision.ok && decision.reason && !opts.probe) await noteDrop(govern, decision.reason, ref);
+  if (!decision.ok && decision.reason && !opts.probe) {
+    await noteDrop(govern, decision.reason, ref);
+    // Fleet item 5: a real drop is a step in the task's trail. The ref is an outbox row unless it is the approval request id.
+    const taskId = governTaskId(govern);
+    if (taskId) {
+      const approvalRequestId = govern.intent === 'approval_mail' ? govern.approval_request_id ?? null : null;
+      await writeSendDroppedReceipt(taskId, { reason: decision.reason, intent: govern.intent, severity: decision.severity, outboxId: ref && ref !== approvalRequestId ? ref : null, approvalRequestId });
+    }
+  }
   return decision;
 }

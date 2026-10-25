@@ -165,7 +165,7 @@ describe('POST /api/portal/tasks/mine/:id/approve', () => {
 
     expect(res.status).toBe(200);
     expect(body.message).toBe('Approved');
-    expect(mockRecordApproval).toHaveBeenCalledWith(task, 'contact-1');
+    expect(mockRecordApproval).toHaveBeenCalledWith(task, 'contact-1', 'portal', null, null);
     expect(mockLogPortalSession).toHaveBeenCalledWith(expect.objectContaining({ action: 'accept' }));
   });
 

@@ -260,6 +260,47 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
       expect(notes[0].client_visible).toBe(false);
       expect(notes[0].content).toContain('already_approved');
     });
+    // Fleet item 5 point 5: a real drop leaves a send_dropped step on the task's receipts.
+    describe('send_dropped receipts', () => {
+      const dropped = () => prisma.taskReceipt.findMany({ where: { task_id: a.taskId, step: 'send_dropped' }, orderBy: { created_at: 'asc' } });
+      beforeEach(async () => { await prisma.taskReceipt.deleteMany({ where: { task_id: a.taskId } }); });
+
+      it('an outbox drop writes one receipt with the outbox id, intent and reason', async () => {
+        const row = await queueApproval('d1');
+        await reset({ client_approved_at: new Date() });
+        expect((await claimPOST(jsonReq({}), params(row.id))).status).toBe(409);
+        const rs = await dropped();
+        expect(rs).toHaveLength(1);
+        expect(rs[0].outbox_ids).toEqual([row.id]);
+        expect(rs[0].live_check).toMatchObject({ reason: 'already_approved', intent: 'approval_request', severity: 'definitive' });
+      });
+      it('an approval request drop writes a receipt naming the request, not an outbox row', async () => {
+        const r = await prisma.approvalRequest.create({ data: { task_id: a.taskId, project_id: projectId, status: 'queued', subject: 'Please approve', body: 'Body', to_email: `olive-${tag}@example.test`, queued_at: new Date() } });
+        await reset({ client_approved_at: new Date() });
+        expect((await sendingPUT(jsonReq({}), params(r.id))).status).toBe(409);
+        const rs = await dropped();
+        expect(rs).toHaveLength(1);
+        expect(rs[0].outbox_ids).toEqual([]);
+        expect(rs[0].live_check).toMatchObject({ reason: 'already_approved', intent: 'approval_mail', approval_request_id: r.id });
+      });
+      it('a shadow would-drop, a probe and a pass write none', async () => {
+        const row = await queueApproval('d3');
+        await reset({ client_approved_at: new Date() });
+        await setting({ send_recheck_mode: 'shadow' });
+        expect((await claimPOST(jsonReq({}), params(row.id))).status).toBe(200);
+        await setting({ send_recheck_mode: 'enforce' });
+        const g: Govern = { intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: 'https://preview.example.test/a' } };
+        expect((await decideSend(g, null, { probe: true })).ok).toBe(false);
+        await reset();
+        expect((await decideSend(g, null)).ok).toBe(true);
+        expect(await dropped()).toHaveLength(0);
+      });
+      it('a task-less govern block (a link) writes no receipt and does not fail', async () => {
+        const d = await decideSend({ intent: 'magic_link', snapshot: { expires_at: new Date(Date.now() - 1000).toISOString() } });
+        expect(d.ok).toBe(false);
+        expect(await dropped()).toHaveLength(0);
+      });
+    });
     it('a row without govern passes (ungoverned)', async () => {
       const row = await prisma.emailOutbox.create({ data: { to: `old-${tag}@example.test`, subject: 's', text: 't' } });
       const res = await claimPOST(jsonReq({}), params(row.id));
@@ -438,7 +479,7 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
       expect(staged.approval_email).toBe('sent');
       const queued = await prisma.emailOutbox.findFirstOrThrow({ where: { to: `olive-${tag}@example.test`, kind: 'other' }, orderBy: { created_at: 'desc' } });
       expect(queued.govern).toMatchObject({ intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: 'https://preview.example.test/replay' } });
-      await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId);
+      await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', 'https://preview.example.test/replay', (await prisma.task.findUniqueOrThrow({ where: { id: a.taskId }, select: { staging_deployed_at: true } })).staging_deployed_at?.toISOString() ?? null); // item 5: the yes names the build the client saw
       const res = await claimPOST(jsonReq({}), params(queued.id));
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ code: 'superseded', reason: 'already_approved' });

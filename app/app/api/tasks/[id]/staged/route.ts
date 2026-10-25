@@ -3,11 +3,17 @@ import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { canShareWithClient } from '@/lib/portal/share-reply';
+import { checksSchema, shaSchema } from '@/lib/portal/receipts';
 import { markStaged, parseHttpUrl, STAGED_NOTE_MAX } from '@/lib/portal/go-live';
 
 const bodySchema = z.object({
   preview_url: z.string().min(1).max(500),
   note: z.string().max(STAGED_NOTE_MAX).optional().nullable(),
+  // Fleet item 5: the build behind the preview
+  commit_sha: shaSchema.optional().nullable(),
+  deploy_id: z.string().max(128).optional().nullable(),
+  deploy_url: z.string().max(500).optional().nullable(),
+  checks: checksSchema.optional(),
 });
 
 // POST /api/tasks/:id/staged - the change is staged and waits for the client's yes.
@@ -24,6 +30,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       authorId: auth.userId,
       previewUrl: parseHttpUrl('preview_url', body.preview_url),
       note: body.note ?? null,
+      commitSha: body.commit_sha ?? null,
+      deployId: body.deploy_id ?? null,
+      deployUrl: body.deploy_url ? parseHttpUrl('deploy_url', body.deploy_url) : null,
+      checks: body.checks,
       claimToken: request.headers.get('x-claim-token'),
       claimCaller: { userId: auth.userId, role: auth.role, via: auth.via },
     });

@@ -30,6 +30,7 @@ import { CANCEL_LINE, CANCEL_LIVE_ERROR } from '@/lib/portal/cancel-copy';
 import { notifyClientCancelled } from '@/lib/portal/staff-notify';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { OPEN_STATES, resolveWait } from '@/lib/waits/sweeper';
+import { actorLaneField } from '@/lib/auth/actor-lane';
 
 export interface CancelResult {
   /** True when this call did the cancelling; false for a repeat. */
@@ -74,11 +75,11 @@ export async function cancelRequest(access: PortalAccess, taskId: string, now: D
 
     // chat_meta marks the line as already shown, so the chat sweep never emails it.
     await tx.comment.create({
-      data: { task_id: taskId, user_id: BAST_USER_ID, content: CANCEL_LINE, is_internal: false, client_visible: true, chat_meta: { email_notice: 'cancelled' } },
+      data: { ...(await actorLaneField()), task_id: taskId, user_id: BAST_USER_ID, content: CANCEL_LINE, is_internal: false, client_visible: true, chat_meta: { email_notice: 'cancelled' } },
     });
     const contact = await tx.clientContact.findFirst({ where: { id: access.contactId }, select: { name: true } });
     await tx.comment.create({
-      data: {
+      data: { ...(await actorLaneField()),
         task_id: taskId,
         user_id: BAST_USER_ID,
         content: `The client cancelled this request in the portal${contact?.name ? ` (${contact.name})` : ''}. Status set to abandoned. Reopen it here if that was a mistake.`,

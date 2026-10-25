@@ -54,7 +54,7 @@ export interface RetainerCard {
   period: string;
   covers: string[];
   allowance: string | null;
-  plan_ready: { task_id: string; title: string; preview_url: string; book_href: string } | null;
+  plan_ready: { task_id: string; title: string; preview_url: string; staging_deployed_at: string | null; book_href: string } | null;
   this_month: { open: RetainerItem[]; done: RetainerItem[] };
   latest_report: { title: string; headline: string | null; period: string; url: string } | null;
   /** The contract year, up to twelve months. Empty when the charter has no usable start date. */
@@ -269,7 +269,7 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
     const [plan, openRows, doneRows, report, yearReports] = await Promise.all([
       prisma.task.findFirst({
         where: { AND: [taskBase, { tags: { has: PLAN_TAG }, client_approved_at: null }, stagedTaskWhere()] },
-        select: { id: true, title: true, client_title: true, staging_preview_url: true },
+        select: { id: true, title: true, client_title: true, staging_preview_url: true, staging_deployed_at: true },
         orderBy: { updated_at: 'desc' },
       }),
       prisma.task.findMany({
@@ -339,7 +339,7 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
       allowance: allowanceText(c.budget_hours, c.billing_period),
       plan_ready:
         plan && plan.staging_preview_url
-          ? { task_id: plan.id, title: plan.client_title ?? plan.title, preview_url: plan.staging_preview_url, book_href: BOOK_MARKETING_HREF }
+          ? { task_id: plan.id, title: plan.client_title ?? plan.title, preview_url: plan.staging_preview_url, staging_deployed_at: plan.staging_deployed_at ? plan.staging_deployed_at.toISOString() : null, book_href: BOOK_MARKETING_HREF }
           : null,
       this_month: { open, done: (doneRows as ItemRow[]).map(toItem) },
       latest_report: report && reportUrl ? { title: report.title, headline: report.headline, period: report.period, url: reportUrl } : null,

@@ -12,6 +12,7 @@ import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
+import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -421,8 +422,9 @@ export async function POST(request: NextRequest) {
       });
       defaultReviewerId = project?.created_by_id || auth.userId;
     } else {
-      // Standalone task - reviewer is the creator
-      defaultReviewerId = auth.userId;
+      // Standalone task - reviewer is the creator, except that a task Bast files (any lane, fleet
+      // item 6) is reviewed by Mike, not by the bot.
+      defaultReviewerId = auth.userId === BAST_USER_ID ? MIKE_USER_ID : auth.userId;
     }
 
     // Calculate estimated minutes if energy estimate provided
