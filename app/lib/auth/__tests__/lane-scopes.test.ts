@@ -122,6 +122,13 @@ describe('matching', () => {
     expect(laneAllows('courier', 'GET', '/api/sites')).toBe(false);
   });
 
+  it('bast reads one meeting (decisions/capture.py) but not the incomplete list or a write', () => {
+    expect(laneAllows('bast', 'GET', '/api/meetings/7f1c')).toBe(true);
+    expect(laneAllows('bast', 'GET', '/api/meetings/incomplete')).toBe(false);
+    expect(laneAllows('bast', 'PATCH', '/api/meetings/7f1c')).toBe(false);
+    expect(laneAllows('bast', 'GET', '/api/meetings')).toBe(false);
+  });
+
   it('an unknown lane allows nothing', () => {
     expect(laneAllows('bogus', 'GET', '/api/email-outbox')).toBe(false);
   });

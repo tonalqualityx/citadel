@@ -194,6 +194,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/decisions/:id'),
     r('POST', '/api/decisions/:id/sources'),
     r('POST', '/api/decisions/:id/links'),
+    // decisions/capture.py reads the meeting a decision is captured from (never /api/meetings/incomplete)
+    r('GET', '/api/meetings/:id'),
     // engagement-owner/owner_pass.py (item 1) and the receipts read (item 5)
     r('GET', '/api/engagement-briefs/:id'),
     r('GET', '/api/engagement-briefs/:id/tasks'),
