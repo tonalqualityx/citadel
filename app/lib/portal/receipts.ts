@@ -122,7 +122,14 @@ export function cleanApprovalSource(source: string | null | undefined): string {
  * Call it right after the approval is stored. A task with no recorded build still gets the receipt (with
  * the preview address), so the trail shows the yes and what it was given to.
  */
-export async function stampApproval(taskId: string, source: string, db: Db = defaultDb, actorUserId: string | null = null) {
+export async function stampApproval(
+  taskId: string,
+  source: string,
+  db: Db = defaultDb,
+  actorUserId: string | null = null,
+  /** `warn` mode recorded the yes without a preview match: the receipt is flagged when the task had a preview. */
+  opts: { unboundWarning?: string } = {}
+) {
   const t = await db.task.findUnique({
     where: { id: taskId },
     select: { staging_preview_url: true, staging_commit_sha: true, staging_deploy_id: true, staging_deploy_url: true, claim_holder: true },
@@ -132,10 +139,12 @@ export async function stampApproval(taskId: string, source: string, db: Db = def
     where: { id: taskId },
     data: { approved_preview_url: t.staging_preview_url, approved_commit_sha: t.staging_commit_sha, approved_deploy_id: t.staging_deploy_id },
   });
+  const flagged = Boolean(opts.unboundWarning && t.staging_preview_url);
   return db.taskReceipt.create({
     data: receiptData({
       task_id: taskId,
       step: 'approved',
+      ...(flagged ? { mismatch: true, live_check: { warning: opts.unboundWarning } as Prisma.InputJsonValue } : {}),
       commit_sha: t.staging_commit_sha,
       deploy_id: t.staging_deploy_id,
       deploy_url: t.staging_deploy_url,

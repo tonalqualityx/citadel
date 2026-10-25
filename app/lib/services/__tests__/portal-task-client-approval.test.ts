@@ -12,7 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 vi.mock('@/lib/sends/claims', () => ({ clearPreviewClaims: vi.fn(async () => undefined) }));
-vi.mock('@/lib/portal/receipts', () => ({ stampApproval: vi.fn(async () => null) })); // Fleet item 5: the receipt is tested in receipts.integration.test.ts
+vi.mock('@/lib/portal/receipts', () => ({ stampApproval: vi.fn(async () => null), getApprovalBindingMode: vi.fn(async () => 'enforce') })); // Fleet item 5: the receipt is tested in receipts.integration.test.ts
 vi.mock('@/lib/portal/staff-alert', () => ({ alertTaskOwner: vi.fn(async () => undefined) }));
 vi.mock('@/lib/portal/waits', () => ({ onClientMessage: vi.fn(async () => ({ stopped: 0, flagged: 0, opened: null })) }));
 
@@ -20,6 +20,7 @@ import { recordTaskClientApproval, recordTaskClientRequestChanges, recordUnattri
 import { alertTaskOwner } from '@/lib/portal/staff-alert';
 import { prisma } from '@/lib/db/prisma';
 import { onClientMessage } from '@/lib/portal/waits';
+import { stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts';
 import type { Mock } from 'vitest';
 
 const mockTaskUpdate = prisma.task.update as Mock;
@@ -34,6 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUserFindFirst.mockResolvedValue({ id: 'bast-user' });
   mockUpdateMany.mockResolvedValue({ count: 1 });
+  (getApprovalBindingMode as Mock).mockResolvedValue('enforce');
 });
 
 describe('recordTaskClientApproval', () => {
@@ -117,6 +119,40 @@ describe('recordTaskClientApproval: bound to what the client saw', () => {
     mockUpdateMany.mockResolvedValue({ count: 0 });
     mockFindUnique.mockResolvedValue({ client_approved_at: at, staging_preview_url: 'https://p.example/2', staging_deployed_at: null });
     expect(await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/2', null)).toMatchObject({ already_approved: true, approved_at: at });
+  });
+});
+
+describe('recordTaskClientApproval: approval_binding_mode', () => {
+  const baseTask = { id: 'task-1', client_approved_at: null, site: { auto_deploy: true } };
+  const mode = (m: string) => (getApprovalBindingMode as Mock).mockResolvedValue(m);
+
+  it('off: no preview guard at all, even when the page names a preview and a deploy time; no warning', async () => {
+    mode('off');
+    const r = await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/old', '2026-10-22T12:00:00.000Z');
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null }, data: expect.anything() });
+    expect(r.preview_changed).toBeUndefined();
+    expect(stampApproval).toHaveBeenCalledWith('task-1', 'portal', expect.anything(), null, undefined);
+  });
+
+  it('warn: a page that sent no body is not guarded and the receipt is told to carry the warning', async () => {
+    mode('warn');
+    const r = await recordTaskClientApproval(baseTask, 'contact-1', 'portal', null, null);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null }, data: expect.anything() });
+    expect(r.preview_changed).toBeUndefined();
+    expect(stampApproval).toHaveBeenCalledWith('task-1', 'portal', expect.anything(), null, { unboundWarning: expect.stringContaining('no preview') });
+  });
+
+  it('warn: a page that names a preview is still held to it', async () => {
+    mode('warn');
+    await recordTaskClientApproval(baseTask, 'contact-1', 'portal', 'https://p.example/1', null);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null, staging_preview_url: 'https://p.example/1' }, data: expect.anything() });
+    expect(stampApproval).toHaveBeenCalledWith('task-1', 'portal', expect.anything(), null, undefined);
+  });
+
+  it('enforce: a page that sent no body only matches a task with no preview', async () => {
+    mode('enforce');
+    await recordTaskClientApproval(baseTask, 'contact-1', 'portal', null, null);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ where: { id: 'task-1', client_approved_at: null, staging_preview_url: null }, data: expect.anything() });
   });
 });
 

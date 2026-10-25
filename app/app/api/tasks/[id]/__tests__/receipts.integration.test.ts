@@ -468,11 +468,38 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
     expect(await receipts('approved')).toHaveLength(0);
   });
 
-  it('a request that names no preview when the task has one is not approved', async () => {
+  it('enforce: a request that names no preview when the task has one is not approved', async () => {
+    await setMode('enforce');
     await stage('https://p.example.test/28');
     const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', null, null);
     expect(r).toMatchObject({ preview_changed: true, staging_preview_url: 'https://p.example.test/28' });
     expect((await task()).client_approved_at).toBeNull();
+  });
+
+  it('warn: an old cached page that sends no body is approved, and the approved receipt carries the warning', async () => {
+    await stage('https://p.example.test/28w');
+    const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', null, null);
+    expect(r.preview_changed).toBeUndefined();
+    expect((await task()).client_approved_at).not.toBeNull();
+    const [rec] = await receipts('approved');
+    expect(rec).toMatchObject({ mismatch: true, preview_url: 'https://p.example.test/28w' });
+    expect(rec.live_check).toMatchObject({ warning: expect.stringContaining('no preview') });
+  });
+
+  it('warn: a page that names a different preview is still refused', async () => {
+    await stage('https://p.example.test/28x');
+    const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', 'https://p.example.test/old');
+    expect(r).toMatchObject({ preview_changed: true });
+    expect((await task()).client_approved_at).toBeNull();
+  });
+
+  it('off (rollback): no preview match at all, even when the page names an old preview; no warning on the receipt', async () => {
+    await setMode('off');
+    await stage('https://p.example.test/28o');
+    const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'approval_link', 'https://p.example.test/old', '2020-01-01T00:00:00.000Z');
+    expect(r.preview_changed).toBeUndefined();
+    expect((await task()).client_approved_at).not.toBeNull();
+    expect((await receipts('approved'))[0]).toMatchObject({ mismatch: false });
   });
 
   it('POST /api/email-outbox/:id/sent writes a send receipt with the outbox and message ids, and a taskless row writes none', async () => {
