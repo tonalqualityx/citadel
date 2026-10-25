@@ -21,6 +21,7 @@ vi.mock('@/lib/db/prisma', () => {
     },
     emailOutbox: { create: async ({ data }: any) => { db.outbox.push(data); return { id: 'row-' + db.outbox.length }; } },
     approvalRequest: { findUnique: async () => null },
+    taskReceipt: { create: async () => ({}) }, // Fleet item 5: markLive writes a live receipt
     $executeRaw: async (strings: TemplateStringsArray, ...vals: any[]) => {
       const sql = strings.join('?');
       if (sql.includes('tags || ')) { const [both, id, tag] = vals; const t = db.tasks.get(id)!; if (t.tags.includes(tag)) return 0; t.tags = [...t.tags, ...both]; return 1; }

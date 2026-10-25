@@ -479,7 +479,7 @@ describe.skipIf(!SCRATCH)('send-time recheck (real database)', () => {
       expect(staged.approval_email).toBe('sent');
       const queued = await prisma.emailOutbox.findFirstOrThrow({ where: { to: `olive-${tag}@example.test`, kind: 'other' }, orderBy: { created_at: 'desc' } });
       expect(queued.govern).toMatchObject({ intent: 'approval_request', task_id: a.taskId, snapshot: { preview_url: 'https://preview.example.test/replay' } });
-      await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId);
+      await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', 'https://preview.example.test/replay', (await prisma.task.findUniqueOrThrow({ where: { id: a.taskId }, select: { staging_deployed_at: true } })).staging_deployed_at?.toISOString() ?? null); // item 5: the yes names the build the client saw
       const res = await claimPOST(jsonReq({}), params(queued.id));
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ code: 'superseded', reason: 'already_approved' });
