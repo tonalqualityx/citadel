@@ -23,6 +23,7 @@ import { POST as stagedPOST } from '../staged/route';
 import { POST as livePOST } from '../live/route';
 import { PATCH as taskPATCH } from '../route';
 import { GET as receiptsGET } from '../receipts/route';
+import { POST as sentPOST } from '@/app/api/email-outbox/[id]/sent/route';
 import type { Mock } from 'vitest';
 
 const authMock = requireAuth as Mock;
@@ -472,6 +473,21 @@ describe.skipIf(!SCRATCH)('receipts and approval binding (real database)', () =>
     const r = await recordTaskClientApproval({ id: a.taskId, client_approved_at: null, site: { auto_deploy: false } }, a.ownerId, 'portal', null, null);
     expect(r).toMatchObject({ preview_changed: true, staging_preview_url: 'https://p.example.test/28' });
     expect((await task()).client_approved_at).toBeNull();
+  });
+
+  it('POST /api/email-outbox/:id/sent writes a send receipt with the outbox and message ids, and a taskless row writes none', async () => {
+    const row = await prisma.emailOutbox.create({ data: { to: `s-${tag}@example.test`, subject: 's', text: 't', task_id: a.taskId } });
+    const res = await sentPOST(req('sent', { message_id: 'gm-1', rfc_message_id: '<m1@example.test>' }), params(row.id));
+    expect(res.status).toBe(200);
+    const [s] = await receipts('send');
+    expect(s).toMatchObject({ outbox_ids: [row.id], message_ids: ['gm-1', '<m1@example.test>'] });
+    // Idempotent: a second sent call adds nothing.
+    await sentPOST(req('sent', { message_id: 'gm-1' }), params(row.id));
+    expect(await receipts('send')).toHaveLength(1);
+    const bare = await prisma.emailOutbox.create({ data: { to: `s2-${tag}@example.test`, subject: 's', text: 't' } });
+    expect((await sentPOST(req('sent', {}), params(bare.id))).status).toBe(200);
+    expect(await prisma.taskReceipt.count({ where: { outbox_ids: { has: bare.id } } })).toBe(0);
+    await prisma.emailOutbox.delete({ where: { id: bare.id } });
   });
 
   it('GET receipts returns the trail for staff', async () => {

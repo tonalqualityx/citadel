@@ -84,6 +84,31 @@ export async function writeReceipt(r: ReceiptInput, db: Pick<PrismaClient, 'task
   return db.taskReceipt.create({ data: receiptData(r) });
 }
 
+/**
+ * Item 4 dropped a send at the recheck: leave a send_dropped step on the task's trail (spec section 5, item 5, point 5).
+ * `outboxId` is the outbox row when the drop was an outbox claim; the reason, intent and severity ride in live_check.
+ * Never throws: a missing receipt must not turn a held-back send into an error.
+ */
+export async function writeSendDroppedReceipt(
+  taskId: string,
+  drop: { reason: string; intent: string; severity?: string | null; outboxId?: string | null; approvalRequestId?: string | null },
+  db: Pick<PrismaClient, 'taskReceipt'> = defaultDb
+): Promise<void> {
+  try {
+    await writeReceipt(
+      {
+        task_id: taskId,
+        step: 'send_dropped',
+        outbox_ids: drop.outboxId ? [drop.outboxId] : [],
+        live_check: { reason: drop.reason, intent: drop.intent, severity: drop.severity ?? null, ...(drop.approvalRequestId ? { approval_request_id: drop.approvalRequestId } : {}) } as Prisma.InputJsonValue,
+      },
+      db
+    );
+  } catch (error) {
+    console.error('send_dropped receipt failed', error);
+  }
+}
+
 /** Where a yes came from: the portal, the emailed approval link, an email reply (`email:<Message-ID>`), or a bare API write (`api`). */
 export function cleanApprovalSource(source: string | null | undefined): string {
   const s = (source ?? '').trim();
