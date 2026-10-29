@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import * as React from 'react';
 
@@ -141,11 +141,16 @@ describe('Workspace header', () => {
     expect(screen.getByText(/coming in W6\.4/)).toBeTruthy();
   });
 
-  it('gives the chat a narrow fixed-ish column (340-400px) from 1100px up and stacks below', () => {
+  it('gives the preview the whole stage and floats the chat over it (no grid column)', () => {
     render(<Workspace data={base()} feed={undefined} />);
-    const cls = screen.getByTestId('workspace-grid').className;
-    expect(cls).toContain('min-[1100px]:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,400px)]');
-    expect(cls).not.toMatch(/(^|\s)lg:grid-cols/);
+    expect(screen.queryByTestId('workspace-grid')).toBeNull();
+    const stage = screen.getByTestId('workspace-stage');
+    expect(stage.className).toContain('relative');
+    expect(within(stage).getByRole('region', { name: 'Preview' })).toBeTruthy();
+    const dock = within(stage).getByTestId('chat-dock');
+    expect(dock.className).toContain('min-[1100px]:absolute');
+    expect(dock.className).toContain('min-[1100px]:w-[460px]');
+    expect(dock.className).toContain('min-[1100px]:right-4');
   });
 
   it('the preview pane reports the page path and width, and the slots receive them', () => {
@@ -176,5 +181,45 @@ describe('Workspace header', () => {
     const state = screen.getByTestId('preview-state');
     expect(state.textContent).toBe('Preview building...');
     expect(within(state).queryByRole('link')).toBeNull();
+  });
+});
+
+describe('true-width preview', () => {
+  const sizes = { w: 1000, h: 600 };
+  let cw: PropertyDescriptor | undefined;
+  let ch: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    cw = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    ch = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => sizes.w });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get: () => sizes.h });
+  });
+  afterEach(() => {
+    if (cw) Object.defineProperty(HTMLElement.prototype, 'clientWidth', cw);
+    if (ch) Object.defineProperty(HTMLElement.prototype, 'clientHeight', ch);
+  });
+
+  it('1280 in a 1000px pane lays out at 1280, scales to 78%, fills the height, and shows the badge', () => {
+    pane();
+    fireEvent.click(screen.getByRole('button', { name: '1280' }));
+    const f = iframe();
+    expect(f.style.width).toBe('1280px');
+    expect(f.style.transform).toContain('scale(0.78125)');
+    expect(f.style.transformOrigin).toBe('top left');
+    expect(f.style.height).toBe(`${Math.ceil(600 / 0.78125)}px`);
+    expect(screen.getByTestId('preview-frame-wrapper').style.width).toBe('1000px');
+    expect(screen.getByTestId('scale-badge').textContent).toBe('Scaled to 78%');
+  });
+
+  it('Fit and widths that fit are not scaled', () => {
+    pane();
+    expect(screen.queryByTestId('scale-badge')).toBeNull();
+    expect(iframe().style.transform).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '768' }));
+    expect(iframe().style.width).toBe('768px');
+    expect(iframe().style.transform).toBe('');
+    expect(screen.queryByTestId('scale-badge')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+    expect(iframe().style.width).toBe('100%');
   });
 });

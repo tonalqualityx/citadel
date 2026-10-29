@@ -2,7 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { SHARED_AUTH_STATE_PATH } from './global-setup';
 import { BASE_SHA, NEXT_SHA, newTag, seedWorld, teardownWorld, ADMIN_EMAIL, PASSWORD, type DesignWorld } from './fixtures/design-portal-fixture';
 import { DesignWorker, type ApplyPayload } from './fixtures/design-worker';
-import { BASE_URL, frame, loginState, newPage, openTask, pinElement, startPreview, tab, taskRow } from './fixtures/design-helpers';
+import { BASE_URL, expandChat, frame, loginState, newPage, openTask, pinElement, startPreview, tab, taskRow } from './fixtures/design-helpers';
 
 // Designer Portal W6.8: the whole loop in a real browser against the isolated gate database. The "preview" is the
 // real design-overlay.js served by a tiny static server (frame-ancestors for this Citadel origin), reached through
@@ -124,6 +124,33 @@ test('open a session, select a card in the frame, the selection chip appears in 
   await expect(pageA.getByTestId('selection-chips').getByTestId('selection-chip')).toHaveCount(1);
 });
 
+test('at a 1100px browser the frame still lays out at exactly 1280 (scaled), the chat floats over it and collapses, and a selection still produces a chip', async () => {
+  await pageA.setViewportSize({ width: 1100, height: 800 });
+  await pageA.getByRole('group', { name: 'Preview width' }).getByRole('button', { name: '1280' }).click();
+  const box = await pageA.locator('iframe[title="Site preview"]').boundingBox();
+  expect(box!.width).toBeLessThan(1100); // shown smaller...
+  await expect(pageA.getByTestId('scale-badge')).toContainText(/Scaled to \d+%/);
+  // ...but the page inside lays out at the true width.
+  const inner = await pageA.frameLocator('iframe[title="Site preview"]').locator('body').evaluate(() => window.innerWidth);
+  expect(inner).toBe(1280);
+
+  // The chat floats over the preview and collapses to a pill and back. Clear the earlier selection so the chip
+  // below can only come from a click through the scaled frame.
+  await expandChat(pageA);
+  await pageA.getByRole('button', { name: /^Remove selection/ }).click();
+  await expect(pageA.getByTestId('selection-chip')).toHaveCount(0);
+  await pageA.getByRole('button', { name: 'Collapse chat' }).click();
+  await expect(pageA.getByTestId('chat-dock')).toBeHidden();
+  await expect(pageA.getByTestId('chat-pill')).toBeVisible();
+
+  // A click through the scaled frame lands on the right element and produces a packet -> chip (the new
+  // selection expands the collapsed panel).
+  await pinElement(pageA, 'state_card');
+  await expect(pageA.getByTestId('selection-chip')).toContainText('state_card', { timeout: 10_000 });
+  expect(await pageA.frameLocator('iframe[title="Site preview"]').locator('body').evaluate(() => window.innerWidth)).toBe(1280);
+  await pageA.setViewportSize({ width: 1280, height: 720 });
+});
+
 test('a client file attached to an Apply reaches the worker API as files; the worker turn posts plan, action, result, change and cost; accept', async () => {
   await worker.postEvents(sessionA, [
     {
@@ -131,12 +158,14 @@ test('a client file attached to an Apply reaches the worker API as files; the wo
       payload: { folder_id: 'folder-1', items: [{ id: 'file-1', name: 'brand-guide.pdf', mime: 'application/pdf', modified: '2026-10-01T00:00:00Z', path: 'Brand' }] },
     },
   ]);
+  await expandChat(pageA);
   await tab(pageA, 'Client files').click();
   await expect(pageA.getByTestId('client-file')).toContainText('brand-guide.pdf', { timeout: 15_000 });
   await pageA.getByRole('button', { name: 'Attach to next Apply' }).click();
   await expect(pageA.getByTestId('attach-chip')).toContainText('brand-guide.pdf');
 
   // Sending with the chip creates the pin and applies exactly that one pin, the message text as the note.
+  await expandChat(pageA);
   await tab(pageA, 'Chat').click();
   await expect(pageA.getByTestId('selection-chip')).toContainText('state_card');
   await expect(pageA.getByTestId('file-chip')).toContainText('brand-guide.pdf');

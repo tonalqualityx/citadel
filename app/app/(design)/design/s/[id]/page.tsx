@@ -39,6 +39,7 @@ function SessionWorkspace({ id, data, feed, events }: { id: string; data: Design
     <Workspace
       data={data}
       feed={feed}
+      events={events}
       useSlots={useSlots}
       slots={{
         publishButton: <PublishButton sessionId={id} feed={feed} />,
