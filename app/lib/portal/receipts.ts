@@ -109,11 +109,18 @@ export async function writeSendDroppedReceipt(
   }
 }
 
-/** Where a yes came from: the portal, the emailed approval link, an email reply (`email:<Message-ID>`), or a bare API write (`api`). */
+/**
+ * Designer Portal live receipts (design D5): a designer publish, an admin publish, or a rollback, each
+ * followed by the DesignPublish id (a uuid and nothing else).
+ */
+const DESIGN_APPROVAL_SOURCE = /^design_(publish|admin_publish|rollback):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Where a yes came from: the portal, the emailed approval link, an email reply (`email:<Message-ID>`), a design publish (`design_*:<uuid>`), or a bare API write (`api`). */
 export function cleanApprovalSource(source: string | null | undefined): string {
   const s = (source ?? '').trim();
   if (s === 'portal' || s === 'approval_link' || s === 'api') return s;
   if (/^email:\S{1,280}$/.test(s)) return s;
+  if (DESIGN_APPROVAL_SOURCE.test(s)) return s;
   return 'api';
 }
 
