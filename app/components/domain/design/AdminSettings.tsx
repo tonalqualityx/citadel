@@ -147,9 +147,7 @@ export function AdminSettings({ settings, canWrite }: { settings: Settings; canW
         <Row label="Automatic time tracking on design sessions">
           <Switch checked={draft.auto_timer_enabled as boolean} onCheckedChange={(v) => set('auto_timer_enabled', v)} disabled={ro} id="design-auto-timer" />
         </Row>
-        <Row label="Automatic time entries are billable">
-          <Switch checked={draft.auto_timer_billable as boolean} onCheckedChange={(v) => set('auto_timer_billable', v)} disabled={ro} id="design-auto-billable" />
-        </Row>
+        <p className="text-xs text-text-sub">Automatic entries are non-billable (tracked on the project), except ad-hoc work for a client with no retainer.</p>
       </fieldset>
       {formError && <p role="alert" className="text-sm text-error">{formError}</p>}
       {canWrite ? (

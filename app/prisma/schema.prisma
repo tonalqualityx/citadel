@@ -4453,6 +4453,8 @@ enum DesignCommandVerb {
   close // payload {reason?}; closed or abandoned by whether any publish succeeded
   resume // after a budget raise or a pause lifts
   refresh_client_files // D11: re-list the client folder
+  share_drive_folder // D11: session-less; payload {folder_id, email, role: 'writer'}
+  unshare_drive_folder // D11: session-less; payload {folder_id, email, role: 'writer'}
 }
 
 enum DesignCommandStatus {
@@ -4612,8 +4614,8 @@ model DesignChange {
 
 model DesignCommand {
   id            String              @id @default(uuid()) @db.Uuid
-  session_id    String              @db.Uuid
-  session       DesignSession       @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  session_id    String?             @db.Uuid // null for the session-less Drive share verbs
+  session       DesignSession?      @relation(fields: [session_id], references: [id], onDelete: Cascade)
   verb          DesignCommandVerb
   payload       Json                @default("{}") // see DesignCommandVerb
   status        DesignCommandStatus @default(pending)

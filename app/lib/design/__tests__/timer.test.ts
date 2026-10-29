@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
-import { ownsTimer, isClosingOrTerminal, ensureTimer, keepAlive } from '../timer';
+import { ownsTimer, isClosingOrTerminal, ensureTimer, keepAlive, autoTimerBillable } from '../timer';
 import { designerMayCall } from '@/lib/auth/designer-routes';
 
 const session = { designer_id: 'u-owner' };
@@ -64,5 +64,30 @@ describe('presence guard while closing', () => {
     const e = fakeDb({ status: 'awaiting_input', closed_at: null }, true);
     await ensureTimer({ id: 's', designer_id: 'd', task_id: 't', site_id: 'x' }, { userId: 'd', role: 'designer' }, new Date(), e.db);
     expect(e.tx).not.toHaveBeenCalled();
+  });
+});
+
+describe('autoTimerBillable (Mike 2026-10-29): billable only for ad-hoc work of a client with no retainer', () => {
+  const db = (task: { project_id: string | null; client_id: string | null; project?: { client_id: string } | null } | null, retainer: number | null) =>
+    ({
+      task: { findUnique: vi.fn(async () => task) },
+      client: { findUnique: vi.fn(async () => ({ retainer_hours: retainer })) },
+    }) as never;
+
+  it('project task, no retainer: non-billable', async () => {
+    expect(await autoTimerBillable('t', db({ project_id: 'p', client_id: 'c', project: { client_id: 'c' } }, null))).toBe(false);
+  });
+  it('project task, retainer client: non-billable', async () => {
+    expect(await autoTimerBillable('t', db({ project_id: 'p', client_id: 'c', project: { client_id: 'c' } }, 10))).toBe(false);
+  });
+  it('ad-hoc task, retainer client: non-billable', async () => {
+    expect(await autoTimerBillable('t', db({ project_id: null, client_id: 'c', project: null }, 10))).toBe(false);
+  });
+  it('ad-hoc task, client without retainer (null or 0): billable', async () => {
+    expect(await autoTimerBillable('t', db({ project_id: null, client_id: 'c', project: null }, null))).toBe(true);
+    expect(await autoTimerBillable('t', db({ project_id: null, client_id: 'c', project: null }, 0))).toBe(true);
+  });
+  it('a missing task is non-billable', async () => {
+    expect(await autoTimerBillable('t', db(null, null))).toBe(false);
   });
 });

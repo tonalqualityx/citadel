@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTeamAssignmentResponse } from '@/lib/api/formatters';
 import { closeSessionsForUnassignedDesigner } from '@/lib/design/offboarding';
+import { shareForAssignedDesigner } from '@/lib/design/drive-share';
 
 const addTeamMemberSchema = z.object({
   user_id: z.string().uuid(),
@@ -98,6 +99,9 @@ export async function POST(
         function: { select: { id: true, name: true } },
       },
     });
+
+    // Designer Portal D11: a designer on the project gets its Drive folder shared (queued for the box daemon).
+    await shareForAssignedDesigner(id, data.user_id, auth.userId);
 
     return NextResponse.json(formatTeamAssignmentResponse(assignment), { status: 201 });
   } catch (error) {

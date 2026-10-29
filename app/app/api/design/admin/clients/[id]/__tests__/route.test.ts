@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { GET, PATCH } from '../route';
 import { jsonRequest, paramsOf, signIn, anonymous } from '@/lib/design/__tests__/route-test-kit';
 
+vi.mock('@/lib/design/drive-share', () => ({ onClientFolderChanged: vi.fn(async () => 0) }));
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, client: { findUnique: vi.fn(), update: vi.fn() } } }));
 
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import { onClientFolderChanged } from '@/lib/design/drive-share';
 
 const ID = 'abababab-abab-4bab-8bab-abababababab';
 const FOLDER = '1AbCdEfGhIjKlMnOpQrStUvWxYz_-0123456789';
@@ -20,7 +22,7 @@ const call = (body: unknown, headers?: Record<string, string>, id = ID) =>
 beforeEach(() => {
   vi.clearAllMocks();
   signIn(auth, userFind, 'admin');
-  find.mockResolvedValue({ id: ID, is_deleted: false });
+  find.mockResolvedValue({ id: ID, is_deleted: false, drive_folder_id: null });
   update.mockImplementation(async ({ data }: { data: { drive_folder_id: string | null } }) => ({ id: ID, drive_folder_id: data.drive_folder_id }));
 });
 
@@ -30,6 +32,7 @@ describe('PATCH /api/design/admin/clients/:id', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ client: { id: ID, drive_folder_id: FOLDER } });
     expect(update.mock.calls[0][0].data).toEqual({ drive_folder_id: FOLDER });
+    expect(onClientFolderChanged).toHaveBeenCalledWith(ID, null, FOLDER, expect.any(String));
   });
   it('null clears it', async () => {
     const res = await call({ drive_folder_id: null });

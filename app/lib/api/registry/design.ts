@@ -201,7 +201,7 @@ const settingsPatchBody: ParamDef[] = [
   { name: 'idle_close_minutes', type: 'number', required: false, description: 'Idle minutes before auto-close, 1 to 240' },
   { name: 'auto_timer_enabled', type: 'boolean', required: false, description: 'Automatic time tracking while a designer is present' },
   { name: 'auto_timer_lapse_minutes', type: 'number', required: false, description: 'Minutes of absence before the auto timer stops, 1 to 60' },
-  { name: 'auto_timer_billable', type: 'boolean', required: false, description: 'Whether auto-timed entries are billable' },
+  { name: 'auto_timer_billable', type: 'boolean', required: false, description: 'Deprecated, ignored. Auto entries are billable only for ad-hoc work (task without a project) of a client with no retainer; otherwise non-billable' },
   { name: 'max_live_sessions', type: 'number', required: false, description: 'Concurrent live sessions, 1 to 20' },
 ];
 
@@ -930,7 +930,7 @@ export const designEndpoints: ApiEndpoint[] = [
         roles: WORKER,
         queryParams: [{ name: 'max', type: 'number', required: false, description: 'Maximum items, 1 to 200 (default 50)' }],
         responseExample: {
-          commands: [{ id: 'uuid', session_id: 'uuid', verb: 'stop|publish|rollback|restore|close|resume|refresh_client_files', payload: 'object', status: 'pending|claimed|done|failed', publish: 'object|undefined' }],
+          commands: [{ id: 'uuid', session_id: 'uuid|null', verb: 'stop|publish|rollback|restore|close|resume|refresh_client_files|share_drive_folder|unshare_drive_folder', payload: 'object (share verbs: {folder_id, email, role: writer}; session_id is null for them)', status: 'pending|claimed|done|failed', publish: 'object|undefined' }],
           messages: [{ seq: 'number', session_id: 'uuid', text: 'string', created_at: 'ISO-8601' }],
           new_sessions: [{ id: 'uuid', task_id: 'uuid', site_id: 'uuid', status: 'pending' }],
           settings: { enabled: 'boolean', idle_close_minutes: 'number', max_live_sessions: 'number' },

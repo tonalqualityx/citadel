@@ -30,19 +30,32 @@ export interface TimerActor {
 interface TimerSettings {
   enabled: boolean;
   lapseMs: number;
-  billable: boolean;
 }
 
 async function loadSettings(db: PrismaClient): Promise<TimerSettings> {
   const s = await db.designPortalSettings.findUnique({
     where: { id: 1 },
-    select: { auto_timer_enabled: true, auto_timer_lapse_minutes: true, auto_timer_billable: true },
+    select: { auto_timer_enabled: true, auto_timer_lapse_minutes: true },
   });
   return {
     enabled: s?.auto_timer_enabled ?? true,
     lapseMs: Math.max(1, s?.auto_timer_lapse_minutes ?? 5) * 60_000,
-    billable: s?.auto_timer_billable ?? false,
   };
+}
+
+/**
+ * Billing rule (Mike, 2026-10-29): an automatic entry is non-billable because the time is tracked on the project;
+ * it is billable ONLY when the work is ad-hoc (the task has no project, `Task.project_id` null) AND the client has no
+ * retainer (`Client.retainer_hours` null or 0; the client is the task's own, else its project's). The old flat
+ * `DesignPortalSettings.auto_timer_billable` default is no longer read (column kept, deprecated).
+ */
+export async function autoTimerBillable(taskId: string, db: Pick<PrismaClient, 'task' | 'client'>): Promise<boolean> {
+  const task = await db.task.findUnique({ where: { id: taskId }, select: { project_id: true, client_id: true, project: { select: { client_id: true } } } });
+  if (!task || task.project_id) return false;
+  const clientId = task.client_id ?? task.project?.client_id ?? null;
+  if (!clientId) return true; // ad-hoc and no client: nothing to hold a retainer
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { retainer_hours: true } });
+  return !(client?.retainer_hours != null && Number(client.retainer_hours) > 0);
 }
 
 /** Only the session's opener (a designer, or an admin in a session the admin opened) owns a timer. */
@@ -145,7 +158,7 @@ export async function ensureTimer(session: TimerSession, actor: TimerActor | und
       return;
     }
     const entry = await startRunningEntry(
-      { userId: session.designer_id, taskId: session.task_id, description: AUTO_TIMER_DESCRIPTION, isBillable: settings.billable, touchTask: false },
+      { userId: session.designer_id, taskId: session.task_id, description: AUTO_TIMER_DESCRIPTION, isBillable: await autoTimerBillable(session.task_id, tx), touchTask: false },
       tx,
     );
     await tx.designSession.update({ where: { id: session.id }, data: { timer_entry_id: entry.id, timer_presence_at: now } });

@@ -41,7 +41,8 @@ export async function createCommand(
 
 export interface InboxCommand {
   id: string;
-  session_id: string;
+  /** null for the session-less Drive share verbs. */
+  session_id: string | null;
   verb: DesignCommandVerb;
   payload: Prisma.JsonValue;
   created_at: Date;
