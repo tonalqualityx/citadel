@@ -1,24 +1,27 @@
 /**
- * Designer Portal D10 hook. W2.7 (timer) fills this in; until then it is a no-op so the routes can call it.
- *
- * Called by GET /api/design/sessions/:id (workspace open, visible = true) and GET .../feed (visible from
- * `?visible=1|0`). `actor` is passed so the timer can honour "the session's own user only". The return
- * value feeds the feed's `timer` projection: null means "no timer" ({running:false, elapsed_s:0}).
+ * Designer Portal D10 hook. Called by GET /api/design/sessions/:id (workspace open, visible = true) and GET .../feed
+ * (visible from `?visible=1|0`). The timer belongs to the session's own user only; anyone else (a pm, another
+ * admin) gets null, which the feed projects as {running:false, elapsed_s:0}.
  */
 import type { DesignSession } from '@prisma/client';
+import { prisma } from '@/lib/db/prisma';
 import type { DesignActor } from './helpers';
+import { ensureTimer, observeTimer, sweepLapsedTimers, type TimerView } from './timer';
 
-export interface TimerView {
-  running: boolean;
-  elapsed_s: number;
-}
+export type { TimerView };
 
-// TODO(W2.7): start/resume/keep alive the automatic timer here and return its view.
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/** The daemon sweeps on every heartbeat (10 s); if it has been silent this long, any feed request sweeps. */
+export const HEARTBEAT_STALE_MS = 30_000;
+
 export async function onPresence(
-  _session: Pick<DesignSession, 'id' | 'designer_id' | 'task_id' | 'site_id' | 'timer_presence_at'>,
-  _visible: boolean,
-  _actor?: Pick<DesignActor, 'userId' | 'role'>,
+  session: Pick<DesignSession, 'id' | 'designer_id' | 'task_id' | 'site_id'>,
+  visible: boolean,
+  actor?: Pick<DesignActor, 'userId' | 'role'>,
 ): Promise<TimerView | null> {
-  return null;
+  const now = new Date();
+  const state = await prisma.designWorkerState.findUnique({ where: { id: 1 }, select: { last_heartbeat_at: true } });
+  if (!state?.last_heartbeat_at || now.getTime() - state.last_heartbeat_at.getTime() > HEARTBEAT_STALE_MS) {
+    await sweepLapsedTimers(now);
+  }
+  return visible ? ensureTimer(session, actor, now) : observeTimer(session, actor, now);
 }

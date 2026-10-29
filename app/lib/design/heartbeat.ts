@@ -8,6 +8,7 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { renewHolder } from '@/lib/tasks/claims';
 import { designClaimHolder, isUuid } from './helpers';
 import { normalizeMainRole } from './publish-policy';
+import { sweepLapsedTimers as sweepLapsed } from './timer';
 import { CLAIM_TTL_SECONDS, isTerminalStatus } from './sessions';
 
 export interface HeartbeatInput {
@@ -23,13 +24,9 @@ export interface HeartbeatInput {
   sessions?: { id: string; alive?: boolean; status?: string }[];
 }
 
-/**
- * D10 timer lapse sweep hook. TODO(W2.7): stop running design-timer entries whose presence is older than
- * auto_timer_lapse_minutes, with ended_at = last presence. Intentionally a no-op until W2.7 fills it.
- */
+/** D10 timer lapse sweep: stops design-timer entries whose presence is older than the lapse, at the last presence. */
 export async function sweepLapsedTimers(db: PrismaClient = defaultDb): Promise<void> {
-  void db;
-  // TODO(W2.7): implemented in lib/design/timer.ts and called from here.
+  await sweepLapsed(new Date(), db);
 }
 
 export async function recordHeartbeat(input: HeartbeatInput, db: PrismaClient = defaultDb): Promise<{ ok: true; renew_claims: string[] }> {

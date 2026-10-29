@@ -4,6 +4,7 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { canReadAdminLists } from '@/lib/design/access';
 import { isUuid } from '@/lib/design/helpers';
 import { projectPrecheck, projectSessionListItem } from '@/lib/design/projections';
+import { timerViewsFor } from '@/lib/design/timer';
 import { SESSION_STATUSES } from '@/lib/design/sessions';
 import { authActor, requireSessionVia } from '@/lib/design/route-kit';
 
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
       take: 200,
       select: {
         id: true, status: true, cost_usd: true, budget_usd: true, updated_at: true, last_publish_id: true,
-        publish_precheck: true, publish_requested_at: true,
+        publish_precheck: true, publish_requested_at: true, timer_entry_id: true, timer_presence_at: true,
         task: { select: { id: true, title: true } },
         site: { select: { name: true } },
         designer: { select: { name: true } },
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
       ? await prisma.designPublish.findMany({ where: { id: { in: publishIds } }, select: { id: true, status: true, finished_at: true } })
       : [];
     const pubById = new Map(pubs.map((p) => [p.id, p]));
+    const timers = await timerViewsFor(rows);
     return NextResponse.json({
       sessions: rows.map((r) => ({
         ...projectSessionListItem({ ...r, last_publish: r.last_publish_id ? pubById.get(r.last_publish_id) ?? null : null }),
@@ -46,8 +48,7 @@ export async function GET(request: NextRequest) {
         publish_requested_at: r.publish_requested_at,
         publish_precheck: projectPrecheck(r.publish_precheck),
         last_publish: r.last_publish_id ? (() => { const p = pubById.get(r.last_publish_id!); return p ? { id: p.id, status: p.status, finished_at: p.finished_at } : null; })() : null,
-        // TODO(W2.7): the automatic timer view for this row.
-        timer: { running: false, elapsed_s: 0 },
+        timer: timers.get(r.id) ?? { running: false, elapsed_s: 0 },
       })),
     });
   } catch (error) {

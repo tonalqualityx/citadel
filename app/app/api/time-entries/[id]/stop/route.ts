@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { stopRunningEntry } from '@/lib/services/time-entries';
 
 const stopTimerSchema = z.object({
   ended_at: z.string().datetime().optional(),
@@ -44,23 +45,7 @@ async function stopTimer(request: NextRequest, id: string) {
     // If parsing fails, just use current time
   }
 
-  const durationSeconds = Math.floor(
-    (endedAt.getTime() - entry.started_at.getTime()) / 1000
-  );
-  const durationMinutes = Math.ceil(durationSeconds / 60);
-
-  const updatedEntry = await prisma.timeEntry.update({
-    where: { id },
-    data: {
-      is_running: false,
-      ended_at: endedAt,
-      duration: durationMinutes,
-    },
-    include: {
-      task: { select: { id: true, title: true } },
-      project: { select: { id: true, name: true } },
-    },
-  });
+  const updatedEntry = await stopRunningEntry({ entryId: id, endedAt });
 
   return NextResponse.json({ entry: updatedEntry });
 }

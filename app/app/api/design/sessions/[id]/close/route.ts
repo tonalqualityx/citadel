@@ -6,6 +6,7 @@ import { loadSessionFor } from '@/lib/design/access';
 import { createCommand } from '@/lib/design/commands';
 import { projectSession, workerView } from '@/lib/design/projections';
 import { closeSession } from '@/lib/design/sessions';
+import { stopTimer } from '@/lib/design/timer';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
 const closeSchema = z.object({ reason: z.string().max(500).optional() });
@@ -15,7 +16,7 @@ const CLOSABLE_WITHOUT_DAEMON = ['awaiting_input', 'paused_budget', 'stopped'];
 // The daemon does the real close (worktree removal, claim release). When the daemon is offline and the session
 // is in a state the worker could close from, the server closes it now through closeSession (closed vs
 // abandoned by publish history) so the designer is never stuck; the command stays queued for the cleanup.
-// W2.7 adds the timer stop here.
+// The automatic timer (D10) stops here; the daemon-side close also ends the session, which the sweep covers.
 export async function POST(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);
@@ -28,6 +29,8 @@ export async function POST(request: NextRequest, { params }: IdParams) {
     if (session.status === 'publishing') throw new ApiError('A publish is running; close after it finishes', 409, 'publish_in_progress');
 
     await createCommand({ sessionId: session.id, verb: 'close', payload: input.reason ? { reason: input.reason } : {}, createdById: actor.userId });
+
+    await stopTimer(session);
 
     let current = session;
     if (CLOSABLE_WITHOUT_DAEMON.includes(session.status)) {
