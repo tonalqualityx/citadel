@@ -141,7 +141,9 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
               title="Site preview"
               src={src}
               sandbox={PREVIEW_SANDBOX}
-              referrerPolicy="no-referrer"
+              // "origin", not "no-referrer": the overlay resolves its parent from document.referrer (design 9.2) and
+              // stays inert without it. Only this Citadel origin is sent, never a path or query.
+              referrerPolicy="origin"
               className="h-full min-h-[420px] w-full border-0"
             />
           )}

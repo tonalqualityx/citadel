@@ -42,6 +42,9 @@ function resolveBuildId(): string | null {
 const buildId = resolveBuildId();
 
 const nextConfig: NextConfig = {
+  // Playwright (PW_PORT != 3000) runs its own dev server beside another one in the same checkout; two
+  // `next dev` processes cannot share one dist dir (lock). Unset = the default `.next`, nothing changes.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   generateBuildId: async () => buildId,
   env: buildId ? { NEXT_PUBLIC_BUILD_ID: buildId } : {},
   async headers() {
