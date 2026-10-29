@@ -11,6 +11,7 @@ import { budgetStatus } from './budget';
 import { createFollowupTask } from './followups';
 import { latestClientFileIds } from './client-files';
 import type { DesignActor } from './helpers';
+import { pageContextSchema } from './page-context';
 
 export const MAX_PENDING_PINS = 100;
 export const MAX_APPLY_PINS = 30;
@@ -136,6 +137,7 @@ export const applyBodySchema = z.object({
   note: z.string().max(4000).optional(),
   files: z.array(z.object({ id: z.string().min(1).max(200), name: z.string().min(1).max(300), mime: z.string().min(1).max(100) })).max(MAX_APPLY_FILES).optional(),
   allow_stale: z.boolean().optional(),
+  context: pageContextSchema.optional(),
 }).strict();
 export type ApplyBody = z.infer<typeof applyBodySchema>;
 
@@ -160,6 +162,8 @@ export interface ApplyPayload {
   note?: string;
   files?: { id: string; name: string; mime: string }[];
   preview_url: string;
+  /** The page the designer was viewing when she sent this (may differ from a pin's own page). */
+  page?: { path: string; viewport_w: number };
   pins: PinPacket[];
 }
 
@@ -251,6 +255,7 @@ export async function applyPins(
     ...(input.note ? { note: input.note } : {}),
     ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
     preview_url: session.preview_url,
+    ...(input.context ? { page: { path: input.context.path, viewport_w: input.context.viewport_w } } : {}),
     pins: pins.map(toPinPacket),
   };
 

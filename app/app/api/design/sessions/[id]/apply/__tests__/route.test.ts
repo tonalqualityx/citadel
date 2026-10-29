@@ -111,6 +111,15 @@ describe('POST /api/design/sessions/:id/apply', () => {
     await call({ client_ref: REF, pin_ids: [PIN_ID] });
     expect(Object.keys(append.mock.calls[0][0].payload).sort()).toEqual(['pins', 'preview_url']);
   });
+  it('carries the page the designer is viewing as payload.page, and refuses a bad context', async () => {
+    pinFind.mockResolvedValue([pinRow()]);
+    pinUpdate.mockResolvedValue({ count: 1 });
+    expect((await call({ client_ref: REF, pin_ids: [PIN_ID], context: { path: '/pricing/', viewport_w: 768, preview_sha: 'abc1234' } })).status).toBe(201);
+    expect(append.mock.calls[0][0].payload.page).toEqual({ path: '/pricing/', viewport_w: 768 });
+    append.mockClear();
+    expect((await call({ client_ref: REF, pin_ids: [PIN_ID], context: { path: 'pricing', viewport_w: 768 } })).status).toBe(400);
+    expect(append).not.toHaveBeenCalled();
+  });
   it('refuses over budget with the numbers, before looking at pins', async () => {
     budget.mockResolvedValue({ reached: true, reason: 'session_ceiling', cost_usd: 25, budget_usd: 25, month_spend_usd: 40, monthly_cap_usd: null });
     const res = await call({ client_ref: REF, pin_ids: [PIN_ID] });

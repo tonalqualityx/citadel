@@ -3,9 +3,10 @@ import { z } from 'zod';
 import { handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { appendDesignerEvent } from '@/lib/design/events';
+import { pageContextSchema } from '@/lib/design/page-context';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
-const messageSchema = z.object({ client_ref: z.string().uuid(), text: z.string().trim().min(1).max(8000) }).strict();
+const messageSchema = z.object({ client_ref: z.string().uuid(), text: z.string().trim().min(1).max(8000), context: pageContextSchema.optional() }).strict();
 
 // POST /api/design/sessions/:id/messages (design 7.1): steering or chat. 201 {seq}, 200 on a repeat.
 export async function POST(request: NextRequest, { params }: IdParams) {
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest, { params }: IdParams) {
       sessionId: session.id,
       authorId: actor.userId,
       kind: 'text',
-      payload: { text: input.text },
+      payload: { text: input.text, ...(input.context ? { context: input.context } : {}) },
       clientRef: input.client_ref,
     });
     return NextResponse.json({ seq }, { status: duplicate ? 200 : 201 });

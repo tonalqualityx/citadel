@@ -595,7 +595,7 @@ export async function loadPublishPage(actor: DesignActor, publishId: string, db:
         ? { session_id: session.id, id: { in: publish.change_ids } }
         : { session_id: session.id, created_at: { lte: publish.created_at } },
       orderBy: { created_at: 'asc' },
-      select: { id: true, summary: true, data_libs: true, pages: true, before_asset_ids: true, after_asset_ids: true, decision: true },
+      select: { id: true, summary: true, data_libs: true, pages: true, before_asset_ids: true, after_asset_ids: true, decision: true, edit_scope: true, render_count: true },
     }),
     db.designPublish.findFirst(latestPublishedQuery(publish.site_id)),
     sitePublishRunning(db, publish.site_id),

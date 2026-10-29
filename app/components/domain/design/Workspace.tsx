@@ -38,6 +38,7 @@ export function previewState(p: { preview_url: string | null; preview_sha: strin
 
 export const WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: string }> = [
   { id: 'chat', label: 'Chat', task: 'W6.4' },
+  { id: 'tasks', label: 'Tasks', task: 'Tasks' },
   { id: 'changes', label: 'Changes', task: 'W6.5' },
   { id: 'versions', label: 'Versions', task: 'W6.5' },
   { id: 'client-files', label: 'Client files', task: 'W6.5' },
@@ -46,6 +47,7 @@ export const WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: st
 /** Slots W6.4/W6.5/W6.6 fill. A slot not given renders the placeholder. */
 export interface WorkspaceSlots {
   chat?: React.ReactNode;
+  tasks?: React.ReactNode;
   changes?: React.ReactNode;
   versions?: React.ReactNode;
   'client-files'?: React.ReactNode;
@@ -54,7 +56,7 @@ export interface WorkspaceSlots {
 }
 
 /** Called once per render inside Workspace with the one bridge instance, so tab slots can share its drafts. */
-export type UseWorkspaceSlots = (ctx: { bridge: UseDesignBridgeResult }) => WorkspaceSlots;
+export type UseWorkspaceSlots = (ctx: { bridge: UseDesignBridgeResult; view: { path: string | null; width: number | null; previewSha: string | null } }) => WorkspaceSlots;
 const useNoSlots: UseWorkspaceSlots = () => ({});
 
 export interface WorkspaceProps {
@@ -74,7 +76,12 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
   const headSha = feed ? feed.head_sha : data.session.head_sha;
 
   const bridge = useDesignBridge({ iframeRef, previewUrl });
-  const slots: WorkspaceSlots = { ...useSlots({ bridge }), ...givenSlots };
+  const [pageView, setPageView] = React.useState<{ path: string; width: number } | null>(null);
+  const onViewChange = React.useCallback((v: { path: string; width: number }) => {
+    setPageView((prev) => (prev && prev.path === v.path && prev.width === v.width ? prev : v));
+  }, []);
+  const view = { path: pageView?.path ?? null, width: pageView?.width ?? null, previewSha: previewSha ?? null };
+  const slots: WorkspaceSlots = { ...useSlots({ bridge, view }), ...givenSlots };
   const state = previewState({ preview_url: previewUrl, preview_sha: previewSha, head_sha: headSha });
   const safeLink = previewOriginOf(previewUrl) ? previewUrl : null;
 
@@ -112,7 +119,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
         </div>
       </header>
 
-      <div className="grid min-h-[70vh] gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(320px,2fr)]">
+      <div data-testid="workspace-grid" className="grid min-h-[70vh] gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,400px)]">
         <section aria-label="Preview" className="min-w-0">
           <PreviewPane
             previewUrl={previewUrl}
@@ -122,6 +129,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             selectMode={bridge.selectMode}
             onSelectModeChange={bridge.setSelectMode}
             reportedPath={bridge.path}
+            onViewChange={onViewChange}
           />
         </section>
         <aside aria-label="Session panels" className="min-w-0 rounded-lg border border-border-warm bg-surface p-3">

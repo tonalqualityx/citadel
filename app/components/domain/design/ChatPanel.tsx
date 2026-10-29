@@ -33,9 +33,11 @@ export interface ChatPanelProps {
   attachedFiles?: ClientFileRef[];
   onDetachFile?: (id: string) => void;
   onSent?: () => void;
+  /** The page being previewed, sent with every message. */
+  view?: { path: string | null; width: number | null; previewSha?: string | null } | null;
 }
 
-export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 0, initialBudget = 0, createdAt = null, selection = null, onClearSelection, attachedFiles, onDetachFile, onSent }: ChatPanelProps) {
+export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 0, initialBudget = 0, createdAt = null, selection = null, onClearSelection, attachedFiles, onDetachFile, onSent, view }: ChatPanelProps) {
   const history = useDesignFeedHistory(sessionId);
   const t = getTerminology().t;
   const latest = history.data?.latest;
@@ -115,7 +117,7 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 
         canRaise={!isClosedStatus(status)}
         pausedForBudget={status === 'paused_budget'}
       />
-      <SteeringInput sessionId={sessionId} status={status} selection={selection} onClearSelection={onClearSelection} attachedFiles={attachedFiles} onDetachFile={onDetachFile} onSent={onSent} />
+      <SteeringInput sessionId={sessionId} status={status} selection={selection} onClearSelection={onClearSelection} attachedFiles={attachedFiles} onDetachFile={onDetachFile} onSent={onSent} view={view} />
     </div>
   );
 }

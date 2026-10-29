@@ -30,6 +30,7 @@ export const designKeys = {
   sessions: (status?: string | null) => [...designKeys.all, 'sessions', status ?? 'all'] as const,
   session: (id: string) => [...designKeys.all, 'session', id] as const,
   feed: (id: string, after = 0) => [...designKeys.all, 'feed', id, after] as const,
+  siteTasks: (id: string, mine: boolean) => [...designKeys.all, 'site-tasks', id, mine] as const,
   feedHistory: (id: string) => [...designKeys.all, 'feed-history', id] as const,
 };
 
@@ -57,6 +58,25 @@ export function useDesignSessions(status?: string | null) {
     queryKey: designKeys.sessions(status),
     queryFn: () => apiClient.get<{ sessions: SessionListItem[] }>('/design/sessions', status ? { params: { status } } : undefined),
     refetchInterval: () => pollInterval(),
+  });
+}
+
+export interface SiteTask {
+  id: string;
+  title: string;
+  status: string;
+  due_date: string | null;
+  description: string | null;
+  assignee_first_name: string | null;
+  mine: boolean;
+  project: { id: string; name: string };
+}
+
+/** GET /api/design/sessions/:id/site-tasks: open tasks on the session's site (mine = only the caller's). */
+export function useSiteTasks(sessionId: string, mine: boolean) {
+  return useQuery({
+    queryKey: designKeys.siteTasks(sessionId, mine),
+    queryFn: () => apiClient.get<{ tasks: SiteTask[]; mine: boolean }>(`/design/sessions/${sessionId}/site-tasks`, mine ? { params: { mine: '1' } } : undefined),
   });
 }
 

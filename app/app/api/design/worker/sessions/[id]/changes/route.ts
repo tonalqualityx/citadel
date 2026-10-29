@@ -19,6 +19,8 @@ const schema = z.object({
   apply_event_seq: z.number().int().positive().nullish(),
   is_restore: z.boolean().optional(),
   restored_from: sha.nullish(),
+  // Worker-classified: one occurrence (via parameters or a variant) or the library component everywhere. Restores send none.
+  edit_scope: z.enum(['instance', 'component']).optional(),
 });
 
 const shape = (c: Record<string, unknown>) => c;
@@ -40,7 +42,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             session_id: id, commit_sha: b.commit_sha, parent_sha: b.parent_sha ?? null, summary: b.summary, files: b.files,
             data_libs: b.data_libs, pages: b.pages, render_count: b.render_count ?? null, pin_ids: b.pin_ids,
             gates: (b.gates ?? undefined) as Prisma.InputJsonValue | undefined, apply_event_seq: b.apply_event_seq ?? null,
-            is_restore: b.is_restore ?? false, restored_from: b.restored_from ?? null,
+            is_restore: b.is_restore ?? false, restored_from: b.restored_from ?? null, edit_scope: b.edit_scope ?? null,
           },
         });
         if (b.pin_ids.length > 0) {

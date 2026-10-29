@@ -97,7 +97,8 @@ function CollapsibleSection({
   );
 }
 
-export function Sidebar() {
+/** `collapsed` hides the whole sidebar on wide screens (the design workspace gives the room to the preview). */
+export function Sidebar({ collapsed = false }: { collapsed?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { t, isAwesome } = useTerminology();
@@ -202,7 +203,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-60 lg:flex-col">
+    <aside className={cn('hidden', !collapsed && 'lg:fixed lg:inset-y-0 lg:flex lg:w-60 lg:flex-col')} aria-hidden={collapsed ? true : undefined}>
       <div className="flex flex-col flex-grow bg-background-light border-r border-border-warm overflow-y-auto">
         {/* Logo - h-14 matches main Header height */}
         <div className="flex h-14 shrink-0 items-center gap-3 px-4 border-b border-border-warm">

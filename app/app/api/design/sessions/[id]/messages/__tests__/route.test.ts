@@ -32,6 +32,28 @@ describe('POST /api/design/sessions/:id/messages', () => {
     expect(await res.json()).toEqual({ seq: 7 });
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ sessionId: SESSION_ID, kind: 'text', payload: { text: 'make the hero bolder' }, clientRef: REF }));
   });
+  it('stores a valid page context in the event payload', async () => {
+    signIn(auth, userFind, 'designer');
+    const context = { path: '/about/?x=1', viewport_w: 1280, preview_sha: 'abc1234' };
+    expect((await call({ client_ref: REF, text: 'tighten the hero', context })).status).toBe(201);
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ payload: { text: 'tighten the hero', context } }));
+  });
+  it('context: bad path, bad width, extra key are 400 and nothing is appended', async () => {
+    signIn(auth, userFind, 'designer');
+    for (const context of [
+      { path: 'about', viewport_w: 1280 },
+      { path: '//evil.test/', viewport_w: 1280 },
+      { path: '/a b', viewport_w: 1280 },
+      { path: '/' + 'x'.repeat(500), viewport_w: 1280 },
+      { path: '', viewport_w: 1280 },
+      { path: '/', viewport_w: 100 },
+      { path: '/', viewport_w: 4001 },
+      { path: '/', viewport_w: 1280.5 },
+      { path: '/', viewport_w: 1280, preview_sha: 'x'.repeat(65) },
+      { path: '/', viewport_w: 1280, extra: 1 },
+    ]) expect((await call({ client_ref: REF, text: 'hi', context })).status).toBe(400);
+    expect(append).not.toHaveBeenCalled();
+  });
   it('a repeat of the same client_ref is 200', async () => {
     signIn(auth, userFind, 'designer');
     append.mockResolvedValue({ seq: 7, duplicate: true });

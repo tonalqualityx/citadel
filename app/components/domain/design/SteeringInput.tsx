@@ -9,6 +9,7 @@ import { showToast } from '@/lib/hooks/use-toast';
 import { designKeys } from '@/lib/hooks/use-design';
 import { pinBodyFromDraft, postApply, type ClientFileRef, type TrayPin } from '@/lib/hooks/use-design-tray';
 import type { BridgeDraft } from '@/lib/hooks/use-design-bridge';
+import { toPageContext } from '@/lib/design/page-context';
 
 export function newClientRef(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -28,6 +29,8 @@ export interface SteeringInputProps {
   attachedFiles?: ClientFileRef[];
   onDetachFile?: (id: string) => void;
   onSent?: () => void;
+  /** The page the designer is viewing (path from the bridge or URL bar, and the active viewport width). Sent with every message. */
+  view?: { path: string | null; width: number | null; previewSha?: string | null } | null;
 }
 
 export const APPLY_NOTE_MAX = 4000;
@@ -39,22 +42,24 @@ export function draftChipLabel(d: BridgeDraft): string {
 
 // Steer or chat (POST /messages, a fresh client_ref per send) and Stop (POST /stop). The worker picks a message up
 // within a poll (D6), so a sent message shows in the feed as soon as the next page lands.
-export function SteeringInput({ sessionId, status, selection = null, onClearSelection, attachedFiles = [], onDetachFile, onSent }: SteeringInputProps) {
+export function SteeringInput({ sessionId, status, selection = null, onClearSelection, attachedFiles = [], onDetachFile, onSent, view = null }: SteeringInputProps) {
   const queryClient = useQueryClient();
   const [text, setText] = React.useState('');
   const closed = isClosedStatus(status);
+  const context = toPageContext(view?.path, view?.width, view?.previewSha);
 
   // The selection rides with the message: the pin is created and the text becomes the Apply note, so the worker gets
   // the ApplyPayload (one pin + crop). The pin carries the text too, because the worker reads each pin's note. No selection = a plain steering message.
   const send = useMutation({
     mutationFn: async (message: string) => {
-      if (!selection) return apiClient.post(`/design/sessions/${sessionId}/messages`, { client_ref: newClientRef(), text: message });
+      if (!selection) return apiClient.post(`/design/sessions/${sessionId}/messages`, { client_ref: newClientRef(), text: message, ...(context ? { context } : {}) });
       const { pin } = await apiClient.post<{ pin: TrayPin }>(`/design/sessions/${sessionId}/pins`, pinBodyFromDraft(selection.draft, message));
       onClearSelection?.(selection.id);
       return postApply(sessionId, {
         client_ref: newClientRef(),
         pin_ids: [pin.id],
         note: message,
+        ...(context ? { context } : {}),
         ...(attachedFiles.length > 0 ? { files: attachedFiles } : {}),
       });
     },
@@ -126,9 +131,12 @@ export function SteeringInput({ sessionId, status, selection = null, onClearSele
         disabled={closed}
         rows={3}
         maxLength={8000}
-        placeholder={closed ? 'This session is closed.' : selection ? 'What should change on the selection?' : 'Tell the worker what to change, or steer it mid-task...'}
+        placeholder={closed ? 'This session is closed.' : selection ? 'What should change on the selection?' : 'Describe the changes for this page. Select an element only if it helps.'}
         className="block w-full resize-y rounded-lg border border-border-warm bg-surface px-3 py-2 text-sm text-text-main placeholder:text-text-sub focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
       />
+      {context && (
+        <p className="text-xs text-text-sub" data-testid="page-context">On {context.path} at {context.viewport_w}</p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="secondary" size="sm" disabled={status !== 'active' || stop.isPending} onClick={() => stop.mutate()}>
           <Square className="mr-1 h-3 w-3" aria-hidden="true" />

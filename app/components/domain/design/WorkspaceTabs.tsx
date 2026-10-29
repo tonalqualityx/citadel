@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChatPanel } from './ChatPanel';
+import { TasksTab } from './TasksTab';
 import { ChangesTab, type ChangeView } from './ChangesTab';
 import { VersionsTab } from './VersionsTab';
 import { ClientFilesTab } from './ClientFilesTab';
@@ -19,17 +20,19 @@ export interface WorkspaceTabsProps {
   /** All feed events seen so far (the merged list), oldest first or any order. Defaults to feed.events. */
   events?: DesignFeedResponse['events'];
   /** From useDesignBridge. */
+  /** The page and width the designer is looking at (from the preview pane). */
+  view?: { path: string | null; width: number | null; previewSha?: string | null } | null;
   bridge: Pick<{ drafts: BridgeDraft[]; removeDraft: (id: string) => void }, 'drafts' | 'removeDraft'>;
 }
 
-export type WorkspaceTabSlots = { chat: React.ReactNode; changes: React.ReactNode; versions: React.ReactNode; 'client-files': React.ReactNode };
+export type WorkspaceTabSlots = { chat: React.ReactNode; tasks: React.ReactNode; changes: React.ReactNode; versions: React.ReactNode; 'client-files': React.ReactNode };
 
 /**
  * Builds the tab bodies for Workspace's `slots` (chat, changes, versions, client-files). Holds the attached
  * client files (shared by the chat and the Client files tab) and refetches the session load when the feed shows a
  * change or follow-up the load has not seen.
  */
-export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge }: WorkspaceTabsProps): WorkspaceTabSlots {
+export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge, view }: WorkspaceTabsProps): WorkspaceTabSlots {
   const queryClient = useQueryClient();
   const [attached, setAttached] = React.useState<ClientFileRef[]>([]);
   const feedEvents = React.useMemo(() => events ?? feed?.events ?? [], [events, feed?.events]);
@@ -66,8 +69,10 @@ export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge }: 
         attachedFiles={attached}
         onDetachFile={(id) => setAttached((a) => a.filter((f) => f.id !== id))}
         onSent={() => setAttached([])}
+        view={view}
       />
     ),
+    tasks: <TasksTab sessionId={sessionId} currentTaskId={data.session.task_id ?? null} />,
     changes: <ChangesTab sessionId={sessionId} changes={changes} events={feedEvents} />,
     versions: <VersionsTab sessionId={sessionId} changes={changes} headSha={headSha} baseSha={data.session.base_sha} disabled={closed} />,
     'client-files': (
@@ -89,6 +94,7 @@ export function WorkspaceTabs(props: WorkspaceTabsProps) {
   return (
     <div className="flex flex-col gap-6">
       <section aria-label="Chat">{slots.chat}</section>
+      <section aria-label="Tasks">{slots.tasks}</section>
       <section aria-label="Changes">{slots.changes}</section>
       <section aria-label="Versions">{slots.versions}</section>
       <section aria-label="Client files">{slots['client-files']}</section>

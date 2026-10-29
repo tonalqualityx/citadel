@@ -33,8 +33,8 @@ export default function DesignSessionPage({ params }: { params: Promise<{ id: st
 function SessionWorkspace({ id, data, feed, events }: { id: string; data: DesignSessionResponse; feed: DesignFeedResponse | undefined; events: DesignFeedResponse['events'] | undefined }) {
   // The tabs share the bridge Workspace owns, so a pin draft from the frame reaches the tray.
   // The tabs share the bridge Workspace owns, so the selection in the frame reaches the chat composer.
-  const useSlots: UseWorkspaceSlots = ({ bridge }) =>
-    useWorkspaceTabSlots({ sessionId: id, data, feed, events, bridge });
+  const useSlots: UseWorkspaceSlots = ({ bridge, view }) =>
+    useWorkspaceTabSlots({ sessionId: id, data, feed, events, bridge, view });
   return (
     <Workspace
       data={data}

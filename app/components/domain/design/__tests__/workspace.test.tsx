@@ -137,8 +137,23 @@ describe('Workspace header', () => {
     expect(state.textContent).toContain('Preview up to date');
     expect(within(state).getByRole('link').getAttribute('href')).toBe(PREVIEW);
     expect((screen.getByRole('button', { name: 'Publish to live...' }) as HTMLButtonElement).disabled).toBe(true);
-    for (const t of ['Chat', 'Changes', 'Versions', 'Client files']) expect(screen.getByRole('tab', { name: t })).toBeTruthy();
+    for (const t of ['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']) expect(screen.getByRole('tab', { name: t })).toBeTruthy();
     expect(screen.getByText(/coming in W6\.4/)).toBeTruthy();
+  });
+
+  it('gives the chat a narrow fixed-ish column (340-400px) from 1100px up and stacks below', () => {
+    render(<Workspace data={base()} feed={undefined} />);
+    const cls = screen.getByTestId('workspace-grid').className;
+    expect(cls).toContain('min-[1100px]:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,400px)]');
+    expect(cls).not.toMatch(/(^|\s)lg:grid-cols/);
+  });
+
+  it('the preview pane reports the page path and width, and the slots receive them', () => {
+    const seen: unknown[] = [];
+    const useSlots = ({ view }: { view: unknown }) => { seen.push(view); return {}; };
+    render(<Workspace data={base()} feed={undefined} useSlots={useSlots as never} />);
+    fireEvent.click(screen.getByRole('button', { name: '768' }));
+    expect(seen[seen.length - 1]).toMatchObject({ path: '/', width: 768 });
   });
 
   it.each([

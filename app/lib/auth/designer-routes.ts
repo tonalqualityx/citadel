@@ -21,6 +21,7 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'POST', pattern: '/api/design/work' },
   { method: 'GET', pattern: '/api/design/sessions/:id' },
   { method: 'GET', pattern: '/api/design/sessions/:id/feed' },
+  { method: 'GET', pattern: '/api/design/sessions/:id/site-tasks' },
   { method: 'POST', pattern: '/api/design/sessions/:id/messages' },
   { method: 'POST', pattern: '/api/design/sessions/:id/pins' },
   { method: 'PATCH', pattern: '/api/design/pins/:id' },

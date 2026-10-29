@@ -275,7 +275,7 @@ describe('publish page projection', () => {
     expect(out.publish.confirmation_shown).toEqual({ target_words: 'the client preview at vcdp.pages.dev', main_branch: 'main' });
     expect(out.publish.cost_usd).toBe(4.5);
     expect(out.session).toEqual({ id: 'sess-1', task: { id: 'task-1', title: 'T' }, designer: { name: 'Lisa' } });
-    expect(sorted(out.changes[0])).toEqual(['after_asset_ids', 'before_asset_ids', 'data_libs', 'decision', 'id', 'pages', 'summary']);
+    expect(sorted(out.changes[0])).toEqual(['after_asset_ids', 'before_asset_ids', 'data_libs', 'decision', 'edit_scope', 'id', 'pages', 'render_count', 'summary']);
     expect(out.can_rollback).toBe(false);
     expect(out.rollback_reason).toBe('not_latest');
   });

@@ -5,7 +5,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import { parsePreviewInput, resolvePreviewUrl } from '@/lib/design/preview-path';
-import { ViewportSwitcher, viewportWidth, type ViewportKey } from './ViewportSwitcher';
+import { ViewportSwitcher, viewportWidth, VIEWPORTS, type ViewportKey } from './ViewportSwitcher';
 
 /** Exactly D7: scripts and same-origin for the overlay; no forms, no top navigation, no popups. */
 export const PREVIEW_SANDBOX = 'allow-scripts allow-same-origin';
@@ -19,6 +19,8 @@ export interface PreviewPaneProps {
   onSelectModeChange: (on: boolean) => void;
   /** Path the frame last reported through the bridge; mirrors into the URL bar. */
   reportedPath?: string | null;
+  /** Fires when the page path or the viewport width changes: what the designer is looking at. */
+  onViewChange?: (view: { path: string; width: number }) => void;
 }
 
 function isTypingTarget(t: EventTarget | null): boolean {
@@ -26,7 +28,7 @@ function isTypingTarget(t: EventTarget | null): boolean {
   return t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName);
 }
 
-export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMode, onSelectModeChange, reportedPath }: PreviewPaneProps) {
+export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMode, onSelectModeChange, reportedPath, onViewChange }: PreviewPaneProps) {
   const [viewport, setViewport] = React.useState<ViewportKey>('fit');
   const [framePath, setFramePath] = React.useState<string>('/');
   const [barText, setBarText] = React.useState('/');
@@ -39,6 +41,33 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
     setBarText(reportedPath);
     setBarError(null);
   }
+
+  // The current page: what the frame reported, else the last path opened from the URL bar. Width: the chosen
+  // preset, or for "fit" the measured wrapper width (1280 until measured).
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const [fitWidth, setFitWidth] = React.useState(1280);
+  React.useEffect(() => {
+    const el = wrapperRef.current;
+    if (viewport !== 'fit' || !el) return;
+    const measure = () => {
+      const w = Math.round(el.getBoundingClientRect().width);
+      if (w > 0) setFitWidth(w);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  const currentPath = reportedPath || framePath;
+  const currentWidth = VIEWPORTS.find((v) => v.key === viewport)?.width ?? fitWidth;
+  const viewRef = React.useRef(onViewChange);
+  React.useEffect(() => {
+    viewRef.current = onViewChange;
+  });
+  React.useEffect(() => {
+    viewRef.current?.({ path: currentPath, width: currentWidth });
+  }, [currentPath, currentWidth]);
 
   const src = React.useMemo(() => {
     const url = resolvePreviewUrl(previewUrl, framePath);
@@ -131,6 +160,7 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
       )}
       <div className="relative min-h-[420px] flex-1 overflow-auto rounded-lg border border-border-warm bg-background-light">
         <div
+          ref={wrapperRef}
           data-testid="preview-frame-wrapper"
           className={cn('mx-auto h-full min-h-[420px] bg-white', viewport !== 'fit' && 'shadow-soft')}
           style={{ width: viewportWidth(viewport), maxWidth: '100%' }}

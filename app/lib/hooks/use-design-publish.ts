@@ -47,6 +47,8 @@ export interface PublishChange {
   before_asset_ids: string[];
   after_asset_ids: string[];
   decision: string;
+  edit_scope?: string | null;
+  render_count?: number | null;
 }
 
 export interface PublishRecord {

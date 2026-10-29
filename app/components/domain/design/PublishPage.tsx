@@ -10,6 +10,7 @@ import { usePublishPage, type PublishChange, type PublishGate, type PublishShown
 import { BeforeAfter, pairAssetsByWidth } from './BeforeAfter';
 import { DiffFacts, GateList, isProductionTone } from './PublishConfirmDialog';
 import { RollbackButton } from './RollbackButton';
+import { EditScopeLabel } from './EditScopeLabel';
 
 const STATUS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'error' | 'info' }> = {
   awaiting_confirmation: { label: 'Awaiting confirmation', variant: 'info' },
@@ -39,6 +40,7 @@ function ChangeBlock({ sessionId, change }: { sessionId: string; change: Publish
   return (
     <li className="space-y-2 rounded-lg border border-border-warm bg-surface p-3" data-testid="publish-change">
       <p className="text-sm font-medium text-text-main">{change.summary}</p>
+      <EditScopeLabel scope={change.edit_scope} renderCount={change.render_count} />
       {change.pages.length > 0 && <p className="text-xs text-text-sub">Pages: {change.pages.join(', ')}</p>}
       {pairs.length > 0 && <BeforeAfter sessionId={sessionId} pairs={pairs} />}
     </li>

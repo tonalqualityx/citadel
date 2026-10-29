@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { BeforeAfter, pairAssetsByWidth } from './BeforeAfter';
+import { EditScopeLabel } from './EditScopeLabel';
 import { useDecideChange } from '@/lib/hooks/use-design-tray';
 
 export interface ChangeView {
@@ -17,6 +18,8 @@ export interface ChangeView {
   pages: string[];
   before_asset_ids: string[];
   after_asset_ids: string[];
+  edit_scope?: string | null;
+  render_count?: number | null;
   is_restore?: boolean;
   restored_from?: string | null;
   decision: string;
@@ -44,6 +47,7 @@ function ChangeCard({ sessionId, change, events }: { sessionId: string; change: 
           {change.decision === 'accepted' ? 'Accepted' : change.decision === 'denied' ? 'Denied' : 'To review'}
         </Badge>
       </div>
+      <div className="mt-1"><EditScopeLabel scope={change.edit_scope} renderCount={change.render_count} /></div>
       <p className="mt-1 text-xs text-text-sub">
         {change.pages.length > 0 ? `${change.pages.join(', ')} - ` : ''}
         {change.files.length} {change.files.length === 1 ? 'file' : 'files'}

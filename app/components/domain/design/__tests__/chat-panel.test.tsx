@@ -150,6 +150,25 @@ describe('Stop and steering', () => {
     expect(post.mock.calls[1][1].client_ref).not.toBe(body.client_ref);
   });
 
+  it('sends the page context with a plain message and shows it under the input', async () => {
+    wrap(<SteeringInput sessionId="s1" status="active" view={{ path: '/about/', width: 1280, previewSha: 'abc1234' }} />);
+    expect(screen.getByTestId('page-context').textContent).toBe('On /about/ at 1280');
+    expect(screen.getByPlaceholderText('Describe the changes for this page. Select an element only if it helps.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Message to the design worker'), { target: { value: 'Bigger hero' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({ text: 'Bigger hero', context: { path: '/about/', viewport_w: 1280, preview_sha: 'abc1234' } });
+  });
+
+  it('sends no context (and no line) when the page is unknown or invalid', async () => {
+    wrap(<SteeringInput sessionId="s1" status="active" view={{ path: null, width: 1280 }} />);
+    expect(screen.queryByTestId('page-context')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Message to the design worker'), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).not.toHaveProperty('context');
+  });
+
   it('keeps the text and toasts when sending fails', async () => {
     post.mockRejectedValue(new Error('nope'));
     wrap(<SteeringInput sessionId="s1" status="awaiting_input" />);
@@ -276,7 +295,7 @@ describe('selection chip', () => {
     vi.stubGlobal('fetch', fetchMock);
     const onClear = vi.fn();
     const onSent = vi.fn();
-    wrap(<ChatPanel sessionId="s1" selection={draft} onClearSelection={onClear} onSent={onSent} />);
+    wrap(<ChatPanel sessionId="s1" selection={draft} onClearSelection={onClear} onSent={onSent} view={{ path: '/pricing/', width: 768 }} />);
     expect((await screen.findByTestId('selection-chip')).textContent).toContain('state_card on /about/ at 1280');
     fireEvent.change(screen.getByLabelText('Message to the design worker'), { target: { value: 'Make it bigger' } });
     fireEvent.click(screen.getByRole('button', { name: /Send/ }));
@@ -286,7 +305,7 @@ describe('selection chip', () => {
     expect(post.mock.calls.some((c) => String(c[0]).endsWith('/messages'))).toBe(false);
     expect(fetchMock.mock.calls[0][0]).toBe('/api/design/sessions/s1/apply');
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body).toMatchObject({ pin_ids: ['pin-9'], note: 'Make it bigger' });
+    expect(body).toMatchObject({ pin_ids: ['pin-9'], note: 'Make it bigger', context: { path: '/pricing/', viewport_w: 768 } });
     expect(onClear).toHaveBeenCalledWith('draft-1');
     await waitFor(() => expect(onSent).toHaveBeenCalled());
     vi.unstubAllGlobals();
