@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { PATCH } from '../route';
+import { GET, PATCH } from '../route';
 import { jsonRequest, paramsOf, signIn, anonymous } from '@/lib/design/__tests__/route-test-kit';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
@@ -59,5 +59,30 @@ describe('PATCH /api/design/admin/projects/:id', () => {
     signIn(auth, userFind, 'admin', { via: 'api_key' });
     expect((await call({ drive_folder_id: FOLDER })).status).toBe(403);
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/design/admin/projects/:id', () => {
+  const get = (id = ID) => GET(jsonRequest(`/api/design/admin/projects/${id}`, 'GET'), paramsOf({ id }));
+  it('admin reads { id, drive_folder_id }; null when unset', async () => {
+    find.mockResolvedValueOnce({ id: ID, is_deleted: false, drive_folder_id: FOLDER });
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: ID, drive_folder_id: FOLDER });
+    find.mockResolvedValueOnce({ id: ID, is_deleted: false, drive_folder_id: null });
+    expect(await (await get()).json()).toEqual({ id: ID, drive_folder_id: null });
+    expect(update).not.toHaveBeenCalled();
+  });
+  it('404 for unknown, deleted or malformed id', async () => {
+    find.mockResolvedValueOnce(null);
+    expect((await get()).status).toBe(404);
+    find.mockResolvedValueOnce({ id: ID, is_deleted: true, drive_folder_id: FOLDER });
+    expect((await get()).status).toBe(404);
+    expect((await get('nope')).status).toBe(404);
+  });
+  it('pm, tech and designer get 403; anonymous 401', async () => {
+    for (const role of ['designer', 'pm', 'tech'] as const) { signIn(auth, userFind, role); expect((await get()).status, role).toBe(403); }
+    anonymous(auth);
+    expect((await get()).status).toBe(401);
   });
 });
