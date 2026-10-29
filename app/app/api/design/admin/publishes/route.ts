@@ -12,8 +12,8 @@ const PUBLISH_STATUSES = ['awaiting_confirmation', 'expired', 'queued', 'running
 // The publish model belongs to W2.4; this route only reads it.
 export async function GET(request: NextRequest) {
   try {
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     if (!canReadAdminLists(actor.role)) throw new ApiError('Forbidden', 403, 'forbidden');
     const q = request.nextUrl.searchParams;
     const siteId = q.get('site_id');

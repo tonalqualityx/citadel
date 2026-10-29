@@ -8,8 +8,11 @@
  *     per_site (default)  designer may publish when Site.designer_publish (defaults true)
  *     pre_launch_only     Site.designer_publish AND main_role is client_preview
  *     off                 never (the button becomes Request publish)
- * - An admin may always publish (any mode, any flag), but never through an API key: both publish steps and
- *   rollback need a signed-in session (`via === 'session'`).
+ * - An admin may always publish (any mode, any flag), but never through an ordinary API key: both publish steps
+ *   and rollback need a signed-in session (`via === 'session'`). The ONE exception (Mike, 2026-10-29) is an admin's
+ *   design:operator-publish key that route-kit's authActor admitted (`actsAsSignedIn`): it is an admin publisher
+ *   on exactly the same path (gates, two-step confirmation, box re-check). A publish started by a session is
+ *   confirmed only by a session, one started by an operator key only by that same key (`sameChannel`).
  * - `main_role` decides the confirmation WORDING, never who may publish (except under pre_launch_only).
  *   Unknown = production (the stronger wording).
  * - A publish is refused only for: red (or unknown) gates on the head, a stale head, a running publish, or a
@@ -124,6 +127,24 @@ export function refuse(code: PolicyCode, message: string): PolicyRefusal {
 
 export type PublishActorRole = 'admin' | 'designer';
 
+/** The actor fields the policy reads. `operator` / `apiKeyId` are only ever set by route-kit's authActor. */
+export type PolicyActor = Pick<DesignActor, 'userId' | 'role' | 'via' | 'operator' | 'apiKeyId'>;
+
+/**
+ * Stands in for "a signed-in session" on publish, confirm and rollback: a session, or an ADMIN whose
+ * design:operator-publish key authActor admitted on this route. A setup-scope key, a plain key, a lane key, or an
+ * operator key whose user is not an admin never passes (request-publish keeps the plain session test).
+ */
+export function actsAsSignedIn(actor: Pick<DesignActor, 'via' | 'operator' | 'apiKeyId'> & { role?: DesignActor['role'] }): boolean {
+  if (actor.via === 'session') return true;
+  return actor.via === 'api_key' && actor.operator === 'publish' && actor.role === 'admin' && typeof actor.apiKeyId === 'string' && actor.apiKeyId.length > 0;
+}
+
+/** How a publish row records the channel its actor used (DesignPublish.actor_via). */
+export function actorViaOf(actor: Pick<DesignActor, 'via' | 'operator'>): 'session' | 'operator_key' {
+  return actor.via === 'api_key' && actor.operator === 'publish' ? 'operator_key' : 'session';
+}
+
 export interface PolicySession {
   id: string;
   designer_id: string;
@@ -147,13 +168,13 @@ export interface PolicySettings {
 
 /** Who may press Publish on this session, before any state check. */
 export function publishActorRule(
-  actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
+  actor: PolicyActor,
   session: Pick<PolicySession, 'designer_id' | 'designer_on_project'>,
   site: Pick<PolicySite, 'designer_publish'>,
   settings: PolicySettings,
   mainRole: unknown,
 ): { ok: true; actor_role: PublishActorRole } | PolicyRefusal {
-  if (actor.via !== 'session') return refuse('session_required', 'Publishing needs a signed-in session');
+  if (!actsAsSignedIn(actor)) return refuse('session_required', 'Publishing needs a signed-in session');
   if (actor.role === 'admin') return { ok: true, actor_role: 'admin' };
   if (actor.role === 'designer') {
     if (session.designer_id !== actor.userId || session.designer_on_project !== true) return refuse('not_found', 'Session not found');
@@ -224,7 +245,7 @@ export type PublishDecision =
  * rollback is queued or running for the site.
  */
 export function canPublish(
-  actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
+  actor: PolicyActor,
   session: PolicySession,
   site: PolicySite,
   settings: PolicySettings,
@@ -401,9 +422,13 @@ function sameHash(a: string, b: string): boolean {
 }
 
 export interface ConfirmCheckInput {
-  actor: Pick<DesignActor, 'userId' | 'via'>;
+  /** `role` is only read for an operator key (it must be an admin's); a session caller may omit it. */
+  actor: Pick<DesignActor, 'userId' | 'via' | 'operator' | 'apiKeyId'> & { role?: DesignActor['role'] };
   publish: {
     actor_id: string;
+    /** 'session' | 'operator_key' (absent on rows from before the column: session). */
+    actor_via?: string | null;
+    actor_api_key_id?: string | null;
     status: string;
     confirmation_token_hash: string | null;
     confirmation_expires_at: Date | null;
@@ -419,14 +444,27 @@ export interface ConfirmCheckInput {
 }
 
 /**
+ * The confirm must come through the channel the intent did: a session intent by a session, an operator intent by
+ * the very key that created it. Mike's browser cannot finish Bast's intent and Bast's key cannot finish Mike's.
+ */
+export function sameChannel(
+  actor: Pick<DesignActor, 'via' | 'operator' | 'apiKeyId'>,
+  publish: { actor_via?: string | null; actor_api_key_id?: string | null },
+): boolean {
+  const rowVia = publish.actor_via === 'operator_key' ? 'operator_key' : 'session';
+  if (actorViaOf(actor) !== rowVia) return false;
+  return rowVia === 'session' || (!!publish.actor_api_key_id && publish.actor_api_key_id === actor.apiKeyId);
+}
+
+/**
  * Step 2 (confirm), D5 and T25: same signed-in actor (else 404), token and typed text present (else 400),
  * then 409 for a used, expired or wrong token, typed text that is not the shown main branch, or a head,
  * gate status or main_role that changed since step 1.
  */
 export function checkConfirmation(input: ConfirmCheckInput): { ok: true } | PolicyRefusal {
   const { actor, publish } = input;
-  if (actor.via !== 'session') return refuse('session_required', 'Confirming a publish needs a signed-in session');
-  if (publish.actor_id !== actor.userId) return refuse('not_found', 'Publish not found');
+  if (!actsAsSignedIn(actor)) return refuse('session_required', 'Confirming a publish needs a signed-in session');
+  if (publish.actor_id !== actor.userId || !sameChannel(actor, publish)) return refuse('not_found', 'Publish not found');
   const token = input.token?.trim() ?? '';
   const typed = input.typed?.trim() ?? '';
   if (!token || !typed) return refuse('confirmation_missing', 'Both the confirmation token and the typed branch name are required');
@@ -479,12 +517,12 @@ export interface DesignerRollbackStanding {
  * `ctx.designer` absent = no access (fail closed).
  */
 export function canRollback(
-  actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
+  actor: PolicyActor,
   publish: RollbackPublish,
   latest: { id: string; result_sha: string | null } | null,
   ctx: { publishRunning?: boolean; designer?: DesignerRollbackStanding } = {},
 ): { ok: true } | PolicyRefusal {
-  if (actor.via !== 'session') return refuse('session_required', 'Rolling back needs a signed-in session');
+  if (!actsAsSignedIn(actor)) return refuse('session_required', 'Rolling back needs a signed-in session');
   if (actor.role !== 'admin') {
     const herPublish = actor.role === 'designer' && publish.actor_id === actor.userId && ctx.designer?.has_session_access === true;
     if (!herPublish) return actor.role === 'pm' ? refuse('forbidden', 'A pm cannot roll back') : refuse('not_found', 'Publish not found');

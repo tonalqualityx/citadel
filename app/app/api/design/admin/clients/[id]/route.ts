@@ -10,8 +10,8 @@ import { authActor, body, guardMutation, requireAdmin, requireSessionVia, type I
 // Admin, signed-in session. Answers { id, drive_folder_id }.
 export async function GET(request: NextRequest, { params }: IdParams) {
   try {
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const { id } = await params;
     if (!isUuid(id)) throw new ApiError('Client not found', 404, 'not_found');
@@ -29,8 +29,8 @@ export async function PATCH(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);
     if (blocked) return blocked;
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const { id } = await params;
     if (!isUuid(id)) throw new ApiError('Client not found', 404, 'not_found');

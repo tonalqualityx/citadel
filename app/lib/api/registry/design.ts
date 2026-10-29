@@ -4,7 +4,9 @@ import type { ApiEndpoint, ParamDef } from './index';
  * Designer Portal (design section 7): every route under app/api/design/**. Roles are the DB roles the route
  * enforces (designer = own sessions only; pm = read-only where a route allows it). The design worker is a
  * service API key on the design-worker lane (requireWorker), not a user role. Every non-worker route needs a
- * signed-in session (API keys of any kind get 403), a designer acts only while she is on the session's project
+ * signed-in session (API keys get 403 session_required, W8.2 H7), except the routes listed in lib/design/operator.ts,
+ * which also accept an admin's design:operator-setup or design:operator-publish key (Mike, 2026-10-29; granted
+ * only from a signed-in admin session, never on a lane key). A designer acts only while she is on the session's project
  * (removed = 404), and designer bodies are strict (an unknown field is 400).
  * The publish lane is two steps: POST publishes/intent (step 1) then POST publishes/:id/confirm (step 2).
  */
@@ -277,7 +279,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'List the caller\'s design sessions (designers see their own, admin sees all). Signed-in session or API key. pm and tech get 403.',
+        summary: 'List the caller\'s design sessions (designers see their own, admin sees all). Signed-in session only (API keys 403). pm and tech get 403.',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [{ name: 'status', type: 'string', required: false, description: 'Filter by DesignSessionStatus' }],
@@ -311,7 +313,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Full workspace load for one design session: session, task, site, pins, changes and worker state. Designer (own), admin, pm (read-only).',
+        summary: 'Full workspace load for one design session: session, task, site, pins, changes and worker state. Designer (own), admin, pm (read-only). Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: READERS,
         queryParams: [sessionIdParam],
@@ -333,7 +335,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Poll the session feed after a sequence number. Also reports what the caller may do (publish gate) and the poll interval.',
+        summary: 'Poll the session feed after a sequence number. Also reports what the caller may do (publish gate) and the poll interval. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: READERS,
         queryParams: [
@@ -449,7 +451,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Publish step 1 of 2: create a publish intent and a one-time confirmation token. Queues nothing; step 2 is publishes/:id/confirm.',
+        summary: 'Publish step 1 of 2: create a publish intent and a one-time confirmation token. Queues nothing; step 2 is publishes/:id/confirm. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [sessionIdParam],
@@ -563,7 +565,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Publish page (the FYI notice target): what was confirmed and whether the caller may roll it back. Admin, pm, or the session designer; others 404.',
+        summary: 'Publish page (the FYI notice target): what was confirmed and whether the caller may roll it back. Admin, pm, or the session designer; others 404. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN_PM.concat('designer'),
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Publish id (path)' }],
@@ -583,7 +585,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Publish step 2 of 2: confirm with the one-time token and the typed main branch name. Queues the publish and moves the session to publishing.',
+        summary: 'Publish step 2 of 2: confirm with the one-time token and the typed main branch name. Queues the publish and moves the session to publishing. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Publish id (path)' }],
@@ -598,7 +600,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Roll back a site publish to the state before it. Admin or the original publish actor only; only the site\'s latest successful publish.',
+        summary: 'Roll back a site publish to the state before it. Admin or the original publish actor only; only the site\'s latest successful publish. Also accepts an admin\'s design:operator-publish API key, which acts as an admin publisher on the same path (Bast on Mike\'s instruction; lib/design/operator.ts).',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Publish id (path)' }],
@@ -613,7 +615,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Read-only publish history across all sites. Admin and pm.',
+        summary: 'Read-only publish history across all sites. Admin and pm. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN_PM,
         queryParams: [
@@ -644,7 +646,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Design session overview across designers and sites. Admin and pm; signed-in session only.',
+        summary: 'Design session overview across designers and sites. Admin and pm; signed-in session only. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN_PM,
         queryParams: [
@@ -680,7 +682,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Designer budgets: each active designer (and anyone with a budget row) with this month\'s spend. Admin only, signed-in session.',
+        summary: 'Designer budgets: each active designer (and anyone with a budget row) with this month\'s spend. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         responseExample: {
@@ -701,7 +703,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'PUT',
-        summary: 'Set one designer\'s budget caps. Admin only, signed-in session. Fields left out are unchanged.',
+        summary: 'Set one designer\'s budget caps. Admin only, signed-in session. Fields left out are unchanged. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'userId', type: 'uuid', required: true, description: 'Designer user id (path)' }],
@@ -716,7 +718,7 @@ export const designEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'PATCH',
-        summary: 'Same as PUT: merge the budget caps for one designer. Admin only, signed-in session.',
+        summary: 'Same as PUT: merge the budget caps for one designer. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'userId', type: 'uuid', required: true, description: 'Designer user id (path)' }],
@@ -737,7 +739,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Designer Portal settings and live worker state. Admin only, signed-in session.',
+        summary: 'Designer Portal settings and live worker state. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         responseExample: {
@@ -775,7 +777,7 @@ export const designEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'PATCH',
-        summary: 'Update Designer Portal settings. Admin only, signed-in session. Any field may be left out; the model must be opus, sonnet, haiku or a full id of those.',
+        summary: 'Update Designer Portal settings. Admin only, signed-in session. Any field may be left out; the model must be opus, sonnet, haiku or a full id of those. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         bodySchema: settingsPatchBody,
@@ -802,7 +804,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Every live site with its design switches (design_portal_enabled, designer_publish, design_auto_timer), the effective designer-publish verdict and the site main_role. Admin and pm; signed-in session only.',
+        summary: 'Every live site with its design switches (design_portal_enabled, designer_publish, design_auto_timer), the effective designer-publish verdict and the site main_role. Admin and pm; signed-in session only. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN_PM,
         responseExample: {
@@ -826,7 +828,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'PATCH',
-        summary: 'Set the design switches on one site: design_portal_enabled, designer_publish, design_auto_timer. The only writer of those fields. Admin only, signed-in session.',
+        summary: 'Set the design switches on one site: design_portal_enabled, designer_publish, design_auto_timer. The only writer of those fields. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Site id (path)' }],
@@ -854,7 +856,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Read the Drive folder id on a client (the admin form twin of PATCH). Admin only, signed-in session.',
+        summary: 'Read the Drive folder id on a client (the admin form twin of PATCH). Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Client id (path)' }],
@@ -862,7 +864,7 @@ export const designEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'PATCH',
-        summary: 'Set or clear the Drive folder id on a client. The only writer of client.drive_folder_id. Admin only, signed-in session.',
+        summary: 'Set or clear the Drive folder id on a client. The only writer of client.drive_folder_id. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Client id (path)' }],
@@ -877,7 +879,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'Read the Drive folder id on a project (the admin form twin of PATCH). Admin only, signed-in session.',
+        summary: 'Read the Drive folder id on a project (the admin form twin of PATCH). Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Project id (path)' }],
@@ -885,7 +887,7 @@ export const designEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'PATCH',
-        summary: 'Set or clear the Drive folder id on a project. The only writer of project.drive_folder_id. Admin only, signed-in session.',
+        summary: 'Set or clear the Drive folder id on a project. The only writer of project.drive_folder_id. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
         auth: 'required',
         roles: ADMIN,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Project id (path)' }],

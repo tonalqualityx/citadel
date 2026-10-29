@@ -36,8 +36,8 @@ export function serializeSettings(row: SettingsRow | null) {
 // GET /api/design/admin/settings (design 7.2): admin, signed-in session.
 export async function GET() {
   try {
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const [row, state] = await Promise.all([
       prisma.designPortalSettings.findUnique({ where: { id: 1 } }),
@@ -87,8 +87,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const blocked = guardMutation(request);
     if (blocked) return blocked;
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const input = await body(request, settingsSchema, 8192);
 

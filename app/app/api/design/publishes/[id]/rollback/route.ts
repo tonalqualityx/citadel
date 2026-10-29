@@ -7,20 +7,18 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { requireAuth } from '@/lib/auth/middleware';
 import { rejectCrossSiteRequest } from '@/lib/api/same-origin-guard';
-import { resolveDesignActor } from '@/lib/design/helpers';
-import { body as readBody, PUBLISH_BODY_BYTES } from '@/lib/design/route-kit';
+import { authActor, body as readBody, PUBLISH_BODY_BYTES } from '@/lib/design/route-kit';
 import { createRollback, designErrorResponse } from '@/lib/design/publishes';
 
 const bodySchema = z.object({ reason: z.string().max(500).optional() }).strict(); // W8.2 N8
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const auth = await requireAuth();
+    // A signed-in session, or a design:operator-publish key acting as an admin publisher (lib/design/operator.ts).
+    const { actor } = await authActor({ operator: 'publish' });
     const blocked = rejectCrossSiteRequest(request);
     if (blocked) return blocked;
-    const actor = await resolveDesignActor(auth);
     const { id } = await params;
     // Capped like every other design route: 413 over 32 KB, 400 on invalid JSON or an unknown field (W8.2 N1, N8).
     const body = await readBody(request, bodySchema, PUBLISH_BODY_BYTES);

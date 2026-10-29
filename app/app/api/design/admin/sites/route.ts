@@ -9,8 +9,8 @@ import { authActor, requireSessionVia } from '@/lib/design/route-kit';
 // page's per-site toggles. Admin, pm; signed-in session only. Read twin of PATCH /api/design/admin/sites/:id.
 export async function GET() {
   try {
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     if (!canReadAdminLists(actor.role)) throw new ApiError('Forbidden', 403, 'forbidden');
     const [rows, settings, state] = await Promise.all([
       prisma.site.findMany({
