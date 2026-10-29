@@ -790,6 +790,7 @@ model Site {
 
   // Designer portal
   design_portal_enabled Boolean @default(false)
+  design_auto_timer     Boolean @default(true) // D10
   designer_publish      Boolean @default(true) // admin-only override (D5)
 
   // Metadata
@@ -4399,7 +4400,7 @@ enum DesignPublishStatus {
   running
   published
   blocked_gates // a gate was red on the merged tree
-  blocked_policy // designer actor: the build-file security policy (D5); never copy
+  blocked_policy // unused since Mike's 2026-10-28 ruling: no content/code policy
   conflict // main could not be integrated; needs Mike
   failed // preflight refusal or a deploy failure (see error)
   rolled_back // a later rollback restored the tree before this publish
@@ -4423,7 +4424,8 @@ enum DesignEventKind {
   cost // {turn_usd, total_usd, budget_usd}
   plan // {items:[{text, status: pending|in_progress|completed|canceled}]} replaced whole
   status // session status transitions, stop reports, worker restarts
-  scope // flag_scope result: {task_id, title}
+  followup // flag_scope result: a follow-up task filed in the designer's project {task_id, title}
+  client_files // D11: the client folder listing to depth 2 {folder_id, items:[{id, name, mime, modified, path}]} (replaced on refresh)
   change // a DesignChange was recorded: {change_id}
   publish // publish/rollback progress and result: {publish_id, kind, status, summary}
 }
@@ -4432,7 +4434,7 @@ enum DesignPinStatus {
   pending // in the tray
   sent // included in an Apply
   resolved // the worker reported it handled (via record_change.pin_ids)
-  out_of_scope // designer marked "not this task" or worker flagged it
+  followup // belongs to another task: filed as a follow-up task (designer's "Belongs to another task" or the worker's flag_scope)
   discarded // designer removed it from the tray (soft)
 }
 
@@ -4449,6 +4451,7 @@ enum DesignCommandVerb {
   restore // payload {to_sha}
   close // payload {reason?}; closed or abandoned by whether any publish succeeded
   resume // after a budget raise or a pause lifts
+  refresh_client_files // D11: re-list the client folder
 }
 
 enum DesignCommandStatus {
@@ -4488,6 +4491,9 @@ model DesignSession {
   live_action          String?             @db.VarChar(200)
   last_seq             Int                 @default(0) // highest DesignEvent.seq; allocates seq under row lock
   last_heartbeat_at    DateTime?
+  // D10 automatic task timer: the designer's running TimeEntry for this session's task and the last visible poll
+  timer_entry_id       String?             @db.Uuid
+  timer_presence_at    DateTime?
   last_turn_at         DateTime?
   // Blast-radius index from the last build: { "<data_lib>": { "pages": ["/", "/about/"], "count": 23 } }
   lib_index            Json?
@@ -4517,6 +4523,7 @@ model DesignSession {
   @@index([designer_id, status])
   @@index([site_id])
   @@index([status, last_heartbeat_at])
+  @@index([timer_presence_at])
   @@map("design_sessions")
 }
 
@@ -4556,6 +4563,8 @@ model DesignPin {
   lib_stack       String[]        @default([]) @db.VarChar(100) // innermost first, max 8
   data_shape      String?         @db.VarChar(50)
   selector        String          @db.VarChar(500)
+  tag             String?         @db.VarChar(40) // shipped packet field
+  classes         String[]        @default([]) @db.VarChar(100)
   text_quote      String?         @db.VarChar(200)
   bbox            Json // {x, y, w, h} in CSS px at capture
   viewport_width  Int
@@ -4563,7 +4572,7 @@ model DesignPin {
   preview_sha     String?         @db.VarChar(64) // commit the pin was taken on (stale-pin check)
   crop_asset_id   String?         @db.Uuid // filled by the daemon (server-side crop)
   apply_event_seq Int? // the Apply that sent it
-  scope_task_id   String?         @db.Uuid // when out_of_scope produced a task
+  followup_task_id String?        @db.Uuid // the follow-up task this pin produced
   created_at      DateTime        @default(now())
   updated_at      DateTime        @updatedAt
 
@@ -4668,7 +4677,7 @@ model DesignPublish {
   deploy_url              String?             @db.VarChar(500) // immutable https://<hash>.<project>.pages.dev
   alias_url               String?             @db.VarChar(500) // the main alias or production host
   gates                   Json? // [{name, ok, summary, log_asset_id?}]
-  policy                  Json? // {copy_words, copy_pages, touches_code, new_hosts, blocked_reasons[]}
+  policy                  Json? // unused since Mike's 2026-10-28 ruling: no content/code policy. Was {copy_words, copy_pages, touches_code, new_hosts, blocked_reasons[]}
   diff_summary            Json?
   change_ids              String[]            @default([]) @db.Uuid // changes included since the previous publish
   cost_usd                Decimal?            @db.Decimal(10, 4) // session cost at publish (evidence for Mike)
@@ -4715,6 +4724,9 @@ model DesignPortalSettings {
   model                      String   @default("opus") @db.VarChar(60)
   effort                     String   @default("high") @db.VarChar(10)
   idle_close_minutes         Int      @default(10)
+  auto_timer_enabled         Boolean  @default(true) // D10
+  auto_timer_lapse_minutes   Int      @default(5) // D10
+  auto_timer_billable        Boolean  @default(false) // D10
   max_live_sessions          Int      @default(4)
   updated_by_id              String?  @db.Uuid
   updated_at                 DateTime @updatedAt
@@ -4730,7 +4742,8 @@ model DesignWorkerState {
   paused              Boolean   @default(false)
   pause_reason        String?   @db.VarChar(100) // fleet_pause | portal_pause | isolation_failed
   configured_site_ids String[]  @default([]) @db.Uuid // from sites.json; drives "not available yet"
-  site_main_roles     Json? // {"<site id>": "client_preview" | "production"} from sites.json main_role
+  site_main_roles     Json? // {"<site id>": "client_preview" | "production"} from sites.json main_role (bare strings)
+  site_live_urls      Json? // {"<site id>": "https://..."} from sites.json live_url: the address main deploys to, shown in the publish confirmation
   live_sessions       Int       @default(0)
   sdk_version         String?   @db.VarChar(40)
 
