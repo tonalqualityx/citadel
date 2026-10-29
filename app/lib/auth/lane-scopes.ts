@@ -32,6 +32,7 @@ export const LANES = [
   'audit-lane',
   'troubador',
   'oracle',
+  'design-worker',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
@@ -45,7 +46,7 @@ export interface LaneRoute {
 const r = (method: LaneMethod, pattern: string): LaneRoute => ({ method, pattern });
 
 /** Who each lane's key is minted for (Mike's ruling 2026-10-22: lanes stop acting as Mike). */
-export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle'> = {
+export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'design-worker'> = {
   courier: 'bast',
   bellringer: 'bast',
   'portal-chat-machine': 'bast',
@@ -57,6 +58,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle'> = {
   'audit-lane': 'bast',
   troubador: 'troubador',
   oracle: 'oracle',
+  'design-worker': 'design-worker',
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -247,6 +249,23 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/comments'),
     r('GET', '/api/projects/:id/notes'),
     r('GET', '/api/email-asks'),
+  ],
+  // Designer Portal daemon (design D2, 7.3). Service user designer-worker@indelible.bot; exactly these 14.
+  'design-worker': [
+    r('GET', '/api/design/worker/inbox'),
+    r('POST', '/api/design/worker/heartbeat'),
+    r('GET', '/api/design/worker/sessions'),
+    r('GET', '/api/design/worker/sessions/:id'),
+    r('GET', '/api/design/worker/sessions/:id/assets/:assetId'),
+    r('PATCH', '/api/design/worker/sessions/:id'),
+    r('POST', '/api/design/worker/sessions/:id/events'),
+    r('POST', '/api/design/worker/sessions/:id/changes'),
+    r('PATCH', '/api/design/worker/changes/:id'),
+    r('POST', '/api/design/worker/sessions/:id/assets'),
+    r('PATCH', '/api/design/worker/pins/:id'),
+    r('POST', '/api/design/worker/sessions/:id/scope-flags'),
+    r('PATCH', '/api/design/worker/commands/:id'),
+    r('PATCH', '/api/design/worker/publishes/:id'),
   ],
 };
 
