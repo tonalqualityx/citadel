@@ -6,7 +6,7 @@ import { patternMatches, parseRouteHeader } from './lane-scopes';
  * the x-citadel-route header that proxy.ts stamps (and overwrites) on every /api request.
  *
  * Exact list from feature-planning/designer-portal-design.md section 5 D1, plus
- * POST /api/design/publishes/:id/confirm (added by ruling). Change it only with the design doc.
+ * POST /api/design/publishes/:id/confirm (added by ruling) and the D11 client-files refresh (W2.8). Change it only with the design doc.
  */
 export interface DesignerRoute {
   method: 'GET' | 'POST' | 'PATCH';
@@ -35,6 +35,7 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'GET', pattern: '/api/design/publishes/:id' },
   { method: 'POST', pattern: '/api/design/publishes/:id/rollback' },
   { method: 'GET', pattern: '/api/design/sessions/:id/assets/:assetId' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/client-files/refresh' },
 ];
 
 /**

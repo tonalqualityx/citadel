@@ -8,7 +8,7 @@ vi.mock('@/lib/db/prisma', () => {
   const prisma: Record<string, unknown> = {
     user: { findUnique: vi.fn() },
     designSession: { findUnique: vi.fn() },
-    designEvent: { findUnique: vi.fn() },
+    designEvent: { findUnique: vi.fn(), findFirst: vi.fn() },
     designPin: { findMany: vi.fn(), updateMany: vi.fn() },
   };
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));
@@ -26,6 +26,8 @@ const auth = requireAuth as Mock;
 const userFind = prisma.user.findUnique as Mock;
 const sessionFind = prisma.designSession.findUnique as Mock;
 const eventFind = prisma.designEvent.findUnique as Mock;
+const listingFind = prisma.designEvent.findFirst as Mock;
+const listing = (...ids: string[]) => ({ payload: { folder_id: 'folder', items: ids.map((id) => ({ id, name: id, mime: 'image/png', modified: '2026-10-01', path: `/${id}` })) } });
 const pinFind = prisma.designPin.findMany as Mock;
 const pinUpdate = prisma.designPin.updateMany as Mock;
 const budget = budgetStatus as Mock;
@@ -38,6 +40,7 @@ const call = (body: unknown, headers?: Record<string, string>) =>
 function arrange() {
   sessionFind.mockResolvedValue(sessionRow());
   eventFind.mockResolvedValue(null);
+  listingFind.mockResolvedValue(listing('f1', 'f2'));
   budget.mockResolvedValue({ reached: false, reason: null, cost_usd: 1, budget_usd: 25, month_spend_usd: 1, monthly_cap_usd: null });
   pinFind.mockResolvedValue([pinRow(), pinRow({ id: PIN2, note: 'tighter', page_path: '/', crop_asset_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', viewport_width: 390, viewport_height: 700, data_shape: null, text_quote: null, tag: null })]);
   pinUpdate.mockResolvedValue({ count: 2 });
@@ -71,6 +74,36 @@ describe('POST /api/design/sessions/:id/apply', () => {
     expect(Object.keys(input.payload).sort()).toEqual(['files', 'note', 'pins', 'preview_url']);
     expect(pinUpdate).toHaveBeenCalledWith({ where: { id: { in: [PIN_ID, PIN2] }, session_id: SESSION_ID, status: 'pending' }, data: { status: 'sent' } });
     expect(pinUpdate).toHaveBeenLastCalledWith({ where: { id: { in: [PIN_ID, PIN2] } }, data: { apply_event_seq: 9 } });
+  });
+  it('files: ids from the latest client_files listing are accepted; the lookup reads the newest event', async () => {
+    const files = [{ id: 'f1', name: 'logo.png', mime: 'image/png' }, { id: 'f2', name: 'brand.pdf', mime: 'application/pdf' }];
+    const res = await call({ client_ref: REF, pin_ids: [PIN_ID, PIN2], files });
+    expect(res.status).toBe(201);
+    expect(listingFind).toHaveBeenCalledWith(expect.objectContaining({ where: { session_id: SESSION_ID, kind: 'client_files' }, orderBy: { seq: 'desc' } }));
+    expect(append.mock.calls[0][0].payload.files).toEqual(files);
+  });
+  it('files: an id missing from the latest listing is 400 unknown_file and nothing is claimed', async () => {
+    const res = await call({ client_ref: REF, pin_ids: [PIN_ID, PIN2], files: [{ id: 'f1', name: 'a', mime: 'image/png' }, { id: 'ghost', name: 'b', mime: 'image/png' }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('unknown_file');
+    expect(pinUpdate).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
+  });
+  it('files: no listing yet means 400 unknown_file; no files never reads the listing', async () => {
+    listingFind.mockResolvedValue(null);
+    const res = await call({ client_ref: REF, pin_ids: [PIN_ID, PIN2], files: [{ id: 'f1', name: 'a', mime: 'image/png' }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('unknown_file');
+    pinFind.mockResolvedValue([pinRow()]);
+    pinUpdate.mockResolvedValue({ count: 1 });
+    expect((await call({ client_ref: REF, pin_ids: [PIN_ID] })).status).toBe(201);
+    expect(listingFind).toHaveBeenCalledTimes(1);
+  });
+  it('files: ten are fine, eleven are 400', async () => {
+    const ten = Array.from({ length: 10 }, (_, i) => ({ id: `g${i}`, name: 'a', mime: 'image/png' }));
+    listingFind.mockResolvedValue(listing(...ten.map((f) => f.id), 'g10'));
+    expect((await call({ client_ref: REF, pin_ids: [PIN_ID, PIN2], files: ten })).status).toBe(201);
+    expect((await call({ client_ref: REF, pin_ids: [PIN_ID, PIN2], files: [...ten, { id: 'g10', name: 'a', mime: 'image/png' }] })).status).toBe(400);
   });
   it('omits note and files when not given', async () => {
     pinFind.mockResolvedValue([pinRow()]);

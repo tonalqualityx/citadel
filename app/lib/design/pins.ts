@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api/errors';
 import { appendDesignerEvent } from './events';
 import { budgetStatus } from './budget';
 import { createFollowupTask } from './followups';
+import { latestClientFileIds } from './client-files';
 import type { DesignActor } from './helpers';
 
 export const MAX_PENDING_PINS = 100;
@@ -238,6 +239,12 @@ export async function applyPins(
     }
   }
   if (!session.preview_url) throw new ApiError('The preview is not ready yet', 409, 'no_preview');
+
+  // D11: every referenced file must come from the session's latest client_files listing.
+  if (input.files && input.files.length > 0) {
+    const listed = await latestClientFileIds(session.id, db);
+    if (!listed || input.files.some((f) => !listed.has(f.id))) throw new ApiError('A referenced file is not in the client files listing', 400, 'unknown_file');
+  }
 
   const payload: ApplyPayload = {
     ...(input.note ? { note: input.note } : {}),

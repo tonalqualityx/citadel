@@ -29,7 +29,9 @@ describe('DESIGNER_ROUTES', () => {
       'GET /api/design/publishes/:id',
       'POST /api/design/publishes/:id/rollback',
       'GET /api/design/sessions/:id/assets/:assetId',
+      'POST /api/design/sessions/:id/client-files/refresh',
     ]);
+    expect(DESIGNER_ROUTES).toHaveLength(22);
   });
 
   it.each(DESIGNER_ROUTES.map((r) => [r.method, concrete(r.pattern)]))('allows %s %s', (method, path) => {
