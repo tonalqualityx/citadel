@@ -27,6 +27,7 @@ model User {
 
   // Relations
   preferences                        UserPreference?
+  design_sessions                    DesignSession[]          @relation("DesignSessionDesigner")
   sessions                           Session[]
   notifications                      Notification[]
   notification_preferences           NotificationPreference[]
@@ -327,6 +328,7 @@ enum UserRole {
   tech
   pm
   admin
+  designer
 }
 
 enum NamingConvention {
@@ -383,6 +385,9 @@ enum NotificationType {
   portal_emergency
   // Portal phase C — the chat handed a conversation to a person.
   portal_chat_handoff
+  design_published
+  design_publish_requested
+  design_rolled_back
 }
 
 enum NotificationPriority {
@@ -780,6 +785,10 @@ model Site {
   ga4_property        String? @db.VarChar(64) // properties/362082877
   gsc_property        String? @db.VarChar(255) // sc-domain:herbapumps.com
 
+  // Designer portal
+  design_portal_enabled Boolean @default(false)
+  designer_publish      Boolean @default(true) // admin-only override (D5)
+
   // Metadata
   is_deleted Boolean  @default(false)
   created_at DateTime @default(now())
@@ -797,6 +806,7 @@ model Site {
   articles                    Article[]
   brand_profile               BrandProfile?
   stats_snapshots             SiteStatsSnapshot[]
+  design_sessions             DesignSession[]
 
   // Wait record phase 1 (back-relations)
   waits     Wait[]
@@ -1299,6 +1309,7 @@ model Task {
   today_picks          TodayPick[]
   email_asks           EmailAsk[]
   approval_requests    ApprovalRequest[]
+  design_sessions      DesignSession[]
 
   // Wait record phase 1 (back-relations)
   waits Wait[]
@@ -4353,4 +4364,369 @@ model EngagementPass {
 
   @@index([brief_id, started_at])
   @@map("engagement_passes")
+}
+
+// ============================================
+// DESIGN PORTAL
+// ============================================
+
+enum DesignSessionStatus {
+  pending // created; daemon has not built the worktree yet
+  active // a turn is running
+  awaiting_input // idle, ready for the designer (query may be live or idle-closed)
+  paused_budget // ceiling or monthly cap reached; needs a raise
+  stopped // halted by pause, kill switch or a worker error; resumes to awaiting_input
+  publishing // a publish or rollback is executing; designer notes are held, not delivered
+  closed // terminal: closed after at least one publish
+  abandoned // terminal: closed with no publish
+}
+
+enum DesignPublishKind {
+  publish
+  rollback
+}
+
+enum DesignPublishStatus {
+  awaiting_confirmation // step 1 done (intent); nothing runs until step 2 confirms
+  expired // the confirmation was not completed in 10 minutes, or was superseded by a new intent
+  queued
+  running
+  published
+  blocked_gates // a gate was red on the merged tree
+  blocked_policy // designer actor: the build-file security policy (D5); never copy
+  conflict // main could not be integrated; needs Mike
+  failed // preflight refusal or a deploy failure (see error)
+  rolled_back // a later rollback restored the tree before this publish
+}
+
+enum DesignEventRole {
+  designer
+  assistant
+  tool
+  system
+}
+
+enum DesignEventKind {
+  text // designer message or assistant reply (final block)
+  apply // a designer Apply: payload carries pin ids and notes
+  thought // assistant thinking summary, collapsed in UI (only when the SDK emits one)
+  action // tool use started: {tool, label, args_summary}; updated_by a later result
+  result // tool use finished: {tool, ok, summary, duration_ms}
+  screenshot // {asset_ids[], widths[], purpose: before|after|crop}
+  gate // {gates:[{name, ok, summary, log_asset_id?}], blocking}
+  cost // {turn_usd, total_usd, budget_usd}
+  plan // {items:[{text, status: pending|in_progress|completed|canceled}]} replaced whole
+  status // session status transitions, stop reports, worker restarts
+  scope // flag_scope result: {task_id, title}
+  change // a DesignChange was recorded: {change_id}
+  publish // publish/rollback progress and result: {publish_id, kind, status, summary}
+}
+
+enum DesignPinStatus {
+  pending // in the tray
+  sent // included in an Apply
+  resolved // the worker reported it handled (via record_change.pin_ids)
+  out_of_scope // designer marked "not this task" or worker flagged it
+  discarded // designer removed it from the tray (soft)
+}
+
+enum DesignChangeDecision {
+  pending
+  accepted
+  denied
+}
+
+enum DesignCommandVerb {
+  stop
+  publish // payload {publish_id}
+  rollback // payload {publish_id (the new rollback row), target_publish_id}
+  restore // payload {to_sha}
+  close // payload {reason?}; closed or abandoned by whether any publish succeeded
+  resume // after a budget raise or a pause lifts
+}
+
+enum DesignCommandStatus {
+  pending
+  claimed
+  done
+  failed
+}
+
+model DesignSession {
+  id                   String              @id @default(uuid()) @db.Uuid
+  task_id              String              @db.Uuid
+  task                 Task                @relation(fields: [task_id], references: [id], onDelete: Restrict)
+  site_id              String              @db.Uuid
+  site                 Site                @relation(fields: [site_id], references: [id], onDelete: Restrict)
+  project_id           String?             @db.Uuid
+  designer_id          String              @db.Uuid
+  designer             User                @relation("DesignSessionDesigner", fields: [designer_id], references: [id], onDelete: Restrict)
+  status               DesignSessionStatus @default(pending)
+  // Box-side identity (written by the daemon only)
+  branch               String              @db.VarChar(100) // design/<task8>
+  preview_alias        String              @db.VarChar(100) // design-<task8>
+  worktree_path        String?             @db.VarChar(500) // display only; the daemon recomputes and checks
+  base_sha             String?             @db.VarChar(64) // main when the worktree was cut
+  head_sha             String?             @db.VarChar(64) // last commit on the branch
+  preview_url          String?             @db.VarChar(500) // https://design-<task8>.<project>.pages.dev
+  preview_deploy_url   String?             @db.VarChar(500) // immutable https://<hash>.<project>.pages.dev
+  preview_sha          String?             @db.VarChar(64) // commit the preview shows
+  sdk_session_id       String?             @db.VarChar(100)
+  model                String              @db.VarChar(60) // e.g. "opus"; never a fable id (checked)
+  effort               String              @default("high") @db.VarChar(10)
+  // Cost
+  cost_usd             Decimal             @default(0) @db.Decimal(10, 4)
+  budget_usd           Decimal             @db.Decimal(10, 2) // from settings at creation; raised by POST .../budget
+  // Live line (overwritten, not appended): partial assistant text and the current action label
+  live_text            String?             @db.Text
+  live_action          String?             @db.VarChar(200)
+  last_seq             Int                 @default(0) // highest DesignEvent.seq; allocates seq under row lock
+  last_heartbeat_at    DateTime?
+  last_turn_at         DateTime?
+  // Blast-radius index from the last build: { "<data_lib>": { "pages": ["/", "/about/"], "count": 23 } }
+  lib_index            Json?
+  // Diff vs base, refreshed by the daemon after every commit: {files_changed, insertions, deletions,
+  // files:[{path, add, del}], main_ahead (commits on main since base_sha)}; full diff text as an asset
+  diff_summary         Json?
+  diff_asset_id        String?             @db.Uuid
+  // Publish (the publishes themselves are DesignPublish rows)
+  publish_requested_at DateTime? // designer asked Mike to publish (designer publish off or policy said Mike)
+  publish_requested_by String?             @db.Uuid
+  last_publish_id      String?             @db.Uuid
+  // Pre-checks for the head, computed by the daemon after every commit so the UI can explain the
+  // button before the click: {head_sha, gates_ok, touches_code:[paths], new_hosts:[], copy_words, copy_pages:[{path, words}]}
+  // (copy numbers are evidence for the dialog, never a block: Mike's ruling)
+  publish_precheck     Json?
+  created_at           DateTime            @default(now())
+  updated_at           DateTime            @updatedAt
+  closed_at            DateTime?
+
+  events    DesignEvent[]
+  assets    DesignAsset[]
+  publishes DesignPublish[]
+  pins      DesignPin[]
+  changes   DesignChange[]
+  commands  DesignCommand[]
+
+  @@index([designer_id, status])
+  @@index([site_id])
+  @@index([status, last_heartbeat_at])
+  @@map("design_sessions")
+}
+
+// One live session per task, as a database fact (raw SQL in the migration, like engine_jobs):
+// CREATE UNIQUE INDEX design_sessions_one_live_per_task ON design_sessions(task_id)
+//   WHERE status NOT IN ('closed', 'abandoned');
+
+model DesignEvent {
+  id           String          @id @default(uuid()) @db.Uuid
+  session_id   String          @db.Uuid
+  session      DesignSession   @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  seq          Int // per session, gapless, allocated from DesignSession.last_seq in the insert transaction
+  role         DesignEventRole
+  kind         DesignEventKind
+  payload      Json // capped at 32 KB server-side (text 20 KB)
+  author_id    String?         @db.Uuid // designer or admin for role=designer; null for worker events
+  client_ref   String?         @db.VarChar(64) // browser uuid for designer posts: a double send is a no-op
+  turn         Int? // which SDK turn produced it (worker events)
+  delivered_at DateTime? // designer events: when the daemon pushed it into the SDK
+  created_at   DateTime        @default(now())
+
+  @@unique([session_id, seq])
+  @@unique([session_id, client_ref])
+  @@index([session_id, role, delivered_at])
+  @@map("design_events")
+}
+
+model DesignPin {
+  id              String          @id @default(uuid()) @db.Uuid
+  session_id      String          @db.Uuid
+  session         DesignSession   @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  author_id       String          @db.Uuid
+  status          DesignPinStatus @default(pending)
+  note            String          @default("") @db.Text // capped 4000
+  page_path       String          @db.VarChar(500)
+  data_lib        String?         @db.VarChar(100) // innermost [data-lib]
+  lib_stack       String[]        @default([]) @db.VarChar(100) // innermost first, max 8
+  data_shape      String?         @db.VarChar(50)
+  selector        String          @db.VarChar(500)
+  text_quote      String?         @db.VarChar(200)
+  bbox            Json // {x, y, w, h} in CSS px at capture
+  viewport_width  Int
+  viewport_height Int?
+  preview_sha     String?         @db.VarChar(64) // commit the pin was taken on (stale-pin check)
+  crop_asset_id   String?         @db.Uuid // filled by the daemon (server-side crop)
+  apply_event_seq Int? // the Apply that sent it
+  scope_task_id   String?         @db.Uuid // when out_of_scope produced a task
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+
+  @@index([session_id, status])
+  @@map("design_pins")
+}
+
+model DesignChange {
+  id               String               @id @default(uuid()) @db.Uuid
+  session_id       String               @db.Uuid
+  session          DesignSession        @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  apply_event_seq  Int? // the Apply turn that produced it
+  commit_sha       String               @db.VarChar(64)
+  parent_sha       String?              @db.VarChar(64)
+  summary          String               @db.VarChar(500)
+  files            String[]             @default([]) @db.VarChar(300)
+  data_libs        String[]             @default([]) @db.VarChar(100)
+  pages            String[]             @default([]) @db.VarChar(300) // blast radius at commit time
+  render_count     Int? // total instances across the site
+  pin_ids          String[]             @default([]) @db.Uuid
+  before_asset_ids String[]             @default([]) @db.Uuid // ordered by width 390, 768, 1280
+  after_asset_ids  String[]             @default([]) @db.Uuid
+  gates            Json? // [{name, ok, summary}]
+  is_restore       Boolean              @default(false)
+  restored_from    String?              @db.VarChar(64)
+  decision         DesignChangeDecision @default(pending)
+  designer_note    String?              @db.Text
+  decided_at       DateTime?
+  decided_by_id    String?              @db.Uuid
+  created_at       DateTime             @default(now())
+
+  @@unique([session_id, commit_sha])
+  @@index([session_id, decision])
+  @@map("design_changes")
+}
+
+model DesignCommand {
+  id            String              @id @default(uuid()) @db.Uuid
+  session_id    String              @db.Uuid
+  session       DesignSession       @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  verb          DesignCommandVerb
+  payload       Json                @default("{}") // see DesignCommandVerb
+  status        DesignCommandStatus @default(pending)
+  created_by_id String              @db.Uuid
+  created_at    DateTime            @default(now())
+  claimed_at    DateTime?
+  completed_at  DateTime?
+  result        Json? // capped 8 KB (MAX_COMMAND_RESULT_BYTES precedent)
+  error         String?             @db.Text
+
+  @@index([status, created_at])
+  @@index([session_id, status])
+  @@map("design_commands")
+}
+
+// Screenshots, gate logs and diffs. Bytes live in private storage under storage_key; the row carries
+// the session (for authorization) and the content type. Served only through
+// GET /api/design/sessions/:id/assets/:assetId to the session's designer or an admin.
+model DesignAsset {
+  id           String        @id @default(uuid()) @db.Uuid
+  session_id   String        @db.Uuid
+  session      DesignSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  kind         String        @db.VarChar(20) // crop | before | after | gate_log | diff
+  content_type String        @db.VarChar(50) // image/png | text/plain
+  bytes        Int
+  width        Int? // viewport width for screenshots
+  storage_key  String        @db.VarChar(300) // design/<session_id>/<id>
+  created_at   DateTime      @default(now())
+
+  @@index([session_id, kind])
+  @@map("design_assets")
+}
+
+// One row per publish or rollback: the canonical receipt. Created by the Citadel publish/rollback route
+// (a person's click) in the same transaction as its DesignCommand; only the worker lane moves it forward.
+model DesignPublish {
+  id                      String              @id @default(uuid()) @db.Uuid
+  session_id              String              @db.Uuid
+  session                 DesignSession       @relation(fields: [session_id], references: [id], onDelete: Restrict)
+  site_id                 String              @db.Uuid
+  task_id                 String              @db.Uuid
+  kind                    DesignPublishKind   @default(publish)
+  rolls_back_id           String?             @db.Uuid // kind = rollback: the publish it undoes
+  actor_id                String              @db.Uuid // the person who clicked (server-stamped)
+  actor_role              String              @db.VarChar(20) // designer | admin, server-stamped at click time
+  publish_mode            String              @db.VarChar(20) // settings mode at click time (audit)
+  main_role               String              @db.VarChar(20) // client_preview | production, box-reported snapshot
+  site_designer_publish   Boolean // Site.designer_publish at intent time (audit)
+  // Confirmation (D5). Step 1 stores what the dialog showed; step 2 records the typed text. A publish is
+  // never queued without both. Only the token's sha256 is stored; it is single-use and expires.
+  confirmation_shown      Json? // {target_words, live_url, main_role, main_branch, head_sha, diff_summary, gates, pages_affected[], copy_words, cost_usd}
+  confirmation_token_hash String?             @db.VarChar(64)
+  confirmation_expires_at DateTime?
+  confirmation_typed      String?             @db.VarChar(100) // must equal confirmation_shown.main_branch
+  confirm_requested_at    DateTime? // step 1
+  confirmed_at            DateTime? // step 2 (null for a rollback: rollback is one click by ruling)
+  status                  DesignPublishStatus @default(queued)
+  head_sha                String?             @db.VarChar(64) // design branch head the actor saw (publish)
+  from_main_sha           String?             @db.VarChar(64) // main before
+  result_sha              String?             @db.VarChar(64) // main after (the tested tree, or the rollback commit)
+  deploy_id               String?             @db.VarChar(128)
+  deploy_url              String?             @db.VarChar(500) // immutable https://<hash>.<project>.pages.dev
+  alias_url               String?             @db.VarChar(500) // the main alias or production host
+  gates                   Json? // [{name, ok, summary, log_asset_id?}]
+  policy                  Json? // {copy_words, copy_pages, touches_code, new_hosts, blocked_reasons[]}
+  diff_summary            Json?
+  change_ids              String[]            @default([]) @db.Uuid // changes included since the previous publish
+  cost_usd                Decimal?            @db.Decimal(10, 4) // session cost at publish (evidence for Mike)
+  error                   String?             @db.Text
+  notified_at             DateTime?
+  rolled_back_at          DateTime?
+  rolled_back_by_id       String?             @db.Uuid
+  created_at              DateTime            @default(now())
+  started_at              DateTime?
+  finished_at             DateTime?
+
+  @@index([site_id, status, finished_at])
+  @@index([session_id, created_at])
+  @@map("design_publishes")
+}
+
+// One running publish per site (raw SQL in the migration):
+// CREATE UNIQUE INDEX design_publishes_one_running_per_site ON design_publishes(site_id)
+//   WHERE status IN ('queued', 'running');
+
+// Per-designer monthly cap. A row is optional: no row = no monthly cap.
+model DesignBudget {
+  id                    String   @id @default(uuid()) @db.Uuid
+  user_id               String   @unique @db.Uuid
+  monthly_cap_usd       Decimal? @db.Decimal(10, 2)
+  session_raise_cap_usd Decimal? @db.Decimal(10, 2) // how high this designer may raise a session herself; null = settings default
+  updated_by_id         String?  @db.Uuid
+  updated_at            DateTime @updatedAt
+
+  @@map("design_budgets")
+}
+
+// Singleton (id = 1), like AppSettings.
+model DesignPortalSettings {
+  id                         Int      @id @default(1)
+  enabled                    Boolean  @default(false) // server kill switch
+  owner_user_id              String?  @db.Uuid // receives publish notices, requests and scope tasks (Mike)
+  designer_publish_mode      String   @default("per_site") @db.VarChar(20) // per_site (default: Site.designer_publish decides, default true) | pre_launch_only | off (D5 admin overrides)
+  confirmation_ttl_minutes   Int      @default(10)
+  default_session_budget_usd Decimal  @default(25) @db.Decimal(10, 2)
+  designer_raise_cap_usd     Decimal  @default(50) @db.Decimal(10, 2) // a designer may raise a session up to this
+  hard_session_cap_usd       Decimal  @default(150) @db.Decimal(10, 2) // even an admin raise stops here without a settings change
+  default_monthly_cap_usd    Decimal? @db.Decimal(10, 2) // null = off
+  model                      String   @default("opus") @db.VarChar(60)
+  effort                     String   @default("high") @db.VarChar(10)
+  idle_close_minutes         Int      @default(10)
+  max_live_sessions          Int      @default(4)
+  updated_by_id              String?  @db.Uuid
+  updated_at                 DateTime @updatedAt
+
+  @@map("design_portal_settings")
+}
+
+// Singleton (id = 1): the daemon's last heartbeat and what it can serve.
+model DesignWorkerState {
+  id                  Int       @id @default(1)
+  last_heartbeat_at   DateTime?
+  version             String?   @db.VarChar(40)
+  paused              Boolean   @default(false)
+  pause_reason        String?   @db.VarChar(100) // fleet_pause | portal_pause | isolation_failed
+  configured_site_ids String[]  @default([]) @db.Uuid // from sites.json; drives "not available yet"
+  site_main_roles     Json? // {"<site id>": "client_preview" | "production"} from sites.json main_role
+  live_sessions       Int       @default(0)
+  sdk_version         String?   @db.VarChar(40)
+
+  @@map("design_worker_state")
 }
