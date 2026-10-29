@@ -1,9 +1,11 @@
 'use client';
 
+import * as React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { showToast } from '@/lib/hooks/use-toast';
 import type { DrawerResponse } from '@/lib/design/projections';
+import { initialFeedState, mergeFeedPage, type FeedState } from '@/lib/design/feed-reducer';
 
 // Designer Portal hooks (design 7.1). Only /api/design/* routes: a designer is 403 on most others.
 
@@ -28,6 +30,7 @@ export const designKeys = {
   sessions: (status?: string | null) => [...designKeys.all, 'sessions', status ?? 'all'] as const,
   session: (id: string) => [...designKeys.all, 'session', id] as const,
   feed: (id: string, after = 0) => [...designKeys.all, 'feed', id, after] as const,
+  feedHistory: (id: string) => [...designKeys.all, 'feed-history', id] as const,
 };
 
 /** Poll cadence: the drawer has no next_poll_ms, so a fixed 15 s foreground, 30 s when the tab is hidden. */
@@ -178,6 +181,47 @@ export function useDesignFeed(id: string, options: UseDesignFeedOptions = {}) {
       }),
     enabled: options.enabled ?? true,
     refetchInterval: (query) => feedInterval((query.state.data as { next_poll_ms?: number } | undefined)?.next_poll_ms),
+    refetchIntervalInBackground: true,
+  });
+}
+
+export interface DesignFeedHistory {
+  /** The merged events, plan, last-turn cost: see feed-reducer.ts. */
+  state: FeedState;
+  /** The newest page's envelope (live line, status, cost, heartbeat, next_poll_ms). */
+  latest: DesignFeedResponse;
+}
+
+const HISTORY_PAGE_LIMIT = 200;
+const HISTORY_MAX_PAGES = 50;
+
+/**
+ * The chat's feed: pages from after=0 on first load (following has_more), then polls from the last cursor and merges
+ * each page into a reducer state keyed by seq, so a repeated or late page never duplicates or drops an event. Same
+ * visibility and next_poll_ms cadence as useDesignFeed. The existing hooks are untouched.
+ */
+export function useDesignFeedHistory(id: string, options: { enabled?: boolean } = {}) {
+  const stateRef = React.useRef<{ id: string; state: FeedState }>({ id, state: initialFeedState });
+  return useQuery({
+    queryKey: designKeys.feedHistory(id),
+    queryFn: async (): Promise<DesignFeedHistory> => {
+      if (stateRef.current.id !== id) stateRef.current = { id, state: initialFeedState };
+      let state = stateRef.current.state;
+      let latest: DesignFeedResponse | null = null;
+      for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
+        const res = await apiClient.get<DesignFeedResponse>(`/design/sessions/${id}/feed`, {
+          params: { after: state.cursor, limit: HISTORY_PAGE_LIMIT, visible: isDocumentVisible() ? 1 : 0 },
+        });
+        latest = res;
+        const before = state.cursor;
+        state = mergeFeedPage(state, res.events ?? []);
+        stateRef.current = { id, state };
+        if (!res.has_more || state.cursor === before) break;
+      }
+      return { state, latest: latest as DesignFeedResponse };
+    },
+    enabled: options.enabled ?? true,
+    refetchInterval: (query) => feedInterval((query.state.data as DesignFeedHistory | undefined)?.latest.next_poll_ms),
     refetchIntervalInBackground: true,
   });
 }

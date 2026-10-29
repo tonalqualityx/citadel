@@ -4,6 +4,7 @@ import { use } from 'react';
 import Link from 'next/link';
 import { Spinner } from '@/components/ui/spinner';
 import { Workspace } from '@/components/domain/design/Workspace';
+import { ChatPanel } from '@/components/domain/design/ChatPanel';
 import { useDesignFeed, useDesignSession } from '@/lib/hooks/use-design';
 
 export default function DesignSessionPage({ params }: { params: Promise<{ id: string }> }) {
@@ -21,5 +22,19 @@ export default function DesignSessionPage({ params }: { params: Promise<{ id: st
       </div>
     );
   }
-  return <Workspace data={session.data} feed={feed.data} />;
+  return <Workspace
+      data={session.data}
+      feed={feed.data}
+      slots={{
+        chat: (
+          <ChatPanel
+            sessionId={id}
+            initialStatus={session.data.session.status}
+            initialCost={session.data.session.cost_usd}
+            initialBudget={session.data.session.budget_usd}
+            createdAt={typeof session.data.session.created_at === 'string' ? session.data.session.created_at : null}
+          />
+        ),
+      }}
+    />;
 }
