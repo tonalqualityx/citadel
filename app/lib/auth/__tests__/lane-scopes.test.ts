@@ -45,14 +45,14 @@ describe('lane list', () => {
   it('has the fixed lanes in order, each with a route and an identity', () => {
     expect(LANES).toEqual([
       'courier', 'bellringer', 'portal-chat-machine', 'qbo', 'porter', 'wright', 'clarity', 'bast',
-      'audit-lane', 'troubador', 'oracle',
+      'audit-lane', 'troubador', 'oracle', 'design-worker',
     ]);
     for (const l of LANES) expect(LANE_ROUTES[l].length).toBeGreaterThan(0);
   });
 
-  it('every lane key is Bast except Troubador and Oracle (no lane acts as Mike)', () => {
+  it('every lane key is Bast except Troubador, Oracle and design-worker (no lane acts as Mike)', () => {
     for (const l of LANES) {
-      expect(LANE_IDENTITY[l]).toBe(l === 'troubador' ? 'troubador' : l === 'oracle' ? 'oracle' : 'bast');
+      expect(LANE_IDENTITY[l]).toBe(l === 'troubador' ? 'troubador' : l === 'oracle' ? 'oracle' : l === 'design-worker' ? 'design-worker' : 'bast');
     }
   });
 

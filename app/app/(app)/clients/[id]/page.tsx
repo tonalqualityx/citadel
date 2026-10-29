@@ -19,6 +19,7 @@ import {
   InlineSelect,
   ClientSelect,
 } from '@/components/ui/inline-edit';
+import { DriveFolderField } from '@/components/domain/clients/drive-folder-field';
 import { ViewAsPortalButton } from '@/components/domain/clients/view-as-portal-button';
 import { ClientActivityTab } from '@/components/domain/clients/client-activity-tab';
 import { ClientSitesTab } from '@/components/domain/clients/client-sites-tab';
@@ -366,6 +367,9 @@ export default function ClientDetailPage({ params }: Props) {
               </CardContent>
             </Card>
           )}
+
+          {/* Client Drive folder (admin only, D11) */}
+          {isAdmin && <DriveFolderField kind="clients" id={client.id} label="Client Drive folder" />}
 
           {/* Notes */}
           <Card>

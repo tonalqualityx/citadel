@@ -76,7 +76,12 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     emoji: '🔥',
     defaultOpen: true,
     items: [
-      ...(isPmOrAdmin ? [{ name: t('projects'), href: '/projects', emoji: '🤝' }] : []),
+      ...(isPmOrAdmin
+        ? [
+            { name: t('projects'), href: '/projects', emoji: '🤝' },
+            { name: 'Design', href: '/design', emoji: '🎨' },
+          ]
+        : []),
       { name: t('clients'), href: '/clients', emoji: '🧑‍🚀' },
       { name: t('sites'), href: '/sites', emoji: '🏰' },
       { name: t('domains'), href: '/domains', emoji: '🔗' },

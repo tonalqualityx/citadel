@@ -19,6 +19,8 @@ export function notificationTarget(n: NotificationTargetInput): string | null {
       project: `/projects/${n.entity_id}`,
       sop: `/grimoire/runes/${n.entity_id}`,
       recipe: `/grimoire/rituals/${n.entity_id}`,
+      design_publish: `/design/publishes/${n.entity_id}`,
+      design_session: `/design/s/${n.entity_id}`,
     };
     if (routes[n.entity_type]) return routes[n.entity_type];
   }

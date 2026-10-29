@@ -4,15 +4,17 @@ import { hashApiKey } from './api-keys';
 import { prisma } from '@/lib/db/prisma';
 import { UserRole } from '@prisma/client';
 import { AuthError } from '@/lib/api/errors';
-import { ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader } from './lane-scopes';
+import { ALWAYS_ENFORCED_LANES, ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader } from './lane-scopes';
 import { recordKeyViolation } from './key-violations';
 import { rememberKeyLane } from './actor-lane';
+import { designerMayCallRoute } from './designer-routes';
 
 /**
  * What requireAuth returns. `via` says how the caller signed in; API-key callers also carry the key
  * id, and the lane for a lane key. Field names shared with fleet items 2a and 3 (via, apiKeyId).
+ * `laneEnforced` is true when the lane key itself carries scope-mode:enforce (isDesignWorker needs it).
  */
-export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string; lane?: string };
+export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string; lane?: string; laneEnforced?: boolean };
 
 /** Routes a lane key may never call, shadow or enforce: key minting and the admin surface. */
 export function laneForbiddenPath(path: string): boolean {
@@ -31,11 +33,22 @@ export async function requireAuth(): Promise<AuthPayload> {
 
       const user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { id: true, is_active: true },
+        select: { id: true, is_active: true, role: true },
       });
 
       if (!user || !user.is_active) {
         throw new AuthError('User not found or inactive', 401);
+      }
+
+      // Designer Portal (design D1): a user whose DATABASE role is designer may call only the
+      // DESIGNER_ROUTES allowlist. The route comes from x-citadel-route (proxy.ts overwrites it);
+      // no header = 403 (fail closed). Headers are read only for designers, so every other session
+      // is untouched, and the returned role stays the token's.
+      if (user.role === 'designer') {
+        const headerStore = await headers();
+        if (!designerMayCallRoute(headerStore.get(ROUTE_HEADER))) {
+          throw new AuthError('Designers cannot use this route', 403);
+        }
       }
 
       // Overwrite, never trust: a signed token cannot claim to be anything but a session here.
@@ -87,14 +100,22 @@ async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Pr
     throw new AuthError('User account is inactive', 401);
   }
 
+  // Designer Portal (design D1): a designer never authenticates with an API key, whatever the key's
+  // scopes; otherwise a key minted for her would step around the session allowlist.
+  if (apiKey.user.role === 'designer') {
+    throw new AuthError('Designers cannot use API keys', 403);
+  }
+
   // Fleet item 6: a key with a lane:<name> scope may call only its lane's routes. The route comes
   // from x-citadel-route, which proxy.ts always overwrites. No header means the proxy did not run,
   // so the call is refused (fail closed). Keys with no lane scope skip all of this.
   const lanes = laneScopesOf(apiKey.scopes);
   const lane = lanes.length > 0 ? lanes.join(',') : undefined;
   rememberKeyLane(keyHash, lane ? lane.slice(0, 40) : null);
+  const keyEnforced = (apiKey.scopes ?? []).includes(ENFORCE_SCOPE);
   if (lane) {
-    const enforced = (apiKey.scopes ?? []).includes(ENFORCE_SCOPE);
+    // W8.2 H3: an always-enforced lane (design-worker) is refused outside its lane even on a shadow key.
+    const enforced = keyEnforced || lanes.some((l) => (ALWAYS_ENFORCED_LANES as readonly string[]).includes(l));
     const route = parseRouteHeader(headerStore.get(ROUTE_HEADER));
     if (!route) {
       recordKeyViolation({
@@ -131,7 +152,7 @@ async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Pr
     role: apiKey.user.role,
     via: 'api_key',
     apiKeyId: apiKey.id,
-    ...(lane ? { lane } : {}),
+    ...(lane ? { lane, laneEnforced: keyEnforced } : {}),
   };
 }
 

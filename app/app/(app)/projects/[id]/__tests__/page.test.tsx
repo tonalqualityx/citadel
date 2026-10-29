@@ -160,6 +160,9 @@ vi.mock('@/components/ui/rich-text-editor', () => ({
 }));
 
 // Mock other components
+vi.mock('@/components/domain/clients/drive-folder-field', () => ({
+  DriveFolderField: () => null,
+}));
 vi.mock('@/components/domain/projects/project-workload-tab', () => ({
   ProjectWorkloadTab: () => <div data-testid="workload-tab">Workload Tab</div>,
 }));

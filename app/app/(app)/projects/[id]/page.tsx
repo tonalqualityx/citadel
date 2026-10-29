@@ -82,6 +82,7 @@ import { ProjectWorkloadTab } from '@/components/domain/projects/project-workloa
 import { ProjectTimeTab } from '@/components/domain/projects/project-time-tab';
 import { MilestoneList } from '@/components/domain/projects/milestone-list';
 import { ResourceLinks } from '@/components/domain/projects/resource-links';
+import { DriveFolderField } from '@/components/domain/clients/drive-folder-field';
 import { ProjectTeamTab } from '@/components/domain/projects/project-team-tab';
 import { ProjectBriefTab } from '@/components/domain/projects/project-brief-tab';
 import { MeetingList } from '@/components/domain/meetings/MeetingList';
@@ -1245,6 +1246,14 @@ export default function ProjectDetailPage() {
               </dl>
             </CardContent>
           </Card>
+
+          {/* Design portal Drive folder override (admin only, D11; the field renders for admins only) */}
+          <DriveFolderField
+            kind="projects"
+            id={project.id}
+            label="Design portal Drive folder (overrides the client's)"
+            helper="Leave empty to use the client's folder. Paste the id from the Drive URL."
+          />
 
           {/* Resource Links Section */}
           <ResourceLinks projectId={projectId} />

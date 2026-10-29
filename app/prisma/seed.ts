@@ -323,6 +323,15 @@ async function main() {
 
   // Clear existing client data (in reverse order due to foreign keys)
   // First, clear project-related data that depends on clients
+  // Design portal rows restrict tasks, projects and sites: first, in FK order
+  await prisma.designEvent.deleteMany();
+  await prisma.designPin.deleteMany();
+  await prisma.designChange.deleteMany();
+  await prisma.designAsset.deleteMany();
+  await prisma.designCommand.deleteMany();
+  await prisma.designPublish.deleteMany();
+  await prisma.designBudget.deleteMany();
+  await prisma.designSession.deleteMany();
   await prisma.projectPage.deleteMany();
   await prisma.timeEntry.deleteMany();
   await prisma.task.deleteMany();
@@ -537,6 +546,14 @@ async function main() {
   // ============================================
 
   // Clear existing project/task data
+  await prisma.designEvent.deleteMany();
+  await prisma.designPin.deleteMany();
+  await prisma.designChange.deleteMany();
+  await prisma.designAsset.deleteMany();
+  await prisma.designCommand.deleteMany();
+  await prisma.designPublish.deleteMany();
+  await prisma.designBudget.deleteMany();
+  await prisma.designSession.deleteMany();
   await prisma.timeEntry.deleteMany();
   await prisma.task.deleteMany();
   await prisma.projectTeamAssignment.deleteMany();

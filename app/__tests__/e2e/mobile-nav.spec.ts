@@ -40,6 +40,7 @@ const EXPECTED_ITEM_HREFS = [
   '/dashboard',
   '/time',
   '/projects',
+  '/design',
   '/clients',
   '/sites',
   '/domains',

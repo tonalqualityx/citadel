@@ -36,14 +36,17 @@ const ROLE_OPTIONS = [
   { value: 'tech', label: 'Tech' },
   { value: 'pm', label: 'PM' },
   { value: 'admin', label: 'Admin' },
+  { value: 'designer', label: 'Designer' },
 ];
 
-function getRoleBadgeVariant(role: string): 'default' | 'warning' | 'success' {
+function getRoleBadgeVariant(role: string): 'default' | 'warning' | 'success' | 'purple' {
   switch (role) {
     case 'admin':
       return 'warning';
     case 'pm':
       return 'success';
+    case 'designer':
+      return 'purple';
     default:
       return 'default';
   }
@@ -352,7 +355,7 @@ export default function TeamAdminPage() {
                     options={ROLE_OPTIONS}
                     value={formData.role || 'tech'}
                     onChange={(value) =>
-                      setFormData({ ...formData, role: value as 'tech' | 'pm' | 'admin' })
+                      setFormData({ ...formData, role: value as 'tech' | 'pm' | 'admin' | 'designer' })
                     }
                   />
                 </div>

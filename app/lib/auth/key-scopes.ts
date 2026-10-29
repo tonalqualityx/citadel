@@ -6,9 +6,11 @@
  *   decisions:admin     item 2a: lets the key use the decisions admin routes. Only on a key with NO lane (the
  *                       plain admin key), and only for a user with the admin role (checked at mint and PATCH;
  *                       requireDecisionAdmin checks both again on every call)
+ * A lane in ALWAYS_ENFORCED_LANES (design-worker) must carry scope-mode:enforce: a shadow key for it is 400
+ * at mint and at PATCH (W8.2 H3).
  */
 import { z } from 'zod';
-import { ENFORCE_SCOPE, LANE_SCOPE_PREFIX, isLane } from './lane-scopes';
+import { ALWAYS_ENFORCED_LANES, ENFORCE_SCOPE, LANE_SCOPE_PREFIX, isLane } from './lane-scopes';
 
 /** Same value as ENGINE_SCOPE in lib/engine/auth.ts (kept here so this module stays free of prisma). */
 export const ENGINE_SCOPE = 'engine';
@@ -30,6 +32,12 @@ export const keyScopesSchema = z
     }
     const lanes = scopes.filter((s) => s.startsWith(LANE_SCOPE_PREFIX));
     if (lanes.length > 1) ctx.addIssue({ code: 'custom', message: 'A key carries at most one lane' });
+    for (const l of lanes) {
+      const lane = l.slice(LANE_SCOPE_PREFIX.length);
+      if ((ALWAYS_ENFORCED_LANES as readonly string[]).includes(lane) && !scopes.includes(ENFORCE_SCOPE)) {
+        ctx.addIssue({ code: 'custom', message: `${l} keys must carry ${ENFORCE_SCOPE}` });
+      }
+    }
     if (scopes.includes(ENFORCE_SCOPE) && lanes.length === 0) {
       ctx.addIssue({ code: 'custom', message: `${ENFORCE_SCOPE} needs a lane scope` });
     }

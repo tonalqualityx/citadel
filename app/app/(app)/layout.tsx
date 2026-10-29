@@ -4,6 +4,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { AppProviders } from '@/components/layout/app-providers';
 import { CommandPalette } from '@/components/layout/CommandPalette';
+import { verifyAccessToken } from '@/lib/auth/jwt';
 
 // BlockNote / Mantine CSS imports
 import '@mantine/core/styles.css';
@@ -20,6 +21,19 @@ export default async function AppLayout({
 
   if (!token) {
     redirect('/login');
+  }
+
+  // Designer Portal (design D1): a designer never sees the staff shell. This is UX only; the API
+  // allowlist in requireAuth() is the enforcement. A token that fails to verify (expired, say)
+  // keeps today's behavior: render, so the client-side refresh runs.
+  let role: string | undefined;
+  try {
+    role = (await verifyAccessToken(token.value)).role;
+  } catch {
+    role = undefined;
+  }
+  if (role === 'designer') {
+    redirect('/design');
   }
 
   return (

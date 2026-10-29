@@ -29,6 +29,9 @@ vi.mock('@/lib/db/prisma', () => ({
   },
 }));
 
+// Designer Portal offboarding (W8.2 H2): the DELETE hook; its behavior is covered by lib/design integration tests.
+vi.mock('@/lib/design/offboarding', () => ({ closeSessionsForUnassignedDesigner: vi.fn() }));
+
 // Mock formatters
 vi.mock('@/lib/api/formatters', () => ({
   formatTeamAssignmentResponse: vi.fn((assignment) => ({
@@ -40,6 +43,7 @@ vi.mock('@/lib/api/formatters', () => ({
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import { closeSessionsForUnassignedDesigner } from '@/lib/design/offboarding';
 import type { Mock } from 'vitest';
 
 const mockRequireAuth = vi.mocked(requireAuth);
@@ -294,5 +298,28 @@ describe('GET /api/projects/[id]/team', () => {
       },
       orderBy: [{ is_lead: 'desc' }, { created_at: 'asc' }],
     });
+  });
+});
+
+describe('DELETE /api/projects/[id]/team', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ userId: 'admin-1', role: 'admin', email: 'admin@example.com' });
+    mockRequireRole.mockImplementation(() => undefined);
+  });
+
+  it('removes the assignment and closes the removed user\'s design sessions on the project (W8.2 H2)', async () => {
+    (prisma.projectTeamAssignment.delete as Mock).mockResolvedValue({ id: 'assign-1', project_id: 'proj-123', user_id: 'user-9', function_id: 'func-1' });
+    const request = new NextRequest('http://localhost:3000/api/projects/proj-123/team?function_id=func-1', { method: 'DELETE' });
+    const response = await DELETE(request, { params: mockParams });
+    expect(response.status).toBe(200);
+    expect(prisma.projectTeamAssignment.delete).toHaveBeenCalledWith({ where: { project_id_function_id: { project_id: 'proj-123', function_id: 'func-1' } } });
+    expect(closeSessionsForUnassignedDesigner).toHaveBeenCalledWith('proj-123', 'user-9', { byUserId: 'admin-1' });
+  });
+
+  it('400 without function_id, and nothing is closed', async () => {
+    const request = new NextRequest('http://localhost:3000/api/projects/proj-123/team', { method: 'DELETE' });
+    expect((await DELETE(request, { params: mockParams })).status).toBe(400);
+    expect(closeSessionsForUnassignedDesigner).not.toHaveBeenCalled();
   });
 });

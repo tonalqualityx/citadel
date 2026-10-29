@@ -131,7 +131,7 @@ describe('payload', () => {
     findKey.mockResolvedValue(keyRow(['lane:courier']));
     request('GET /api/email-outbox');
     expect(await requireAuth()).toEqual({
-      userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', via: 'api_key', lane: 'courier',
+      userId: 'user-mike', email: 'mike@example.test', role: 'admin', apiKeyId: 'key-1', via: 'api_key', lane: 'courier', laneEnforced: false,
     });
   });
 });

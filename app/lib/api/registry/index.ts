@@ -70,6 +70,7 @@ import { engineEndpoints } from './engine';
 import { portalChatEndpoints } from './portal-chat';
 import { kpiChecklistEndpoints } from './kpis-checklists';
 import { taskClaimEndpoints } from './task-claims';
+import { designEndpoints } from './design';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -108,13 +109,14 @@ export const apiRegistry: ApiEndpoint[] = [
   ...portalChatEndpoints,
   ...kpiChecklistEndpoints,
   ...taskClaimEndpoints,
+  ...designEndpoints,
 ];
 
 /**
  * Common enums used across the API
  */
 export const apiEnums = {
-  userRoles: ['tech', 'pm', 'admin'],
+  userRoles: ['tech', 'pm', 'admin', 'designer'],
   projectStatuses: ['quote', 'queue', 'ready', 'in_progress', 'review', 'done', 'suspended', 'cancelled'],
   projectTypes: ['project', 'retainer', 'internal'],
   taskStatuses: ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'],
@@ -148,6 +150,17 @@ export const apiEnums = {
   waitKinds: ['approval', 'clock', 'handoff', 'meeting', 'external', 'switch'],
   waitStates: ['waiting', 'needs_human', 'paused', 'blocked_by_switch', 'done', 'expired'],
   waitActions: ['proceed', 'send', 'escalate', 'task'],
+  designSessionStatuses: ['pending', 'active', 'awaiting_input', 'paused_budget', 'stopped', 'publishing', 'closed', 'abandoned'],
+  designPublishStatuses: ['awaiting_confirmation', 'expired', 'queued', 'running', 'published', 'blocked_gates', 'blocked_policy', 'conflict', 'failed', 'rolled_back'],
+  designPublishKinds: ['publish', 'rollback'],
+  designPublishModes: ['per_site', 'pre_launch_only', 'off'],
+  designMainRoles: ['client_preview', 'production'],
+  designPinStatuses: ['pending', 'sent', 'resolved', 'followup', 'discarded'],
+  designChangeDecisions: ['pending', 'accepted', 'denied'],
+  designEventRoles: ['designer', 'assistant', 'tool', 'system'],
+  designEventKinds: ['text', 'apply', 'thought', 'action', 'result', 'screenshot', 'gate', 'cost', 'plan', 'status', 'followup', 'client_files', 'change', 'publish'],
+  designCommandVerbs: ['stop', 'publish', 'rollback', 'restore', 'close', 'resume', 'refresh_client_files'],
+  designCommandStatuses: ['pending', 'claimed', 'done', 'failed'],
 };
 
 /**

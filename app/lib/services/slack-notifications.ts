@@ -44,6 +44,9 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   oracle_urgent_email: '🚨',
   portal_emergency: '🚨',
   portal_chat_handoff: '💬',
+  design_published: '🎨',
+  design_publish_requested: '🙋',
+  design_rolled_back: '⏪',
 };
 
 interface TaskContext {
@@ -269,6 +272,8 @@ function buildEntityUrl(entityType?: string, entityId?: string): string | null {
     client: '/clients',
     site: '/sites',
     sop: '/sops',
+    design_publish: '/design/publishes',
+    design_session: '/design/s',
   };
 
   const route = entityRoutes[entityType];

@@ -26,15 +26,15 @@ describe.skipIf(!SCRATCH)('engine routes (real database)', () => {
   let a: Seeded;
   let engineKey = '';
   let plainKey = '';
+  let keyUserId = '';
   const keyIds: string[] = [];
 
   async function mintKey(scopes: string[], role: 'pm' | 'tech' = 'pm') {
-    const user = await anyUser();
     if (role === 'tech') {
       const t = await prisma.user.create({ data: { email: `tech-${tag}-${scopes.length}@example.test`, password_hash: 'x', name: 'Tech', role: 'tech' } });
       return mk(t.id, scopes);
     }
-    return mk(user.id, scopes);
+    return mk(keyUserId, scopes);
   }
   async function mk(userId: string, scopes: string[]) {
     const raw = 'citadel_' + crypto.randomBytes(16).toString('hex');
@@ -45,7 +45,10 @@ describe.skipIf(!SCRATCH)('engine routes (real database)', () => {
 
   beforeAll(async () => {
     a = await seedClient(`${tag}a`, { ga4: 'properties/123' });
-    await prisma.user.updateMany({ where: { id: (await anyUser()).id }, data: { role: 'pm', is_active: true } });
+    // Resolve the key holder once. anyUser() is findFirst() with no order, and the UPDATE below moves that row in the
+    // heap, so a second anyUser() call can return a different user (the seeded tech user) and the engine key fails.
+    keyUserId = (await anyUser()).id;
+    await prisma.user.updateMany({ where: { id: keyUserId }, data: { role: 'pm', is_active: true } });
     engineKey = await mintKey(['engine']);
     plainKey = await mintKey([]);
   });

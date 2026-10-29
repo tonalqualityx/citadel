@@ -29,6 +29,9 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   oracle_urgent_email: 'Urgent Email',
   portal_emergency: 'Portal Emergency',
   portal_chat_handoff: 'Portal Chat Handoff',
+  design_published: 'Design published',
+  design_publish_requested: 'Design publish requested',
+  design_rolled_back: 'Design rolled back',
 };
 
 // Notification type icons/emojis for email
@@ -52,6 +55,9 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   oracle_urgent_email: '🚨',
   portal_emergency: '🚨',
   portal_chat_handoff: '💬',
+  design_published: '🎨',
+  design_publish_requested: '🙋',
+  design_rolled_back: '⏪',
 };
 
 /**
@@ -74,6 +80,8 @@ function buildEntityUrl(entityType?: string, entityId?: string): string | null {
     client: '/patrons',
     site: '/sites',
     sop: '/scrolls',
+    design_publish: '/design/publishes',
+    design_session: '/design/s',
   };
 
   const route = entityRoutes[entityType];

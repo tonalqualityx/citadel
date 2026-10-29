@@ -8,7 +8,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 const updateUserSchema = z.object({
   name: z.string().min(1, 'Name is required').max(255).optional(),
   email: z.string().email('Invalid email address').max(255).optional(),
-  role: z.enum(['tech', 'pm', 'admin']).optional(),
+  role: z.enum(['tech', 'pm', 'admin', 'designer']).optional(),
   avatar_url: z.string().url().max(500).optional().nullable(),
   is_active: z.boolean().optional(),
   target_hours_per_week: z.number().min(0).max(80).optional(),
@@ -173,6 +173,19 @@ export async function DELETE(
 
     if (!user) {
       throw new ApiError('User not found', 404);
+    }
+
+    // Designer Portal (design D1): design sessions and publishes reference the user with
+    // onDelete: Restrict, so a hard delete would fail. Refuse it; deactivating keeps the history.
+    const [designSessions, designPublishes] = await Promise.all([
+      prisma.designSession.count({ where: { designer_id: id } }),
+      prisma.designPublish.count({ where: { actor_id: id } }),
+    ]);
+    if (designSessions > 0 || designPublishes > 0) {
+      throw new ApiError(
+        'User has design sessions or publishes and cannot be deleted; deactivate instead',
+        409
+      );
     }
 
     // Check if user has any assigned tasks, time entries, etc.
