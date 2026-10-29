@@ -23,12 +23,19 @@ export async function PATCH(request: NextRequest, { params }: IdParams) {
     requireAdmin(actor);
     const { id } = await params;
     if (!isUuid(id)) throw new ApiError('Site not found', 404, 'not_found');
-    const existing = await prisma.site.findUnique({ where: { id }, select: { id: true, is_deleted: true } });
+    const existing = await prisma.site.findUnique({ where: { id }, select: { id: true, is_deleted: true, site_type: true } });
     if (!existing || existing.is_deleted) throw new ApiError('Site not found', 404, 'not_found');
     const input = await body(request, siteSchema, 4096);
+    // The drawer lists only eleventy sites, so enabling any other type would succeed and show nothing. An untyped
+    // site is stamped eleventy when enabled; any other type is refused.
+    const data: typeof input & { site_type?: 'eleventy' } = { ...input };
+    if (input.design_portal_enabled === true) {
+      if (existing.site_type === null || existing.site_type === undefined) data.site_type = 'eleventy';
+      else if (existing.site_type !== 'eleventy') throw new ApiError('only eleventy sites can use the Designer Portal', 409, 'site_not_eleventy');
+    }
     const site = await prisma.site.update({
       where: { id },
-      data: input,
+      data,
       select: { id: true, design_portal_enabled: true, designer_publish: true, design_auto_timer: true },
     });
     const [settings, state] = await Promise.all([

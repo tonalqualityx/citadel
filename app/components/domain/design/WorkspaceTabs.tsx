@@ -2,13 +2,13 @@
 
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Tray } from './Tray';
+import { ChatPanel } from './ChatPanel';
 import { ChangesTab, type ChangeView } from './ChangesTab';
 import { VersionsTab } from './VersionsTab';
 import { ClientFilesTab } from './ClientFilesTab';
 import { designKeys, type DesignSessionResponse, type DesignFeedResponse } from '@/lib/hooks/use-design';
 import type { BridgeDraft } from '@/lib/hooks/use-design-bridge';
-import type { ClientFileRef, TrayPin } from '@/lib/hooks/use-design-tray';
+import type { ClientFileRef } from '@/lib/hooks/use-design-tray';
 
 export interface WorkspaceTabsProps {
   sessionId: string;
@@ -19,14 +19,14 @@ export interface WorkspaceTabsProps {
   /** All feed events seen so far (the merged list), oldest first or any order. Defaults to feed.events. */
   events?: DesignFeedResponse['events'];
   /** From useDesignBridge. */
-  bridge: Pick<{ drafts: BridgeDraft[]; removeDraft: (id: string) => void; highlight: (selector: string) => boolean }, 'drafts' | 'removeDraft' | 'highlight'>;
+  bridge: Pick<{ drafts: BridgeDraft[]; removeDraft: (id: string) => void }, 'drafts' | 'removeDraft'>;
 }
 
-export type WorkspaceTabSlots = { tray: React.ReactNode; changes: React.ReactNode; versions: React.ReactNode; 'client-files': React.ReactNode };
+export type WorkspaceTabSlots = { chat: React.ReactNode; changes: React.ReactNode; versions: React.ReactNode; 'client-files': React.ReactNode };
 
 /**
- * Builds the four tab bodies for Workspace's `slots` (tray, changes, versions, client-files). Holds the attached
- * client files (shared by the tray and the Client files tab) and refetches the session load when the feed shows a
+ * Builds the tab bodies for Workspace's `slots` (chat, changes, versions, client-files). Holds the attached
+ * client files (shared by the chat and the Client files tab) and refetches the session load when the feed shows a
  * change or follow-up the load has not seen.
  */
 export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge }: WorkspaceTabsProps): WorkspaceTabSlots {
@@ -50,23 +50,22 @@ export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge }: 
     if (unseen) queryClient.invalidateQueries({ queryKey: designKeys.session(sessionId) });
   }, [unseen, sessionId, queryClient]);
 
-  const previewSha = feed ? feed.preview_sha : data.session.preview_sha;
   const headSha = feed ? feed.head_sha : data.session.head_sha;
   const closed = (feed?.status ?? data.session.status) === 'closed' || (feed?.status ?? data.session.status) === 'abandoned';
 
   return {
-    tray: (
-      <Tray
+    chat: (
+      <ChatPanel
         sessionId={sessionId}
-        pins={data.pins as unknown as TrayPin[]}
-        previewSha={previewSha}
-        drafts={bridge.drafts}
-        onRemoveDraft={bridge.removeDraft}
-        onHighlight={(selector) => bridge.highlight(selector)}
+        initialStatus={data.session.status}
+        initialCost={data.session.cost_usd}
+        initialBudget={data.session.budget_usd}
+        createdAt={typeof data.session.created_at === 'string' ? data.session.created_at : null}
+        selection={bridge.drafts[bridge.drafts.length - 1] ?? null}
+        onClearSelection={bridge.removeDraft}
         attachedFiles={attached}
         onDetachFile={(id) => setAttached((a) => a.filter((f) => f.id !== id))}
-        onApplied={() => setAttached([])}
-        disabled={closed}
+        onSent={() => setAttached([])}
       />
     ),
     changes: <ChangesTab sessionId={sessionId} changes={changes} events={feedEvents} />,
@@ -89,7 +88,7 @@ export function WorkspaceTabs(props: WorkspaceTabsProps) {
   const slots = useWorkspaceTabSlots(props);
   return (
     <div className="flex flex-col gap-6">
-      <section aria-label="Tray">{slots.tray}</section>
+      <section aria-label="Chat">{slots.chat}</section>
       <section aria-label="Changes">{slots.changes}</section>
       <section aria-label="Versions">{slots.versions}</section>
       <section aria-label="Client files">{slots['client-files']}</section>

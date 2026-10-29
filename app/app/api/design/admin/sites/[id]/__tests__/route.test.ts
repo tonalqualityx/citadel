@@ -20,10 +20,30 @@ const call = (body: unknown, headers?: Record<string, string>, id = SITE_ID) =>
 beforeEach(() => {
   vi.clearAllMocks();
   signIn(auth, userFind, 'admin');
-  siteFind.mockResolvedValue({ id: SITE_ID, is_deleted: false });
+  siteFind.mockResolvedValue({ id: SITE_ID, is_deleted: false, site_type: 'eleventy' });
   siteUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: SITE_ID, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, ...data }));
   (prisma.designPortalSettings.findUnique as Mock).mockResolvedValue({ designer_publish_mode: 'per_site' });
   (prisma.designWorkerState.findUnique as Mock).mockResolvedValue({ site_main_roles: { [SITE_ID]: 'client_preview' } });
+});
+
+describe('PATCH /api/design/admin/sites/:id (site type)', () => {
+  it('stamps site_type eleventy when enabling a site with no type', async () => {
+    siteFind.mockResolvedValue({ id: SITE_ID, is_deleted: false, site_type: null });
+    expect((await call({ design_portal_enabled: true })).status).toBe(200);
+    expect(siteUpdate.mock.calls[0][0].data).toEqual({ design_portal_enabled: true, site_type: 'eleventy' });
+  });
+  it('refuses 409 to enable a site of another type, and writes nothing', async () => {
+    siteFind.mockResolvedValue({ id: SITE_ID, is_deleted: false, site_type: 'wordpress' });
+    const res = await call({ design_portal_enabled: true });
+    expect(res.status).toBe(409);
+    expect(JSON.stringify(await res.json())).toContain('only eleventy sites can use the Designer Portal');
+    expect(siteUpdate).not.toHaveBeenCalled();
+  });
+  it('disabling or other toggles never touch site_type', async () => {
+    siteFind.mockResolvedValue({ id: SITE_ID, is_deleted: false, site_type: 'wordpress' });
+    expect((await call({ design_portal_enabled: false })).status).toBe(200);
+    expect(siteUpdate.mock.calls[0][0].data).toEqual({ design_portal_enabled: false });
+  });
 });
 
 describe('PATCH /api/design/admin/sites/:id', () => {

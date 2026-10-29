@@ -36,7 +36,9 @@ function feed(over: Record<string, unknown> = {}, events: ReturnType<typeof e>[]
     preview_url: null,
     preview_sha: null,
     head_sha: null,
-    last_heartbeat_at: new Date().toISOString(),
+    last_heartbeat_at: null, // idle sessions carry no session heartbeat
+    worker_last_heartbeat_at: new Date().toISOString(),
+    worker_online: true,
     next_poll_ms: 1500,
     last_seq: events.length ? events[events.length - 1].seq : 0,
     has_more: false,
@@ -194,22 +196,122 @@ describe('BudgetDialog', () => {
 });
 
 describe('worker-silent banner', () => {
-  it('shows when the heartbeat is stale', async () => {
-    get.mockResolvedValue(feed({ status: 'active', last_heartbeat_at: new Date(Date.now() - 45_000).toISOString() }));
+  it('shows when the worker is offline on a live session', async () => {
+    get.mockResolvedValue(feed({ status: 'awaiting_input', worker_online: false }));
     wrap(<ChatPanel sessionId="s1" />);
     expect(await screen.findByTestId('worker-silent')).toBeTruthy();
   });
 
-  it('shows when pending for more than 60 s', async () => {
-    get.mockResolvedValue(feed({ status: 'pending', last_heartbeat_at: new Date().toISOString() }));
-    wrap(<ChatPanel sessionId="s1" createdAt={new Date(Date.now() - 90_000).toISOString()} />);
-    expect(await screen.findByTestId('worker-silent')).toBeTruthy();
-  });
-
-  it('stays hidden with a fresh heartbeat', async () => {
-    get.mockResolvedValue(feed({ status: 'active' }));
+  it('stays hidden for an idle session with a null session heartbeat while the worker is online', async () => {
+    get.mockResolvedValue(feed({ status: 'awaiting_input' }));
     wrap(<ChatPanel sessionId="s1" />);
     await screen.findByTestId('chat-panel');
     expect(screen.queryByTestId('worker-silent')).toBeNull();
+  });
+
+  it('pending over 60 s with the worker online shows the setup hint, not "gone quiet"', async () => {
+    get.mockResolvedValue(feed({ status: 'pending' }));
+    wrap(<ChatPanel sessionId="s1" createdAt={new Date(Date.now() - 90_000).toISOString()} />);
+    expect((await screen.findByTestId('setup-slow')).textContent).toContain('first build takes a few minutes');
+    expect(screen.queryByTestId('worker-silent')).toBeNull();
+  });
+
+  it('pending over 60 s with the worker offline shows the quiet banner', async () => {
+    get.mockResolvedValue(feed({ status: 'pending', worker_online: false }));
+    wrap(<ChatPanel sessionId="s1" createdAt={new Date(Date.now() - 90_000).toISOString()} />);
+    expect(await screen.findByTestId('worker-silent')).toBeTruthy();
+    expect(screen.queryByTestId('setup-slow')).toBeNull();
+  });
+});
+
+describe('gate and tool rendering', () => {
+  it('shows one compact summary for a run of passing gates, details behind the toggle, no Blocks badge', async () => {
+    const names = ['build', 'library', 'forms', 'responsive', 'accessibility', 'preview', 'balance_check'];
+    get.mockResolvedValue(feed({}, names.map((n, i) => e(i + 1, 'gate', { gates: [{ name: n, ok: true, summary: 'fine' }], blocking: true }))));
+    wrap(<ChatPanel sessionId="s1" />);
+    const card = await screen.findByTestId('gate-summary');
+    expect(document.querySelectorAll('[data-testid="gate-summary"]')).toHaveLength(1);
+    expect(card.textContent).toContain('Checks passed: build, library, forms, responsive, accessibility, preview, balance_check (report only)');
+    expect(screen.queryByText('Blocks publishing')).toBeNull();
+    expect(screen.queryByText('All gates passed')).toBeNull();
+  });
+
+  it('a red blocking gate stays a prominent card with the badge', async () => {
+    get.mockResolvedValue(feed({}, [e(1, 'gate', { gates: [{ name: 'build', ok: true }] }), e(2, 'gate', { gates: [{ name: 'forms', ok: false, summary: 'no label' }] })]));
+    wrap(<ChatPanel sessionId="s1" />);
+    expect(await screen.findByText('1 of 2 gates failed')).toBeTruthy();
+    expect(screen.getByText('Blocks publishing')).toBeTruthy();
+  });
+
+  it('a failed report-only gate does not block', async () => {
+    get.mockResolvedValue(feed({}, [e(1, 'gate', { gates: [{ name: 'build', ok: true }] }), e(2, 'gate', { gates: [{ name: 'balance_check', ok: false, summary: 'uneven' }] })]));
+    wrap(<ChatPanel sessionId="s1" />);
+    await screen.findByTestId('gate-summary');
+    expect(screen.queryByText('Blocks publishing')).toBeNull();
+  });
+
+  it('renders a huge tool result as one line with the raw output behind Details, capped at 40 lines', async () => {
+    const body = Array.from({ length: 300 }, (_, i) => `${i + 1}: registry row`).join('\n');
+    get.mockResolvedValue(feed({}, [
+      e(1, 'action', { tool: 'Grep', label: 'Searching registry.json', tool_use_id: 'a' }),
+      e(2, 'result', { tool: 'Grep', tool_use_id: 'a', ok: true, summary: body }),
+    ]));
+    wrap(<ChatPanel sessionId="s1" />);
+    const line = await screen.findByTestId('tool-line');
+    expect(line.textContent).toContain('1: registry row (+299 more lines)');
+    const pre = line.querySelector('pre')!;
+    expect(pre.textContent!.split('\n').length).toBeLessThanOrEqual(42);
+    expect(pre.textContent).toContain('260 more lines not shown');
+    expect(pre.textContent).not.toContain('300: registry row');
+  });
+});
+
+describe('selection chip', () => {
+  const draft = { id: 'draft-1', received_at: 1, draft: { path: '/about/', sha: 'abc', data_lib: 'state_card', lib_stack: ['state_card'], data_shape: null, selector: '.c', tag: 'div', classes: [], text_quote: null, bbox: { x: 0, y: 0, w: 1, h: 1 }, viewport: { w: 1280, h: 800 } } };
+
+  it('shows one removable chip and sending creates the pin then applies with the text as the note', async () => {
+    get.mockResolvedValue(feed({ status: 'awaiting_input' }));
+    post.mockResolvedValue({ pin: { id: 'pin-9' } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 201, json: async () => ({ seq: 3 }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const onClear = vi.fn();
+    const onSent = vi.fn();
+    wrap(<ChatPanel sessionId="s1" selection={draft} onClearSelection={onClear} onSent={onSent} />);
+    expect((await screen.findByTestId('selection-chip')).textContent).toContain('state_card on /about/ at 1280');
+    fireEvent.change(screen.getByLabelText('Message to the design worker'), { target: { value: 'Make it bigger' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(post.mock.calls[0][0]).toBe('/design/sessions/s1/pins');
+    expect(post.mock.calls[0][1]).toMatchObject({ note: 'Make it bigger', data_lib: 'state_card' });
+    expect(post.mock.calls.some((c) => String(c[0]).endsWith('/messages'))).toBe(false);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/design/sessions/s1/apply');
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toMatchObject({ pin_ids: ['pin-9'], note: 'Make it bigger' });
+    expect(onClear).toHaveBeenCalledWith('draft-1');
+    await waitFor(() => expect(onSent).toHaveBeenCalled());
+    vi.unstubAllGlobals();
+  });
+
+  it('removing the chip sends a plain message', async () => {
+    get.mockResolvedValue(feed({ status: 'awaiting_input' }));
+    const onClear = vi.fn();
+    const { rerender } = wrap(<ChatPanel sessionId="s1" selection={draft} onClearSelection={onClear} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Remove selection/ }));
+    expect(onClear).toHaveBeenCalledWith('draft-1');
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    rerender(<QueryClientProvider client={qc}><ChatPanel sessionId="s1" selection={null} /></QueryClientProvider>);
+    expect(screen.queryByTestId('selection-chip')).toBeNull();
+    fireEvent.change(await screen.findByLabelText('Message to the design worker'), { target: { value: 'Just a note' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post.mock.calls[0][0]).toBe('/design/sessions/s1/messages');
+    expect(post.mock.calls[0][1]).toMatchObject({ text: 'Just a note' });
+  });
+
+  it('without a selection there is no chip', async () => {
+    get.mockResolvedValue(feed({ status: 'awaiting_input' }));
+    wrap(<ChatPanel sessionId="s1" />);
+    await screen.findByTestId('chat-panel');
+    expect(screen.queryByTestId('selection-chip')).toBeNull();
   });
 });

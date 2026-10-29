@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { newTag, seedWorld, teardownWorld, type DesignWorld } from './fixtures/design-portal-fixture';
 import { DesignWorker } from './fixtures/design-worker';
-import { BASE_URL, HOSTILE_ORIGIN, frame, loginState, newPage, openTask, pinElement, startPreview, tab } from './fixtures/design-helpers';
+import { BASE_URL, HOSTILE_ORIGIN, frame, loginState, newPage, openTask, pinElement, startPreview } from './fixtures/design-helpers';
 
 // Designer Portal W6.8, the security half: what a designer cannot reach, and what a hostile frame cannot do.
 
@@ -69,7 +69,6 @@ test('a hostile frame on a third origin cannot add a pin', async ({ browser }) =
   });
   await page.goto(`/design/s/${sessionId}`);
   await expect(page.getByTestId('preview-state')).toContainText('Preview up to date', { timeout: 20_000 });
-  await tab(page, 'Tray').click();
 
   // A frame on another origin, beside the real one, posting valid packets at its parent with targetOrigin "*".
   await page.evaluate((origin) => {
@@ -82,7 +81,7 @@ test('a hostile frame on a third origin cannot add a pin', async ({ browser }) =
   await expect(page.frameLocator('#hostile').locator('body')).toContainText('hostile');
   await page.waitForTimeout(6000); // the page re-posts for ~5 s
 
-  await expect(page.getByTestId('draft-item')).toHaveCount(0);
+  await expect(page.getByTestId('selection-chip')).toHaveCount(0);
   await expect(page.getByText('EVIL PIN')).toHaveCount(0);
   expect(pinPosts).toEqual([]);
   expect(await world.prisma.designPin.count({ where: { session_id: sessionId } })).toBe(0);
@@ -90,8 +89,8 @@ test('a hostile frame on a third origin cannot add a pin', async ({ browser }) =
   // Control: the real preview, same page, still pins through the real overlay.
   await expect(frame(page).locator('[data-lib="state_card"]')).toBeVisible();
   await pinElement(page, 'state_card');
-  await expect(page.getByTestId('draft-item')).toHaveCount(1, { timeout: 10_000 });
-  await expect(page.getByTestId('draft-item')).not.toContainText('EVIL');
+  await expect(page.getByTestId('selection-chip')).toHaveCount(1, { timeout: 10_000 });
+  await expect(page.getByTestId('selection-chip')).not.toContainText('EVIL');
   await context.close();
 });
 

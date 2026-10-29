@@ -4,11 +4,13 @@ import { getRequest, signIn, anonymous } from '@/lib/design/__tests__/route-test
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() } } }));
+vi.mock('@/lib/design/work', () => ({ loadStartSites: vi.fn(async () => [{ id: 's1', name: 'VCDP' }]) }));
 vi.mock('@/lib/design/access', async (orig) => ({ ...(await orig<typeof import('@/lib/design/access')>()), loadDrawer: vi.fn() }));
 
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { loadDrawer } from '@/lib/design/access';
+import { loadStartSites } from '@/lib/design/work';
 
 const auth = requireAuth as Mock;
 const userFind = prisma.user.findUnique as Mock;
@@ -36,6 +38,8 @@ describe('GET /api/design/tasks', () => {
     expect(json.projects[0]).toMatchObject({ id: 'p1', site: { id: 's1', name: 'VCDP', available: true } });
     expect(json.projects[0].phases[0].tasks[0]).toMatchObject({ id: 't1', title: 'Home', session: null });
     expect(json.worker).toEqual({ online: true, paused: false });
+    expect(json.start_sites).toEqual([{ id: 's1', name: 'VCDP' }]);
+    expect(loadStartSites).toHaveBeenCalled();
     expect(JSON.stringify(json)).not.toMatch(/estimated|billing|assignee|description/);
   });
   it('passes ?project_id through and rejects a malformed one', async () => {

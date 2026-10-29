@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveTimeline, initialFeedState, isWorkerSilent, mergeFeedPage, pastTenseLabel, type FeedEvent } from '../feed-reducer';
+import { deriveTimeline, initialFeedState, isWorkerSilent, isSetupSlow, mergeFeedPage, pastTenseLabel, type FeedEvent } from '../feed-reducer';
 
 const ev = (seq: number, kind: string, payload: unknown, role = 'assistant'): FeedEvent => ({ seq, role, kind, payload, created_at: '2026-10-28T10:00:00Z' });
 
@@ -94,19 +94,69 @@ describe('pastTenseLabel', () => {
   ])('%s -> %s', (a, b) => expect(pastTenseLabel(a)).toBe(b));
 });
 
-describe('isWorkerSilent', () => {
+describe('isWorkerSilent (worker liveness, not the session heartbeat)', () => {
   const now = Date.parse('2026-10-28T10:10:00Z');
-  const hb = (secAgo: number) => new Date(now - secAgo * 1000).toISOString();
-  it('is silent when the heartbeat is older than 30 s on a live session', () => {
-    expect(isWorkerSilent({ status: 'active', lastHeartbeatAt: hb(31), now })).toBe(true);
-    expect(isWorkerSilent({ status: 'active', lastHeartbeatAt: hb(10), now })).toBe(false);
+  it('is silent when the worker is offline on a live session', () => {
+    expect(isWorkerSilent({ status: 'awaiting_input', workerOnline: false, now })).toBe(true);
+    expect(isWorkerSilent({ status: 'active', workerOnline: false, now })).toBe(true);
   });
-  it('is silent when pending for more than 60 s', () => {
-    expect(isWorkerSilent({ status: 'pending', lastHeartbeatAt: hb(5), pendingSinceMs: now - 61_000, now })).toBe(true);
-    expect(isWorkerSilent({ status: 'pending', lastHeartbeatAt: hb(5), pendingSinceMs: now - 30_000, now })).toBe(false);
+  it('is not silent while the worker is online, even for an idle session (no session heartbeat)', () => {
+    expect(isWorkerSilent({ status: 'awaiting_input', workerOnline: true, now })).toBe(false);
+    expect(isWorkerSilent({ status: 'pending', workerOnline: true, pendingSinceMs: now - 300_000, now })).toBe(false);
+  });
+  it('gives a pending session 60 s before an offline worker counts as silent', () => {
+    expect(isWorkerSilent({ status: 'pending', workerOnline: false, pendingSinceMs: now - 61_000, now })).toBe(true);
+    expect(isWorkerSilent({ status: 'pending', workerOnline: false, pendingSinceMs: now - 30_000, now })).toBe(false);
   });
   it('never warns on a closed or stopped session', () => {
-    expect(isWorkerSilent({ status: 'closed', lastHeartbeatAt: null, now })).toBe(false);
-    expect(isWorkerSilent({ status: 'stopped', lastHeartbeatAt: hb(999), now })).toBe(false);
+    expect(isWorkerSilent({ status: 'closed', workerOnline: false, now })).toBe(false);
+    expect(isWorkerSilent({ status: 'stopped', workerOnline: false, now })).toBe(false);
+  });
+  it('isSetupSlow: online worker, pending over 60 s', () => {
+    expect(isSetupSlow({ status: 'pending', workerOnline: true, pendingSinceMs: now - 61_000, now })).toBe(true);
+    expect(isSetupSlow({ status: 'pending', workerOnline: true, pendingSinceMs: now - 10_000, now })).toBe(false);
+    expect(isSetupSlow({ status: 'pending', workerOnline: false, pendingSinceMs: now - 61_000, now })).toBe(false);
+  });
+});
+
+describe('gate runs', () => {
+  const gate = (seq: number, name: string, ok = true) => ev(seq, 'gate', { gates: [{ name, ok, summary: ok ? 'ok' : 'bad' }], blocking: true });
+  it('folds consecutive per-gate events (tool lines between are fine) into one run', () => {
+    const items = deriveTimeline({ events: [gate(1, 'build'), ev(2, 'action', { tool: 'x', label: 'Checking' }), gate(3, 'library'), gate(4, 'balance_check')] });
+    const gates = items.filter((i) => i.type === 'gate');
+    expect(gates).toHaveLength(1);
+    expect(gates[0].type === 'gate' && gates[0].gates.map((g) => g.name)).toEqual(['build', 'library', 'balance_check']);
+    expect(gates[0].type === 'gate' && gates[0].blocking).toBe(false);
+  });
+  it('a message between ends the run; a rerun of the same gate replaces the row', () => {
+    const items = deriveTimeline({ events: [gate(1, 'build', false), gate(2, 'build', true), ev(3, 'text', { text: 'hi' }), gate(4, 'build')] });
+    expect(items.filter((i) => i.type === 'gate')).toHaveLength(2);
+    const first = items.find((i) => i.type === 'gate');
+    expect(first && first.type === 'gate' && first.gates).toHaveLength(1);
+    expect(first && first.type === 'gate' && first.gates[0].ok).toBe(true);
+  });
+  it('blocks only on a failed blocking gate; a failed balance check is report only', () => {
+    const red = deriveTimeline({ events: [gate(1, 'build', false), gate(2, 'balance_check')] }).find((i) => i.type === 'gate');
+    expect(red && red.type === 'gate' && red.blocking).toBe(true);
+    const bal = deriveTimeline({ events: [gate(1, 'build'), gate(2, 'balance_check', false)] }).find((i) => i.type === 'gate');
+    expect(bal && bal.type === 'gate' && bal.blocking).toBe(false);
+  });
+});
+
+describe('tool results', () => {
+  it('derives a one-line summary (first line, 120 chars) and keeps the raw output as details', () => {
+    const body = Array.from({ length: 300 }, (_, i) => `${i + 1}: line of registry`).join('\n');
+    const t = deriveTimeline({ events: [ev(1, 'action', { tool: 'Grep', label: 'Searching registry', tool_use_id: 'a' }), ev(2, 'result', { tool: 'Grep', tool_use_id: 'a', ok: true, summary: body })] })[0];
+    expect(t.type === 'tool' && t.summary).toBe('1: line of registry (+299 more lines)');
+    expect(t.type === 'tool' && t.details).toBe(body);
+  });
+  it('keeps a short summary as is, with no details', () => {
+    const t = deriveTimeline({ events: [ev(1, 'action', { tool: 'Grep', label: 'Searching', tool_use_id: 'a' }), ev(2, 'result', { tool: 'Grep', tool_use_id: 'a', ok: true, summary: 'Searched library/registry.json: 30 matches' })] })[0];
+    expect(t.type === 'tool' && t.summary).toBe('Searched library/registry.json: 30 matches');
+    expect(t.type === 'tool' && t.details).toBeNull();
+  });
+  it('truncates a very long single line to 120 chars', () => {
+    const t = deriveTimeline({ events: [ev(1, 'result', { tool: 'Read', ok: true, summary: 'x'.repeat(500) })] })[0];
+    expect(t.type === 'tool' && t.summary!.length).toBe(120);
   });
 });

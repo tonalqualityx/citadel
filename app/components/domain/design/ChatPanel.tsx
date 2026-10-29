@@ -3,7 +3,9 @@
 import * as React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
-import { deriveTimeline, isWorkerSilent } from '@/lib/design/feed-reducer';
+import type { ClientFileRef } from '@/lib/hooks/use-design-tray';
+import type { BridgeDraft } from '@/lib/hooks/use-design-bridge';
+import { deriveTimeline, isWorkerSilent, isSetupSlow } from '@/lib/design/feed-reducer';
 import { getTerminology } from '@/lib/hooks/use-terminology';
 import { useDesignFeedHistory } from '@/lib/hooks/use-design';
 import { CostMeter } from './CostMeter';
@@ -24,9 +26,16 @@ export interface ChatPanelProps {
   initialBudget?: number | string;
   /** When the session started, for the "pending for more than 60 s" check. */
   createdAt?: string | null;
+  /** The one element selected on the preview, if any; it rides with the next message as a pin. */
+  selection?: BridgeDraft | null;
+  onClearSelection?: (id: string) => void;
+  /** Client files attached in the Client files tab; they go with a message that has a selection. */
+  attachedFiles?: ClientFileRef[];
+  onDetachFile?: (id: string) => void;
+  onSent?: () => void;
 }
 
-export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 0, initialBudget = 0, createdAt = null }: ChatPanelProps) {
+export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 0, initialBudget = 0, createdAt = null, selection = null, onClearSelection, attachedFiles, onDetachFile, onSent }: ChatPanelProps) {
   const history = useDesignFeedHistory(sessionId);
   const t = getTerminology().t;
   const latest = history.data?.latest;
@@ -41,7 +50,9 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 
   }, []);
   const [firstSeen] = React.useState(() => Date.now());
   const pendingSince = createdAt && Number.isFinite(Date.parse(createdAt)) ? Date.parse(createdAt) : firstSeen;
-  const silent = !!latest && isWorkerSilent({ status, lastHeartbeatAt: latest.last_heartbeat_at, pendingSinceMs: pendingSince, now });
+  const workerOnline = latest?.worker_online === true;
+  const silent = !!latest && isWorkerSilent({ status, workerOnline, pendingSinceMs: pendingSince, now });
+  const setupSlow = !!latest && isSetupSlow({ status, workerOnline, pendingSinceMs: pendingSince, now });
 
   const timeline = React.useMemo(() => (state ? deriveTimeline(state) : []), [state]);
 
@@ -68,6 +79,11 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>The design worker has gone quiet. Your messages are saved and it will pick them up when it is back.</span>
         </div>
+      )}
+      {setupSlow && !silent && (
+        <p role="status" data-testid="setup-slow" className="rounded-lg border border-border-warm px-3 py-2 text-sm text-text-sub">
+          Setting up your preview (first build takes a few minutes)
+        </p>
       )}
       <PlanChecklist items={state?.plan ?? null} />
       <div
@@ -99,7 +115,7 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 
         canRaise={!isClosedStatus(status)}
         pausedForBudget={status === 'paused_budget'}
       />
-      <SteeringInput sessionId={sessionId} status={status} />
+      <SteeringInput sessionId={sessionId} status={status} selection={selection} onClearSelection={onClearSelection} attachedFiles={attachedFiles} onDetachFile={onDetachFile} onSent={onSent} />
     </div>
   );
 }

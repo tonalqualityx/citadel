@@ -60,6 +60,26 @@ const numOf = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+export const RESULT_SUMMARY_MAX = 120;
+export const RESULT_DETAIL_LINES = 40;
+
+/**
+ * A tool result as one short line plus the raw output for a toggle. The daemon may post the whole tool body as the
+ * summary (a Grep or Read result is hundreds of lines), so the summary is derived here: the first line, 120 chars.
+ * The raw text is kept only when the short line does not say it all.
+ */
+export function resultText(p: Record<string, unknown>): { summary: string | null; details: string | null } {
+  const raw = str(p.output) ?? str(p.result) ?? str(p.content) ?? str(p.summary);
+  if (!raw) return { summary: null, details: null };
+  const lines = raw.split('\n');
+  const first = (lines.find((l) => l.trim()) ?? '').trim();
+  const short = first.length > RESULT_SUMMARY_MAX ? `${first.slice(0, RESULT_SUMMARY_MAX - 1)}\u2026` : first;
+  const more = lines.filter((l) => l.trim()).length - 1;
+  const summary = more > 0 && lines.length > 1 ? `${short} (+${more} more ${more === 1 ? 'line' : 'lines'})` : short;
+  const full = raw.trim().length > short.length;
+  return { summary: summary || null, details: full ? raw : null };
+}
+
 const PLAN_STATUSES: readonly string[] = ['pending', 'in_progress', 'completed', 'canceled'];
 
 export function parsePlan(payload: unknown): PlanItem[] {
@@ -157,7 +177,7 @@ export interface GateRow {
 export type TimelineItem =
   | { type: 'message'; seq: number; from: 'designer' | 'assistant'; text: string; created_at: string }
   | { type: 'thought'; seq: number; text: string; created_at: string }
-  | { type: 'tool'; seq: number; tool: string; label: string; state: ToolState; summary: string | null; args_summary: string | null; duration_ms: number | null; created_at: string }
+  | { type: 'tool'; seq: number; tool: string; label: string; state: ToolState; summary: string | null; details: string | null; args_summary: string | null; duration_ms: number | null; created_at: string }
   | { type: 'screenshot'; seq: number; asset_ids: string[]; widths: number[]; purpose: string; created_at: string }
   | { type: 'gate'; seq: number; gates: GateRow[]; blocking: boolean; created_at: string }
   | { type: 'status'; seq: number; text: string; created_at: string }
@@ -200,7 +220,7 @@ export function deriveTimeline(state: Pick<FeedState, 'events'>): TimelineItem[]
       case 'action': {
         const tool = str(p.tool) ?? 'tool';
         const item: Extract<TimelineItem, { type: 'tool' }> = {
-          type: 'tool', ...base, tool, label: str(p.label) ?? tool, state: 'running', summary: null, args_summary: str(p.args_summary), duration_ms: null,
+          type: 'tool', ...base, tool, label: str(p.label) ?? tool, state: 'running', summary: null, details: null, args_summary: str(p.args_summary), duration_ms: null,
         };
         const id = toolKey(e.payload);
         if (id) openById.set(id, item);
@@ -217,11 +237,11 @@ export function deriveTimeline(state: Pick<FeedState, 'events'>): TimelineItem[]
         if (target && target.state === 'running') {
           target.state = p.ok === false ? 'failed' : 'ok';
           target.label = pastTenseLabel(target.label);
-          target.summary = str(p.summary);
+          Object.assign(target, resultText(p));
           target.duration_ms = numOf(p.duration_ms);
         } else {
           items.push({
-            type: 'tool', ...base, tool, label: tool, state: p.ok === false ? 'failed' : 'ok', summary: str(p.summary), args_summary: null, duration_ms: numOf(p.duration_ms),
+            type: 'tool', ...base, tool, label: tool, state: p.ok === false ? 'failed' : 'ok', ...resultText(p), args_summary: null, duration_ms: numOf(p.duration_ms),
           });
         }
         break;
@@ -268,7 +288,7 @@ export function deriveTimeline(state: Pick<FeedState, 'events'>): TimelineItem[]
         break; // cost, plan: state only
     }
   }
-  return items;
+  return mergeGateRuns(items);
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -276,14 +296,62 @@ export function deriveTimeline(state: Pick<FeedState, 'events'>): TimelineItem[]
 // ---------------------------------------------------------------------------------------------------------
 
 export const HEARTBEAT_STALE_MS = 30_000;
+/** Gates that only report: a failure is shown but never blocks publishing (design 8.6: the balance check). */
+export function isReportOnlyGate(name: string): boolean {
+  return /^balance/i.test(name);
+}
+
+/** A gate event blocks publishing only when a gate that is not report-only failed. */
+export function gateBlocks(gates: readonly GateRow[]): boolean {
+  return gates.some((g) => !g.ok && !isReportOnlyGate(g.name));
+}
+
+/**
+ * The daemon posts one gate event per gate. Gate events with only tool, thought or status lines between them are
+ * one run: fold them into the first so the chat shows one summary per run. A later event for the same gate name
+ * replaces the earlier row. Anything else (a message, screenshot, apply, publish) ends the run.
+ */
+export function mergeGateRuns(items: TimelineItem[]): TimelineItem[] {
+  const out: TimelineItem[] = [];
+  let run: Extract<TimelineItem, { type: 'gate' }> | null = null;
+  for (const item of items) {
+    if (item.type === 'gate') {
+      if (run) {
+        for (const g of item.gates) {
+          const at = run.gates.findIndex((x) => x.name === g.name);
+          if (at >= 0) run.gates[at] = g; else run.gates.push(g);
+        }
+        run.blocking = gateBlocks(run.gates);
+        continue;
+      }
+      run = { ...item, gates: [...item.gates], blocking: false };
+      run.blocking = gateBlocks(run.gates);
+      out.push(run);
+      continue;
+    }
+    if (item.type !== 'tool' && item.type !== 'thought' && item.type !== 'status') run = null;
+    out.push(item);
+  }
+  return out;
+}
+
 export const PENDING_SILENT_MS = 60_000;
 
-/** True when the worker looks gone: heartbeat older than 30 s on a live session, or pending for more than 60 s. */
-export function isWorkerSilent(input: { status: string; lastHeartbeatAt: string | null; pendingSinceMs?: number | null; now?: number }): boolean {
+/**
+ * True when the worker looks gone. Liveness is the WORKER's heartbeat (feed `worker_online`), not the session's: the
+ * daemon stamps a session only while a model query is live, so an idle awaiting_input session has a null one.
+ * Offline on a live session is silent at once; a pending session is given 60 s first.
+ */
+export function isWorkerSilent(input: { status: string; workerOnline: boolean; pendingSinceMs?: number | null; now?: number }): boolean {
   const now = input.now ?? Date.now();
-  if (input.status === 'pending' && input.pendingSinceMs != null && now - input.pendingSinceMs > PENDING_SILENT_MS) return true;
   if (input.status !== 'pending' && input.status !== 'active' && input.status !== 'awaiting_input') return false;
-  const hb = input.lastHeartbeatAt ? Date.parse(input.lastHeartbeatAt) : NaN;
-  if (!Number.isFinite(hb)) return input.status !== 'pending';
-  return now - hb > HEARTBEAT_STALE_MS;
+  if (input.workerOnline) return false;
+  if (input.status === 'pending') return input.pendingSinceMs != null && now - input.pendingSinceMs > PENDING_SILENT_MS;
+  return true;
+}
+
+/** Worker online but the session still pending after 60 s: the first build takes a few minutes. Not a fault. */
+export function isSetupSlow(input: { status: string; workerOnline: boolean; pendingSinceMs?: number | null; now?: number }): boolean {
+  const now = input.now ?? Date.now();
+  return input.status === 'pending' && input.workerOnline && input.pendingSinceMs != null && now - input.pendingSinceMs > PENDING_SILENT_MS;
 }

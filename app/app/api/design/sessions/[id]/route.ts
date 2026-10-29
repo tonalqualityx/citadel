@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
-import { latestLibIndex, projectChange, projectPin, projectSession, projectSessionTask, workerView } from '@/lib/design/projections';
+import { latestLibIndex, projectChange, projectPin, projectSession, projectSessionTask, workerLive, workerView } from '@/lib/design/projections';
 import { onPresence } from '@/lib/design/presence';
 import { authActor, type IdParams } from '@/lib/design/route-kit';
 
@@ -34,6 +34,8 @@ export async function GET(_request: NextRequest, { params }: IdParams) {
       pins: pins.map((p) => projectPin(p, libIndex)),
       changes: changes.map(projectChange),
       worker: { ...workerView(state), last_heartbeat_at: state?.last_heartbeat_at ?? null },
+      worker_last_heartbeat_at: state?.last_heartbeat_at ?? null,
+      worker_online: workerLive(state ?? null),
     });
   } catch (error) {
     return handleApiError(error);

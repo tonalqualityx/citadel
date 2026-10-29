@@ -80,7 +80,31 @@ test("an admin's drawer lists every open task on enabled sites, and the admin's 
   await context.close();
 });
 
-test('open a session, select a card in the frame, the pin appears', async ({ browser }) => {
+test('an admin sees /design inside the Citadel shell (sidebar, no minimal chrome) and can Start new work on a site', async ({ browser }) => {
+  const { context, page } = await newPage(browser, SHARED_AUTH_STATE_PATH, preview.port);
+  await page.goto('/design');
+  await expect(page.locator('aside').getByRole('link', { name: /Design/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('link', { name: 'Back to Citadel' })).toHaveCount(0);
+
+  const form = page.getByTestId('start-work');
+  await form.getByLabel('Site').selectOption(world.siteC.id);
+  await form.getByLabel('What needs doing').fill(`Start-new-work check ${world.tag}`);
+  await form.getByRole('button', { name: 'Start' }).click();
+  await page.waitForURL(/\/design\/s\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  // The workspace fills the content area beside the sidebar.
+  await expect(page.locator('aside').getByRole('link', { name: /Design/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `Start-new-work check ${world.tag}` })).toBeVisible({ timeout: 20_000 });
+
+  const task = await world.prisma.task.findFirst({ where: { title: `Start-new-work check ${world.tag}` } });
+  expect(task, 'the task Start new work created').not.toBeNull();
+  expect(task!.site_id).toBe(world.siteC.id);
+  expect(task!.project_id).toBe(world.projectC.id);
+  expect(task!.assignee_id).toBe(world.adminId);
+  expect(task!.tags).toContain('design-work');
+  await context.close();
+});
+
+test('open a session, select a card in the frame, the selection chip appears in the chat', async ({ browser }) => {
   ({ context: ctxA, page: pageA } = await newPage(browser, stateA, preview.port));
   sessionA = await openTask(pageA, world.tasks.a1.title);
   await expect(pageA.getByText('Setting up your preview')).toBeVisible();
@@ -90,15 +114,12 @@ test('open a session, select a card in the frame, the pin appears', async ({ bro
   // The real overlay is alive in the frame (it posts dp:ready only when it resolved the parent origin).
   await expect(frame(pageA).locator('[data-lib="state_card"]')).toBeVisible();
   await pinElement(pageA, 'state_card');
-  await tab(pageA, 'Tray').click();
-  const draft = pageA.getByTestId('draft-item');
-  await expect(draft).toBeVisible({ timeout: 10_000 });
-  await expect(draft).toContainText('state_card');
-  await draft.getByLabel('Note for the new pin').fill('Make this title 2px larger at 390 only');
-  await draft.getByRole('button', { name: 'Add' }).click();
-  const pin = pageA.getByTestId('pin-item');
-  await expect(pin).toHaveCount(1);
-  await expect(pin).toContainText('state_card');
+  // The selection is one removable chip above the chat input (no Tray, no pin list).
+  await expect(pageA.getByRole('tab', { name: 'Tray' })).toHaveCount(0);
+  const chip = pageA.getByTestId('selection-chip');
+  await expect(chip).toBeVisible({ timeout: 10_000 });
+  await expect(chip).toContainText('state_card');
+  await expect(pageA.getByTestId('selection-chips').getByTestId('selection-chip')).toHaveCount(1);
 });
 
 test('a client file attached to an Apply reaches the worker API as files; the worker turn posts plan, action, result, change and cost; accept', async () => {
@@ -113,12 +134,17 @@ test('a client file attached to an Apply reaches the worker API as files; the wo
   await pageA.getByRole('button', { name: 'Attach to next Apply' }).click();
   await expect(pageA.getByTestId('attach-chip')).toContainText('brand-guide.pdf');
 
-  await tab(pageA, 'Tray').click();
-  await pageA.getByRole('button', { name: /^Apply/ }).click();
+  // Sending with the chip creates the pin and applies exactly that one pin, the message text as the note.
+  await tab(pageA, 'Chat').click();
+  await expect(pageA.getByTestId('selection-chip')).toContainText('state_card');
+  await expect(pageA.getByTestId('file-chip')).toContainText('brand-guide.pdf');
+  await pageA.getByLabel('Message to the design worker').fill('Make this title 2px larger at 390 only');
+  await pageA.getByRole('button', { name: /Send/ }).click();
 
   const apply = await worker.waitForApply(sessionA);
   applyPayload = apply.payload;
   expect(applyPayload.files).toEqual([{ id: 'file-1', name: 'brand-guide.pdf', mime: 'application/pdf' }]);
+  expect(applyPayload.note).toBe('Make this title 2px larger at 390 only');
   expect(applyPayload.pins).toHaveLength(1);
   expect(applyPayload.pins[0]).toMatchObject({ data_lib: 'state_card', sha: BASE_SHA, note: 'Make this title 2px larger at 390 only' });
   expect(applyPayload.pins[0].viewport.w).toBeGreaterThan(0);
@@ -181,35 +207,16 @@ test('the elapsed-time pill appears and a hidden tab stops extending it', async 
   expect(await presence()).toBe(p2);
 });
 
-test('"Belongs to another task" files a follow-up in her project and nothing for the owner', async () => {
+test('the Tray tab and the pin actions are gone from the workspace', async () => {
   // Back to a visible tab for the rest of the run.
   await pageA.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  const tasksBefore = await world.prisma.task.count();
-  const notesBefore = await world.prisma.notification.count({ where: { user_id: world.adminId } });
-
-  await pinElement(pageA, 'hero');
-  await tab(pageA, 'Tray').click();
-  const draft = pageA.getByTestId('draft-item');
-  await expect(draft).toContainText('hero', { timeout: 10_000 });
-  await draft.getByRole('button', { name: 'Add' }).click();
-  const pin = pageA.getByTestId('pin-item').filter({ hasText: 'hero' });
-  await expect(pin).toBeVisible();
-  await pin.getByRole('button', { name: 'Pin actions' }).click();
-  await pageA.getByRole('menuitem', { name: 'Belongs to another task' }).click();
-  await expect(pageA.getByText('Follow-up task filed')).toBeVisible({ timeout: 10_000 });
-
-  const followups = await world.prisma.task.findMany({ where: { tags: { has: 'design-followup' }, project_id: world.projectA.id } });
-  expect(followups).toHaveLength(1);
-  expect(followups[0].assignee_id).not.toBe(world.adminId);
-  expect(followups[0].tags).not.toContain('needs-mike');
-  expect(await world.prisma.task.count()).toBe(tasksBefore + 1); // exactly one task, in her project
-  expect(await world.prisma.notification.count({ where: { user_id: world.adminId } })).toBe(notesBefore);
-  const done = await world.prisma.designPin.findFirstOrThrow({ where: { session_id: sessionA, data_lib: 'hero' } });
-  expect(done.status).toBe('followup');
+  for (const name of ['Chat', 'Changes', 'Versions', 'Client files']) await expect(tab(pageA, name)).toBeVisible();
+  await expect(pageA.getByRole('tab', { name: 'Tray' })).toHaveCount(0);
+  await expect(pageA.getByText('Belongs to another task')).toHaveCount(0);
 });
 
 test('publish to live: client-preview wording, confirm gated by the typed branch, direct confirm 400, worker completes, rollback for designer and admin', async ({ browser }) => {

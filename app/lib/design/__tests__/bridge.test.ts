@@ -399,6 +399,15 @@ describe('useDesignBridge', () => {
     hook.unmount();
   });
 
+  it('keeps one selection: a new click replaces the current one', () => {
+    const { hook, send } = renderBridge(PREVIEW);
+    send(packet({ selector: '.one' }), ORIGIN);
+    send(packet({ selector: '.two' }), ORIGIN);
+    expect(hook.result.current.drafts).toHaveLength(1);
+    expect(hook.result.current.drafts[0].draft.selector).toBe('.two');
+    hook.unmount();
+  });
+
   it('re-sends select mode after a page load in the frame (the overlay starts with it off)', () => {
     const { frame, hook, send } = renderBridge(PREVIEW);
     const spy = vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => undefined);

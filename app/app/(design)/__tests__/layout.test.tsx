@@ -11,7 +11,21 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => (cookieValue
 vi.mock('@/lib/auth/jwt', () => ({ verifyAccessToken: () => verify() }));
 vi.mock('@/components/domain/design/DesignChrome', () => ({ DesignChrome: ({ role }: { role: string | null }) => `chrome:${role}` }));
 
+vi.mock('@/components/domain/design/DesignStaffShell', () => ({ DesignStaffShell: ({ children }: { children: unknown }) => children }));
+
 import DesignLayout from '../layout';
+import { DesignChrome } from '@/components/domain/design/DesignChrome';
+import { DesignStaffShell } from '@/components/domain/design/DesignStaffShell';
+
+/** Every component type in a rendered element tree (the layouts return plain element trees, nothing is mounted). */
+function types(node: unknown, out: unknown[] = []): unknown[] {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) { node.forEach((n) => types(n, out)); return out; }
+  const el = node as { type?: unknown; props?: { children?: unknown } };
+  if (el.type) out.push(el.type);
+  types(el.props?.children, out);
+  return out;
+}
 
 beforeEach(() => { redirect.mockClear(); cookieValue = 'tok'; verify = async () => ({ role: 'designer' }); });
 
@@ -31,6 +45,24 @@ describe('(design) layout', () => {
     verify = async () => ({ role });
     await expect(DesignLayout({ children: null })).resolves.toBeTruthy();
     expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'pm'])('renders the Citadel staff shell for %s, not the minimal chrome', async (role) => {
+    verify = async () => ({ role });
+    const tree = types(await DesignLayout({ children: null }));
+    expect(tree).toContain(DesignStaffShell);
+    expect(tree).not.toContain(DesignChrome);
+  });
+
+  it('renders the minimal shell for a designer and never the staff shell', async () => {
+    const tree = types(await DesignLayout({ children: null }));
+    expect(tree).toContain(DesignChrome);
+    expect(tree).not.toContain(DesignStaffShell);
+  });
+
+  it('the staff shell is the same chrome as the (app) layout', () => {
+    const shell = readFileSync(path.join(__dirname, '../../../components/domain/design/DesignStaffShell.tsx'), 'utf8');
+    for (const part of ['AppProviders', 'Sidebar', 'Header', 'CommandPalette']) expect(shell).toContain(part);
   });
 
   it('redirects tech to /dashboard', async () => {

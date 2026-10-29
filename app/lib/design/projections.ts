@@ -74,6 +74,12 @@ export function workerView(state: { last_heartbeat_at: Date | null; paused: bool
   return { online: !!beat && now.getTime() - beat.getTime() <= WORKER_ONLINE_WINDOW_MS, paused: !!state?.paused };
 }
 
+/** Worker heartbeat under 30 s old and not paused: what the chat banner trusts (not the per-session heartbeat). */
+export function workerLive(state: { last_heartbeat_at: Date | null; paused: boolean } | null, now: Date = new Date()): boolean {
+  const v = workerView(state, now);
+  return v.online && !v.paused;
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Drawer (GET /api/design/tasks)
 // ---------------------------------------------------------------------------------------------------------
@@ -385,6 +391,8 @@ export interface FeedInput {
   hasUndelivered?: boolean;
   /** sha of the latest lib_index event (null/absent = none yet); lets the UI tell a stale blast radius. */
   libIndexSha?: string | null;
+  /** DesignWorkerState: the daemon heartbeats at the worker level, a session only while a query is live. */
+  worker?: { last_heartbeat_at: Date | null; paused: boolean } | null;
   now?: Date;
 }
 
@@ -412,6 +420,8 @@ export function projectFeed(input: FeedInput) {
     head_sha: s.head_sha,
     lib_index_sha: input.libIndexSha ?? null,
     last_heartbeat_at: s.last_heartbeat_at,
+    worker_last_heartbeat_at: input.worker?.last_heartbeat_at ?? null,
+    worker_online: workerLive(input.worker ?? null, input.now),
     next_poll_ms: fast ? FEED_POLL_ACTIVE_MS : FEED_POLL_IDLE_MS,
   };
 }

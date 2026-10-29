@@ -35,7 +35,7 @@ export async function GET(request: NextRequest, { params }: IdParams) {
       feed(session.id, { after, limit }),
       prisma.site.findUnique({ where: { id: session.site_id }, select: { id: true, design_portal_enabled: true, designer_publish: true, is_deleted: true } }),
       prisma.designPortalSettings.findUnique({ where: { id: 1 }, select: { designer_publish_mode: true } }),
-      prisma.designWorkerState.findUnique({ where: { id: 1 }, select: { site_main_roles: true } }),
+      prisma.designWorkerState.findUnique({ where: { id: 1 }, select: { site_main_roles: true, last_heartbeat_at: true, paused: true } }),
       prisma.designPublish.findMany({ where: { site_id: session.site_id, status: { in: ['queued', 'running'] } }, select: { id: true, session_id: true } }),
       hasUndelivered(session.id),
       prisma.designEvent.findFirst({ where: { session_id: session.id, kind: 'lib_index' }, orderBy: { seq: 'desc' }, select: { payload: true } }),
@@ -58,6 +58,7 @@ export async function GET(request: NextRequest, { params }: IdParams) {
       runningPublishId: own?.id ?? null,
       timer,
       hasUndelivered: undelivered,
+      worker: state ? { last_heartbeat_at: state.last_heartbeat_at, paused: state.paused } : null,
     });
     return NextResponse.json({ ...projected, last_seq: page.last_seq, has_more: page.has_more });
   } catch (error) {

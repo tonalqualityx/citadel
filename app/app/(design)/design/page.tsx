@@ -4,8 +4,9 @@ import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/ui/spinner';
 import { TaskDrawer } from '@/components/domain/design/TaskDrawer';
 import { SessionList } from '@/components/domain/design/SessionList';
+import { StartWork } from '@/components/domain/design/StartWork';
 import { WorkerBanner } from '@/components/domain/design/WorkerBanner';
-import { useDesignDrawer, useDesignSessions, useOpenDesignSession } from '@/lib/hooks/use-design';
+import { useDesignDrawer, useDesignSessions, useOpenDesignSession, useStartDesignWork } from '@/lib/hooks/use-design';
 import { getTerminology } from '@/lib/hooks/use-terminology';
 
 // Static terms, not the terminology hook: it reads /users/me/preferences, which is 403 for a designer. Default naming.
@@ -16,6 +17,7 @@ export default function DesignPage() {
   const drawer = useDesignDrawer();
   const sessions = useDesignSessions();
   const open = useOpenDesignSession();
+  const start = useStartDesignWork();
 
   async function onOpenTask(taskId: string) {
     try {
@@ -26,9 +28,23 @@ export default function DesignPage() {
     }
   }
 
+  async function onStart(input: { site_id: string; title: string; detail?: string }) {
+    try {
+      const { session_id } = await start.mutateAsync(input);
+      router.push(`/design/s/${session_id}`);
+    } catch {
+      // toast shown by the hook
+    }
+  }
+
+  const empty = !!drawer.data && drawer.data.projects.length === 0;
+
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-4xl space-y-8">
       <WorkerBanner worker={drawer.data?.worker} />
+      {drawer.data && (
+        <StartWork sites={drawer.data.start_sites ?? []} prominent={empty} pending={start.isPending} onStart={onStart} />
+      )}
       <section>
         <h1 className="mb-4 text-xl font-semibold text-text-main">{terms.t('tasks')}</h1>
         {drawer.isLoading ? (

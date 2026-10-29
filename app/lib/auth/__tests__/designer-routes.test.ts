@@ -12,6 +12,7 @@ describe('DESIGNER_ROUTES', () => {
       'GET /api/design/tasks',
       'GET /api/design/sessions',
       'POST /api/design/sessions',
+      'POST /api/design/work',
       'GET /api/design/sessions/:id',
       'GET /api/design/sessions/:id/feed',
       'POST /api/design/sessions/:id/messages',
@@ -31,7 +32,7 @@ describe('DESIGNER_ROUTES', () => {
       'GET /api/design/sessions/:id/assets/:assetId',
       'POST /api/design/sessions/:id/client-files/refresh',
     ]);
-    expect(DESIGNER_ROUTES).toHaveLength(22);
+    expect(DESIGNER_ROUTES).toHaveLength(23);
   });
 
   it.each(DESIGNER_ROUTES.map((r) => [r.method, concrete(r.pattern)]))('allows %s %s', (method, path) => {

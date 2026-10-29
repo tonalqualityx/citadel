@@ -5,13 +5,13 @@
  *
  * Attaches one bridge per `previewUrl` (re-attaching with the new origin when it changes) and detaches on unmount.
  * Exposes select mode (posting `dp:select` to the overlay), the latest page path the frame reported, and the pin
- * drafts produced by `dp:packet`. It performs no network call: drafts become pins only when the tray POSTs them.
+ * drafts produced by `dp:packet`. It performs no network call: the selection becomes a pin only when the chat sends it with a message.
  */
 import * as React from 'react';
 import { createBridge, type Bridge, type PinDraft, type ReadyInfo } from '@/lib/design/bridge';
 
-/** The tray holds at most 100 pins (MAX_PENDING_PINS); unsaved drafts are capped the same, oldest dropped. */
-export const MAX_BRIDGE_DRAFTS = 100;
+/** One selection at a time (Mike, 2026-10-29): a new click replaces the current one. */
+export const MAX_BRIDGE_DRAFTS = 1;
 
 export interface BridgeDraft {
   /** Local id for list keys and removal; not a pin id. */
@@ -76,7 +76,7 @@ export function useDesignBridge(options: UseDesignBridgeOptions): UseDesignBridg
       onPacket: (draft) => {
         draftSeq += 1;
         const item: BridgeDraft = { id: `draft-${draftSeq}`, draft, received_at: Date.now() };
-        setDrafts((prev) => [...prev, item].slice(-MAX_BRIDGE_DRAFTS));
+        setDrafts([item]);
         callbacks.current.onPacket?.(draft);
       },
       onNavigate: (nav) => {

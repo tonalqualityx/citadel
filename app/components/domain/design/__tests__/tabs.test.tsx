@@ -5,20 +5,19 @@ import * as React from 'react';
 
 const post = vi.fn();
 const patch = vi.fn();
+const get = vi.fn();
 vi.mock('@/lib/api/client', () => ({
-  apiClient: { post: (...a: unknown[]) => post(...a), patch: (...a: unknown[]) => patch(...a), get: vi.fn() },
+  apiClient: { post: (...a: unknown[]) => post(...a), patch: (...a: unknown[]) => patch(...a), get: (...a: unknown[]) => get(...a) },
 }));
 vi.mock('@/lib/hooks/use-toast', () => ({
   showToast: { success: vi.fn(), error: vi.fn(), apiError: vi.fn() },
 }));
 
-import { Tray } from '../Tray';
 import { ChangesTab, type ChangeView } from '../ChangesTab';
 import { VersionsTab } from '../VersionsTab';
 import { ClientFilesTab, driveLink } from '../ClientFilesTab';
 import { WorkspaceTabs } from '../WorkspaceTabs';
 import { pairAssetsByWidth } from '../BeforeAfter';
-import type { TrayPin, ClientFileRef } from '@/lib/hooks/use-design-tray';
 
 const SID = 'sess-1';
 const SHA = 'aaaaaaa1111';
@@ -28,139 +27,16 @@ function wrap(ui: React.ReactElement) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
-const pin = (id: string, over: Partial<TrayPin> = {}): TrayPin => ({
-  id,
-  status: 'pending',
-  note: '',
-  page_path: '/about',
-  data_lib: 'hero',
-  lib_stack: [],
-  data_shape: null,
-  selector: '.hero',
-  tag: 'section',
-  classes: [],
-  text_quote: null,
-  viewport_width: 390,
-  preview_sha: SHA,
-  followup_task_id: null,
-  ...over,
-});
-
-const baseTray = {
-  sessionId: SID,
-  previewSha: SHA,
-  drafts: [],
-  onRemoveDraft: vi.fn(),
-  attachedFiles: [] as ClientFileRef[],
-  onDetachFile: vi.fn(),
-};
-
 const fetchMock = vi.fn();
 beforeEach(() => {
   post.mockReset().mockResolvedValue({});
   patch.mockReset().mockResolvedValue({});
+  get.mockReset();
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
 });
 
 const jsonResponse = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
-
-describe('Tray', () => {
-  it('disables Apply with zero pins', () => {
-    wrap(<Tray {...baseTray} pins={[]} />);
-    expect((screen.getByRole('button', { name: /^Apply/ }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('posts apply with a uuid client_ref, the pin ids and the attached files', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(201, { seq: 5 }));
-    const files = [{ id: 'f1', name: 'brief.pdf', mime: 'application/pdf' }];
-    const onApplied = vi.fn();
-    wrap(<Tray {...baseTray} pins={[pin('p1'), pin('p2')]} attachedFiles={files} onApplied={onApplied} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`/api/design/sessions/${SID}/apply`);
-    const body = JSON.parse(init.body);
-    expect(body.pin_ids).toEqual(['p1', 'p2']);
-    expect(body.files).toEqual(files);
-    expect(body.client_ref).toMatch(/^[0-9a-f-]{36}$/);
-    await waitFor(() => expect(onApplied).toHaveBeenCalled());
-  });
-
-  it('on 409 stale_pins lists the stale pins and Remove-and-apply discards them then applies the rest', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(409, { error: 'The preview changed', code: 'stale_pins', stale_pin_ids: ['p2'] }))
-      .mockResolvedValueOnce(jsonResponse(201, { seq: 6 }));
-    wrap(<Tray {...baseTray} pins={[pin('p1'), pin('p2', { page_path: '/pricing', data_lib: 'price-table', preview_sha: 'old' })]} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
-    const list = await screen.findByTestId('stale-list');
-    expect(within(list).getByText('price-table on /pricing')).toBeTruthy();
-    expect(within(list).queryByText('hero on /about')).toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove them and apply' }));
-    await waitFor(() => expect(patch).toHaveBeenCalledWith('/design/pins/p2', { status: 'discarded' }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).pin_ids).toEqual(['p1']);
-  });
-
-  it('Cancel on the stale dialog does not patch or re-apply', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(409, { error: 'x', code: 'stale_pins', stale_pin_ids: ['p1'] }));
-    wrap(<Tray {...baseTray} pins={[pin('p1')]} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
-    await screen.findByTestId('stale-list');
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByTestId('stale-list')).toBeNull());
-    expect(patch).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('Belongs to another task PATCHes status followup and never mentions approval or Mike', async () => {
-    const { container, rerender } = wrap(<Tray {...baseTray} pins={[pin('p1')]} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Pin actions' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Belongs to another task' }));
-    await waitFor(() => expect(patch).toHaveBeenCalledWith('/design/pins/p1', { status: 'followup' }));
-    expect(container.textContent).not.toMatch(/approval|approve|mike/i);
-
-    rerender(
-      <QueryClientProvider client={new QueryClient()}>
-        <Tray {...baseTray} pins={[pin('p1', { status: 'followup' })]} />
-      </QueryClientProvider>,
-    );
-    expect(screen.getByText('Follow-up task filed')).toBeTruthy();
-    expect(container.textContent).not.toMatch(/approval|approve|mike/i);
-  });
-
-  it('shows the blast-radius chip only when the data is there', () => {
-    wrap(<Tray {...baseTray} pins={[pin('p1', { blast_radius: 7 }), pin('p2')]} />);
-    expect(screen.getAllByText('Used on 7 pages')).toHaveLength(1);
-  });
-
-  it('turns a draft into a server pin on Add, with the note', async () => {
-    const onRemoveDraft = vi.fn();
-    const draft = {
-      id: 'draft-1',
-      received_at: 0,
-      draft: {
-        path: '/', sha: SHA, data_lib: 'hero', lib_stack: [], data_shape: null, selector: '.h', tag: 'h1', classes: [],
-        text_quote: null, bbox: { x: 0, y: 0, w: 1, h: 1 }, viewport: { w: 390, h: 800 },
-      },
-    };
-    wrap(<Tray {...baseTray} pins={[]} drafts={[draft]} onRemoveDraft={onRemoveDraft} />);
-    fireEvent.change(screen.getByLabelText('Note for the new pin'), { target: { value: 'Bigger' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    await waitFor(() => expect(post).toHaveBeenCalled());
-    expect(post.mock.calls[0][0]).toBe(`/design/sessions/${SID}/pins`);
-    expect(post.mock.calls[0][1]).toMatchObject({ selector: '.h', note: 'Bigger' });
-    await waitFor(() => expect(onRemoveDraft).toHaveBeenCalledWith('draft-1'));
-  });
-
-  it('warns before unload while pins are pending', () => {
-    wrap(<Tray {...baseTray} pins={[pin('p1')]} />);
-    const ev = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(ev);
-    expect(ev.defaultPrevented).toBe(true);
-  });
-});
 
 const change = (over: Partial<ChangeView> = {}): ChangeView => ({
   id: 'c1',
@@ -276,19 +152,26 @@ describe('ClientFilesTab', () => {
     expect(onAttach).toHaveBeenCalledWith({ id: 'doc1', name: 'brief.pdf', mime: 'application/pdf' });
   });
 
-  it('attached chips ride in the apply body through WorkspaceTabs', async () => {
+  it('an attached file rides in the apply body when the chat sends a selection', async () => {
     fetchMock.mockResolvedValue(jsonResponse(201, { seq: 9 }));
+    post.mockResolvedValue({ pin: { id: 'pin-1' } });
+    get.mockResolvedValue({ events: [], live: { text: null, action: null }, status: 'awaiting_input', stale: false, publish: { can_publish: false, main_role: 'client_preview', precheck: null }, timer: null, cost_usd: 0, budget_usd: 5, preview_url: null, preview_sha: SHA, head_sha: SHA, last_heartbeat_at: null, worker_last_heartbeat_at: null, worker_online: true, next_poll_ms: 5000, last_seq: 0, has_more: false });
     const data = {
       session: { id: SID, status: 'awaiting_input', preview_sha: SHA, head_sha: SHA, base_sha: null },
-      pins: [pin('p1')],
+      pins: [],
       changes: [],
     } as never;
     const feed = { status: 'awaiting_input', preview_sha: SHA, head_sha: SHA, events } as never;
-    wrap(<WorkspaceTabs sessionId={SID} data={data} feed={feed} bridge={{ drafts: [], removeDraft: vi.fn(), highlight: vi.fn() }} />);
+    const draft = { id: 'draft-1', received_at: 1, draft: { path: '/about/', sha: SHA, data_lib: 'state_card', lib_stack: [], data_shape: null, selector: '.c', tag: 'div', classes: [], text_quote: null, bbox: { x: 0, y: 0, w: 1, h: 1 }, viewport: { w: 1280, h: 800 } } };
+    wrap(<WorkspaceTabs sessionId={SID} data={data} feed={feed} bridge={{ drafts: [draft], removeDraft: vi.fn() }} />);
     fireEvent.click(screen.getAllByRole('button', { name: 'Attach to next Apply' })[0]);
     expect(screen.getAllByTestId('attach-chip')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: /^Apply/ }));
+    fireEvent.change(await screen.findByLabelText('Message to the design worker'), { target: { value: 'Use the brief copy' } });
+    fireEvent.click(screen.getByRole('button', { name: /Send/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).files).toEqual([{ id: 'doc1', name: 'brief.pdf', mime: 'application/pdf' }]);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.files).toEqual([{ id: 'doc1', name: 'brief.pdf', mime: 'application/pdf' }]);
+    expect(body.pin_ids).toEqual(['pin-1']);
+    expect(body.note).toBe('Use the brief copy');
   });
 });

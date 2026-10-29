@@ -159,7 +159,7 @@ function feed(publish: Partial<DesignFeedResponse['publish']>, over: Partial<Des
     events: [], live: { text: null, action: null }, status: 'awaiting_input', stale: false,
     publish: { can_publish: false, main_role: 'client_preview', precheck: null, ...publish },
     timer: null, cost_usd: 1, budget_usd: 5, preview_url: 'https://x.pages.dev', preview_sha: 'abc1234', head_sha: 'abc1234',
-    last_heartbeat_at: null, next_poll_ms: 5000, last_seq: 0, has_more: false, ...over,
+    last_heartbeat_at: null, worker_last_heartbeat_at: null, worker_online: true, next_poll_ms: 5000, last_seq: 0, has_more: false, ...over,
   };
 }
 
