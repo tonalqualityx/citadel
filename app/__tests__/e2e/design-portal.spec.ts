@@ -1,7 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { SHARED_AUTH_STATE_PATH } from './global-setup';
 import { BASE_SHA, NEXT_SHA, newTag, seedWorld, teardownWorld, ADMIN_EMAIL, PASSWORD, type DesignWorld } from './fixtures/design-portal-fixture';
-import { DesignWorker } from './fixtures/design-worker';
+import { DesignWorker, type ApplyPayload } from './fixtures/design-worker';
 import { BASE_URL, frame, loginState, newPage, openTask, pinElement, startPreview, tab, taskRow } from './fixtures/design-helpers';
 
 // Designer Portal W6.8: the whole loop in a real browser against the isolated gate database. The "preview" is the
@@ -19,7 +19,7 @@ let stateB = '';
 let ctxA: BrowserContext;
 let pageA: Page;
 let sessionA = ''; // designer A on task a1
-let applyPayload: any = null;
+let applyPayload: ApplyPayload | null = null;
 
 test.beforeAll(async () => {
   world = await seedWorld(newTag());
@@ -244,7 +244,7 @@ test('publish to live: client-preview wording, confirm gated by the typed branch
   const publishId = new URL(pageA.url()).pathname.split('/').pop() as string;
 
   const command = await world.prisma.designCommand.findFirstOrThrow({ where: { session_id: sessionA, verb: 'publish' } });
-  expect((command.payload as any).publish_id).toBe(publishId);
+  expect((command.payload as { publish_id: string }).publish_id).toBe(publishId);
   expect((await world.prisma.designSession.findUniqueOrThrow({ where: { id: sessionA } })).status).toBe('publishing');
 
   const done = await worker.completePublish(sessionA);

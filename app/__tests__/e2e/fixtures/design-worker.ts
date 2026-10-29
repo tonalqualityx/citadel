@@ -4,16 +4,32 @@
  */
 import { BASE_SHA, NEXT_SHA, TINY_PNG, type DesignWorld } from './design-portal-fixture';
 
-export interface ApiResult<T = any> {
+export interface ApiResult<T = unknown> {
   status: number;
   json: T;
+}
+
+/** The payload of an `apply` message: what the designer attached and pinned. */
+export interface ApplyPayload {
+  pins: Array<{ pin_id: string; data_lib?: string; sha?: string; note?: string; viewport: { w: number; h?: number } }>;
+  files: Array<{ id: string; name: string; mime: string }>;
 }
 
 export interface InboxMessage {
   session_id: string;
   seq: number;
   kind: string;
-  payload: any;
+  payload: unknown;
+}
+
+export type ApplyMessage = Omit<InboxMessage, 'payload'> & { payload: ApplyPayload };
+
+export interface WorkerCommand {
+  id: string;
+  session_id: string;
+  verb: string;
+  payload: { publish_id: string };
+  publish?: { live_url?: string | null } | null;
 }
 
 export class DesignWorker {
@@ -25,24 +41,24 @@ export class DesignWorker {
   /** Every request the worker has made: [method, path, status]. */
   readonly log: Array<[string, string, number]> = [];
 
-  async api<T = any>(method: string, path: string, body?: unknown, raw?: FormData): Promise<ApiResult<T>> {
+  async api<T = unknown>(method: string, path: string, body?: unknown, raw?: FormData): Promise<ApiResult<T>> {
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: { authorization: `Bearer ${this.world.workerKey}`, ...(raw ? {} : { 'content-type': 'application/json' }) },
       body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
     const text = await res.text();
-    let json: any = null;
+    let json: T;
     try {
-      json = text ? JSON.parse(text) : null;
+      json = (text ? JSON.parse(text) : null) as T;
     } catch {
-      json = text;
+      json = text as T;
     }
     this.log.push([method, path, res.status]);
     return { status: res.status, json };
   }
 
-  async ok<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  async ok<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const r = await this.api<T>(method, path, body);
     if (r.status >= 300) throw new Error(`${method} ${path} -> ${r.status} ${JSON.stringify(r.json)}`);
     return r.json;
@@ -58,7 +74,7 @@ export class DesignWorker {
   }
 
   inbox() {
-    return this.ok<{ commands: any[]; messages: InboxMessage[]; new_sessions: any[] }>('GET', '/api/design/worker/inbox?max=100');
+    return this.ok<{ commands: WorkerCommand[]; messages: InboxMessage[]; new_sessions: Array<{ id: string; preview_alias: string }> }>('GET', '/api/design/worker/inbox?max=100');
   }
 
   async until<T>(what: string, fn: () => Promise<T | null | undefined | false>, timeoutMs = 20_000): Promise<T> {
@@ -98,16 +114,17 @@ export class DesignWorker {
   }
 
   /** The next Apply message for the session that has not been acked. */
-  async waitForApply(sessionId: string): Promise<InboxMessage> {
-    return this.until('an apply message', async () => (await this.inbox()).messages.find((m) => m.session_id === sessionId && m.kind === 'apply'));
+  async waitForApply(sessionId: string): Promise<ApplyMessage> {
+    const m = await this.until('an apply message', async () => (await this.inbox()).messages.find((x) => x.session_id === sessionId && x.kind === 'apply'));
+    return { ...m, payload: m.payload as ApplyPayload };
   }
 
   /**
    * One full turn for an Apply: active, plan, action/result, text, before/after shots, a recorded change that
    * resolves the pins, a change event, cost, then back to awaiting_input with a green precheck for the new head.
    */
-  async runApplyTurn(sessionId: string, apply: InboxMessage, opts: { cost?: number } = {}): Promise<{ changeId: string }> {
-    const pinIds: string[] = (apply.payload.pins ?? []).map((p: any) => p.pin_id);
+  async runApplyTurn(sessionId: string, apply: ApplyMessage, opts: { cost?: number } = {}): Promise<{ changeId: string }> {
+    const pinIds: string[] = (apply.payload.pins ?? []).map((p) => p.pin_id);
     await this.ok('PATCH', `/api/design/worker/sessions/${sessionId}`, { status: 'active', live_text: 'Working on it', live_action: 'Editing state_card' });
     await this.postEvents(sessionId, [
       { role: 'assistant', kind: 'plan', payload: { items: [{ text: 'Find the state card', status: 'completed' }, { text: 'Edit the heading', status: 'in_progress' }] }, turn: 1 },
@@ -143,7 +160,7 @@ export class DesignWorker {
 
   /** Plays a queued publish/rollback command: claim, running, published, complete. Returns the command and publish ids. */
   async completePublish(sessionId: string, opts: { resultSha?: string } = {}): Promise<{ commandId: string; publishId: string; verb: string }> {
-    const cmd = await this.until('a publish command', async () =>
+    const cmd: WorkerCommand = await this.until('a publish command', async () =>
       (await this.inbox()).commands.find((c) => c.session_id === sessionId && (c.verb === 'publish' || c.verb === 'rollback')),
     );
     const publishId: string = cmd.payload.publish_id;

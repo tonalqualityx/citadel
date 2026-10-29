@@ -1,6 +1,7 @@
 /* In-memory stand-in for S3 (path-style PUT/GET/HEAD) so the Designer Portal e2e never touches a real bucket.
  * The Citadel dev server is pointed at it with AWS_ENDPOINT_URL_S3 (see playwright.config.ts, isolated mode).
  * CLI: node fake-s3.js <port> */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS fixture run as a plain node script (uses __dirname / require.main)
 const http = require('node:http');
 
 const objects = new Map();

@@ -4,8 +4,11 @@
  *
  * Library: const { startPreviewServer } = require('./server'); CLI: PW_PORT=3100 node server.js [port]
  */
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS fixture run as a plain node script (uses __dirname / require.main)
 const http = require('node:http');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS fixture run as a plain node script (uses __dirname / require.main)
 const fs = require('node:fs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS fixture run as a plain node script (uses __dirname / require.main)
 const path = require('node:path');
 
 const DIR = __dirname;
