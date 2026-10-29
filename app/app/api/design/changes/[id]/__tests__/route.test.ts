@@ -3,7 +3,7 @@ import { PATCH } from '../route';
 import { jsonRequest, paramsOf, signIn, anonymous, sessionRow, CHANGE_ID, SESSION_ID, DESIGNER_ID, OTHER_DESIGNER_ID } from '@/lib/design/__tests__/route-test-kit';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
-vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() }, designChange: { findUnique: vi.fn(), update: vi.fn() } } }));
+vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() }, designChange: { findUnique: vi.fn(), update: vi.fn() } } }));
 vi.mock('@/lib/design/events', async (orig) => ({ ...(await orig<typeof import('@/lib/design/events')>()), appendDesignerEvent: vi.fn() }));
 
 import { requireAuth } from '@/lib/auth/middleware';
@@ -81,5 +81,22 @@ describe('PATCH /api/design/changes/:id', () => {
     expect((await call({ decision: 'accepted' })).status).toBe(403);
     signIn(auth, userFind, 'designer');
     expect((await call({ decision: 'accepted' }, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+  });
+});
+
+describe('W8.2 fixes on PATCH changes', () => {
+  it('N8: an unknown field is 400, nothing written', async () => {
+    signIn(auth, userFind, 'designer');
+    expect((await call({ decision: 'accepted', commit_sha: 'abc1234' })).status).toBe(400);
+    expect(changeUpdate).not.toHaveBeenCalled();
+  });
+  it('H7: an admin API key is 403', async () => {
+    signIn(auth, userFind, 'admin', { via: 'api_key' });
+    expect((await call({ decision: 'accepted' })).status).toBe(403);
+  });
+  it('H2: the session designer removed from the project is 404', async () => {
+    signIn(auth, userFind, 'designer');
+    (prisma.projectTeamAssignment.findFirst as Mock).mockResolvedValueOnce(null);
+    expect((await call({ decision: 'accepted' })).status).toBe(404);
   });
 });

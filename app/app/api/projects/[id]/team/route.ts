@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTeamAssignmentResponse } from '@/lib/api/formatters';
+import { closeSessionsForUnassignedDesigner } from '@/lib/design/offboarding';
 
 const addTeamMemberSchema = z.object({
   user_id: z.string().uuid(),
@@ -119,7 +120,7 @@ export async function DELETE(
       throw new ApiError('function_id is required', 400);
     }
 
-    await prisma.projectTeamAssignment.delete({
+    const removed = await prisma.projectTeamAssignment.delete({
       where: {
         project_id_function_id: {
           project_id: id,
@@ -127,6 +128,10 @@ export async function DELETE(
         },
       },
     });
+
+    // Designer Portal (W8.2 H2): a designer taken off the project loses her design sessions on it now.
+    // Access already ends through the current-assignment check; this closes the live sessions themselves.
+    await closeSessionsForUnassignedDesigner(id, removed.user_id, { byUserId: auth.userId });
 
     return NextResponse.json({ success: true });
   } catch (error) {

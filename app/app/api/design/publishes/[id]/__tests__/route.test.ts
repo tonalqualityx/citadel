@@ -9,7 +9,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { AuthError } from '@/lib/api/errors';
 import { findForbiddenKeys } from '@/lib/design/projections';
 import { fakeDb } from '@/lib/design/__tests__/publish-fake-db';
-import { IDS, authAs, paramsOf, publishedRow, seedWorld, type Who } from '@/lib/design/__tests__/publish-scenario';
+import { IDS, authAs, paramsOf, publishedRow, seedWorld, unassign, type Who } from '@/lib/design/__tests__/publish-scenario';
 
 const mockAuth = vi.mocked(requireAuth);
 const PUB = '9a000000-0000-4000-8000-000000000001';
@@ -65,5 +65,23 @@ describe('GET /api/design/publishes/:id', () => {
     expect((await get('admin', '9a000000-0000-4000-8000-0000000000ff')).status).toBe(404);
     expect((await get('admin', 'nope')).status).toBe(404);
     expect((await get(null)).status).toBe(401);
+  });
+});
+
+describe('W8.2 fixes on the publish page', () => {
+  it('H2: the session designer removed from the project: 404', async () => {
+    unassign(fakeDb, IDS.designer);
+    expect((await get('designer')).status).toBe(404);
+    expect((await get('admin')).status).toBe(200);
+  });
+  it('N4: with designer publish off for the site the designer sees can_rollback false (designer_publish_off)', async () => {
+    fakeDb.store.site.find((s) => s.id === IDS.site)!.designer_publish = false;
+    const json = await (await get('designer')).json();
+    expect(json.can_rollback).toBe(false);
+    expect(json.rollback_reason).toBe('designer_publish_off');
+  });
+  it('H7: an admin API key is 403', async () => {
+    mockAuth.mockResolvedValue(authAs('admin', 'api_key') as never);
+    expect((await GET(new Request(`http://localhost:3000/api/design/publishes/${PUB}`), paramsOf(PUB))).status).toBe(403);
   });
 });

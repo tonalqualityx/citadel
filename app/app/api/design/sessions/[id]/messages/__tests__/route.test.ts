@@ -4,7 +4,7 @@ import { ApiError } from '@/lib/api/errors';
 import { jsonRequest, paramsOf, signIn, sessionRow, sessionRouteMatrix, REF, SESSION_ID } from '@/lib/design/__tests__/route-test-kit';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
-vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() } } }));
+vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() } } }));
 vi.mock('@/lib/design/events', async (orig) => ({ ...(await orig<typeof import('@/lib/design/events')>()), appendDesignerEvent: vi.fn() }));
 
 import { requireAuth } from '@/lib/auth/middleware';
@@ -57,5 +57,20 @@ describe('POST /api/design/sessions/:id/messages', () => {
     signIn(auth, userFind, 'designer');
     expect((await call('{nope')).status).toBe(400);
   });
-  sessionRouteMatrix('messages', { invoke: (h) => call({ client_ref: REF, text: 'hi' }, h), requireAuth: auth, userFind, arrange: () => sessionFind.mockResolvedValue(sessionRow()), write: true });
+  sessionRouteMatrix('messages', { invoke: (h) => call({ client_ref: REF, text: 'hi' }, h), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange: () => sessionFind.mockResolvedValue(sessionRow()), write: true });
+});
+
+describe('W8.2 on messages', () => {
+  it('N8: an unknown field is 400, nothing appended', async () => {
+    signIn(auth, userFind, 'designer');
+    expect((await call({ client_ref: REF, text: 'hi', role: 'system' })).status).toBe(400);
+    expect(append).not.toHaveBeenCalled();
+  });
+  it('H5: the 429 from the rate limit reaches the client with its code', async () => {
+    signIn(auth, userFind, 'designer');
+    append.mockRejectedValue(new ApiError('At most 30 messages a minute per session', 429, 'rate_limited', 'messages_per_minute'));
+    const res = await call({ client_ref: REF, text: 'hi' });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ code: 'rate_limited', limit: 'messages_per_minute' });
+  });
 });

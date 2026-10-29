@@ -9,7 +9,7 @@ import { closeSession } from '@/lib/design/sessions';
 import { stopTimer } from '@/lib/design/timer';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
-const closeSchema = z.object({ reason: z.string().max(500).optional() });
+const closeSchema = z.object({ reason: z.string().max(500).optional() }).strict();
 const CLOSABLE_WITHOUT_DAEMON = ['awaiting_input', 'paused_budget', 'stopped'];
 
 // POST /api/design/sessions/:id/close (design 7.1): DesignCommand(close); refused while publishing.

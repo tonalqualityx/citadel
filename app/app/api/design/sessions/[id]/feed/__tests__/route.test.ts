@@ -6,7 +6,7 @@ import { findForbiddenKeys } from '@/lib/design/projections';
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) },
     designSession: { findUnique: vi.fn() },
     site: { findUnique: vi.fn() },
     designPortalSettings: { findUnique: vi.fn() },
@@ -106,5 +106,5 @@ describe('GET /api/design/sessions/:id/feed', () => {
     const json = await (await call()).json();
     expect(json.publish).toMatchObject({ can_publish: false, reason: 'publish_in_progress', running_publish_id: 'pub-1' });
   });
-  sessionRouteMatrix('feed', { invoke: () => call(), requireAuth: auth, userFind, arrange: () => arrange(), write: false });
+  sessionRouteMatrix('feed', { invoke: () => call(), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange: () => arrange(), write: false });
 });

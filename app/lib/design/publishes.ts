@@ -29,7 +29,7 @@ import { cleanApprovalSource, writeReceipt, type CheckEntry } from '@/lib/portal
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
 import { createCommand } from './commands';
 import { transition } from './sessions';
-import { loadSessionFor, publishPageAccess } from './access';
+import { currentSessionAccess, designerOnProject, loadSessionFor, publishPageAccess } from './access';
 import { DESIGN_WORKER_LANE, DESIGN_WORKER_SERVICE_EMAIL, displayHost, isUuid, toUsd, type DesignActor } from './helpers';
 import {
   canPublish,
@@ -37,6 +37,7 @@ import {
   canRollback,
   checkConfirmation,
   confirmationShown,
+  designerMayPublish,
   gateStatus,
   hashConfirmationToken,
   latestPublishedQuery,
@@ -47,6 +48,7 @@ import {
   parsePrecheck,
   refuse,
   type ConfirmationShown,
+  type DesignerRollbackStanding,
   type MainRole,
   type PolicyRefusal,
 } from './publish-policy';
@@ -194,6 +196,33 @@ async function sitePublishRunning(db: Db | Tx, siteId: string, exceptId?: string
   return n > 0;
 }
 
+/**
+ * The policy view of a session: the row plus whether its designer is on its project right now (W8.2 H2).
+ * Only a designer actor's rights read the flag, so other actors skip the query.
+ */
+async function withStanding<S extends { designer_id: string; project_id: string | null }>(
+  actor: Pick<DesignActor, 'role'>,
+  session: S,
+  db: Db | Tx,
+): Promise<S & { designer_on_project: boolean }> {
+  const onProject = actor.role === 'designer' ? await designerOnProject(session.designer_id, session.project_id, db) : false;
+  return { ...session, designer_on_project: onProject };
+}
+
+/** A designer's standing for the "her publish" rollback path (W8.2 H2, H4, N4); undefined for other roles. */
+async function rollbackStanding(
+  actor: DesignActor,
+  session: { designer_id: string; project_id: string | null } | null,
+  ctx: PublishContext,
+  db: Db | Tx,
+): Promise<DesignerRollbackStanding | undefined> {
+  if (actor.role !== 'designer') return undefined;
+  return {
+    has_session_access: !!session && (await currentSessionAccess(actor, session, 'write', db)) === 'ok',
+    may_publish: designerMayPublish(ctx.site, policySettings(ctx), ctx.mainRole),
+  };
+}
+
 function shownOf(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 }
@@ -226,7 +255,7 @@ export async function createPublishIntent(
   opts: { now?: Date } = {},
   db: Db = defaultDb,
 ): Promise<PublishIntentResult> {
-  const session = await loadSessionFor(actor, sessionId, { mode: 'read' }, db);
+  const session = await withStanding(actor, await loadSessionFor(actor, sessionId, { mode: 'read' }, db), db);
   const ctx = await loadContext(db, session.site_id);
   const decision = canPublish(actor, session, ctx.site, policySettings(ctx), ctx.mainRole, {
     head_sha: headSha,
@@ -301,8 +330,14 @@ export async function confirmPublish(
   if (!isUuid(publishId)) throw new ApiError('Publish not found', 404, 'not_found');
   const publish = await db.designPublish.findUnique({ where: { id: publishId } });
   if (!publish || publish.kind !== 'publish') throw new ApiError('Publish not found', 404, 'not_found');
-  const session = await db.designSession.findUnique({ where: { id: publish.session_id } });
-  if (!session) throw new ApiError('Publish not found', 404, 'not_found');
+  const row = await db.designSession.findUnique({ where: { id: publish.session_id } });
+  if (!row) throw new ApiError('Publish not found', 404, 'not_found');
+  const session = await withStanding(actor, row, db);
+  // W8.2 H2: a designer who is no longer on the project (or no longer owns the session) is a stranger here,
+  // before any token check can tell her anything about the intent.
+  if (actor.role === 'designer' && (session.designer_id !== actor.userId || !session.designer_on_project)) {
+    throw new ApiError('Publish not found', 404, 'not_found');
+  }
   const ctx = await loadContext(db, publish.site_id);
   const now = opts.now ?? new Date();
 
@@ -403,7 +438,7 @@ export async function requestPublish(
   opts: { now?: Date } = {},
   db: Db = defaultDb,
 ) {
-  const session = await loadSessionFor(actor, sessionId, { mode: 'read' }, db);
+  const session = await withStanding(actor, await loadSessionFor(actor, sessionId, { mode: 'read' }, db), db);
   const ctx = await loadContext(db, session.site_id);
   const decision = canRequestPublish(actor, session, ctx.site, policySettings(ctx), ctx.mainRole);
   if (!decision.ok && ACTOR_CODES.has(decision.code)) fail(decision);
@@ -441,9 +476,9 @@ export async function requestPublish(
 // ---------------------------------------------------------------------------------------------------------
 
 /**
- * One click (D5: the click is the confirmation, so confirmed_at = now): admin or that publish's actor
- * (pm 403, anyone else 404), the site's latest successful publish only (409 not_latest), nothing else
- * queued or running on the site. Creates DesignPublish(kind rollback, queued) + DesignCommand(rollback) in
+ * One click (D5: the click is the confirmation, so confirmed_at = now): admin, or that publish's actor while
+ * she is a designer on the project with designer publish on for the site (canRollback; pm 403, anyone else
+ * 404), the site's latest successful publish only (409 not_latest), nothing else queued or running on the site. Creates DesignPublish(kind rollback, queued) + DesignCommand(rollback) in
  * one transaction; the session moves to `publishing` when it is idle (`awaiting_input`).
  */
 export async function createRollback(
@@ -456,10 +491,16 @@ export async function createRollback(
   if (!isUuid(targetId)) throw new ApiError('Publish not found', 404, 'not_found');
   const target = await db.designPublish.findUnique({ where: { id: targetId } });
   if (!target) throw new ApiError('Publish not found', 404, 'not_found');
-  const latest = await db.designPublish.findFirst(latestPublishedQuery(target.site_id));
-  const check = canRollback(actor, target, latest, { publishRunning: await sitePublishRunning(db, target.site_id) });
+  const [latest, session, ctx] = await Promise.all([
+    db.designPublish.findFirst(latestPublishedQuery(target.site_id)),
+    db.designSession.findUnique({ where: { id: target.session_id }, select: { designer_id: true, project_id: true } }),
+    loadContext(db, target.site_id),
+  ]);
+  const check = canRollback(actor, target, latest, {
+    publishRunning: await sitePublishRunning(db, target.site_id),
+    designer: await rollbackStanding(actor, session, ctx, db),
+  });
   if (!check.ok && ACTOR_CODES.has(check.code)) fail(check);
-  const ctx = await loadContext(db, target.site_id);
   requireEnabled(ctx);
   if (!check.ok) fail(check);
 
@@ -531,10 +572,14 @@ export async function loadPublishPage(actor: DesignActor, publishId: string, db:
   if (!isUuid(publishId)) throw new ApiError('Publish not found', 404, 'not_found');
   const publish = await db.designPublish.findUnique({ where: { id: publishId } });
   if (!publish) throw new ApiError('Publish not found', 404, 'not_found');
-  const session = await db.designSession.findUnique({ where: { id: publish.session_id }, select: { id: true, designer_id: true, task_id: true } });
+  const session = await db.designSession.findUnique({ where: { id: publish.session_id }, select: { id: true, designer_id: true, task_id: true, project_id: true } });
   if (!session || publishPageAccess(actor, session) !== 'ok') throw new ApiError('Publish not found', 404, 'not_found');
+  // W8.2 H2: a designer reads the page only while she still has the session (on its project now).
+  if (actor.role === 'designer' && (await currentSessionAccess(actor, session, 'read', db)) !== 'ok') {
+    throw new ApiError('Publish not found', 404, 'not_found');
+  }
 
-  const [task, designer, changes, latest, running] = await Promise.all([
+  const [task, designer, changes, latest, running, ctx] = await Promise.all([
     db.task.findUnique({ where: { id: session.task_id }, select: { id: true, title: true } }),
     db.user.findUnique({ where: { id: session.designer_id }, select: { name: true } }),
     db.designChange.findMany({
@@ -546,8 +591,9 @@ export async function loadPublishPage(actor: DesignActor, publishId: string, db:
     }),
     db.designPublish.findFirst(latestPublishedQuery(publish.site_id)),
     sitePublishRunning(db, publish.site_id),
+    loadContext(db, publish.site_id),
   ]);
-  const rollback = canRollback(actor, publish, latest, { publishRunning: running });
+  const rollback = canRollback(actor, publish, latest, { publishRunning: running, designer: await rollbackStanding(actor, session, ctx, db) });
   return projectPublishPage({
     publish,
     session: { id: session.id, task: { id: session.task_id, title: task?.title ?? '' }, designer: { name: designer?.name ?? '' } },

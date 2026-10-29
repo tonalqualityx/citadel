@@ -8,7 +8,7 @@ import { POST } from '../route';
 import { requireAuth } from '@/lib/auth/middleware';
 import { dispatchNotification } from '@/lib/services/notification-dispatcher';
 import { fakeDb } from '@/lib/design/__tests__/publish-fake-db';
-import { IDS, authAs, jsonRequest, paramsOf, seedWorld, sessionOf, settingsOf, siteOf, type Who } from '@/lib/design/__tests__/publish-scenario';
+import { IDS, authAs, jsonRequest, paramsOf, seedWorld, sessionOf, settingsOf, siteOf, unassign, type Who } from '@/lib/design/__tests__/publish-scenario';
 
 const mockAuth = vi.mocked(requireAuth);
 const mockDispatch = vi.mocked(dispatchNotification);
@@ -70,5 +70,20 @@ describe('POST /api/design/sessions/:id/request-publish', () => {
     expect((await call('designer', { note: 'x'.repeat(2001) })).status).toBe(400);
     sessionOf(fakeDb).status = 'closed';
     expect((await call('designer')).status).toBe(409);
+  });
+});
+
+describe('W8.2 fixes on request-publish', () => {
+  it('H2: her own session after she was removed from the project: 404, nothing sent', async () => {
+    siteOf(fakeDb).designer_publish = false;
+    unassign(fakeDb, IDS.designer);
+    expect((await call('designer', {})).status).toBe(404);
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+  it('N1: a body over 32 KB is 413; N8: an unknown field is 400', async () => {
+    siteOf(fakeDb).designer_publish = false;
+    expect((await call('designer', { note: 'x'.repeat(33 * 1024) })).status).toBe(413);
+    expect((await call('designer', { note: 'hi', urgent: true })).status).toBe(400);
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 });

@@ -10,10 +10,18 @@ import { rejectCrossSiteRequest } from '@/lib/api/same-origin-guard';
 import { resolveDesignActor, type DesignActor } from './helpers';
 
 export const DEFAULT_BODY_BYTES = 64 * 1024;
+/** Publish, confirm, rollback and request-publish bodies are a few fields (W8.2 N1). */
+export const PUBLISH_BODY_BYTES = 32 * 1024;
 
-/** requireAuth + the DATABASE role as a DesignActor (D1). */
+/**
+ * requireAuth + the DATABASE role as a DesignActor (D1), for the designer and admin routes under /api/design
+ * (7.1, 7.2: "session cookie"). An API key of any kind is refused here (403 session_required, W8.2 H7): the
+ * designer surface never needs a key, and a leaked admin key must not steer a session a designer later
+ * publishes. The worker routes (/api/design/worker/**) never come here; they use worker-kit's requireWorker.
+ */
 export async function authActor(): Promise<{ auth: AuthPayload; actor: DesignActor }> {
   const auth = await requireAuth();
+  if (auth.via !== 'session') throw new ApiError('A signed-in session is required', 403, 'session_required');
   const actor = await resolveDesignActor(auth);
   return { auth, actor };
 }

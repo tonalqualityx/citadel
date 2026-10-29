@@ -5,7 +5,7 @@ import { loadSessionFor } from '@/lib/design/access';
 import { createCommand } from '@/lib/design/commands';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
-const emptySchema = z.object({}).passthrough();
+const emptySchema = z.object({}).strict();
 
 // POST /api/design/sessions/:id/client-files/refresh (design 7.1, D11): DesignCommand(refresh_client_files);
 // the daemon re-lists the client folder and posts a new `client_files` event. Idempotent while one is pending. 202.

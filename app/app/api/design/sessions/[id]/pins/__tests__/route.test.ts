@@ -4,7 +4,7 @@ import { jsonRequest, paramsOf, signIn, sessionRow, pinRow, sessionRouteMatrix, 
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
-  prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() }, designPin: { count: vi.fn(), create: vi.fn() } },
+  prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() }, designPin: { count: vi.fn(), create: vi.fn() } },
 }));
 
 import { requireAuth } from '@/lib/auth/middleware';
@@ -63,5 +63,15 @@ describe('POST /api/design/sessions/:id/pins', () => {
     pinCount.mockResolvedValue(100);
     expect((await call(SHIPPED_PACKET)).status).toBe(409);
   });
-  sessionRouteMatrix('pins', { invoke: (h) => call(SHIPPED_PACKET, h), requireAuth: auth, userFind, arrange: () => sessionFind.mockResolvedValue(sessionRow()), write: true });
+  sessionRouteMatrix('pins', { invoke: (h) => call(SHIPPED_PACKET, h), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange: () => sessionFind.mockResolvedValue(sessionRow()), write: true });
+});
+
+describe('W8.2 N8 on POST pins', () => {
+  it('unknown top-level fields (status, author_id, session_id) are 400, nothing created', async () => {
+    signIn(auth, userFind, 'designer');
+    for (const extra of [{ status: 'resolved' }, { author_id: DESIGNER_ID }, { session_id: SESSION_ID }]) {
+      expect((await call({ ...SHIPPED_PACKET, ...extra })).status).toBe(400);
+    }
+    expect(pinCreate).not.toHaveBeenCalled();
+  });
 });

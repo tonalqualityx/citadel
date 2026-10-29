@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/db/prisma';
 import { createOrGetSession, transitionSession } from '../sessions';
-import { appendDesignerEvent, appendWorkerEvents, feed, pendingDesignerEvents, MAX_EVENT_PAYLOAD_BYTES } from '../events';
+import { appendDesignerEvent, appendWorkerEvents, feed, pendingDesignerEvents, MAX_EVENT_PAYLOAD_BYTES, DESIGNER_MESSAGES_PER_MINUTE } from '../events';
 import { raiseBudget, monthSpend, budgetStatus } from '../budget';
 import { SCRATCH, seedDesign, seedTask, teardownDesign, type DesignFixture } from './fixtures';
 
@@ -18,6 +18,32 @@ describe.skipIf(!SCRATCH)('events and budget (real database)', () => {
   afterAll(async () => {
     await teardownDesign(f);
     await prisma.$disconnect();
+  });
+
+  it('W8.2 H5: 30 designer messages a minute per session; the 31st is 429 and writes nothing; a repeat is still 200; it resets after the window', async () => {
+    const s = await mkSession();
+    const other = await mkSession();
+    const send = (sessionId: string, i: number | string) =>
+      appendDesignerEvent({ sessionId, authorId: f.designer.userId, kind: 'text', payload: { text: `m${i}` }, clientRef: `rl-${i}` });
+    expect(DESIGNER_MESSAGES_PER_MINUTE).toBe(30);
+    // 30 in parallel all land (the count is taken under the session row lock).
+    const firsts = await Promise.all(Array.from({ length: 30 }, (_, i) => send(s.id, i)));
+    expect(firsts.every((r) => !r.duplicate)).toBe(true);
+    await expect(send(s.id, 30)).rejects.toMatchObject({ statusCode: 429, code: 'rate_limited' });
+    expect(await prisma.designEvent.count({ where: { session_id: s.id, role: 'designer' } })).toBe(30);
+    expect((await prisma.designSession.findUniqueOrThrow({ where: { id: s.id } })).last_seq).toBe(30);
+    // A retry of an accepted message is answered from the stored row, never 429.
+    expect(await send(s.id, 5)).toMatchObject({ duplicate: true });
+    // Worker events do not count, and the limit is per session.
+    await appendWorkerEvents(s.id, { events: [{ role: 'assistant', kind: 'text', payload: { text: 'ok' } }] });
+    expect((await send(other.id, 'x')).duplicate).toBe(false);
+    // An Apply counts like a message.
+    await expect(
+      appendDesignerEvent({ sessionId: s.id, authorId: f.designer.userId, kind: 'apply', payload: { pins: [] }, clientRef: 'rl-apply' }),
+    ).rejects.toMatchObject({ statusCode: 429 });
+    // The window rolls: once those 30 are older than a minute, she can send again.
+    await prisma.designEvent.updateMany({ where: { session_id: s.id, role: 'designer' }, data: { created_at: new Date(Date.now() - 61_000) } });
+    expect((await send(s.id, 31)).duplicate).toBe(false);
   });
 
   it('20 parallel appends (mixed designer and worker) produce seqs 1..20 with no gap', async () => {

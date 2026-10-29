@@ -7,7 +7,7 @@ vi.mock('@/lib/services/notification-dispatcher', () => ({ dispatchNotification:
 import { POST } from '../route';
 import { requireAuth } from '@/lib/auth/middleware';
 import { fakeDb } from '@/lib/design/__tests__/publish-fake-db';
-import { IDS, authAs, jsonRequest, paramsOf, publishedRow, seedWorld, sessionOf, settingsOf, type Who } from '@/lib/design/__tests__/publish-scenario';
+import { IDS, authAs, jsonRequest, paramsOf, publishedRow, seedWorld, sessionOf, settingsOf, siteOf, unassign, type Who } from '@/lib/design/__tests__/publish-scenario';
 
 const mockAuth = vi.mocked(requireAuth);
 const PUB = '9a000000-0000-4000-8000-000000000001';
@@ -101,5 +101,33 @@ describe('POST /api/design/publishes/:id/rollback', () => {
     sessionOf(fakeDb).status = 'closed';
     expect((await rollback('designer')).status).toBe(202);
     expect(sessionOf(fakeDb).status).toBe('closed');
+  });
+});
+
+describe('W8.2 fixes on rollback', () => {
+  it('H2: her publish after she was removed from the project: 404, nothing queued', async () => {
+    unassign(fakeDb, IDS.designer);
+    await expectCode(await rollback('designer'), 404, 'not_found');
+    expect(rollbacks()).toHaveLength(0);
+  });
+  it('H4: her publish after she was demoted to tech: 404, nothing queued', async () => {
+    fakeDb.store.user.find((u) => u.id === IDS.designer)!.role = 'tech';
+    await expectCode(await rollback('designer'), 404, 'not_found');
+    expect(rollbacks()).toHaveLength(0);
+  });
+  it('N4: designer publish switched off for the site: the designer cannot roll back (403), the admin can', async () => {
+    siteOf(fakeDb).designer_publish = false;
+    await expectCode(await rollback('designer'), 403, 'designer_publish_off');
+    expect(rollbacks()).toHaveLength(0);
+    expect((await rollback('admin')).status).toBe(202);
+  });
+  it('N4: mode off everywhere: the designer cannot roll back (403)', async () => {
+    settingsOf(fakeDb).designer_publish_mode = 'off';
+    await expectCode(await rollback('designer'), 403, 'designer_publish_off');
+  });
+  it('N1: a body over 32 KB is 413; N8: an unknown field is 400', async () => {
+    expect((await rollback('designer', { reason: 'x'.repeat(33 * 1024) })).status).toBe(413);
+    expect((await rollback('designer', { force: true })).status).toBe(400);
+    expect(rollbacks()).toHaveLength(0);
   });
 });

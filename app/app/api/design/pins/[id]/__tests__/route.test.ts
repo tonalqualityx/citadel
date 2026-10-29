@@ -5,7 +5,7 @@ import { ApiError } from '@/lib/api/errors';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
-  prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() }, designPin: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() } },
+  prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() }, designPin: { findUnique: vi.fn(), updateMany: vi.fn(), update: vi.fn(), findUniqueOrThrow: vi.fn() } },
 }));
 vi.mock('@/lib/design/followups', () => ({ createFollowupTask: vi.fn() }));
 
@@ -93,5 +93,23 @@ describe('PATCH /api/design/pins/:id', () => {
     pin.findUnique.mockResolvedValue(pinRow());
     signIn(auth, userFind, 'pm');
     expect((await call({ note: 'x' })).status).toBe(403);
+  });
+});
+
+describe('W8.2 fixes on PATCH pins', () => {
+  it('N8: unknown fields (author_id, session_id) are 400, nothing written', async () => {
+    signIn(auth, userFind, 'designer');
+    expect((await call({ note: 'x', author_id: OTHER_DESIGNER_ID })).status).toBe(400);
+    expect((await call({ status: 'discarded', session_id: SESSION_ID })).status).toBe(400);
+    expect(pin.updateMany).not.toHaveBeenCalled();
+  });
+  it('H7: an admin API key is 403', async () => {
+    signIn(auth, userFind, 'admin', { via: 'api_key' });
+    expect((await call({ note: 'x' })).status).toBe(403);
+  });
+  it('H2: the session designer removed from the project is 404', async () => {
+    signIn(auth, userFind, 'designer');
+    (prisma.projectTeamAssignment.findFirst as Mock).mockResolvedValueOnce(null);
+    expect((await call({ note: 'x' })).status).toBe(404);
   });
 });

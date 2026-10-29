@@ -3,7 +3,7 @@ import { POST } from '../route';
 import { jsonRequest, paramsOf, signIn, sessionRow, sessionRouteMatrix, SESSION_ID, DESIGNER_ID } from '@/lib/design/__tests__/route-test-kit';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
-vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() }, designChange: { findFirst: vi.fn() } } }));
+vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() }, designChange: { findFirst: vi.fn() } } }));
 vi.mock('@/lib/design/commands', async (orig) => ({ ...(await orig<typeof import('@/lib/design/commands')>()), createCommand: vi.fn() }));
 
 import { requireAuth } from '@/lib/auth/middleware';
@@ -53,5 +53,5 @@ describe('POST /api/design/sessions/:id/restore', () => {
     for (const b of [{}, { to_sha: 'zzzzzzzz' }, { to_sha: 'abc' }, { to_sha: 'a'.repeat(65) }, { to_sha: 'HEAD' }]) expect((await call(b)).status).toBe(400);
     expect((await call(JSON.stringify({ to_sha: SHA, pad: 'x'.repeat(5000) }))).status).toBe(413);
   });
-  sessionRouteMatrix('restore', { invoke: (h) => call({ to_sha: SHA }, h), requireAuth: auth, userFind, arrange, write: true });
+  sessionRouteMatrix('restore', { invoke: (h) => call({ to_sha: SHA }, h), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange, write: true });
 });

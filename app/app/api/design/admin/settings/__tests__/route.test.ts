@@ -65,10 +65,18 @@ describe('PATCH /api/design/admin/settings', () => {
     expect(upsert.mock.calls[0][0].update).toEqual({ enabled: false, designer_publish_mode: 'pre_launch_only', auto_timer_lapse_minutes: 12, auto_timer_billable: true, updated_by_id: ADMIN_ID });
     expect((await res.json()).settings.designer_publish_mode).toBe('pre_launch_only');
   });
-  it('refuses a Fable model in any casing, accepts others', async () => {
+  it('refuses a Fable model in any casing', async () => {
     for (const m of ['fable', 'Claude-Fable-5', 'FABLE-x']) expect((await patch({ model: m })).status, m).toBe(400);
     expect(upsert).not.toHaveBeenCalled();
-    expect((await patch({ model: 'claude-opus-5-5' })).status).toBe(200);
+  });
+  it('W8.1 H5: the model is an allowlist; aliases that resolve elsewhere (best, default) and unknown names are 400', async () => {
+    for (const m of ['best', 'fable', 'mythos', 'default', 'BEST', 'claude-fable-5-1', 'opusplan', 'opus[1m]', 'gpt-5', 'claude-opus', 'claude-mythos-1'])
+      expect((await patch({ model: m })).status, m).toBe(400);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+  it('W8.1 H5: opus, sonnet, haiku (any casing) and dated ids are 200', async () => {
+    for (const m of ['opus', 'sonnet', 'haiku', 'Opus', 'claude-opus-5-5', 'claude-opus-4-5-20251101', 'claude-sonnet-4-5', 'claude-haiku-4-5'])
+      expect((await patch({ model: m })).status, m).toBe(200);
   });
   it('designer_publish_mode must be per_site | pre_launch_only | off', async () => {
     expect((await patch({ designer_publish_mode: 'always' })).status).toBe(400);

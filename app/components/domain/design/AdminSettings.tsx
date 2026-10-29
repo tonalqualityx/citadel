@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useUsers } from '@/lib/hooks/use-users';
 import { useUpdateAdminSettings, type AdminSettings as Settings, type PublishMode } from '@/lib/hooks/use-design-admin';
+import { designModelError } from '@/lib/design/models';
 
 export const PUBLISH_MODE_OPTIONS: Array<{ value: PublishMode; label: string }> = [
   { value: 'per_site', label: 'Per site: designers publish where the site switch is on' },
@@ -16,11 +17,9 @@ export const PUBLISH_MODE_OPTIONS: Array<{ value: PublishMode; label: string }> 
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'].map((v) => ({ value: v, label: v }));
 
-/** The server refuses Fable too (400); this is the same check client-side. */
+/** The same allowlist the server applies (400): opus, sonnet, haiku or their full ids; Fable and aliases such as best are refused. */
 export function modelError(model: string): string | null {
-  if (!model.trim()) return 'Enter a model.';
-  if (/fable/i.test(model)) return 'The Fable model cannot be used for the designer worker.';
-  return null;
+  return designModelError(model);
 }
 
 type Draft = Record<string, string | boolean>;

@@ -75,8 +75,11 @@ export async function seedWorld(tag: string): Promise<DesignWorld> {
   // The daemon's service user and an enforced lane key. Reuse the user when it exists; teardown only deletes what it made.
   let worker = await prisma.user.findUnique({ where: { email: WORKER_EMAIL } });
   const workerUserCreated = !worker;
+  // The plan's service user is role tech (design D2; W8.2 H3: a pm worker would carry pm power on any shadow key).
   if (!worker) {
-    worker = await prisma.user.create({ data: { email: WORKER_EMAIL, password_hash: hash, name: 'Designer Worker', role: 'pm', is_active: true } });
+    worker = await prisma.user.create({ data: { email: WORKER_EMAIL, password_hash: hash, name: 'Designer Worker', role: 'tech', is_active: true } });
+  } else if (worker.role !== 'tech') {
+    worker = await prisma.user.update({ where: { id: worker.id }, data: { role: 'tech' } });
   }
   const { rawKey, keyHash, keyPrefix } = generateApiKey();
   await prisma.apiKey.create({

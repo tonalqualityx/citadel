@@ -8,15 +8,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireAuth } from '@/lib/auth/middleware';
-import { ApiError } from '@/lib/api/errors';
 import { rejectCrossSiteRequest } from '@/lib/api/same-origin-guard';
 import { resolveDesignActor } from '@/lib/design/helpers';
+import { body as readBody, PUBLISH_BODY_BYTES } from '@/lib/design/route-kit';
 import { confirmPublish, designErrorResponse } from '@/lib/design/publishes';
 
-const bodySchema = z.object({
-  confirmation_token: z.string().max(200).optional(),
-  typed_confirmation: z.string().max(100).optional(),
-});
+const bodySchema = z
+  .object({
+    confirmation_token: z.string().max(200).optional(),
+    typed_confirmation: z.string().max(100).optional(),
+  })
+  .strict(); // W8.2 N8
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -25,10 +27,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (blocked) return blocked;
     const actor = await resolveDesignActor(auth);
     const { id } = await params;
-    const raw = await request.json().catch(() => {
-      throw new ApiError('Body must be JSON', 400, 'invalid_json');
-    });
-    const body = bodySchema.parse(raw ?? {});
+    // Capped like every other design route: 413 over 32 KB, 400 on invalid JSON or an unknown field (W8.2 N1, N8).
+    const body = await readBody(request, bodySchema, PUBLISH_BODY_BYTES);
     const result = await confirmPublish(actor, id, body);
     return NextResponse.json(result, { status: 202 });
   } catch (error) {

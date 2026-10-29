@@ -19,6 +19,11 @@
  * Sessions: the session's designer and admins read and write; a pm reads (7.1 "pm (read)", 7.2 lists) and
  * gets 403 on writes (the pm can see the session, so 403 leaks nothing); everyone else gets 404, never 403,
  * so ids cannot be probed (7.1 preamble, T10).
+ *
+ * A designer's access is CURRENT, not historical (W8.2 H2): besides owning the session she must be on its
+ * project right now (a ProjectTeamAssignment row on a project that is not deleted). Removing her from the
+ * project removes every design path at once: session reads and writes, publish, confirm, rollback, re-open.
+ * `currentSessionAccess()` is the one place that rule lives; `loadSessionFor()` and publishes.ts use it.
  */
 import type { DesignSession, Prisma, PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
@@ -283,12 +288,44 @@ export function throwForVerdict(verdict: AccessVerdict, what: string): void {
   if (verdict === 'forbidden') throw new ApiError('Forbidden', 403, 'forbidden');
 }
 
-type SessionDb = Pick<PrismaClient, 'designSession'>;
+type AssignmentDb = Pick<PrismaClient, 'projectTeamAssignment'>;
+type SessionDb = Pick<PrismaClient, 'designSession'> & AssignmentDb;
+
+/** Project ids the user is on right now (any function), live projects only. */
+export async function assignedProjectIdsFor(userId: string, db: AssignmentDb = defaultDb): Promise<string[]> {
+  const rows = await db.projectTeamAssignment.findMany({ where: { user_id: userId, project: { is_deleted: false } }, select: { project_id: true } });
+  return [...new Set(rows.map((r) => r.project_id))];
+}
+
+/** W8.2 H2: is the user on this project right now (a ProjectTeamAssignment row, project not deleted)? */
+export async function designerOnProject(userId: string, projectId: string | null | undefined, db: AssignmentDb = defaultDb): Promise<boolean> {
+  if (!projectId) return false;
+  const row = await db.projectTeamAssignment.findFirst({
+    where: { user_id: userId, project_id: projectId, project: { is_deleted: false } },
+    select: { id: true },
+  });
+  return row !== null;
+}
+
+/**
+ * sessionAccess() plus the CURRENT-assignment rule (W8.2 H2): a designer who owns the session but is no
+ * longer on its project gets 404, exactly like a stranger. Admin and pm verdicts are unchanged.
+ */
+export async function currentSessionAccess(
+  actor: Pick<DesignActor, 'userId' | 'role'>,
+  session: { designer_id: string; project_id: string | null },
+  mode: SessionAccessMode,
+  db: AssignmentDb = defaultDb,
+): Promise<AccessVerdict> {
+  const verdict = sessionAccess(actor, session, mode);
+  if (verdict !== 'ok' || actor.role !== 'designer') return verdict;
+  return (await designerOnProject(actor.userId, session.project_id, db)) ? 'ok' : 'not_found';
+}
 
 /**
  * Load a session the caller may see, or throw: 404 for a malformed id, a missing row, or a session that is
- * not the caller's (another designer, tech); 403 for a pm asking to write. The row is the full record:
- * project it with projections.ts before it leaves the server.
+ * not the caller's (another designer, tech, or a designer no longer on the session's project); 403 for a pm
+ * asking to write. The row is the full record: project it with projections.ts before it leaves the server.
  */
 export async function loadSessionFor(
   actor: DesignActor,
@@ -299,16 +336,20 @@ export async function loadSessionFor(
   if (!isUuid(id)) throw new ApiError('Session not found', 404, 'not_found');
   const session = await db.designSession.findUnique({ where: { id } });
   if (!session) throw new ApiError('Session not found', 404, 'not_found');
-  throwForVerdict(sessionAccess(actor, session, opts.mode ?? 'read'), 'Session');
+  throwForVerdict(await currentSessionAccess(actor, session, opts.mode ?? 'read', db), 'Session');
   return session;
 }
 
 /**
- * The "my sessions" list (GET /api/design/sessions, 7.1 "designer (own), admin"): a designer sees her own,
- * an admin sees all. pm and tech get null (the route answers 403; a pm uses the admin list).
+ * The "my sessions" list (GET /api/design/sessions, 7.1 "designer (own), admin"): a designer sees her own on
+ * the projects she is on now (`assignedProjectIds`; none given = none listed), an admin sees all. pm and
+ * tech get null (the route answers 403; a pm uses the admin list).
  */
-export function mySessionsWhere(actor: Pick<DesignActor, 'userId' | 'role'>): Prisma.DesignSessionWhereInput | null {
-  if (actor.role === 'designer') return { designer_id: actor.userId };
+export function mySessionsWhere(
+  actor: Pick<DesignActor, 'userId' | 'role'>,
+  assignedProjectIds: readonly string[] = [],
+): Prisma.DesignSessionWhereInput | null {
+  if (actor.role === 'designer') return { designer_id: actor.userId, project_id: { in: [...assignedProjectIds] } };
   if (actor.role === 'admin') return {};
   return null;
 }
@@ -318,7 +359,10 @@ export function canReadAdminLists(role: string): boolean {
   return role === 'admin' || role === 'pm';
 }
 
-/** The publish page (GET /api/design/publishes/:id): admin, pm, or the session's designer; else 404. */
+/**
+ * The publish page (GET /api/design/publishes/:id): admin, pm, or the session's designer; else 404. Pure:
+ * loadPublishPage adds the current-assignment rule for a designer (currentSessionAccess).
+ */
 export function publishPageAccess(
   actor: Pick<DesignActor, 'userId' | 'role'>,
   session: { designer_id: string },

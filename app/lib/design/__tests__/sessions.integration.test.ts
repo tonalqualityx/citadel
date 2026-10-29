@@ -36,13 +36,40 @@ describe.skipIf(!SCRATCH)('session engine (real database)', () => {
     expect(rs.filter((r) => r.created)).toHaveLength(1);
   });
 
-  it('another designer gets 409 session_owned; an admin may open it', async () => {
+  it('another designer: 404 when she is not on the project (W8.2 H6), 409 session_owned when the drawer shows her the task; an admin may open it', async () => {
     const taskId = await seedTask(f);
     const { session } = await createOrGetSession(f.designer, taskId);
-    await expect(createOrGetSession(f.other, taskId)).rejects.toMatchObject({ statusCode: 409, code: 'session_owned' });
+    // Not on the project: the task is not in her drawer, so its existence is not confirmed.
+    await expect(createOrGetSession(f.other, taskId)).rejects.toMatchObject({ statusCode: 404, code: 'not_found' });
+    // On the project (a second function): the drawer lists the task with its session chip, so 409 tells her nothing new.
+    const fn2 = await prisma.function.create({ data: { name: `dp-${f.tag}-review` } });
+    try {
+      await prisma.projectTeamAssignment.create({ data: { project_id: f.projectId, user_id: f.other.userId, function_id: fn2.id } });
+      await expect(createOrGetSession(f.other, taskId)).rejects.toMatchObject({ statusCode: 409, code: 'session_owned' });
+    } finally {
+      await prisma.projectTeamAssignment.deleteMany({ where: { function_id: fn2.id } });
+      await prisma.function.delete({ where: { id: fn2.id } });
+    }
     const adm = await createOrGetSession(f.admin, taskId);
     expect(adm.session.id).toBe(session.id);
     expect(adm.created).toBe(false);
+  });
+
+  it('W8.2 H2: a designer removed from the project cannot re-open her own live session (404); back on it, she can', async () => {
+    const taskId = await seedTask(f);
+    const { session } = await createOrGetSession(f.designer, taskId);
+    const pta = await prisma.projectTeamAssignment.findFirstOrThrow({ where: { project_id: f.projectId, user_id: f.designer.userId } });
+    await prisma.projectTeamAssignment.delete({ where: { id: pta.id } });
+    try {
+      await expect(createOrGetSession(f.designer, taskId)).rejects.toMatchObject({ statusCode: 404, code: 'not_found' });
+      // An admin is unaffected.
+      expect((await createOrGetSession(f.admin, taskId)).session.id).toBe(session.id);
+    } finally {
+      await prisma.projectTeamAssignment.create({ data: { project_id: f.projectId, user_id: f.designer.userId, function_id: f.functionId } });
+    }
+    const again = await createOrGetSession(f.designer, taskId);
+    expect(again.session.id).toBe(session.id);
+    expect(again.created).toBe(false);
   });
 
   it('a designer not on the project gets 404; kill switch off gives 409 portal_disabled', async () => {

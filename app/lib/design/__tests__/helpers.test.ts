@@ -29,13 +29,15 @@ function userDb(user: { id: string; role: string; is_active: boolean } | null) {
 
 describe('isDesignWorker: email AND lane AND api key', () => {
   const rows: Array<[string, Partial<AuthPayload>, boolean]> = [
-    ['service email + design-worker lane key', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'api_key' }, true],
-    ['service email in upper case', { email: DESIGN_WORKER_SERVICE_EMAIL.toUpperCase(), lane: 'design-worker', via: 'api_key' }, true],
+    ['service email + enforced design-worker lane key', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'api_key', laneEnforced: true }, true],
+    ['service email in upper case', { email: DESIGN_WORKER_SERVICE_EMAIL.toUpperCase(), lane: 'design-worker', via: 'api_key', laneEnforced: true }, true],
+    ['service email + design-worker lane key WITHOUT enforce (W8.2 H3)', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'api_key', laneEnforced: false }, false],
+    ['service email + design-worker lane key, enforce unknown', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'api_key' }, false],
     ['service email, no lane (non-lane key)', { email: DESIGN_WORKER_SERVICE_EMAIL, via: 'api_key' }, false],
     ['service email, another lane', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'oracle', via: 'api_key' }, false],
     ['service email, two lanes on one key', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker,bast', via: 'api_key' }, false],
-    ['service email, stolen session', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'session' }, false],
-    ['other user with the lane', { email: 'bast@becomeindelible.com', lane: 'design-worker', via: 'api_key' }, false],
+    ['service email, stolen session', { email: DESIGN_WORKER_SERVICE_EMAIL, lane: 'design-worker', via: 'session', laneEnforced: true }, false],
+    ['other user with the lane', { email: 'bast@becomeindelible.com', lane: 'design-worker', via: 'api_key', laneEnforced: true }, false],
   ];
   for (const [name, over, expected] of rows) {
     it(`${name} -> ${expected}`, () => expect(isDesignWorker(auth(over))).toBe(expected));

@@ -18,6 +18,9 @@ export const FEED_DEFAULT_LIMIT = 200;
 export const FEED_MAX_LIMIT = 500;
 export const WORKER_EVENT_ROLES = ['assistant', 'tool', 'system'] as const satisfies readonly DesignEventRole[];
 export const DESIGNER_EVENT_KINDS = ['text', 'apply'] as const satisfies readonly DesignEventKind[];
+/** T14 (W8.2 H5): at most 30 designer messages (text or apply) per session per rolling minute; the 31st is 429. */
+export const DESIGNER_MESSAGES_PER_MINUTE = 30;
+export const DESIGNER_MESSAGE_WINDOW_SECONDS = 60;
 /** A designer message is delivered only while the session can take a turn; paused_budget, publishing, stopped and pending hold it. */
 export const DELIVERABLE_STATUSES = ['awaiting_input', 'active'] as const;
 
@@ -57,6 +60,11 @@ export interface AppendDesignerInput {
  * same client_ref is a no-op that returns the first seq (`duplicate: true`). Refused (409 session_closed) on a
  * closed or abandoned session. Stored but held in paused_budget / publishing / stopped / pending: the inbox
  * only returns deliverable statuses.
+ *
+ * Rate limit (T14, W8.2 H5): the session's designer events in the last 60 s are counted in the database under
+ * the same row lock that allocates the seq, so concurrent posts and several app instances see one count; past
+ * 30 the new event is refused with 429 `rate_limited` and nothing is written. A repeat of a stored client_ref
+ * is answered before the count, so a retry of an accepted message never turns into a 429.
  */
 export async function appendDesignerEvent(input: AppendDesignerInput, db: Db = defaultDb): Promise<{ seq: number; duplicate: boolean }> {
   if (!isUuid(input.sessionId)) throw new ApiError('Session not found', 404, 'not_found');
@@ -68,6 +76,11 @@ export async function appendDesignerEvent(input: AppendDesignerInput, db: Db = d
     if (locked[0].status === 'closed' || locked[0].status === 'abandoned') throw new ApiError('This session is closed', 409, 'session_closed');
     const dup = await tx.designEvent.findUnique({ where: { session_id_client_ref: { session_id: input.sessionId, client_ref: input.clientRef } }, select: { seq: true } });
     if (dup) return { seq: dup.seq, duplicate: true };
+    const since = new Date(Date.now() - DESIGNER_MESSAGE_WINDOW_SECONDS * 1000);
+    const recent = await tx.designEvent.count({ where: { session_id: input.sessionId, role: 'designer', created_at: { gt: since } } });
+    if (recent >= DESIGNER_MESSAGES_PER_MINUTE) {
+      throw new ApiError(`At most ${DESIGNER_MESSAGES_PER_MINUTE} messages a minute per session; wait a moment and send again`, 429, 'rate_limited', 'messages_per_minute');
+    }
     const rows = await tx.$queryRaw<{ last_seq: number }[]>`UPDATE design_sessions SET last_seq = last_seq + 1 WHERE id = ${input.sessionId}::uuid RETURNING last_seq`;
     const seq = rows[0].last_seq;
     await tx.designEvent.create({

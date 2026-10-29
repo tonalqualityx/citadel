@@ -42,7 +42,8 @@ export async function GET(request: NextRequest, { params }: IdParams) {
 
     const mainRole = mainRoleFor(session.site_id, state?.site_main_roles);
     const publishDecision = site
-      ? canPublish(actor, session, site, { designer_publish_mode: settings?.designer_publish_mode ?? 'per_site' }, mainRole, { publishRunning: running.length > 0 })
+      ? // loadSessionFor already refused a designer who is not on the session's project (W8.2 H2).
+        canPublish(actor, { ...session, designer_on_project: actor.role === 'designer' }, site, { designer_publish_mode: settings?.designer_publish_mode ?? 'per_site' }, mainRole, { publishRunning: running.length > 0 })
       : ({ ok: false, code: 'site_not_enabled' } as const);
     const own = running.find((p) => p.session_id === session.id);
 

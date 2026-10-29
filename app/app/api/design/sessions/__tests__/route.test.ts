@@ -5,7 +5,7 @@ import { getRequest, jsonRequest, signIn, anonymous, sessionRow, TASK_ID } from 
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
-  prisma: { user: { findUnique: vi.fn() }, designSession: { findMany: vi.fn() }, designPublish: { findMany: vi.fn() } },
+  prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findMany: vi.fn() }, designPublish: { findMany: vi.fn() } },
 }));
 vi.mock('@/lib/design/sessions', async (orig) => ({ ...(await orig<typeof import('@/lib/design/sessions')>()), createOrGetSession: vi.fn() }));
 

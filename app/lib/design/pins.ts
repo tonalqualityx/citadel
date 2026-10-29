@@ -35,7 +35,7 @@ export const pinBodySchema = z.object({
   bbox: z.object({ x: z.number().finite(), y: z.number().finite(), w: z.number().finite().min(0), h: z.number().finite().min(0) }),
   viewport: z.object({ w: z.number().int().min(1).max(10000), h: z.number().int().min(1).max(10000) }),
   note: z.string().max(4000).optional(),
-});
+}).strict(); // unknown top-level fields (status, author_id, session_id, ...) are 400 (W8.2 N8)
 export type PinBody = z.infer<typeof pinBodySchema>;
 
 type SessionLike = Pick<DesignSession, 'id' | 'status'>;
@@ -76,6 +76,7 @@ export const patchPinSchema = z
     status: z.enum(['pending', 'discarded', 'followup']).optional(),
     followup_assign_to_me: z.boolean().optional(),
   })
+  .strict()
   .refine((v) => v.note !== undefined || v.status !== undefined, { message: 'Nothing to change' });
 export type PatchPinBody = z.infer<typeof patchPinSchema>;
 
@@ -135,7 +136,7 @@ export const applyBodySchema = z.object({
   note: z.string().max(4000).optional(),
   files: z.array(z.object({ id: z.string().min(1).max(200), name: z.string().min(1).max(300), mime: z.string().min(1).max(100) })).max(MAX_APPLY_FILES).optional(),
   allow_stale: z.boolean().optional(),
-});
+}).strict();
 export type ApplyBody = z.infer<typeof applyBodySchema>;
 
 export interface PinPacket {

@@ -41,6 +41,7 @@ function session(over: Partial<PolicySession> = {}): PolicySession {
     status: 'awaiting_input',
     head_sha: HEAD,
     publish_precheck: { head_sha: HEAD, gates_ok: true, gates: [{ name: 'library_lint', ok: true }] },
+    designer_on_project: true,
     ...over,
   };
 }
@@ -180,6 +181,20 @@ describe('canPublish: who else, and the state checks', () => {
   it('no copy or code policy: a precheck that lists code files and copy is still publishable', () => {
     const p = { head_sha: HEAD, gates_ok: true, touches_code: ['src/assets/js/parallax.js'], copy_words: 4000, new_hosts: ['evil.example'] };
     expect(canPublish(d, session({ publish_precheck: p }), site(true), defaults, 'production').ok).toBe(true);
+  });
+});
+
+describe('designer rights are current (W8.2 H2)', () => {
+  it('canPublish: her own session, but no longer on its project: 404', () => {
+    expect(canPublish(actor(DESIGNER, 'designer'), session({ designer_on_project: false }), site(true), { designer_publish_mode: 'per_site' }, 'client_preview'))
+      .toMatchObject({ ok: false, status: 404, code: 'not_found' });
+  });
+  it('canRequestPublish: her own session, but no longer on its project: 404', () => {
+    expect(canRequestPublish(actor(DESIGNER, 'designer'), session({ designer_on_project: false }), site(true), { designer_publish_mode: 'off' }, 'client_preview'))
+      .toMatchObject({ ok: false, status: 404, code: 'not_found' });
+  });
+  it('an admin is unaffected by the flag', () => {
+    expect(canPublish(actor(ADMIN, 'admin'), session({ designer_on_project: false }), site(true), { designer_publish_mode: 'per_site' }, 'client_preview').ok).toBe(true);
   });
 });
 
@@ -412,13 +427,35 @@ describe('canRollback (T23)', () => {
   ];
   for (const [name, who, p, l, expected] of cases) {
     it(`${name} -> ${expected === true ? 'allowed' : expected.join(' ')}`, () => {
-      const r = canRollback(who, p, l);
+      const standing = who.role === 'designer' ? { designer: { has_session_access: true, may_publish: true } } : {};
+      const r = canRollback(who, p, l, standing);
       if (expected === true) expect(r).toEqual({ ok: true });
       else expect(r).toMatchObject({ ok: false, status: expected[0], code: expected[1] });
     });
   }
   it('a publish or rollback already running for the site: 409', () => {
     expect(canRollback(actor(ADMIN, 'admin'), pub, latest, { publishRunning: true })).toMatchObject({ code: 'publish_in_progress' });
+  });
+
+  // W8.2 H2, H4 and N4: the "her publish" path is for a CURRENT designer with current access, and follows the switch.
+  it('her publish after she was removed from the project: 404', () => {
+    expect(canRollback(actor(DESIGNER, 'designer'), pub, latest, { designer: { has_session_access: false, may_publish: true } }))
+      .toMatchObject({ ok: false, status: 404, code: 'not_found' });
+  });
+  it('her publish with no standing given: 404 (fail closed)', () => {
+    expect(canRollback(actor(DESIGNER, 'designer'), pub, latest)).toMatchObject({ ok: false, status: 404, code: 'not_found' });
+  });
+  it('her publish after she was demoted to tech: 404', () => {
+    expect(canRollback(actor(TECH, 'tech'), { ...pub, actor_id: TECH }, latest, { designer: { has_session_access: true, may_publish: true } }))
+      .toMatchObject({ ok: false, status: 404, code: 'not_found' });
+  });
+  it('her publish after she was promoted to pm: 403 like any pm', () => {
+    expect(canRollback(actor(PM, 'pm'), { ...pub, actor_id: PM }, latest)).toMatchObject({ ok: false, status: 403, code: 'forbidden' });
+  });
+  it('designer publish switched off for the site: the designer cannot roll back (403), the admin can', () => {
+    expect(canRollback(actor(DESIGNER, 'designer'), pub, latest, { designer: { has_session_access: true, may_publish: false } }))
+      .toMatchObject({ ok: false, status: 403, code: 'designer_publish_off' });
+    expect(canRollback(actor(ADMIN, 'admin'), pub, latest)).toEqual({ ok: true });
   });
   it('latestPublishedQuery orders by finished_at, nulls last', () => {
     expect(latestPublishedQuery('site-1')).toEqual({

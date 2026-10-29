@@ -280,11 +280,28 @@ describe('sessionAccess: role x owner x mode', () => {
 });
 
 describe('loadSessionFor', () => {
-  const row = { id: SESSION, designer_id: DESIGNER, status: 'awaiting_input' };
-  const db = (found: unknown) => ({ designSession: { findUnique: vi.fn().mockResolvedValue(found) } });
+  const row = { id: SESSION, designer_id: DESIGNER, project_id: 'proj-1', status: 'awaiting_input' };
+  const db = (found: unknown, assignment: unknown = { id: 'pta-1' }) => ({
+    designSession: { findUnique: vi.fn().mockResolvedValue(found) },
+    projectTeamAssignment: { findFirst: vi.fn().mockResolvedValue(assignment) },
+  });
 
-  it('owner gets the row', async () => {
-    expect(await loadSessionFor(actor(DESIGNER, 'designer'), SESSION, {}, db(row) as never)).toBe(row);
+  it('owner gets the row, checked against a CURRENT assignment on the session project', async () => {
+    const d = db(row);
+    expect(await loadSessionFor(actor(DESIGNER, 'designer'), SESSION, {}, d as never)).toBe(row);
+    expect(d.projectTeamAssignment.findFirst).toHaveBeenCalledWith({
+      where: { user_id: DESIGNER, project_id: 'proj-1', project: { is_deleted: false } },
+      select: { id: true },
+    });
+  });
+  it('W8.2 H2: owner removed from the project gets 404, for reads and writes', async () => {
+    await expect(loadSessionFor(actor(DESIGNER, 'designer'), SESSION, { mode: 'read' }, db(row, null) as never)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(loadSessionFor(actor(DESIGNER, 'designer'), SESSION, { mode: 'write' }, db(row, null) as never)).rejects.toMatchObject({ statusCode: 404 });
+  });
+  it('W8.2 H2: a session with no project is 404 for a designer (fail closed), fine for an admin', async () => {
+    const orphan = { ...row, project_id: null };
+    await expect(loadSessionFor(actor(DESIGNER, 'designer'), SESSION, {}, db(orphan) as never)).rejects.toMatchObject({ statusCode: 404 });
+    expect(await loadSessionFor(actor('admin-1', 'admin'), SESSION, { mode: 'write' }, db(orphan, null) as never)).toBe(orphan);
   });
   it('malformed id: 404 without a query', async () => {
     const d = db(row);
@@ -311,7 +328,9 @@ describe('loadSessionFor', () => {
 
 describe('list and publish-page access', () => {
   it('mySessionsWhere', () => {
-    expect(mySessionsWhere({ userId: DESIGNER, role: 'designer' })).toEqual({ designer_id: DESIGNER });
+    expect(mySessionsWhere({ userId: DESIGNER, role: 'designer' }, ['p-1'])).toEqual({ designer_id: DESIGNER, project_id: { in: ['p-1'] } });
+    // W8.2 H2: no current projects given, nothing listed (fail closed).
+    expect(mySessionsWhere({ userId: DESIGNER, role: 'designer' })).toEqual({ designer_id: DESIGNER, project_id: { in: [] } });
     expect(mySessionsWhere({ userId: 'a', role: 'admin' })).toEqual({});
     expect(mySessionsWhere({ userId: 'p', role: 'pm' })).toBeNull();
     expect(mySessionsWhere({ userId: 't', role: 'tech' })).toBeNull();

@@ -10,7 +10,7 @@ import { createPublishIntent } from '@/lib/design/publishes';
 import { designActorFrom } from '@/lib/design/helpers';
 import { fakeDb } from '@/lib/design/__tests__/publish-fake-db';
 import {
-  HEAD, HEAD2, IDS, authAs, greenPrecheck, jsonRequest, paramsOf, publishedRow, seedWorld, sessionOf, settingsOf, siteOf, type Who,
+  HEAD, HEAD2, IDS, authAs, greenPrecheck, jsonRequest, paramsOf, publishedRow, seedWorld, sessionOf, settingsOf, siteOf, unassign, type Who,
 } from '@/lib/design/__tests__/publish-scenario';
 import { prisma } from '@/lib/db/prisma';
 
@@ -189,5 +189,26 @@ describe('POST /api/design/publishes/:id/confirm (step 2)', () => {
       fakeDb.store.designPublish.push(publishedRow({ id: '9a000000-0000-4000-8000-000000000009', kind: 'rollback', status: 'queued' }));
       await expectCode(await confirm('designer', '9a000000-0000-4000-8000-000000000009', { confirmation_token: 'x', typed_confirmation: 'main' }), 404);
     });
+  });
+});
+
+describe('W8.2 fixes on the confirm', () => {
+  it('H2: removed from the project between the steps: 404 with the right token, nothing queued', async () => {
+    const i = await intent();
+    unassign(fakeDb, IDS.designer);
+    await expectCode(await confirm('designer', i.publish_id, { confirmation_token: i.confirmation_token, typed_confirmation: 'main' }), 404, 'not_found');
+    expect(rowOf(i.publish_id).status).toBe('awaiting_confirmation');
+    expect(fakeDb.store.designCommand).toHaveLength(0);
+  });
+  it('H2: removed, and a wrong token tells her nothing either (404, not 409)', async () => {
+    const i = await intent();
+    unassign(fakeDb, IDS.designer);
+    await expectCode(await confirm('designer', i.publish_id, { confirmation_token: 'nope', typed_confirmation: 'main' }), 404);
+  });
+  it('N1: a body over 32 KB is 413; N8: an unknown field is 400', async () => {
+    const i = await intent();
+    expect((await confirm('designer', i.publish_id, { confirmation_token: i.confirmation_token, typed_confirmation: 'main', pad: 'x'.repeat(33 * 1024) })).status).toBe(413);
+    expect((await confirm('designer', i.publish_id, { confirmation_token: i.confirmation_token, typed_confirmation: 'main', force: true })).status).toBe(400);
+    expect(rowOf(i.publish_id).status).toBe('awaiting_confirmation');
   });
 });

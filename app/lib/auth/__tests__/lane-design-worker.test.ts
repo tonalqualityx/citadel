@@ -46,6 +46,7 @@ describe('lane design-worker', () => {
     request('PATCH /api/design/worker/sessions/7f1c');
     const auth = await requireAuth();
     expect(auth.lane).toBe('design-worker');
+    expect(auth.laneEnforced).toBe(true);
     expect(isDesignWorker(auth)).toBe(true);
     expect(createViolation).not.toHaveBeenCalled();
   });
@@ -57,13 +58,24 @@ describe('lane design-worker', () => {
     expect(createViolation).toHaveBeenCalledTimes(1);
   });
 
-  it('without the enforce scope the key is still limited: allowed through, but a violation row says it left the lane', async () => {
+  // W8.2 H3: a shadow design-worker key (planted without scope-mode:enforce) never runs in shadow.
+  it('a key planted without the enforce scope is refused (403) on staff routes, and logged as enforced', async () => {
     findKey.mockResolvedValue(key(['lane:design-worker']));
-    request('GET /api/tasks');
+    for (const route of ['GET /api/tasks', 'GET /api/clients', 'GET /api/sites', 'POST /api/tasks']) {
+      createViolation.mockClear();
+      resetKeyViolationThrottle();
+      request(route);
+      await expect(requireAuth()).rejects.toMatchObject({ statusCode: 403 });
+      expect(createViolation).toHaveBeenCalledTimes(1);
+      expect(createViolation.mock.calls[0][0].data).toMatchObject({ lane: 'design-worker', enforced: true });
+    }
+  });
+  it('a key planted without the enforce scope authenticates on a worker route but is not the worker', async () => {
+    findKey.mockResolvedValue(key(['lane:design-worker']));
+    request('GET /api/design/worker/inbox');
     const auth = await requireAuth();
-    expect(auth.lane).toBe('design-worker');
-    expect(createViolation).toHaveBeenCalledTimes(1);
-    expect(createViolation.mock.calls[0][0].data).toMatchObject({ lane: 'design-worker', path: '/api/tasks', enforced: false });
+    expect(auth.laneEnforced).toBe(false);
+    expect(isDesignWorker(auth)).toBe(false); // so requireWorker answers 403
   });
 
   it('the lane list holds exactly the 14 worker routes and nothing else', () => {

@@ -7,6 +7,7 @@ import { toUsd } from '@/lib/design/helpers';
 import { DESIGN_PUBLISH_MODES } from '@/lib/design/publish-policy';
 import { SESSION_DEFAULTS } from '@/lib/design/sessions';
 import { authActor, body, guardMutation, requireAdmin, requireSessionVia } from '@/lib/design/route-kit';
+import { isAllowedDesignModel } from '@/lib/design/models';
 
 type SettingsRow = NonNullable<Awaited<ReturnType<typeof prisma.designPortalSettings.findUnique>>>;
 
@@ -68,7 +69,8 @@ const settingsSchema = z
     designer_raise_cap_usd: money(1000),
     hard_session_cap_usd: money(5000),
     default_monthly_cap_usd: money(100000).nullable(),
-    model: z.string().trim().min(1).max(60).refine((m) => !/fable/i.test(m), { message: 'The Fable model cannot be used for the designer worker' }),
+    // An allowlist (W8.1 H5): opus | sonnet | haiku or their full ids; `best`, `default`, fable and the rest are 400.
+    model: z.string().trim().min(1).max(60).refine(isAllowedDesignModel, { message: 'Use opus, sonnet or haiku, or a full model id such as claude-opus-4-5 (Fable and aliases such as best are refused)' }),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
     idle_close_minutes: z.number().int().min(1).max(240),
     auto_timer_enabled: z.boolean(),
@@ -80,7 +82,7 @@ const settingsSchema = z
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to change' });
 
-// PATCH /api/design/admin/settings (design 7.2): any settings field; model refused if /fable/i.
+// PATCH /api/design/admin/settings (design 7.2): any settings field; model must be on the allowlist (lib/design/models.ts).
 export async function PATCH(request: NextRequest) {
   try {
     const blocked = guardMutation(request);

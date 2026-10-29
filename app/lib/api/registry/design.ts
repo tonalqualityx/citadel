@@ -3,7 +3,9 @@ import type { ApiEndpoint, ParamDef } from './index';
 /**
  * Designer Portal (design section 7): every route under app/api/design/**. Roles are the DB roles the route
  * enforces (designer = own sessions only; pm = read-only where a route allows it). The design worker is a
- * service API key on the design-worker lane (requireWorker), not a user role.
+ * service API key on the design-worker lane (requireWorker), not a user role. Every non-worker route needs a
+ * signed-in session (API keys of any kind get 403), a designer acts only while she is on the session's project
+ * (removed = 404), and designer bodies are strict (an unknown field is 400).
  * The publish lane is two steps: POST publishes/intent (step 1) then POST publishes/:id/confirm (step 2).
  */
 
@@ -194,7 +196,7 @@ const settingsPatchBody: ParamDef[] = [
   { name: 'designer_raise_cap_usd', type: 'number', required: false, description: 'Max a designer may raise one session, 0.01 to 1000 (must not exceed hard_session_cap_usd)' },
   { name: 'hard_session_cap_usd', type: 'number', required: false, description: 'Absolute session cap, 0.01 to 5000' },
   { name: 'default_monthly_cap_usd', type: 'number', required: false, description: 'Default monthly cap per designer, or null' },
-  { name: 'model', type: 'string', required: false, description: 'Worker model name, 1 to 60 chars; any name containing fable is refused' },
+  { name: 'model', type: 'string', required: false, description: 'Worker model: opus, sonnet, haiku or a full id (claude-opus-*, claude-sonnet-*, claude-haiku-*), case-insensitive; anything else (best, default, fable, mythos) is 400' },
   { name: 'effort', type: 'string', required: false, description: 'low | medium | high | xhigh | max' },
   { name: 'idle_close_minutes', type: 'number', required: false, description: 'Idle minutes before auto-close, 1 to 240' },
   { name: 'auto_timer_enabled', type: 'boolean', required: false, description: 'Automatic time tracking while a designer is present' },
@@ -359,7 +361,7 @@ export const designEndpoints: ApiEndpoint[] = [
           { name: 'client_ref', type: 'uuid', required: true, description: 'Client idempotency key' },
           { name: 'text', type: 'string', required: true, description: 'Message text, 1 to 8000 chars' },
         ],
-        responseNotes: 'Returns { seq }. 201 when new, 200 on a repeat.',
+        responseNotes: 'Returns { seq }. 201 when new, 200 on a repeat. 429 rate_limited past 30 designer messages (text or apply) per session per minute.',
       },
     ],
   },
@@ -601,7 +603,7 @@ export const designEndpoints: ApiEndpoint[] = [
         roles: DESIGNER,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Publish id (path)' }],
         bodySchema: [{ name: 'reason', type: 'string', required: false, description: 'Reason, max 500 chars' }],
-        responseNotes: 'Returns 202. pm gets 403; anyone else 404; 409 not_latest when this is not the latest successful publish.',
+        responseNotes: 'Returns 202. pm gets 403; anyone else 404 (including a publisher no longer a designer or no longer on the project); a designer gets 403 designer_publish_off where designer publish is switched off for the site; 409 not_latest when this is not the latest successful publish.',
       },
     ],
   },
@@ -773,7 +775,7 @@ export const designEndpoints: ApiEndpoint[] = [
       },
       {
         method: 'PATCH',
-        summary: 'Update Designer Portal settings. Admin only, signed-in session. Any field may be left out; the model may not mention fable.',
+        summary: 'Update Designer Portal settings. Admin only, signed-in session. Any field may be left out; the model must be opus, sonnet, haiku or a full id of those.',
         auth: 'required',
         roles: ADMIN,
         bodySchema: settingsPatchBody,

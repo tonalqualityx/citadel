@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
-import { mySessionsWhere } from '@/lib/design/access';
+import { assignedProjectIdsFor, mySessionsWhere } from '@/lib/design/access';
 import { projectSession, projectSessionListItem } from '@/lib/design/projections';
 import { createOrGetSession, SESSION_STATUSES } from '@/lib/design/sessions';
 import { authActor, body, guardMutation } from '@/lib/design/route-kit';
@@ -11,7 +11,8 @@ import { authActor, body, guardMutation } from '@/lib/design/route-kit';
 export async function GET(request: NextRequest) {
   try {
     const { actor } = await authActor();
-    const where = mySessionsWhere(actor);
+    // A designer lists her sessions on the projects she is on now (W8.2 H2).
+    const where = mySessionsWhere(actor, actor.role === 'designer' ? await assignedProjectIdsFor(actor.userId) : []);
     if (!where) throw new ApiError('Forbidden', 403, 'forbidden');
     const status = request.nextUrl.searchParams.get('status');
     if (status && !(SESSION_STATUSES as readonly string[]).includes(status)) throw new ApiError('Unknown status', 400, 'bad_status');
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const createSchema = z.object({ task_id: z.string().uuid() });
+const createSchema = z.object({ task_id: z.string().uuid() }).strict();
 
 // POST /api/design/sessions (design 7.1): idempotent per task. 201 new, 200 existing.
 export async function POST(request: NextRequest) {

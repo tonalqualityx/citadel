@@ -36,6 +36,14 @@ export const LANES = [
 ] as const;
 
 export type Lane = (typeof LANES)[number];
+
+/**
+ * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker lane was born enforced: its key
+ * must carry scope-mode:enforce (refused at mint and PATCH, lib/auth/key-scopes.ts), and a key planted without
+ * it is still refused outside the lane instead of running in shadow. The fleet-6 lanes keep shadow mode for
+ * their staged rollout, so they are not listed here.
+ */
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {

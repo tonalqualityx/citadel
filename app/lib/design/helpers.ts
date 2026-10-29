@@ -3,8 +3,9 @@
  *
  * Two identities matter here:
  * - The designer worker (the daemon): service user `designer-worker@indelible.bot` with an API key that
- *   carries exactly the `lane:design-worker` scope. `isDesignWorker()` needs BOTH the email and the lane, so
- *   a stolen session for that user, or a non-lane key minted for it, is not the worker.
+ *   carries exactly the `lane:design-worker` scope plus `scope-mode:enforce`. `isDesignWorker()` needs the
+ *   email, the lane AND the enforce scope on the key, so a stolen session for that user, a non-lane key minted
+ *   for it, or a shadow lane key planted without enforce (W8.2 H3) is not the worker.
  * - A person: design rules use the DATABASE role, never the token's (D1). `requireAuth()` keeps returning
  *   the token's role for everything else; a user demoted to designer mid-token must not keep admin powers on
  *   the design routes, so every design rule takes a `DesignActor` built by `resolveDesignActor()`.
@@ -29,14 +30,15 @@ export function designClaimHolder(taskId: string): string {
   return `${DESIGN_CLAIM_HOLDER_PREFIX}${task8(taskId)}`;
 }
 
-/** The daemon, and only the daemon: the service email AND the design-worker lane (D2). */
-export function isDesignWorker(auth: Pick<AuthPayload, 'email' | 'lane' | 'via'> | null | undefined): boolean {
+/** The daemon, and only the daemon: the service email AND the design-worker lane AND an enforced key (D2, W8.2 H3). */
+export function isDesignWorker(auth: Pick<AuthPayload, 'email' | 'lane' | 'via' | 'laneEnforced'> | null | undefined): boolean {
   if (!auth) return false;
   return (
     auth.via === 'api_key' &&
     typeof auth.email === 'string' &&
     auth.email.toLowerCase() === DESIGN_WORKER_SERVICE_EMAIL &&
-    auth.lane === DESIGN_WORKER_LANE
+    auth.lane === DESIGN_WORKER_LANE &&
+    auth.laneEnforced === true
   );
 }
 

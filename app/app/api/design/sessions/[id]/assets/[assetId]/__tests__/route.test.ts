@@ -3,7 +3,7 @@ import { GET } from '../route';
 import { getRequest, signIn, anonymous, sessionRow, SESSION_ID, OTHER_DESIGNER_ID } from '@/lib/design/__tests__/route-test-kit';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
-vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() }, designAsset: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn() } } }));
+vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() }, designAsset: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn() } } }));
 // Mirrors the real private store: keys must start with portal-private/ or the call throws (s3.ts assertPrivateKey).
 const objects = new Map<string, Buffer>();
 vi.mock('@/lib/services/s3', async (orig) => {

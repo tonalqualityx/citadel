@@ -6,7 +6,7 @@ import { raiseBudget } from '@/lib/design/budget';
 import { projectSession } from '@/lib/design/projections';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
-const budgetSchema = z.object({ budget_usd: z.number().finite().positive().max(100000) });
+const budgetSchema = z.object({ budget_usd: z.number().finite().positive().max(100000) }).strict();
 
 // POST /api/design/sessions/:id/budget (design 7.1): raises only; designer up to her cap, admin up to the hard cap.
 export async function POST(request: NextRequest, { params }: IdParams) {

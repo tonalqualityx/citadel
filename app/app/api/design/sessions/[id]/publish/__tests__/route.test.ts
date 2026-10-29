@@ -10,7 +10,7 @@ import { AuthError } from '@/lib/api/errors';
 import { hashConfirmationToken } from '@/lib/design/publish-policy';
 import { fakeDb } from '@/lib/design/__tests__/publish-fake-db';
 import {
-  HEAD, HEAD2, IDS, authAs, greenPrecheck, jsonRequest, paramsOf, publishedRow, seedWorld, sessionOf, settingsOf, siteOf, type Who,
+  HEAD, HEAD2, IDS, authAs, greenPrecheck, jsonRequest, paramsOf, publishedRow, seedWorld, sessionOf, settingsOf, siteOf, unassign, type Who,
 } from '@/lib/design/__tests__/publish-scenario';
 
 const mockAuth = vi.mocked(requireAuth);
@@ -210,5 +210,27 @@ describe('POST /api/design/sessions/:id/publish (step 1, intent)', () => {
       expect((await res.json()).code).toBe('portal_disabled');
       expect((await call('pm')).status).toBe(403);
     });
+  });
+});
+
+describe('W8.2 fixes on the intent', () => {
+  it('H2: her own session after she was removed from the project: 404, no intent', async () => {
+    unassign(fakeDb, IDS.designer);
+    const res = await call('designer');
+    expect(res.status).toBe(404);
+    expect(intents()).toHaveLength(0);
+  });
+  it('H2: an admin is not affected by the team', async () => {
+    unassign(fakeDb, IDS.designer);
+    expect((await call('admin')).status).toBe(201);
+  });
+  it('N1: a body over 32 KB is 413', async () => {
+    expect((await call('designer', { head_sha: HEAD, pad: 'x'.repeat(33 * 1024) })).status).toBe(413);
+    expect(intents()).toHaveLength(0);
+  });
+  it('N8: unknown fields (force, skip_gates) are 400, not dropped', async () => {
+    expect((await call('designer', { head_sha: HEAD, force: true })).status).toBe(400);
+    expect((await call('designer', { head_sha: HEAD, skip_gates: true })).status).toBe(400);
+    expect(intents()).toHaveLength(0);
   });
 });

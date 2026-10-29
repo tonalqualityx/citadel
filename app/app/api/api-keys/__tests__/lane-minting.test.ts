@@ -86,6 +86,35 @@ describe('POST /api/api-keys lane scopes', () => {
   });
 });
 
+describe('the design-worker lane is born enforced (W8.2 H3)', () => {
+  const WORKER_ID = '0b6e1c2a-2222-4222-8333-444455556666';
+  it('minting lane:design-worker without scope-mode:enforce is 400 and creates nothing', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: WORKER_ID, is_active: true, role: 'tech' });
+    const res = await post({ name: 'designer worker', user_id: WORKER_ID, scopes: ['lane:design-worker'] });
+    expect(res.status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+  it('minting it with scope-mode:enforce is 201', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: WORKER_ID, is_active: true, role: 'tech' });
+    const res = await post({ name: 'designer worker', user_id: WORKER_ID, scopes: ['lane:design-worker', 'scope-mode:enforce'] });
+    expect(res.status).toBe(201);
+    expect((await res.json()).scopes).toEqual(['lane:design-worker', 'scope-mode:enforce']);
+  });
+  it('PATCH cannot drop enforce from a design-worker key (400, nothing updated)', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findKey.mockResolvedValue({ id: 'k-w', user_id: WORKER_ID, is_revoked: false, scopes: ['lane:design-worker', 'scope-mode:enforce'], user: { role: 'tech' } });
+    const res = await patch('k-w', { scopes: ['lane:design-worker'] });
+    expect(res.status).toBe(400);
+    expect(updateKey).not.toHaveBeenCalled();
+  });
+  it('other lanes keep shadow mode for their staged rollout', async () => {
+    auth.mockResolvedValue(ADMIN);
+    expect((await post({ name: 'oracle', scopes: ['lane:oracle'] })).status).toBe(201);
+  });
+});
+
 describe('POST /api/api-keys user_id', () => {
   // Fleet wave B (item 6 finding 4): decisions:admin only on a no-lane key for an admin user.
   it('decisions:admin: allowed on a no-lane key for an admin; refused beside a lane or for a non-admin user', async () => {

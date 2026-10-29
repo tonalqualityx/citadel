@@ -13,6 +13,8 @@ export const SITE_ID = '77777777-7777-4777-8777-777777777777';
 export const PIN_ID = '88888888-8888-4888-8888-888888888888';
 export const CHANGE_ID = '99999999-9999-4999-8999-999999999999';
 export const REF = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+/** The session's project. Mocked prisma files stub projectTeamAssignment with this id (vi.mock factories cannot import it). */
+export const PROJECT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 export type Role = 'designer' | 'admin' | 'pm' | 'tech';
 const IDS: Record<Role, string> = { designer: DESIGNER_ID, admin: ADMIN_ID, pm: PM_ID, tech: '12121212-1212-4212-8212-121212121212' };
@@ -46,7 +48,7 @@ const D = (n: number) => n;
 export function sessionRow(over: Record<string, unknown> = {}) {
   const now = new Date('2026-10-28T12:00:00Z');
   return {
-    id: SESSION_ID, task_id: TASK_ID, site_id: SITE_ID, project_id: null, designer_id: DESIGNER_ID, status: 'awaiting_input',
+    id: SESSION_ID, task_id: TASK_ID, site_id: SITE_ID, project_id: PROJECT_ID, designer_id: DESIGNER_ID, status: 'awaiting_input',
     branch: 'design/66666666', preview_alias: 'design-66666666', worktree_path: '/x', base_sha: 'ba5e1111', head_sha: 'head2222',
     preview_url: 'https://design-66666666.vcdp.pages.dev', preview_deploy_url: null, preview_sha: 'abc1234', sdk_session_id: null,
     model: 'opus', effort: 'high', cost_usd: D(1), budget_usd: D(25), live_text: null, live_action: null, last_seq: 3,
@@ -83,10 +85,29 @@ interface MatrixOpts {
   write: boolean;
   /** Reads: roles that are refused with 403 instead of 404 (default none). */
   pmWrite403?: boolean;
+  /** prisma.projectTeamAssignment.findFirst: lets the matrix take the session's designer off the project. */
+  assignmentFind?: Mock;
 }
 
-/** The cases every session-scoped route owes: 401, another designer 404, pm write 403, cross-site 403. */
+/**
+ * The cases every session-scoped route owes: 401, another designer 404, pm write 403, cross-site 403; and
+ * (W8.2) the session's own designer once removed from the project 404 (H2), an admin API key 403 (H7).
+ */
 export function sessionRouteMatrix(label: string, o: MatrixOpts): void {
+  if (o.assignmentFind) {
+    const assignmentFind = o.assignmentFind;
+    it(`${label}: the session's designer, removed from the project, is 404`, async () => {
+      signIn(o.requireAuth, o.userFind, 'designer');
+      o.arrange();
+      assignmentFind.mockResolvedValueOnce(null);
+      expect((await o.invoke()).status).toBe(404);
+    });
+  }
+  it(`${label}: an admin API key is 403 (designer routes are session-only)`, async () => {
+    signIn(o.requireAuth, o.userFind, 'admin', { via: 'api_key' });
+    o.arrange();
+    expect((await o.invoke()).status).toBe(403);
+  });
   it(`${label}: anonymous is 401`, async () => {
     anonymous(o.requireAuth);
     o.arrange();

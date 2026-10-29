@@ -9,13 +9,15 @@ import { appendDesignerEvent } from './events';
 import { createCommand } from './commands';
 import type { DesignActor } from './helpers';
 
-export const decideChangeSchema = z.object({
-  decision: z.enum(['accepted', 'denied']),
-  note: z.string().max(4000).optional(),
-});
+export const decideChangeSchema = z
+  .object({
+    decision: z.enum(['accepted', 'denied']),
+    note: z.string().max(4000).optional(),
+  })
+  .strict();
 export type DecideChangeBody = z.infer<typeof decideChangeSchema>;
 
-export const restoreSchema = z.object({ to_sha: z.string().regex(/^[0-9a-f]{7,64}$/i, 'to_sha must be a commit sha') });
+export const restoreSchema = z.object({ to_sha: z.string().regex(/^[0-9a-f]{7,64}$/i, 'to_sha must be a commit sha') }).strict();
 
 function assertOpen(session: Pick<DesignSession, 'status'>): void {
   if (session.status === 'closed' || session.status === 'abandoned') throw new ApiError('This session is closed', 409, 'session_closed');

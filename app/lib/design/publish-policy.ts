@@ -14,6 +14,11 @@
  *   Unknown = production (the stronger wording).
  * - A publish is refused only for: red (or unknown) gates on the head, a stale head, a running publish, or a
  *   missing/invalid confirmation; plus the actor rule above and the session being over.
+ * - A designer's rights are CURRENT (W8.2 H2, H4): she acts only on her own session while she is on its
+ *   project now (`designer_on_project`, computed by the caller through access.ts; absent counts as false),
+ *   and only while her DATABASE role is designer. Rollback follows the designer-publish switch too: where an
+ *   admin turned designer publish off, the admin controls live deploys for that site, rollback included
+ *   (Mike's ruling, 2026-10-29); an admin may always roll back.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { displayHost, toUsd, type DesignActor } from './helpers';
@@ -125,6 +130,8 @@ export interface PolicySession {
   status: string;
   head_sha: string | null;
   publish_precheck: unknown;
+  /** The session's designer is on the session's project right now (W8.2 H2). Only read for a designer actor. */
+  designer_on_project: boolean;
 }
 
 export interface PolicySite {
@@ -141,7 +148,7 @@ export interface PolicySettings {
 /** Who may press Publish on this session, before any state check. */
 export function publishActorRule(
   actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
-  session: Pick<PolicySession, 'designer_id'>,
+  session: Pick<PolicySession, 'designer_id' | 'designer_on_project'>,
   site: Pick<PolicySite, 'designer_publish'>,
   settings: PolicySettings,
   mainRole: unknown,
@@ -149,7 +156,7 @@ export function publishActorRule(
   if (actor.via !== 'session') return refuse('session_required', 'Publishing needs a signed-in session');
   if (actor.role === 'admin') return { ok: true, actor_role: 'admin' };
   if (actor.role === 'designer') {
-    if (session.designer_id !== actor.userId) return refuse('not_found', 'Session not found');
+    if (session.designer_id !== actor.userId || session.designer_on_project !== true) return refuse('not_found', 'Session not found');
     if (!designerMayPublish(site, settings, mainRole)) {
       return refuse('designer_publish_off', 'Designer publish is switched off for this site; request a publish instead');
     }
@@ -267,14 +274,14 @@ export function canPublish(
  */
 export function canRequestPublish(
   actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
-  session: Pick<PolicySession, 'designer_id' | 'status'>,
+  session: Pick<PolicySession, 'designer_id' | 'status' | 'designer_on_project'>,
   site: PolicySite,
   settings: PolicySettings,
   mainRole: unknown,
 ): { ok: true } | PolicyRefusal {
   if (actor.via !== 'session') return refuse('session_required', 'Requesting a publish needs a signed-in session');
   if (actor.role === 'pm') return refuse('forbidden', 'A pm cannot request a publish');
-  if (actor.role !== 'admin' && !(actor.role === 'designer' && session.designer_id === actor.userId)) {
+  if (actor.role !== 'admin' && !(actor.role === 'designer' && session.designer_id === actor.userId && session.designer_on_project === true)) {
     return refuse('not_found', 'Session not found');
   }
   if (!site.design_portal_enabled || site.is_deleted) return refuse('site_not_enabled', 'The design portal is not enabled for this site');
@@ -454,21 +461,36 @@ export interface RollbackPublish {
   result_sha: string | null;
 }
 
+/** What the "her publish" rollback path needs to know about a designer actor right now (W8.2 H2, H4, N4). */
+export interface DesignerRollbackStanding {
+  /** She still owns the publish's session and is on its project (access.ts currentSessionAccess). */
+  has_session_access: boolean;
+  /** designerMayPublish() for the site now: the designer-publish switch and mode. */
+  may_publish: boolean;
+}
+
 /**
- * D5 and T23: admin, or that publish's actor (pm 403, anyone else 404); signed-in session only; only a
+ * D5 and T23: admin, or that publish's actor while she is a designer with current access to the session
+ * (pm 403, anyone else 404, including a publisher demoted to tech or removed from the project); a designer
+ * also needs designer publish on for the site (403 designer_publish_off; Mike's ruling: switching designer
+ * publish off hands live deploys, rollback included, to the admin). Signed-in session only; only a
  * `published` publish of kind `publish` that is the site's latest successful publish (`latest`, the newest
  * `published` row of either kind for the site), with the same result_sha. Older ones: 409 not_latest.
+ * `ctx.designer` absent = no access (fail closed).
  */
 export function canRollback(
   actor: Pick<DesignActor, 'userId' | 'role' | 'via'>,
   publish: RollbackPublish,
   latest: { id: string; result_sha: string | null } | null,
-  ctx: { publishRunning?: boolean } = {},
+  ctx: { publishRunning?: boolean; designer?: DesignerRollbackStanding } = {},
 ): { ok: true } | PolicyRefusal {
   if (actor.via !== 'session') return refuse('session_required', 'Rolling back needs a signed-in session');
-  const isActor = publish.actor_id === actor.userId;
-  if (actor.role !== 'admin' && !isActor) {
-    return actor.role === 'pm' ? refuse('forbidden', 'A pm cannot roll back') : refuse('not_found', 'Publish not found');
+  if (actor.role !== 'admin') {
+    const herPublish = actor.role === 'designer' && publish.actor_id === actor.userId && ctx.designer?.has_session_access === true;
+    if (!herPublish) return actor.role === 'pm' ? refuse('forbidden', 'A pm cannot roll back') : refuse('not_found', 'Publish not found');
+    if (ctx.designer?.may_publish !== true) {
+      return refuse('designer_publish_off', 'Designer publish is switched off for this site, so an admin rolls it back');
+    }
   }
   if (publish.kind !== 'publish') return refuse('not_rollbackable', 'A rollback cannot itself be rolled back; restore a version and publish it');
   if (publish.status !== 'published') return refuse('not_published', 'Only a successful publish can be rolled back');

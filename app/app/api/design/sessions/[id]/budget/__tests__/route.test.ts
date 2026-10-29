@@ -4,7 +4,7 @@ import { ApiError } from '@/lib/api/errors';
 import { jsonRequest, paramsOf, signIn, sessionRow, sessionRouteMatrix, SESSION_ID } from '@/lib/design/__tests__/route-test-kit';
 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
-vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, designSession: { findUnique: vi.fn() } } }));
+vi.mock('@/lib/db/prisma', () => ({ prisma: { user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) }, designSession: { findUnique: vi.fn() } } }));
 vi.mock('@/lib/design/budget', async (orig) => ({ ...(await orig<typeof import('@/lib/design/budget')>()), raiseBudget: vi.fn() }));
 
 import { requireAuth } from '@/lib/auth/middleware';
@@ -40,5 +40,13 @@ describe('POST /api/design/sessions/:id/budget', () => {
     for (const b of [{}, { budget_usd: 0 }, { budget_usd: -5 }, { budget_usd: '40' }, { budget_usd: 1e9 }]) expect((await call(b)).status).toBe(400);
     expect((await call(JSON.stringify({ budget_usd: 40, pad: 'x'.repeat(5000) }))).status).toBe(413);
   });
-  sessionRouteMatrix('budget', { invoke: (h) => call({ budget_usd: 40 }, h), requireAuth: auth, userFind, arrange, write: true });
+  sessionRouteMatrix('budget', { invoke: (h) => call({ budget_usd: 40 }, h), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange, write: true });
+});
+
+describe('W8.2 N8 on budget', () => {
+  it('an unknown field is 400, nothing raised', async () => {
+    signIn(auth, userFind, 'designer');
+    expect((await call({ budget_usd: 40, cap_override: true })).status).toBe(400);
+    expect(raise).not.toHaveBeenCalled();
+  });
 });

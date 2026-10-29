@@ -6,7 +6,7 @@ import { jsonRequest, paramsOf, signIn, sessionRow, pinRow, sessionRouteMatrix, 
 vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => {
   const prisma: Record<string, unknown> = {
-    user: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn() }, projectTeamAssignment: { findFirst: vi.fn(async () => ({ id: 'pta-1' })), findMany: vi.fn(async () => [{ project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }]) },
     designSession: { findUnique: vi.fn() },
     designEvent: { findUnique: vi.fn(), findFirst: vi.fn() },
     designPin: { findMany: vi.fn(), updateMany: vi.fn() },
@@ -173,5 +173,13 @@ describe('POST /api/design/sessions/:id/apply', () => {
   it('413 over the body cap', async () => {
     expect((await call(JSON.stringify({ client_ref: REF, pin_ids: [PIN_ID], note: 'x'.repeat(60 * 1024) }))).status).toBe(413);
   });
-  sessionRouteMatrix('apply', { invoke: (h) => call({ client_ref: REF, pin_ids: [PIN_ID] }, h), requireAuth: auth, userFind, arrange, write: true });
+  sessionRouteMatrix('apply', { invoke: (h) => call({ client_ref: REF, pin_ids: [PIN_ID] }, h), requireAuth: auth, userFind, assignmentFind: prisma.projectTeamAssignment.findFirst as Mock, arrange, write: true });
+});
+
+describe('W8.2 N8 on apply', () => {
+  it('an unknown field is 400, nothing appended', async () => {
+    signIn(auth, userFind, 'designer');
+    expect((await call({ client_ref: REF, pin_ids: [PIN_ID], force: true })).status).toBe(400);
+    expect(append).not.toHaveBeenCalled();
+  });
 });

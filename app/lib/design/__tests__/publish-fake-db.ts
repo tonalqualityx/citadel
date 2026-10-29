@@ -12,7 +12,7 @@ type Where = Record<string, unknown>;
 
 const TABLES = [
   'user', 'site', 'task', 'designSession', 'designPortalSettings', 'designWorkerState', 'designPublish', 'designChange',
-  'designCommand', 'designEvent', 'comment', 'taskReceipt', 'notification',
+  'designCommand', 'designEvent', 'comment', 'taskReceipt', 'notification', 'projectTeamAssignment',
 ] as const;
 type Table = (typeof TABLES)[number];
 
@@ -78,6 +78,10 @@ function matchValue(v: unknown, cond: unknown): boolean {
   return true;
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
+}
+
 export function matches(row: Row, where: Where | undefined): boolean {
   if (!where) return true;
   for (const [k, cond] of Object.entries(where)) {
@@ -85,6 +89,9 @@ export function matches(row: Row, where: Where | undefined): boolean {
       if (!(cond as Where[]).every((w) => matches(row, w))) return false;
     } else if (k === 'OR') {
       if (!(cond as Where[]).some((w) => matches(row, w))) return false;
+    } else if (isPlainObject(row[k]) && isPlainObject(cond)) {
+      // A relation filter on an embedded row (projectTeamAssignment.project: { is_deleted: false }).
+      if (!matches(row[k] as Row, cond as Where)) return false;
     } else if (!matchValue(row[k], cond)) return false;
   }
   return true;

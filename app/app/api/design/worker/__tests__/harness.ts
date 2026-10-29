@@ -2,8 +2,10 @@ import { NextRequest } from 'next/server';
 import { DESIGN_WORKER_SERVICE_EMAIL } from '@/lib/design/helpers';
 import type { AuthPayload } from '@/lib/auth/middleware';
 
-/** The daemon: service email + lane key. */
-export const WORKER: AuthPayload = { userId: '00000000-0000-4000-8000-000000000001', email: DESIGN_WORKER_SERVICE_EMAIL, role: 'tech', via: 'api_key', apiKeyId: 'k1', lane: 'design-worker' };
+/** The daemon: service email + enforced lane key. */
+export const WORKER: AuthPayload = { userId: '00000000-0000-4000-8000-000000000001', email: DESIGN_WORKER_SERVICE_EMAIL, role: 'tech', via: 'api_key', apiKeyId: 'k1', lane: 'design-worker', laneEnforced: true };
+/** A shadow lane key (no scope-mode:enforce) planted for the worker user (W8.2 H3). */
+export const WORKER_SHADOW_KEY: AuthPayload = { ...WORKER, laneEnforced: false };
 /** A session cookie for the worker user (no lane). */
 export const WORKER_SESSION: AuthPayload = { ...WORKER, via: 'session', apiKeyId: undefined, lane: undefined };
 /** A non-lane key minted for the worker user. */
@@ -19,6 +21,7 @@ export const NOT_WORKERS: [string, AuthPayload][] = [
   ['a session cookie for the worker user', WORKER_SESSION],
   ['a non-lane key for the worker user', WORKER_NON_LANE_KEY],
   ['another lane key with the worker email', WORKER_WRONG_LANE],
+  ['a shadow lane key (no enforce) for the worker user', WORKER_SHADOW_KEY],
 ];
 
 export function req(method: string, path: string, body?: unknown): NextRequest {

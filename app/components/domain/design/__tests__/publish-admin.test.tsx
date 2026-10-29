@@ -242,6 +242,11 @@ describe('AdminSettings', () => {
     expect(select.value).toBe('per_site');
   });
 
+  it('W8.1 H5: the client mirrors the server allowlist', () => {
+    for (const m of ['best', 'default', 'mythos', 'claude-fable-5-1', 'gpt-5']) expect(modelError(m), m).not.toBeNull();
+    for (const m of ['opus', 'sonnet', 'haiku', 'claude-opus-4-5-20251101']) expect(modelError(m), m).toBeNull();
+    expect(modelError('best')).toMatch(/opus, sonnet or haiku/);
+  });
   it('refuses a fable model client-side and sends nothing', () => {
     expect(modelError('Fable-5')).toMatch(/Fable/);
     wrap(<AdminSettings settings={SETTINGS} canWrite />);

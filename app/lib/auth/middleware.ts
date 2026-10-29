@@ -4,7 +4,7 @@ import { hashApiKey } from './api-keys';
 import { prisma } from '@/lib/db/prisma';
 import { UserRole } from '@prisma/client';
 import { AuthError } from '@/lib/api/errors';
-import { ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader } from './lane-scopes';
+import { ALWAYS_ENFORCED_LANES, ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader } from './lane-scopes';
 import { recordKeyViolation } from './key-violations';
 import { rememberKeyLane } from './actor-lane';
 import { designerMayCallRoute } from './designer-routes';
@@ -12,8 +12,9 @@ import { designerMayCallRoute } from './designer-routes';
 /**
  * What requireAuth returns. `via` says how the caller signed in; API-key callers also carry the key
  * id, and the lane for a lane key. Field names shared with fleet items 2a and 3 (via, apiKeyId).
+ * `laneEnforced` is true when the lane key itself carries scope-mode:enforce (isDesignWorker needs it).
  */
-export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string; lane?: string };
+export type AuthPayload = TokenPayload & { via?: 'session' | 'api_key'; apiKeyId?: string; lane?: string; laneEnforced?: boolean };
 
 /** Routes a lane key may never call, shadow or enforce: key minting and the admin surface. */
 export function laneForbiddenPath(path: string): boolean {
@@ -111,8 +112,10 @@ async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Pr
   const lanes = laneScopesOf(apiKey.scopes);
   const lane = lanes.length > 0 ? lanes.join(',') : undefined;
   rememberKeyLane(keyHash, lane ? lane.slice(0, 40) : null);
+  const keyEnforced = (apiKey.scopes ?? []).includes(ENFORCE_SCOPE);
   if (lane) {
-    const enforced = (apiKey.scopes ?? []).includes(ENFORCE_SCOPE);
+    // W8.2 H3: an always-enforced lane (design-worker) is refused outside its lane even on a shadow key.
+    const enforced = keyEnforced || lanes.some((l) => (ALWAYS_ENFORCED_LANES as readonly string[]).includes(l));
     const route = parseRouteHeader(headerStore.get(ROUTE_HEADER));
     if (!route) {
       recordKeyViolation({
@@ -149,7 +152,7 @@ async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Pr
     role: apiKey.user.role,
     via: 'api_key',
     apiKeyId: apiKey.id,
-    ...(lane ? { lane } : {}),
+    ...(lane ? { lane, laneEnforced: keyEnforced } : {}),
   };
 }
 

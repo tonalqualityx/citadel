@@ -14,7 +14,7 @@ import type { DesignSession, DesignSessionStatus, PrismaClient } from '@prisma/c
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { claimTask, releaseClaim } from '@/lib/tasks/claims';
-import { DRAWER_TASK_SELECT, drawerDecision, DESIGN_TERMINAL_SESSION_STATUSES, type DrawerTask } from './access';
+import { DRAWER_TASK_SELECT, designerOnProject, drawerDecision, DESIGN_TERMINAL_SESSION_STATUSES, type DrawerDecision, type DrawerTask } from './access';
 import { designClaimHolder, isUuid, task8, type DesignActor } from './helpers';
 
 export type SessionActor = 'worker' | 'server';
@@ -136,8 +136,11 @@ export interface CreateOrGetResult {
  * POST /api/design/sessions in one transaction.
  *  - `pg_advisory_xact_lock(hashtext('design-session:'||task_id))` serializes creators, so a double click (or
  *    two tabs) yields one session; the partial unique index is the backstop.
- *  - an existing live session returns as is (created: false) and renews the claim; another designer's live
- *    session is 409 `session_owned` unless the caller is an admin.
+ *  - an existing live session returns as is (created: false) and renews the claim. For a designer that is her
+ *    own session only while she is still on its project (W8.2 H2: 404 once she is removed). Another
+ *    designer's live session is 409 `session_owned` only when the task is in this designer's drawer (she is
+ *    on the project, so the drawer already shows her the task and its session chip); otherwise 404, so task
+ *    ids cannot be probed (W8.2 H6, T10). An admin may open any live session.
  *  - a new session needs: the kill switch on (409 portal_disabled), the task passing the drawer filter for this
  *    caller (404; claimed by someone else is 409 task_claimed), the site served by the box (409
  *    site_not_available), and the task claim (holder `design:<task8>`); the claim is taken inside the
@@ -150,9 +153,29 @@ export async function createOrGetSession(actor: DesignActor, taskId: string, db:
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`design-session:${taskId}`}))`;
     const holder = designClaimHolder(taskId);
 
+    /** The drawer filter for this caller (null when the task does not exist). */
+    const decide = async (): Promise<{ task: DrawerTask; decision: DrawerDecision } | null> => {
+      const task = await tx.task.findUnique({ where: { id: taskId }, select: DRAWER_TASK_SELECT });
+      if (!task) return null;
+      const assigned = actor.role === 'designer'
+        ? (await tx.projectTeamAssignment.findMany({ where: { user_id: actor.userId }, select: { project_id: true } })).map((a) => a.project_id)
+        : [];
+      const state = await tx.designWorkerState.findUnique({ where: { id: 1 }, select: { configured_site_ids: true } });
+      const decision = drawerDecision(task as DrawerTask, { actor, assignedProjectIds: assigned, configuredSiteIds: state?.configured_site_ids ?? [] });
+      return { task: task as DrawerTask, decision };
+    };
+
     const live = await tx.designSession.findFirst({ where: { task_id: taskId, status: { notIn: ['closed', 'abandoned'] } } });
     if (live) {
-      if (actor.role !== 'admin' && live.designer_id !== actor.userId) throw new ApiError('Another designer has this task open', 409, 'session_owned');
+      if (actor.role !== 'admin') {
+        if (live.designer_id === actor.userId) {
+          if (!(await designerOnProject(actor.userId, live.project_id, tx as unknown as Db))) throw new ApiError('Task not found', 404, 'not_found');
+        } else {
+          const seen = await decide();
+          if (!seen?.decision.listed) throw new ApiError('Task not found', 404, 'not_found');
+          throw new ApiError('Another designer has this task open', 409, 'session_owned');
+        }
+      }
       await claimTask({ taskId, holder, ttlSeconds: CLAIM_TTL_SECONDS }, tx as unknown as Db);
       return { session: live, created: false };
     }
@@ -160,13 +183,9 @@ export async function createOrGetSession(actor: DesignActor, taskId: string, db:
     const defaults = await loadSessionDefaults(tx);
     if (!defaults.enabled) throw new ApiError('The designer portal is switched off', 409, 'portal_disabled');
 
-    const task = await tx.task.findUnique({ where: { id: taskId }, select: DRAWER_TASK_SELECT });
-    if (!task) throw new ApiError('Task not found', 404, 'not_found');
-    const assigned = actor.role === 'designer'
-      ? (await tx.projectTeamAssignment.findMany({ where: { user_id: actor.userId }, select: { project_id: true } })).map((a) => a.project_id)
-      : [];
-    const state = await tx.designWorkerState.findUnique({ where: { id: 1 }, select: { configured_site_ids: true } });
-    const decision = drawerDecision(task as DrawerTask, { actor, assignedProjectIds: assigned, configuredSiteIds: state?.configured_site_ids ?? [] });
+    const seen = await decide();
+    if (!seen) throw new ApiError('Task not found', 404, 'not_found');
+    const { task, decision } = seen;
     if (!decision.listed) {
       if (decision.reason === 'claimed_elsewhere') throw new ApiError('Someone else is working on this task', 409, 'task_claimed');
       throw new ApiError('Task not found', 404, 'not_found');

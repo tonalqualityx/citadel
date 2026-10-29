@@ -5,7 +5,7 @@ import { createCommand } from '@/lib/design/commands';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 import { z } from 'zod';
 
-const emptySchema = z.object({}).passthrough();
+const emptySchema = z.object({}).strict();
 
 // POST /api/design/sessions/:id/stop (design 7.1): DesignCommand(stop); idempotent while one is pending. 202.
 export async function POST(request: NextRequest, { params }: IdParams) {

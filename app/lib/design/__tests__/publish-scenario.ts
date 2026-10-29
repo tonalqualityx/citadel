@@ -20,6 +20,8 @@ export const IDS = {
   task2: '70000000-0000-4000-8000-000000000002',
   session: '5e000000-0000-4000-8000-000000000001',
   session2: '5e000000-0000-4000-8000-000000000002',
+  project: '9b000000-0000-4000-8000-000000000001',
+  project2: '9b000000-0000-4000-8000-000000000002',
 } as const;
 
 export const HEAD = 'a'.repeat(40);
@@ -61,13 +63,27 @@ export function seedWorld(db: FakeDb, opts: { mainRole?: 'production' | 'client_
     site_main_roles: role ? { [IDS.site]: role, [IDS.site2]: 'production' } : {},
     site_live_urls: opts.liveUrl ? { [IDS.site]: opts.liveUrl } : {},
   });
-  db.store.designSession.push(sessionRow(IDS.session, IDS.task, IDS.site, IDS.designer), sessionRow(IDS.session2, IDS.task2, IDS.site2, IDS.other));
+  db.store.designSession.push(
+    sessionRow(IDS.session, IDS.task, IDS.site, IDS.designer, IDS.project),
+    sessionRow(IDS.session2, IDS.task2, IDS.site2, IDS.other, IDS.project2),
+  );
+  // Each designer is on her own session's project (W8.2 H2: a designer's rights need a CURRENT assignment).
+  db.store.projectTeamAssignment.push(
+    { id: 'a1000000-0000-4000-8000-000000000001', project_id: IDS.project, user_id: IDS.designer, project: { is_deleted: false } },
+    { id: 'a1000000-0000-4000-8000-000000000002', project_id: IDS.project2, user_id: IDS.other, project: { is_deleted: false } },
+  );
 }
 
-export function sessionRow(id: string, taskId: string, siteId: string, designerId: string) {
+/** Take a user off a project (deletes her ProjectTeamAssignment rows there). */
+export function unassign(db: FakeDb, userId: string, projectId: string = IDS.project) {
+  const rows = db.store.projectTeamAssignment;
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].user_id === userId && rows[i].project_id === projectId) rows.splice(i, 1);
+}
+
+export function sessionRow(id: string, taskId: string, siteId: string, designerId: string, projectId: string | null = IDS.project) {
   const now = new Date();
   return {
-    id, task_id: taskId, site_id: siteId, project_id: null, designer_id: designerId, status: 'awaiting_input',
+    id, task_id: taskId, site_id: siteId, project_id: projectId, designer_id: designerId, status: 'awaiting_input',
     branch: 'design/abcd1234', preview_alias: 'design-abcd1234', worktree_path: null, base_sha: null, head_sha: HEAD,
     preview_url: null, preview_deploy_url: null, preview_sha: HEAD, sdk_session_id: null, model: 'opus', effort: 'high',
     cost_usd: 1.23, budget_usd: 25, live_text: null, live_action: null, last_seq: 0, last_heartbeat_at: null,
