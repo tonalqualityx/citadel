@@ -3,15 +3,19 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { Spinner } from '@/components/ui/spinner';
-import { Workspace } from '@/components/domain/design/Workspace';
+import { Workspace, type UseWorkspaceSlots } from '@/components/domain/design/Workspace';
 import { ChatPanel } from '@/components/domain/design/ChatPanel';
-import { useDesignFeed, useDesignSession } from '@/lib/hooks/use-design';
+import { PublishButton } from '@/components/domain/design/PublishButton';
+import { useWorkspaceTabSlots } from '@/components/domain/design/WorkspaceTabs';
+import { useDesignFeedHistory, useDesignSession, type DesignFeedResponse, type DesignSessionResponse } from '@/lib/hooks/use-design';
 
 export default function DesignSessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const session = useDesignSession(id);
-  // after = the session's last_seq: the header needs status, shas and timer, not the event history (W6.4 owns that).
-  const feed = useDesignFeed(id, { after: session.data?.session.last_seq ?? 0, limit: 1, enabled: !!session.data });
+  // One poll: ChatPanel reads the same query (same key); the header, publish button and tabs use its latest response.
+  const history = useDesignFeedHistory(id, { enabled: !!session.data });
+  const feed = history.data?.latest;
+  const events = history.data?.state.events;
 
   if (session.isLoading) return <Spinner />;
   if (session.error || !session.data) {
@@ -22,19 +26,32 @@ export default function DesignSessionPage({ params }: { params: Promise<{ id: st
       </div>
     );
   }
-  return <Workspace
-      data={session.data}
-      feed={feed.data}
+  return (
+    <SessionWorkspace id={id} data={session.data} feed={feed} events={events} />
+  );
+}
+
+function SessionWorkspace({ id, data, feed, events }: { id: string; data: DesignSessionResponse; feed: DesignFeedResponse | undefined; events: DesignFeedResponse['events'] | undefined }) {
+  // The tabs share the bridge Workspace owns, so a pin draft from the frame reaches the tray.
+  const useSlots: UseWorkspaceSlots = ({ bridge }) =>
+    useWorkspaceTabSlots({ sessionId: id, data, feed, events, bridge });
+  return (
+    <Workspace
+      data={data}
+      feed={feed}
+      useSlots={useSlots}
       slots={{
         chat: (
           <ChatPanel
             sessionId={id}
-            initialStatus={session.data.session.status}
-            initialCost={session.data.session.cost_usd}
-            initialBudget={session.data.session.budget_usd}
-            createdAt={typeof session.data.session.created_at === 'string' ? session.data.session.created_at : null}
+            initialStatus={data.session.status}
+            initialCost={data.session.cost_usd}
+            initialBudget={data.session.budget_usd}
+            createdAt={typeof data.session.created_at === 'string' ? data.session.created_at : null}
           />
         ),
+        publishButton: <PublishButton sessionId={id} feed={feed} />,
       }}
-    />;
+    />
+  );
 }

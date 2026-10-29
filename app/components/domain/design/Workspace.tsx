@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useDesignBridge } from '@/lib/hooks/use-design-bridge';
+import { useDesignBridge, type UseDesignBridgeResult } from '@/lib/hooks/use-design-bridge';
 import { previewOriginOf } from '@/lib/design/bridge';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
 import { PreviewPane } from './PreviewPane';
@@ -55,13 +55,19 @@ export interface WorkspaceSlots {
   publishButton?: React.ReactNode;
 }
 
+/** Called once per render inside Workspace with the one bridge instance, so tab slots can share its drafts. */
+export type UseWorkspaceSlots = (ctx: { bridge: UseDesignBridgeResult }) => WorkspaceSlots;
+const useNoSlots: UseWorkspaceSlots = () => ({});
+
 export interface WorkspaceProps {
   data: DesignSessionResponse;
   feed: DesignFeedResponse | undefined;
   slots?: WorkspaceSlots;
+  /** A hook (stable identity) that builds more slots from the bridge; explicit `slots` win. */
+  useSlots?: UseWorkspaceSlots;
 }
 
-export function Workspace({ data, feed, slots = {} }: WorkspaceProps) {
+export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNoSlots }: WorkspaceProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   // The feed is fresher than the one-shot session load for these fields.
   const status = feed?.status ?? data.session.status;
@@ -70,6 +76,7 @@ export function Workspace({ data, feed, slots = {} }: WorkspaceProps) {
   const headSha = feed ? feed.head_sha : data.session.head_sha;
 
   const bridge = useDesignBridge({ iframeRef, previewUrl });
+  const slots: WorkspaceSlots = { ...useSlots({ bridge }), ...givenSlots };
   const state = previewState({ preview_url: previewUrl, preview_sha: previewSha, head_sha: headSha });
   const safeLink = previewOriginOf(previewUrl) ? previewUrl : null;
 

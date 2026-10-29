@@ -62,6 +62,7 @@ const pinExample = {
   bbox: { x: 'number', y: 'number', w: 'number', h: 'number' },
   viewport_width: 'number',
   viewport_height: 'number|null',
+  blast_radius: { pages: 'number', sample: 'string[] (<=5 page paths)' },
   preview_sha: 'string|null',
   crop_asset_id: 'uuid|null',
   apply_event_seq: 'number|null',
@@ -155,7 +156,7 @@ const workerSessionExample = {
 };
 
 const feedExample = {
-  events: [{ seq: 'number', role: 'designer|assistant|tool|system', kind: 'text|apply|thought|action|result|screenshot|gate|cost|plan|status|followup|client_files|change|publish', payload: 'object', created_at: 'ISO-8601' }],
+  events: [{ seq: 'number', role: 'designer|assistant|tool|system', kind: 'text|apply|thought|action|result|screenshot|gate|cost|plan|status|followup|client_files|change|publish (lib_index events are not listed)', payload: 'object', created_at: 'ISO-8601' }],
   live: { text: 'string|null', action: 'string|null' },
   status: 'string',
   stale: 'boolean',
@@ -172,6 +173,7 @@ const feedExample = {
   preview_url: 'string|null',
   preview_sha: 'string|null',
   head_sha: 'string|null',
+  lib_index_sha: 'string|null',
   last_heartbeat_at: 'ISO-8601|null',
   next_poll_ms: 'number',
   last_seq: 'number',
@@ -793,6 +795,30 @@ export const designEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/design/admin/sites',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Every live site with its design switches (design_portal_enabled, designer_publish, design_auto_timer), the effective designer-publish verdict and the site main_role. Admin and pm; signed-in session only.',
+        auth: 'required',
+        roles: ADMIN_PM,
+        responseExample: {
+          sites: [{
+            id: 'uuid',
+            name: 'string',
+            url: 'string|null',
+            design_portal_enabled: 'boolean',
+            designer_publish: 'boolean',
+            design_auto_timer: 'boolean',
+            effective_designer_publish: 'boolean',
+            main_role: 'client_preview|production',
+          }],
+        },
+      },
+    ],
+  },
+  {
     path: '/api/design/admin/sites/:id',
     group: 'design',
     methods: [
@@ -1046,7 +1072,7 @@ export const designEndpoints: ApiEndpoint[] = [
         queryParams: [sessionIdParam],
         bodySchema: [
           { name: 'acks', type: 'number', required: false, description: 'Designer event seq numbers the worker has delivered (max 500)' },
-          { name: 'events', type: 'object', required: false, description: 'Events [{role: assistant|tool|system, kind, payload, turn?}]; kind is one of text, thought, action, result, screenshot, gate, cost, plan, status, followup, client_files, change, publish' },
+          { name: 'events', type: 'object', required: false, description: 'Events [{role: assistant|tool|system, kind, payload, turn?}]; kind is one of text, thought, action, result, screenshot, gate, cost, plan, status, followup, client_files, change, publish, lib_index ({sha, index:{<data_lib>:{pages, sample[<=5]}}, truncated?})' },
         ],
         responseExample: { last_seq: 'number' },
         responseNotes: 'Body up to 4 MB. 413 when a batch exceeds the per-post cap.',
