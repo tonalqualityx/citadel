@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { DesignAsset } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { isUuid } from '@/lib/design/helpers';
 import { authActor } from '@/lib/design/route-kit';
-import { getPrivate } from '@/lib/services/private-storage';
+import { readAsset } from '@/lib/design/assets';
 
 // GET /api/design/sessions/:id/assets/:assetId (design 7.1): bytes from private storage. The asset must belong
 // to the session; anyone who may not see the session gets 404. Text is served as text/plain only.
@@ -14,11 +15,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const { id, assetId } = await params;
     const session = await loadSessionFor(actor, id, { mode: 'read' });
     if (!isUuid(assetId)) throw new ApiError('Asset not found', 404, 'not_found');
-    const asset = await prisma.designAsset.findFirst({ where: { id: assetId, session_id: session.id } });
-    if (!asset) throw new ApiError('Asset not found', 404, 'not_found');
+    let asset: DesignAsset;
     let bytes: Buffer;
     try {
-      bytes = await getPrivate(asset.storage_key);
+      ({ asset, bytes } = await readAsset(session.id, assetId, prisma));
     } catch {
       throw new ApiError('Asset not found', 404, 'not_found');
     }
