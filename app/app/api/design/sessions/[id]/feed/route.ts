@@ -4,7 +4,7 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { feed, hasUndelivered, FEED_DEFAULT_LIMIT, FEED_MAX_LIMIT } from '@/lib/design/events';
 import { canPublish, mainRoleFor } from '@/lib/design/publish-policy';
-import { projectFeed } from '@/lib/design/projections';
+import { latestLibIndex, projectFeed } from '@/lib/design/projections';
 import { onPresence } from '@/lib/design/presence';
 import { authActor, type IdParams } from '@/lib/design/route-kit';
 
@@ -30,13 +30,14 @@ export async function GET(request: NextRequest, { params }: IdParams) {
     // W2.7 hook: keeps the automatic timer alive on visible polls (no-op until then).
     const timer = await onPresence(session, visible, actor);
 
-    const [page, site, settings, state, running, undelivered] = await Promise.all([
+    const [page, site, settings, state, running, undelivered, libIndexEvent] = await Promise.all([
       feed(session.id, { after, limit }),
       prisma.site.findUnique({ where: { id: session.site_id }, select: { id: true, design_portal_enabled: true, designer_publish: true, is_deleted: true } }),
       prisma.designPortalSettings.findUnique({ where: { id: 1 }, select: { designer_publish_mode: true } }),
       prisma.designWorkerState.findUnique({ where: { id: 1 }, select: { site_main_roles: true } }),
       prisma.designPublish.findMany({ where: { site_id: session.site_id, status: { in: ['queued', 'running'] } }, select: { id: true, session_id: true } }),
       hasUndelivered(session.id),
+      prisma.designEvent.findFirst({ where: { session_id: session.id, kind: 'lib_index' }, orderBy: { seq: 'desc' }, select: { payload: true } }),
     ]);
 
     const mainRole = mainRoleFor(session.site_id, state?.site_main_roles);
@@ -47,7 +48,9 @@ export async function GET(request: NextRequest, { params }: IdParams) {
 
     const projected = projectFeed({
       session,
-      events: page.events,
+      // lib_index events carry the whole index; the UI gets the sha, not the payload.
+      events: page.events.filter((e) => e.kind !== 'lib_index'),
+      libIndexSha: latestLibIndex(libIndexEvent?.payload)?.sha ?? null,
       publishDecision: publishDecision.ok ? { ok: true } : { ok: false, code: publishDecision.code },
       mainRole,
       runningPublishId: own?.id ?? null,

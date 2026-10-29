@@ -13,6 +13,7 @@ vi.mock('@/lib/db/prisma', () => ({
     designPin: { findMany: vi.fn() },
     designChange: { findMany: vi.fn() },
     designWorkerState: { findUnique: vi.fn() },
+    designEvent: { findFirst: vi.fn() },
   },
 }));
 vi.mock('@/lib/design/presence', () => ({ onPresence: vi.fn().mockResolvedValue(null) }));
@@ -33,6 +34,7 @@ function arrange() {
   (prisma.designPin.findMany as Mock).mockResolvedValue([pinRow()]);
   (prisma.designChange.findMany as Mock).mockResolvedValue([]);
   (prisma.designWorkerState.findUnique as Mock).mockResolvedValue({ last_heartbeat_at: new Date(), paused: false });
+  (prisma.designEvent.findFirst as Mock).mockResolvedValue(null);
 }
 beforeEach(() => { vi.clearAllMocks(); arrange(); });
 
@@ -49,6 +51,15 @@ describe('GET /api/design/sessions/:id', () => {
     expect(json.worker).toMatchObject({ online: true, paused: false });
     expect(findForbiddenKeys(json)).toEqual([]);
     expect(onPresence).toHaveBeenCalledWith(expect.objectContaining({ id: SESSION_ID }), true, expect.objectContaining({ role: 'designer' }));
+  });
+  it('attaches blast_radius from the latest lib_index event; null with no event', async () => {
+    signIn(auth, userFind, 'designer');
+    expect((await (await call()).json()).pins[0].blast_radius).toBeNull();
+    (prisma.designEvent.findFirst as Mock).mockResolvedValue({ payload: { sha: 'abc1234', index: { hero: { pages: 3, sample: ['/', '/about/'] } } } });
+    const json = await (await call()).json();
+    expect(json.pins[0].blast_radius).toEqual({ pages: 3, sample: ['/', '/about/'] });
+    expect((prisma.designEvent.findFirst as Mock).mock.calls[1][0]).toMatchObject({ where: { session_id: SESSION_ID, kind: 'lib_index' }, orderBy: { seq: 'desc' } });
+    expect(findForbiddenKeys(json)).toEqual([]);
   });
   it('hides discarded pins', async () => {
     signIn(auth, userFind, 'designer');

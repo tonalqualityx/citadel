@@ -11,6 +11,7 @@ import {
   projectDrawer,
   projectFeed,
   projectPin,
+  latestLibIndex,
   projectPublishPage,
   projectSession,
   projectSessionListItem,
@@ -173,6 +174,23 @@ describe('session projections', () => {
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(sorted(out.last_publish!)).toEqual(['finished_at', 'id', 'status']);
   });
+  it('pin blast_radius: known data_lib gets {pages, sample}, unknown or no index gets null', () => {
+    const base = {
+      id: 'p', status: 'pending', note: '', page_path: '/', data_lib: 'hero', lib_stack: ['hero'], data_shape: null,
+      selector: 'main', tag: 'section', classes: [], text_quote: null, bbox: null, viewport_width: 390,
+      viewport_height: 844, preview_sha: 'abc', crop_asset_id: null, apply_event_seq: null, followup_task_id: null, created_at: NOW, updated_at: NOW,
+    };
+    const li = latestLibIndex({ sha: 'abc1234', index: { hero: { pages: 4, sample: ['/', '/a/', 1, '/b/', '/c/', '/d/', '/e/'] }, junk: 'x', neg: { pages: -1 } } });
+    expect(li).toEqual({ sha: 'abc1234', truncated: false, index: { hero: { pages: 4, sample: ['/', '/a/', '/b/', '/c/', '/d/'] } } });
+    expect(projectPin(base as never, li).blast_radius).toEqual({ pages: 4, sample: ['/', '/a/', '/b/', '/c/', '/d/'] });
+    expect(projectPin({ ...base, data_lib: 'footer' } as never, li).blast_radius).toBeNull();
+    expect(projectPin({ ...base, data_lib: 'constructor' } as never, li).blast_radius).toBeNull();
+    expect(projectPin({ ...base, data_lib: null } as never, li).blast_radius).toBeNull();
+    expect(projectPin(base as never).blast_radius).toBeNull();
+    expect(latestLibIndex({ sha: 'x' })).toBeNull();
+    expect(latestLibIndex(null)).toBeNull();
+    expect(findForbiddenKeys(projectPin(base as never, li))).toEqual([]);
+  });
   it('pin and change', () => {
     const pin = projectPin({
       ...LEAK, author_id: 'x', id: 'p', status: 'pending', note: '', page_path: '/', data_lib: 'hero', lib_stack: ['hero'], data_shape: null,
@@ -204,7 +222,7 @@ describe('feed projection', () => {
       now: NOW,
     });
     expect(sorted(out)).toEqual([
-      'budget_usd', 'cost_usd', 'events', 'head_sha', 'last_heartbeat_at', 'live', 'next_poll_ms', 'preview_sha', 'preview_url', 'publish', 'stale', 'status', 'timer',
+      'budget_usd', 'cost_usd', 'events', 'head_sha', 'last_heartbeat_at', 'lib_index_sha', 'live', 'next_poll_ms', 'preview_sha', 'preview_url', 'publish', 'stale', 'status', 'timer',
     ]);
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(sorted(out.events[0])).toEqual(['created_at', 'kind', 'payload', 'role', 'seq']);

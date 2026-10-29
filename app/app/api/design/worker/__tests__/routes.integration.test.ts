@@ -150,6 +150,13 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       expect((await post({ events: [{ role: 'tool', kind: 'result', payload: { big: 'x'.repeat(33 * 1024) } }] })).status).toBe(413);
       expect((await post({ events: [{ role: 'designer', kind: 'text', payload: {} }] })).status).toBe(400);
     });
+    it('accepts a lib_index event (W6.10) and stores it', async () => {
+      const post = (body: object) => events.POST(req('POST', `${P}/sessions/${sid}/events`, body), set(sid));
+      const payload = { sha: 'abc1234', index: { hero: { pages: 3, sample: ['/', '/about/'] } } };
+      expect((await post({ events: [{ role: 'tool', kind: 'lib_index', payload }] })).status).toBe(200);
+      const row = await prisma.designEvent.findFirstOrThrow({ where: { session_id: sid, kind: 'lib_index' }, orderBy: { seq: 'desc' } });
+      expect(row.payload).toEqual(payload);
+    });
   });
 
   describe('assets', () => {

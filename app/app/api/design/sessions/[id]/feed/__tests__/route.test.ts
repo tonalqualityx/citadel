@@ -12,6 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
     designPortalSettings: { findUnique: vi.fn() },
     designWorkerState: { findUnique: vi.fn() },
     designPublish: { findMany: vi.fn() },
+    designEvent: { findFirst: vi.fn() },
   },
 }));
 vi.mock('@/lib/design/presence', () => ({ onPresence: vi.fn().mockResolvedValue({ running: true, elapsed_s: 125 }) }));
@@ -40,10 +41,20 @@ function arrange(over: Record<string, unknown> = {}) {
   (prisma.designPortalSettings.findUnique as Mock).mockResolvedValue({ designer_publish_mode: 'per_site' });
   (prisma.designWorkerState.findUnique as Mock).mockResolvedValue({ site_main_roles: { [SITE_ID]: 'client_preview' } });
   (prisma.designPublish.findMany as Mock).mockResolvedValue([]);
+  (prisma.designEvent.findFirst as Mock).mockResolvedValue(null);
 }
 beforeEach(() => { vi.clearAllMocks(); arrange(); (onPresence as Mock).mockResolvedValue({ running: true, elapsed_s: 125 }); });
 
 describe('GET /api/design/sessions/:id/feed', () => {
+  it('lib_index events are hidden from the events list; the latest sha is exposed', async () => {
+    signIn(auth, userFind, 'designer');
+    feedMock.mockResolvedValue({ events: [ev(4), { ...ev(5), kind: 'lib_index', payload: { sha: 'abc1234', index: {} } }], last_seq: 5, has_more: false });
+    (prisma.designEvent.findFirst as Mock).mockResolvedValue({ payload: { sha: 'abc1234', index: {} } });
+    const json = await (await call()).json();
+    expect(json.events.map((e: { seq: number }) => e.seq)).toEqual([4]);
+    expect(json.last_seq).toBe(5);
+    expect(json.lib_index_sha).toBe('abc1234');
+  });
   it('returns events, live line, publish state, timer and the next poll interval', async () => {
     signIn(auth, userFind, 'designer');
     const res = await call('?after=3&visible=1');

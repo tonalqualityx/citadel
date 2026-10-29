@@ -276,18 +276,50 @@ export function projectSessionTask(t: { id: string; title: string; description: 
   return { id: t.id, title: t.title, description: t.description, requirements: t.requirements ?? null };
 }
 
+/** The `lib_index` event payload as the projections read it: {sha, index:{<data_lib>:{pages, sample}}}. */
+export interface LibIndexView {
+  sha: string | null;
+  index: Record<string, { pages: number; sample: string[] }>;
+  truncated: boolean;
+}
+
+/** Defensive parse of the latest `lib_index` event payload (worker-written, so never trusted). Null when unusable. */
+export function latestLibIndex(raw: unknown): LibIndexView | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const idx = r.index;
+  if (!idx || typeof idx !== 'object' || Array.isArray(idx)) return null;
+  const index: LibIndexView['index'] = {};
+  for (const [lib, v] of Object.entries(idx as Record<string, unknown>)) {
+    if (!v || typeof v !== 'object') continue;
+    const e = v as Record<string, unknown>;
+    if (typeof e.pages !== 'number' || !Number.isFinite(e.pages) || e.pages < 0) continue;
+    const sample = Array.isArray(e.sample) ? e.sample.filter((s): s is string => typeof s === 'string').slice(0, 5) : [];
+    index[lib] = { pages: Math.trunc(e.pages), sample };
+  }
+  return { sha: typeof r.sha === 'string' ? r.sha : null, index, truncated: r.truncated === true };
+}
+
+/** `{pages, sample}` for a pin's data-lib, or null when the index is missing or has no entry for it. */
+export function blastRadiusFor(libIndex: LibIndexView | null | undefined, dataLib: string | null): { pages: number; sample: string[] } | null {
+  if (!libIndex || !dataLib) return null;
+  const e = Object.prototype.hasOwnProperty.call(libIndex.index, dataLib) ? libIndex.index[dataLib] : undefined;
+  return e ? { pages: e.pages, sample: e.sample } : null;
+}
+
 export function projectPin(p: {
   id: string; status: string; note: string; page_path: string; data_lib: string | null; lib_stack: string[];
   data_shape: string | null; selector: string; tag: string | null; classes: string[]; text_quote: string | null;
   bbox: unknown; viewport_width: number; viewport_height: number | null; preview_sha: string | null;
   crop_asset_id: string | null; apply_event_seq: number | null; followup_task_id: string | null;
   created_at: Date; updated_at: Date;
-}) {
+}, libIndex?: LibIndexView | null) {
   return {
     id: p.id, status: p.status, note: p.note, page_path: p.page_path, data_lib: p.data_lib, lib_stack: p.lib_stack,
     data_shape: p.data_shape, selector: p.selector, tag: p.tag, classes: p.classes, text_quote: p.text_quote,
     bbox: p.bbox, viewport_width: p.viewport_width, viewport_height: p.viewport_height, preview_sha: p.preview_sha,
     crop_asset_id: p.crop_asset_id, apply_event_seq: p.apply_event_seq, followup_task_id: p.followup_task_id,
+    blast_radius: blastRadiusFor(libIndex, p.data_lib),
     created_at: p.created_at, updated_at: p.updated_at,
   };
 }
@@ -351,6 +383,8 @@ export interface FeedInput {
   timer?: { running: boolean; elapsed_s: number } | null;
   /** A designer event not yet delivered to the worker (keeps the fast poll). */
   hasUndelivered?: boolean;
+  /** sha of the latest lib_index event (null/absent = none yet); lets the UI tell a stale blast radius. */
+  libIndexSha?: string | null;
   now?: Date;
 }
 
@@ -376,6 +410,7 @@ export function projectFeed(input: FeedInput) {
     preview_url: s.preview_url,
     preview_sha: s.preview_sha,
     head_sha: s.head_sha,
+    lib_index_sha: input.libIndexSha ?? null,
     last_heartbeat_at: s.last_heartbeat_at,
     next_poll_ms: fast ? FEED_POLL_ACTIVE_MS : FEED_POLL_IDLE_MS,
   };

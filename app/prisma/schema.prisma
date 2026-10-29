@@ -4428,6 +4428,7 @@ enum DesignEventKind {
   client_files // D11: the client folder listing to depth 2 {folder_id, items:[{id, name, mime, modified, path}]} (replaced on refresh)
   change // a DesignChange was recorded: {change_id}
   publish // publish/rollback progress and result: {publish_id, kind, status, summary}
+  lib_index // W6.10 blast radius per data-lib from the last preview build: {sha, index:{<data_lib>:{pages, sample[]}}, truncated?}; never shown in the feed
 }
 
 enum DesignPinStatus {
