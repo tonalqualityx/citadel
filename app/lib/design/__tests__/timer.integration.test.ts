@@ -20,8 +20,10 @@ describe.skipIf(!SCRATCH)('automatic task timer (real database)', () => {
   afterAll(async () => {
     const ids = [f.designer.userId, f.admin.userId, f.other.userId];
     await prisma.designSession.updateMany({ where: { site_id: f.siteId }, data: { timer_entry_id: null } });
-    await teardownDesign({ ...f, taskIds: f.taskIds }).catch(() => undefined);
+    // Time entries first: they reference the fixture's users and tasks, so teardownDesign cannot delete those while
+    // they exist (it used to run first, fail on the foreign key, and leak two designers and an admin into the database).
     await prisma.timeEntry.deleteMany({ where: { user_id: { in: ids } } });
+    await teardownDesign({ ...f, taskIds: f.taskIds });
     await prisma.$disconnect();
   });
 
