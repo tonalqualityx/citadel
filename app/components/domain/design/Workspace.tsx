@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ChatDock } from './ChatDock';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDesignBridge, type UseDesignBridgeResult } from '@/lib/hooks/use-design-bridge';
 import { previewOriginOf } from '@/lib/design/bridge';
@@ -65,9 +66,11 @@ export interface WorkspaceProps {
   slots?: WorkspaceSlots;
   /** A hook (stable identity) that builds more slots from the bridge; explicit `slots` win. */
   useSlots?: UseWorkspaceSlots;
+  /** All feed events seen so far (the merged list); drives the unread count on the collapsed chat. Defaults to feed.events. */
+  events?: DesignFeedResponse['events'];
 }
 
-export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNoSlots }: WorkspaceProps) {
+export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNoSlots, events }: WorkspaceProps) {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   // The feed is fresher than the one-shot session load for these fields.
   const status = feed?.status ?? data.session.status;
@@ -119,8 +122,8 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
         </div>
       </header>
 
-      <div data-testid="workspace-grid" className="grid min-h-[70vh] gap-4 min-[1100px]:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,400px)]">
-        <section aria-label="Preview" className="min-w-0">
+      <div data-testid="workspace-stage" className="relative h-[calc(100dvh-11rem)] min-h-[560px] min-w-0">
+        <section aria-label="Preview" className="h-full min-w-0">
           <PreviewPane
             previewUrl={previewUrl}
             status={status}
@@ -132,11 +135,16 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             onViewChange={onViewChange}
           />
         </section>
-        <aside aria-label="Session panels" className="min-w-0 rounded-lg border border-border-warm bg-surface p-3">
+        <ChatDock
+          events={events ?? feed?.events}
+          busy={status === 'active' || !!feed?.live.text || !!feed?.live.action}
+          selectionCount={bridge.drafts?.length ?? 0}
+          selectMode={bridge.selectMode}
+        >
           <Tabs defaultValue="chat">
-            <TabsList className="h-auto w-full flex-wrap justify-start">
+            <TabsList className="h-auto w-full flex-nowrap justify-start gap-0.5 overflow-x-auto">
               {WORKSPACE_TABS.map((t) => (
-                <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>
+                <TabsTrigger key={t.id} value={t.id} className="px-2.5">{t.label}</TabsTrigger>
               ))}
             </TabsList>
             {WORKSPACE_TABS.map((t) => (
@@ -147,7 +155,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
               </TabsContent>
             ))}
           </Tabs>
-        </aside>
+        </ChatDock>
       </div>
     </div>
   );

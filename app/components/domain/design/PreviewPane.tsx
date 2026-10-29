@@ -5,6 +5,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils/cn';
 import { parsePreviewInput, resolvePreviewUrl } from '@/lib/design/preview-path';
+import { computeViewportScale } from '@/lib/design/viewport-scale';
 import { ViewportSwitcher, viewportWidth, VIEWPORTS, type ViewportKey } from './ViewportSwitcher';
 
 /** Exactly D7: scripts and same-origin for the overlay; no forms, no top navigation, no popups. */
@@ -59,6 +60,25 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
     ro.observe(el);
     return () => ro.disconnect();
   });
+  // The frame area: the iframe fills it, at the true selected width, scaled down when the area is narrower.
+  const areaRef = React.useRef<HTMLDivElement | null>(null);
+  const [area, setArea] = React.useState({ w: 0, h: 0 });
+  React.useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = Math.floor(el.clientWidth);
+      const h = Math.floor(el.clientHeight);
+      setArea((p) => (p.w === w && p.h === h ? p : { w, h }));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  const selectedWidth = VIEWPORTS.find((v) => v.key === viewport)?.width ?? null;
+  const vs = computeViewportScale(area.w, selectedWidth);
   const currentPath = reportedPath || framePath;
   const currentWidth = VIEWPORTS.find((v) => v.key === viewport)?.width ?? fitWidth;
   const viewRef = React.useRef(onViewChange);
@@ -154,16 +174,22 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
           Select
         </Button>
         <ViewportSwitcher value={viewport} onChange={setViewport} />
+        {vs.scaled && (
+          <span data-testid="scale-badge" className="rounded-md border border-border-warm bg-surface px-2 py-1 text-xs text-text-sub" title={`The page lays out at the true ${vs.layoutWidth}px and is shown smaller to fit`}>
+            Scaled to {vs.percent}%
+          </span>
+        )}
       </div>
       {barError && (
         <p id="preview-url-error" role="alert" className="text-xs text-red-600">{barError}</p>
       )}
-      <div className="relative min-h-[420px] flex-1 overflow-auto rounded-lg border border-border-warm bg-background-light">
+      <div ref={areaRef} className="relative min-h-[320px] flex-1 overflow-hidden rounded-lg border border-border-warm bg-background-light">
         <div
           ref={wrapperRef}
           data-testid="preview-frame-wrapper"
-          className={cn('mx-auto h-full min-h-[420px] bg-white', viewport !== 'fit' && 'shadow-soft')}
-          style={{ width: viewportWidth(viewport), maxWidth: '100%' }}
+          data-scale={vs.scale}
+          className={cn('mx-auto h-full overflow-hidden bg-white', viewport !== 'fit' && 'shadow-soft')}
+          style={{ width: vs.scaled ? `${Math.floor(vs.layoutWidth * vs.scale)}px` : viewportWidth(viewport), maxWidth: '100%' }}
         >
           {src && (
             <iframe
@@ -174,7 +200,12 @@ export function PreviewPane({ previewUrl, status, liveText, iframeRef, selectMod
               // "origin", not "no-referrer": the overlay resolves its parent from document.referrer (design 9.2) and
               // stays inert without it. Only this Citadel origin is sent, never a path or query.
               referrerPolicy="origin"
-              className="h-full min-h-[420px] w-full border-0"
+              className="block border-0"
+              style={
+                vs.scaled || area.h > 0
+                  ? { width: selectedWidth == null ? '100%' : `${vs.layoutWidth}px`, height: `${Math.ceil(area.h / vs.scale)}px`, transform: vs.scaled ? `scale(${vs.scale})` : undefined, transformOrigin: 'top left', maxWidth: 'none' }
+                  : { width: '100%', height: '100%', minHeight: '420px' }
+              }
             />
           )}
         </div>

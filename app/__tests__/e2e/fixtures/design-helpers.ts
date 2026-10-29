@@ -76,6 +76,9 @@ export const frame = (page: Page) => page.frameLocator('iframe[title="Site previ
 /** Select mode via the S key, then click a data-lib element inside the real overlay in the frame. */
 export async function pinElement(page: Page, dataLib: string): Promise<void> {
   await page.locator('body').click({ position: { x: 2, y: 2 } }); // focus the parent document, not the frame
+  // The chat floats over the preview's bottom-right; tuck it away so it cannot cover the element being clicked.
+  const collapse = page.getByRole('button', { name: 'Collapse chat' });
+  if (await collapse.isVisible()) await collapse.click();
   const select = page.getByRole('button', { name: 'Select' });
   if ((await select.getAttribute('aria-pressed')) !== 'true') await page.keyboard.press('s');
   await expect(page.getByRole('button', { name: 'Select' })).toHaveAttribute('aria-pressed', 'true');
@@ -83,3 +86,10 @@ export async function pinElement(page: Page, dataLib: string): Promise<void> {
 }
 
 export const tab = (page: Page, name: string) => page.getByRole('tab', { name });
+
+/** The chat is a floating panel; expand it from the pill when it is collapsed (it starts open on a fresh browser). */
+export async function expandChat(page: Page): Promise<void> {
+  const pill = page.getByTestId('chat-pill');
+  if (await pill.isVisible()) await pill.click();
+  await expect(page.getByTestId('chat-dock')).toBeVisible();
+}
