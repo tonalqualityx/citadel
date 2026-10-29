@@ -237,3 +237,24 @@ describe('DELETE /api/api-keys/:id (revoke)', () => {
     expect((await del('k-own')).status).toBe(200);
   });
 });
+
+// Designer Portal (design D1): no API key is ever minted for a designer.
+describe('POST /api/api-keys designer owner', () => {
+  const DESIGNER = { userId: 'designer-1', email: 'lisa@example.test', role: 'designer', via: 'session' };
+  const LISA_ID = '7c1d2e3f-1111-4222-8333-444455556666';
+
+  it('a designer minting for herself is 400, nothing created', async () => {
+    auth.mockResolvedValue(DESIGNER);
+    const res = await post({ name: 'mine' });
+    expect(res.status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+
+  it('an admin minting for a designer with user_id is 400, with or without scopes', async () => {
+    auth.mockResolvedValue(ADMIN);
+    findUser.mockResolvedValue({ id: LISA_ID, is_active: true, role: 'designer' });
+    expect((await post({ name: 'for lisa', user_id: LISA_ID })).status).toBe(400);
+    expect((await post({ name: 'for lisa', user_id: LISA_ID, scopes: ['lane:courier'] })).status).toBe(400);
+    expect(createKey).not.toHaveBeenCalled();
+  });
+});

@@ -175,6 +175,19 @@ export async function DELETE(
       throw new ApiError('User not found', 404);
     }
 
+    // Designer Portal (design D1): design sessions and publishes reference the user with
+    // onDelete: Restrict, so a hard delete would fail. Refuse it; deactivating keeps the history.
+    const [designSessions, designPublishes] = await Promise.all([
+      prisma.designSession.count({ where: { designer_id: id } }),
+      prisma.designPublish.count({ where: { actor_id: id } }),
+    ]);
+    if (designSessions > 0 || designPublishes > 0) {
+      throw new ApiError(
+        'User has design sessions or publishes and cannot be deleted; deactivate instead',
+        409
+      );
+    }
+
     // Check if user has any assigned tasks, time entries, etc.
     const relatedRecords = await prisma.task.count({
       where: { assignee_id: id, is_deleted: false },

@@ -7,6 +7,7 @@ import { AuthError } from '@/lib/api/errors';
 import { ENFORCE_SCOPE, ROUTE_HEADER, laneAllows, laneScopesOf, parseRouteHeader } from './lane-scopes';
 import { recordKeyViolation } from './key-violations';
 import { rememberKeyLane } from './actor-lane';
+import { designerMayCallRoute } from './designer-routes';
 
 /**
  * What requireAuth returns. `via` says how the caller signed in; API-key callers also carry the key
@@ -31,11 +32,22 @@ export async function requireAuth(): Promise<AuthPayload> {
 
       const user = await prisma.user.findUnique({
         where: { id: payload.userId },
-        select: { id: true, is_active: true },
+        select: { id: true, is_active: true, role: true },
       });
 
       if (!user || !user.is_active) {
         throw new AuthError('User not found or inactive', 401);
+      }
+
+      // Designer Portal (design D1): a user whose DATABASE role is designer may call only the
+      // DESIGNER_ROUTES allowlist. The route comes from x-citadel-route (proxy.ts overwrites it);
+      // no header = 403 (fail closed). Headers are read only for designers, so every other session
+      // is untouched, and the returned role stays the token's.
+      if (user.role === 'designer') {
+        const headerStore = await headers();
+        if (!designerMayCallRoute(headerStore.get(ROUTE_HEADER))) {
+          throw new AuthError('Designers cannot use this route', 403);
+        }
       }
 
       // Overwrite, never trust: a signed token cannot claim to be anything but a session here.
@@ -85,6 +97,12 @@ async function authenticateApiKey(rawKey: string, headerStore: HeaderReader): Pr
 
   if (!apiKey.user.is_active) {
     throw new AuthError('User account is inactive', 401);
+  }
+
+  // Designer Portal (design D1): a designer never authenticates with an API key, whatever the key's
+  // scopes; otherwise a key minted for her would step around the session allowlist.
+  if (apiKey.user.role === 'designer') {
+    throw new AuthError('Designers cannot use API keys', 403);
   }
 
   // Fleet item 6: a key with a lane:<name> scope may call only its lane's routes. The route comes

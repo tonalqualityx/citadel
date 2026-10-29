@@ -63,6 +63,10 @@ export async function POST(request: NextRequest) {
       ownerId = owner.id;
       ownerRole = owner.role;
     }
+    // Designer Portal (design D1): a designer never holds an API key (requireAuth refuses one anyway).
+    if (ownerRole === 'designer') {
+      throw new ApiError('API keys cannot be created for a designer', 400);
+    }
     // decisions:admin is granted only by a signed-in human admin, never by an API key (an admin key could
     // otherwise mint itself the right to record decisions).
     if (data.scopes?.includes(DECISIONS_ADMIN_SCOPE) && auth.via !== 'session') {

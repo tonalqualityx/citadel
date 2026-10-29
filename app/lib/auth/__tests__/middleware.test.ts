@@ -265,3 +265,94 @@ describe('getOptionalAuth', () => {
     expect(result).toEqual({ ...validTokenPayload, via: 'session' });
   });
 });
+
+// Designer Portal (design D1): the designer allowlist in the session branch, and no API keys.
+describe('requireAuth designer role', () => {
+  const designerToken = { userId: 'designer-1', email: 'lisa@example.test', role: 'designer' };
+
+  function setupSessionWithRoute(route: string | null) {
+    setupCookieAuth('valid-jwt-token');
+    mockHeaders.mockResolvedValue({
+      get: vi.fn((name: string) => (name === 'x-citadel-route' ? route : null)),
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiKeyUpdate.mockResolvedValue({});
+  });
+
+  it('a designer session on an allowlisted route passes, with the token role and via session', async () => {
+    setupSessionWithRoute('GET /api/design/sessions/abc/feed');
+    mockVerifyAccessToken.mockResolvedValue(designerToken);
+    mockUserFindUnique.mockResolvedValue({ id: 'designer-1', is_active: true, role: 'designer' });
+
+    expect(await requireAuth()).toEqual({ ...designerToken, via: 'session' });
+    expect(mockUserFindUnique).toHaveBeenCalledWith({
+      where: { id: 'designer-1' },
+      select: { id: true, is_active: true, role: true },
+    });
+  });
+
+  it('a designer session on a staff route is 403', async () => {
+    for (const route of ['GET /api/clients', 'GET /api/time-entries/active', 'POST /api/api-keys', 'GET /api/admin/settings']) {
+      setupSessionWithRoute(route);
+      mockVerifyAccessToken.mockResolvedValue(designerToken);
+      mockUserFindUnique.mockResolvedValue({ id: 'designer-1', is_active: true, role: 'designer' });
+      const err = await requireAuth().catch((e) => e);
+      expect(err).toBeInstanceOf(AuthError);
+      expect(err.statusCode).toBe(403);
+    }
+  });
+
+  it('a designer session with no route header is 403', async () => {
+    setupSessionWithRoute(null);
+    mockVerifyAccessToken.mockResolvedValue(designerToken);
+    mockUserFindUnique.mockResolvedValue({ id: 'designer-1', is_active: true, role: 'designer' });
+    const err = await requireAuth().catch((e) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect(err.statusCode).toBe(403);
+  });
+
+  it('the DB role decides: a stale pm token for a user now a designer is held to the allowlist', async () => {
+    setupSessionWithRoute('GET /api/clients');
+    mockVerifyAccessToken.mockResolvedValue(validTokenPayload);
+    mockUserFindUnique.mockResolvedValue({ id: 'user-123', is_active: true, role: 'designer' });
+    const err = await requireAuth().catch((e) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect(err.statusCode).toBe(403);
+  });
+
+  it('a pm session on a staff route still passes and never reads headers', async () => {
+    setupSessionWithRoute('GET /api/clients');
+    mockVerifyAccessToken.mockResolvedValue(validTokenPayload);
+    mockUserFindUnique.mockResolvedValue({ id: 'user-123', is_active: true, role: 'pm' });
+
+    expect(await requireAuth()).toEqual({ ...validTokenPayload, via: 'session' });
+    expect(mockHeaders).not.toHaveBeenCalled();
+  });
+
+  it('a designer API key is 403, even on an allowlisted route, and is not marked used', async () => {
+    setupCookieAuth(undefined);
+    mockHeaders.mockResolvedValue({
+      get: vi.fn((name: string) => {
+        if (name === 'authorization') return 'Bearer citadel_designerkey';
+        if (name === 'x-citadel-route') return 'GET /api/auth/me';
+        return null;
+      }),
+    });
+    mockHashApiKey.mockReturnValue('hashed-key');
+    mockApiKeyFindFirst.mockResolvedValue({
+      id: 'key-d',
+      key_prefix: 'citadel_desi',
+      scopes: [],
+      expires_at: null,
+      user: { id: 'designer-1', email: 'lisa@example.test', role: 'designer', is_active: true },
+    });
+
+    const err = await requireAuth().catch((e) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect(err.statusCode).toBe(403);
+    expect(mockApiKeyUpdate).not.toHaveBeenCalled();
+  });
+});
