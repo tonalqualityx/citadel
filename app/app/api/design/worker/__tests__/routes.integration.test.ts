@@ -234,6 +234,16 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       expect(foreign.status).toBe(400);
     });
 
+    it('POST changes: edit_scope is stored; a bad value is 400; omitted (restores) stays null', async () => {
+      const post = (extra: Record<string, unknown>, sha: string) => changes.POST(req('POST', `${P}/sessions/${sid}/changes`, { commit_sha: sha, summary: 's', ...extra }), set(sid));
+      const inst = await post({ edit_scope: 'instance' }, 'dd00001');
+      expect(inst.status).toBe(201);
+      expect((await prisma.designChange.findUniqueOrThrow({ where: { id: (await inst.json()).change.id } })).edit_scope).toBe('instance');
+      expect((await post({ edit_scope: 'everywhere' }, 'dd00002')).status).toBe(400);
+      const none = await post({}, 'dd00003');
+      expect((await prisma.designChange.findUniqueOrThrow({ where: { id: (await none.json()).change.id } })).edit_scope).toBeNull();
+    });
+
     it('PATCH pins: crop, status, and a foreign asset is refused', async () => {
       const res = await pin.PATCH(req('PATCH', `${P}/pins/${pin2}`, { crop_asset_id: assetId }), set(pin2));
       expect(res.status).toBe(200);

@@ -4595,6 +4595,7 @@ model DesignChange {
   data_libs        String[]             @default([]) @db.VarChar(100)
   pages            String[]             @default([]) @db.VarChar(300) // blast radius at commit time
   render_count     Int? // total instances across the site
+  edit_scope       String?              @db.VarChar(20) // 'instance' | 'component' (worker-classified); null on old rows and restores
   pin_ids          String[]             @default([]) @db.Uuid
   before_asset_ids String[]             @default([]) @db.Uuid // ordered by width 390, 768, 1280
   after_asset_ids  String[]             @default([]) @db.Uuid

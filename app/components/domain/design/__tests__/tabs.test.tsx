@@ -9,6 +9,7 @@ const get = vi.fn();
 vi.mock('@/lib/api/client', () => ({
   apiClient: { post: (...a: unknown[]) => post(...a), patch: (...a: unknown[]) => patch(...a), get: (...a: unknown[]) => get(...a) },
 }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/lib/hooks/use-toast', () => ({
   showToast: { success: vi.fn(), error: vi.fn(), apiError: vi.fn() },
 }));
@@ -50,6 +51,18 @@ const change = (over: Partial<ChangeView> = {}): ChangeView => ({
   decision: 'pending',
   created_at: '2026-10-28T10:00:00Z',
   ...over,
+});
+
+describe('ChangesTab edit scope label', () => {
+  it('shows "This instance" or "Component: N places", and nothing for an old change', () => {
+    wrap(<ChangesTab sessionId={SID} changes={[
+      change({ id: 'c1', created_at: '2026-10-28T10:03:00Z', edit_scope: 'instance', render_count: 19 }),
+      change({ id: 'c2', created_at: '2026-10-28T10:02:00Z', edit_scope: 'component', render_count: 19 }),
+      change({ id: 'c3', created_at: '2026-10-28T10:01:00Z', edit_scope: 'component', render_count: 1 }),
+      change({ id: 'c4', created_at: '2026-10-28T10:00:00Z' }),
+    ]} events={[]} />);
+    expect(screen.getAllByTestId('edit-scope').map((n) => n.textContent)).toEqual(['This instance', 'Component: 19 places', 'Component: 1 place']);
+  });
 });
 
 describe('ChangesTab', () => {

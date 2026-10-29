@@ -40,6 +40,7 @@ export interface ApplyInput {
   pin_ids: string[];
   note?: string;
   files?: ClientFileRef[];
+  context?: { path: string; viewport_w: number; preview_sha?: string };
 }
 
 /** A non-2xx apply answer with its JSON body kept (apiClient drops everything but the message). */

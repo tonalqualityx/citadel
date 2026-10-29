@@ -332,13 +332,13 @@ export function projectPin(p: {
 
 export function projectChange(c: {
   id: string; apply_event_seq: number | null; commit_sha: string; parent_sha: string | null; summary: string;
-  files: string[]; data_libs: string[]; pages: string[]; render_count: number | null; pin_ids: string[];
+  files: string[]; data_libs: string[]; pages: string[]; render_count: number | null; edit_scope?: string | null; pin_ids: string[];
   before_asset_ids: string[]; after_asset_ids: string[]; gates: unknown; is_restore: boolean;
   restored_from: string | null; decision: string; designer_note: string | null; decided_at: Date | null; created_at: Date;
 }) {
   return {
     id: c.id, apply_event_seq: c.apply_event_seq, commit_sha: c.commit_sha, parent_sha: c.parent_sha, summary: c.summary,
-    files: c.files, data_libs: c.data_libs, pages: c.pages, render_count: c.render_count, pin_ids: c.pin_ids,
+    files: c.files, data_libs: c.data_libs, pages: c.pages, render_count: c.render_count, edit_scope: c.edit_scope ?? null, pin_ids: c.pin_ids,
     before_asset_ids: c.before_asset_ids, after_asset_ids: c.after_asset_ids, gates: c.gates ?? null,
     is_restore: c.is_restore, restored_from: c.restored_from, decision: c.decision, designer_note: c.designer_note,
     decided_at: c.decided_at, created_at: c.created_at,
@@ -474,7 +474,7 @@ export function projectPublish(p: PublishRowForProjection) {
 export function projectPublishPage(input: {
   publish: PublishRowForProjection;
   session: { id: string; task: { id: string; title: string }; designer: { name: string } };
-  changes: ReadonlyArray<{ id: string; summary: string; data_libs: string[]; pages: string[]; before_asset_ids: string[]; after_asset_ids: string[]; decision: string }>;
+  changes: ReadonlyArray<{ id: string; summary: string; data_libs: string[]; pages: string[]; before_asset_ids: string[]; after_asset_ids: string[]; decision: string; edit_scope?: string | null; render_count?: number | null }>;
   rollback: { ok: true } | { ok: false; code: PolicyCode };
 }) {
   return {
@@ -487,6 +487,7 @@ export function projectPublishPage(input: {
     changes: input.changes.map((c) => ({
       id: c.id, summary: c.summary, data_libs: c.data_libs, pages: c.pages,
       before_asset_ids: c.before_asset_ids, after_asset_ids: c.after_asset_ids, decision: c.decision,
+      edit_scope: c.edit_scope ?? null, render_count: c.render_count ?? null,
     })),
     can_rollback: input.rollback.ok,
     ...(input.rollback.ok ? {} : { rollback_reason: input.rollback.code }),

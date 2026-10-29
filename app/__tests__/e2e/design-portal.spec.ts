@@ -91,7 +91,9 @@ test('an admin sees /design inside the Citadel shell (sidebar, no minimal chrome
   await form.getByLabel('What needs doing').fill(`Start-new-work check ${world.tag}`);
   await form.getByRole('button', { name: 'Start' }).click();
   await page.waitForURL(/\/design\/s\/[0-9a-f-]{36}/, { timeout: 20_000 });
-  // The workspace fills the content area beside the sidebar.
+  // The workspace opens with the sidebar collapsed; the toggle brings it back.
+  await expect(page.locator('aside').getByRole('link', { name: /Design/ })).toBeHidden();
+  await page.getByTestId('sidebar-toggle').click();
   await expect(page.locator('aside').getByRole('link', { name: /Design/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: `Start-new-work check ${world.tag}` })).toBeVisible({ timeout: 20_000 });
 
