@@ -94,8 +94,21 @@ export async function stopTimer(session: Pick<TimerSession, 'id'>, db: PrismaCli
   return releaseEntry(db, session.id, row.timer_entry_id, new Date());
 }
 
-/** Sets presence = now when the session has a linked entry (visible polls only). */
+/**
+ * True when the session is terminal (status closed/abandoned or closed_at set) or a `close` command is pending or
+ * claimed for it (closing in progress: the daemon marks the session closed only after the command completes).
+ * Presence must neither start nor keep alive a timer then.
+ */
+export async function isClosingOrTerminal(sessionId: string, db: Pick<PrismaClient, 'designSession' | 'designCommand'> = defaultDb): Promise<boolean> {
+  const row = await db.designSession.findUnique({ where: { id: sessionId }, select: { status: true, closed_at: true } });
+  if (!row || row.closed_at || isTerminalStatus(row.status)) return true;
+  const closing = await db.designCommand.findFirst({ where: { session_id: sessionId, verb: 'close', status: { in: ['pending', 'claimed'] } }, select: { id: true } });
+  return !!closing;
+}
+
+/** Sets presence = now when the session has a linked entry (visible polls only); skipped while closing. */
 export async function keepAlive(session: Pick<TimerSession, 'id'>, now: Date = new Date(), db: PrismaClient = defaultDb): Promise<void> {
+  if (await isClosingOrTerminal(session.id, db)) return;
   await db.designSession.updateMany({ where: { id: session.id, timer_entry_id: { not: null } }, data: { timer_presence_at: now } });
 }
 
@@ -111,10 +124,10 @@ export async function ensureTimer(session: TimerSession, actor: TimerActor | und
   if (!settings.enabled || site?.design_auto_timer === false) return viewOf(db, session, now);
 
   await lapseStop(session, now, db);
-  const st = await db.designSession.findUnique({ where: { id: session.id }, select: { status: true } });
-  if (!st || isTerminalStatus(st.status)) return viewOf(db, session, now); // a closed workspace never restarts the timer
+  if (await isClosingOrTerminal(session.id, db)) return viewOf(db, session, now); // closed or closing: never (re)start
   await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'design-timer:' + session.designer_id}))`;
+    if (await isClosingOrTerminal(session.id, tx as unknown as PrismaClient)) return; // re-check under the lock
     const link = await tx.designSession.findUnique({ where: { id: session.id }, select: { timer_entry_id: true } });
     if (link?.timer_entry_id) {
       const linked = await tx.timeEntry.findUnique({ where: { id: link.timer_entry_id }, select: { is_running: true, task_id: true } });
@@ -162,6 +175,13 @@ export async function sweepLapsedTimers(now: Date = new Date(), db: PrismaClient
   });
   let n = 0;
   for (const s of stale) if (await lapseStop(s, now, db)) n++;
+  // Belt and braces: a running auto entry on a terminal session is stopped at once.
+  const dead = await db.designSession.findMany({
+    where: { timer_entry_id: { not: null }, OR: [{ status: { in: ['closed', 'abandoned'] } }, { closed_at: { not: null } }] },
+    select: { id: true },
+    take: 500,
+  });
+  for (const s of dead) if (await stopTimer(s, db)) n++;
   return n;
 }
 

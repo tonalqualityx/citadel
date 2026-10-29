@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { createOrGetSession, transitionSession } from '../sessions';
 import { onPresence } from '../presence';
 import { ensureTimer, lapseStop, observeTimer, stopTimer, sweepLapsedTimers, AUTO_TIMER_DESCRIPTION } from '../timer';
+import { createCommand, claimCommand, completeCommand } from '../commands';
 import { startRunningEntry } from '@/lib/services/time-entries';
 import { SCRATCH, seedDesign, seedTask, teardownDesign, type DesignFixture } from './fixtures';
 
@@ -102,7 +103,8 @@ describe.skipIf(!SCRATCH)('automatic task timer (real database)', () => {
     await onPresence(s2, true, f.admin);
     expect(await entries(f.designer.userId, taskId)).toHaveLength(1);
     expect(await entries(f.admin.userId, taskId)).toHaveLength(1);
-    expect((await entries(f.designer.userId, taskId))[0].is_running).toBe(true);
+    await sweepLapsedTimers(new Date()); // the closed session's stray entry is stopped by the sweep
+    expect((await entries(f.designer.userId, taskId))[0].is_running).toBe(false);
   });
 
   it('a running entry on another task (manual) is stopped first; same-task manual entry is kept', async () => {
@@ -163,5 +165,57 @@ describe.skipIf(!SCRATCH)('automatic task timer (real database)', () => {
     await prisma.designSession.update({ where: { id: session.id }, data: { status: 'closed' } });
     await onPresence(session, true, f.designer);
     expect(await entries(f.designer.userId, taskId)).toHaveLength(1);
+  });
+  it('close in progress: a pending close command stops presence from starting or keeping a timer (the live dry-run race)', async () => {
+    const { taskId, session } = await open();
+    await transitionSession(session.id, 'awaiting_input', 'worker');
+    await onPresence(session, true, f.designer);
+    const cmd = (await createCommand({ sessionId: session.id, verb: 'close', createdById: f.designer.userId })).command;
+    expect(await stopTimer(session)).toBe(true); // what the close route does
+    const stoppedAt = (await entries(f.designer.userId, taskId))[0].ended_at;
+    await new Promise((r) => setTimeout(r, 2));
+    const view = await onPresence(session, true, f.designer); // a poll a moment later, session not yet terminal
+    expect(view?.running).toBe(false);
+    expect(await entries(f.designer.userId, taskId)).toHaveLength(1);
+    expect((await sess(session.id)).timer_entry_id).toBeNull();
+    // claimed counts as closing too
+    await claimCommand(cmd.id);
+    await onPresence(session, true, f.designer);
+    expect(await entries(f.designer.userId, taskId)).toHaveLength(1);
+    expect((await entries(f.designer.userId, taskId))[0].ended_at).toEqual(stoppedAt);
+    // a failed close lets the designer carry on
+    await completeCommand(cmd.id, { status: 'failed', error: 'x' });
+    await onPresence(session, true, f.designer);
+    expect(await entries(f.designer.userId, taskId)).toHaveLength(2);
+  });
+
+  it('the worker moving the session to closed stops an entry that somehow started (same path as the worker PATCH)', async () => {
+    const { taskId, session } = await open();
+    await transitionSession(session.id, 'awaiting_input', 'worker');
+    await onPresence(session, true, f.designer);
+    expect((await entries(f.designer.userId, taskId))[0].is_running).toBe(true);
+    await transitionSession(session.id, 'abandoned', 'worker');
+    const e = (await entries(f.designer.userId, taskId))[0];
+    expect(e.is_running).toBe(false);
+    expect((await sess(session.id)).timer_entry_id).toBeNull();
+  });
+
+  it('closeSession on an already terminal session still stops a stray running entry', async () => {
+    const { taskId, session } = await open();
+    await onPresence(session, true, f.designer);
+    await prisma.designSession.update({ where: { id: session.id }, data: { status: 'closed', closed_at: new Date() } });
+    const { closeSession } = await import('../sessions');
+    await closeSession(session.id);
+    expect((await entries(f.designer.userId, taskId))[0].is_running).toBe(false);
+  });
+
+  it('the sweep stops a running entry on a terminal session', async () => {
+    const { taskId, session } = await open();
+    await onPresence(session, true, f.designer);
+    await prisma.designSession.update({ where: { id: session.id }, data: { status: 'closed', closed_at: new Date() } });
+    expect((await entries(f.designer.userId, taskId))[0].is_running).toBe(true);
+    expect(await sweepLapsedTimers(new Date())).toBeGreaterThanOrEqual(1);
+    expect((await entries(f.designer.userId, taskId))[0].is_running).toBe(false);
+    expect((await sess(session.id)).timer_entry_id).toBeNull();
   });
 });

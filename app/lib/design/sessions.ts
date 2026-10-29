@@ -15,6 +15,7 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { claimTask, releaseClaim } from '@/lib/tasks/claims';
 import { DRAWER_TASK_SELECT, designerOnProject, drawerDecision, DESIGN_TERMINAL_SESSION_STATUSES, type DrawerDecision, type DrawerTask } from './access';
+import { stopTimer } from './timer';
 import { designClaimHolder, isUuid, task8, type DesignActor } from './helpers';
 
 export type SessionActor = 'worker' | 'server';
@@ -91,7 +92,10 @@ export async function transitionSession(
       data: { ...(extra.data ?? {}), status: to, ...(isTerminalStatus(to) ? { closed_at: new Date() } : {}) },
     });
     if (res.count !== 1) throw new ApiError('Session changed state; reload and retry', 409, 'state_conflict');
-    if (isTerminalStatus(to)) await releaseSessionClaim(tx as unknown as Db, current.task_id);
+    if (isTerminalStatus(to)) {
+      await releaseSessionClaim(tx as unknown as Db, current.task_id);
+      await stopTimer({ id: sessionId }, tx as unknown as Db); // any terminal path stops the auto entry (idempotent)
+    }
     return tx.designSession.findUniqueOrThrow({ where: { id: sessionId } });
   });
 }
@@ -106,7 +110,10 @@ export async function terminalStatusFor(sessionId: string, db: Pick<PrismaClient
 export async function closeSession(sessionId: string, db: Db = defaultDb): Promise<DesignSession> {
   const s = await db.designSession.findUnique({ where: { id: sessionId } });
   if (!s) throw new ApiError('Session not found', 404, 'not_found');
-  if (isTerminalStatus(s.status)) return s;
+  if (isTerminalStatus(s.status)) {
+    await stopTimer({ id: sessionId }, db);
+    return s;
+  }
   return transitionSession(sessionId, await terminalStatusFor(sessionId, db), 'worker', {}, db);
 }
 
