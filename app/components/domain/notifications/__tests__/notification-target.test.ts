@@ -23,4 +23,8 @@ describe('notificationTarget', () => {
     expect(notificationTarget({ entity_type: 'project', entity_id: 'p1', message: null })).toBe('/projects/p1');
     expect(notificationTarget({ entity_type: 'sop', entity_id: 's1', message: null })).toBe('/grimoire/runes/s1');
   });
+  it('routes design publishes and sessions', () => {
+    expect(notificationTarget({ entity_type: 'design_publish', entity_id: 'pub1', message: null })).toBe('/design/publishes/pub1');
+    expect(notificationTarget({ entity_type: 'design_session', entity_id: 'ses1', message: null })).toBe('/design/s/ses1');
+  });
 });

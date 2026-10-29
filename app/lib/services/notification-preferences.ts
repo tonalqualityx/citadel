@@ -32,6 +32,9 @@ const DEFAULT_PREFERENCES: Record<
   // A client filed an emergency request in the portal: critical, every channel.
   portal_emergency: { in_app: true, email: true, slack: true },
   portal_chat_handoff: { in_app: true, email: true, slack: true },
+  design_published: { in_app: true, email: true, slack: false },
+  design_publish_requested: { in_app: true, email: true, slack: false },
+  design_rolled_back: { in_app: true, email: true, slack: false },
 };
 
 export interface NotificationPreferenceRow {

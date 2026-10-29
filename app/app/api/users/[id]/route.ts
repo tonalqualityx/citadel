@@ -8,7 +8,7 @@ import { handleApiError, ApiError } from '@/lib/api/errors';
 const updateUserSchema = z.object({
   name: z.string().min(1, 'Name is required').max(255).optional(),
   email: z.string().email('Invalid email address').max(255).optional(),
-  role: z.enum(['tech', 'pm', 'admin']).optional(),
+  role: z.enum(['tech', 'pm', 'admin', 'designer']).optional(),
   avatar_url: z.string().url().max(500).optional().nullable(),
   is_active: z.boolean().optional(),
   target_hours_per_week: z.number().min(0).max(80).optional(),

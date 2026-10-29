@@ -10,7 +10,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'tech' | 'pm' | 'admin';
+  role: 'tech' | 'pm' | 'admin' | 'designer';
   is_active: boolean;
   avatar_url: string | null;
   last_login_at: string | null;
@@ -27,14 +27,14 @@ export interface CreateUserInput {
   name: string;
   email: string;
   password: string;
-  role?: 'tech' | 'pm' | 'admin';
+  role?: 'tech' | 'pm' | 'admin' | 'designer';
   avatar_url?: string | null;
 }
 
 export interface UpdateUserInput {
   name?: string;
   email?: string;
-  role?: 'tech' | 'pm' | 'admin';
+  role?: 'tech' | 'pm' | 'admin' | 'designer';
   avatar_url?: string | null;
   is_active?: boolean;
   target_hours_per_week?: number;

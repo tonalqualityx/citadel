@@ -23,6 +23,9 @@ const NOTIFICATION_TYPE_ORDER: NotificationType[] = [
   'project_status_changed',
   'retainer_alert',
   'system_alert',
+  'design_published',
+  'design_publish_requested',
+  'design_rolled_back',
 ];
 
 interface NotificationPreferencesProps {

@@ -308,7 +308,7 @@ export const taskEndpoints: ApiEndpoint[] = [
         auth: 'required',
         responseExample: {
           users: [
-            { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin', avatar_url: 'string|null' },
+            { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin|designer', avatar_url: 'string|null' },
           ],
           contacts: [
             { id: 'uuid', name: 'string', email: 'string', role: 'string|null', is_primary: 'boolean' },

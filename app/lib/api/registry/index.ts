@@ -114,7 +114,7 @@ export const apiRegistry: ApiEndpoint[] = [
  * Common enums used across the API
  */
 export const apiEnums = {
-  userRoles: ['tech', 'pm', 'admin'],
+  userRoles: ['tech', 'pm', 'admin', 'designer'],
   projectStatuses: ['quote', 'queue', 'ready', 'in_progress', 'review', 'done', 'suspended', 'cancelled'],
   projectTypes: ['project', 'retainer', 'internal'],
   taskStatuses: ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'],

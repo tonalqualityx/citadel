@@ -7,7 +7,7 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'pm' | 'tech';
+  role: 'admin' | 'pm' | 'tech' | 'designer';
   avatar_url: string | null;
   preferences: {
     naming_convention: string;
@@ -42,5 +42,6 @@ export function useAuth() {
     isPmOrAdmin: data?.user?.role === 'pm' || data?.user?.role === 'admin',
     isAdmin: data?.user?.role === 'admin',
     isTech: data?.user?.role === 'tech',
+    isDesigner: data?.user?.role === 'designer',
   };
 }

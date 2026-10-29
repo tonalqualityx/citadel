@@ -14,7 +14,7 @@ export const authEndpoints: ApiEndpoint[] = [
           { name: 'password', type: 'string', required: true, description: 'User password' },
         ],
         responseExample: {
-          user: { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin' },
+          user: { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin|designer' },
         },
         responseNotes: 'Sets access_token and refresh_token HTTP-only cookies. The response body contains user info only.',
       },
@@ -41,7 +41,7 @@ export const authEndpoints: ApiEndpoint[] = [
         summary: 'Get current authenticated user profile with preferences.',
         auth: 'required',
         responseExample: {
-          user: { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin', avatar_url: 'string|null' },
+          user: { id: 'uuid', name: 'string', email: 'string', role: 'tech|pm|admin|designer', avatar_url: 'string|null' },
         },
       },
     ],
