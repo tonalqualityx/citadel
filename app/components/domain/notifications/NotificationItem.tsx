@@ -34,6 +34,9 @@ const typeIcons: Record<string, React.ElementType> = {
   comment_added: MessageSquare,
   retainer_alert: AlertCircle,
   system_alert: Bell,
+  design_published: CheckCircle2,
+  design_publish_requested: Clock,
+  design_rolled_back: RefreshCw,
 };
 
 const typeColors: Record<string, string> = {
@@ -47,6 +50,9 @@ const typeColors: Record<string, string> = {
   comment_added: 'text-purple-500',
   retainer_alert: 'text-amber-500',
   system_alert: 'text-gray-500',
+  design_published: 'text-green-500',
+  design_publish_requested: 'text-amber-500',
+  design_rolled_back: 'text-red-500',
 };
 
 export function NotificationItem({

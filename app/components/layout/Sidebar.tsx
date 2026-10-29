@@ -116,7 +116,12 @@ export function Sidebar() {
     defaultOpen: true,
     items: [
       // Only show projects list for PM/Admin
-      ...(isPmOrAdmin ? [{ name: t('projects'), href: '/projects', emoji: '🤝' }] : []),
+      ...(isPmOrAdmin
+        ? [
+            { name: t('projects'), href: '/projects', emoji: '🤝' },
+            { name: 'Design', href: '/design', emoji: '🎨' },
+          ]
+        : []),
       { name: t('clients'), href: '/clients', emoji: '🧑‍🚀' },
       { name: t('sites'), href: '/sites', emoji: '🏰' },
       { name: t('domains'), href: '/domains', emoji: '🔗' },

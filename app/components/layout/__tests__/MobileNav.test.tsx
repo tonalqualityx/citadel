@@ -100,6 +100,20 @@ describe('MobileNav', () => {
     expect(screen.getByText('SOPs')).toBeInTheDocument();
   });
 
+  it('shows the Design link to PM and admin users', () => {
+    mockUseAuth.mockReturnValue({ isPmOrAdmin: true, isAdmin: true });
+    render(<MobileNav open onClose={vi.fn()} />);
+
+    expect(document.querySelector('a[href="/design"]')).not.toBeNull();
+  });
+
+  it('hides the Design link from tech users', () => {
+    mockUseAuth.mockReturnValue({ isPmOrAdmin: false, isAdmin: false });
+    render(<MobileNav open onClose={vi.fn()} />);
+
+    expect(document.querySelector('a[href="/design"]')).toBeNull();
+  });
+
   it('does not render the Parley or Admin sections for non-PM/Admin users', () => {
     mockUseAuth.mockReturnValue({ isPmOrAdmin: false, isAdmin: false });
     render(<MobileNav open onClose={vi.fn()} />);
