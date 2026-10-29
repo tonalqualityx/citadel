@@ -11,8 +11,8 @@ import { authActor, requireSessionVia } from '@/lib/design/route-kit';
 // GET /api/design/admin/sessions (design 7.2): the overview. Admin, pm; signed-in session only.
 export async function GET(request: NextRequest) {
   try {
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     if (!canReadAdminLists(actor.role)) throw new ApiError('Forbidden', 403, 'forbidden');
     const q = request.nextUrl.searchParams;
     const status = q.get('status');

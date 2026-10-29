@@ -3,8 +3,9 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { keyScopesSchema, DECISIONS_ADMIN_SCOPE } from '@/lib/auth/key-scopes';
+import { keyScopesSchema, humanGrantedScopesIn } from '@/lib/auth/key-scopes';
 import { logDelete, logUpdate } from '@/lib/services/activity';
+import { requireHumanAdminGrant } from '@/lib/auth/human-grant';
 
 const patchSchema = z.object({ scopes: keyScopesSchema }).strict();
 
@@ -21,18 +22,18 @@ export async function PATCH(
     requireRole(auth, ['admin']);
     const { id } = await params;
     const { scopes } = patchSchema.parse(await request.json());
-    // decisions:admin is granted only by a signed-in human admin, never by an API key (to itself or another key).
-    if (scopes.includes(DECISIONS_ADMIN_SCOPE) && auth.via !== 'session') {
-      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted from a signed-in admin session`, 403);
-    }
+    // decisions:admin and the design:operator-* scopes are granted only by a signed-in human admin, never by an
+    // API key (to itself or another key, and not even kept on a key by an API-key PATCH). Removing them is open.
+    const granted = humanGrantedScopesIn(scopes);
+    if (granted.length > 0) requireHumanAdminGrant(auth, granted);
 
     const apiKey = await prisma.apiKey.findUnique({
       where: { id },
       select: { id: true, name: true, scopes: true, is_revoked: true, user: { select: { role: true } } },
     });
     if (!apiKey || apiKey.is_revoked) throw new ApiError('API key not found', 404);
-    if (scopes.includes(DECISIONS_ADMIN_SCOPE) && apiKey.user?.role !== 'admin') {
-      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted on a key for an admin user`, 400);
+    if (granted.length > 0 && apiKey.user?.role !== 'admin') {
+      throw new ApiError(`${granted.join(', ')} can only be granted on a key for an admin user`, 400);
     }
 
     const updated = await prisma.apiKey.update({

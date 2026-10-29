@@ -442,12 +442,15 @@ export interface PublishRowForProjection {
   deploy_url: string | null; alias_url: string | null; gates: unknown; diff_summary: unknown; change_ids: string[];
   cost_usd: Money | null; error: string | null; notified_at: Date | null; rolled_back_at: Date | null;
   rolled_back_by_id: string | null; created_at: Date; started_at: Date | null; finished_at: Date | null;
+  /** 'session' | 'operator_key' (Bast's design:operator-publish key acting for its admin user). */
+  actor_via?: string | null;
 }
 
 export function projectPublish(p: PublishRowForProjection) {
   return {
     id: p.id, session_id: p.session_id, site_id: p.site_id, task_id: p.task_id, kind: p.kind, rolls_back_id: p.rolls_back_id,
-    actor_id: p.actor_id, actor_role: p.actor_role, publish_mode: p.publish_mode, main_role: p.main_role,
+    actor_id: p.actor_id, actor_role: p.actor_role, actor_via: p.actor_via === 'operator_key' ? 'operator_key' : 'session',
+    publish_mode: p.publish_mode, main_role: p.main_role,
     site_designer_publish: p.site_designer_publish, confirmation_shown: projectConfirmationShown(p.confirmation_shown),
     confirmation_typed: p.confirmation_typed, confirm_requested_at: p.confirm_requested_at, confirmed_at: p.confirmed_at,
     status: p.status, head_sha: p.head_sha, from_main_sha: p.from_main_sha, result_sha: p.result_sha, deploy_id: p.deploy_id,

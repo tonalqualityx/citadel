@@ -111,9 +111,10 @@ export async function writeSendDroppedReceipt(
 
 /**
  * Designer Portal live receipts (design D5): a designer publish, an admin publish, or a rollback, each
- * followed by the DesignPublish id (a uuid and nothing else).
+ * followed by the DesignPublish id (a uuid and nothing else). design_operator_publish / design_operator_rollback:
+ * the same, made by Bast with an admin's design:operator-publish key on Mike's instruction (2026-10-29).
  */
-const DESIGN_APPROVAL_SOURCE = /^design_(publish|admin_publish|rollback):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DESIGN_APPROVAL_SOURCE = /^design_(publish|admin_publish|rollback|operator_publish|operator_rollback):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Where a yes came from: the portal, the emailed approval link, an email reply (`email:<Message-ID>`), a design publish (`design_*:<uuid>`), or a bare API write (`api`). */
 export function cleanApprovalSource(source: string | null | undefined): string {

@@ -16,7 +16,9 @@
  * rollback the target `rolled_back`; the session back to `awaiting_input` (base_sha = result_sha for a
  * publish) with last_publish_id; one internal Comment on the task by the design-worker service user
  * (actor_lane design-worker); and on a production site one TaskReceipt(live) through writeReceipt() with
- * approval_source design_publish:<id> / design_admin_publish:<id> / design_rollback:<id>. The FYI
+ * approval_source design_publish:<id> / design_admin_publish:<id> / design_rollback:<id>, or for a publish or
+ * rollback made with an admin's design:operator-publish key (actor_via 'operator_key', lib/design/operator.ts)
+ * design_operator_publish:<id> / design_operator_rollback:<id>. The FYI
  * notification goes out through the repo dispatcher right after the commit (the dispatcher writes with the
  * global client and may send email, so it cannot join the transaction); notified_at records it.
  * Task.staging_* and the task's status are never touched: they bind the client approval loop.
@@ -31,7 +33,9 @@ import { createCommand } from './commands';
 import { transition } from './sessions';
 import { currentSessionAccess, designerOnProject, loadSessionFor, publishPageAccess } from './access';
 import { DESIGN_WORKER_LANE, DESIGN_WORKER_SERVICE_EMAIL, displayHost, isUuid, toUsd, type DesignActor } from './helpers';
+import { operatorPhrase } from './operator';
 import {
+  actorViaOf,
   canPublish,
   canRequestPublish,
   canRollback,
@@ -291,6 +295,8 @@ export async function createPublishIntent(
         kind: 'publish',
         actor_id: actor.userId,
         actor_role: decision.actor_role,
+        actor_via: actorViaOf(actor),
+        actor_api_key_id: actorViaOf(actor) === 'operator_key' ? (actor.apiKeyId ?? null) : null,
         publish_mode: decision.publish_mode,
         main_role: decision.main_role,
         site_designer_publish: decision.site_designer_publish,
@@ -524,6 +530,8 @@ export async function createRollback(
           rolls_back_id: target.id,
           actor_id: actor.userId,
           actor_role: actor.role === 'admin' ? 'admin' : 'designer',
+          actor_via: actorViaOf(actor),
+          actor_api_key_id: actorViaOf(actor) === 'operator_key' ? (actor.apiKeyId ?? null) : null,
           publish_mode: normalizePublishMode(ctx.settings?.designer_publish_mode),
           main_role: ctx.mainRole,
           site_designer_publish: ctx.site.designer_publish,
@@ -751,7 +759,8 @@ export async function failPublish(
 }
 
 /** The approval_source for the live receipt: a uuid-only prefix cleanApprovalSource() keeps. */
-export function approvalSourceFor(p: Pick<DesignPublish, 'id' | 'kind' | 'actor_role'>): string {
+export function approvalSourceFor(p: Pick<DesignPublish, 'id' | 'kind' | 'actor_role'> & { actor_via?: string | null }): string {
+  if (p.actor_via === 'operator_key') return p.kind === 'rollback' ? `design_operator_rollback:${p.id}` : `design_operator_publish:${p.id}`;
   if (p.kind === 'rollback') return `design_rollback:${p.id}`;
   return p.actor_role === 'admin' ? `design_admin_publish:${p.id}` : `design_publish:${p.id}`;
 }
@@ -778,7 +787,7 @@ function short(sha: string | null | undefined, n = 12): string {
 
 /** The internal task comment: who, what they confirmed, the commit, the deploy, the gates and the cost. Pure. */
 export function publishCommentText(input: {
-  publish: Pick<DesignPublish, 'id' | 'kind' | 'actor_role' | 'main_role' | 'head_sha' | 'from_main_sha' | 'result_sha' | 'deploy_url' | 'alias_url' | 'gates' | 'confirmation_shown' | 'confirmation_typed' | 'confirmed_at' | 'cost_usd' | 'rolls_back_id'>;
+  publish: Pick<DesignPublish, 'id' | 'kind' | 'actor_role' | 'main_role' | 'head_sha' | 'from_main_sha' | 'result_sha' | 'deploy_url' | 'alias_url' | 'gates' | 'confirmation_shown' | 'confirmation_typed' | 'confirmed_at' | 'cost_usd' | 'rolls_back_id'> & { actor_via?: string | null };
   actorName: string;
   siteName: string;
 }): string {
@@ -788,12 +797,18 @@ export function publishCommentText(input: {
   const gates = gateList(p.gates);
   const gateLine = gates.length > 0 ? gates.map((g) => `${g.name} ${g.ok ? 'ok' : g.reported ? 'red (reported)' : 'red'}`).join(', ') : 'none reported';
   const lines: string[] = [];
+  const byOperator = p.actor_via === 'operator_key';
+  if (byOperator) {
+    // Mike's ruling (2026-10-29): say plainly that Bast pressed the button with Mike's operator key.
+    const verb = p.kind === 'rollback' ? 'rolled back' : 'published';
+    lines.push(`Design ${p.kind === 'rollback' ? 'rollback' : 'publish'} ${p.id.slice(0, 8)} to ${target}: ${verb} by ${operatorPhrase(input.actorName)} (operator key; actor ${input.actorName}, ${p.actor_role}).`);
+  }
   if (p.kind === 'rollback') {
-    lines.push(`Design rollback ${p.id.slice(0, 8)} published to ${target} by ${input.actorName} (${p.actor_role}), one click.`);
+    if (!byOperator) lines.push(`Design rollback ${p.id.slice(0, 8)} published to ${target} by ${input.actorName} (${p.actor_role}), one click.`);
     lines.push(`Rolled back publish ${p.rolls_back_id ? p.rolls_back_id.slice(0, 8) : 'unknown'}; main ${short(p.from_main_sha)} -> ${short(p.result_sha)} (the tree from before that publish).`);
     if (typeof shown.rollback_reason === 'string' && shown.rollback_reason) lines.push(`Reason: ${clip(shown.rollback_reason, 500)}`);
   } else {
-    lines.push(`Design publish ${p.id.slice(0, 8)} to ${target} by ${input.actorName} (${p.actor_role}).`);
+    if (!byOperator) lines.push(`Design publish ${p.id.slice(0, 8)} to ${target} by ${input.actorName} (${p.actor_role}).`);
     lines.push(`Confirmed: typed "${p.confirmation_typed ?? ''}"${p.confirmed_at ? ` at ${p.confirmed_at.toISOString()}` : ''} for design head ${short(p.head_sha)}.`);
     lines.push(`Commit: main ${short(p.from_main_sha)} -> ${short(p.result_sha)}.`);
   }
@@ -942,7 +957,11 @@ async function sendPublishNotices(db: Db, p: DesignPublish, ctx: { failedAfterMa
     const production = normalizeMainRole(p.main_role) === 'production';
     const where = production ? `the LIVE site${host ? ` ${host}` : ''}` : `the client preview${host ? ` ${host}` : ''}`;
     const taskTitle = task?.title ?? 'design session';
-    const who = `${actor?.name ?? 'Someone'} (${p.actor_role})`;
+    const byOperator = p.actor_via === 'operator_key';
+    const who = byOperator ? `${operatorPhrase(actor?.name)} (operator key, ${p.actor_role})` : `${actor?.name ?? 'Someone'} (${p.actor_role})`;
+    // The person who clicked is never notified of their own click; an operator-key publish was Bast's click, so its
+    // key owner (Mike) still gets the FYI.
+    const exclude = byOperator ? null : p.actor_id;
     const gates = gateList(p.gates);
     const gateText = gates.length ? `Gates: ${gates.filter((g) => g.ok).length}/${gates.length} green.` : '';
 
@@ -950,7 +969,7 @@ async function sendPublishNotices(db: Db, p: DesignPublish, ctx: { failedAfterMa
     let notice: Notice;
     if (p.kind === 'rollback') {
       const target = p.rolls_back_id ? await db.designPublish.findUnique({ where: { id: p.rolls_back_id }, select: { actor_id: true } }) : null;
-      recipients = await fyiRecipients(db, { extra: [target?.actor_id], exclude: p.actor_id });
+      recipients = await fyiRecipients(db, { extra: [target?.actor_id], exclude });
       notice = {
         type: 'design_rolled_back',
         priority: publishPriority(p.main_role),
@@ -960,7 +979,7 @@ async function sendPublishNotices(db: Db, p: DesignPublish, ctx: { failedAfterMa
         entityId: p.id,
       };
     } else if (ctx.failedAfterMainMoved) {
-      recipients = await fyiRecipients(db, { exclude: p.actor_id });
+      recipients = await fyiRecipients(db, { exclude });
       notice = {
         type: 'design_published',
         priority: publishPriority(p.main_role),
@@ -970,7 +989,7 @@ async function sendPublishNotices(db: Db, p: DesignPublish, ctx: { failedAfterMa
         entityId: p.id,
       };
     } else {
-      recipients = await fyiRecipients(db, { exclude: p.actor_id });
+      recipients = await fyiRecipients(db, { exclude });
       notice = {
         type: 'design_published',
         priority: publishPriority(p.main_role),

@@ -4,8 +4,9 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { generateApiKey } from '@/lib/auth/api-keys';
-import { keyScopesSchema, DECISIONS_ADMIN_SCOPE } from '@/lib/auth/key-scopes';
+import { keyScopesSchema, humanGrantedScopesIn } from '@/lib/auth/key-scopes';
 import { logCreate } from '@/lib/services/activity';
+import { requireHumanAdminGrant } from '@/lib/auth/human-grant';
 
 const createApiKeySchema = z.object({
   name: z.string().min(1).max(100),
@@ -67,14 +68,15 @@ export async function POST(request: NextRequest) {
     if (ownerRole === 'designer') {
       throw new ApiError('API keys cannot be created for a designer', 400);
     }
-    // decisions:admin is granted only by a signed-in human admin, never by an API key (an admin key could
-    // otherwise mint itself the right to record decisions).
-    if (data.scopes?.includes(DECISIONS_ADMIN_SCOPE) && auth.via !== 'session') {
-      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted from a signed-in admin session`, 403);
-    }
-    // decisions:admin goes only on a key whose user is an admin (the no-lane rule is in keyScopesSchema).
-    if (data.scopes?.includes(DECISIONS_ADMIN_SCOPE) && ownerRole !== 'admin') {
-      throw new ApiError(`${DECISIONS_ADMIN_SCOPE} can only be granted on a key for an admin user`, 400);
+    // decisions:admin and the design:operator-* scopes (HUMAN_GRANTED_SCOPES) are granted only by a signed-in
+    // human admin, never by an API key (an admin key could otherwise mint itself those rights), and only on a key
+    // whose user is an admin (the no-lane rule is in keyScopesSchema).
+    const granted = humanGrantedScopesIn(data.scopes);
+    if (granted.length > 0) {
+      requireHumanAdminGrant(auth, granted);
+      if (ownerRole !== 'admin') {
+        throw new ApiError(`${granted.join(', ')} can only be granted on a key for an admin user`, 400);
+      }
     }
 
     const { rawKey, keyHash, keyPrefix } = generateApiKey();

@@ -8,8 +8,8 @@ import { authActor, requireAdmin, requireSessionVia } from '@/lib/design/route-k
 // GET /api/design/admin/budgets (design 7.2): every designer (and anyone with a budget row), this month's spend.
 export async function GET() {
   try {
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const [rows, designers, limits] = await Promise.all([
       prisma.designBudget.findMany(),

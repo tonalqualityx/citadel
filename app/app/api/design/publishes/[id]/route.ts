@@ -9,7 +9,7 @@ import { authActor } from '@/lib/design/route-kit';
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { actor } = await authActor(); // session only (W8.2 H7)
+    const { actor } = await authActor({ operator: 'publish' }); // session, or an operator-publish key (lib/design/operator.ts)
     const { id } = await params;
     return NextResponse.json(await loadPublishPage(actor, id));
   } catch (error) {

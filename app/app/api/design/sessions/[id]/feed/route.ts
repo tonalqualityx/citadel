@@ -19,7 +19,7 @@ function intParam(raw: string | null, name: string, min: number, max: number): n
 // GET /api/design/sessions/:id/feed?after=<seq>&limit=200&visible=1|0 (design 7.1): the poll.
 export async function GET(request: NextRequest, { params }: IdParams) {
   try {
-    const { actor } = await authActor();
+    const { actor } = await authActor({ operator: 'publish' }); // read-only for an operator-publish key
     const { id } = await params;
     const session = await loadSessionFor(actor, id, { mode: 'read' });
     const q = request.nextUrl.searchParams;
@@ -28,7 +28,8 @@ export async function GET(request: NextRequest, { params }: IdParams) {
     const visible = q.get('visible') === '1';
 
     // W2.7 hook: keeps the automatic timer alive on visible polls (no-op until then).
-    const timer = await onPresence(session, visible, actor);
+    // An operator key is not a person in the workspace: it never starts, keeps or observes a timer.
+    const timer = actor.operator ? null : await onPresence(session, visible, actor);
 
     const [page, site, settings, state, running, undelivered, libIndexEvent] = await Promise.all([
       feed(session.id, { after, limit }),

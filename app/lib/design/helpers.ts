@@ -14,6 +14,7 @@ import type { PrismaClient, UserRole } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { AuthError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
+import type { OperatorKind } from './operator';
 
 export const DESIGN_WORKER_SERVICE_EMAIL = 'designer-worker@indelible.bot';
 export const DESIGN_WORKER_LANE = 'design-worker';
@@ -53,6 +54,14 @@ export interface DesignActor {
   via: 'session' | 'api_key' | undefined;
   lane?: string;
   role_source: 'db';
+  /**
+   * Set only by route-kit's authActor for an operator API key (lib/design/operator.ts): the scope that admitted it
+   * on this route. Absent for every session caller. The publish policy accepts `operator === 'publish'` from an
+   * admin in place of a signed-in session; nothing else reads it as authority.
+   */
+  operator?: OperatorKind;
+  /** The operator key's id (recorded on the DesignPublish as actor_api_key_id). */
+  apiKeyId?: string;
 }
 
 export function isDesignerRole(role: string | null | undefined): boolean {

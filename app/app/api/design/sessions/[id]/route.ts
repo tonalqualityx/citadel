@@ -9,7 +9,7 @@ import { authActor, type IdParams } from '@/lib/design/route-kit';
 // GET /api/design/sessions/:id (design 7.1): the full workspace load. Designer (own), admin, pm (read).
 export async function GET(_request: NextRequest, { params }: IdParams) {
   try {
-    const { actor } = await authActor();
+    const { actor } = await authActor({ operator: 'publish' }); // read-only for an operator-publish key
     const { id } = await params;
     const session = await loadSessionFor(actor, id, { mode: 'read' });
 
@@ -23,8 +23,9 @@ export async function GET(_request: NextRequest, { params }: IdParams) {
     ]);
     const libIndex = latestLibIndex(libIndexEvent?.payload);
 
-    // W2.7 hook: workspace open starts or resumes the automatic timer (no-op until then).
-    await onPresence(session, true, actor);
+    // W2.7 hook: workspace open starts or resumes the automatic timer. An operator key is not a person in the
+    // workspace: it never starts or keeps a timer.
+    if (!actor.operator) await onPresence(session, true, actor);
 
     return NextResponse.json({
       session: projectSession(session),

@@ -18,8 +18,8 @@ async function write(request: NextRequest, params: Promise<{ userId: string }>) 
   try {
     const blocked = guardMutation(request);
     if (blocked) return blocked;
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const { userId } = await params;
     if (!isUuid(userId)) throw new ApiError('User not found', 404, 'not_found');

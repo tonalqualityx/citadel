@@ -4661,6 +4661,8 @@ model DesignPublish {
   rolls_back_id           String?             @db.Uuid // kind = rollback: the publish it undoes
   actor_id                String              @db.Uuid // the person who clicked (server-stamped)
   actor_role              String              @db.VarChar(20) // designer | admin, server-stamped at click time
+  actor_via               String              @default("session") @db.VarChar(20) // session | operator_key (an admin's design:operator-publish key; Bast on Mike's instruction)
+  actor_api_key_id        String?             @db.Uuid // the operator key, when actor_via = operator_key (audit; a confirm must come from this same key)
   publish_mode            String              @db.VarChar(20) // settings mode at click time (audit)
   main_role               String              @db.VarChar(20) // client_preview | production, box-reported snapshot
   site_designer_publish   Boolean // Site.designer_publish at intent time (audit)

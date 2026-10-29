@@ -18,8 +18,8 @@ export async function PATCH(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);
     if (blocked) return blocked;
-    const { actor } = await authActor();
-    requireSessionVia(actor);
+    const { actor } = await authActor({ operator: 'setup' });
+    requireSessionVia(actor, 'setup');
     requireAdmin(actor);
     const { id } = await params;
     if (!isUuid(id)) throw new ApiError('Site not found', 404, 'not_found');
