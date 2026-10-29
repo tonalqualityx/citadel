@@ -613,6 +613,9 @@ model Client {
   // for exact name matches only; null means "no QuickBooks mapping yet".
   qbo_customer_id String? @db.VarChar(64)
 
+  // Designer Portal: Google Drive folder the design worker may read (design D11)
+  drive_folder_id String? @db.VarChar(128)
+
   // Relationships
   parent_agency_id String?  @db.Uuid
   parent_agency    Client?  @relation("AgencySubClients", fields: [parent_agency_id], references: [id])
@@ -957,6 +960,9 @@ model Project {
   notes       String? @db.Text
   // Local plan folder path, e.g. /home/mike/Documents/projects/<slug>
   plan_folder String?
+
+  // Designer Portal: Google Drive folder the design worker may read (design D11)
+  drive_folder_id String? @db.VarChar(128)
 
   // Oracle Projects Phase 1 — the hybrid next-step line (task-graph candidate + Bast-
   // inferred, refreshed nightly / on demand / overridable). source tracks who/what last
