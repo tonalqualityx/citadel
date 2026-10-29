@@ -22,6 +22,7 @@ import type { DesignSessionStatus, PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { designerOnProject } from './access';
 import { createCommand } from './commands';
+import { unshareForUnassignedDesigner } from './drive-share';
 import { appendWorkerEvents } from './events';
 import { isUuid } from './helpers';
 import { closeSession } from './sessions';
@@ -48,6 +49,8 @@ export async function closeSessionsForUnassignedDesigner(
   const user = await db.user.findUnique({ where: { id: userId }, select: { role: true } });
   if (user?.role !== 'designer') return result;
   if (await designerOnProject(userId, projectId, db)) return result;
+  // D11: take her off the project's Drive folder too (unless another of her projects still uses it).
+  await unshareForUnassignedDesigner(projectId, userId, opts.byUserId, db);
 
   const live = await db.designSession.findMany({
     where: { project_id: projectId, designer_id: userId, status: { notIn: ['closed', 'abandoned'] } },

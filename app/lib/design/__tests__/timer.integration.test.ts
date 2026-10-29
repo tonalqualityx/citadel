@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { prisma } from '@/lib/db/prisma';
 import { createOrGetSession, transitionSession } from '../sessions';
 import { onPresence } from '../presence';
-import { ensureTimer, lapseStop, observeTimer, stopTimer, sweepLapsedTimers, AUTO_TIMER_DESCRIPTION } from '../timer';
+import { ensureTimer, lapseStop, observeTimer, stopTimer, sweepLapsedTimers, AUTO_TIMER_DESCRIPTION, autoTimerBillable } from '../timer';
 import { createCommand, claimCommand, completeCommand } from '../commands';
 import { startRunningEntry } from '@/lib/services/time-entries';
 import { SCRATCH, seedDesign, seedTask, teardownDesign, type DesignFixture } from './fixtures';
@@ -15,7 +15,7 @@ describe.skipIf(!SCRATCH)('automatic task timer (real database)', () => {
     f = await seedDesign(`tm${Date.now()}`);
   });
   beforeEach(async () => {
-    await prisma.designPortalSettings.update({ where: { id: 1 }, data: { auto_timer_enabled: true, auto_timer_lapse_minutes: 5, auto_timer_billable: false } });
+    await prisma.designPortalSettings.update({ where: { id: 1 }, data: { auto_timer_enabled: true, auto_timer_lapse_minutes: 5 } });
     await prisma.site.update({ where: { id: f.siteId }, data: { design_auto_timer: true } });
   });
   afterAll(async () => {
@@ -50,11 +50,26 @@ describe.skipIf(!SCRATCH)('automatic task timer (real database)', () => {
     expect(t.is_focus).toBe(false);
   });
 
-  it('auto_timer_billable flips is_billable', async () => {
-    await prisma.designPortalSettings.update({ where: { id: 1 }, data: { auto_timer_billable: true } });
-    const { taskId, session } = await open();
-    await onPresence(session, true, f.designer);
-    expect((await entries(f.designer.userId, taskId))[0].is_billable).toBe(true);
+  it('billing: non-billable on a project task (retainer or not); billable only for ad-hoc work of a client with no retainer', async () => {
+    // The drawer never lists a task with no project, so a session cannot open on one today; the rule is checked on real rows.
+    const adhoc = async (retainer: number | null) => {
+      await prisma.client.update({ where: { id: f.clientId }, data: { retainer_hours: retainer } });
+      const t = await prisma.task.create({ data: { title: `${f.tag} adhoc ${Math.random()}`, client_id: f.clientId, site_id: f.siteId, status: 'not_started' } });
+      f.taskIds.push(t.id);
+      return autoTimerBillable(t.id, prisma);
+    };
+    try {
+      expect(await adhoc(null)).toBe(true);
+      expect(await adhoc(8)).toBe(false);
+      expect(await adhoc(0)).toBe(true);
+      // project task: non-billable whether or not the client has a retainer
+      await prisma.client.update({ where: { id: f.clientId }, data: { retainer_hours: null } });
+      const { taskId, session } = await open();
+      await onPresence(session, true, f.designer);
+      expect((await entries(f.designer.userId, taskId))[0].is_billable).toBe(false);
+    } finally {
+      await prisma.client.update({ where: { id: f.clientId }, data: { retainer_hours: null } });
+    }
   });
 
   it('hidden polls do not keep alive; a lapse stops at last presence on the next poll; a visible poll restarts', async () => {

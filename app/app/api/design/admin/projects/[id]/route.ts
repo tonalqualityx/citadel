@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
 import { isUuid } from '@/lib/design/helpers';
+import { onProjectFolderChanged, resolveProjectFolder } from '@/lib/design/drive-share';
 import { driveFolderBodySchema } from '@/lib/design/client-files';
 import { authActor, body, guardMutation, requireAdmin, requireSessionVia, type IdParams } from '@/lib/design/route-kit';
 
@@ -36,7 +37,10 @@ export async function PATCH(request: NextRequest, { params }: IdParams) {
     const existing = await prisma.project.findUnique({ where: { id }, select: { id: true, is_deleted: true } });
     if (!existing || existing.is_deleted) throw new ApiError('Project not found', 404, 'not_found');
     const input = await body(request, driveFolderBodySchema, 4096);
+    const before = await resolveProjectFolder(id);
     const row = await prisma.project.update({ where: { id }, data: { drive_folder_id: input.drive_folder_id }, select: { id: true, drive_folder_id: true } });
+    // D11: designers assigned to the project get the new folder shared, the old one unshared.
+    await onProjectFolderChanged(id, before, actor.userId);
     return NextResponse.json({ project: { id: row.id, drive_folder_id: row.drive_folder_id } });
   } catch (error) {
     return handleApiError(error);

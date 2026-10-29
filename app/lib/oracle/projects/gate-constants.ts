@@ -21,6 +21,7 @@ export const BOT_USER_IDS: readonly string[] = [
   '7e5d9924-6b58-47d6-9865-c6e98027d2cf', // Troubador
   '9fc0c13c-4943-4d84-9b04-ff56e087228e', // Oracle
   '49a29755-e183-4c8e-a741-363fa1edbcd6', // Test
+  'fc628c63-b14b-40f0-b1db-1a55fd4d00ae', // Designer Portal worker (designer-worker@indelible.bot, 2026-10-29)
 ];
 
 // = gate.json's assignee_id (Bast's own user id) — also the first entry of BOT_USER_IDS.
