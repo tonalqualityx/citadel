@@ -11,6 +11,7 @@ export interface ApiResult<T = unknown> {
 
 /** The payload of an `apply` message: what the designer attached and pinned. */
 export interface ApplyPayload {
+  note?: string;
   pins: Array<{ pin_id: string; data_lib?: string; sha?: string; note?: string; viewport: { w: number; h?: number } }>;
   files: Array<{ id: string; name: string; mime: string }>;
 }

@@ -38,7 +38,6 @@ export function previewState(p: { preview_url: string | null; preview_sha: strin
 
 export const WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: string }> = [
   { id: 'chat', label: 'Chat', task: 'W6.4' },
-  { id: 'tray', label: 'Tray', task: 'W6.5' },
   { id: 'changes', label: 'Changes', task: 'W6.5' },
   { id: 'versions', label: 'Versions', task: 'W6.5' },
   { id: 'client-files', label: 'Client files', task: 'W6.5' },
@@ -47,7 +46,6 @@ export const WORKSPACE_TABS: ReadonlyArray<{ id: string; label: string; task: st
 /** Slots W6.4/W6.5/W6.6 fill. A slot not given renders the placeholder. */
 export interface WorkspaceSlots {
   chat?: React.ReactNode;
-  tray?: React.ReactNode;
   changes?: React.ReactNode;
   versions?: React.ReactNode;
   'client-files'?: React.ReactNode;
@@ -81,7 +79,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
   const safeLink = previewOriginOf(previewUrl) ? previewUrl : null;
 
   return (
-    <div className="relative left-1/2 flex w-screen max-w-[1800px] -translate-x-1/2 flex-col gap-3 px-4 sm:px-6">
+    <div className="flex w-full min-w-0 flex-col gap-3">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Link href="/design" className="inline-flex min-h-[44px] items-center text-sm text-text-sub hover:text-text-main sm:min-h-0">
           Back

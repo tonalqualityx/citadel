@@ -9,7 +9,7 @@ import { initialFeedState, mergeFeedPage, type FeedState } from '@/lib/design/fe
 
 // Designer Portal hooks (design 7.1). Only /api/design/* routes: a designer is 403 on most others.
 
-export type DesignDrawer = DrawerResponse;
+export type DesignDrawer = DrawerResponse & { /** Sites the caller may start new work on (GET /api/design/tasks). */ start_sites?: Array<{ id: string; name: string }> };
 export type DrawerProject = DrawerResponse['projects'][number];
 export type DrawerTask = DrawerProject['phases'][number]['tasks'][number];
 
@@ -72,6 +72,19 @@ export function useOpenDesignSession() {
   });
 }
 
+/** POST /api/design/work {site_id, title, detail?}: a new task on the site's open project plus its session. */
+export function useStartDesignWork() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { site_id: string; title: string; detail?: string }) =>
+      apiClient.post<{ session_id: string }>('/design/work', input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: designKeys.all });
+    },
+    onError: (error) => showToast.apiError(error, 'Could not start the work'),
+  });
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Workspace: session load and feed poll (design 7.1)
 // ---------------------------------------------------------------------------------------------------------
@@ -110,6 +123,9 @@ export interface DesignSessionResponse {
   pins: Array<Record<string, unknown>>;
   changes: SessionChange[];
   worker: { online: boolean; paused: boolean; last_heartbeat_at: string | null };
+  worker_last_heartbeat_at: string | null;
+  /** Worker heartbeat under 30 s old and not paused. */
+  worker_online: boolean;
 }
 
 export interface DesignTimerView {
@@ -136,6 +152,9 @@ export interface DesignFeedResponse {
   preview_sha: string | null;
   head_sha: string | null;
   last_heartbeat_at: string | null;
+  worker_last_heartbeat_at: string | null;
+  /** Worker heartbeat under 30 s old and not paused: the banner trusts this, not the per-session field. */
+  worker_online: boolean;
   next_poll_ms: number;
   last_seq: number;
   has_more: boolean;

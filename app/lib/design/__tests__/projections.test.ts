@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
 import type { DrawerData, DrawerSite, DrawerTask } from '../access';
+import { workerLive } from '../projections';
 import {
   FEED_POLL_ACTIVE_MS,
   FEED_POLL_IDLE_MS,
@@ -222,7 +223,7 @@ describe('feed projection', () => {
       now: NOW,
     });
     expect(sorted(out)).toEqual([
-      'budget_usd', 'cost_usd', 'events', 'head_sha', 'last_heartbeat_at', 'lib_index_sha', 'live', 'next_poll_ms', 'preview_sha', 'preview_url', 'publish', 'stale', 'status', 'timer',
+      'budget_usd', 'cost_usd', 'events', 'head_sha', 'last_heartbeat_at', 'lib_index_sha', 'live', 'next_poll_ms', 'preview_sha', 'preview_url', 'publish', 'stale', 'status', 'timer', 'worker_last_heartbeat_at', 'worker_online',
     ]);
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(sorted(out.events[0])).toEqual(['created_at', 'kind', 'payload', 'role', 'seq']);
@@ -289,5 +290,18 @@ describe('publish page projection', () => {
 describe('findForbiddenKeys', () => {
   it('finds nested hits and ignores Dates', () => {
     expect(findForbiddenKeys({ a: [{ b: { hourly_rate: 1 } }], when: NOW })).toEqual(['$.a[0].b.hourly_rate']);
+  });
+});
+
+describe('workerLive (feed worker_online)', () => {
+  const now = new Date('2026-10-28T10:00:30Z');
+  it('is online for a heartbeat under 30 s old and not paused', () => {
+    expect(workerLive({ last_heartbeat_at: new Date('2026-10-28T10:00:10Z'), paused: false }, now)).toBe(true);
+  });
+  it('is offline when stale, paused, missing or without state', () => {
+    expect(workerLive({ last_heartbeat_at: new Date('2026-10-28T09:59:50Z'), paused: false }, now)).toBe(false);
+    expect(workerLive({ last_heartbeat_at: new Date('2026-10-28T10:00:20Z'), paused: true }, now)).toBe(false);
+    expect(workerLive({ last_heartbeat_at: null, paused: false }, now)).toBe(false);
+    expect(workerLive(null, now)).toBe(false);
   });
 });

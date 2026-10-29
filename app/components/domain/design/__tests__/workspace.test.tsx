@@ -117,7 +117,7 @@ const base = (over: Partial<DesignSessionResponse['session']> = {}): DesignSessi
   },
   task: { id: 't1', title: 'Hero copy', description: null, requirements: null },
   site: { name: 'vcdp.org' },
-  pins: [], changes: [], worker: { online: true, paused: false, last_heartbeat_at: null },
+  pins: [], changes: [], worker: { online: true, paused: false, last_heartbeat_at: null }, worker_last_heartbeat_at: null, worker_online: true,
 });
 
 describe('Workspace header', () => {
@@ -137,7 +137,7 @@ describe('Workspace header', () => {
     expect(state.textContent).toContain('Preview up to date');
     expect(within(state).getByRole('link').getAttribute('href')).toBe(PREVIEW);
     expect((screen.getByRole('button', { name: 'Publish to live...' }) as HTMLButtonElement).disabled).toBe(true);
-    for (const t of ['Chat', 'Tray', 'Changes', 'Versions', 'Client files']) expect(screen.getByRole('tab', { name: t })).toBeTruthy();
+    for (const t of ['Chat', 'Changes', 'Versions', 'Client files']) expect(screen.getByRole('tab', { name: t })).toBeTruthy();
     expect(screen.getByText(/coming in W6\.4/)).toBeTruthy();
   });
 

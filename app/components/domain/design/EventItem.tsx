@@ -3,17 +3,34 @@
 import * as React from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { GateRow, TimelineItem } from '@/lib/design/feed-reducer';
+import { RESULT_DETAIL_LINES, isReportOnlyGate, type GateRow, type TimelineItem } from '@/lib/design/feed-reducer';
 
 export const assetUrl = (sessionId: string, assetId: string) => `/api/design/sessions/${sessionId}/assets/${assetId}`;
 
 function GateCard({ sessionId, item }: { sessionId: string; item: Extract<TimelineItem, { type: 'gate' }> }) {
-  const failed = item.gates.filter((g) => !g.ok).length;
+  const failedGates = item.gates.filter((g) => !g.ok && !isReportOnlyGate(g.name));
+  const reported = item.gates.filter((g) => !g.ok && isReportOnlyGate(g.name));
+  const names = item.gates.map((g) => (isReportOnlyGate(g.name) ? `${g.name} (report only)` : g.name)).join(', ');
+
+  // A run with nothing red is one compact line that expands to the per-gate details.
+  if (failedGates.length === 0) {
+    return (
+      <details className="rounded-lg border border-border-warm bg-surface px-3 py-2 text-sm" data-testid="gate-summary">
+        <summary className="flex cursor-pointer items-center gap-2 text-text-main">
+          <CheckCircle2 className="h-4 w-4 shrink-0" style={{ color: 'var(--success)' }} aria-hidden="true" />
+          <span className="min-w-0">Checks passed: {names}{reported.length > 0 ? `. ${reported.map((g) => g.name).join(', ')} reported findings.` : ''}</span>
+        </summary>
+        <ul className="mt-2 space-y-1">
+          {item.gates.map((g) => <GateLine key={g.name} sessionId={sessionId} gate={g} />)}
+        </ul>
+      </details>
+    );
+  }
   return (
     <div className="rounded-lg border border-border-warm bg-surface px-3 py-2" data-testid="gate-card">
       <div className="mb-1 flex items-center gap-2 text-sm font-medium text-text-main">
-        {failed === 0 ? <CheckCircle2 className="h-4 w-4" style={{ color: 'var(--success)' }} aria-hidden="true" /> : <AlertTriangle className="h-4 w-4" style={{ color: 'var(--warning)' }} aria-hidden="true" />}
-        {failed === 0 ? 'All gates passed' : `${failed} of ${item.gates.length} gates failed`}
+        <AlertTriangle className="h-4 w-4" style={{ color: 'var(--warning)' }} aria-hidden="true" />
+        {`${failedGates.length} of ${item.gates.length} gates failed`}
         {item.blocking && <Badge variant="warning" size="sm">Blocks publishing</Badge>}
       </div>
       <ul className="space-y-1">
@@ -74,16 +91,29 @@ function GateLine({ sessionId, gate }: { sessionId: string; gate: GateRow }) {
 }
 
 function ToolLine({ item }: { item: Extract<TimelineItem, { type: 'tool' }> }) {
+  const lines = item.details ? item.details.split('\n') : [];
+  const shown = lines.slice(0, RESULT_DETAIL_LINES);
   return (
-    <div className="flex items-start gap-2 text-sm text-text-sub" data-testid="tool-line" data-state={item.state}>
-      {item.state === 'running' && <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
-      {item.state === 'ok' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--success)' }} aria-hidden="true" />}
-      {item.state === 'failed' && <XCircle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--error)' }} aria-hidden="true" />}
-      <span className="min-w-0">
-        <span className="text-text-main">{item.label}</span>
-        {item.state === 'failed' && <span className="sr-only"> (failed)</span>}
-        {(item.summary ?? item.args_summary) && <span>: {item.summary ?? item.args_summary}</span>}
-      </span>
+    <div className="text-sm text-text-sub" data-testid="tool-line" data-state={item.state}>
+      <div className="flex items-start gap-2">
+        {item.state === 'running' && <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+        {item.state === 'ok' && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--success)' }} aria-hidden="true" />}
+        {item.state === 'failed' && <XCircle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--error)' }} aria-hidden="true" />}
+        <span className="min-w-0 break-words">
+          <span className="text-text-main">{item.label}</span>
+          {item.state === 'failed' && <span className="sr-only"> (failed)</span>}
+          {(item.summary ?? item.args_summary) && <span>: {item.summary ?? item.args_summary}</span>}
+        </span>
+      </div>
+      {item.details && (
+        <details className="ml-6" data-testid="tool-details">
+          <summary className="cursor-pointer text-xs text-primary">Details</summary>
+          <pre className="mt-1 max-h-64 overflow-auto rounded border border-border-warm bg-background-light p-2 text-xs text-text-main">
+            {shown.join('\n')}
+            {lines.length > shown.length ? `\n... ${lines.length - shown.length} more lines not shown` : ''}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }

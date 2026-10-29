@@ -308,6 +308,25 @@ export const designEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/design/work',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Start new design work on a site that has no task yet: creates a task on the site\'s open project, assigned to the caller, then its design session. Signed-in session only (API keys 403).',
+        auth: 'required',
+        roles: DESIGNER,
+        bodySchema: [
+          { name: 'site_id', type: 'uuid', required: true, description: 'A design-enabled eleventy site (a designer must be on a project for it)' },
+          { name: 'title', type: 'string', required: true, description: 'What needs doing, max 120 characters' },
+          { name: 'detail', type: 'string', required: false, description: 'More detail, max 2000 characters' },
+        ],
+        responseExample: { session_id: 'uuid' },
+        responseNotes: '201. 404 unknown site or designer not on a project for it; 409 site not design-enabled or not eleventy, portal off, site not served by the box, or no open project (ready, in_progress or review) for the site. The task carries tag design-work.',
+      },
+    ],
+  },
+  {
     path: '/api/design/sessions/:id',
     group: 'design',
     methods: [
