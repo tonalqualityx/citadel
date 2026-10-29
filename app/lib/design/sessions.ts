@@ -27,7 +27,11 @@ export const SESSION_STATUSES: readonly DesignSessionStatus[] = [
 /** Who may make each move (design 8.7). Anything not listed is illegal. */
 export const SESSION_TRANSITIONS: Readonly<Record<DesignSessionStatus, Readonly<Partial<Record<DesignSessionStatus, readonly SessionActor[]>>>>> = {
   pending: { awaiting_input: ['worker'], stopped: ['worker'] },
-  active: { awaiting_input: ['worker'], paused_budget: ['worker', 'server'] },
+  active: {
+    awaiting_input: ['worker'],
+    paused_budget: ['worker', 'server'],
+    stopped: ['worker'], // integrity stop / worker shutdown mid-turn (W8.1 R1)
+  },
   awaiting_input: {
     active: ['worker'],
     stopped: ['worker'],

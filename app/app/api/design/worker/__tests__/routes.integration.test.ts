@@ -29,7 +29,7 @@ import * as change from '../changes/[id]/route';
 import * as pin from '../pins/[id]/route';
 import * as command from '../commands/[id]/route';
 import * as publish from '../publishes/[id]/route';
-import { WORKER as WORKER_BASE, ctx, req } from './harness';
+import { NOT_WORKERS, WORKER as WORKER_BASE, ctx, req } from './harness';
 import { DESIGN_WORKER_SERVICE_EMAIL } from '@/lib/design/helpers';
 
 let WORKER = WORKER_BASE;
@@ -99,6 +99,21 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       expect(res.status).toBe(200);
       expect((await res.json()).session).toMatchObject({ status: 'awaiting_input', sdk_session_id: 'sdk-1', worktree_path: '/tmp/wt' });
       expect((await patch({ status: 'awaiting_input' })).status).toBe(200); // same state is a no-op
+    });
+
+    it('active -> stopped (integrity stop) is worker-legal; no other caller may make it; stopped resumes (W8.1 R1)', async () => {
+      const patch = (body: object) => session.PATCH(req('PATCH', `${P}/sessions/${sid}`, body), set(sid));
+      expect((await patch({ status: 'active' })).status).toBe(200);
+      for (const [, auth] of NOT_WORKERS) {
+        vi.mocked(requireAuth).mockResolvedValue(auth);
+        expect((await patch({ status: 'stopped' })).status).toBe(403);
+      }
+      vi.mocked(requireAuth).mockResolvedValue(WORKER);
+      expect((await prisma.designSession.findUniqueOrThrow({ where: { id: sid } })).status).toBe('active');
+      const res = await patch({ status: 'stopped' });
+      expect(res.status).toBe(200);
+      expect((await res.json()).session.status).toBe('stopped');
+      expect((await patch({ status: 'awaiting_input' })).status).toBe(200);
     });
 
     it('cost_usd is monotonic', async () => {

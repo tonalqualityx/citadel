@@ -12,6 +12,7 @@ const LEGAL: [DesignSessionStatus, DesignSessionStatus, 'worker' | 'server'][] =
   ['awaiting_input', 'stopped', 'worker'],
   ['awaiting_input', 'active', 'worker'],
   ['active', 'awaiting_input', 'worker'],
+  ['active', 'stopped', 'worker'],
   ['active', 'paused_budget', 'worker'],
   ['active', 'paused_budget', 'server'],
   ['awaiting_input', 'paused_budget', 'worker'],
@@ -26,6 +27,12 @@ const LEGAL: [DesignSessionStatus, DesignSessionStatus, 'worker' | 'server'][] =
 ];
 
 describe('session transition table (design 8.7)', () => {
+  it('active -> stopped is worker-only; stopped can resume or close (W8.1 R1)', () => {
+    expect(transition({ status: 'active' }, 'stopped', 'worker')).toBe('stopped');
+    expect(() => transition({ status: 'active' }, 'stopped', 'server')).toThrow(/may not move/);
+    for (const to of ['awaiting_input', 'closed', 'abandoned'] as const) expect(transition({ status: 'stopped' }, to, 'worker')).toBe(to);
+  });
+
   it('covers all 8 statuses', () => {
     expect(SESSION_STATUSES).toHaveLength(8);
     expect(Object.keys(SESSION_TRANSITIONS).sort()).toEqual([...SESSION_STATUSES].sort());
