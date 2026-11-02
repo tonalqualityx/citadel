@@ -114,7 +114,7 @@ describe('isAtWipCap', () => {
     expect(isAtWipCap(TODAY_PICK_WIP_CAP - 1)).toBe(false);
   });
 
-  it('is true at and above the cap (a 6th pick is rejected)', () => {
+  it('is true at and above the cap (one over the cap is rejected)', () => {
     expect(isAtWipCap(TODAY_PICK_WIP_CAP)).toBe(true);
     expect(isAtWipCap(TODAY_PICK_WIP_CAP + 1)).toBe(true);
   });
