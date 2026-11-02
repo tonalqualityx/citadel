@@ -5,7 +5,7 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { getZonedDateString } from '@/lib/utils/time';
 import { resolveUserTimezone } from '@/lib/services/user-timezone';
-import { validateTodayPickRef, isAtWipCap } from '@/lib/today-picks';
+import { validateTodayPickRef, isAtWipCap, TODAY_PICK_WIP_CAP } from '@/lib/today-picks';
 import { PICK_INCLUDE, fetchTodayPicksForDate, shapeTodayPicks } from '@/lib/services/today-picks-shape';
 import { rolloverTodayPicksIfNeeded } from '@/lib/services/today-rollover';
 
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       meta: {
         total: shaped.length,
         uncompleted: uncompletedCount,
-        cap: 5,
+        cap: TODAY_PICK_WIP_CAP,
       },
     });
   } catch (error) {
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     });
     if (isAtWipCap(uncompletedCount)) {
       throw new ApiError(
-        'Today already holds 5 uncompleted picks — finish or drop one before adding another.',
+        `Today already holds ${TODAY_PICK_WIP_CAP} uncompleted picks — finish or drop one before adding another.`,
         409
       );
     }

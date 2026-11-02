@@ -4,10 +4,11 @@
 
 export type TodayPickItemType = 'arc' | 'task' | 'session' | 'lead' | 'note';
 
-// WIP ceiling per the evidence-bound design rules: a 6th uncompleted pick for a date is
-// rejected (409). The UI applies a warning tint once a day carries more than 3 — that's a
-// display nudge, not a hard stop, so it lives below the hard cap, not instead of it.
-export const TODAY_PICK_WIP_CAP = 5;
+// WIP ceiling: a 13th uncompleted pick for a date is rejected (409). Raised from 5 to 12 on
+// Mike's ruling 2026-11-02 ("I don't care if we exceed the limit"): a week's wrap-up arcs sit on
+// the board together. The UI still applies a warning tint once a day carries more than 3 — that's
+// a display nudge, not a hard stop, so it lives below the hard cap, not instead of it.
+export const TODAY_PICK_WIP_CAP = 12;
 export const TODAY_PICK_WARNING_THRESHOLD = 3;
 
 export interface TodayPickRefInput {
@@ -98,7 +99,7 @@ export function isAtWipCap(uncompletedCount: number): boolean {
 }
 
 /** UI-only nudge: past 3 uncompleted picks, the day reads as over-committed (warning tint),
- *  well before the hard 5-pick cap actually blocks a new one. */
+ *  well before the hard pick cap actually blocks a new one. */
 export function isPastWarningThreshold(uncompletedCount: number): boolean {
   return uncompletedCount > TODAY_PICK_WARNING_THRESHOLD;
 }

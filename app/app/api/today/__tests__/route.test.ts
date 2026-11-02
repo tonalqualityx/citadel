@@ -375,19 +375,19 @@ describe('POST /api/today', () => {
     );
   });
 
-  it('rejects a 6th uncompleted pick for the date with 409', async () => {
-    mockCount.mockResolvedValue(5);
+  it('rejects a pick over the cap for the date with 409', async () => {
+    mockCount.mockResolvedValue(12);
 
     const res = await POST(createPostRequest({ item_type: 'note', label: 'One too many' }));
     const body = await res.json();
 
     expect(res.status).toBe(409);
-    expect(body.error).toMatch(/5 uncompleted picks/);
+    expect(body.error).toMatch(/12 uncompleted picks/);
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('allows the 5th pick (at, not over, the cap boundary)', async () => {
-    mockCount.mockResolvedValue(4);
+  it('allows the 12th pick (at, not over, the cap boundary)', async () => {
+    mockCount.mockResolvedValue(11);
     mockCreate.mockResolvedValue(pick({ id: 'pick-5', item_type: 'note', arc_id: null, arc: null, label: 'Fifth' }));
 
     const res = await POST(createPostRequest({ item_type: 'note', label: 'Fifth' }));
@@ -418,7 +418,7 @@ describe('POST /api/today', () => {
   });
 
   it('the WIP cap still applies (409) on a future date, exactly as it does today', async () => {
-    mockCount.mockResolvedValue(5);
+    mockCount.mockResolvedValue(12);
 
     const res = await POST(createPostRequest({ item_type: 'note', label: 'One too many', date: '2026-08-15' }));
     expect(res.status).toBe(409);

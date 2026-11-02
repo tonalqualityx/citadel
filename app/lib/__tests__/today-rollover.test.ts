@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { TODAY_PICK_WIP_CAP } from '@/lib/today-picks';
 import { selectPicksToCarry, type RolloverCandidate } from '@/lib/today-rollover';
 
 function pick(over: Partial<RolloverCandidate> & { id?: string }): RolloverCandidate & { id: string } {
@@ -40,7 +41,7 @@ describe('selectPicksToCarry', () => {
   });
 
   it('never exceeds the WIP ceiling', () => {
-    const many = Array.from({ length: 8 }, (_, i) => pick({ id: String(i) }));
-    expect(selectPicksToCarry(many)).toHaveLength(5);
+    const many = Array.from({ length: TODAY_PICK_WIP_CAP + 3 }, (_, i) => pick({ id: String(i) }));
+    expect(selectPicksToCarry(many)).toHaveLength(TODAY_PICK_WIP_CAP);
   });
 });
