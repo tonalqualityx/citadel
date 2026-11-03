@@ -28,10 +28,6 @@ const NUMBER_FIELDS = [
   ['confirmation_ttl_minutes', 'Confirmation window (minutes)', 1, 60, true],
   ['idle_close_minutes', 'Close idle sessions after (minutes)', 1, 240, true],
   ['max_live_sessions', 'Max live sessions', 1, 20, true],
-  ['default_session_budget_usd', 'Default session budget (USD)', 0.01, 1000, false],
-  ['designer_raise_cap_usd', 'Designer raise cap (USD)', 0.01, 1000, false],
-  ['hard_session_cap_usd', 'Hard session cap (USD)', 0.01, 5000, false],
-  ['default_monthly_cap_usd', 'Default monthly cap per designer (USD, blank for none)', 0.01, 100000, false],
   ['auto_timer_lapse_minutes', 'Timer lapse after (minutes without a visible poll)', 1, 60, true],
 ] as const;
 
@@ -57,10 +53,6 @@ export function buildPatch(s: Settings, d: Draft): { patch: Partial<Settings>; e
     const num = NUMBER_FIELDS.find(([k]) => k === key);
     if (num) {
       const [, label, min, max, int] = num;
-      if (d[key] === '' && key === 'default_monthly_cap_usd') {
-        patch[key] = null;
-        continue;
-      }
       const n = Number(d[key]);
       if (!Number.isFinite(n) || n < min || n > max || (int && !Number.isInteger(n))) return { patch: {}, error: `${label}: enter ${int ? 'a whole number' : 'a number'} from ${min} to ${max}.` };
       patch[key] = n;

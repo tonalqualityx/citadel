@@ -112,7 +112,7 @@ describe('PublishConfirmDialog', () => {
     expect(btn).toHaveClass('bg-red-600');
   });
 
-  it('uses client-preview wording with normal styling otherwise, and shows diff, gates, pages and cost', async () => {
+  it('uses client-preview wording with normal styling otherwise, and shows diff, gates and pages, and no cost', async () => {
     post.mockResolvedValue(intent('client_preview'));
     wrap(<PublishConfirmDialog sessionId="s1" headSha="abc1234" open onOpenChange={() => {}} />);
     await screen.findByText(/This publishes to/);
@@ -122,7 +122,8 @@ describe('PublishConfirmDialog', () => {
     expect(screen.queryByText(/LIVE production/)).toBeNull();
     expect(screen.getByTestId('diff-summary')).toHaveTextContent('2 files, +10 / -3');
     expect(screen.getByTestId('pages-affected')).toHaveTextContent('/, /about/');
-    expect(screen.getByText('$1.25')).toBeInTheDocument();
+    expect(screen.queryByText('$1.25')).toBeNull();
+    expect(screen.queryByText(/Cost so far/)).toBeNull();
     expect(screen.getAllByText('Green')).toHaveLength(2);
     expect(screen.getByTestId('publish-countdown')).toHaveTextContent(/expires in 9:5\d|expires in 10:00/);
   });
@@ -158,7 +159,7 @@ function feed(publish: Partial<DesignFeedResponse['publish']>, over: Partial<Des
   return {
     events: [], live: { text: null, action: null }, status: 'awaiting_input', stale: false,
     publish: { can_publish: false, main_role: 'client_preview', precheck: null, ...publish },
-    timer: null, cost_usd: 1, budget_usd: 5, preview_url: 'https://x.pages.dev', preview_sha: 'abc1234', head_sha: 'abc1234',
+    timer: null, preview_url: 'https://x.pages.dev', preview_sha: 'abc1234', head_sha: 'abc1234',
     last_heartbeat_at: null, worker_last_heartbeat_at: null, worker_online: true, next_poll_ms: 5000, last_seq: 0, has_more: false, ...over,
   };
 }
@@ -227,8 +228,8 @@ describe('RollbackButton', () => {
 });
 
 const SETTINGS: Settings = {
-  enabled: true, owner_user_id: null, designer_publish_mode: 'per_site', confirmation_ttl_minutes: 10, default_session_budget_usd: 25,
-  designer_raise_cap_usd: 50, hard_session_cap_usd: 100, default_monthly_cap_usd: null, model: 'claude-opus-4', effort: 'high',
+  enabled: true, owner_user_id: null, designer_publish_mode: 'per_site', confirmation_ttl_minutes: 10,
+  model: 'claude-opus-4', effort: 'high',
   idle_close_minutes: 10, auto_timer_enabled: true, auto_timer_lapse_minutes: 5, auto_timer_billable: false, max_live_sessions: 4, updated_at: null,
 };
 

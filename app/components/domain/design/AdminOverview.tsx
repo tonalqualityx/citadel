@@ -48,7 +48,7 @@ export function AdminOverview() {
             <table className="w-full min-w-[44rem] text-sm">
               <thead>
                 <tr className="border-b border-border-warm text-left text-xs text-text-sub">
-                  {['Task', 'Site', 'Designer', 'Status', 'Timer', 'Cost'].map((h) => <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>)}
+                  {['Task', 'Site', 'Designer', 'Status', 'Timer'].map((h) => <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -59,7 +59,6 @@ export function AdminOverview() {
                     <td className="px-3 py-2 text-text-sub">{s.designer.name}</td>
                     <td className="px-3 py-2"><StatusChip status={s.status} /></td>
                     <td className="px-3 py-2 text-text-sub" data-testid="session-timer">{s.timer.running ? `Running ${formatElapsed(s.timer.elapsed_s)}` : s.timer.elapsed_s > 0 ? `Stopped at ${formatElapsed(s.timer.elapsed_s)}` : 'Not running'}</td>
-                    <td className="px-3 py-2 text-text-sub">${s.cost_usd.toFixed(2)} of ${s.budget_usd.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>

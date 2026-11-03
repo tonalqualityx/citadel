@@ -6,7 +6,7 @@
  * order of arrival does not matter. Payload shapes per kind (see 8.9; read defensively, the worker owns them):
  *   text {text} | thought {text} | action {tool, label, args_summary, tool_use_id?} | result {tool, ok, summary, duration_ms, tool_use_id?}
  *   screenshot {asset_ids[], widths[], purpose} | gate {gates:[{name, ok, summary, log_asset_id?}], blocking}
- *   cost {turn_usd, total_usd, budget_usd} | plan {items:[{text, status}]} (replaced whole) | status {text|message|summary}
+ *   cost (ignored by the portal; budget tracking removed 2026-11-03) | plan {items:[{text, status}]} (replaced whole) | status {text|message|summary}
  *   followup {task_id, title} | client_files {folder_id, items[]} | change {change_id} | publish {publish_id, kind, status, summary}
  */
 
@@ -23,11 +23,6 @@ export interface PlanItem {
   text: string;
   status: PlanStatus;
 }
-export interface TurnCost {
-  turn_usd: number;
-  total_usd: number;
-  budget_usd: number | null;
-}
 
 export interface FeedState {
   /** Sorted by seq, unique by seq. */
@@ -36,8 +31,6 @@ export interface FeedState {
   cursor: number;
   plan: PlanItem[] | null;
   planSeq: number;
-  lastTurn: TurnCost | null;
-  lastTurnSeq: number;
   clientFilesCount: number | null;
   clientFilesSeq: number;
 }
@@ -47,8 +40,6 @@ export const initialFeedState: FeedState = {
   cursor: 0,
   plan: null,
   planSeq: 0,
-  lastTurn: null,
-  lastTurnSeq: 0,
   clientFilesCount: null,
   clientFilesSeq: 0,
 };
@@ -94,14 +85,6 @@ export function parsePlan(payload: unknown): PlanItem[] {
   });
 }
 
-export function parseCost(payload: unknown): TurnCost | null {
-  const r = rec(payload);
-  const turn = numOf(r.turn_usd);
-  const total = numOf(r.total_usd);
-  if (turn === null && total === null) return null;
-  return { turn_usd: turn ?? 0, total_usd: total ?? 0, budget_usd: numOf(r.budget_usd) };
-}
-
 /** Merge one page. Returns the same state object when the page adds nothing. */
 export function mergeFeedPage(state: FeedState, page: readonly FeedEvent[]): FeedState {
   if (page.length === 0) return state;
@@ -121,12 +104,6 @@ export function mergeFeedPage(state: FeedState, page: readonly FeedEvent[]): Fee
     if (e.kind === 'plan' && e.seq > next.planSeq) {
       next.plan = parsePlan(e.payload);
       next.planSeq = e.seq;
-    } else if (e.kind === 'cost' && e.seq > next.lastTurnSeq) {
-      const c = parseCost(e.payload);
-      if (c) {
-        next.lastTurn = c;
-        next.lastTurnSeq = e.seq;
-      }
     } else if (e.kind === 'client_files' && e.seq > next.clientFilesSeq) {
       const items = rec(e.payload).items;
       next.clientFilesCount = Array.isArray(items) ? items.length : 0;
@@ -196,7 +173,7 @@ const toolKey = (payload: unknown): string | null => {
  * The visible timeline, derived from the sorted events. A `result` joins the `action` with the same tool-use id
  * (payload.tool_use_id, tool_id, id or call_id); with no id on either side it joins the oldest still-open action of
  * the same tool. A joined action reads in past tense; an unmatched action is "running"; an unmatched result shows
- * on its own. cost, plan are state, not rows.
+ * on its own. cost is dropped, plan is state, not a row.
  */
 export function deriveTimeline(state: Pick<FeedState, 'events'>): TimelineItem[] {
   const items: TimelineItem[] = [];

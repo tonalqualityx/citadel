@@ -36,7 +36,7 @@ export function GateList({ status, entries }: { status: string; entries: Publish
   );
 }
 
-export function DiffFacts({ shown }: { shown: Pick<PublishShown, 'diff_summary' | 'files_changed' | 'pages_affected' | 'cost_usd'> }) {
+export function DiffFacts({ shown }: { shown: Pick<PublishShown, 'diff_summary' | 'files_changed' | 'pages_affected'> }) {
   const d = shown.diff_summary;
   return (
     <dl className="space-y-2 text-sm">
@@ -56,10 +56,6 @@ export function DiffFacts({ shown }: { shown: Pick<PublishShown, 'diff_summary' 
       <div>
         <dt className="font-medium text-text-main">Pages affected</dt>
         <dd className="text-text-sub" data-testid="pages-affected">{shown.pages_affected.length > 0 ? shown.pages_affected.join(', ') : 'None listed'}</dd>
-      </div>
-      <div>
-        <dt className="font-medium text-text-main">Cost so far</dt>
-        <dd className="text-text-sub">${shown.cost_usd.toFixed(2)}</dd>
       </div>
     </dl>
   );

@@ -65,7 +65,7 @@ function sessionRow(over: Partial<SessionRowForProjection> = {}): SessionRowForP
   const s: SessionRowForProjection = {
     id: 'sess-1', task_id: 'task-1', site_id: 'site-1', project_id: 'proj-1', designer_id: DESIGNER, status: 'awaiting_input',
     branch: 'design/a1b2c3d4', preview_alias: 'design-a1b2c3d4', preview_url: 'https://design-a1b2c3d4.vcdp.pages.dev',
-    preview_sha: 'abc', base_sha: 'base', head_sha: 'abc', cost_usd: { toString: () => '1.23456' }, budget_usd: { toString: () => '25' },
+    preview_sha: 'abc', base_sha: 'base', head_sha: 'abc',
     live_text: null, live_action: null, last_seq: 7, last_heartbeat_at: NOW, last_turn_at: NOW, lib_index: { hero: { pages: ['/'], count: 1 } },
     diff_summary: { files_changed: 1 }, diff_asset_id: null, publish_requested_at: null, last_publish_id: null,
     publish_precheck: { head_sha: 'abc', gates_ok: true, gates: [], files_changed: ['src/index.njk'], pages_affected: ['/'], copy_words: 5, touches_code: [] },
@@ -75,7 +75,7 @@ function sessionRow(over: Partial<SessionRowForProjection> = {}): SessionRowForP
 }
 
 const SESSION_KEYS = [
-  'base_sha', 'branch', 'budget_usd', 'closed_at', 'cost_usd', 'created_at', 'designer_id', 'diff_asset_id', 'diff_summary', 'head_sha', 'id',
+  'base_sha', 'branch', 'closed_at', 'created_at', 'designer_id', 'diff_asset_id', 'diff_summary', 'head_sha', 'id',
   'last_heartbeat_at', 'last_publish_id', 'last_seq', 'last_turn_at', 'lib_index', 'live_action', 'live_text', 'preview_alias', 'preview_sha',
   'preview_url', 'project_id', 'publish_precheck', 'publish_requested_at', 'site_id', 'stale', 'status', 'task_id', 'updated_at',
 ];
@@ -138,7 +138,7 @@ describe('drawer projection', () => {
     ['abandoned', null, 'closed'],
     ['awaiting_input', NOW, 'publish_requested'],
     ['awaiting_input', null, 'awaiting_you'],
-    ['paused_budget', null, 'paused_budget'],
+    ['paused_budget', null, 'awaiting_you'],
     ['stopped', null, 'stopped'],
     ['active', null, 'active'],
     ['pending', null, 'active'],
@@ -153,8 +153,8 @@ describe('session projections', () => {
     expect(sorted(out)).toEqual(SESSION_KEYS);
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(out.publish_precheck).toEqual({ head_sha: 'abc', gates_ok: true, gates: [], files_changed: ['src/index.njk'], pages_affected: ['/'] });
-    expect(out.cost_usd).toBe(1.2346);
-    expect(out.budget_usd).toBe(25);
+    expect(out).not.toHaveProperty('cost_usd');
+    expect(out).not.toHaveProperty('budget_usd');
     expect(out.stale).toBe(false);
   });
   it('stale: an active session whose heartbeat is older than 2 minutes', () => {
@@ -167,11 +167,11 @@ describe('session projections', () => {
   });
   it('list item', () => {
     const out = projectSessionListItem({
-      ...LEAK, id: 's', status: 'closed', cost_usd: 2, budget_usd: 25, updated_at: NOW,
+      ...LEAK, id: 's', status: 'closed', updated_at: NOW,
       task: { id: 't', title: 'T', ...LEAK } as never, site: { name: 'VCDP', ...LEAK } as never,
       last_publish: { id: 'p', status: 'published', finished_at: NOW, ...LEAK } as never,
     } as never);
-    expect(sorted(out)).toEqual(['budget_usd', 'cost_usd', 'id', 'last_publish', 'site', 'status', 'task', 'updated_at']);
+    expect(sorted(out)).toEqual(['id', 'last_publish', 'site', 'status', 'task', 'updated_at']);
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(sorted(out.last_publish!)).toEqual(['finished_at', 'id', 'status']);
   });
@@ -223,7 +223,7 @@ describe('feed projection', () => {
       now: NOW,
     });
     expect(sorted(out)).toEqual([
-      'budget_usd', 'cost_usd', 'events', 'head_sha', 'last_heartbeat_at', 'lib_index_sha', 'live', 'next_poll_ms', 'preview_sha', 'preview_url', 'publish', 'stale', 'status', 'timer', 'worker_last_heartbeat_at', 'worker_online',
+      'events', 'head_sha', 'last_heartbeat_at', 'lib_index_sha', 'live', 'next_poll_ms', 'preview_sha', 'preview_url', 'publish', 'stale', 'status', 'timer', 'worker_last_heartbeat_at', 'worker_online',
     ]);
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(sorted(out.events[0])).toEqual(['created_at', 'kind', 'payload', 'role', 'seq']);

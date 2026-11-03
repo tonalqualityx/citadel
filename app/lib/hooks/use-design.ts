@@ -19,8 +19,6 @@ export interface SessionListItem {
   site: { name: string };
   status: string;
   last_publish: { id: string; status: string; finished_at: string | null } | null;
-  cost_usd: number;
-  budget_usd: number;
   updated_at: string;
 }
 
@@ -126,8 +124,6 @@ export interface DesignSessionView {
   preview_sha: string | null;
   head_sha: string | null;
   base_sha: string | null;
-  cost_usd: number | string;
-  budget_usd: number | string;
   live_text: string | null;
   live_action: string | null;
   last_seq: number;
@@ -166,8 +162,6 @@ export interface DesignFeedResponse {
     running_publish_id?: string;
   };
   timer: DesignTimerView | null;
-  cost_usd: number | string;
-  budget_usd: number | string;
   preview_url: string | null;
   preview_sha: string | null;
   head_sha: string | null;

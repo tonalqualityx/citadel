@@ -168,7 +168,7 @@ describe('ClientFilesTab', () => {
   it('an attached file rides in the apply body when the chat sends a selection', async () => {
     fetchMock.mockResolvedValue(jsonResponse(201, { seq: 9 }));
     post.mockResolvedValue({ pin: { id: 'pin-1' } });
-    get.mockResolvedValue({ events: [], live: { text: null, action: null }, status: 'awaiting_input', stale: false, publish: { can_publish: false, main_role: 'client_preview', precheck: null }, timer: null, cost_usd: 0, budget_usd: 5, preview_url: null, preview_sha: SHA, head_sha: SHA, last_heartbeat_at: null, worker_last_heartbeat_at: null, worker_online: true, next_poll_ms: 5000, last_seq: 0, has_more: false });
+    get.mockResolvedValue({ events: [], live: { text: null, action: null }, status: 'awaiting_input', stale: false, publish: { can_publish: false, main_role: 'client_preview', precheck: null }, timer: null, preview_url: null, preview_sha: SHA, head_sha: SHA, last_heartbeat_at: null, worker_last_heartbeat_at: null, worker_online: true, next_poll_ms: 5000, last_seq: 0, has_more: false });
     const data = {
       session: { id: SID, status: 'awaiting_input', preview_sha: SHA, head_sha: SHA, base_sha: null },
       pins: [],

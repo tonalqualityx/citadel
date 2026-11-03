@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError, handleApiError } from '@/lib/api/errors';
-import { BUDGET_DEFAULTS } from '@/lib/design/budget';
-import { toUsd } from '@/lib/design/helpers';
 import { DESIGN_PUBLISH_MODES } from '@/lib/design/publish-policy';
 import { SESSION_DEFAULTS } from '@/lib/design/sessions';
 import { authActor, body, guardMutation, requireAdmin, requireSessionVia } from '@/lib/design/route-kit';
@@ -18,10 +16,6 @@ export function serializeSettings(row: SettingsRow | null) {
     owner_user_id: row?.owner_user_id ?? null,
     designer_publish_mode: row?.designer_publish_mode ?? 'per_site',
     confirmation_ttl_minutes: row?.confirmation_ttl_minutes ?? 10,
-    default_session_budget_usd: row ? toUsd(row.default_session_budget_usd) : SESSION_DEFAULTS.budget_usd,
-    designer_raise_cap_usd: row ? toUsd(row.designer_raise_cap_usd) : BUDGET_DEFAULTS.designer_raise_cap_usd,
-    hard_session_cap_usd: row ? toUsd(row.hard_session_cap_usd) : BUDGET_DEFAULTS.hard_session_cap_usd,
-    default_monthly_cap_usd: row && row.default_monthly_cap_usd !== null ? toUsd(row.default_monthly_cap_usd) : null,
     model: row?.model ?? SESSION_DEFAULTS.model,
     effort: row?.effort ?? SESSION_DEFAULTS.effort,
     idle_close_minutes: row?.idle_close_minutes ?? 10,
@@ -58,17 +52,12 @@ export async function GET() {
   }
 }
 
-const money = (max: number) => z.number().finite().min(0.01).max(max);
 const settingsSchema = z
   .object({
     enabled: z.boolean(),
     owner_user_id: z.string().uuid().nullable(),
     designer_publish_mode: z.enum(DESIGN_PUBLISH_MODES),
     confirmation_ttl_minutes: z.number().int().min(1).max(60),
-    default_session_budget_usd: money(1000),
-    designer_raise_cap_usd: money(1000),
-    hard_session_cap_usd: money(5000),
-    default_monthly_cap_usd: money(100000).nullable(),
     // An allowlist (W8.1 H5): opus | sonnet | haiku or their full ids; `best`, `default`, fable and the rest are 400.
     model: z.string().trim().min(1).max(60).refine(isAllowedDesignModel, { message: 'Use opus, sonnet or haiku, or a full model id such as claude-opus-4-5 (Fable and aliases such as best are refused)' }),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
@@ -93,9 +82,6 @@ export async function PATCH(request: NextRequest) {
     const input = await body(request, settingsSchema, 8192);
 
     const current = serializeSettings(await prisma.designPortalSettings.findUnique({ where: { id: 1 } }));
-    const raise = input.designer_raise_cap_usd ?? current.designer_raise_cap_usd;
-    const hard = input.hard_session_cap_usd ?? current.hard_session_cap_usd;
-    if (raise > hard) throw new ApiError('The designer raise cap cannot exceed the hard session cap', 400, 'bad_caps');
     if (input.owner_user_id) {
       const owner = await prisma.user.findUnique({ where: { id: input.owner_user_id }, select: { id: true, is_active: true } });
       if (!owner || !owner.is_active) throw new ApiError('owner_user_id is not an active user', 400, 'bad_owner');

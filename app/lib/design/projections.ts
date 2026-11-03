@@ -84,7 +84,7 @@ export function workerLive(state: { last_heartbeat_at: Date | null; paused: bool
 // Drawer (GET /api/design/tasks)
 // ---------------------------------------------------------------------------------------------------------
 
-export type SessionChip = 'active' | 'awaiting_you' | 'paused_budget' | 'stopped' | 'publishing' | 'publish_requested' | 'closed';
+export type SessionChip = 'active' | 'awaiting_you' | 'stopped' | 'publishing' | 'publish_requested' | 'closed';
 
 export function sessionChip(s: Pick<DrawerSessionRow, 'status' | 'publish_requested_at'>): SessionChip {
   switch (s.status) {
@@ -95,8 +95,7 @@ export function sessionChip(s: Pick<DrawerSessionRow, 'status' | 'publish_reques
       return 'closed';
     default:
       if (s.publish_requested_at) return 'publish_requested';
-      if (s.status === 'awaiting_input') return 'awaiting_you';
-      if (s.status === 'paused_budget') return 'paused_budget';
+      if (s.status === 'awaiting_input' || s.status === 'paused_budget') return 'awaiting_you';
       if (s.status === 'stopped') return 'stopped';
       return 'active';
   }
@@ -205,8 +204,6 @@ export interface SessionRowForProjection {
   preview_sha: string | null;
   base_sha: string | null;
   head_sha: string | null;
-  cost_usd: Money;
-  budget_usd: Money;
   live_text: string | null;
   live_action: string | null;
   last_seq: number;
@@ -258,8 +255,6 @@ export function projectSession(s: SessionRowForProjection, now: Date = new Date(
     preview_sha: s.preview_sha,
     base_sha: s.base_sha,
     head_sha: s.head_sha,
-    cost_usd: money4(s.cost_usd),
-    budget_usd: toUsd(s.budget_usd),
     live_text: s.live_text,
     live_action: s.live_action,
     last_seq: s.last_seq,
@@ -346,7 +341,7 @@ export function projectChange(c: {
 }
 
 export function projectSessionListItem(s: {
-  id: string; status: string; cost_usd: Money; budget_usd: Money; updated_at: Date;
+  id: string; status: string; updated_at: Date;
   task: { id: string; title: string }; site: { name: string };
   last_publish: { id: string; status: string; finished_at: Date | null } | null;
 }) {
@@ -356,8 +351,6 @@ export function projectSessionListItem(s: {
     site: { name: s.site.name },
     status: s.status,
     last_publish: s.last_publish ? { id: s.last_publish.id, status: s.last_publish.status, finished_at: s.last_publish.finished_at } : null,
-    cost_usd: money4(s.cost_usd),
-    budget_usd: toUsd(s.budget_usd),
     updated_at: s.updated_at,
   };
 }
@@ -413,8 +406,6 @@ export function projectFeed(input: FeedInput) {
     stale: isSessionStale(s, input.now),
     publish,
     timer: { running: !!input.timer?.running, elapsed_s: Math.max(0, Math.floor(input.timer?.elapsed_s ?? 0)) },
-    cost_usd: money4(s.cost_usd),
-    budget_usd: toUsd(s.budget_usd),
     preview_url: s.preview_url,
     preview_sha: s.preview_sha,
     head_sha: s.head_sha,

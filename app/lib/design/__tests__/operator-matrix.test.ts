@@ -166,11 +166,11 @@ describe('operator keys on every non-worker design handler', () => {
     });
   }
 
-  it('designer write routes refuse a key holding BOTH scopes (messages, apply, pins, stop, budget, close, restore, request-publish, changes, sessions POST)', async () => {
+  it('designer write routes refuse a key holding BOTH scopes (messages, apply, pins, stop, close, restore, request-publish, changes, sessions POST)', async () => {
     const writes = handlers.filter((h) => h.method !== 'GET' && !operatorRouteAllowed('setup', h.method, h.urlPath) && !operatorRouteAllowed('publish', h.method, h.urlPath));
     expect(writes.map(label)).toEqual(expect.arrayContaining([
       `POST /api/design/sessions/${UUID}/messages`, `POST /api/design/sessions/${UUID}/apply`, `POST /api/design/sessions/${UUID}/pins`,
-      `PATCH /api/design/pins/${UUID}`, `POST /api/design/sessions/${UUID}/request-publish`, `POST /api/design/sessions/${UUID}/budget`,
+      `PATCH /api/design/pins/${UUID}`, `POST /api/design/sessions/${UUID}/request-publish`,
       `POST /api/design/sessions`,
     ]));
     for (const h of writes) {

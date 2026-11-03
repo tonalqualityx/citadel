@@ -406,8 +406,7 @@ export async function confirmPublish(
         tx,
       );
 
-      // The session follows (8.7: awaiting_input -> publishing is a server move). paused_budget has no
-      // publishing move in the table; it already holds designer notes, so it stays as it is.
+      // The session follows (8.7: awaiting_input -> publishing is a server move). A legacy paused_budget session stays as it is.
       const s = await tx.designSession.findUnique({ where: { id: session.id }, select: { status: true, head_sha: true } });
       if (!s || s.head_sha !== publish.head_sha) throw new ApiError('The design branch moved since the review; review again', 409, 'stale_head');
       if (s.status === 'awaiting_input') {

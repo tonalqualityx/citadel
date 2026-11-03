@@ -22,7 +22,7 @@ const create = createOrGetSession as Mock;
 beforeEach(() => {
   vi.clearAllMocks();
   findMany.mockResolvedValue([
-    { id: 's1', status: 'awaiting_input', cost_usd: 2, budget_usd: 25, updated_at: new Date(), last_publish_id: 'p1', task: { id: 't1', title: 'Home' }, site: { name: 'VCDP' } },
+    { id: 's1', status: 'awaiting_input', updated_at: new Date(), last_publish_id: 'p1', task: { id: 't1', title: 'Home' }, site: { name: 'VCDP' } },
   ]);
   pubFind.mockResolvedValue([{ id: 'p1', status: 'published', finished_at: new Date('2026-10-28T10:00:00Z') }]);
 });
@@ -34,7 +34,9 @@ describe('GET /api/design/sessions', () => {
     expect(res.status).toBe(200);
     expect(findMany.mock.calls[0][0].where).toMatchObject({ designer_id: uid });
     const json = await res.json();
-    expect(json.sessions[0]).toMatchObject({ id: 's1', task: { id: 't1', title: 'Home' }, site: { name: 'VCDP' }, last_publish: { id: 'p1', status: 'published' }, cost_usd: 2, budget_usd: 25 });
+    expect(json.sessions[0]).toMatchObject({ id: 's1', task: { id: 't1', title: 'Home' }, site: { name: 'VCDP' }, last_publish: { id: 'p1', status: 'published' }});
+    expect(json.sessions[0]).not.toHaveProperty('cost_usd');
+    expect(json.sessions[0]).not.toHaveProperty('budget_usd');
   });
   it('an admin lists all, with a status filter', async () => {
     signIn(auth, userFind, 'admin');

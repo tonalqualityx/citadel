@@ -39,14 +39,14 @@ describe('GET /api/design/admin/settings', () => {
     const res = await GET();
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.settings).toMatchObject({ enabled: true, default_session_budget_usd: 25, hard_session_cap_usd: 150, designer_publish_mode: 'per_site', auto_timer_lapse_minutes: 5 });
+    expect(json.settings).toMatchObject({ enabled: true, designer_publish_mode: 'per_site', auto_timer_lapse_minutes: 5 });
     expect(json.worker_state).toMatchObject({ paused: false, configured_site_ids: [] });
   });
   it('before the row exists it answers the defaults with enabled false', async () => {
     settingsFind.mockResolvedValue(null);
     (prisma.designWorkerState.findUnique as Mock).mockResolvedValue(null);
     const json = await (await GET()).json();
-    expect(json.settings).toMatchObject({ enabled: false, model: 'opus', default_session_budget_usd: 25 });
+    expect(json.settings).toMatchObject({ enabled: false, model: 'opus' });
     expect(json.worker_state).toBeNull();
   });
   it('anonymous 401; designer, pm 403; API key 403', async () => {
@@ -91,10 +91,10 @@ describe('PATCH /api/design/admin/settings', () => {
       expect((await patch(b)).status, JSON.stringify(b)).toBe(400);
     }
   });
-  it('the raise cap cannot exceed the hard cap (merged with stored values)', async () => {
-    expect((await patch({ designer_raise_cap_usd: 200 })).status).toBe(400);
-    expect((await patch({ hard_session_cap_usd: 40 })).status).toBe(400);
-    expect((await patch({ designer_raise_cap_usd: 40, hard_session_cap_usd: 300 })).status).toBe(200);
+  it('the old budget and cap fields are gone: refused as unknown, never stored', async () => {
+    for (const b of [{ designer_raise_cap_usd: 40 }, { hard_session_cap_usd: 300 }, { default_monthly_cap_usd: 10 }, { default_session_budget_usd: 5 }]) {
+      expect((await patch(b)).status, JSON.stringify(b)).toBe(400);
+    }
   });
   it('owner_user_id must be an active user', async () => {
     userFind.mockImplementation(async ({ where }: { where: { id: string } }) => (where.id === ADMIN_ID ? { id: ADMIN_ID, role: 'admin', is_active: true } : null));

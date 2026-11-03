@@ -7,7 +7,6 @@ import type { DesignDrawer, DrawerTask } from '@/lib/hooks/use-design';
 const CHIP_LABELS: Record<string, string> = {
   active: 'Active',
   awaiting_you: 'Waiting on you',
-  paused_budget: 'Paused: budget',
   stopped: 'Stopped',
   publishing: 'Publishing',
   publish_requested: 'Publish requested',

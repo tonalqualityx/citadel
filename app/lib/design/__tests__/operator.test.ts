@@ -26,19 +26,16 @@ const plainKey = { userId: MIKE, role: 'admin' as const, via: 'api_key' as const
 describe('the allowlist (lib/design/operator.ts) is exactly the ruling', () => {
   it('setup: the design admin configuration routes, nothing else', () => {
     expect(DESIGN_OPERATOR_ROUTES.setup.map((r) => `${r.method} ${r.pattern}`).sort()).toEqual([
-      'GET /api/design/admin/budgets',
       'GET /api/design/admin/clients/:id',
       'GET /api/design/admin/projects/:id',
       'GET /api/design/admin/publishes',
       'GET /api/design/admin/sessions',
       'GET /api/design/admin/settings',
       'GET /api/design/admin/sites',
-      'PATCH /api/design/admin/budgets/:userId',
       'PATCH /api/design/admin/clients/:id',
       'PATCH /api/design/admin/projects/:id',
       'PATCH /api/design/admin/settings',
       'PATCH /api/design/admin/sites/:id',
-      'PUT /api/design/admin/budgets/:userId',
     ]);
   });
 

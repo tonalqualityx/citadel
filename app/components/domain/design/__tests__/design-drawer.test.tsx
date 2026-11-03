@@ -85,7 +85,7 @@ describe('WorkerBanner', () => {
 
 describe('SessionList', () => {
   it('links to the workspace', () => {
-    render(<SessionList sessions={[{ id: 'abc', task: { id: 't', title: 'Hero' }, site: { name: 'vcdp.org' }, status: 'awaiting_input', last_publish: null, cost_usd: 0, budget_usd: 10, updated_at: '' }]} />);
+    render(<SessionList sessions={[{ id: 'abc', task: { id: 't', title: 'Hero' }, site: { name: 'vcdp.org' }, status: 'awaiting_input', last_publish: null, updated_at: '' }]} />);
     expect(screen.getByRole('link').getAttribute('href')).toBe('/design/s/abc');
     expect(screen.getByText('awaiting input')).toBeTruthy();
   });

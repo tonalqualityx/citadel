@@ -14,12 +14,10 @@ vi.mock('@/lib/db/prisma', () => {
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));
   return { prisma };
 });
-vi.mock('@/lib/design/budget', async (orig) => ({ ...(await orig<typeof import('@/lib/design/budget')>()), budgetStatus: vi.fn() }));
 vi.mock('@/lib/design/events', async (orig) => ({ ...(await orig<typeof import('@/lib/design/events')>()), appendDesignerEvent: vi.fn() }));
 
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
-import { budgetStatus } from '@/lib/design/budget';
 import { appendDesignerEvent } from '@/lib/design/events';
 
 const auth = requireAuth as Mock;
@@ -30,7 +28,6 @@ const listingFind = prisma.designEvent.findFirst as Mock;
 const listing = (...ids: string[]) => ({ payload: { folder_id: 'folder', items: ids.map((id) => ({ id, name: id, mime: 'image/png', modified: '2026-10-01', path: `/${id}` })) } });
 const pinFind = prisma.designPin.findMany as Mock;
 const pinUpdate = prisma.designPin.updateMany as Mock;
-const budget = budgetStatus as Mock;
 const append = appendDesignerEvent as Mock;
 const PIN2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -41,7 +38,6 @@ function arrange() {
   sessionFind.mockResolvedValue(sessionRow());
   eventFind.mockResolvedValue(null);
   listingFind.mockResolvedValue(listing('f1', 'f2'));
-  budget.mockResolvedValue({ reached: false, reason: null, cost_usd: 1, budget_usd: 25, month_spend_usd: 1, monthly_cap_usd: null });
   pinFind.mockResolvedValue([pinRow(), pinRow({ id: PIN2, note: 'tighter', page_path: '/', crop_asset_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', viewport_width: 390, viewport_height: 700, data_shape: null, text_quote: null, tag: null })]);
   pinUpdate.mockResolvedValue({ count: 2 });
   append.mockResolvedValue({ seq: 9, duplicate: false });
@@ -120,13 +116,12 @@ describe('POST /api/design/sessions/:id/apply', () => {
     expect((await call({ client_ref: REF, pin_ids: [PIN_ID], context: { path: 'pricing', viewport_w: 768 } })).status).toBe(400);
     expect(append).not.toHaveBeenCalled();
   });
-  it('refuses over budget with the numbers, before looking at pins', async () => {
-    budget.mockResolvedValue({ reached: true, reason: 'session_ceiling', cost_usd: 25, budget_usd: 25, month_spend_usd: 40, monthly_cap_usd: null });
+  it('never refuses for cost, however far over the old ceiling the session is', async () => {
+    sessionFind.mockResolvedValue(sessionRow({ cost_usd: { toString: () => "900" }, budget_usd: { toString: () => "25" } }));
+    pinFind.mockResolvedValue([pinRow()]);
+    pinUpdate.mockResolvedValue({ count: 1 });
     const res = await call({ client_ref: REF, pin_ids: [PIN_ID] });
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: 'budget_reached', reason: 'session_ceiling', cost_usd: 25, budget_usd: 25, month_spend_usd: 40 });
-    expect(pinFind).not.toHaveBeenCalled();
-    expect(append).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
   });
   it('refuses stale pins unless allow_stale', async () => {
     pinFind.mockResolvedValue([pinRow({ preview_sha: 'old0000' })]);

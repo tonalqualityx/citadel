@@ -14,10 +14,6 @@ export interface AdminSettings {
   owner_user_id: string | null;
   designer_publish_mode: PublishMode;
   confirmation_ttl_minutes: number;
-  default_session_budget_usd: number;
-  designer_raise_cap_usd: number;
-  hard_session_cap_usd: number;
-  default_monthly_cap_usd: number | null;
   model: string;
   effort: string;
   idle_close_minutes: number;
@@ -34,8 +30,6 @@ export interface AdminSession {
   site: { name: string };
   designer: { name: string };
   status: string;
-  cost_usd: number;
-  budget_usd: number;
   updated_at: string;
   last_publish: { id: string; status: string; finished_at: string | null } | null;
   publish_requested_at: string | null;
@@ -52,14 +46,6 @@ export interface AdminPublish {
   created_at: string;
   finished_at: string | null;
   deploy_url: string | null;
-}
-
-export interface AdminBudget {
-  user: { id: string; name: string };
-  monthly_cap_usd: number | null;
-  session_raise_cap_usd: number | null;
-  effective_session_raise_cap_usd: number;
-  month_spend_usd: number;
 }
 
 export interface AdminSite {
@@ -80,7 +66,6 @@ const adminKeys = {
   settings: () => [...adminKeys.all, 'settings'] as const,
   sessions: () => [...adminKeys.all, 'sessions'] as const,
   publishes: () => [...adminKeys.all, 'publishes'] as const,
-  budgets: () => [...adminKeys.all, 'budgets'] as const,
   sites: () => [...adminKeys.all, 'sites'] as const,
 };
 export { adminKeys as designAdminKeys };
@@ -114,25 +99,6 @@ export function useAdminPublishes() {
     queryKey: adminKeys.publishes(),
     queryFn: () => apiClient.get<{ publishes: AdminPublish[] }>('/design/admin/publishes'),
     refetchInterval: 30_000,
-  });
-}
-
-export function useAdminBudgets(enabled = true) {
-  return useQuery({ queryKey: adminKeys.budgets(), enabled, queryFn: () => apiClient.get<{ budgets: AdminBudget[] }>('/design/admin/budgets') });
-}
-
-export function useUpdateBudget() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (v: { userId: string; monthly_cap_usd?: number | null; session_raise_cap_usd?: number | null }) => {
-      const { userId, ...body } = v;
-      return apiClient.put(`/design/admin/budgets/${userId}`, body);
-    },
-    onSuccess: () => {
-      showToast.success('Budget saved');
-      queryClient.invalidateQueries({ queryKey: adminKeys.budgets() });
-    },
-    onError: (e) => showToast.apiError(e, 'Could not save the budget'),
   });
 }
 

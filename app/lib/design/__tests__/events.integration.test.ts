@@ -2,10 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@/lib/db/prisma';
 import { createOrGetSession, transitionSession } from '../sessions';
 import { appendDesignerEvent, appendWorkerEvents, feed, pendingDesignerEvents, MAX_EVENT_PAYLOAD_BYTES, DESIGNER_MESSAGES_PER_MINUTE } from '../events';
-import { raiseBudget, monthSpend, budgetStatus } from '../budget';
 import { SCRATCH, seedDesign, seedTask, teardownDesign, type DesignFixture } from './fixtures';
 
-describe.skipIf(!SCRATCH)('events and budget (real database)', () => {
+describe.skipIf(!SCRATCH)('events (real database)', () => {
   let f: DesignFixture;
   const mkSession = async () => {
     const { session } = await createOrGetSession(f.designer, await seedTask(f));
@@ -79,7 +78,7 @@ describe.skipIf(!SCRATCH)('events and budget (real database)', () => {
     const s = await mkSession();
     const { seq } = await appendDesignerEvent({ sessionId: s.id, authorId: f.designer.userId, kind: 'text', payload: { text: 'steer' }, clientRef: 'p1' });
     expect((await pendingDesignerEvents(200)).some((m) => m.session_id === s.id && m.seq === seq)).toBe(true);
-    await transitionSession(s.id, 'paused_budget', 'server');
+    await transitionSession(s.id, 'stopped', 'worker');
     expect((await pendingDesignerEvents(200)).some((m) => m.session_id === s.id)).toBe(false);
     await transitionSession(s.id, 'awaiting_input', 'worker');
     const r1 = await appendWorkerEvents(s.id, { acks: [seq], events: [{ role: 'system', kind: 'status', payload: { text: 'Got it' } }] });
@@ -119,29 +118,17 @@ describe.skipIf(!SCRATCH)('events and budget (real database)', () => {
     expect(seen).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
   }, 60_000);
 
-  it('budget: month spend from cost events, ceiling predicate, raise caps and auto-resume', async () => {
+  it('cost never gates: a session far over its old ceiling and monthly spend still takes a message and is not paused', async () => {
     const s = await mkSession();
-    await appendWorkerEvents(s.id, { events: [
-      { role: 'system', kind: 'cost', payload: { turn_usd: 1.25, total_usd: 1.25, budget_usd: 25 } },
-      { role: 'system', kind: 'cost', payload: { turn_usd: 2, total_usd: 3.25, budget_usd: 25 } },
-      { role: 'system', kind: 'cost', payload: { turn_usd: 'junk' } },
-    ] });
-    expect(await monthSpend(f.designer.userId)).toBeCloseTo(3.25, 4);
-    await prisma.designSession.update({ where: { id: s.id }, data: { cost_usd: 25 } });
-    expect((await budgetStatus(await prisma.designSession.findUniqueOrThrow({ where: { id: s.id } }))).reason).toBe('session_ceiling');
-    await prisma.designBudget.upsert({ where: { user_id: f.designer.userId }, update: { monthly_cap_usd: 3 }, create: { user_id: f.designer.userId, monthly_cap_usd: 3 } });
-    expect((await budgetStatus({ designer_id: f.designer.userId, cost_usd: 1 as never, budget_usd: 25 as never })).reason).toBe('monthly_cap');
-    await prisma.designBudget.update({ where: { user_id: f.designer.userId }, data: { monthly_cap_usd: null } });
-
-    await transitionSession(s.id, 'paused_budget', 'server');
-    await expect(raiseBudget(f.designer, s.id, 25)).rejects.toMatchObject({ code: 'not_a_raise' });
-    await expect(raiseBudget(f.designer, s.id, 60)).rejects.toMatchObject({ code: 'raise_cap' });
-    await expect(raiseBudget(f.other, s.id, 30)).rejects.toMatchObject({ statusCode: 404 });
-    const r = await raiseBudget(f.designer, s.id, 40);
-    expect(Number(r.session.budget_usd)).toBe(40);
-    expect(r.resume_command_id).not.toBeNull();
-    const adm = await raiseBudget(f.admin, s.id, 150);
-    expect(Number(adm.session.budget_usd)).toBe(150);
-    await expect(raiseBudget(f.admin, s.id, 151)).rejects.toMatchObject({ code: 'raise_cap' });
+    await appendWorkerEvents(s.id, { events: [{ role: 'system', kind: 'cost', payload: { turn_usd: 400, total_usd: 400, budget_usd: 25 } }] });
+    await prisma.designSession.update({ where: { id: s.id }, data: { cost_usd: 400 } });
+    const { seq } = await appendDesignerEvent({ sessionId: s.id, authorId: f.designer.userId, kind: 'text', payload: { text: 'keep going' }, clientRef: 'over-1' });
+    expect((await pendingDesignerEvents(200)).some((m) => m.session_id === s.id && m.seq === seq)).toBe(true);
+    expect((await prisma.designSession.findUniqueOrThrow({ where: { id: s.id } })).status).toBe('awaiting_input');
+    // A session left in the legacy paused_budget status behaves like awaiting_input: delivered, and resumable.
+    await transitionSession(s.id, 'paused_budget', 'worker');
+    const again = await appendDesignerEvent({ sessionId: s.id, authorId: f.designer.userId, kind: 'text', payload: { text: 'still here' }, clientRef: 'over-2' });
+    expect((await pendingDesignerEvents(200)).some((m) => m.session_id === s.id && m.seq === again.seq)).toBe(true);
+    await transitionSession(s.id, 'awaiting_input', 'server');
   });
 });

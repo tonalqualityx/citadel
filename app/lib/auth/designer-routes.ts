@@ -29,7 +29,6 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'POST', pattern: '/api/design/sessions/:id/stop' },
   { method: 'PATCH', pattern: '/api/design/changes/:id' },
   { method: 'POST', pattern: '/api/design/sessions/:id/restore' },
-  { method: 'POST', pattern: '/api/design/sessions/:id/budget' },
   { method: 'POST', pattern: '/api/design/sessions/:id/publish' },
   { method: 'POST', pattern: '/api/design/publishes/:id/confirm' },
   { method: 'POST', pattern: '/api/design/sessions/:id/request-publish' },

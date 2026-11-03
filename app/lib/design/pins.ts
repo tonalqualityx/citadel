@@ -7,7 +7,6 @@ import type { DesignPin, DesignSession, Prisma, PrismaClient } from '@prisma/cli
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { appendDesignerEvent } from './events';
-import { budgetStatus } from './budget';
 import { createFollowupTask } from './followups';
 import { latestClientFileIds } from './client-files';
 import type { DesignActor } from './helpers';
@@ -195,8 +194,8 @@ export class ApplyRefusal extends Error {
 }
 
 /**
- * POST /sessions/:id/apply. Order: repeat of the same client_ref (200) -> closed (409) -> budget (409
- * `budget_reached` with numbers) -> pins (404/409) -> stale (409 `stale_pins` unless allow_stale) -> claim the
+ * POST /sessions/:id/apply. Order: repeat of the same client_ref (200) -> closed (409) ->
+ * pins (404/409) -> stale (409 `stale_pins` unless allow_stale) -> claim the
  * pins (pending -> sent) -> one `apply` event whose payload is exactly ApplyPayload -> stamp apply_event_seq.
  * A failure after the claim puts the pins back to pending.
  */
@@ -212,19 +211,6 @@ export async function applyPins(
   });
   if (repeat) return { seq: repeat.seq, duplicate: true };
   assertOpen(session);
-
-  const status = await budgetStatus(session, new Date(), db);
-  if (status.reached) {
-    throw new ApplyRefusal(409, {
-      error: status.reason === 'monthly_cap' ? 'The monthly budget is used up' : 'This session reached its budget',
-      code: 'budget_reached',
-      reason: status.reason,
-      cost_usd: status.cost_usd,
-      budget_usd: status.budget_usd,
-      month_spend_usd: status.month_spend_usd,
-      monthly_cap_usd: status.monthly_cap_usd,
-    });
-  }
 
   const found = await db.designPin.findMany({ where: { id: { in: input.pin_ids }, session_id: session.id } });
   if (found.length !== input.pin_ids.length) throw new ApiError('One or more pins were not found in this session', 404, 'pin_not_found');

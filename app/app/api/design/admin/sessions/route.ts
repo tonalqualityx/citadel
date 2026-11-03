@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       orderBy: { updated_at: 'desc' },
       take: 200,
       select: {
-        id: true, status: true, cost_usd: true, budget_usd: true, updated_at: true, last_publish_id: true,
+        id: true, status: true, updated_at: true, last_publish_id: true,
         publish_precheck: true, publish_requested_at: true, timer_entry_id: true, timer_presence_at: true,
         task: { select: { id: true, title: true } },
         site: { select: { name: true } },

@@ -6,7 +6,6 @@ import { useAuth } from '@/lib/hooks/use-auth';
 import { useAdminSettings } from '@/lib/hooks/use-design-admin';
 import { AdminOverview } from '@/components/domain/design/AdminOverview';
 import { AdminSettings } from '@/components/domain/design/AdminSettings';
-import { BudgetsTable } from '@/components/domain/design/BudgetsTable';
 import { SiteToggles } from '@/components/domain/design/SiteToggles';
 
 export default function DesignAdminPage() {
@@ -42,10 +41,6 @@ export default function DesignAdminPage() {
       <section aria-label="Sites" className="space-y-2">
         <h2 className="text-sm font-semibold text-text-main">Sites</h2>
         <SiteToggles canWrite={isAdmin} />
-      </section>
-      <section aria-label="Budgets" className="space-y-2">
-        <h2 className="text-sm font-semibold text-text-main">Budgets</h2>
-        <BudgetsTable canWrite={isAdmin} />
       </section>
     </div>
   );

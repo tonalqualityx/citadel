@@ -1,5 +1,6 @@
 # Designer Portal: design
 
+- **Budget tracking removed 2026-11-03 per Mike:** SDK cost figures are API list prices, not the local Claude Code subscription; designers are never stopped for cost. Every budget, ceiling, monthly cap, raise, `budget_reached` refusal and cost meter in this document is superseded: no `POST /sessions/:id/budget`, no `/admin/budgets`, no cap fields in settings, no cost shown in the portal. `paused_budget` remains in the enum only for legacy rows and behaves like `awaiting_input`. The `cost_usd`/`budget_usd`/`design_budgets` columns stay (reversible); the worker may still report `cost_usd`, nothing gates on it.
 - **Status (2026-10-29, final write-back):** describes what shipped. W1 to W6 passed their gates; W7.1 run C on the hardened daemon passed 69 of 70 (the miss, a timer restart during close, is fixed in `9b232ee`); W8.1 and W8.2 are complete: all 13 holes fixed and re-verified (section 10.5); the W8.3 sweep is running at Citadel `9b232ee`; the W9 install waits on Mike's merges (the merge handoff is in the plan). Plan and build status: `implementation/plans/DESIGNER-PORTAL.md`.
 - **Branch:** `feat/designer-portal` in `/home/mike/.openclaw/workspace/citadel-designer-portal-wt` (== main `5adb94d` when written).
 - **Build plan:** `implementation/plans/DESIGNER-PORTAL.md` (waves, models, gates, tests).

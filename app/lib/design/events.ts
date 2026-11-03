@@ -21,8 +21,8 @@ export const DESIGNER_EVENT_KINDS = ['text', 'apply'] as const satisfies readonl
 /** T14 (W8.2 H5): at most 30 designer messages (text or apply) per session per rolling minute; the 31st is 429. */
 export const DESIGNER_MESSAGES_PER_MINUTE = 30;
 export const DESIGNER_MESSAGE_WINDOW_SECONDS = 60;
-/** A designer message is delivered only while the session can take a turn; paused_budget, publishing, stopped and pending hold it. */
-export const DELIVERABLE_STATUSES = ['awaiting_input', 'active'] as const;
+/** A designer message is delivered only while the session can take a turn; publishing, stopped and pending hold it. paused_budget is legacy and counts as awaiting_input: designers are never held for cost. */
+export const DELIVERABLE_STATUSES = ['awaiting_input', 'active', 'paused_budget'] as const;
 
 type Db = PrismaClient;
 
@@ -58,7 +58,7 @@ export interface AppendDesignerInput {
 /**
  * A designer (or admin) message or Apply. Starts pending for the worker (delivered_at null). A repeat of the
  * same client_ref is a no-op that returns the first seq (`duplicate: true`). Refused (409 session_closed) on a
- * closed or abandoned session. Stored but held in paused_budget / publishing / stopped / pending: the inbox
+ * closed or abandoned session. Stored but held in publishing / stopped / pending: the inbox
  * only returns deliverable statuses.
  *
  * Rate limit (T14, W8.2 H5): the session's designer events in the last 60 s are counted in the database under

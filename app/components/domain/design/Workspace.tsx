@@ -16,7 +16,7 @@ export const STATUS_LABELS: Record<string, { label: string; variant: 'default' |
   pending: { label: 'Setting up', variant: 'info' },
   active: { label: 'Working', variant: 'success' },
   awaiting_input: { label: 'Waiting on you', variant: 'warning' },
-  paused_budget: { label: 'Paused: budget', variant: 'warning' },
+  paused_budget: { label: 'Waiting on you', variant: 'warning' }, // legacy status: treated as awaiting_input
   stopped: { label: 'Stopped', variant: 'default' },
   publishing: { label: 'Publishing', variant: 'info' },
   closed: { label: 'Closed', variant: 'default' },

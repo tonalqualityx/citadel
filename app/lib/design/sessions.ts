@@ -29,18 +29,19 @@ export const SESSION_TRANSITIONS: Readonly<Record<DesignSessionStatus, Readonly<
   pending: { awaiting_input: ['worker'], stopped: ['worker'] },
   active: {
     awaiting_input: ['worker'],
-    paused_budget: ['worker', 'server'],
+    paused_budget: ['worker'], // legacy: Citadel itself never pauses for cost (2026-11-03)
     stopped: ['worker'], // integrity stop / worker shutdown mid-turn (W8.1 R1)
   },
   awaiting_input: {
     active: ['worker'],
     stopped: ['worker'],
-    paused_budget: ['worker', 'server'],
+    paused_budget: ['worker'], // legacy, see above
     publishing: ['server'],
     closed: ['worker'],
     abandoned: ['worker'],
   },
-  paused_budget: { awaiting_input: ['worker'], closed: ['worker'], abandoned: ['worker'] },
+  // Legacy only: Citadel no longer pauses for cost (2026-11-03). A session already here behaves like awaiting_input.
+  paused_budget: { awaiting_input: ['worker', 'server'], active: ['worker'], closed: ['worker'], abandoned: ['worker'] },
   stopped: { awaiting_input: ['worker'], closed: ['worker'], abandoned: ['worker'] },
   publishing: { awaiting_input: ['server'] },
   closed: {},
@@ -128,12 +129,13 @@ export interface SessionDefaults {
   effort: string;
 }
 
+/** budget_usd is a harmless placeholder for the NOT NULL column; nothing reads it for gating. */
 export const SESSION_DEFAULTS = { budget_usd: 25, model: 'opus', effort: 'high' } as const;
 
 export async function loadSessionDefaults(db: Pick<PrismaClient, 'designPortalSettings'> = defaultDb): Promise<SessionDefaults> {
   const s = await db.designPortalSettings.findUnique({ where: { id: 1 } });
   if (!s) return { enabled: false, ...SESSION_DEFAULTS };
-  return { enabled: s.enabled, budget_usd: Number(s.default_session_budget_usd.toString()), model: s.model, effort: s.effort };
+  return { enabled: s.enabled, budget_usd: SESSION_DEFAULTS.budget_usd, model: s.model, effort: s.effort };
 }
 
 export const CLAIM_TTL_SECONDS = 1800;

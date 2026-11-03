@@ -66,14 +66,10 @@ describe('mergeFeedPage', () => {
     expect(deriveTimeline(s)).toHaveLength(0);
   });
 
-  it('tracks the last turn cost from the newest cost event', () => {
-    let s = mergeFeedPage(initialFeedState, [
-      ev(2, 'cost', { turn_usd: 0.4, total_usd: 0.4, budget_usd: 5 }),
-      ev(6, 'cost', { turn_usd: '0.75', total_usd: 1.15, budget_usd: 5 }),
-    ]);
-    expect(s.lastTurn).toEqual({ turn_usd: 0.75, total_usd: 1.15, budget_usd: 5 });
-    s = mergeFeedPage(s, [ev(4, 'cost', { turn_usd: 9, total_usd: 9, budget_usd: 5 })]);
-    expect(s.lastTurn?.turn_usd).toBe(0.75);
+  it('ignores cost events: they are neither state nor rows', () => {
+    const s = mergeFeedPage(initialFeedState, [ev(2, 'cost', { turn_usd: 0.4, total_usd: 0.4, budget_usd: 5 })]);
+    expect(s).not.toHaveProperty('lastTurn');
+    expect(deriveTimeline(s)).toHaveLength(0);
   });
 
   it('counts client files from the newest listing', () => {

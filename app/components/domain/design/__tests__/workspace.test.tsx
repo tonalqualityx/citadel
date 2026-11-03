@@ -112,7 +112,7 @@ describe('TimerPill', () => {
 const base = (over: Partial<DesignSessionResponse['session']> = {}): DesignSessionResponse => ({
   session: {
     id: 's1', task_id: 't1', site_id: 'st', project_id: null, designer_id: 'd', status: 'active', stale: false,
-    preview_url: PREVIEW, preview_sha: 'aaa', head_sha: 'aaa', base_sha: 'b', cost_usd: 0, budget_usd: 5,
+    preview_url: PREVIEW, preview_sha: 'aaa', head_sha: 'aaa', base_sha: 'b',
     live_text: null, live_action: null, last_seq: 0, publish_requested_at: null, last_publish_id: null, ...over,
   },
   task: { id: 't1', title: 'Hero copy', description: null, requirements: null },
@@ -162,7 +162,7 @@ describe('Workspace header', () => {
   });
 
   it.each([
-    ['pending', 'Setting up'], ['active', 'Working'], ['awaiting_input', 'Waiting on you'], ['paused_budget', 'Paused: budget'],
+    ['pending', 'Setting up'], ['active', 'Working'], ['awaiting_input', 'Waiting on you'], ['paused_budget', 'Waiting on you'],
     ['stopped', 'Stopped'], ['publishing', 'Publishing'], ['closed', 'Closed'],
   ])('status chip %s', (status, label) => {
     render(<Workspace data={base({ status })} feed={undefined} />);

@@ -33,8 +33,6 @@ const sessionExample = {
   preview_sha: 'string|null',
   base_sha: 'string|null',
   head_sha: 'string|null',
-  cost_usd: 'number',
-  budget_usd: 'number',
   live_text: 'string|null',
   live_action: 'string|null',
   last_seq: 'number',
@@ -173,8 +171,6 @@ const feedExample = {
     running_publish_id: 'uuid (only while one is running)',
   },
   timer: { running: 'boolean', elapsed_s: 'number' },
-  cost_usd: 'number',
-  budget_usd: 'number',
   preview_url: 'string|null',
   preview_sha: 'string|null',
   head_sha: 'string|null',
@@ -185,20 +181,11 @@ const feedExample = {
   has_more: 'boolean',
 };
 
-const budgetPutBody: ParamDef[] = [
-  { name: 'monthly_cap_usd', type: 'number', required: false, description: 'Monthly spend cap in USD (0 to 100000), or null to clear' },
-  { name: 'session_raise_cap_usd', type: 'number', required: false, description: 'Per-session raise cap in USD (0 to 5000), or null to clear' },
-];
-
 const settingsPatchBody: ParamDef[] = [
   { name: 'enabled', type: 'boolean', required: false, description: 'Designer Portal on/off' },
   { name: 'owner_user_id', type: 'uuid', required: false, description: 'Active user who owns publish notices; null clears' },
   { name: 'designer_publish_mode', type: 'string', required: false, description: 'per_site | pre_launch_only | off' },
   { name: 'confirmation_ttl_minutes', type: 'number', required: false, description: 'Publish confirmation window, 1 to 60' },
-  { name: 'default_session_budget_usd', type: 'number', required: false, description: 'Default session budget, 0.01 to 1000' },
-  { name: 'designer_raise_cap_usd', type: 'number', required: false, description: 'Max a designer may raise one session, 0.01 to 1000 (must not exceed hard_session_cap_usd)' },
-  { name: 'hard_session_cap_usd', type: 'number', required: false, description: 'Absolute session cap, 0.01 to 5000' },
-  { name: 'default_monthly_cap_usd', type: 'number', required: false, description: 'Default monthly cap per designer, or null' },
   { name: 'model', type: 'string', required: false, description: 'Worker model: opus, sonnet, haiku or a full id (claude-opus-*, claude-sonnet-*, claude-haiku-*), case-insensitive; anything else (best, default, fable, mythos) is 400' },
   { name: 'effort', type: 'string', required: false, description: 'low | medium | high | xhigh | max' },
   { name: 'idle_close_minutes', type: 'number', required: false, description: 'Idle minutes before auto-close, 1 to 240' },
@@ -306,8 +293,6 @@ export const designEndpoints: ApiEndpoint[] = [
             site: { name: 'string' },
             status: 'string',
             last_publish: { id: 'uuid', status: 'string', finished_at: 'ISO-8601|null' },
-            cost_usd: 'number',
-            budget_usd: 'number',
             updated_at: 'ISO-8601',
           }],
         },
@@ -423,7 +408,7 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Apply pending pins: checks budget and stale pins, then records one apply event for the daemon.',
+        summary: 'Apply pending pins: checks stale pins, then records one apply event for the daemon.',
         auth: 'required',
         roles: DESIGNER,
         queryParams: [sessionIdParam],
@@ -448,21 +433,6 @@ export const designEndpoints: ApiEndpoint[] = [
           cache_control: 'private, max-age=3600',
         },
         responseNotes: 'Served inline with nosniff. Text is always served as text/plain.',
-      },
-    ],
-  },
-  {
-    path: '/api/design/sessions/:id/budget',
-    group: 'design',
-    methods: [
-      {
-        method: 'POST',
-        summary: 'Raise a session budget. Raises only: designers up to their raise cap, admin up to the hard session cap.',
-        auth: 'required',
-        roles: DESIGNER,
-        queryParams: [sessionIdParam],
-        bodySchema: [{ name: 'budget_usd', type: 'number', required: true, description: 'New budget in USD, greater than 0, max 100000' }],
-        responseNotes: 'Returns { session } in the projectSession shape.',
       },
     ],
   },
@@ -696,8 +666,6 @@ export const designEndpoints: ApiEndpoint[] = [
             site: { name: 'string' },
             designer: { name: 'string' },
             status: 'string',
-            cost_usd: 'number',
-            budget_usd: 'number',
             updated_at: 'ISO-8601',
             last_publish: { id: 'uuid', status: 'string', finished_at: 'ISO-8601|null' },
             publish_requested_at: 'ISO-8601|null',
@@ -710,64 +678,7 @@ export const designEndpoints: ApiEndpoint[] = [
     ],
   },
 
-  // ---- Admin: budgets, settings, per-site and per-client/project switches ----
-  {
-    path: '/api/design/admin/budgets',
-    group: 'design',
-    methods: [
-      {
-        method: 'GET',
-        summary: 'Designer budgets: each active designer (and anyone with a budget row) with this month\'s spend. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
-        auth: 'required',
-        roles: ADMIN,
-        responseExample: {
-          budgets: [{
-            user: { id: 'uuid', name: 'string' },
-            monthly_cap_usd: 'number|null',
-            session_raise_cap_usd: 'number|null',
-            effective_session_raise_cap_usd: 'number',
-            month_spend_usd: 'number',
-          }],
-        },
-      },
-    ],
-  },
-  {
-    path: '/api/design/admin/budgets/:userId',
-    group: 'design',
-    methods: [
-      {
-        method: 'PUT',
-        summary: 'Set one designer\'s budget caps. Admin only, signed-in session. Fields left out are unchanged. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
-        auth: 'required',
-        roles: ADMIN,
-        queryParams: [{ name: 'userId', type: 'uuid', required: true, description: 'Designer user id (path)' }],
-        bodySchema: budgetPutBody,
-        responseExample: {
-          budget: {
-            user: { id: 'uuid', name: 'string' },
-            monthly_cap_usd: 'number|null',
-            session_raise_cap_usd: 'number|null',
-          },
-        },
-      },
-      {
-        method: 'PATCH',
-        summary: 'Same as PUT: merge the budget caps for one designer. Admin only, signed-in session. Also accepts an admin\'s design:operator-setup API key (Bast; lib/design/operator.ts).',
-        auth: 'required',
-        roles: ADMIN,
-        queryParams: [{ name: 'userId', type: 'uuid', required: true, description: 'Designer user id (path)' }],
-        bodySchema: budgetPutBody,
-        responseExample: {
-          budget: {
-            user: { id: 'uuid', name: 'string' },
-            monthly_cap_usd: 'number|null',
-            session_raise_cap_usd: 'number|null',
-          },
-        },
-      },
-    ],
-  },
+  // ---- Admin: settings, per-site and per-client/project switches ----
   {
     path: '/api/design/admin/settings',
     group: 'design',
@@ -783,10 +694,6 @@ export const designEndpoints: ApiEndpoint[] = [
             owner_user_id: 'uuid|null',
             designer_publish_mode: 'per_site|pre_launch_only|off',
             confirmation_ttl_minutes: 'number',
-            default_session_budget_usd: 'number',
-            designer_raise_cap_usd: 'number',
-            hard_session_cap_usd: 'number',
-            default_monthly_cap_usd: 'number|null',
             model: 'string',
             effort: 'low|medium|high|xhigh|max',
             idle_close_minutes: 'number',
@@ -821,15 +728,13 @@ export const designEndpoints: ApiEndpoint[] = [
             enabled: 'boolean',
             owner_user_id: 'uuid|null',
             designer_publish_mode: 'per_site|pre_launch_only|off',
-            hard_session_cap_usd: 'number',
-            designer_raise_cap_usd: 'number',
             model: 'string',
             effort: 'low|medium|high|xhigh|max',
             max_live_sessions: 'number',
             updated_at: 'ISO-8601|null',
           },
         },
-        responseNotes: 'Refused 400 bad_caps when designer_raise_cap_usd exceeds hard_session_cap_usd, 400 bad_owner for an inactive owner.',
+        responseNotes: 'Refused 400 bad_owner for an inactive owner.',
       },
     ],
   },

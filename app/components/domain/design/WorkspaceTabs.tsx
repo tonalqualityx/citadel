@@ -61,8 +61,6 @@ export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge, vi
       <ChatPanel
         sessionId={sessionId}
         initialStatus={data.session.status}
-        initialCost={data.session.cost_usd}
-        initialBudget={data.session.budget_usd}
         createdAt={typeof data.session.created_at === 'string' ? data.session.created_at : null}
         selection={bridge.drafts[bridge.drafts.length - 1] ?? null}
         onClearSelection={bridge.removeDraft}

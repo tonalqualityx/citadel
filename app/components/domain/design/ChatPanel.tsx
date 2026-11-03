@@ -8,10 +8,9 @@ import type { BridgeDraft } from '@/lib/hooks/use-design-bridge';
 import { deriveTimeline, isWorkerSilent, isSetupSlow } from '@/lib/design/feed-reducer';
 import { getTerminology } from '@/lib/hooks/use-terminology';
 import { useDesignFeedHistory } from '@/lib/hooks/use-design';
-import { CostMeter } from './CostMeter';
 import { EventItem } from './EventItem';
 import { PlanChecklist } from './PlanChecklist';
-import { SteeringInput, isClosedStatus } from './SteeringInput';
+import { SteeringInput } from './SteeringInput';
 
 const num = (v: number | string | null | undefined) => {
   const n = Number(v ?? 0);
@@ -22,8 +21,6 @@ export interface ChatPanelProps {
   sessionId: string;
   /** Fallbacks for the first paint, before the feed answers. */
   initialStatus?: string;
-  initialCost?: number | string;
-  initialBudget?: number | string;
   /** When the session started, for the "pending for more than 60 s" check. */
   createdAt?: string | null;
   /** The one element selected on the preview, if any; it rides with the next message as a pin. */
@@ -37,7 +34,7 @@ export interface ChatPanelProps {
   view?: { path: string | null; width: number | null; previewSha?: string | null } | null;
 }
 
-export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 0, initialBudget = 0, createdAt = null, selection = null, onClearSelection, attachedFiles, onDetachFile, onSent, view }: ChatPanelProps) {
+export function ChatPanel({ sessionId, initialStatus = 'pending', createdAt = null, selection = null, onClearSelection, attachedFiles, onDetachFile, onSent, view }: ChatPanelProps) {
   const history = useDesignFeedHistory(sessionId);
   const t = getTerminology().t;
   const latest = history.data?.latest;
@@ -109,14 +106,6 @@ export function ChatPanel({ sessionId, initialStatus = 'pending', initialCost = 
           </div>
         )}
       </div>
-      <CostMeter
-        sessionId={sessionId}
-        costUsd={num(latest?.cost_usd ?? initialCost)}
-        budgetUsd={num(latest?.budget_usd ?? initialBudget)}
-        lastTurn={state?.lastTurn ?? null}
-        canRaise={!isClosedStatus(status)}
-        pausedForBudget={status === 'paused_budget'}
-      />
       <SteeringInput sessionId={sessionId} status={status} selection={selection} onClearSelection={onClearSelection} attachedFiles={attachedFiles} onDetachFile={onDetachFile} onSent={onSent} view={view} />
     </div>
   );

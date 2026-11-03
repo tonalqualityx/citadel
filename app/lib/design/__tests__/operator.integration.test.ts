@@ -40,15 +40,12 @@ import { POST as messagesRoute } from '@/app/api/design/sessions/[id]/messages/r
 import { POST as applyRoute } from '@/app/api/design/sessions/[id]/apply/route';
 import { POST as pinsRoute } from '@/app/api/design/sessions/[id]/pins/route';
 import { POST as stopRoute } from '@/app/api/design/sessions/[id]/stop/route';
-import { POST as budgetRoute } from '@/app/api/design/sessions/[id]/budget/route';
 import { POST as requestPublishRoute } from '@/app/api/design/sessions/[id]/request-publish/route';
 import { GET as settingsGet, PATCH as settingsPatch } from '@/app/api/design/admin/settings/route';
 import { GET as sitesGet } from '@/app/api/design/admin/sites/route';
 import { PATCH as sitePatch } from '@/app/api/design/admin/sites/[id]/route';
 import { GET as clientGet, PATCH as clientPatch } from '@/app/api/design/admin/clients/[id]/route';
 import { GET as projectGet, PATCH as projectPatch } from '@/app/api/design/admin/projects/[id]/route';
-import { GET as budgetsGet } from '@/app/api/design/admin/budgets/route';
-import { PUT as budgetPut, PATCH as budgetPatch } from '@/app/api/design/admin/budgets/[userId]/route';
 import { GET as adminSessions } from '@/app/api/design/admin/sessions/route';
 import { GET as adminPublishes } from '@/app/api/design/admin/publishes/route';
 
@@ -257,7 +254,6 @@ describe.skipIf(!SCRATCH)('design operator keys (real database, real middleware)
       await call(keys.publish, applyRoute as unknown as Handler, 'POST', `${base}/apply`, p, {}),
       await call(keys.publish, pinsRoute as unknown as Handler, 'POST', `${base}/pins`, p, {}),
       await call(keys.publish, stopRoute as unknown as Handler, 'POST', `${base}/stop`, p, {}),
-      await call(keys.publish, budgetRoute as unknown as Handler, 'POST', `${base}/budget`, p, { budget_usd: 140 }),
       await call(keys.publish, requestPublishRoute as unknown as Handler, 'POST', `${base}/request-publish`, p, {}),
       await call(keys.publish, settingsGet as unknown as Handler, 'GET', '/api/design/admin/settings'),
       await call(keys.publish, settingsPatch as unknown as Handler, 'PATCH', '/api/design/admin/settings', {}, { designer_publish_mode: 'per_site' }),
@@ -284,11 +280,6 @@ describe.skipIf(!SCRATCH)('design operator keys (real database, real middleware)
     expect((await call(k, clientPatch as unknown as Handler, 'PATCH', `/api/design/admin/clients/${f.clientId}`, { id: f.clientId }, { drive_folder_id: null })).status).toBe(200);
     expect((await call(k, projectGet as unknown as Handler, 'GET', `/api/design/admin/projects/${f.projectId}`, { id: f.projectId })).status).toBe(200);
     expect((await call(k, projectPatch as unknown as Handler, 'PATCH', `/api/design/admin/projects/${f.projectId}`, { id: f.projectId }, { drive_folder_id: null })).status).toBe(200);
-    expect((await call(k, budgetsGet as unknown as Handler, 'GET', '/api/design/admin/budgets')).status).toBe(200);
-    const uid = f.designer.userId;
-    expect((await call(k, budgetPut as unknown as Handler, 'PUT', `/api/design/admin/budgets/${uid}`, { userId: uid }, { monthly_cap_usd: 300 })).status).toBe(200);
-    expect((await call(k, budgetPatch as unknown as Handler, 'PATCH', `/api/design/admin/budgets/${uid}`, { userId: uid }, { session_raise_cap_usd: 40 })).status).toBe(200);
-    expect(await prisma.designBudget.findUniqueOrThrow({ where: { user_id: uid } })).toMatchObject({ updated_by_id: f.admin.userId });
     expect((await call(k, adminSessions as unknown as Handler, 'GET', '/api/design/admin/sessions')).status).toBe(200);
     expect((await call(k, adminPublishes as unknown as Handler, 'GET', '/api/design/admin/publishes')).status).toBe(200);
 
@@ -298,7 +289,6 @@ describe.skipIf(!SCRATCH)('design operator keys (real database, real middleware)
       await as(k).session(sessionId),
       await as(k).feed(sessionId),
       await call(k, messagesRoute as unknown as Handler, 'POST', `/api/design/sessions/${sessionId}/messages`, { id: sessionId }, { text: 'x' }),
-      await call(k, budgetRoute as unknown as Handler, 'POST', `/api/design/sessions/${sessionId}/budget`, { id: sessionId }, { budget_usd: 140 }),
     ];
     for (const r of refused) {
       expect(r.status).toBe(403);

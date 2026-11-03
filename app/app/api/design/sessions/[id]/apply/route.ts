@@ -4,7 +4,7 @@ import { loadSessionFor } from '@/lib/design/access';
 import { applyBodySchema, applyPins, ApplyRefusal } from '@/lib/design/pins';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
-// POST /api/design/sessions/:id/apply (design 7.1): budget, stale pins, then one `apply` event = ApplyPayload.
+// POST /api/design/sessions/:id/apply (design 7.1): stale pins, then one `apply` event = ApplyPayload.
 export async function POST(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);

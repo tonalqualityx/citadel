@@ -106,10 +106,10 @@ export function PublishPage({ publishId }: { publishId: string }) {
         )}
       </section>
 
-      {shown?.diff_summary && shown.files_changed && shown.pages_affected && shown.cost_usd !== undefined && (
+      {shown?.diff_summary && shown.files_changed && shown.pages_affected && (
         <section aria-label="Diff summary" className="rounded-lg border border-border-warm bg-surface p-4">
           <h2 className="mb-2 text-sm font-semibold text-text-main">What changed</h2>
-          <DiffFacts shown={{ diff_summary: shown.diff_summary, files_changed: shown.files_changed, pages_affected: shown.pages_affected, cost_usd: shown.cost_usd }} />
+          <DiffFacts shown={{ diff_summary: shown.diff_summary, files_changed: shown.files_changed, pages_affected: shown.pages_affected }} />
         </section>
       )}
 
@@ -117,8 +117,6 @@ export function PublishPage({ publishId }: { publishId: string }) {
         <h2 className="mb-2 text-sm font-semibold text-text-main">Gates</h2>
         <GateList {...gatesFrom(publish.gates, shown)} />
       </section>
-
-      {publish.cost_usd !== null && <p className="text-sm text-text-sub">Publish cost: ${publish.cost_usd.toFixed(2)}</p>}
 
       <section aria-label="Changeset" className="space-y-2">
         <h2 className="text-sm font-semibold text-text-main">Changeset</h2>

@@ -10,7 +10,6 @@ const toast = vi.hoisted(() => ({ apiError: vi.fn(), success: vi.fn(), info: vi.
 vi.mock('@/lib/hooks/use-toast', () => ({ showToast: toast }));
 
 import { ChatPanel } from '../ChatPanel';
-import { BudgetDialog } from '../BudgetDialog';
 import { SteeringInput } from '../SteeringInput';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,8 +30,6 @@ function feed(over: Record<string, unknown> = {}, events: ReturnType<typeof e>[]
     stale: false,
     publish: { can_publish: false, main_role: 'preview', precheck: null },
     timer: null,
-    cost_usd: 1.5,
-    budget_usd: 5,
     preview_url: null,
     preview_sha: null,
     head_sha: null,
@@ -89,8 +86,8 @@ describe('ChatPanel events', () => {
     expect(screen.getByTestId('publish-event').textContent).toContain('Live at vcdp.org');
     expect(screen.getByTestId('live-line').textContent).toContain('Drafting the hero copy');
     expect(screen.getByTestId('live-line').textContent).toContain('Editing home.njk');
-    expect(screen.getByTestId('last-turn').textContent).toContain('$0.42');
-    expect(screen.getByText('$1.50')).toBeTruthy();
+    expect(screen.queryByTestId('last-turn')).toBeNull();
+    expect(screen.queryByText(/\$\d/)).toBeNull();
   });
 
   it('expands gate output from the log asset', async () => {
@@ -183,34 +180,6 @@ describe('Stop and steering', () => {
     wrap(<SteeringInput sessionId="s1" status="closed" />);
     expect((screen.getByLabelText('Message to the design worker') as HTMLTextAreaElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /Send/ }) as HTMLButtonElement).disabled).toBe(true);
-  });
-});
-
-describe('BudgetDialog', () => {
-  it('refuses a non-raise without calling the server', () => {
-    wrap(<BudgetDialog sessionId="s1" currentBudget={5} open onOpenChange={() => {}} />);
-    fireEvent.change(screen.getByLabelText('New ceiling (USD)'), { target: { value: '5' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Raise' }));
-    expect(screen.getByRole('alert').textContent).toContain('above the current $5.00');
-    expect(post).not.toHaveBeenCalled();
-  });
-
-  it('shows the server cap error', async () => {
-    post.mockRejectedValue(new Error('You can raise this session to at most $50'));
-    wrap(<BudgetDialog sessionId="s1" currentBudget={5} open onOpenChange={() => {}} />);
-    fireEvent.change(screen.getByLabelText('New ceiling (USD)'), { target: { value: '80' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Raise' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('at most $50');
-    expect(post).toHaveBeenCalledWith('/design/sessions/s1/budget', { budget_usd: 80 });
-  });
-
-  it('raises and closes on success', async () => {
-    const onOpenChange = vi.fn();
-    wrap(<BudgetDialog sessionId="s1" currentBudget={5} open onOpenChange={onOpenChange} />);
-    fireEvent.change(screen.getByLabelText('New ceiling (USD)'), { target: { value: '12' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Raise' }));
-    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(toast.success).toHaveBeenCalled();
   });
 });
 

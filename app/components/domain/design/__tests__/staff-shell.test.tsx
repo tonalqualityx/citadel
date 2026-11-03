@@ -47,7 +47,7 @@ describe('DesignStaffShell sidebar', () => {
     expect(store.getItem(SIDEBAR_KEY)).toBe('closed');
   });
 
-  it.each(['/design', '/design/admin', '/design/admin/budgets'])('keeps the normal sidebar and no toggle on %s', (p) => {
+  it.each(['/design', '/design/admin'])('keeps the normal sidebar and no toggle on %s', (p) => {
     pathname = p;
     store.setItem(SIDEBAR_KEY, 'closed');
     render(<DesignStaffShell>x</DesignStaffShell>);
