@@ -4,7 +4,7 @@ import { GET } from '../route';
 import { AuthError } from '@/lib/api/errors';
 import { taskKey } from '@/lib/home/item-key';
 import type { RawHomeDay } from '@/lib/home/types';
-import { NOW, makeInputs, makeTask, tonight } from '@/lib/home/__tests__/fixtures/tonight';
+import { NOW, makeInputs, makeState, makeTask, tonight } from '@/lib/home/__tests__/fixtures/tonight';
 
 vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
@@ -21,9 +21,9 @@ vi.mock('@/lib/home/load', () => ({
 }));
 
 // An in-memory home_day table keyed by date, with the same contract as state.ts.
-const store = vi.hoisted(() => ({ days: new Map<string, unknown>(), creates: 0, updates: 0 }));
+const store = vi.hoisted(() => ({ days: new Map<string, unknown>(), states: [] as unknown[], creates: 0, updates: 0 }));
 vi.mock('@/lib/home/state', () => ({
-  loadItemStates: vi.fn(async () => []),
+  loadItemStates: vi.fn(async () => store.states),
   getHomeDay: vi.fn(async (_db: unknown, _u: string, date: string) => store.days.get(date) ?? null),
   getOrCreateHomeDay: vi.fn(
     async (_db: unknown, _u: string, date: string, build: () => Record<string, unknown>) => {
@@ -57,6 +57,7 @@ function setPref(home_view: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   store.days.clear();
+  store.states = [];
   store.creates = 0;
   store.updates = 0;
   vi.useFakeTimers({ toFake: ['Date'] });
@@ -142,6 +143,24 @@ describe('GET /api/home', () => {
     expect(second.today.steps.map((s: { key: string }) => s.key)).toEqual(
       first.today.steps.map((s: { key: string }) => s.key),
     );
+  });
+
+  it('remove an urgent step, reload: the stored Quick list is unchanged and nothing is dropped', async () => {
+    const base = tonight().raw;
+    mockLoad.mockResolvedValue(base);
+    await (await GET()).json();
+    const day = store.days.values().next().value as RawHomeDay;
+    const quickBefore = [...day.quick_item_keys];
+    // An urgent item he took out of today's arc: it is urgent, so it would be put into Quick again.
+    const urgent = makeTask({ tags: ['lifeline'], estimated_minutes: 10, title: 'Lifeline is down' });
+    mockLoad.mockResolvedValue(makeInputs({ ...base, tasks: [...base.tasks, urgent] }));
+    store.states = [makeState(taskKey(urgent.id), { arc_removed_at: NOW, arc_removed_group: day.group_key })];
+    const updatesBefore = store.updates;
+    const again = await (await GET()).json();
+    const stored = store.days.values().next().value as RawHomeDay;
+    expect(stored.quick_item_keys).toEqual(quickBefore);
+    expect(store.updates).toBe(updatesBefore);
+    expect(again.today.quick.map((i: { key: string }) => i.key)).toEqual(quickBefore);
   });
 
   it('writes no day when nothing is in view', async () => {

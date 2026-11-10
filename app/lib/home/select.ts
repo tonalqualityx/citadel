@@ -239,7 +239,7 @@ function peopleCompare(a: Candidate, b: Candidate): number {
 
 /**
  * How a thread stands for the People tiles (plan 1.3):
- * 'show' qualifies now; 'young' is not yet a business day old (not shown, not counted);
+ * 'show' qualifies now; 'young' is not yet a business day old (not shown, counted in Everything else as new mail);
  * 'older' qualifies except that its newest open ask is over 21 days old (counted in Everything
  * else); 'no' is not a known person, or is automated, noise or a calendar reply.
  */
@@ -649,8 +649,8 @@ function buildThread(
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
     type: lead ? 'lead' : 'owed_reply',
-    title: `${person}${client ? ` (${client.name})` : ''}: ${said}`,
-    who: client ? `${person}, ${client.name}` : person,
+    title: `${person}${client && !sameName(client.name, person) ? ` (${client.name})` : ''}: ${said}`,
+    who: client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
     age: ageWords(newest.received_at, now, 'arrived'),
     why_now: whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
     hard_date: null,
@@ -688,6 +688,10 @@ function buildThread(
   };
 }
 
+function sameName(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
   const score = scoreCrisis(a, now);
   const client = refOf(a.client);
@@ -703,7 +707,7 @@ function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs,
     key: crisisKey(a.id),
     type: 'emergency',
     title: displayText(a.subject) || 'Urgent email',
-    who: client ? `${person}, ${client.name}` : person,
+    who: client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
     age: ageWords(a.received_at, now, 'arrived'),
     why_now: whyEmergency(rule, { client: client?.name, sender: person }),
     hard_date: null,
@@ -844,8 +848,10 @@ export function selectHome(input: SelectInput): SelectResult {
     if (!(OPEN_WAIT_STATES as readonly string[]).includes(w.state)) continue;
     push(buildWait(w, now, refs, states.get(waitKey(w.id))));
   }
+  let youngThreads = 0;
   for (const th of raw.threads) {
     const status = threadStatus(th, now);
+    if (status === 'young') youngThreads += 1;
     if (status === 'show' || status === 'older') {
       push(buildThread(th, status, now, refs, states.get(threadKey(th.account, th.thread_id))));
     }
@@ -961,11 +967,12 @@ export function selectHome(input: SelectInput): SelectResult {
     parked: 0,
     held_projects: raw.held_project_task_count,
     review_pieces: raw.review_folds.reduce((n, f) => n + f.pieces.length, 0),
+    new_mail: youngThreads,
     older_threads: 0,
     ventures: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
-  const order: HomeRestGroupKey[] = ['waiting_turn', 'parked', 'held_projects', 'review_pieces', 'older_threads', 'ventures'];
+  const order: HomeRestGroupKey[] = ['waiting_turn', 'parked', 'held_projects', 'review_pieces', 'new_mail', 'older_threads', 'ventures'];
   const groups: HomeEverythingElseGroup[] = order
     .filter((k) => counts[k] > 0)
     .map((k) => ({ key: k, label: REST_GROUP_COPY[k].label, count: counts[k], owner: REST_GROUP_COPY[k].owner }));

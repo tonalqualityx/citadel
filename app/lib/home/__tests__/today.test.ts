@@ -252,18 +252,58 @@ describe('applyEmergencyInsert and stability', () => {
     expect(today.group_key).toBe(stored.group_key);
   });
 
-  it('no duplicates, and Quick stays at 3', () => {
+  it('no duplicates, and an existing Quick row is never dropped to make room', () => {
     const c = makeClient('Arc Co');
     const arcTask = waiting(c, '2026-10-01T14:00:00Z');
     const e1 = makeTask({ tags: ['lifeline'], estimated_minutes: 10 });
     const e2 = makeTask({ tags: ['lifeline'], estimated_minutes: 10 });
     const e3 = makeTask({ tags: ['lifeline'], estimated_minutes: 10 });
     const sel = selectHome({ raw: makeInputs({ now: NOW, tasks: [arcTask, e1, e2, e3] }), states: [], now: NOW });
-    const out = applyEmergencyInsert([taskKey(e1.id), 'x'], [taskKey(arcTask.id)], sel.candidates);
-    expect(out).toHaveLength(3);
-    expect(new Set(out).size).toBe(3);
-    expect(out).toContain(taskKey(e1.id));
+    const out = applyEmergencyInsert([taskKey(e1.id), 'x', 'y'], [taskKey(arcTask.id)], sel.candidates, 'g', NOW);
+    expect(out).toHaveLength(5);
+    expect(new Set(out).size).toBe(5);
+    expect(out.slice(-3)).toEqual([taskKey(e1.id), 'x', 'y']);
     expect(out).toContain(taskKey(e2.id));
+    expect(out).toContain(taskKey(e3.id));
+  });
+
+  it('an emergency he removed from this day\'s arc in the last 7 days is not put into Quick', () => {
+    const c = makeClient('Arc Co');
+    const arcTask = waiting(c, '2026-10-01T14:00:00Z');
+    const e1 = makeTask({ tags: ['lifeline'], estimated_minutes: 10 });
+    const group = clientGroupKey(c.id);
+    const removed = (days: number, g = group) =>
+      selectHome({
+        raw: makeInputs({ now: NOW, tasks: [arcTask, e1] }),
+        states: [makeState(taskKey(e1.id), { arc_removed_at: new Date(NOW.getTime() - days * 86_400_000), arc_removed_group: g })],
+        now: NOW,
+      });
+    const quick = ['x'];
+    const steps = [taskKey(arcTask.id)];
+    expect(applyEmergencyInsert(quick, steps, removed(2).candidates, group, NOW)).toEqual(['x']);
+    expect(applyEmergencyInsert(quick, steps, removed(8).candidates, group, NOW)).toEqual([taskKey(e1.id), 'x']);
+    expect(applyEmergencyInsert(quick, steps, removed(2, 'other').candidates, group, NOW)).toEqual([taskKey(e1.id), 'x']);
+  });
+
+  it('remove a step, reload: the Quick list and the other steps are unchanged', () => {
+    const c = makeClient('Arc Co');
+    const a = waiting(c, '2026-10-01T14:00:00Z');
+    const crisis = makeTask({ tags: ['lifeline'], client: c, estimated_minutes: 20 });
+    const first = build({ tasks: [a, crisis] });
+    const stored = first.day!;
+    expect(stored.step_item_keys).toContain(taskKey(crisis.id));
+    const day = { ...stored, step_item_keys: stored.step_item_keys.filter((k) => k !== taskKey(crisis.id)) };
+    const later = selectHome({
+      raw: makeInputs({ now: NOW, tasks: [a, crisis] }),
+      states: [makeState(taskKey(crisis.id), { arc_removed_at: NOW, arc_removed_group: day.group_key })],
+      now: NOW,
+    });
+    expect(applyEmergencyInsert(day.quick_item_keys, day.step_item_keys, later.candidates, day.group_key, NOW)).toEqual(
+      day.quick_item_keys,
+    );
+    const today = buildToday(later, day, [], NOW)!;
+    expect(today.quick.map((i) => i.key)).toEqual(day.quick_item_keys);
+    expect(today.steps.map((i) => i.key)).toEqual(day.step_item_keys);
   });
 
   it('items done, gone or parked since the day was written drop out; nothing left gives null', () => {
@@ -329,6 +369,30 @@ describe('Swap and Lighter', () => {
     const today = buildToday(sel, day!, [], NOW)!;
     expect(today.quick.map((q) => q.key)).toContain(taskKey(quickOne.id));
     expect(today.swap).toEqual([]);
+  });
+
+  it('an arc whose top item sits in Quick, with its other steps out of view, is still a swap choice', () => {
+    const grok = makeClient('Grok');
+    const arc = makeArc('Grok arc', { client_id: grok.id });
+    const security = makeTask({ tags: ['security'], client: grok, arc, site_id: 's', estimated_minutes: 5 });
+    const others = [1, 2, 3].map((n) => makeTask({ arc, client: grok, title: `Step ${n}`, estimated_minutes: 30 }));
+    const top = waiting(a, '2026-10-12T14:00:00Z', { estimated_minutes: 60 });
+    const { sel, day: proposed } = build({ tasks: [security, ...others, top] });
+    // The day as Mike has it: Alpha's task is the arc and the security task sits in Quick.
+    const day = {
+      ...proposed!,
+      group_key: clientGroupKey(a.id),
+      group_label: 'Alpha',
+      arc_id: null,
+      quick_item_keys: [taskKey(security.id)],
+      step_item_keys: [taskKey(top.id)],
+    };
+    expect(others.every((t) => !sel.byKey.get(taskKey(t.id))?.inView)).toBe(true);
+    const today = buildToday(sel, day, [], NOW)!;
+    expect(today.swap.map((x) => x.group_key)).toContain(arcGroupKey(arc.id));
+    // Quick rows are still not doubled as steps.
+    const swapped = dayForGroup(sel, arcGroupKey(arc.id), day, [], NOW)!;
+    expect(swapped.step_item_keys).not.toContain(taskKey(security.id));
   });
 
   it('dayForGroup rewrites the day to the chosen group, keeps Quick, and refuses an unknown group', () => {

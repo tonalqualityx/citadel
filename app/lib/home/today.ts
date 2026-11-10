@@ -268,19 +268,22 @@ export function dayForGroup(
 /**
  * A new emergency on a later load: placed at the top of Quick, existing Quick rows keep their
  * order behind it, steps are not touched. An emergency already in Quick or a step is not added
- * twice. Quick stays at its cap of 3.
+ * twice. An item he removed from this day's arc in the last 7 days is not put into Quick. An
+ * existing Quick row is never dropped to make room, so Quick can grow past 3 for a new emergency.
  */
 export function applyEmergencyInsert(
   quickKeys: readonly string[],
   stepKeys: readonly string[],
   candidates: readonly Candidate[],
+  groupKey: string,
+  now: Date,
 ): string[] {
   const have = new Set([...quickKeys, ...stepKeys]);
   const fresh = candidates
-    .filter((c) => c.rule !== null && !c.pinned && c.inView && !have.has(c.key))
+    .filter((c) => c.rule !== null && !c.pinned && c.inView && !have.has(c.key) && !removedHere(c, groupKey, now))
     .sort(emergencyCompare)
     .map((c) => c.key);
-  return [...fresh, ...quickKeys].slice(0, CAPS.quick);
+  return fresh.length === 0 ? [...quickKeys] : [...fresh, ...quickKeys];
 }
 
 // ============================================================================
@@ -305,7 +308,7 @@ function groupOptions(
   const currentClient = current?.client?.id ?? null;
   const seen = new Map<string, GroupInfo>();
   for (const c of sel.candidates) {
-    if (!c.inView || c.parked || c.group.key === currentKey || quickKeys.has(c.key)) continue;
+    if (c.parked || c.group.key === currentKey || !(c.inView || c.arcId !== null)) continue;
     seen.set(c.group.key, c.group);
   }
   const options: GroupOption[] = [];
@@ -372,7 +375,7 @@ export function buildToday(
     .map((k) => sel.byKey.get(k))
     .filter((c): c is Candidate => !!c && !c.parked);
   const stepKeySet = new Set(stepCands.map((c) => c.key));
-  const quickKeys = applyEmergencyInsert(day.quick_item_keys, day.step_item_keys, sel.candidates);
+  const quickKeys = applyEmergencyInsert(day.quick_item_keys, day.step_item_keys, sel.candidates, day.group_key, now);
   const quickCands = quickKeys
     .map((k) => sel.byKey.get(k))
     .filter((c): c is Candidate => !!c && !c.parked && !stepKeySet.has(c.key));

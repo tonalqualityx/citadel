@@ -116,12 +116,25 @@ function RouteSpinner() {
   );
 }
 
+// A preferences call still loading after this long sends the person to the Overlook.
+const PREFERENCES_WAIT_MS = 3000;
+
 function DashboardSwitch() {
   const { data, isLoading } = usePreferences();
   const searchParams = useSearchParams();
+  // The server always renders the spinner, so the first client render must match it.
+  const [mounted, setMounted] = React.useState(false);
+  const [gaveUp, setGaveUp] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+  React.useEffect(() => {
+    if (!isLoading || gaveUp) return;
+    const timer = setTimeout(() => setGaveUp(true), PREFERENCES_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [isLoading, gaveUp]);
 
+  if (gaveUp) return <OverlookPage />;
   // Neutral loading state until the preference is known, so nobody sees the wrong screen flash.
-  if (isLoading) return <RouteSpinner />;
+  if (!mounted || isLoading) return <RouteSpinner />;
 
   if (data?.preferences?.home_view === 'home' && searchParams?.get('view') !== 'overlook') {
     return (

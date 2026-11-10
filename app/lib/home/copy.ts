@@ -110,20 +110,25 @@ export function daysSince(since: Date, now: Date): number {
   return calendarDaysSince(since, now);
 }
 
+/** Whole 24-hour periods since `since`. Never negative. Used for the age and waited lines. */
+function wholeDaysSince(since: Date, now: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - since.getTime()) / 86_400_000));
+}
+
 function dayWord(n: number): string {
   return n === 1 ? '1 day' : `${n} days`;
 }
 
 /** The age line: "filed today" (or "came in today" for mail), "1 day", "13 days". */
 export function ageWords(since: Date, now: Date, kind: 'filed' | 'arrived' = 'filed'): string {
-  const n = daysSince(since, now);
+  const n = wholeDaysSince(since, now);
   if (n === 0) return kind === 'arrived' ? 'came in today' : 'filed today';
   return dayWord(n);
 }
 
 /** How long someone has waited, as a bare phrase: "13 days", "1 day", "less than a day". */
 export function waitedFor(since: Date, now: Date): string {
-  const n = daysSince(since, now);
+  const n = wholeDaysSince(since, now);
   return n === 0 ? 'less than a day' : dayWord(n);
 }
 
@@ -347,6 +352,7 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   parked: { label: 'Parked by you', owner: 'You' },
   held_projects: { label: 'On paused or unsigned projects', owner: 'Each project' },
   review_pieces: { label: 'Review pieces folded under a sign-off', owner: "Each project's sign-off" },
+  new_mail: { label: 'New mail, shown after one business day', owner: 'You' },
   older_threads: { label: 'Older open threads', owner: 'You' },
   ventures: { label: 'Other ventures', owner: 'You, other hat' },
 };

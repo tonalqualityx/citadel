@@ -439,6 +439,20 @@ describe('arc_remove', () => {
     expect(stateOf(db, T2)!.arc_removed_at).toBeNull();
   });
 
+  it('undoing a removal also takes the item out of Quick, and every undo brings back the original day', async () => {
+    const db = makeDb();
+    const day = addDay(db, { quick_item_keys: ['task:q1'], step_item_keys: [T1, T2, T3] });
+    const original = JSON.parse(JSON.stringify({ q: day.quick_item_keys, s: day.step_item_keys }));
+    const res = await act(db, { action: 'arc_remove', item_key: T2, group_key: G });
+    const res2 = await act(db, { action: 'arc_remove', item_key: T3, group_key: G });
+    // A load in between put T2 into Quick (the old behaviour); the undo must clear it.
+    day.quick_item_keys = [T2, ...(day.quick_item_keys as string[])];
+    await undo(db, res2.action_id);
+    await undo(db, res.action_id);
+    expect(day.step_item_keys).toEqual(original.s);
+    expect(day.quick_item_keys).toEqual(original.q);
+  });
+
   it('answers not_in_arc and stale_day', async () => {
     const db = makeDb();
     addDay(db);

@@ -78,6 +78,9 @@ function HomeScreenInner() {
             <Button variant="secondary" onClick={() => void refetch()}>
               Try again
             </Button>
+            <a className="home-btn" href="/dashboard?view=overlook">
+              Open the Overlook
+            </a>
           </div>
         </div>
       </div>

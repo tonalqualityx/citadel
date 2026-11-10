@@ -57,6 +57,33 @@ describe('GET /api/users/me/preferences', () => {
   });
 });
 
+describe('GET home_view', () => {
+  const stored = {
+    naming_convention: 'awesome',
+    theme: 'system',
+    notification_bundle: true,
+    today_view: 'list',
+    energy_filter: 'all',
+    home_view: 'home',
+  };
+  const get = () => GET(new NextRequest('http://localhost:3000/api/users/me/preferences'));
+
+  it('returns overlook for a caller who is not an admin, whatever is stored', async () => {
+    for (const role of ['tech', 'pm']) {
+      mockRequireAuth.mockResolvedValue({ userId: 'user-2', role, email: 'a@example.com' } as never);
+      mockFindUnique.mockResolvedValue({ ...stored });
+      const body = await (await get()).json();
+      expect(body.preferences.home_view).toBe('overlook');
+    }
+  });
+
+  it('returns the stored home_view for an admin', async () => {
+    mockFindUnique.mockResolvedValue({ ...stored });
+    const body = await (await get()).json();
+    expect(body.preferences.home_view).toBe('home');
+  });
+});
+
 describe('PATCH /api/users/me/preferences', () => {
   it('persists today_view=board', async () => {
     mockUpsert.mockResolvedValue({

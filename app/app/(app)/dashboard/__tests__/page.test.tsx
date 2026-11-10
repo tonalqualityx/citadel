@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 
 const h = vi.hoisted(() => ({
   prefs: { data: undefined as unknown, isLoading: false, isError: false },
@@ -79,5 +79,33 @@ describe('/dashboard switch', () => {
     render(<DashboardRoute />);
     expect(await screen.findByText('overlook-screen')).toBeTruthy();
     expect(screen.queryByText('home-screen')).toBeNull();
+  });
+
+  it('sends the person to the Overlook when preferences are still loading after 3 seconds', () => {
+    vi.useFakeTimers();
+    try {
+      h.prefs = { data: undefined, isLoading: true, isError: false };
+      render(<DashboardRoute />);
+      act(() => {
+        vi.advanceTimersByTime(2900);
+      });
+      expect(screen.queryByText('overlook-screen')).toBeNull();
+      expect(screen.queryByText('home-screen')).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(screen.getByText('overlook-screen')).toBeTruthy();
+      expect(screen.queryByText('home-screen')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders the spinner first and decides only after mount (matches the server render)', async () => {
+    const { renderToString } = await import('react-dom/server');
+    h.prefs = { data: { preferences: { home_view: 'home' } }, isLoading: false, isError: false };
+    const html = renderToString(<DashboardRoute />);
+    expect(html).not.toContain('home-screen');
+    expect(html).not.toContain('overlook-screen');
   });
 });

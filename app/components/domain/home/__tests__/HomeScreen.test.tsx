@@ -145,6 +145,8 @@ describe('HomeScreen', () => {
     render(<HomeScreen />);
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(refetch).toHaveBeenCalled();
+    const way = screen.getByRole('link', { name: 'Open the Overlook' });
+    expect(way.getAttribute('href')).toBe('/dashboard?view=overlook');
   });
   it('shows no em or en dash anywhere', () => {
     const { container } = render(<HomeScreen />);

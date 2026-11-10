@@ -796,7 +796,12 @@ async function undoDayRecord(db: HomeDb, userId: string, before: DayRecord, afte
     const order = before.steps.filter((k) => steps.includes(k));
     steps = [...order, ...steps.filter((k) => !order.includes(k))];
   }
-  await updateHomeDay(db, userId, before.date, { step_item_keys: steps });
+  const patch: { step_item_keys: string[]; quick_item_keys?: string[] } = { step_item_keys: steps };
+  // An undone removal puts the item back as a step, so it must not also sit in Quick.
+  if (before.kind === 'remove' && day.quick_item_keys.includes(before.key)) {
+    patch.quick_item_keys = day.quick_item_keys.filter((k) => k !== before.key);
+  }
+  await updateHomeDay(db, userId, before.date, patch);
   return true;
 }
 

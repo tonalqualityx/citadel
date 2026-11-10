@@ -45,7 +45,13 @@ export async function GET() {
       }));
       day = stored;
       if (!created) {
-        const quick = applyEmergencyInsert(stored.quick_item_keys, stored.step_item_keys, sel.candidates);
+        const quick = applyEmergencyInsert(
+          stored.quick_item_keys,
+          stored.step_item_keys,
+          sel.candidates,
+          stored.group_key,
+          now,
+        );
         const changed =
           quick.length !== stored.quick_item_keys.length || quick.some((k, i) => k !== stored.quick_item_keys[i]);
         if (changed) {

@@ -355,6 +355,7 @@ export type HomeRestGroupKey =
   | 'parked' // Not now, until their view_at
   | 'held_projects' // tasks on quote, queue or suspended projects
   | 'review_pieces' // done tasks folded under a project sign-off
+  | 'new_mail' // threads from a known person too young to show yet (not a business day old)
   | 'older_threads' // qualifying threads whose newest open ask is over 21 days old
   | 'ventures'; // other ventures
 

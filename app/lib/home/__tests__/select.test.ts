@@ -185,13 +185,43 @@ describe('people tiles', () => {
     expect(r.sections.mail[0].type).toBe('owed_reply');
   });
 
-  it('older open threads are counted, not listed; young and unknown threads are neither', () => {
+  it('older open threads are counted, not listed; unknown threads are neither', () => {
     const older = makeThread({ client: active, received_at: d('2026-10-01T15:00:00Z') });
-    const young = makeThread({ client: active, received_at: d('2026-11-09T20:00:00Z') });
     const unknown = makeThread({ received_at: longAgo });
-    const r = sel({ threads: [older, young, unknown] });
+    const r = sel({ threads: [older, unknown] });
     expect(r.sections.mail).toEqual([]);
     expect(r.everything_else.groups).toEqual([expect.objectContaining({ key: 'older_threads', count: 1 })]);
+  });
+
+  it('threads too young to show are counted under New mail, shown after one business day', () => {
+    const young = makeThread({ client: active, received_at: d('2026-11-09T20:00:00Z') });
+    const unknown = makeThread({ received_at: d('2026-11-09T20:00:00Z') });
+    const r = sel({ threads: [young, unknown] });
+    expect(r.sections.mail).toEqual([]);
+    expect(r.everything_else.groups).toEqual([
+      expect.objectContaining({ key: 'new_mail', label: 'New mail, shown after one business day', count: 1 }),
+    ]);
+    expect(r.everything_else.count).toBe(1);
+  });
+
+  it('the who line shows a name once when the sender and the client share it', () => {
+    const jill = makeClient("Jill's Cafe");
+    const same = makeThread({ client: jill, from_name: " jill's cafe ", received_at: longAgo });
+    const item = sel({ threads: [same] }).sections.mail[0];
+    expect(item.who).toBe("jill's cafe");
+    expect(item.title.startsWith("jill's cafe:")).toBe(true);
+    const other = makeThread({ client: jill, from_name: 'Jill Owner', received_at: longAgo });
+    const item2 = sel({ threads: [other] }).sections.mail[0];
+    expect(item2.who).toBe("Jill Owner, Jill's Cafe");
+    expect(item2.title.startsWith("Jill Owner (Jill's Cafe):")).toBe(true);
+  });
+
+  it('the who line on an urgent mail shows the name once too', () => {
+    const jill = makeClient("Jill's Cafe");
+    const crisis = makeAsk({ client: jill, from_name: "Jill's Cafe", is_urgent: true, received_at: longAgo });
+    const r = sel({ crises: [crisis] });
+    const item = r.sections.needs_you_now.find((i) => i.source.kind === 'crisis');
+    expect(item?.who).toBe("Jill's Cafe");
   });
 
   it('a draft on the thread shows as "Draft ready, about 2 minutes" and "Open the draft"', () => {

@@ -64,6 +64,17 @@ describe('elapsed time and effort', () => {
     expect(copy.ageWords(d('2026-11-08T14:00:00Z'), NOW)).toBe('1 day');
     expect(copy.ageWords(d('2026-10-27T14:00:00Z'), NOW)).toBe('13 days');
   });
+  it('ages count whole 24-hour periods, not midnights', () => {
+    // 5 hours old, but a New York midnight passed in between.
+    const late = d('2026-11-10T01:00:00Z'); // 8 pm Monday in New York
+    const now = d('2026-11-10T06:00:00Z'); // 1 am Tuesday in New York
+    expect(copy.ageWords(late, now)).toBe('filed today');
+    expect(copy.ageWords(late, now, 'arrived')).toBe('came in today');
+    expect(copy.waitedFor(late, now)).toBe('less than a day');
+    expect(copy.ageWords(d('2026-11-09T05:00:00Z'), now)).toBe('1 day');
+    expect(copy.ageWords(d('2026-11-07T05:00:00Z'), now)).toBe('3 days');
+    expect(copy.waitedFor(d('2026-11-08T05:00:00Z'), now)).toBe('2 days');
+  });
   it('waited phrases', () => {
     expect(copy.waitedFor(d('2026-11-09T14:00:00Z'), NOW)).toBe('less than a day');
     expect(copy.waitedFor(d('2026-10-30T14:00:00Z'), NOW)).toBe('10 days');

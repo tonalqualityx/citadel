@@ -33,9 +33,12 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Only an admin can be on the home screen, whatever is stored.
+    const stored = preferences && auth.role !== 'admin' ? { ...preferences, home_view: 'overlook' as const } : preferences;
+
     // Return defaults if no preferences exist
     return NextResponse.json({
-      preferences: preferences || {
+      preferences: stored || {
         naming_convention: 'awesome',
         theme: 'system',
         notification_bundle: true,
