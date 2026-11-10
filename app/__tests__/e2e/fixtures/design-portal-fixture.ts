@@ -160,8 +160,22 @@ export async function teardownWorld(w: DesignWorld): Promise<void> {
   // Follow-up tasks the portal filed in our projects, plus the seeded ones.
   const taskIds = (await prisma.task.findMany({ where: { project_id: { in: projectIds } }, select: { id: true } })).map((x) => x.id);
 
-  const sessions = (await prisma.designSession.findMany({ where: { OR: [{ site_id: { in: siteIds } }, { task_id: { in: taskIds } }] }, select: { id: true } })).map((s) => s.id);
+  const sessionRows = await prisma.designSession.findMany({ where: { OR: [{ site_id: { in: siteIds } }, { task_id: { in: taskIds } }] }, select: { id: true, track_id: true } });
+  const sessions = sessionRows.map((s) => s.id);
   const bySession = { session_id: { in: sessions } };
+  // v2 rows first, in FK order (SPEC 3.2)
+  const trackIds = (await prisma.designTrack.findMany({ where: { OR: [{ site_id: { in: siteIds } }, { id: { in: sessionRows.flatMap((s) => (s.track_id ? [s.track_id] : [])) } }] }, select: { id: true } })).map((t) => t.id);
+  const byTrack = { track_id: { in: trackIds } };
+  await prisma.designEdit.deleteMany({ where: bySession });
+  await prisma.designMarkup.deleteMany({ where: { reference: byTrack } });
+  await prisma.designBriefReaction.deleteMany({ where: { brief: byTrack } });
+  await prisma.designPageReview.deleteMany({ where: byTrack });
+  await prisma.designImport.deleteMany({ where: byTrack });
+  await prisma.designJob.deleteMany({ where: byTrack });
+  await prisma.designBrief.deleteMany({ where: byTrack });
+  await prisma.designReference.deleteMany({ where: byTrack });
+  await prisma.designArtDirection.deleteMany({ where: byTrack });
+  await prisma.designTrackAsset.deleteMany({ where: byTrack });
   await prisma.designEvent.deleteMany({ where: bySession });
   await prisma.designPin.deleteMany({ where: bySession });
   await prisma.designChange.deleteMany({ where: bySession });
@@ -172,6 +186,8 @@ export async function teardownWorld(w: DesignWorld): Promise<void> {
   await prisma.designAsset.deleteMany({ where: bySession });
   await prisma.designBudget.deleteMany({ where: { user_id: { in: userIds } } });
   await prisma.designSession.deleteMany({ where: { id: { in: sessions } } });
+  await prisma.designTrack.deleteMany({ where: { id: { in: trackIds } } });
+  await prisma.designNote.deleteMany({ where: { OR: [{ site_id: { in: siteIds } }, { client_id: w.clientId }] } });
 
   await prisma.timeEntry.deleteMany({ where: { task_id: { in: taskIds } } });
   await prisma.comment.deleteMany({ where: { task_id: { in: taskIds } } });

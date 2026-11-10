@@ -323,7 +323,17 @@ async function main() {
 
   // Clear existing client data (in reverse order due to foreign keys)
   // First, clear project-related data that depends on clients
-  // Design portal rows restrict tasks, projects and sites: first, in FK order
+  // Design portal rows restrict tasks, projects and sites: first, in FK order (v2 rows before the v1 list, SPEC 3.2)
+  await prisma.designEdit.deleteMany();
+  await prisma.designMarkup.deleteMany();
+  await prisma.designBriefReaction.deleteMany();
+  await prisma.designPageReview.deleteMany();
+  await prisma.designImport.deleteMany();
+  await prisma.designJob.deleteMany();
+  await prisma.designBrief.deleteMany();
+  await prisma.designReference.deleteMany();
+  await prisma.designArtDirection.deleteMany();
+  await prisma.designTrackAsset.deleteMany();
   await prisma.designEvent.deleteMany();
   await prisma.designPin.deleteMany();
   await prisma.designChange.deleteMany();
@@ -332,6 +342,8 @@ async function main() {
   await prisma.designPublish.deleteMany();
   await prisma.designBudget.deleteMany();
   await prisma.designSession.deleteMany();
+  await prisma.designTrack.deleteMany();
+  await prisma.designNote.deleteMany();
   await prisma.projectPage.deleteMany();
   await prisma.timeEntry.deleteMany();
   await prisma.task.deleteMany();
@@ -546,6 +558,16 @@ async function main() {
   // ============================================
 
   // Clear existing project/task data
+  await prisma.designEdit.deleteMany();
+  await prisma.designMarkup.deleteMany();
+  await prisma.designBriefReaction.deleteMany();
+  await prisma.designPageReview.deleteMany();
+  await prisma.designImport.deleteMany();
+  await prisma.designJob.deleteMany();
+  await prisma.designBrief.deleteMany();
+  await prisma.designReference.deleteMany();
+  await prisma.designArtDirection.deleteMany();
+  await prisma.designTrackAsset.deleteMany();
   await prisma.designEvent.deleteMany();
   await prisma.designPin.deleteMany();
   await prisma.designChange.deleteMany();
@@ -554,6 +576,8 @@ async function main() {
   await prisma.designPublish.deleteMany();
   await prisma.designBudget.deleteMany();
   await prisma.designSession.deleteMany();
+  await prisma.designTrack.deleteMany();
+  await prisma.designNote.deleteMany();
   await prisma.timeEntry.deleteMany();
   await prisma.task.deleteMany();
   await prisma.projectTeamAssignment.deleteMany();

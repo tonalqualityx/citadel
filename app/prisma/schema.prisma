@@ -28,6 +28,13 @@ model User {
   // Relations
   preferences                        UserPreference?
   design_sessions                    DesignSession[]          @relation("DesignSessionDesigner")
+  design_track_assets                DesignTrackAsset[]       @relation("DesignTrackAssetCreator")
+  design_brief_reactions             DesignBriefReaction[]    @relation("DesignBriefReactionUser")
+  design_references_decided          DesignReference[]        @relation("DesignReferenceDecider")
+  design_markups                     DesignMarkup[]           @relation("DesignMarkupCreator")
+  design_art_directions_signed       DesignArtDirection[]     @relation("DesignArtDirectionSigner")
+  design_page_reviews_approved       DesignPageReview[]       @relation("DesignPageReviewApprover")
+  design_edits                       DesignEdit[]             @relation("DesignEditCreator")
   sessions                           Session[]
   notifications                      Notification[]
   notification_preferences           NotificationPreference[]
@@ -654,10 +661,11 @@ model Client {
   invoices              ClientInvoice[]
 
   // Wait record phase 1 (back-relations)
-  waits      Wait[]
+  waits        Wait[]
   // KPIs and checklists (back-relations)
-  site_kpis  SiteKpi[]
-  checklists Checklist[]
+  site_kpis    SiteKpi[]
+  checklists   Checklist[]
+  design_notes DesignNote[]
 
   @@index([type])
   @@index([status])
@@ -795,9 +803,10 @@ model Site {
   gsc_property        String? @db.VarChar(255) // sc-domain:herbapumps.com
 
   // Designer portal
-  design_portal_enabled Boolean @default(false)
-  design_auto_timer     Boolean @default(true) // D10
-  designer_publish      Boolean @default(true) // admin-only override (D5)
+  design_portal_enabled Boolean     @default(false)
+  design_path           DesignPath? // v2: designer | zero_design | portal; null for every existing site
+  design_auto_timer     Boolean     @default(true) // D10
+  designer_publish      Boolean     @default(true) // admin-only override (D5)
 
   // Metadata
   is_deleted Boolean  @default(false)
@@ -817,6 +826,8 @@ model Site {
   brand_profile               BrandProfile?
   stats_snapshots             SiteStatsSnapshot[]
   design_sessions             DesignSession[]
+  design_tracks               DesignTrack[]
+  design_notes                DesignNote[]
 
   // Wait record phase 1 (back-relations)
   waits     Wait[]
@@ -1026,9 +1037,11 @@ model Project {
   email_asks              EmailAsk[]
 
   // Wait record phase 1 (back-relations)
-  waits      Wait[]
+  waits         Wait[]
   // Checklists (back-relation)
-  checklists Checklist[]
+  checklists    Checklist[]
+  design_tracks DesignTrack[]
+  design_notes  DesignNote[]
 
   @@index([client_id])
   @@index([recipe_id])
@@ -1297,8 +1310,8 @@ model Task {
   portal_token_expires_at DateTime?
 
   // Fleet item 3: claims with leases
-  claim_holder String?   @db.VarChar(200)
-  claim_token  String?   @db.Uuid
+  claim_holder String?       @db.VarChar(200)
+  claim_token  String?       @db.Uuid
   claimed_at   DateTime?
   lease_until  DateTime?
   receipts     TaskReceipt[]
@@ -1323,6 +1336,8 @@ model Task {
   email_asks           EmailAsk[]
   approval_requests    ApprovalRequest[]
   design_sessions      DesignSession[]
+  design_jobs          DesignJob[]
+  design_imports       DesignImport[]
 
   // Wait record phase 1 (back-relations)
   waits Wait[]
@@ -4434,6 +4449,10 @@ enum DesignEventKind {
   client_files // D11: the client folder listing to depth 2 {folder_id, items:[{id, name, mime, modified, path}]} (replaced on refresh)
   change // a DesignChange was recorded: {change_id}
   publish // publish/rollback progress and result: {publish_id, kind, status, summary}
+  edit // v2: a DesignEdit was queued {edit_id}; designer role, debounced delivery
+  track_stage // v2: stage transition status line, system role, never delivered
+  art_direction // v2: art direction written or signed, system role, never delivered
+  brief // v2: brief published, system role, never delivered
   lib_index // W6.10 blast radius per data-lib from the last preview build: {sha, index:{<data_lib>:{pages, sample[]}}, truncated?}; never shown in the feed
 }
 
@@ -4461,6 +4480,8 @@ enum DesignCommandVerb {
   refresh_client_files // D11: re-list the client folder
   share_drive_folder // D11: session-less; payload {folder_id, email, role: 'writer'}
   unshare_drive_folder // D11: session-less; payload {folder_id, email, role: 'writer'}
+  adopt_branch // v2: session-less; payload {track_id, site_id, job_id, job_kind, branch, preview_alias, job_branch, expected_base}
+  finish_gates // v2: full-site gate run at Finish design review; built by Citadel from the track
 }
 
 enum DesignCommandStatus {
@@ -4479,6 +4500,8 @@ model DesignSession {
   project_id           String?             @db.Uuid
   designer_id          String              @db.Uuid
   designer             User                @relation("DesignSessionDesigner", fields: [designer_id], references: [id], onDelete: Restrict)
+  track_id             String?             @db.Uuid // v2: the design track this session works on; null = v1 behaviour
+  track                DesignTrack?        @relation(fields: [track_id], references: [id], onDelete: Restrict)
   status               DesignSessionStatus @default(pending)
   // Box-side identity (written by the daemon only)
   branch               String              @db.VarChar(100) // design/<task8>
@@ -4528,8 +4551,10 @@ model DesignSession {
   pins      DesignPin[]
   changes   DesignChange[]
   commands  DesignCommand[]
+  edits     DesignEdit[]
 
   @@index([designer_id, status])
+  @@index([track_id])
   @@index([site_id])
   @@index([status, last_heartbeat_at])
   @@index([timer_presence_at])
@@ -4539,6 +4564,9 @@ model DesignSession {
 // One live session per task, as a database fact (raw SQL in the migration, like engine_jobs):
 // CREATE UNIQUE INDEX design_sessions_one_live_per_task ON design_sessions(task_id)
 //   WHERE status NOT IN ('closed', 'abandoned');
+// v2 adds the same fact per track:
+// CREATE UNIQUE INDEX design_sessions_one_live_per_track ON design_sessions(track_id)
+//   WHERE track_id IS NOT NULL AND status NOT IN ('closed', 'abandoned');
 
 model DesignEvent {
   id           String          @id @default(uuid()) @db.Uuid
@@ -4561,29 +4589,29 @@ model DesignEvent {
 }
 
 model DesignPin {
-  id              String          @id @default(uuid()) @db.Uuid
-  session_id      String          @db.Uuid
-  session         DesignSession   @relation(fields: [session_id], references: [id], onDelete: Cascade)
-  author_id       String          @db.Uuid
-  status          DesignPinStatus @default(pending)
-  note            String          @default("") @db.Text // capped 4000
-  page_path       String          @db.VarChar(500)
-  data_lib        String?         @db.VarChar(100) // innermost [data-lib]
-  lib_stack       String[]        @default([]) @db.VarChar(100) // innermost first, max 8
-  data_shape      String?         @db.VarChar(50)
-  selector        String          @db.VarChar(500)
-  tag             String?         @db.VarChar(40) // shipped packet field
-  classes         String[]        @default([]) @db.VarChar(100)
-  text_quote      String?         @db.VarChar(200)
-  bbox            Json // {x, y, w, h} in CSS px at capture
-  viewport_width  Int
-  viewport_height Int?
-  preview_sha     String?         @db.VarChar(64) // commit the pin was taken on (stale-pin check)
-  crop_asset_id   String?         @db.Uuid // filled by the daemon (server-side crop)
-  apply_event_seq Int? // the Apply that sent it
-  followup_task_id String?        @db.Uuid // the follow-up task this pin produced
-  created_at      DateTime        @default(now())
-  updated_at      DateTime        @updatedAt
+  id               String          @id @default(uuid()) @db.Uuid
+  session_id       String          @db.Uuid
+  session          DesignSession   @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  author_id        String          @db.Uuid
+  status           DesignPinStatus @default(pending)
+  note             String          @default("") @db.Text // capped 4000
+  page_path        String          @db.VarChar(500)
+  data_lib         String?         @db.VarChar(100) // innermost [data-lib]
+  lib_stack        String[]        @default([]) @db.VarChar(100) // innermost first, max 8
+  data_shape       String?         @db.VarChar(50)
+  selector         String          @db.VarChar(500)
+  tag              String?         @db.VarChar(40) // shipped packet field
+  classes          String[]        @default([]) @db.VarChar(100)
+  text_quote       String?         @db.VarChar(200)
+  bbox             Json // {x, y, w, h} in CSS px at capture
+  viewport_width   Int
+  viewport_height  Int?
+  preview_sha      String?         @db.VarChar(64) // commit the pin was taken on (stale-pin check)
+  crop_asset_id    String?         @db.Uuid // filled by the daemon (server-side crop)
+  apply_event_seq  Int? // the Apply that sent it
+  followup_task_id String?         @db.Uuid // the follow-up task this pin produced
+  created_at       DateTime        @default(now())
+  updated_at       DateTime        @updatedAt
 
   @@index([session_id, status])
   @@map("design_pins")
@@ -4609,6 +4637,7 @@ model DesignChange {
   is_restore       Boolean              @default(false)
   restored_from    String?              @db.VarChar(64)
   decision         DesignChangeDecision @default(pending)
+  edits            DesignEdit[]
   designer_note    String?              @db.Text
   decided_at       DateTime?
   decided_by_id    String?              @db.Uuid
@@ -4760,6 +4789,378 @@ model DesignWorkerState {
   sdk_version         String?   @db.VarChar(40)
 
   @@map("design_worker_state")
+}
+
+// ============================================
+// DESIGNER PORTAL V2 (specs/designer-portal-v2, SPEC section 3)
+// ============================================
+
+enum DesignPath {
+  designer
+  zero_design
+  portal
+}
+
+enum DesignTrackStage {
+  research
+  art_direction
+  home_build
+  refine
+  rest_build
+  review
+  done
+  cancelled
+}
+
+enum DesignJobKind {
+  provision
+  research
+  capture
+  process_upload
+  brief
+  wireframe
+  home_build
+  rest_build
+  module
+  bulk_import
+  launch_readiness
+  client_brief_email
+  client_review_email
+  fact_fix
+}
+
+enum DesignJobStatus {
+  queued
+  claimed
+  running
+  done
+  failed
+  cancelled
+}
+
+// Partial unique indexes below are raw SQL in migration 20261110020000_design_portal_v2_tables:
+//   design_tracks_one_open_per_site ON design_tracks(site_id) WHERE stage NOT IN ('done','cancelled')
+//   design_jobs_one_active_build_per_track ON design_jobs(track_id) WHERE kind IN ('home_build','rest_build') AND status IN ('queued','claimed','running')
+//   design_references_one_url_per_track ON design_references(track_id, url) WHERE url IS NOT NULL
+//   design_art_directions_one_draft ON design_art_directions(track_id) WHERE status = 'draft'
+// brief_id, art_direction_id, busy_job_id and finish_command_id are plain pointers (no foreign key), checked in code.
+model DesignTrack {
+  id                String           @id @default(uuid()) @db.Uuid
+  site_id           String           @db.Uuid
+  site              Site             @relation(fields: [site_id], references: [id], onDelete: Restrict)
+  project_id        String           @db.Uuid
+  project           Project          @relation(fields: [project_id], references: [id], onDelete: Restrict)
+  round             Int              @default(1)
+  slug              String           @unique @db.Char(16)
+  stage             DesignTrackStage @default(research)
+  branch            String           @db.VarChar(100)
+  preview_alias     String           @db.VarChar(100)
+  preview_url       String?          @db.VarChar(300)
+  preview_sha       String?          @db.VarChar(64)
+  head_sha          String?          @db.VarChar(64)
+  brief_id          String?          @db.Uuid
+  art_direction_id  String?          @db.Uuid
+  busy_job_id       String?          @db.Uuid
+  finish_command_id String?          @db.Uuid
+  finish_result     Json?
+  finished_at       DateTime?
+  created_at        DateTime         @default(now())
+  updated_at        DateTime         @updatedAt
+
+  sessions       DesignSession[]
+  jobs           DesignJob[]
+  briefs         DesignBrief[]
+  references     DesignReference[]
+  art_directions DesignArtDirection[]
+  page_reviews   DesignPageReview[]
+  imports        DesignImport[]
+  assets         DesignTrackAsset[]
+
+  @@unique([site_id, round])
+  @@index([project_id])
+  @@map("design_tracks")
+}
+
+model DesignJob {
+  id           String          @id @default(uuid()) @db.Uuid
+  track_id     String          @db.Uuid
+  track        DesignTrack     @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  kind         DesignJobKind
+  status       DesignJobStatus @default(queued)
+  task_id      String?         @db.Uuid
+  task         Task?           @relation(fields: [task_id], references: [id], onDelete: SetNull)
+  payload      Json
+  result       Json?
+  error        String?         @db.Text
+  attempts     Int             @default(0)
+  not_before   DateTime?
+  claimed_by   String?         @db.VarChar(100)
+  lease_until  DateTime?
+  command_id   String?         @db.Uuid
+  cost_usd     Decimal?        @db.Decimal(10, 4)
+  log_asset_id String?         @db.Uuid
+  started_at   DateTime?
+  finished_at  DateTime?
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  briefs DesignBrief[]
+
+  @@index([status, not_before, created_at])
+  @@index([track_id, kind])
+  @@map("design_jobs")
+}
+
+model DesignNote {
+  id               String       @id @default(uuid()) @db.Uuid
+  client_id        String       @db.Uuid
+  client           Client       @relation(fields: [client_id], references: [id], onDelete: Restrict)
+  project_id       String?      @db.Uuid
+  project          Project?     @relation(fields: [project_id], references: [id], onDelete: SetNull)
+  site_id          String?      @db.Uuid
+  site             Site?        @relation(fields: [site_id], references: [id], onDelete: SetNull)
+  source_kind      String       @db.VarChar(20)
+  source_ref       String       @db.VarChar(300)
+  source_date      DateTime
+  speaker_name     String       @db.VarChar(200)
+  speaker_role     String       @db.VarChar(20)
+  quote            String       @db.Text
+  quote_sha        String       @db.Char(64)
+  is_paraphrase    Boolean      @default(false)
+  category         String       @db.VarChar(30)
+  polarity         String       @db.VarChar(10)
+  subject          String       @db.VarChar(200)
+  reference_url    String?      @db.VarChar(500)
+  status           String       @default("active") @db.VarChar(12)
+  superseded_by_id String?      @db.Uuid
+  superseded_by    DesignNote?  @relation("DesignNoteSupersedes", fields: [superseded_by_id], references: [id], onDelete: SetNull)
+  supersedes       DesignNote[] @relation("DesignNoteSupersedes")
+  confidence       Float
+  extracted_by     String       @db.VarChar(60)
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+
+  @@unique([client_id, source_ref, quote_sha])
+  @@index([client_id, status])
+  @@map("design_notes")
+}
+
+model DesignBrief {
+  id           String      @id @default(uuid()) @db.Uuid
+  track_id     String      @db.Uuid
+  track        DesignTrack @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  version      Int
+  status       String      @db.VarChar(12)
+  body         Json
+  job_id       String?     @db.Uuid
+  job          DesignJob?  @relation(fields: [job_id], references: [id], onDelete: SetNull)
+  published_at DateTime?
+  created_at   DateTime    @default(now())
+  updated_at   DateTime    @updatedAt
+
+  reactions DesignBriefReaction[]
+
+  @@unique([track_id, version])
+  @@map("design_briefs")
+}
+
+model DesignBriefReaction {
+  id            String      @id @default(uuid()) @db.Uuid
+  brief_id      String      @db.Uuid
+  brief         DesignBrief @relation(fields: [brief_id], references: [id], onDelete: Cascade)
+  card_id       String      @db.VarChar(40)
+  reaction      String      @db.VarChar(14)
+  note          String?     @db.VarChar(200)
+  created_by_id String?     @db.Uuid
+  created_by    User?       @relation("DesignBriefReactionUser", fields: [created_by_id], references: [id], onDelete: SetNull)
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @updatedAt
+
+  @@unique([brief_id, card_id, created_by_id])
+  @@map("design_brief_reactions")
+}
+
+model DesignReference {
+  id                    String      @id @default(uuid()) @db.Uuid
+  track_id              String      @db.Uuid
+  track                 DesignTrack @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  source                String      @db.VarChar(20)
+  url                   String?     @db.VarChar(500)
+  title                 String      @db.VarChar(200)
+  why_md                String?     @db.Text
+  decision              String      @default("pending") @db.VarChar(8)
+  decided_by_id         String?     @db.Uuid
+  decided_by            User?       @relation("DesignReferenceDecider", fields: [decided_by_id], references: [id], onDelete: SetNull)
+  decided_at            DateTime?
+  decision_note         String?     @db.VarChar(500)
+  capture_status        String      @default("none") @db.VarChar(10)
+  capture_error         String?     @db.VarChar(500)
+  desktop_fold_asset_id String?     @db.Uuid
+  desktop_full_asset_id String?     @db.Uuid
+  phone_fold_asset_id   String?     @db.Uuid
+  phone_full_asset_id   String?     @db.Uuid
+  upload_asset_ids      String[]    @default([]) @db.Uuid
+  extracted             Json?
+  sort_order            Int         @default(0)
+  created_at            DateTime    @default(now())
+  updated_at            DateTime    @updatedAt
+
+  markups DesignMarkup[]
+
+  @@index([track_id, sort_order])
+  @@map("design_references")
+}
+
+model DesignMarkup {
+  id            String           @id @default(uuid()) @db.Uuid
+  reference_id  String           @db.Uuid
+  reference     DesignReference  @relation(fields: [reference_id], references: [id], onDelete: Cascade)
+  asset_id      String           @db.Uuid
+  asset         DesignTrackAsset @relation(fields: [asset_id], references: [id], onDelete: Cascade)
+  rect          Json
+  sentiment     String           @db.VarChar(8)
+  category      String           @db.VarChar(12)
+  note          String?          @db.VarChar(500)
+  created_by_id String?          @db.Uuid
+  created_by    User?            @relation("DesignMarkupCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  deleted_at    DateTime?
+  created_at    DateTime         @default(now())
+  updated_at    DateTime         @updatedAt
+
+  @@index([reference_id])
+  @@map("design_markups")
+}
+
+model DesignArtDirection {
+  id                       String      @id @default(uuid()) @db.Uuid
+  track_id                 String      @db.Uuid
+  track                    DesignTrack @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  version                  Int
+  status                   String      @db.VarChar(10)
+  body                     Json
+  drafted_by               String      @db.VarChar(8)
+  signed_by_id             String?     @db.Uuid
+  signed_by                User?       @relation("DesignArtDirectionSigner", fields: [signed_by_id], references: [id], onDelete: SetNull)
+  signed_at                DateTime?
+  client_email_job_id      String?     @unique @db.Uuid
+  client_email_status      String?     @db.VarChar(8)
+  client_email_sent_at     DateTime?
+  client_email_held_reason String?     @db.VarChar(2000)
+  created_at               DateTime    @default(now())
+  updated_at               DateTime    @updatedAt
+
+  @@unique([track_id, version])
+  @@map("design_art_directions")
+}
+
+model DesignPageReview {
+  id                     String        @id @default(uuid()) @db.Uuid
+  track_id               String        @db.Uuid
+  track                  DesignTrack   @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  page_path              String        @db.VarChar(300)
+  title                  String        @db.VarChar(200)
+  status                 String        @default("not_opened") @db.VarChar(12)
+  first_opened_at        DateTime?
+  last_viewed_at         DateTime?
+  view_count             Int           @default(0)
+  last_change_at         DateTime?
+  changed_after_approval Boolean       @default(false)
+  approved_at            DateTime?
+  approved_by_id         String?       @db.Uuid
+  approved_by            User?         @relation("DesignPageReviewApprover", fields: [approved_by_id], references: [id], onDelete: SetNull)
+  approval_asset_ids     String[]      @default([]) @db.Uuid
+  latest_shot_asset_ids  String[]      @default([]) @db.Uuid
+  requirement_id         String?       @db.VarChar(64)
+  import_id              String?       @db.Uuid
+  import                 DesignImport? @relation(fields: [import_id], references: [id], onDelete: SetNull)
+  created_at             DateTime      @default(now())
+  updated_at             DateTime      @updatedAt
+
+  @@unique([track_id, page_path])
+  @@map("design_page_reviews")
+}
+
+model DesignImport {
+  id                  String      @id @default(uuid()) @db.Uuid
+  track_id            String      @db.Uuid
+  track               DesignTrack @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  task_id             String      @unique @db.Uuid
+  task                Task        @relation(fields: [task_id], references: [id], onDelete: Restrict)
+  template_page_path  String      @db.VarChar(300)
+  source_paths        String[]
+  mapping_path        String?     @db.VarChar(300)
+  expected_count      Int
+  skipped_count       Int?
+  generated_count     Int?
+  required_for_launch Boolean     @default(true)
+  status              String      @default("waiting") @db.VarChar(10)
+  job_id              String?     @db.Uuid
+  spot_asset_ids      String[]    @default([]) @db.Uuid
+  released_at         DateTime?
+  verified_at         DateTime?
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+
+  page_reviews DesignPageReview[]
+
+  @@index([track_id, template_page_path])
+  @@map("design_imports")
+}
+
+model DesignEdit {
+  id            String        @id @default(uuid()) @db.Uuid
+  session_id    String        @db.Uuid
+  session       DesignSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  client_ref    String        @db.VarChar(64)
+  kind          String        @db.VarChar(16)
+  page_path     String        @db.VarChar(300)
+  target        Json
+  payload       Json
+  status        String        @default("queued") @db.VarChar(10)
+  change_id     String?       @db.Uuid
+  change        DesignChange? @relation(fields: [change_id], references: [id], onDelete: SetNull)
+  error         String?       @db.VarChar(2000)
+  created_by_id String?       @db.Uuid
+  created_by    User?         @relation("DesignEditCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt
+
+  @@unique([session_id, client_ref])
+  @@index([session_id, status])
+  @@map("design_edits")
+}
+
+model DesignTrackAsset {
+  id              String             @id @default(uuid()) @db.Uuid
+  track_id        String             @db.Uuid
+  track           DesignTrack        @relation(fields: [track_id], references: [id], onDelete: Cascade)
+  kind            String             @db.VarChar(20) // upload | render | ref_fold | ref_full | brief_image | approval_shot | spot_shot | job_log
+  parent_asset_id String?            @db.Uuid // render: the upload it came from
+  parent          DesignTrackAsset?  @relation("DesignTrackAssetParent", fields: [parent_asset_id], references: [id], onDelete: Cascade)
+  children        DesignTrackAsset[] @relation("DesignTrackAssetParent")
+  purpose         String?            @db.VarChar(8) // upload only: board | image | decor
+  status          String             @default("ready") @db.VarChar(10) // pending | ready | rejected
+  reject_reason   String?            @db.VarChar(300)
+  content_type    String             @db.VarChar(40)
+  bytes           Int
+  sha256          String             @db.Char(64)
+  width           Int?
+  height          Int?
+  page            Int? // PDF page number of a render
+  page_path       String?            @db.VarChar(300) // approval_shot, spot_shot
+  viewport_w      Int? // 390 | 768 | 1280
+  original_name   String?            @db.VarChar(120)
+  storage_key     String             @db.VarChar(200) // design/tracks/<track>/<asset>; never in a designer projection
+  source          String             @db.VarChar(8) // designer | runner | daemon
+  created_by_id   String?            @db.Uuid
+  created_by      User?              @relation("DesignTrackAssetCreator", fields: [created_by_id], references: [id], onDelete: SetNull)
+  created_at      DateTime           @default(now())
+
+  markups DesignMarkup[]
+
+  @@index([track_id, kind])
+  @@index([parent_asset_id])
+  @@map("design_track_assets")
 }
 
 // Home screen (specs/home-build-plan.md, Slice 1). Per-user first-screen switch. Default
