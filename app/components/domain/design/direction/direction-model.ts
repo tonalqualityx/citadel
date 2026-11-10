@@ -47,7 +47,18 @@ export function applyPending(body: DirectionBody | undefined, pending: Pending):
   return out as DirectionBody;
 }
 
-export const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** JSON with object keys sorted at every depth. The database hands objects back with its own key order, so a
+ *  plain JSON.stringify would call a saved value different from the one the form built. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (isObject(v)) {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v ?? null) ?? 'null';
+}
+
+export const sameValue = (a: unknown, b: unknown) => canonical(a) === canonical(b);
 
 function setPatchIn(root: Record<string, unknown>, path: Path, value: unknown): Record<string, unknown> {
   const base = { ...root };
