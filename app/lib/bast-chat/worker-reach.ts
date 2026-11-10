@@ -306,14 +306,18 @@ export interface ReachResult {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * The safe set (VERIFY-4: reduced to almost nothing). On a task Bast holds, every chat change to a field the session
- * reads taps, typed or not; the only changes that pass without a tap are the ones that only stop Bast (a parking status,
- * a parking tag, taking the task off Bast, a review switched off, an approval given) and `client_visible`, which the
- * client rule (R5) judges.
+ * Plan 4.2 R1 safe set (the owner's ruling on 0e7e26c: the chat is not neutered). Every member is a typed value that
+ * cannot carry words (a date, a number, a flag, a fixed choice), so on a task Bast holds the chat changes it without a
+ * tap; the field table proves each one refuses a sentence. None of them enters the worker's eligibility (spawn-gate.py
+ * `classify` reads assignee, status, tags, blockers and the lease), so none can start or release work; priority only
+ * orders work that is already eligible. `client_visible` is judged by the client rule (R5). `promised_to` is free text
+ * the session reads, so it is NOT here (VERIFY-3 X2).
  */
-export const SAFE_FIELDS: readonly string[] = ['client_visible'];
+export const SAFE_FIELDS: readonly string[] = ['due_date', 'priority', 'is_focus', 'energy_estimate', 'mystery_factor', 'battery_impact', 'client_visible'];
+/** Safe on a Bast task (an existing arc, by id: W2 and W3 do not read the arc); read, so a tap, on a woken delegate task (W1 line 345). */
+const ARC_FIELD = 'arc_id';
 /** Fields the session reads that have no rule of their own: on a task Bast holds, changing one taps. */
-const READ_ONLY_FIELDS: readonly string[] = ['due_date', 'priority', 'is_focus', 'energy_estimate', 'mystery_factor', 'battery_impact', 'promised_to'];
+const READ_ONLY_FIELDS: readonly string[] = ['promised_to'];
 /** Statuses that only park or close: safe as a field; the view model still catches a wake (blocked with a human comment, the sweep). */
 const PARKING_STATUSES: readonly string[] = ['blocked', 'done', 'abandoned'];
 /** Tags whose meaning to the worker is known to be "do not act": adding one is safe. */
@@ -350,6 +354,7 @@ export const KNOWN_CHANGE_KEYS: readonly string[] = [
   ...TASK_WRITE_KEYS,
   'blocked_by_connect',
   'blocked_by_disconnect',
+  ...SAFE_FIELDS.filter((f) => f !== 'client_visible'),
   ...READ_ONLY_FIELDS,
   ...CONTEXT_KEYS,
 ];
@@ -578,9 +583,14 @@ function applyChange(current: ReachTask, change: TaskChange): ReachTask {
 
 /** Which changed fields fall outside the safe set for this task. */
 function nonSafeFields(changed: string[], before: ReachTask | null, after: ReachTask): string[] {
+  const afterIsDelegate = typeof after.assignee_id === 'string' && DELEGATE_USER_IDS.includes(after.assignee_id);
   const out: string[] = [];
   for (const f of changed) {
     if (SAFE_FIELDS.includes(f)) continue;
+    if (f === ARC_FIELD) {
+      if (afterIsDelegate) out.push(f);
+      continue;
+    }
     if (f === 'status') {
       if (!PARKING_STATUSES.includes(after.status ?? '')) out.push(f);
       continue;

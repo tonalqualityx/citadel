@@ -1218,9 +1218,11 @@ describe('VERIFY-3 field table: every field the chat can write and the worker re
   };
   it.each(taskFields.filter(([k]) => k !== 'sop_id'))('%s proposed: on the card as "will be"', async (k) => {
     const blocker = k === 'blocked_by' ? doneBlocker() : null;
-    const bastHeld = k !== 'assignee_id' && k !== 'client_visible';
+    // A typed field applies on a Bast task without a tap (the owner's ruling): it rides on a hand-over card instead.
+    const typed = FIELD_POLICY[k].tap === 'typed';
+    const bastHeld = k !== 'assignee_id' && k !== 'client_visible' && !typed;
     const t = addTask({ title: 'Place the logo', ...(bastHeld ? { assignee_id: BAST, status: 'blocked', tags: ['needs-mike'] } : {}), ...(k === 'approved' ? { approved: true, needs_review: true } : {}) });
-    const body = k === 'blocked_by' ? { blocked_by_ids: { connect: [blocker] } } : { [k]: PLANNED[k] };
+    const body = k === 'blocked_by' ? { blocked_by_ids: { connect: [blocker] } } : typed ? { assignee_id: BAST, [k]: PLANNED[k] } : { [k]: PLANNED[k] };
     const card = (await propose(t, body)).card;
     const r = card.reads.find((x) => x.task_id === t)!;
     const label = `${CARD_FIELDS[recKey(k)].label} will be`;

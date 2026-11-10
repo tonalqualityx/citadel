@@ -295,8 +295,8 @@ describe('R1: edits to a task Bast holds, any status', () => {
       expect(patch(bast(), change).needs_tap).toBe(true);
     }
   });
-  it('VERIFY-4: every field the session reads taps on a Bast task, typed ones too', () => {
-    const reads: TaskChange[] = [
+  it('the typed safe set (the owner\'s ruling on 0e7e26c) does not reach on a Bast task, in any state it can be in', () => {
+    const typed: TaskChange[] = [
       { due_date: '2026-11-14T22:00:00Z' },
       { priority: 1 },
       { is_focus: true },
@@ -305,7 +305,8 @@ describe('R1: edits to a task Bast holds, any status', () => {
       { battery_impact: 'high_drain' },
       { arc_id: 'arc-1' },
     ];
-    for (const change of reads) expect(patch(bast(), change).needs_tap, JSON.stringify(change)).toBe(true);
+    const states = [bast(), bast({ status: 'blocked', tags: ['needs-mike'] }), bast({ status: 'review' }), bast({ status: 'done', needs_review: true, approved: false }), bast({ status: 'in_progress', lease_until: '2026-11-10T13:00:00Z' })];
+    for (const t of states) for (const change of typed) none(patch(t, change));
   });
   it('only a change that stops Bast passes on a Bast task without a tap', () => {
     const safe: TaskChange[] = [
@@ -553,7 +554,7 @@ describe('R3: delegate wake', () => {
     const woken = sabeen({ last_comment_author: 'human' });
     reachesWith(patch(woken, { description: 'New ask' }), 'edits_woken_delegate_task');
     reachesWith(patch(woken, { arc_id: 'arc-2' }), 'edits_woken_delegate_task');
-    reachesWith(patch(woken, { due_date: '2026-11-12T10:00:00Z' }), 'edits_woken_delegate_task'); // VERIFY-4: the session reads it
+    none(patch(woken, { due_date: '2026-11-12T10:00:00Z' }));
     none(patch(sabeen({ last_comment_author: 'bot' }), { description: 'New ask' }));
   });
   it('split: hand to Sabeen while closed (no reach), then reopen (reaches)', () => {

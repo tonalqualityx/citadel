@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { NextResponse } from 'next/server';
 import { prisma as defaultDb } from '@/lib/db/prisma';
-import { withSavepoint } from '@/lib/db/scope';
+import { scopedTransaction, withSavepoint } from '@/lib/db/scope';
+import { ApiError } from '@/lib/api/errors';
 import { CHAT_LANE } from './task-filter';
 import { UNDO_WINDOW_HOURS, TASK_RECORD_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
 import { cleanLine } from './card-context';
@@ -115,14 +116,21 @@ export async function recordChatPatch(
 ): Promise<string | null> {
   if (!isChat(auth)) return null;
   // A savepoint inside a locked request (lib/db/scope.ts): a record that cannot be written costs only itself, as on
-  // main, and never aborts the change it records.
+  // main, for a change with no text in it. A change to text the worker reads must not commit unmarked (VERIFY-4 R3,
+  // the owner's ruling): then the failure is the request's, and the locked transaction rolls the text back with it.
   try {
     return await withSavepoint(() => patchRecord(before, after, conversationId, now, db));
   } catch (e) {
+    const text = RECORD_TEXT_KEYS.some((k) => changed(k, valueOf(before, k), valueOf(after, k)));
+    if (text && scopedTransaction()) throw new ApiError(RECORD_FAILED_TEXT, 500, 'record_failed');
     console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
     return null;
   }
 }
+
+/** The worker-read text fields whose chat change must carry its record. */
+const RECORD_TEXT_KEYS = ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags'] as const;
+export const RECORD_FAILED_TEXT = "That didn't go through. Try again.";
 
 async function patchRecord(before: TaskShape, after: TaskShape, conversationId: string | null, now: Date, db: Db): Promise<string | null> {
   {

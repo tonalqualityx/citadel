@@ -111,15 +111,27 @@ describe.skipIf(!RUN)('nothing best-effort changes a locked chat request (real d
     expect(await prisma.activityLog.count({ where: { entity_id: t } })).toBe(0);
   }, 120_000);
 
-  it('a change record that fails (a trigger refuses it) leaves the change itself committed', async () => {
+  it('a change record that fails (a trigger refuses it): a date change commits without it; a text change rolls back with it', async () => {
     await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION bcv2_refuse_record() RETURNS trigger AS $$ BEGIN IF NEW.summary LIKE '%FAILREC%' THEN RAISE EXCEPTION 'refused for the test'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
     await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS bcv2_refuse_record ON bast_chat_actions');
     await prisma.$executeRawUnsafe('CREATE TRIGGER bcv2_refuse_record BEFORE INSERT ON bast_chat_actions FOR EACH ROW EXECUTE FUNCTION bcv2_refuse_record()');
     try {
-      const t = await newTask('Rename me');
-      const r = await chatPatch(t, { title: 'FAILREC renamed' });
-      expect(r.status).toBe(200);
-      expect((await row(t)).title).toBe('FAILREC renamed');
+      const t = await newTask('FAILREC task');
+      // No text in it: as on main, the change stands and only its record is lost.
+      const d = await chatPatch(t, { due_date: '2026-11-20T22:00:00.000Z' });
+      expect(d.status).toBe(200);
+      expect((await row(t)).due_date?.toISOString()).toBe('2026-11-20T22:00:00.000Z');
+      expect(await records(t)).toHaveLength(0);
+      // Text the worker reads must not commit unmarked (the owner's ruling): the whole write rolls back.
+      for (const body of [{ title: 'FAILREC renamed' }, { description: 'FAILREC text' }, { promised_to: 'Jill' }]) {
+        const r = await chatPatch(t, body);
+        expect(r.status, JSON.stringify(body)).toBe(500);
+        expect(r.json.error).toBe("That didn't go through. Try again.");
+      }
+      const after = await row(t);
+      expect(after.title).toBe('FAILREC task');
+      expect(after.description).toBeNull();
+      expect(after.promised_to).toBeNull();
       expect(await records(t)).toHaveLength(0);
     } finally {
       await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS bcv2_refuse_record ON bast_chat_actions');

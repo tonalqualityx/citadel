@@ -150,14 +150,16 @@ export const READ_ROW_FIELDS = {
  * Bast holds (or a task the card hands to Bast) need Mike's tap, and does the card show it. The rule for every field the
  * chat writes and the worker reads: normalised before anything looks at it (plain.ts), in the proposal's payload, on the
  * card in full (as "will be" for the change, as "now" when the chat wrote it earlier), and a tap on a Bast task, unless
- * the change only stops Bast. `field-table.test.ts`, `actions.test.ts` and `payload.integration.test.ts` walk this table
+ * the change only stops Bast or the field is typed (cannot hold words, cannot start work). `field-table.test.ts`, `actions.test.ts` and `payload.integration.test.ts` walk this table
  * against the real filter, reach check, card and tap; a field added to the selects or the chat's allowlists fails there
  * until it is classified here.
  *
  *   chat:  patch = PATCH /api/tasks/:id from the chat; create = POST /api/tasks from the chat; op = an ops-route op;
  *          no = the chat key cannot write it (closed field, or no route in its lane)
  *   tap:   yes = taps on a Bast task; unless-stop = taps unless the new value only stops Bast (a parking status or tag,
- *          off Bast, review off, approval on); client = the client rule (R5) taps when it shares; n/a = cannot change it
+ *          off Bast, review off, approval on); typed = cannot hold words and never enters the worker's eligibility, so it
+ *          applies without a tap (the owner's ruling) and shows on the card of any later proposal; client = the client
+ *          rule (R5) taps when it shares; n/a = cannot change it
  *   plain: the chat's value is normalised (plain.ts) before the filter, the reach check, the card and the write
  *
  *   field                         chat           reads  plain  tap          card word
@@ -168,11 +170,13 @@ export const READ_ROW_FIELDS = {
  *   tags                          patch, create  yes    yes    unless-stop  tags (tier: refused)
  *   status                        patch          yes    typed  unless-stop  status
  *   assignee_id                   patch, create  yes    typed  unless-stop  who it is on (handing to Bast is the tap)
- *   project_id, client_id, site_id, arc_id
- *                                 patch, create  yes    typed  yes          project, client, site, arc
+ *   project_id, client_id, site_id
+ *                                 patch, create  yes    typed  yes          project, client, site
+ *   arc_id                        patch, create  yes    typed  typed        arc (an existing arc by id; taps on a woken
+ *                                                                           Sabeen task, whose delegate pass reads it)
  *   sop_id                        create         yes    typed  n/a          SOP (a create; a create for Bast is refused)
  *   priority, due_date, is_focus, energy_estimate, mystery_factor, battery_impact
- *                                 patch          yes    typed  yes          order, date, focus, estimate
+ *                                 patch          yes    typed  typed        order, date, focus, estimate
  *   needs_review, approved        patch          yes    typed  unless-stop  review, approval
  *   client_visible                patch          yes    typed  client       sharing
  *   blocked_by (blocked_by_ids)   patch          yes    typed  yes          tasks it waits on; a connected one in full
@@ -194,7 +198,7 @@ export interface FieldPolicy {
   reads: boolean;
   /** Free text the chat writes: normalised by plain.ts before anything else looks at it. */
   plain?: boolean;
-  tap: 'yes' | 'unless-stop' | 'client' | 'n/a';
+  tap: 'yes' | 'unless-stop' | 'typed' | 'client' | 'n/a';
   /** The card's word for it (CARD_FIELDS in actions.ts), or null when the chat cannot write it. */
   card: string | null;
 }
@@ -213,13 +217,13 @@ export const FIELD_POLICY: Record<string, FieldPolicy> = {
   client_id: { chat: 'patch+create', reads: true, tap: 'yes', card: 'client' },
   site_id: { chat: 'patch+create', reads: true, tap: 'yes', card: 'site' },
   sop_id: { chat: 'create', reads: true, tap: 'n/a', card: 'SOP' },
-  arc_id: { chat: 'patch+create', reads: true, tap: 'yes', card: 'arc' },
-  priority: { chat: 'patch', reads: true, tap: 'yes', card: 'order' },
-  due_date: { chat: 'patch', reads: true, tap: 'yes', card: 'date' },
-  is_focus: { chat: 'patch', reads: true, tap: 'yes', card: 'focus' },
-  energy_estimate: { chat: 'patch', reads: true, tap: 'yes', card: 'estimate' },
-  mystery_factor: { chat: 'patch', reads: true, tap: 'yes', card: 'estimate' },
-  battery_impact: { chat: 'patch', reads: true, tap: 'yes', card: 'estimate' },
+  arc_id: { chat: 'patch+create', reads: true, tap: 'typed', card: 'arc' },
+  priority: { chat: 'patch', reads: true, tap: 'typed', card: 'order' },
+  due_date: { chat: 'patch', reads: true, tap: 'typed', card: 'date' },
+  is_focus: { chat: 'patch', reads: true, tap: 'typed', card: 'focus' },
+  energy_estimate: { chat: 'patch', reads: true, tap: 'typed', card: 'estimate' },
+  mystery_factor: { chat: 'patch', reads: true, tap: 'typed', card: 'estimate' },
+  battery_impact: { chat: 'patch', reads: true, tap: 'typed', card: 'estimate' },
   needs_review: { chat: 'patch', reads: true, tap: 'unless-stop', card: 'review' },
   approved: { chat: 'patch', reads: true, tap: 'unless-stop', card: 'approval' },
   client_visible: { chat: 'patch', reads: true, tap: 'client', card: 'sharing' },
