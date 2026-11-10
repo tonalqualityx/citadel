@@ -16,7 +16,7 @@ import type { DesignTrackAsset } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { PRIVATE_PREFIX, getPrivateObject, putPrivateObject } from '@/lib/services/s3';
-import { pdfHasActiveContent, sanitizeFilename, serveHeaders, sha256, sniffFile } from '@/lib/services/uploads';
+import { sanitizeFilename, serveHeaders, sha256, sniffFile } from '@/lib/services/uploads';
 import { isUuid } from './helpers';
 import { loadTrack, lockTrack, queueJob, trackTx } from './track-core';
 
@@ -129,11 +129,12 @@ export function validateDesignerUpload(purpose: UploadPurpose, buf: Buffer, decl
     return { content_type: 'image/svg+xml', ext: 'svg', filename: sanitizeFilename(declaredName, 'svg'), bytes: buf.length, sha256: sha256(buf), format: 'svg' };
   }
   if (buf.length > MAX_UPLOAD_BYTES) throw new ApiError('That file is over 25 MB', 413, 'asset_too_large');
-  if (buf.subarray(0, 5).toString('latin1') === '%PDF-' && pdfHasActiveContent(buf)) {
-    throw new ApiError('That PDF contains active content and is not accepted', 400, 'active_content');
-  }
+  // sniffFile runs pdfHasActiveContent on a PDF and refuses a PDF for nothing else, so the PDF is scanned once (W6.4 H1).
   const sniffed = sniffFile(buf, declaredName);
-  if (!sniffed.ok) throw new ApiError(sniffed.reason, 400, 'bad_type');
+  if (!sniffed.ok) {
+    if (buf.subarray(0, 5).toString('latin1') === '%PDF-') throw new ApiError('That PDF contains active content and is not accepted', 400, 'active_content');
+    throw new ApiError(sniffed.reason, 400, 'bad_type');
+  }
   const t = sniffed.type;
   if (!ALLOWED[purpose].includes(t.content_type)) {
     throw new ApiError(`A ${t.ext.toUpperCase()} file is not accepted for ${purpose}`, 400, 'bad_type');

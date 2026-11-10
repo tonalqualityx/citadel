@@ -1574,11 +1574,11 @@ export const designEndpoints: ApiEndpoint[] = [
         roles: RUNNER,
         queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'The client_brief_email job id (path); must be a DesignArtDirection client_email_job_id, else 404' }],
         bodySchema: [
-          { name: 'action', type: 'string', required: true, description: 'claim (queued or held to sending) | sent (sending to sent, sets client_email_sent_at) | held (queued or sending to held)' },
+          { name: 'action', type: 'string', required: true, description: 'claim (queued or held to sending) | sent (sending to sent, sets client_email_sent_at) | held (queued to held only; a row that has been sending never returns to a claimable state, so at most one claim succeeds per row)' },
           { name: 'reason', type: 'string', required: false, description: 'held: stored as client_email_held_reason, cut at 2,000 characters' },
         ],
         responseExample: { claimed: true },
-        responseNotes: 'claim answers 200 { claimed: true }; sent and held answer 200 { ok: true }. 409 email_already_claimed (claim when sending or sent), 409 email_not_claimed (sent when not sending), 409 email_not_holdable (held when neither queued nor sending); every 409 carries client_email_status, the row\'s current status. 404 for a job id that is no direction\'s client email job. Strict body.',
+        responseNotes: 'claim answers 200 { claimed: true }; sent and held answer 200 { ok: true }. 409 email_already_claimed (claim when sending or sent), 409 email_not_claimed (sent when not sending), 409 email_not_holdable (held when not queued: sending, sent or already held; nothing changes); every 409 carries client_email_status, the row\'s current status. 404 for a job id that is no direction\'s client email job. Strict body.',
       },
     ],
   },

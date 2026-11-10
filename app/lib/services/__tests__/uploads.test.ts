@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import zlib from 'zlib';
-import { PDF_MAX_INFLATED_PER_STREAM, pdfHasActiveContent, sanitizeFilename, serveHeaders, sniffFile, validateUpload, zipEntryNames, MAX_FILE_BYTES } from '../uploads';
+import { PDF_MAX_INFLATED_PER_STREAM, PDF_MAX_OBJECT_STREAMS, pdfHasActiveContent, sanitizeFilename, serveHeaders, sniffFile, validateUpload, zipEntryNames, MAX_FILE_BYTES } from '../uploads';
 
 /** A stored (uncompressed) zip with empty entries: enough for the container checks. */
 export function makeZip(names: string[]): Buffer {
@@ -205,5 +205,127 @@ describe('PDF object streams are inflated and scanned', () => {
       Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1'),
     ]);
     expect(pdfHasActiveContent(pdf)).toBe(false);
+  });
+});
+
+// W6.4 H1 and L1: the object-stream pass is one forward pass with hard budgets, and an object stream is read only over
+// its exact extent.
+describe('PDF object-stream pass: linear time, exact extents, fail closed', () => {
+  const L = (s: string) => Buffer.from(s, 'latin1');
+  const MB = 1024 * 1024;
+  const repeat = (unit: string, bytes: number, head = '%PDF-1.4\n') => {
+    const u = L(unit);
+    return Buffer.concat([L(head), Buffer.alloc(Math.floor(bytes / u.length) * u.length, u), L('%%EOF\n')]);
+  };
+  const JS_INNER = '1 0 2 30 << /Type /Catalog /OpenAction 2 0 R >> << /S /JavaScript /JS (app.alert(1)) >>';
+  /** One object stream object, with the pieces an attacker varies. */
+  const objStmPdf = (o: { data?: Buffer; length?: string; beforeStream?: string; afterStream?: string; dictExtra?: string; extraObjs?: string } = {}) => {
+    const data = o.data ?? zlib.deflateSync(L(JS_INNER));
+    return Buffer.concat([
+      L(`%PDF-1.5\n5 0 obj\n<< /Type /ObjStm /N 2 /First 8 /Filter /FlateDecode /Length ${o.length ?? data.length}${o.dictExtra ?? ''} >>${o.beforeStream ?? '\n'}stream${o.afterStream ?? '\n'}`),
+      data,
+      L(`\nendstream\nendobj\n${o.extraObjs ?? ''}%%EOF\n`),
+    ]);
+  };
+  /** zlib data whose first block is stored and holds the bytes `endstream`; the active names come after, compressed. */
+  const endstreamInside = (rest: string) => {
+    const lit = L('% endstream\n');
+    const stored = Buffer.concat([Buffer.from([0x00, lit.length & 255, lit.length >> 8, ~lit.length & 255, (~lit.length >> 8) & 255]), lit]);
+    const all = Buffer.concat([lit, L(rest)]);
+    let a = 1;
+    let b = 0;
+    for (const x of all) { a = (a + x) % 65521; b = (b + a) % 65521; }
+    const ad = Buffer.alloc(4);
+    ad.writeUInt32BE(((b << 16) | a) >>> 0);
+    return Buffer.concat([Buffer.from([0x78, 0x01]), stored, zlib.deflateRawSync(L(rest)), ad]);
+  };
+  const timed = (buf: Buffer) => {
+    const t = performance.now();
+    const active = pdfHasActiveContent(buf);
+    return { active, ms: performance.now() - t };
+  };
+
+  it.each([
+    ['">>stream" repeated (the W6.4 p10 shape)', () => repeat('>>stream\n', 10 * MB)],
+    ['many tiny object streams', () => {
+      const tiny = zlib.deflateSync(L('3 0 << /Type /Page >>')).toString('latin1');
+      return repeat(`5 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${tiny.length} >>\nstream\n${tiny}\nendstream\nendobj\n`, 10 * MB);
+    }],
+    ['many tiny image streams', () => repeat('7 0 obj\n<< /Type /XObject /Subtype /Image /Length 4 >>\nstream\nabcd\nendstream\nendobj\n', 10 * MB)],
+    ['object streams with no endstream', () => repeat('1 0 obj << /Type /ObjStm /First 4 /Length 5 >> stream\n', 10 * MB)],
+    ['plain streams with no endstream', () => repeat('1 0 obj << /Length 5 >> stream\n', 10 * MB)],
+    ['deeply repeated "<<"', () => repeat('<<', 10 * MB, '%PDF-1.4\n1 0 obj\n')],
+    ['deeply repeated "["', () => repeat('[', 10 * MB, '%PDF-1.4\n1 0 obj\n<< /A ')],
+    ['overlapping starts that never close', () => repeat('1 0 obj <</A (', 10 * MB)],
+    ['an object start inside every string', () => repeat('(obj << ', 10 * MB, '%PDF-1.4\n1 0 obj\n<< /A ')],
+    ['a comment after every object start', () => repeat('1 0 obj %', 10 * MB)],
+    ['"obj" repeated', () => repeat('obj ', 10 * MB)],
+    ['"#41" repeated', () => repeat('#41', 10 * MB)],
+  ])('returns in under 1,000 ms at 10 MB: %s', (_label, make) => {
+    const buf = make();
+    expect(buf.length).toBeGreaterThan(9.9 * MB);
+    expect(timed(buf).ms).toBeLessThan(1000);
+  });
+
+  it('returns in under 1,000 ms at 25 MB (the largest upload): one huge dictionary plus 64 MB of inflated object streams', () => {
+    const d = zlib.deflateSync(Buffer.alloc(16 * MB - 16, L('/Type /Page /A #42 ')), { level: 9 });
+    const one = Buffer.concat([L(`5 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${d.length} >>\nstream\n`), d, L('\nendstream\nendobj\n')]);
+    const tail = Buffer.concat([one, one, one, one]);
+    const head = L('%PDF-1.5\n1 0 obj << /Big [');
+    const buf = Buffer.concat([head, Buffer.alloc(25 * MB - head.length - tail.length - 16, L('12 0 R ')), L('] >>\n'), tail]);
+    const r = timed(buf);
+    expect(r.ms).toBeLessThan(1000);
+    expect(r.active).toBe(false);
+  });
+
+  it('refuses when a budget runs out: too many objects, too many object streams, nesting too deep, overlapping starts', () => {
+    expect(pdfHasActiveContent(repeat('obj ', 2 * MB))).toBe(true);
+    const tiny = zlib.deflateSync(L('3 0 << /Type /Page >>'));
+    const oneTiny = L(`5 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${tiny.length} >>\nstream\n${tiny.toString('latin1')}\nendstream\nendobj\n`);
+    const streams = (n: number) => Buffer.concat([L('%PDF-1.5\n'), ...Array<Buffer>(n).fill(oneTiny)]);
+    expect(pdfHasActiveContent(streams(PDF_MAX_OBJECT_STREAMS))).toBe(false);
+    expect(pdfHasActiveContent(streams(PDF_MAX_OBJECT_STREAMS + 1))).toBe(true);
+    expect(pdfHasActiveContent(repeat('<<', 4096, '%PDF-1.4\n1 0 obj\n'))).toBe(true);
+    expect(pdfHasActiveContent(repeat('1 0 obj <</A (', 64 * 1024))).toBe(true);
+  });
+
+  it('refuses JavaScript hidden behind the bytes "endstream" inside the data, with an indirect /Length (L1)', () => {
+    const data = endstreamInside(JS_INNER);
+    const pdf = objStmPdf({ data, length: '9 0 R', extraObjs: `9 0 obj\n${data.length}\nendobj\n` });
+    expect(pdf.toString('latin1')).not.toMatch(/OpenAction|JavaScript/);
+    expect(pdfHasActiveContent(pdf)).toBe(true);
+  });
+
+  it.each([
+    ['a comment between ">>" and "stream"', { beforeStream: '\n%c\n' }],
+    ['"stream" followed by CR alone', { afterStream: '\r' }],
+    ['a string holding "<<" in the dictionary', { dictExtra: ' /Z (<<)' }],
+    ['a string holding "1 0 obj" in the dictionary', { dictExtra: ' /Z (1 0 obj)' }],
+    ['a dictionary over 64 KB', { dictExtra: ` /Pad (${'A'.repeat(70_000)})` }],
+  ])('refuses JavaScript in an object stream with %s (L1)', (_label, o) => {
+    expect(pdfHasActiveContent(objStmPdf(o))).toBe(true);
+  });
+
+  it('refuses an object stream it cannot read exactly: indirect DecodeParms, truncated data, a Length that misses endstream, an unresolvable or ambiguous Length', () => {
+    const plain = '3 0 << /Type /Page >>';
+    const data = zlib.deflateSync(L(plain));
+    expect(pdfHasActiveContent(objStmPdf({ data, dictExtra: ' /DecodeParms 8 0 R' }))).toBe(true);
+    expect(pdfHasActiveContent(objStmPdf({ data: data.subarray(0, data.length - 4) }))).toBe(true);
+    expect(pdfHasActiveContent(objStmPdf({ data, length: String(data.length - 3) }))).toBe(true);
+    expect(pdfHasActiveContent(objStmPdf({ data, length: '9 0 R' }))).toBe(true);
+    expect(pdfHasActiveContent(objStmPdf({ data, length: '9 0 R', extraObjs: `9 0 obj\n${data.length}\nendobj\n9 0 obj\n${data.length + 1}\nendobj\n` }))).toBe(true);
+    expect(pdfHasActiveContent(objStmPdf({ data, dictExtra: ' /Filter /FlateDecode' }))).toBe(true); // two Filter keys
+    expect(pdfHasActiveContent(objStmPdf({ data, dictExtra: ' /F (other.bin)' }))).toBe(true); // data in another file
+  });
+
+  it('accepts honest object streams: indirect Length that resolves, CR LF after stream, a filter array, an incremental update copy', () => {
+    const data = zlib.deflateSync(L('3 0 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>'));
+    const len = `9 0 obj\n${data.length}\nendobj\n`;
+    expect(pdfHasActiveContent(objStmPdf({ data, length: '9 0 R', extraObjs: len }))).toBe(false);
+    expect(pdfHasActiveContent(objStmPdf({ data, length: '9 0 R', extraObjs: len + len }))).toBe(false);
+    expect(pdfHasActiveContent(objStmPdf({ data, afterStream: '\r\n' }))).toBe(false);
+    const arr = Buffer.from(objStmPdf({ data }).toString('latin1').replace('/Filter /FlateDecode', '/Filter [/FlateDecode]'), 'latin1');
+    expect(pdfHasActiveContent(arr)).toBe(false);
+    expect(validateUpload(objStmPdf({ data, length: '9 0 R', extraObjs: len }), 'menu.pdf').ok).toBe(true);
   });
 });

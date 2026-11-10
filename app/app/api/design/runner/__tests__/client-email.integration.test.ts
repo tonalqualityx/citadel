@@ -101,7 +101,7 @@ describe.skipIf(!SCRATCH)('POST /api/design/runner/jobs/:id/client-email (real d
     expect(r.client_email_sent_at).toBeNull();
   });
 
-  it('held from queued or sending, with the reason cut at 2,000 characters; a held email cannot be held again, and can be claimed once', async () => {
+  it('held only from queued, with the reason cut at 2,000 characters; a held email cannot be held again, and can be claimed once', async () => {
     const a = await signedWithEmail();
     const h = await post(a.jobId, { action: 'held', reason: 'x'.repeat(2500) });
     expect(h.status).toBe(200);
@@ -119,11 +119,38 @@ describe.skipIf(!SCRATCH)('POST /api/design/runner/jobs/:id/client-email (real d
     expect((await post(a.jobId, { action: 'claim' })).status).toBe(409);
     expect((await post(a.jobId, { action: 'held', reason: 'late' })).status).toBe(409);
 
+    // W6.4 M1: a claimed row can never be held, so it never returns to a claimable state.
     const b = await signedWithEmail();
     expect((await post(b.jobId, { action: 'claim' })).status).toBe(200);
-    expect((await post(b.jobId, { action: 'held', reason: 'recipient_domain_unverified' })).status).toBe(200);
-    expect(await row(b.directionId)).toMatchObject({ client_email_status: 'held', client_email_held_reason: 'recipient_domain_unverified', client_email_sent_at: null });
-    expect((await post(b.jobId, { action: 'sent' })).status).toBe(409);
+    const hb = await post(b.jobId, { action: 'held', reason: 'recipient_domain_unverified' });
+    expect(hb.status).toBe(409);
+    expect(await hb.json()).toMatchObject({ code: 'email_not_holdable', client_email_status: 'sending' });
+    expect(await row(b.directionId)).toMatchObject({ client_email_status: 'sending', client_email_held_reason: null, client_email_sent_at: null });
+    expect((await post(b.jobId, { action: 'claim' })).status).toBe(409);
+    expect((await post(b.jobId, { action: 'sent' })).status).toBe(200);
+  });
+
+  it('W6.4 M1: run A claims, run B reports held while the row is sending, run C claims: B and C are 409, one send only', async () => {
+    // Sequence 1: A claims and sends, its sent report is lost; B (another state folder) holds; C claims.
+    const one = await signedWithEmail();
+    expect((await post(one.jobId, { action: 'claim' })).status).toBe(200); // run A
+    const heldB = await post(one.jobId, { action: 'held', reason: 'sender_not_installed' }); // run B
+    expect(heldB.status).toBe(409);
+    expect(await heldB.json()).toMatchObject({ code: 'email_not_holdable', client_email_status: 'sending' });
+    const claimC = await post(one.jobId, { action: 'claim' }); // run C
+    expect(claimC.status).toBe(409);
+    expect(await claimC.json()).toMatchObject({ code: 'email_already_claimed', client_email_status: 'sending' });
+    expect(await row(one.directionId)).toMatchObject({ client_email_status: 'sending', client_email_held_reason: null, client_email_sent_at: null });
+
+    // Sequence 2: B's hold lands between A's claim and A's sent; A's sent still lands, C cannot claim.
+    const two = await signedWithEmail();
+    expect((await post(two.jobId, { action: 'claim' })).status).toBe(200);
+    expect((await post(two.jobId, { action: 'held', reason: 'sender_not_installed' })).status).toBe(409);
+    expect((await post(two.jobId, { action: 'sent' })).status).toBe(200);
+    const c2 = await post(two.jobId, { action: 'claim' });
+    expect(c2.status).toBe(409);
+    expect(await c2.json()).toMatchObject({ code: 'email_already_claimed', client_email_status: 'sent' });
+    expect((await row(two.directionId)).client_email_status).toBe('sent');
   });
 
   it('404 for a job that is no direction\'s client email job (another job, a random id, a bad id); 400 for a bad body', async () => {

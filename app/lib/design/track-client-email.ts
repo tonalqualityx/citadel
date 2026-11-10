@@ -7,12 +7,15 @@
  * only code that moves a row into `sending`. The runner's local marker file stays as a second lock.
  *
  * A held email was never sent, so it can be claimed again (a later run once the sender is installed, or Mike's release
- * of a held draft). `sending` and `sent` are final for a claim: a send that may have gone out is never repeated.
+ * of a held draft). Only a row that was never claimed can be held (W6.4 M1): a run that has not claimed may not touch a
+ * claimed row, so once a row has been `sending` it never returns to a claimable state and at most one claim ever
+ * succeeds per row. A run that claimed and then could not attempt the send leaves the row at `sending` for good: that
+ * is intended (fail closed; a send that may have gone out is never repeated), and a person sorts it out.
  *
  * - claim:  queued | held -> sending               200 {claimed: true}  | 409 email_already_claimed
  * - sent:   sending -> sent, client_email_sent_at   200 {ok: true}       | 409 email_not_claimed
- * - held:   queued | sending -> held + reason       200 {ok: true}       | 409 email_not_holdable
- * A job id that is no row's `client_email_job_id` is 404. Every 409 carries the row's current status.
+ * - held:   queued -> held + reason                 200 {ok: true}       | 409 email_not_holdable (sending, sent, held)
+ * A job id that is no row's `client_email_job_id` is 404. Every 409 carries the row's current status and changes nothing.
  */
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
@@ -40,7 +43,7 @@ export async function moveClientEmail(jobId: string, action: ClientEmailAction, 
     refused = 'email_not_claimed';
   } else {
     const why = reason?.trim() ? reason.trim().slice(0, MAX_HELD_REASON_CHARS) : null;
-    changed = (await db.designArtDirection.updateMany({ where: { id: row.id, client_email_status: { in: ['queued', 'sending'] } }, data: { client_email_status: 'held', client_email_held_reason: why } })).count;
+    changed = (await db.designArtDirection.updateMany({ where: { id: row.id, client_email_status: 'queued' }, data: { client_email_status: 'held', client_email_held_reason: why } })).count;
     refused = 'email_not_holdable';
   }
   if (changed === 1) return { ok: true, body: action === 'claim' ? { claimed: true } : { ok: true } };
