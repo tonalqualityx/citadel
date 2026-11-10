@@ -22,3 +22,21 @@ export async function requireTrackRunner(): Promise<AuthPayload> {
   if (!isTrackRunner(auth)) throw new AuthError('The design track runner only', 403);
   return auth;
 }
+
+export const DESIGN_NOTES_LANE = 'design-notes';
+
+/**
+ * The intake's design-notes key, and only that: an API key on exactly the design-notes lane, enforced (SPEC 8.1, W0.4).
+ * Neither the design worker nor the track runner passes here, and this key passes neither of their gates.
+ */
+export function isDesignNotesKey(auth: Pick<AuthPayload, 'lane' | 'via' | 'laneEnforced'> | null | undefined): boolean {
+  if (!auth) return false;
+  return auth.via === 'api_key' && auth.lane === DESIGN_NOTES_LANE && auth.laneEnforced === true;
+}
+
+/** 401 anonymous; 403 for anyone who is not the design-notes key (a session, another lane, a shadow key). */
+export async function requireDesignNotesKey(): Promise<AuthPayload> {
+  const auth = await requireAuth();
+  if (!isDesignNotesKey(auth)) throw new AuthError('The design notes key only', 403);
+  return auth;
+}

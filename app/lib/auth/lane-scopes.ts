@@ -34,17 +34,18 @@ export const LANES = [
   'oracle',
   'design-worker',
   'design-track',
+  'design-notes',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
 
 /**
- * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker and design-track lanes were born enforced: its key
+ * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker, design-track and design-notes lanes were born enforced: its key
  * must carry scope-mode:enforce (refused at mint and PATCH, lib/auth/key-scopes.ts), and a key planted without
  * it is still refused outside the lane instead of running in shadow. The fleet-6 lanes keep shadow mode for
  * their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'design-track'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'design-track', 'design-notes'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -69,6 +70,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   oracle: 'oracle',
   'design-worker': 'design-worker',
   'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
+  'design-notes': 'bast', // the meeting intake's design statements (portal v2, SPEC 8.1); never the design worker
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -292,6 +294,13 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/design/runner/tracks/:id/briefs'),
     r('POST', '/api/design/runner/tracks/:id/adopt'),
     r('POST', '/api/design/runner/tracks/:id/imports'),
+  ],
+  // Designer Portal v2 intake (SPEC 8.1, W0.4). Minted for the Bast user, always enforced; exactly these 3. The :id of the
+  // clients route reuses the existing `bulk` exception; /api/design-notes holds only its [id] segment.
+  'design-notes': [
+    r('POST', '/api/clients/:id/design-notes'),
+    r('GET', '/api/clients/:id/design-notes'),
+    r('PATCH', '/api/design-notes/:id'),
   ],
 };
 

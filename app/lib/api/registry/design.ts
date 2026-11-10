@@ -17,6 +17,7 @@ const ADMIN = ['admin'];
 const ADMIN_PM = ['admin', 'pm'];
 const WORKER = ['design-worker'];
 const RUNNER = ['design-track'];
+const NOTES = ['design-notes'];
 
 const sessionIdParam: ParamDef = { name: 'id', type: 'uuid', required: true, description: 'Design session id (path)' };
 const trackIdParam: ParamDef = { name: 'id', type: 'uuid', required: true, description: 'Design track id (path)' };
@@ -1616,6 +1617,59 @@ export const designEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { import: { id: 'uuid', status: 'waiting', expected_count: 'number' } },
         responseNotes: '409 import_exists when the task already has one.',
+      },
+    ],
+  },
+  // Designer Portal v2 intake (SPEC 8.1, W0.4): the design-notes lane, exactly these 3 routes. Key: lane:design-notes +
+  // scope-mode:enforce (always enforced), minted for the Bast user. requireDesignNotesKey() gates every one. Not designer
+  // routes: a designer only ever sees notes as client_statements inside the brief.
+  {
+    path: '/api/clients/:id/design-notes',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: "Save a batch of a client's design statements from intake. Idempotent on client_id, source_ref and quote_sha: a repeat creates nothing and reports the duplicates as skipped. Design-notes lane only.",
+        auth: 'required',
+        roles: NOTES,
+        queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Client id (path)' }],
+        bodySchema: [
+          { name: 'notes', type: 'object', required: true, description: '1 to 100 notes, body at most 1 MB. Each: source_kind (meeting|email|call_notes|document|portal|backfill), source_ref (at most 300), source_date (ISO-8601), speaker_name, speaker_role (client|mike|indelible|other), quote (at most 600 characters), category, polarity (like|dislike|require|avoid|idea|neutral), subject (at most 200), confidence (0 to 1), extracted_by (at most 60); optional project_id, site_id (of this client), is_paraphrase, reference_url (http or https), quote_sha (must match the quote)' },
+        ],
+        responseExample: { created: [{ index: 0, id: 'uuid', source_ref: 'string', quote_sha: 'sha256 hex' }], skipped: [{ index: 1, id: 'uuid (the existing note)', source_ref: 'string', quote_sha: 'sha256 hex' }] },
+        responseNotes: '201 even when every note is a duplicate. quote_sha is computed by Citadel (sha256 of the quote with whitespace collapsed). 404 unknown client; 400 more than 100 notes, an unknown enum value, or a project or site of another client; 413 body over 1 MB. Writes in shadow mode as well as live.',
+      },
+      {
+        method: 'GET',
+        summary: "A client's design notes, every status, oldest first, for dedupe and backfill dry runs. Design-notes lane only.",
+        auth: 'required',
+        roles: NOTES,
+        queryParams: [
+          { name: 'id', type: 'uuid', required: true, description: 'Client id (path)' },
+          { name: 'source_ref', type: 'string', required: false, description: 'Exact match' },
+          { name: 'since', type: 'string', required: false, description: 'ISO-8601 date-time: notes created at or after it' },
+        ],
+        responseExample: { notes: [{ id: 'uuid', client_id: 'uuid', source_kind: 'meeting', source_ref: 'string', quote: 'string', quote_sha: 'string', category: 'string', polarity: 'string', subject: 'string', status: 'active|superseded|withdrawn', superseded_by_id: 'uuid|null' }] },
+        responseNotes: '404 unknown client; 400 a malformed since.',
+      },
+    ],
+  },
+  {
+    path: '/api/design-notes/:id',
+    group: 'design',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Mark a design note superseded or withdrawn (never back to active). Design-notes lane only.',
+        auth: 'required',
+        roles: NOTES,
+        queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Design note id (path)' }],
+        bodySchema: [
+          { name: 'status', type: 'string', required: true, description: 'superseded | withdrawn' },
+          { name: 'superseded_by_id', type: 'uuid', required: false, description: 'status superseded only: another active note of the same client' },
+        ],
+        responseExample: { note: { id: 'uuid', status: 'superseded', superseded_by_id: 'uuid|null' } },
+        responseNotes: '404 unknown note; 400 superseded_by_id on a withdrawn note, itself, an inactive note, or a note of another client.',
       },
     ],
   },

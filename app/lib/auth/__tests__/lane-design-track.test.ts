@@ -162,6 +162,13 @@ describe('lane design-track', () => {
     await expect(requireTrackRunner()).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  it('a design-notes key fails requireTrackRunner (403), even enforced', async () => {
+    findKey.mockResolvedValue(key(['lane:design-notes', 'scope-mode:enforce']));
+    request('GET /api/design/runner/candidates');
+    await expect(requireTrackRunner()).rejects.toMatchObject({ statusCode: 403 });
+    expect(isTrackRunner({ lane: 'design-notes', via: 'api_key', laneEnforced: true })).toBe(false);
+  });
+
   it('a session cookie or a non-lane key is not the runner', () => {
     expect(isTrackRunner({ via: 'session', lane: 'design-track', laneEnforced: true })).toBe(false);
     expect(isTrackRunner({ via: 'api_key', laneEnforced: true })).toBe(false);
