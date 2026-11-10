@@ -137,27 +137,42 @@ async function recordDirectionEvent(trackId: string, payload: Record<string, unk
 
 /** PATCH art-direction: merge `patch` into the open draft (or start version 1 in art_direction). */
 export async function patchDirection(trackId: string, designerId: string, input: { patch: Record<string, unknown>; base_version: number }) {
+  return patchDirectionAs(trackId, { draftedBy: 'designer', by: designerId }, input);
+}
+
+/**
+ * The one implementation behind the designer PATCH and the worker PATCH (SPEC 5.1), so both get the same schema, size
+ * cap and stage rules. The worker may omit `base_version` ("the version I just read"); the designer always sends it.
+ * Nothing here signs or revises.
+ */
+export async function patchDirectionAs(
+  trackId: string,
+  actor: { draftedBy: 'designer' | 'worker'; by: string },
+  input: { patch: Record<string, unknown>; base_version?: number },
+) {
+  const signedMessage = actor.draftedBy === 'worker' ? 'This version is signed; the designer revises it to change it' : 'This version is signed; revise the direction to edit it';
+  const movedMessage = actor.draftedBy === 'worker' ? 'The art direction changed; read it again' : 'The art direction changed; reload';
   const out = await trackTx(async ({ tx }) => {
     await lockTrack(tx, trackId);
     const track = await loadTrack(tx, trackId);
     const draft = await tx.designArtDirection.findFirst({ where: { track_id: trackId, status: 'draft' } });
     if (!draft) {
       const signed = await tx.designArtDirection.findFirst({ where: { track_id: trackId, status: 'signed' }, orderBy: { version: 'desc' } });
-      if (signed) throw new ApiError('This version is signed; revise the direction to edit it', 409, 'direction_signed');
+      if (signed) throw new ApiError(signedMessage, 409, 'direction_signed');
       if (track.stage !== 'art_direction') throw new ApiError('There is no art direction to edit at this stage', 409, 'illegal_transition');
-      if (input.base_version !== 0) throw new ApiError('The art direction changed; reload', 409, 'version_moved');
+      if ((input.base_version ?? 0) !== 0) throw new ApiError(movedMessage, 409, 'version_moved');
       const body = directionBodySchema.parse(mergePatch({}, input.patch));
       assertSize(body);
-      const created = await tx.designArtDirection.create({ data: { track_id: trackId, version: 1, status: 'draft', body: body as Prisma.InputJsonValue, drafted_by: 'designer' } });
+      const created = await tx.designArtDirection.create({ data: { track_id: trackId, version: 1, status: 'draft', body: body as Prisma.InputJsonValue, drafted_by: actor.draftedBy } });
       return { row: created, fields: Object.keys(input.patch) };
     }
-    if (draft.version !== input.base_version) throw new ApiError('The art direction changed; reload', 409, 'version_moved');
+    if (input.base_version !== undefined && draft.version !== input.base_version) throw new ApiError(movedMessage, 409, 'version_moved');
     const merged = directionBodySchema.parse(mergePatch(draft.body, input.patch));
     assertSize(merged);
-    const row = await tx.designArtDirection.update({ where: { id: draft.id }, data: { body: merged as Prisma.InputJsonValue, drafted_by: 'designer' } });
+    const row = await tx.designArtDirection.update({ where: { id: draft.id }, data: { body: merged as Prisma.InputJsonValue, drafted_by: actor.draftedBy } });
     return { row, fields: Object.keys(input.patch) };
   });
-  await recordDirectionEvent(trackId, { version: out.row.version, status: 'draft', fields: out.fields, by: designerId });
+  await recordDirectionEvent(trackId, { version: out.row.version, status: 'draft', fields: out.fields, by: actor.by });
   return directionView(out.row);
 }
 

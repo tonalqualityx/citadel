@@ -78,10 +78,18 @@ describe('lane design-worker', () => {
     expect(isDesignWorker(auth)).toBe(false); // so requireWorker answers 403
   });
 
-  it('the lane list holds exactly the 14 worker routes and nothing else', () => {
-    expect(LANE_ROUTES['design-worker']).toHaveLength(14);
+  it('the lane list holds exactly the 17 worker routes and nothing else (SPEC 5.1: 14 + context, art-direction, track-assets)', () => {
+    expect(LANE_ROUTES['design-worker']).toHaveLength(17);
     expect(LANE_ROUTES['design-worker'].every((r) => r.pattern.startsWith('/api/design/worker/'))).toBe(true);
     expect(laneAllows('design-worker', 'POST', '/api/design/worker/sessions/x/assets')).toBe(true);
+    expect(laneAllows('design-worker', 'GET', '/api/design/worker/sessions/x/context')).toBe(true);
+    expect(laneAllows('design-worker', 'PATCH', '/api/design/worker/sessions/x/art-direction')).toBe(true);
+    expect(laneAllows('design-worker', 'GET', '/api/design/worker/sessions/x/track-assets/y')).toBe(true);
+    // the worker can read context and patch the draft; it can never sign or revise, and W9/W7 routes are not here yet
+    expect(laneAllows('design-worker', 'POST', '/api/design/worker/sessions/x/art-direction')).toBe(false);
+    expect(laneAllows('design-worker', 'POST', '/api/design/worker/sessions/x/art-direction/sign')).toBe(false);
+    expect(laneAllows('design-worker', 'POST', '/api/design/worker/sessions/x/art-direction/revise')).toBe(false);
+    expect(laneAllows('design-worker', 'POST', '/api/design/sessions/x/art-direction/sign')).toBe(false);
     expect(laneAllows('design-worker', 'POST', '/api/design/worker/publishes')).toBe(false);
     expect(laneAllows('design-worker', 'POST', '/api/design/worker/commands')).toBe(false);
     expect(laneAllows('design-worker', 'POST', '/api/design/sessions')).toBe(false);

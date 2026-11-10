@@ -995,6 +995,63 @@ export const designEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/design/worker/sessions/:id/context',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Read one part of the design track the session works on: the brief, the board, the art direction, the client statements or the page list. Tracked sessions only. Design-worker lane only.',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [
+          sessionIdParam,
+          { name: 'part', type: 'string', required: true, description: 'brief, board, direction, client_statements or pages' },
+          { name: 'ids', type: 'string', required: false, description: 'Comma separated uuids, at most 20; narrows board, client_statements and pages' },
+        ],
+        responseExample: { part: 'direction', track: { id: 'uuid', stage: 'art_direction', busy: false }, direction: null },
+        responseNotes: '404 for an untracked session. 400 bad_part, bad_ids or too_many_ids. Asset views carry ids only, never a URL or a storage key.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/worker/sessions/:id/art-direction',
+    group: 'design',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Merge a patch into the open art direction draft of the session\'s track, with the same validation as the designer route. The worker can never sign or revise. Design-worker lane only.',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'patch', type: 'object', required: true, description: 'JSON merge patch on the art direction body' },
+          { name: 'base_version', type: 'number', required: false, description: 'The version the worker read; omitted means the open draft' },
+        ],
+        responseExample: { direction: { version: 1, status: 'draft' } },
+        responseNotes: '409 direction_signed on a signed version, 409 version_moved on a stale base_version, 413 direction_too_large over 128 KB.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/worker/sessions/:id/track-assets/:assetId',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Read the bytes of an asset of the session\'s track (a reference shot or an upload) for the worker. Design-worker lane only.',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [sessionIdParam, { name: 'assetId', type: 'uuid', required: true, description: 'Track asset id (path)' }],
+        responseExample: {
+          note: 'Binary body, not JSON. Content-Type is always application/octet-stream.',
+          status: 200,
+          cache_control: 'private, no-store',
+        },
+        responseNotes: 'An asset of another track is 404.',
+      },
+    ],
+  },
+  {
     path: '/api/design/worker/sessions/:id/changes',
     group: 'design',
     methods: [

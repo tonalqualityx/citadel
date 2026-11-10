@@ -391,6 +391,7 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       const s = await look();
       expect(s.drive_folder_id).toBe('pf');
       expect(s).toMatchObject({ id: sid, task_id: tid, site_id: f.siteId, branch: expect.stringMatching(/^design\//), track: null });
+      expect(s).toHaveProperty('preview_url'); // an untracked session keeps its own (null until it has one)
       await prisma.project.update({ where: { id: f.projectId }, data: { drive_folder_id: null } });
       await prisma.client.update({ where: { id: f.clientId }, data: { drive_folder_id: null } });
       await prisma.designSession.update({ where: { id: sid }, data: { status: 'awaiting_input' } });
@@ -486,6 +487,11 @@ describe.skipIf(!SCRATCH)('worker routes (real database)', () => {
       expect(item.track).toEqual({ id: trackId, slug, branch: `design/t-${slug}`, preview_alias: `design-t-${slug}`, stage: 'refine', busy: false });
       expect(item).toMatchObject({ task_id: w.t.refine, branch: `design/t-${slug}`, preview_alias: `design-t-${slug}` });
       expect(item.branch).toMatch(/^design\//);
+      // SPEC 2.4: a new session on a track that has a preview is told the track's preview_url (so setup is skipped)
+      expect(item.preview_url).toBe(`https://design-t-${slug}.proj.pages.dev`);
+      await prisma.designTrack.update({ where: { id: trackId }, data: { preview_url: `https://design-t-${slug}.proj2.pages.dev` } });
+      expect((await look()).preview_url).toBe(`https://design-t-${slug}.proj2.pages.dev`);
+      await prisma.designTrack.update({ where: { id: trackId }, data: { preview_url: `https://design-t-${slug}.proj.pages.dev` } });
       const job = await prisma.designJob.create({ data: { track_id: trackId, kind: 'rest_build', status: 'running', payload: {} } });
       await prisma.designTrack.update({ where: { id: trackId }, data: { busy_job_id: job.id, stage: 'rest_build' } });
       expect((await look()).track).toMatchObject({ stage: 'rest_build', busy: true });

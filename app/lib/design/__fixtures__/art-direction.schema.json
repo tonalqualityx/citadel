@@ -1,0 +1,555 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "type": "object",
+ "properties": {
+  "summary": {
+   "type": "string"
+  },
+  "feel": {
+   "type": "object",
+   "properties": {
+    "words": {
+     "maxItems": 12,
+     "type": "array",
+     "items": {
+      "type": "string",
+      "maxLength": 40
+     }
+    },
+    "register": {
+     "type": "string",
+     "enum": [
+      "quiet",
+      "bold"
+     ]
+    },
+    "detail": {
+     "type": "string",
+     "maxLength": 2000
+    }
+   },
+   "additionalProperties": false
+  },
+  "type": {
+   "type": "object",
+   "properties": {
+    "display": {
+     "type": "object",
+     "properties": {
+      "family": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 100
+      },
+      "source": {
+       "type": "string",
+       "enum": [
+        "brand",
+        "designer",
+        "reference-derived"
+       ]
+      },
+      "why": {
+       "type": "string",
+       "maxLength": 500
+      }
+     },
+     "required": [
+      "family"
+     ],
+     "additionalProperties": false
+    },
+    "body": {
+     "type": "object",
+     "properties": {
+      "family": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 100
+      },
+      "source": {
+       "type": "string",
+       "enum": [
+        "brand",
+        "designer",
+        "reference-derived"
+       ]
+      },
+      "why": {
+       "type": "string",
+       "maxLength": 500
+      }
+     },
+     "required": [
+      "family"
+     ],
+     "additionalProperties": false
+    },
+    "detail": {
+     "type": "string",
+     "maxLength": 2000
+    }
+   },
+   "additionalProperties": false
+  },
+  "colour": {
+   "type": "object",
+   "properties": {
+    "brand_tokens_kept": {
+     "maxItems": 30,
+     "type": "array",
+     "items": {
+      "type": "string",
+      "maxLength": 80
+     }
+    },
+    "accent_job": {
+     "type": "string",
+     "maxLength": 300
+    },
+    "grounds": {
+     "maxItems": 20,
+     "type": "array",
+     "items": {
+      "type": "string",
+      "maxLength": 80
+     }
+    },
+    "avoid": {
+     "maxItems": 20,
+     "type": "array",
+     "items": {
+      "type": "string",
+      "maxLength": 80
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "imagery": {
+   "type": "object",
+   "properties": {
+    "kind": {
+     "type": "string",
+     "enum": [
+      "photo",
+      "illustration",
+      "mixed"
+     ]
+    },
+    "treatment": {
+     "type": "string",
+     "maxLength": 500
+    },
+    "subjects": {
+     "type": "string",
+     "maxLength": 500
+    },
+    "avoid": {
+     "type": "string",
+     "maxLength": 500
+    }
+   },
+   "additionalProperties": false
+  },
+  "layout": {
+   "type": "object",
+   "properties": {
+    "density": {
+     "type": "string",
+     "enum": [
+      "airy",
+      "balanced",
+      "dense"
+     ]
+    },
+    "detail": {
+     "type": "string",
+     "maxLength": 2000
+    }
+   },
+   "additionalProperties": false
+  },
+  "nav": {
+   "type": "object",
+   "properties": {
+    "desktop": {
+     "type": "object",
+     "properties": {
+      "pattern": {
+       "type": "string",
+       "enum": [
+        "inline",
+        "centered_logo",
+        "split",
+        "mega"
+       ]
+      },
+      "items": {
+       "maxItems": 30,
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "label": {
+          "type": "string",
+          "maxLength": 80
+         },
+         "url": {
+          "type": "string",
+          "maxLength": 300
+         }
+        },
+        "required": [
+         "label",
+         "url"
+        ],
+        "additionalProperties": false
+       }
+      },
+      "cta": {
+       "type": "object",
+       "properties": {
+        "label": {
+         "type": "string",
+         "maxLength": 80
+        },
+        "url": {
+         "type": "string",
+         "maxLength": 300
+        }
+       },
+       "required": [
+        "label",
+        "url"
+       ],
+       "additionalProperties": false
+      },
+      "utility": {
+       "maxItems": 10,
+       "type": "array",
+       "items": {
+        "type": "string",
+        "maxLength": 30
+       }
+      },
+      "sticky": {
+       "type": "boolean"
+      }
+     },
+     "additionalProperties": false
+    },
+    "mobile": {
+     "type": "object",
+     "properties": {
+      "pattern": {
+       "type": "string",
+       "enum": [
+        "drawer_right",
+        "drawer_left",
+        "full_screen",
+        "bottom_bar"
+       ]
+      },
+      "trigger": {
+       "type": "string",
+       "enum": [
+        "icon_with_label",
+        "icon"
+       ]
+      },
+      "always_visible": {
+       "maxItems": 10,
+       "type": "array",
+       "items": {
+        "type": "string",
+        "maxLength": 30
+       }
+      },
+      "cta_in_drawer": {
+       "type": "boolean"
+      },
+      "sticky": {
+       "type": "boolean"
+      }
+     },
+     "additionalProperties": false
+    }
+   },
+   "additionalProperties": false
+  },
+  "container": {
+   "type": "object",
+   "properties": {
+    "max_content_px": {
+     "type": "integer",
+     "minimum": 320,
+     "maximum": 3840
+    },
+    "method": {
+     "type": "string",
+     "enum": [
+      "padding_cap",
+      "max_width"
+     ]
+    },
+    "wide_px": {
+     "type": "integer",
+     "minimum": 320,
+     "maximum": 3840
+    },
+    "full_bleed": {
+     "maxItems": 20,
+     "type": "array",
+     "items": {
+      "type": "string",
+      "maxLength": 40
+     }
+    },
+    "gutters_px": {
+     "type": "object",
+     "properties": {
+      "phone": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 200
+      },
+      "tablet": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 200
+      },
+      "desktop": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 200
+      }
+     },
+     "additionalProperties": false
+    },
+    "measure_px": {
+     "type": "integer",
+     "minimum": 200,
+     "maximum": 1400
+    },
+    "why": {
+     "type": "string",
+     "maxLength": 1000
+    }
+   },
+   "additionalProperties": false
+  },
+  "features": {
+   "maxItems": 20,
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 120
+     },
+     "what": {
+      "type": "string",
+      "maxLength": 1000
+     },
+     "pages": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+       "type": "string",
+       "maxLength": 200
+      }
+     },
+     "build_as": {
+      "type": "string",
+      "enum": [
+       "new_component",
+       "variant",
+       "module"
+      ]
+     },
+     "references": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+     },
+     "a11y": {
+      "type": "string",
+      "maxLength": 500
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "build_as"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "flair": {
+   "maxItems": 20,
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "semi_transparent_ground",
+       "angled_edge",
+       "overlap",
+       "illustration_behind",
+       "texture",
+       "pattern",
+       "other"
+      ]
+     },
+     "where": {
+      "type": "string",
+      "maxLength": 300
+     },
+     "intensity": {
+      "type": "string",
+      "enum": [
+       "subtle",
+       "medium",
+       "strong"
+      ]
+     },
+     "phone": {
+      "type": "string",
+      "enum": [
+       "keep",
+       "reduce",
+       "hide"
+      ]
+     },
+     "references": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+     },
+     "detail": {
+      "type": "string",
+      "maxLength": 2000
+     }
+    },
+    "required": [
+     "id",
+     "kind"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "motion": {
+   "type": "object",
+   "properties": {
+    "level": {
+     "type": "string",
+     "enum": [
+      "none",
+      "subtle",
+      "some"
+     ]
+    },
+    "detail": {
+     "type": "string",
+     "maxLength": 2000
+    }
+   },
+   "additionalProperties": false
+  },
+  "taken_from_references": {
+   "maxItems": 50,
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "reference_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+     },
+     "property": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+     },
+     "markup_ids": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+       "type": "string",
+       "format": "uuid",
+       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+     }
+    },
+    "required": [
+     "reference_id",
+     "property"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "client_requests": {
+   "maxItems": 100,
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "design_note_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+     },
+     "how_honoured": {
+      "type": "string",
+      "maxLength": 1000
+     }
+    },
+    "required": [
+     "design_note_id",
+     "how_honoured"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "avoid": {
+   "maxItems": 30,
+   "type": "array",
+   "items": {
+    "type": "string",
+    "maxLength": 200
+   }
+  },
+  "open_questions": {
+   "maxItems": 30,
+   "type": "array",
+   "items": {
+    "type": "string",
+    "maxLength": 500
+   }
+  }
+ },
+ "additionalProperties": false
+}

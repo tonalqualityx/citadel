@@ -278,6 +278,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/design/worker/sessions/:id/scope-flags'),
     r('PATCH', '/api/design/worker/commands/:id'),
     r('PATCH', '/api/design/worker/publishes/:id'),
+    // Portal v2 (SPEC 5.1): what the worker may read of its own session's track, and the one write. No sign, no revise.
+    r('GET', '/api/design/worker/sessions/:id/context'),
+    r('PATCH', '/api/design/worker/sessions/:id/art-direction'),
+    r('GET', '/api/design/worker/sessions/:id/track-assets/:assetId'),
   ],
   // Designer Portal v2 Bast runner (SPEC 6.1a). Minted for the Bast user, always enforced; exactly these 13, all under
   // /api/design/runner/. Every :param sits in a folder that holds only its [id] segment, so PARAM_EXCEPT needs no entry.

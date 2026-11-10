@@ -5,6 +5,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { idParam, requireWorker, workerBody } from '@/lib/design/worker-kit';
 import { appendWorkerEvents, MAX_WORKER_EVENTS_PER_POST } from '@/lib/design/events';
 
+// SPEC 3.4: this allowlist does NOT gain the v2 kinds (edit, track_stage, art_direction, brief): Citadel writes those itself and the daemon never posts them.
 const KINDS = ['text', 'thought', 'action', 'result', 'screenshot', 'gate', 'cost', 'plan', 'status', 'followup', 'client_files', 'change', 'publish', 'lib_index'] as const;
 const schema = z.object({
   acks: z.array(z.number().int().positive()).max(500).optional(),
