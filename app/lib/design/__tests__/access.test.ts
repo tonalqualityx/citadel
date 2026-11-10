@@ -51,6 +51,7 @@ function task(over: Partial<DrawerTask> = {}, project: Partial<NonNullable<Drawe
     project: { id: PROJECT, name: 'VCDP rebuild', status: 'in_progress', is_deleted: false, site_id: SITE, site: siteRow(), ...project },
     claim_holder: null,
     lease_until: null,
+    tags: [],
     ...over,
   };
 }
@@ -193,6 +194,10 @@ describe('drawerTaskWhere', () => {
     expect(drawerTaskWhere(actor(DESIGNER, 'designer'), [PROJECT], OTHER_PROJECT).project_id).toEqual({ in: [] });
     expect(drawerTaskWhere(actor(DESIGNER, 'designer'), [PROJECT], PROJECT).project_id).toEqual({ in: [PROJECT] });
   });
+  it('v2: Bast-run (design-runner) tasks are excluded in the query itself, for every role', () => {
+    expect(drawerTaskWhere(actor(DESIGNER, 'designer'), [PROJECT]).NOT).toEqual({ tags: { has: 'design-runner' } });
+    expect(drawerTaskWhere(actor('a', 'admin'), []).NOT).toEqual({ tags: { has: 'design-runner' } });
+  });
   it('admin: any project', () => {
     expect(drawerTaskWhere(actor('a', 'admin'), []).project_id).toEqual({ not: null });
     expect(drawerTaskWhere(actor('a', 'admin'), [], PROJECT).project_id).toBe(PROJECT);
@@ -206,12 +211,13 @@ describe('DRAWER_TASK_SELECT reads no forbidden field', () => {
   });
 });
 
-function drawerDb(opts: { assignments?: string[]; tasks?: DrawerTask[]; state?: unknown; sessions?: unknown[]; publishes?: unknown[] }) {
+function drawerDb(opts: { assignments?: string[]; tasks?: DrawerTask[]; state?: unknown; sessions?: unknown[]; publishes?: unknown[]; tracks?: unknown[]; trackSessions?: unknown[] }) {
   return {
+    designTrack: { findMany: vi.fn().mockResolvedValue(opts.tracks ?? []) },
     projectTeamAssignment: { findMany: vi.fn().mockResolvedValue((opts.assignments ?? []).map((project_id) => ({ project_id }))) },
     task: { findMany: vi.fn().mockResolvedValue(opts.tasks ?? []) },
     designWorkerState: { findUnique: vi.fn().mockResolvedValue(opts.state ?? null) },
-    designSession: { findMany: vi.fn().mockResolvedValue(opts.sessions ?? []) },
+    designSession: { findMany: vi.fn().mockResolvedValueOnce(opts.sessions ?? []).mockResolvedValue(opts.trackSessions ?? []) },
     designPublish: { findMany: vi.fn().mockResolvedValue(opts.publishes ?? []) },
   };
 }
@@ -235,6 +241,35 @@ describe('loadDrawer', () => {
     expect(data.publishedAt.get('pub-1')).toBe(finished);
     expect(db.projectTeamAssignment.findMany).toHaveBeenCalledWith({ where: { user_id: DESIGNER }, select: { project_id: true } });
     expect(db.task.findMany.mock.calls[0][0].select).toBe(DRAWER_TASK_SELECT);
+  });
+  it('v1 shape: with no design-stage task listed there is no track query and one session query', async () => {
+    const db = drawerDb({ assignments: [PROJECT], tasks: [task()], state: { configured_site_ids: [SITE], last_heartbeat_at: NOW, paused: false } });
+    const data = await loadDrawer(actor(DESIGNER, 'designer'), { now: NOW }, db as never);
+    expect(db.designTrack.findMany).not.toHaveBeenCalled();
+    expect(db.designSession.findMany).toHaveBeenCalledTimes(1);
+    expect(data.trackStageByTask.size).toBe(0);
+  });
+  it('v2: design-stage tasks carry the latest track stage and the track session, whichever task it points at', async () => {
+    const ART = 'e0000000-0000-4000-8000-0000000000a1';
+    const REFINE = 'e0000000-0000-4000-8000-0000000000a2';
+    const TRACK = 'a0000000-0000-4000-8000-000000000001';
+    const db = drawerDb({
+      assignments: [PROJECT],
+      tasks: [task({ id: ART, tags: ['design-stage:art_direction'] }), task({ id: REFINE, tags: ['design-stage:refine'], status: 'blocked' }), task({ tags: ['design-work'] })],
+      state: { configured_site_ids: [SITE], last_heartbeat_at: NOW, paused: false },
+      sessions: [],
+      tracks: [{ id: TRACK, project_id: PROJECT, stage: 'refine' }, { id: 'old-track', project_id: PROJECT, stage: 'done' }],
+      trackSessions: [{ id: SESSION, task_id: REFINE, track_id: TRACK, designer_id: DESIGNER, status: 'awaiting_input', publish_requested_at: null, last_publish_id: null, created_at: NOW }],
+    });
+    const data = await loadDrawer(actor(DESIGNER, 'designer'), { now: NOW }, db as never);
+    expect(db.designTrack.findMany.mock.calls[0][0].where).toEqual({ project_id: { in: [PROJECT] } });
+    expect(data.trackStageByTask.get(ART)).toBe('refine');
+    expect(data.trackStageByTask.get(REFINE)).toBe('refine');
+    expect(data.trackStageByTask.has(TASK)).toBe(false);
+    // the one session shows on BOTH stage tasks (it points at REFINE), not on the plain task
+    expect(data.sessionsByTask.get(ART)?.id).toBe(SESSION);
+    expect(data.sessionsByTask.get(REFINE)?.id).toBe(SESSION);
+    expect(data.sessionsByTask.has(TASK)).toBe(false);
   });
   it('a designer on no project: no task query at all', async () => {
     const db = drawerDb({ assignments: [] });

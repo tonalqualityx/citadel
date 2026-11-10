@@ -8,6 +8,7 @@ import type { DesignSession, Prisma, PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { DESIGN_CLOSED_TASK_STATUSES, DESIGN_VISIBLE_PROJECT_STATUSES, assignedProjectIdsFor } from './access';
 import type { DesignActor } from './helpers';
+import { RUNNER_TAG } from './track-session';
 
 export const SITE_TASKS_LIMIT = 100;
 export const SITE_TASK_DESCRIPTION_MAX = 1000;
@@ -68,6 +69,7 @@ export async function loadSiteTasks(
     where: {
       is_deleted: false,
       status: { notIn: [...DESIGN_CLOSED_TASK_STATUSES] },
+      NOT: { tags: { has: RUNNER_TAG } }, // v2 (SPEC 2.3): Bot tasks never show in the Tasks tab
       project_id: projectFilter,
       project: { is_deleted: false, status: { in: [...DESIGN_VISIBLE_PROJECT_STATUSES] } },
       OR: [{ site_id: session.site_id }, { site_id: null, project: { site_id: session.site_id } }],

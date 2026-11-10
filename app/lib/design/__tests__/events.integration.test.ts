@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { createOrGetSession, transitionSession } from '../sessions';
 import { appendDesignerEvent, appendWorkerEvents, feed, pendingDesignerEvents, MAX_EVENT_PAYLOAD_BYTES, DESIGNER_MESSAGES_PER_MINUTE } from '../events';
 import { SCRATCH, seedDesign, seedTask, teardownDesign, type DesignFixture } from './fixtures';
+import { seedWorld, teardownWorlds, type TrackWorld } from './track-world';
 
 describe.skipIf(!SCRATCH)('events (real database)', () => {
   let f: DesignFixture;
@@ -14,7 +15,9 @@ describe.skipIf(!SCRATCH)('events (real database)', () => {
   beforeAll(async () => {
     f = await seedDesign(`ev${Date.now()}`);
   });
+  const worlds: TrackWorld[] = [];
   afterAll(async () => {
+    await teardownWorlds(f, worlds);
     await teardownDesign(f);
     await prisma.$disconnect();
   });
@@ -86,6 +89,34 @@ describe.skipIf(!SCRATCH)('events (real database)', () => {
     expect((await appendWorkerEvents(s.id, { acks: [seq] })).acked).toBe(0);
     expect((await pendingDesignerEvents(200)).some((m) => m.session_id === s.id)).toBe(false);
     expect((await prisma.designEvent.findFirstOrThrow({ where: { session_id: s.id, seq } })).delivered_at).not.toBeNull();
+  });
+
+  it('v2: designer events are held while the track is busy and delivered once it is free; an untracked session is never held', async () => {
+    const w = await seedWorld(f, 'busy');
+    worlds.push(w);
+    const slug = 'qazwsxedcrfvtgby';
+    const track = await prisma.designTrack.create({ data: { site_id: w.siteId, project_id: w.projectId, slug, stage: 'refine', branch: `design/t-${slug}`, preview_alias: `design-t-${slug}` } });
+    const { session: ts } = await createOrGetSession(f.designer, w.t.refine);
+    await transitionSession(ts.id, 'awaiting_input', 'worker');
+    const plain = await mkSession();
+    const inbox = async () => (await pendingDesignerEvents(200)).filter((m) => m.session_id === ts.id || m.session_id === plain.id);
+
+    const a = await appendDesignerEvent({ sessionId: ts.id, authorId: f.designer.userId, kind: 'text', payload: { text: 'before' }, clientRef: 'tb1' });
+    const p = await appendDesignerEvent({ sessionId: plain.id, authorId: f.designer.userId, kind: 'text', payload: { text: 'plain' }, clientRef: 'pb1' });
+    expect((await inbox()).map((m) => m.seq).sort()).toEqual([a.seq, p.seq].sort());
+
+    // the track turns busy: events stored before AND during are held, not lost; the untracked session still delivers
+    const job = await prisma.designJob.create({ data: { track_id: track.id, kind: 'rest_build', status: 'running', payload: {} } });
+    await prisma.designTrack.update({ where: { id: track.id }, data: { busy_job_id: job.id, stage: 'rest_build' } });
+    const b = await appendDesignerEvent({ sessionId: ts.id, authorId: f.designer.userId, kind: 'text', payload: { text: 'during' }, clientRef: 'tb2' });
+    expect((await inbox()).filter((m) => m.session_id === ts.id)).toEqual([]);
+    expect((await inbox()).filter((m) => m.session_id === plain.id).map((m) => m.seq)).toEqual([p.seq]);
+    expect(await prisma.designEvent.count({ where: { session_id: ts.id, role: 'designer', delivered_at: null } })).toBe(2);
+
+    // free again: both go out, oldest first
+    await prisma.designTrack.update({ where: { id: track.id }, data: { busy_job_id: null, stage: 'refine' } });
+    expect((await inbox()).filter((m) => m.session_id === ts.id).map((m) => m.seq)).toEqual([a.seq, b.seq]);
+    await prisma.designJob.delete({ where: { id: job.id } });
   });
 
   it('caps: 32 KB payload, 20 KB text, 100 per batch, bad worker role; closed session refuses designer events', async () => {

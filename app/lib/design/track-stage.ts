@@ -10,7 +10,8 @@
  *   review        -> done           finish_gates done and green
  *   refine | review | home_build (build failed for good) -> home_build   revise direction, "rebuild the home page"
  *
- * `cancelled` has no route in v2. The session move between stage tasks and the claim and timer on it are PLAN W1.6.
+ * `cancelled` has no route in v2. The live session moves to the next designer stage task inside the transaction that
+ * adopts the home build (-> refine task) and the rest build (-> review task): see moveTrackSession (W1.6).
  */
 import type { DesignJobKind, DesignTrack, DesignTrackStage } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
@@ -20,6 +21,7 @@ import {
   addInternalComment, clearBusy, completeStageTask, findTaskByTag, loadTrack, lockTrack, queueJob, setBusy, trackTx,
   type Tx, type TrackScope,
 } from './track-core';
+import { moveTrackSession } from './track-session';
 
 export const TRACK_STAGES: readonly DesignTrackStage[] = ['research', 'art_direction', 'home_build', 'refine', 'rest_build', 'review', 'done', 'cancelled'];
 
@@ -211,6 +213,7 @@ export async function onHomeBuildAdopted(scope: TrackScope, trackId: string, job
   await clearBusy(tx, trackId, job.id);
   if (track.stage !== 'home_build') return false; // a rebuild or a hand edit already moved it
   await moveStage(tx, track, 'refine', 'home_build_adopted');
+  await moveTrackSession(tx, track, 'design-stage:refine');
   return true;
 }
 
@@ -256,6 +259,7 @@ export async function onRestBuildAdopted(
   await clearBusy(tx, trackId, job.id);
   if (track.stage !== 'rest_build') return false;
   await moveStage(tx, track, 'review', 'rest_build_adopted');
+  await moveTrackSession(tx, track, 'design-stage:review');
 
   const reviewTask = await findTaskByTag(tx, track.project_id, 'design-stage:review');
   const existing = new Set((await tx.designPageReview.findMany({ where: { track_id: trackId }, select: { page_path: true } })).map((p) => p.page_path));

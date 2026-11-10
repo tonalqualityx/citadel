@@ -5,6 +5,7 @@ import { ApiError, handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { createCommand } from '@/lib/design/commands';
 import { projectSession, workerView } from '@/lib/design/projections';
+import { loadSessionTrackView } from '@/lib/design/track-session';
 import { closeSession } from '@/lib/design/sessions';
 import { stopTimer } from '@/lib/design/timer';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest, { params }: IdParams) {
     const { id } = await params;
     const session = await loadSessionFor(actor, id, { mode: 'write' });
     const input = await body(request, closeSchema, 4096);
-    if (session.status === 'closed' || session.status === 'abandoned') return NextResponse.json({ session: projectSession(session) });
+    if (session.status === 'closed' || session.status === 'abandoned') return NextResponse.json({ session: projectSession({ ...session, track: await loadSessionTrackView(session) }) });
     if (session.status === 'publishing') throw new ApiError('A publish is running; close after it finishes', 409, 'publish_in_progress');
 
     await createCommand({ sessionId: session.id, verb: 'close', payload: input.reason ? { reason: input.reason } : {}, createdById: actor.userId });
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest, { params }: IdParams) {
       const state = await prisma.designWorkerState.findUnique({ where: { id: 1 }, select: { last_heartbeat_at: true, paused: true } });
       if (!workerView(state).online) current = await closeSession(session.id);
     }
-    return NextResponse.json({ session: projectSession(current) });
+    return NextResponse.json({ session: projectSession({ ...current, track: await loadSessionTrackView(current) }) });
   } catch (error) {
     return handleApiError(error);
   }

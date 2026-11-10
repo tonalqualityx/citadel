@@ -3,6 +3,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { loadSessionFor } from '@/lib/design/access';
 import { createPin, pinBodySchema } from '@/lib/design/pins';
 import { projectPin } from '@/lib/design/projections';
+import { assertTrackWritable } from '@/lib/design/track-session';
 import { authActor, body, guardMutation, type IdParams } from '@/lib/design/route-kit';
 
 // POST /api/design/sessions/:id/pins (design 7.1): accepts the shipped dp:packet fields. 201 {pin}.
@@ -13,6 +14,7 @@ export async function POST(request: NextRequest, { params }: IdParams) {
     const { actor } = await authActor();
     const { id } = await params;
     const session = await loadSessionFor(actor, id, { mode: 'write' });
+    await assertTrackWritable(session, { busy: true, done: true }); // SPEC 2.2, 2.3: 409 track_busy / track_done
     const input = await body(request, pinBodySchema, 32 * 1024);
     const pin = await createPin(actor, session, input);
     return NextResponse.json({ pin: projectPin(pin) }, { status: 201 });

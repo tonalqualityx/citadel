@@ -10,7 +10,7 @@ import { SessionList } from '../SessionList';
 import type { DesignDrawer } from '@/lib/hooks/use-design';
 
 const task = (id: string, title: string, session: DesignDrawer['projects'][0]['phases'][0]['tasks'][0]['session'] = null) =>
-  ({ id, title, status: 'todo', phase: 'Build', session });
+  ({ id, title, status: 'todo', phase: 'Build', track_stage: null, session });
 
 const drawer = (over: Partial<DesignDrawer> = {}): DesignDrawer => ({
   worker: { online: true, paused: false },

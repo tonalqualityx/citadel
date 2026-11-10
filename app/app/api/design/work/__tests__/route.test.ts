@@ -12,6 +12,7 @@ vi.mock('@/lib/db/prisma', () => ({
     designPortalSettings: { findUnique: vi.fn() },
     designWorkerState: { findUnique: vi.fn() },
     task: { create: vi.fn(), update: vi.fn() },
+    designTrack: { findFirst: vi.fn() },
   },
 }));
 vi.mock('@/lib/design/sessions', async (orig) => ({ ...(await orig<typeof import('@/lib/design/sessions')>()), createOrGetSession: vi.fn() }));
@@ -39,12 +40,24 @@ beforeEach(() => {
   projectFind.mockResolvedValue({ id: PROJECT_ID, client_id: 'client-1' });
   (prisma.designPortalSettings.findUnique as Mock).mockResolvedValue({ enabled: true, default_session_budget_usd: { toString: () => '25' }, model: 'opus', effort: 'high' });
   (prisma.designWorkerState.findUnique as Mock).mockResolvedValue({ configured_site_ids: [SITE_ID] });
+  (prisma.designTrack.findFirst as Mock).mockResolvedValue(null);
   taskCreate.mockResolvedValue({ id: 'task-1' });
   taskUpdate.mockResolvedValue({});
   create.mockResolvedValue({ session: sessionRow(), created: true });
 });
 
 describe('POST /api/design/work', () => {
+  it('v2: a site with an open design track is 409 track_live and nothing is created', async () => {
+    signIn(auth, userFind, 'designer');
+    (prisma.designTrack.findFirst as Mock).mockResolvedValue({ id: 'trk-1' });
+    const res = await call();
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('track_live');
+    expect((prisma.designTrack.findFirst as Mock).mock.calls[0][0].where).toEqual({ site_id: SITE_ID, stage: { notIn: ['done', 'cancelled'] } });
+    expect(taskCreate).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('a designer on the project gets 201, a task on the open project and a session', async () => {
     const uid = signIn(auth, userFind, 'designer');
     const res = await call({ site_id: SITE_ID, title: '  Fix the footer ', detail: 'Links wrap on mobile' });

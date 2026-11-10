@@ -11,7 +11,7 @@ vi.mock('@/lib/hooks/use-design-bridge', () => ({
 
 import { PreviewPane, PREVIEW_SANDBOX } from '../PreviewPane';
 import { TimerPill, formatElapsed } from '../TimerPill';
-import { Workspace, previewState } from '../Workspace';
+import { Workspace, previewState, WORKSPACE_TABS, TRACKED_WORKSPACE_TABS, workspaceTabsFor } from '../Workspace';
 import { resolvePreviewUrl } from '@/lib/design/preview-path';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
 
@@ -139,6 +139,30 @@ describe('Workspace header', () => {
     expect((screen.getByRole('button', { name: 'Publish to live...' }) as HTMLButtonElement).disabled).toBe(true);
     for (const t of ['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']) expect(screen.getByRole('tab', { name: t })).toBeTruthy();
     expect(screen.getByText(/coming in W6\.4/)).toBeTruthy();
+  });
+
+  it('untracked (v1) sessions keep exactly the v1 tab list, in order', () => {
+    expect(WORKSPACE_TABS.map((t) => t.label)).toEqual(['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']);
+    render(<Workspace data={base()} feed={undefined} />);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Chat', 'Tasks', 'Changes', 'Versions', 'Client files']);
+    expect(workspaceTabsFor(null)).toBe(WORKSPACE_TABS);
+    expect(workspaceTabsFor(undefined)).toBe(WORKSPACE_TABS);
+  });
+
+  it('a tracked session shows Brief, Board, Direction, Chat, Tasks, Changes, Versions, Client files, then Pages from review', () => {
+    const track = (stage: string) => ({ id: 'trk', stage, busy: false, busy_line: null, preview_alias: 'design-t-abcdefghijklmnop', preview_url: null, finish: null });
+    const labels = ['Brief', 'Board', 'Direction', 'Chat', 'Tasks', 'Changes', 'Versions', 'Client files'];
+    expect(TRACKED_WORKSPACE_TABS.map((t) => t.label)).toEqual(labels);
+    for (const stage of ['art_direction', 'home_build', 'refine', 'rest_build']) {
+      const { unmount } = render(<Workspace data={base({ track: track(stage) })} feed={undefined} />);
+      expect(screen.getAllByRole('tab').map((t) => t.textContent), stage).toEqual(labels);
+      unmount();
+    }
+    for (const stage of ['review', 'done']) {
+      const { unmount } = render(<Workspace data={base({ track: track(stage) })} feed={undefined} />);
+      expect(screen.getAllByRole('tab').map((t) => t.textContent), stage).toEqual([...labels, 'Pages']);
+      unmount();
+    }
   });
 
   it('gives the preview the whole stage and floats the chat over it (no grid column)', () => {

@@ -77,7 +77,7 @@ function sessionRow(over: Partial<SessionRowForProjection> = {}): SessionRowForP
 const SESSION_KEYS = [
   'base_sha', 'branch', 'closed_at', 'created_at', 'designer_id', 'diff_asset_id', 'diff_summary', 'head_sha', 'id',
   'last_heartbeat_at', 'last_publish_id', 'last_seq', 'last_turn_at', 'lib_index', 'live_action', 'live_text', 'preview_alias', 'preview_sha',
-  'preview_url', 'project_id', 'publish_precheck', 'publish_requested_at', 'site_id', 'stale', 'status', 'task_id', 'updated_at',
+  'preview_url', 'project_id', 'publish_precheck', 'publish_requested_at', 'site_id', 'stale', 'status', 'task_id', 'track', 'updated_at',
 ];
 
 describe('drawer projection', () => {
@@ -92,6 +92,7 @@ describe('drawer projection', () => {
       ['t-a', { id: 'sess-mine', task_id: 't-a', designer_id: DESIGNER, status: 'awaiting_input', publish_requested_at: null, last_publish_id: 'pub-1', created_at: NOW }],
       ['t-b', { id: 'sess-theirs', task_id: 't-b', designer_id: OTHER, status: 'active', publish_requested_at: null, last_publish_id: 'pub-2', created_at: NOW }],
     ]),
+    trackStageByTask: new Map<string, string>(),
     publishedAt: new Map([['pub-1', NOW], ['pub-2', NOW]]),
     worker: { last_heartbeat_at: new Date(NOW.getTime() - 10_000), paused: false },
   };
@@ -107,7 +108,7 @@ describe('drawer projection', () => {
     expect(vcdp.site).toEqual({ id: 'site-1', name: 'VCDP', available: true });
     expect(out.projects[0].site.available).toBe(false);
     expect(vcdp.phases.map((p) => p.name)).toEqual(['Design', 'Build', null]);
-    for (const p of vcdp.phases) for (const t of p.tasks) expect(sorted(t)).toEqual(['id', 'phase', 'session', 'status', 'title']);
+    for (const p of vcdp.phases) for (const t of p.tasks) expect(sorted(t)).toEqual(['id', 'phase', 'session', 'status', 'title', 'track_stage']);
   });
 
   it("her own session shows its id and publish date; another designer's shows only that it is taken", () => {
@@ -125,6 +126,19 @@ describe('drawer projection', () => {
     const out = projectDrawer(data, { userId: 'admin-1', role: 'admin' }, NOW);
     const theirs = out.projects[1].phases.flatMap((p) => p.tasks).find((t) => t.id === 't-b')!.session!;
     expect(theirs.id).toBe('sess-theirs');
+  });
+
+  it('v2: a stage task carries its track stage, every other task null; a stage task shows the track session chip', () => {
+    const withTrack: DrawerData = {
+      ...data,
+      trackStageByTask: new Map([['t-a', 'refine']]),
+      sessionsByTask: new Map([['t-a', { id: 'sess-track', task_id: 't-other', designer_id: DESIGNER, status: 'awaiting_input', publish_requested_at: null, last_publish_id: null, created_at: NOW }]]),
+    };
+    const tasks = projectDrawer(withTrack, { userId: DESIGNER, role: 'designer' }, NOW).projects[1].phases.flatMap((p) => p.tasks);
+    expect(tasks.find((t) => t.id === 't-a')!.track_stage).toBe('refine');
+    expect(tasks.find((t) => t.id === 't-a')!.session).toMatchObject({ id: 'sess-track', mine: true, chip: 'awaiting_you' });
+    for (const t of tasks.filter((x) => x.id !== 't-a')) expect(t.track_stage).toBeNull();
+    expect(findForbiddenKeys(projectDrawer(withTrack, { userId: DESIGNER, role: 'designer' }, NOW))).toEqual([]);
   });
 
   it('worker offline after 30 s, paused passes through', () => {
@@ -157,6 +171,15 @@ describe('session projections', () => {
     expect(out).not.toHaveProperty('budget_usd');
     expect(out.stale).toBe(false);
   });
+  it('v2: track is null for an untracked session and carries the track view for a tracked one', () => {
+    expect(projectSession(sessionRow(), NOW).track).toBeNull();
+    const track = { id: 'trk-1', stage: 'home_build', busy: true, busy_line: 'Bast is building the home page', preview_alias: 'design-t-abcdefghijklmnop', preview_url: null, finish: null };
+    const out = projectSession(sessionRow({ track }), NOW);
+    expect(sorted(out)).toEqual(SESSION_KEYS);
+    expect(out.track).toEqual(track);
+    expect(sorted(out.track!)).toEqual(['busy', 'busy_line', 'finish', 'id', 'preview_alias', 'preview_url', 'stage']);
+    expect(findForbiddenKeys(out)).toEqual([]);
+  });
   it('stale: an active session whose heartbeat is older than 2 minutes', () => {
     expect(projectSession(sessionRow({ status: 'active', last_heartbeat_at: new Date(NOW.getTime() - 121_000) }), NOW).stale).toBe(true);
     expect(projectSession(sessionRow({ status: 'awaiting_input', last_heartbeat_at: null }), NOW).stale).toBe(false);
@@ -171,9 +194,14 @@ describe('session projections', () => {
       task: { id: 't', title: 'T', ...LEAK } as never, site: { name: 'VCDP', ...LEAK } as never,
       last_publish: { id: 'p', status: 'published', finished_at: NOW, ...LEAK } as never,
     } as never);
-    expect(sorted(out)).toEqual(['id', 'last_publish', 'site', 'status', 'task', 'updated_at']);
+    expect(sorted(out)).toEqual(['id', 'last_publish', 'site', 'status', 'task', 'track_stage', 'updated_at']);
     expect(findForbiddenKeys(out)).toEqual([]);
     expect(sorted(out.last_publish!)).toEqual(['finished_at', 'id', 'status']);
+  });
+  it('v2: list item carries the track stage, null when untracked', () => {
+    const base = { id: 's', status: 'closed', updated_at: NOW, task: { id: 't', title: 'T' }, site: { name: 'VCDP' }, last_publish: null };
+    expect(projectSessionListItem(base).track_stage).toBeNull();
+    expect(projectSessionListItem({ ...base, track_stage: 'review' }).track_stage).toBe('review');
   });
   it('pin blast_radius: known data_lib gets {pages, sample}, unknown or no index gets null', () => {
     const base = {

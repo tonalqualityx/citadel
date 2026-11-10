@@ -9,6 +9,7 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { inbox } from './commands';
 import { normalizeMainRole } from './publish-policy';
 import { num } from './worker-kit';
+import { loadWorkerTracks } from './track-session';
 
 export interface InboxPublish {
   id: string;
@@ -98,12 +99,14 @@ export async function buildInbox(opts: { max?: number } = {}, db: PrismaClient =
   }));
 
   const fresh = await db.designSession.findMany({ where: { status: 'pending' }, orderBy: { created_at: 'asc' }, take: max });
+  const tracks = await loadWorkerTracks(fresh, db);
   const new_sessions = [];
   for (const s of fresh) {
     new_sessions.push({
       id: s.id, task_id: s.task_id, site_id: s.site_id, branch: s.branch, preview_alias: s.preview_alias, model: s.model,
       effort: s.effort, budget_usd: num(s.budget_usd), cost_usd: num(s.cost_usd), sdk_session_id: s.sdk_session_id,
       drive_folder_id: await resolveDriveFolder(s, db),
+      track: s.track_id ? tracks.get(s.track_id) ?? null : null,
     });
   }
 
