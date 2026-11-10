@@ -45,8 +45,9 @@ describe('DESIGNER_ROUTES', () => {
       'PATCH /api/design/sessions/:id/art-direction',
       'POST /api/design/sessions/:id/art-direction/sign',
       'POST /api/design/sessions/:id/art-direction/revise',
+      'POST /api/design/sessions/:id/preview-link',
     ]);
-    expect(DESIGNER_ROUTES).toHaveLength(37);
+    expect(DESIGNER_ROUTES).toHaveLength(38);
   });
 
   it.each(DESIGNER_ROUTES.map((r) => [r.method, concrete(r.pattern)]))('allows %s %s', (method, path) => {

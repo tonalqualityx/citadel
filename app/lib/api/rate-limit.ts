@@ -3,19 +3,23 @@ import { NextRequest, NextResponse } from 'next/server';
 interface RateLimitEntry {
   count: number;
   lastReset: number;
+  /** The window this entry was counted in. The cleanup keeps an entry for its own window, not a fixed minute. */
+  windowMs: number;
 }
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
 
-// Clean up old entries periodically
-setInterval(() => {
-  const now = Date.now();
+/** Drop entries whose own window has passed. A window longer than a minute (10 an hour, say) survives the sweep. */
+export function sweepRateLimits(now: number = Date.now()): void {
   for (const [key, entry] of rateLimitMap.entries()) {
-    if (now - entry.lastReset > 60000) {
+    if (now - entry.lastReset > entry.windowMs) {
       rateLimitMap.delete(key);
     }
   }
-}, 60000);
+}
+
+// Clean up old entries periodically
+setInterval(() => sweepRateLimits(), 60000);
 
 /**
  * Simple in-memory rate limiter
@@ -40,7 +44,7 @@ export function rateLimit(
   const entry = rateLimitMap.get(key);
 
   if (!entry || now - entry.lastReset > windowMs) {
-    rateLimitMap.set(key, { count: 1, lastReset: now });
+    rateLimitMap.set(key, { count: 1, lastReset: now, windowMs });
     return null;
   }
 

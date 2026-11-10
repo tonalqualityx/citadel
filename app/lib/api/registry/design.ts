@@ -1217,6 +1217,24 @@ export const designEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/design/sessions/:id/preview-link',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Email the preview link for the page the designer is on to her own Citadel address (portal v2, SPEC 4.10). The link is built on the server from the session\'s stored preview address and the checked path; the address is never taken from the request.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'path', type: 'string', required: true, description: 'The page path, one leading slash, at most 512 characters. Query and hash are dropped.' },
+        ],
+        responseExample: { sent: true },
+        responseNotes: 'Strict body: an email or to field is 400. 400 bad_path for a path that is not plain; 409 no_preview before the first preview; 404 for another designer\'s session; 403 for a pm; 429 over 10 per hour per user.',
+      },
+    ],
+  },
   // Designer Portal v2 (SPEC 4.11 rows 1 to 13): brief, board, uploads, art direction. All session-scoped and tracked-only
   // (404 for an untracked session or another designer's session); every write is also 409 track_done once the track is done.
   {

@@ -51,6 +51,7 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'PATCH', pattern: '/api/design/sessions/:id/art-direction' },
   { method: 'POST', pattern: '/api/design/sessions/:id/art-direction/sign' },
   { method: 'POST', pattern: '/api/design/sessions/:id/art-direction/revise' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/preview-link' },
 ];
 
 /**
