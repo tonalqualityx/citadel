@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // The isolated Playwright mode builds into its own dist dir (playwright.config.ts, NEXT_DIST_DIR).
+    ".next-pw-*/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
