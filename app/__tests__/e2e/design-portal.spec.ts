@@ -182,13 +182,13 @@ test('a client file attached to an Apply reaches the worker API as files; the wo
 
   await worker.runApplyTurn(sessionA, apply);
 
-  // Chat: plan, action -> result, assistant text, cost meter.
+  // Chat: plan, action -> result, assistant text. (The cost meter left with budget tracking, 5ee0571.)
   await tab(pageA, 'Chat').click();
   const chat = pageA.getByTestId('chat-panel');
   await expect(chat).toContainText('I made the card heading larger.', { timeout: 20_000 });
   await expect(chat).toContainText('Edit the heading');
   await expect(chat.getByTestId('tool-line').first()).toHaveAttribute('data-state', 'ok');
-  await expect(pageA.getByTestId('cost-meter')).toContainText('0.42');
+  await expect(pageA.getByTestId('cost-meter')).toHaveCount(0);
 
   // Changes: the change shows with its screenshots; accept it.
   await tab(pageA, 'Changes').click();
@@ -208,19 +208,8 @@ test('the elapsed-time pill appears and a hidden tab stops extending it', async 
   const presence = async () => (await world.prisma.designSession.findUniqueOrThrow({ where: { id: sessionA } })).timer_presence_at?.getTime() ?? 0;
   const feed = (visible: 0 | 1) => pageA.request.get(`/api/design/sessions/${sessionA}/feed?after=0&limit=1&visible=${visible}`);
 
-  // API level: a visible poll extends presence; a hidden one never does.
-  expect((await feed(1)).status()).toBe(200);
-  const p1 = await presence();
-  await pageA.waitForTimeout(1500);
-  const hidden = await feed(0);
-  expect(hidden.status()).toBe(200);
-  expect((await hidden.json()).timer.running).toBe(true);
-  await pageA.waitForTimeout(500);
-  expect(await presence()).toBe(p1);
-  await feed(1);
-  expect(await presence()).toBeGreaterThan(p1);
-
-  // Browser level: once the tab reports hidden, its polls say visible=0 and presence stops moving.
+  // Browser level first: once the tab reports hidden, its polls say visible=0 and presence stops moving. (The page
+  // polls on its own with visible=1 every few seconds, so presence can only be compared while the tab is hidden.)
   const seen: string[] = [];
   pageA.on('request', (r) => {
     if (/\/api\/design\/sessions\/[^/]+\/feed/.test(r.url())) seen.push(new URL(r.url()).searchParams.get('visible') ?? '');
@@ -232,10 +221,19 @@ test('the elapsed-time pill appears and a hidden tab stops extending it', async 
   });
   await expect.poll(() => seen.includes('0'), { timeout: 45_000, intervals: [500] }).toBe(true);
   const at = seen.indexOf('0');
+  await pageA.waitForLoadState('networkidle'); // a visible poll sent just before the tab hid has landed
   const p2 = await presence();
   await pageA.waitForTimeout(2500);
   expect(seen.slice(at).includes('1')).toBe(false);
   expect(await presence()).toBe(p2);
+
+  // API level, with the page quiet: a hidden poll never extends presence; a visible one does.
+  const hidden = await feed(0);
+  expect(hidden.status()).toBe(200);
+  expect((await hidden.json()).timer.running).toBe(true);
+  expect(await presence()).toBe(p2);
+  expect((await feed(1)).status()).toBe(200);
+  expect(await presence()).toBeGreaterThan(p2);
 });
 
 test('the Tray tab and the pin actions are gone from the workspace', async () => {
