@@ -33,17 +33,18 @@ export const LANES = [
   'troubador',
   'oracle',
   'design-worker',
+  'design-track',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
 
 /**
- * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker lane was born enforced: its key
+ * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker and design-track lanes were born enforced: its key
  * must carry scope-mode:enforce (refused at mint and PATCH, lib/auth/key-scopes.ts), and a key planted without
  * it is still refused outside the lane instead of running in shadow. The fleet-6 lanes keep shadow mode for
  * their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'design-track'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -67,6 +68,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   troubador: 'troubador',
   oracle: 'oracle',
   'design-worker': 'design-worker',
+  'design-track': 'bast', // the Bast runner (portal v2, SPEC 6.1a); never the design worker
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -274,6 +276,22 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/design/worker/sessions/:id/scope-flags'),
     r('PATCH', '/api/design/worker/commands/:id'),
     r('PATCH', '/api/design/worker/publishes/:id'),
+  ],
+  // Designer Portal v2 Bast runner (SPEC 6.1a). Minted for the Bast user, always enforced; exactly these 12, all under
+  // /api/design/runner/. Every :param sits in a folder that holds only its [id] segment, so PARAM_EXCEPT needs no entry.
+  'design-track': [
+    r('GET', '/api/design/runner/candidates'),
+    r('POST', '/api/design/runner/tracks'),
+    r('GET', '/api/design/runner/tracks/:id'),
+    r('POST', '/api/design/runner/claims'),
+    r('PATCH', '/api/design/runner/jobs/:id'),
+    r('POST', '/api/design/runner/tracks/:id/assets'),
+    r('GET', '/api/design/runner/tracks/:id/assets/:assetId'),
+    r('POST', '/api/design/runner/tracks/:id/references'),
+    r('PATCH', '/api/design/runner/references/:id'),
+    r('POST', '/api/design/runner/tracks/:id/briefs'),
+    r('POST', '/api/design/runner/tracks/:id/adopt'),
+    r('POST', '/api/design/runner/tracks/:id/imports'),
   ],
 };
 

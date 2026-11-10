@@ -72,7 +72,8 @@ function routeFiles(dir: string): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) {
-      if (e.name === '__tests__' || e.name === 'worker') continue;
+      // worker and runner are lane routes (requireWorker, requireTrackRunner), not designer or admin handlers: each has its own auth-matrix test
+      if (e.name === '__tests__' || e.name === 'worker' || e.name === 'runner') continue;
       out.push(...routeFiles(p));
     } else if (e.name === 'route.ts') out.push(p);
   }

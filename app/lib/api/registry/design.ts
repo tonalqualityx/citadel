@@ -16,8 +16,10 @@ const READERS = ['designer', 'admin', 'pm'];
 const ADMIN = ['admin'];
 const ADMIN_PM = ['admin', 'pm'];
 const WORKER = ['design-worker'];
+const RUNNER = ['design-track'];
 
 const sessionIdParam: ParamDef = { name: 'id', type: 'uuid', required: true, description: 'Design session id (path)' };
+const trackIdParam: ParamDef = { name: 'id', type: 'uuid', required: true, description: 'Design track id (path)' };
 
 const sessionExample = {
   id: 'uuid',
@@ -1105,7 +1107,7 @@ export const designEndpoints: ApiEndpoint[] = [
         responseExample: {
           command: { id: 'uuid', session_id: 'uuid', verb: 'string', status: 'pending|claimed|done|failed', payload: 'object', result: 'object|null', error: 'string|null' },
         },
-        responseNotes: '409 publish_not_final when completing a publish or rollback before its publish is final.',
+        responseNotes: '409 publish_not_final when completing a publish or rollback before its publish is final. Portal v2: completing an adopt_branch command also closes its job, moves the track head and runs the stage effects of the job kind; completing a finish_gates command stores the result and finishes the track when green and the head has not moved. Results of these two verbs may be up to 256 KB (others 8 KB).',
       },
     ],
   },
@@ -1122,6 +1124,237 @@ export const designEndpoints: ApiEndpoint[] = [
         bodySchema: workerPublishPatchBody,
         responseExample: { publish: publishExample },
         responseNotes: 'Only queued or running rows move forward; a row in awaiting_confirmation cannot be moved by the lane.',
+      },
+    ],
+  },
+
+  {
+    path: '/api/design/sessions/:id/home-ready',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'The designer taps "Home is ready" (portal v2, SPEC 2.5): refine -> rest_build. Completes and approves her refine task, sets the track busy and queues the rest_build job. Tracked sessions only.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        responseExample: { stage: 'rest_build', busy: true, job_id: 'uuid' },
+        responseNotes: '202. Strict empty body. 404 for an untracked session; 409 illegal_transition unless the track is in refine; 409 build_running if a build job is already active.',
+      },
+    ],
+  },
+  // Designer Portal v2 Bast runner (SPEC 6.1a): the design-track lane, exactly these 12 routes. Key: lane:design-track +
+  // scope-mode:enforce (always enforced), minted for the Bast user. requireTrackRunner() gates every one.
+  {
+    path: '/api/design/runner/candidates',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Tasks the runner may start tracks from (design-job:provision or research, not_started, site design_path portal) and design-import tasks on tracked projects with no import row. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        responseExample: { candidates: [{ task_id: 'uuid', title: 'string', kind: 'provision|research|import', site_id: 'uuid', project_id: 'uuid', track_id: 'uuid (imports only)', blocked_reason: 'bast_enabled_false|design_portal_enabled_false|site_not_configured|null' }] },
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: "Start the site's design track from a provision or research task: 200 with the open track, 201 with a new one (queues provision and research). Design-track lane only.",
+        auth: 'required',
+        roles: RUNNER,
+        bodySchema: [{ name: 'task_id', type: 'uuid', required: true, description: 'A task tagged design-job:provision or design-job:research' }],
+        responseExample: { track: { id: 'uuid', slug: 'string', stage: 'research', branch: 'design/t-<slug>', preview_alias: 'design-t-<slug>' }, created: 'boolean' },
+        responseNotes: '409 not_candidate; 409 site_not_ready (the message names the reason).',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'The track row plus any of the requested includes. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [
+          trackIdParam,
+          { name: 'include', type: 'string', required: false, description: 'Comma list of brief, references, direction, client_statements, pages, imports, recipients' },
+        ],
+        responseExample: { track: { id: 'uuid', stage: 'string', busy_job_id: 'uuid|null', head_sha: 'string|null', preview_url: 'string|null' }, recipients: [{ contact_id: 'uuid', name: 'string|null', email: 'string', basis: 'grant|client_fallback' }] },
+        responseNotes: 'Recipients are computed by Citadel (owner or member grants; client contacts who can initiate work when the project has no grants; other email domains only with a grant).',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/claims',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Claim the oldest claimable job with a 10 minute lease (attempts + 1). Expired leases are returned to the queue first. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        bodySchema: [
+          { name: 'runner_id', type: 'string', required: true, description: 'Recorded as claimed_by' },
+          { name: 'kinds', type: 'string[]', required: false, description: 'Only claim these job kinds' },
+        ],
+        responseExample: { job: { id: 'uuid', track_id: 'uuid', kind: 'string', status: 'claimed', attempts: 'number', error: 'string|null', lease_until: 'ISO-8601' }, track: { id: 'uuid', stage: 'string' } },
+        responseNotes: '204 when nothing is claimable. A job with a task sets the task in_progress and assigns the key user when it has no assignee.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/jobs/:id',
+    group: 'design',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Renew the lease, or report a job done or failed. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Job id (path)' }],
+        bodySchema: [
+          { name: 'action', type: 'string', required: true, description: 'renew | done | failed' },
+          { name: 'runner_id', type: 'string', required: false, description: 'Must match the claim when sent' },
+          { name: 'result', type: 'object', required: false, description: 'done only, at most 256 KB' },
+          { name: 'error', type: 'string', required: false, description: 'failed only, at most 8,000 chars' },
+          { name: 'cost_usd', type: 'number', required: false, description: 'done or failed' },
+          { name: 'log_asset_id', type: 'uuid', required: false, description: 'A job_log asset of the same track' },
+        ],
+        responseExample: { job: { id: 'uuid', kind: 'string', status: 'queued|claimed|running|done|failed', attempts: 'number' } },
+        responseNotes: '409 adopt_pending for done on a job that adopts a branch (it closes when its adopt command completes); 409 job_not_active. failed with attempts left returns the job to the queue; at attempts 2 it stays failed, the task gets the needs-mike tag and an error comment, and busy is cleared.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id/assets',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Runner upload of captures, renders, spot shots and job logs (SPEC 3.3). Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam],
+        responseNotes: '501 not_implemented until PLAN W1.3 lands the track asset storage and validators.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id/assets/:assetId',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Bytes of any asset of the track (SPEC 3.3). Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam, { name: 'assetId', type: 'uuid', required: true, description: 'Track asset id (path)' }],
+        responseExample: { note: 'binary' },
+        responseNotes: '501 not_implemented until PLAN W1.3 lands the track asset storage.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id/references',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Add up to 20 Bast picks or client-named sites; Citadel queues one capture job per reference with a URL. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam],
+        bodySchema: [{ name: 'references', type: 'object', required: true, description: '[{source: bast_pick|client_named|indelible_site, url? (https), title, why_md? (800)}], 1 to 20' }],
+        responseExample: { references: [{ id: 'uuid', url: 'string|null', capture_status: 'queued|none' }], skipped: ['url already on the track'] },
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/references/:id',
+    group: 'design',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Record a reference capture result: status, error, the four capture asset ids, extracted style data. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'Reference id (path)' }],
+        bodySchema: [
+          { name: 'capture_status', type: 'string', required: true, description: 'captured | failed | blocked' },
+          { name: 'capture_error', type: 'string', required: false, description: 'Max 500 chars' },
+          { name: 'desktop_fold_asset_id', type: 'uuid', required: false, description: 'Track asset of the same track' },
+          { name: 'extracted', type: 'object', required: false, description: 'At most 16 KB' },
+        ],
+        responseExample: { reference: { id: 'uuid', capture_status: 'captured|failed|blocked' } },
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id/briefs',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Publish a brief that passes the SPEC 4.1 schema; it supersedes the previous version and may complete research -> art_direction. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam],
+        bodySchema: [
+          { name: 'body', type: 'object', required: true, description: 'The brief body (SPEC 4.1), at most 512 KB' },
+          { name: 'job_id', type: 'uuid', required: false, description: 'The brief job' },
+        ],
+        responseExample: { brief: { id: 'uuid', version: 'number', status: 'published' }, entered_art_direction: 'boolean' },
+        responseNotes: '409 illegal_stage once the track is past art_direction.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id/adopt',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Ask the daemon to adopt a job branch: creates the adopt_branch command (payload built by Citadel from the track and job rows). Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam],
+        bodySchema: [
+          { name: 'job_id', type: 'uuid', required: true, description: 'A claimed or running job of an adopting kind (wireframe, home_build, rest_build, module, bulk_import, fact_fix)' },
+          { name: 'job_branch', type: 'string', required: true, description: 'design/t-<this track slug>-job-<n>' },
+          { name: 'expected_base', type: 'string', required: true, description: '40 hex characters' },
+        ],
+        responseExample: { command: { id: 'uuid', verb: 'adopt_branch', status: 'pending', payload: 'object' }, created: 'boolean' },
+        responseNotes: '201 new command, 200 when the job already has a pending or claimed one. 409 bad_job_kind, job_not_active.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/tracks/:id/imports',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Register a DesignImport from a design-import task of the track project. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam],
+        bodySchema: [
+          { name: 'task_id', type: 'uuid', required: true, description: 'The design-import task' },
+          { name: 'template_page_path', type: 'string', required: true, description: 'Starts with /' },
+          { name: 'source_paths', type: 'string[]', required: true, description: '1 to 200 paths' },
+          { name: 'expected_count', type: 'number', required: true, description: 'Integer' },
+          { name: 'mapping_path', type: 'string', required: false, description: 'Per-import column mapping' },
+          { name: 'required_for_launch', type: 'boolean', required: false, description: 'Default true' },
+        ],
+        responseExample: { import: { id: 'uuid', status: 'waiting', expected_count: 'number' } },
+        responseNotes: '409 import_exists when the task already has one.',
       },
     ],
   },

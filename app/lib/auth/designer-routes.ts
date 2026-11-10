@@ -37,6 +37,7 @@ export const DESIGNER_ROUTES: readonly DesignerRoute[] = [
   { method: 'POST', pattern: '/api/design/publishes/:id/rollback' },
   { method: 'GET', pattern: '/api/design/sessions/:id/assets/:assetId' },
   { method: 'POST', pattern: '/api/design/sessions/:id/client-files/refresh' },
+  { method: 'POST', pattern: '/api/design/sessions/:id/home-ready' },
 ];
 
 /**

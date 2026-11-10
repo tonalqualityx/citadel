@@ -80,15 +80,16 @@ export async function claimCommand(id: string, db: Db = defaultDb): Promise<Desi
   return row;
 }
 
-/** claimed -> done|failed with a result capped at 8 KB (413). 409 unless the command is currently claimed. */
+/** claimed -> done|failed with a result capped at 8 KB (413; the track verbs pass a larger cap). 409 unless the command is currently claimed. */
 export async function completeCommand(
   id: string,
-  input: { status: 'done' | 'failed'; result?: Prisma.InputJsonValue | null; error?: string | null },
+  input: { status: 'done' | 'failed'; result?: Prisma.InputJsonValue | null; error?: string | null; maxResultBytes?: number },
   db: Db = defaultDb,
 ): Promise<DesignCommand> {
   if (!isUuid(id)) throw new ApiError('Command not found', 404, 'not_found');
   if (input.status !== 'done' && input.status !== 'failed') throw new ApiError('status must be done or failed', 400, 'bad_status');
-  if (input.result != null && size(input.result) > MAX_COMMAND_RESULT_BYTES) throw new ApiError('Command result is over 8 KB', 413, 'result_too_large');
+  const cap = input.maxResultBytes ?? MAX_COMMAND_RESULT_BYTES;
+  if (input.result != null && size(input.result) > cap) throw new ApiError(`Command result is over ${Math.round(cap / 1024)} KB`, 413, 'result_too_large');
   const res = await db.designCommand.updateMany({
     where: { id, status: 'claimed' },
     data: { status: input.status, completed_at: new Date(), result: input.result == null ? undefined : input.result, error: input.error ?? null },
