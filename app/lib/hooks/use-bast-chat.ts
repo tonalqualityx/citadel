@@ -91,6 +91,12 @@ export interface CardRead {
   /** The server sends the list of what the chat changed; a plain true is also understood. */
   chat_changed?: boolean | string[] | null;
   chat_changed_line?: string | null;
+  /** The text of each comment the chat wrote on this task (`on` null) or on a task it waits on (`on` its title). */
+  chat_notes?: { on?: string | null; text: string }[] | null;
+  /** "2 more notes from this chat are not shown. Open the task to read them." */
+  chat_notes_more_line?: string | null;
+  /** The current text of each read field the chat changed. */
+  chat_text?: { label: string; text: string }[] | null;
 }
 export interface ProposalCard {
   kind: CardKind;
@@ -109,6 +115,12 @@ export const CARD_BUTTON_FALLBACK: Record<CardKind, { yes: string; no: string }>
   client_show: { yes: 'Share it', no: 'Keep it private' },
 };
 export const CHANGED_SINCE_LINE = 'Changed since. Open the task.';
+/** The same refusal, naming what to open (the server's `changedSinceFor`). */
+export function changedSinceLine(targetType: string | null | undefined): string {
+  if (targetType === 'wait') return 'Changed since. Open the wait.';
+  if (targetType === 'project') return 'Changed since. Open the project.';
+  return CHANGED_SINCE_LINE;
+}
 /** Status events the panel never shows (the stop request and the five notes the server writes for Bast). */
 export const HIDDEN_STATUS_CODES: readonly string[] = ['stop_requested', 'action_undone', 'action_released', 'action_declined', 'action_failed', 'undo_proposed'];
 export type ActionOutcome = 'released' | 'declined' | 'changed';

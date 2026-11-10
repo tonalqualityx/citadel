@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
 import { opSummary, shortTitle, type OpContext, type PreparedOp } from '../actions';
 import { checkOp, PROJECT_STATUSES, type ReachOrigin } from '../worker-reach';
+import { lockScope } from '../task-locks';
 import type { OpDef, OpDb, OpRun } from './index';
 
 const STATUS = z.enum(PROJECT_STATUSES as [string, ...string[]]);
@@ -49,6 +50,9 @@ async function run(ctx: OpContext, input: ProjectInput, expect: unknown): Promis
   const e = expectSchema.safeParse(expect);
   if (!e.success) throw new ApiError('Changed since. Open the project.', 409, 'changed_since');
   const db = ctx.db as OpDb;
+  // The chat's own write holds the project's lock (a tap reading a task of this project holds it from its re-check to
+  // its write). The tap applying this op already holds it (`ctx.actor` set).
+  if (!ctx.actor) await lockScope(db, { tasks: [], projects: [input.project_id] });
   const p = await load(db, input.project_id);
   const completed = completedFor(p, input.status, ctx.now);
   const r = await db.project.updateMany({

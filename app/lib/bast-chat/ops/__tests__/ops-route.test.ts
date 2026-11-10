@@ -53,6 +53,9 @@ function makeDb() {
     bastChatEvent: { create: vi.fn(async () => ({})), findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []), createMany: vi.fn(async () => ({})), updateMany: vi.fn(async () => ({})) },
   };
   db.$transaction = async (fn: any) => fn(db);
+  // The advisory locks (task-locks.ts): no keys come back, so nothing waits.
+  db.$queryRaw = vi.fn(async () => []);
+  db.$executeRaw = vi.fn(async () => 0);
   return db;
 }
 

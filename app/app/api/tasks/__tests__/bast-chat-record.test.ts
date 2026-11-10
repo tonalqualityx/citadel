@@ -16,7 +16,8 @@ vi.mock('@/lib/db/prisma', () => {
     bastChatSettings: { findUnique: vi.fn() },
     bastChatConversation: { findFirst: vi.fn(), findUnique: vi.fn() },
     bastChatAction: { create: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    comment: { findFirst: vi.fn() },
+    comment: { findFirst: vi.fn(), findMany: vi.fn() },
+    $executeRaw: vi.fn(),
     bastChatEvent: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
     $queryRaw: vi.fn(),
     bastChatUsage: { upsert: vi.fn(), createMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
@@ -87,13 +88,14 @@ beforeEach(() => {
   db.$transaction.mockImplementation(async (fn: any) => fn(db));
   db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, daily_write_cap: 25 });
   db.bastChatConversation.findFirst.mockResolvedValue({ id: CONV });
-  db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
+  db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
   db.bastChatUsage.findUnique.mockResolvedValue(null);
   db.bastChatAction.create.mockResolvedValue({ id: 'a1' });
   db.user.findUnique.mockResolvedValue({ id: BAST, name: 'Bast Fae', is_active: true });
   db.task.count.mockResolvedValue(0);
   db.task.findMany.mockResolvedValue([]);
   db.comment.findFirst.mockResolvedValue(null);
+  db.comment.findMany.mockResolvedValue([]);
   db.bastChatAction.findMany.mockResolvedValue([]);
   // The chat note a tap, Undo or decline appends (events.ts): lock the conversation row, take the next seq.
   let seq = 0;
@@ -300,7 +302,7 @@ describe('Undo of a server-written record (through patchTask, as the owner)', ()
   const stored = (over: Record<string, unknown>) => ({ id: 'a1', conversation_id: CONV, event_seq: null, turn_seq: null, tool: 'change_task', target_type: 'task', target_id: TASK, summary: 's', before: null, after: null, proposed_assignee_id: null, status: 'applied', undo_until: new Date(Date.now() + 3600_000), created_at: new Date(), resolved_at: null, resolved_by_id: null, ...over });
   const ID = '22222222-2222-4222-8222-222222222299';
   beforeEach(() => {
-    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
     db.bastChatAction.findFirst.mockResolvedValue(null);
     db.bastChatAction.update.mockImplementation(async ({ data }: any) => ({ ...stored({}), ...data }));
     db.bastChatAction.updateMany.mockResolvedValue({ count: 1 });
@@ -396,7 +398,7 @@ describe('F1: a handoff tap only goes through when the task is exactly as it was
   const propose = async () => {
     authMock.mockResolvedValue(chat);
     db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: 25 });
-    db.bastChatConversation.findUnique.mockResolvedValue({ id: CONV, owner_id: OWNER });
+    db.bastChatConversation.findUnique.mockResolvedValue({ id: CONV, owner_id: OWNER, status: 'running' });
     const res = await workerActions(jreq('POST', 'http://localhost/api/bast-chat/worker/actions', { conversation_id: CONV, tool: 'propose_handoff', target_id: TASK, status: 'proposed', proposed_assignee_id: BAST }) as never);
     expect(res.status).toBe(201);
     const data = db.bastChatAction.create.mock.calls[0][0].data;
@@ -465,7 +467,7 @@ describe('F1: a handoff tap only goes through when the task is exactly as it was
     db.bastChatAction.findFirst.mockResolvedValue(null);
     db.bastChatAction.update.mockImplementation(async ({ data }: any) => ({ ...take, ...data }));
     db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: 25 });
-    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
     db.task.count.mockResolvedValue(1);
     await undoAction(ACTION_ID, OWNER);
     const p = db.bastChatAction.create.mock.calls[0][0].data;
@@ -742,7 +744,7 @@ describe('F5: Undo of a status change also restores what the same PATCH cleared'
     db.bastChatAction.update.mockImplementation(async ({ data }: any) => ({ ...stored, ...data }));
     db.bastChatAction.updateMany.mockResolvedValue({ count: 1 });
     db.bastChatAction.findUniqueOrThrow.mockResolvedValue({ ...stored, status: 'undone' });
-    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
     db.user.findUnique.mockResolvedValue({ id: OWNER, name: 'Mike', email: 'm@x.test', role: 'admin', is_active: true });
     db.task.findUnique.mockResolvedValue(task({ status: 'done', due_date: null, completed_at: doneAt }));
     db.task.update.mockClear();
@@ -872,11 +874,32 @@ describe('G4 and G3: a change that changes nothing, and a closed chat', () => {
     expect(db.bastChatAction.create).not.toHaveBeenCalled();
   });
 
-  it('G3: an open chat still works', async () => {
+  it('G3: a chat answering a turn (running) still works', async () => {
     authMock.mockResolvedValue(chat);
     liveRow();
-    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'idle' });
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
     expect((await patch({ status: 'in_progress' }, { [HEADER]: CONV2 })).status).toBe(200);
+  });
+
+  it('N6: a PATCH naming an idle or queued chat is a 409 "Open the chat first." and writes nothing, like the ops route', async () => {
+    authMock.mockResolvedValue(chat);
+    for (const status of ['idle', 'queued']) {
+      liveRow();
+      db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status });
+      const res = await patch({ status: 'in_progress' }, { [HEADER]: CONV2 });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toBe('Open the chat first.');
+    }
+    expect(db.task.update).not.toHaveBeenCalled();
+    expect(db.bastChatAction.create).not.toHaveBeenCalled();
+  });
+
+  it('N6: the header-less follow-up PATCH (create-task.py) still uses the newest open chat, whatever its status', async () => {
+    authMock.mockResolvedValue(chat);
+    liveRow();
+    db.bastChatConversation.findFirst.mockResolvedValue({ id: CONV });
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'idle' });
+    expect((await patch({ status: 'in_progress' }, {})).status).toBe(200);
   });
 });
 
@@ -895,6 +918,24 @@ describe('every non-chat caller takes the untouched path: no usage read, no rese
     expect(db.bastChatUsage.createMany).not.toHaveBeenCalled();
     expect(db.bastChatUsage.updateMany).not.toHaveBeenCalled();
     expect(db.bastChatSettings.findUnique).not.toHaveBeenCalled();
+    // VERIFY-2 N1: the locks and their queries are the chat's alone.
+    expect(db.$queryRaw).not.toHaveBeenCalled();
+    expect(db.$executeRaw).not.toHaveBeenCalled();
+    expect(db.comment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('VERIFY-2 N1: a chat PATCH takes the advisory locks of the task and the tasks linked to it before its check and write', async () => {
+    authMock.mockResolvedValue(chat);
+    const { row } = liveRow();
+    const B = '77777777-7777-4777-8777-777777777777';
+    const D = '88888888-8888-4888-8888-888888888888';
+    db.task.findMany.mockImplementation(async ({ select }: any) => (select?.blocking ? [{ id: TASK, project_id: null, blocked_by: [{ id: B }], blocking: [{ id: D }] }] : []));
+    expect((await patch({ title: 'Update the invoice template wording' })).status).toBe(200);
+    expect(row.title).toBe('Update the invoice template wording');
+    const lock = db.$queryRaw.mock.calls.find((c: any[]) => (c[0] as string[]).join('?').includes('hashtextextended'));
+    expect([...lock[1]].sort()).toEqual([`bast-chat-task:${TASK}`, `bast-chat-task:${B}`, `bast-chat-task:${D}`].sort());
+    const lockAt = db.$queryRaw.mock.invocationCallOrder[db.$queryRaw.mock.calls.indexOf(lock)];
+    expect(lockAt).toBeLessThan(db.task.update.mock.invocationCallOrder[0]);
   });
 });
 
@@ -967,7 +1008,7 @@ describe('v2: each open field changed on Sabeen\'s task is recorded truly, and U
     db.bastChatAction.update.mockImplementation(async ({ data }: any) => ({ ...rec, ...data }));
     db.bastChatAction.updateMany.mockResolvedValue({ count: 1 });
     db.bastChatAction.findUniqueOrThrow.mockResolvedValue({ ...rec, status: 'undone' });
-    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
     db.user.findUnique.mockResolvedValue({ id: OWNER, name: 'Mike', email: 'm@x.test', role: 'admin', is_active: true });
     db.task.findUnique.mockResolvedValue(after);
     db.task.update.mockClear();

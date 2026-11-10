@@ -273,10 +273,28 @@ export async function chatConversationFor(
   const conv = await prisma.bastChatConversation.findUnique({ where: { id: header }, select: { owner_id: true, status: true } });
   if (!conv || conv.owner_id !== ownerId) throw new ApiError(BAD_CONVERSATION_TEXT, 400, 'chat_conversation_invalid');
   if (method === 'PATCH' && conv.status === 'closed') throw new ApiError(CLOSED_CHAT_TEXT, 409, 'chat_conversation_closed');
+  // The ops route's rule (VERIFY-2 N6): a change named for a conversation is made while a turn is being answered.
+  // The owner's tap and Undo never come through here (they call patchTask as the owner), and the header-less
+  // follow-up PATCH of create-task.py keeps the newest open conversation above.
+  if (method === 'PATCH' && conv.status !== 'running') throw new ApiError(NO_OPEN_CHAT_TEXT, 409, 'conversation_not_running');
   return header;
 }
 
 export const RACE_TEXT = 'The task changed while that was being written. Open the task.';
+
+/**
+ * Chat lane only (the PATCH route calls it only for that lane): run the reach check and the write while holding the
+ * advisory locks of the task, the tasks it waits on, the tasks that wait on it, and any task the body connects or
+ * disconnects (task-locks.ts, VERIFY-2 N1). The owner's tap holds the same locks from its re-check to its write, so
+ * neither can land between the other's check and write. Nothing here runs for any other caller.
+ */
+export async function withChatTaskLock<T>(taskId: string, body: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
+  const { scopeFor, withLocks } = await import('./task-locks');
+  const links = (body.blocked_by_ids ?? null) as { connect?: unknown; disconnect?: unknown } | null;
+  const linked = [links?.connect, links?.disconnect].flatMap((x) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : []));
+  const scope = await scopeFor(prisma, [taskId, ...linked]);
+  return withLocks(prisma, scope, () => fn());
+}
 
 /**
  * PATCH write target. The chat lane writes only if the owner and `updated_at` are still what the request read at

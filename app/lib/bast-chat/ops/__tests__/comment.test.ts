@@ -27,7 +27,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   comments = [];
   h.db = {
-    task: { findUnique: vi.fn(async () => task()) },
+    task: { findUnique: vi.fn(async () => task()), findMany: vi.fn(async () => [task()]) },
+    $queryRaw: vi.fn(async () => []),
+    $executeRaw: vi.fn(async () => 0),
     comment: {
       findFirst: vi.fn(async ({ where }: any) => [...comments].filter((c) => !c.is_deleted && (!where.id?.not || c.id !== where.id.not)).at(-1) ?? null),
       create: vi.fn(async ({ data }: any) => { const c = { id: COMMENT, is_deleted: false, ...data }; comments.push(c); return { id: COMMENT }; }),
@@ -78,6 +80,30 @@ describe('comment op', () => {
     comments.push({ id: 'zz', task_id: TASK, is_deleted: false, user_id: SABEEN_USER_ID, author_contact_id: null });
     await expect(op.run(ctx() as any, input, p.expect)).rejects.toMatchObject({ statusCode: 409 });
     expect(h.db.comment.create).not.toHaveBeenCalled();
+  });
+  it('VERIFY-2 N1: the chat\'s write locks the task, its blockers and dependents, then judges again before it inserts', async () => {
+    const BLOCKER = '7c7c7c7c-7c7c-4c7c-8c7c-7c7c7c7c7c7c';
+    const DEPENDENT = '8d8d8d8d-8d8d-4d8d-8d8d-8d8d8d8d8d8d';
+    h.db.task.findMany.mockResolvedValue([{ id: TASK, project_id: null, blocked_by: [{ id: BLOCKER }], blocking: [{ id: DEPENDENT }] }]);
+    const input = op.validate({ task_id: TASK, text: 'hi' });
+    const p = await op.prepare(ctx() as any, input, 'chat');
+    expect(p.reach.needs_tap).toBe(false);
+    // Between the route's check and the write, the owner's tap hands the task to Bast.
+    h.db.task.findUnique.mockResolvedValue(task({ assignee_id: BAST_USER_ID }));
+    await expect(op.run(ctx() as any, input, p.expect)).rejects.toMatchObject({ statusCode: 409, code: 'changed_since' });
+    expect(h.db.comment.create).not.toHaveBeenCalled();
+    const keys = h.db.$queryRaw.mock.calls.find((c: any[]) => (c[0] as string[]).join('?').includes('hashtextextended'))[1];
+    expect([...keys].sort()).toEqual([`bast-chat-task:${BLOCKER}`, `bast-chat-task:${TASK}`, `bast-chat-task:${DEPENDENT}`].sort());
+    // The lock comes before the second check and the write.
+    const lockOrder = h.db.$queryRaw.mock.invocationCallOrder.at(-1);
+    expect(lockOrder).toBeLessThan(h.db.task.findUnique.mock.invocationCallOrder.at(-1));
+  });
+  it('VERIFY-2 N1: when the owner\'s tap applies the op (actor set) it takes no lock of its own and does not judge again', async () => {
+    h.db.task.findUnique.mockResolvedValue(task({ assignee_id: BAST_USER_ID }));
+    const input = op.validate({ task_id: TASK, text: 'hi' });
+    const r = await op.run({ ...ctx(), actor: { userId: OWNER, email: '', role: 'admin', via: 'session' } } as any, input, { task_updated_at: UPDATED.toISOString(), last_comment_id: null });
+    expect(r.target_id).toBe(COMMENT);
+    expect(h.db.$queryRaw).not.toHaveBeenCalled();
   });
   it('Undo hides the comment and deletes nothing; Undo of a second hide is refused', async () => {
     const input = op.validate({ task_id: TASK, text: 'hi' });

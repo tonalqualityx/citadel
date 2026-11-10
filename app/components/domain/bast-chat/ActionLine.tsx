@@ -4,7 +4,7 @@ import * as React from 'react';
 import {
   undoOpen,
   CARD_BUTTON_FALLBACK,
-  CHANGED_SINCE_LINE,
+  changedSinceLine,
   type ActionOutcome,
   type CardRead,
   type ChatAction,
@@ -68,6 +68,23 @@ function ReadBlock({ read }: { read: CardRead }) {
           {changed}
         </p>
       ) : null}
+      {(read.chat_notes ?? []).map((n, i) => (
+        <p key={`n${i}`} className="home-small" data-testid="chat-note" style={{ borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
+          <span style={{ fontWeight: 600 }}>{n.on ? `Note from this chat on ${n.on}: ` : 'Note from this chat: '}</span>
+          {n.text}
+        </p>
+      ))}
+      {read.chat_notes_more_line ? (
+        <p className="home-small" data-testid="chat-notes-more" style={{ fontWeight: 600, borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
+          {read.chat_notes_more_line}
+        </p>
+      ) : null}
+      {(read.chat_text ?? []).map((t, i) => (
+        <p key={`t${i}`} className="home-small" data-testid="chat-text" style={{ borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
+          <span style={{ fontWeight: 600 }}>{`${t.label}: `}</span>
+          {t.text}
+        </p>
+      ))}
       {read.excerpt ? <p className="home-small">{read.excerpt}</p> : null}
       {checklist.length > 0 ? (
         <div className="home-small">
@@ -166,7 +183,8 @@ export function ActionLine({ action, now, busy, error, onUndo, onRelease, onDecl
     const clause = card.clause ? sentence(card.clause) : card.title;
     if (action.status === 'failed' || (action.status === 'proposed' && outcome === 'changed')) {
       const server = action.error?.trim();
-      const text = action.status === 'failed' ? (server ? (server.startsWith("That didn't") ? server : `That didn't go through. ${server}`) : "That didn't go through. Changed since. Open the task.") : CHANGED_SINCE_LINE;
+      const since = changedSinceLine(action.target_type);
+      const text = action.status === 'failed' ? (server ? (server.startsWith("That didn't") ? server : `That didn't go through. ${server}`) : `That didn't go through. ${since}`) : since;
       return shell(
         <p className="home-small" role="status" data-testid="card-failed">
           {text}

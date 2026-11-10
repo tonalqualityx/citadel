@@ -70,12 +70,42 @@ describe('ActionLine', () => {
     expect(screen.getByText('Changes: who it is on, status.')).toBeTruthy();
   });
   it('flags text the chat changed, and says nothing when it did not', () => {
-    const changed = card('bast_start', { reads: [{ title: 'Menu proof', chat_changed: ['description'], chat_changed_line: 'Changed from this chat in the last day: description.' }] });
+    const changed = card('bast_start', { reads: [{ title: 'Menu proof', chat_changed: ['description'], chat_changed_line: 'Changed from this chat: description.' }] });
     const { unmount } = render(<ActionLine action={prop(changed)} now={NOW} busy={false} error={null} {...handlers} />);
-    expect(screen.getByTestId('chat-changed').textContent).toBe('Changed from this chat in the last day: description.');
+    expect(screen.getByTestId('chat-changed').textContent).toBe('Changed from this chat: description.');
     unmount();
     render(<ActionLine action={prop(card('bast_start'))} now={NOW} busy={false} error={null} {...handlers} />);
     expect(screen.queryByTestId('chat-changed')).toBeNull();
+  });
+  it('VERIFY-2 N2 and N3: shows the text of each chat note, the blocker it sits on, the more line and changed text', () => {
+    const c = card('bast_start', {
+      reads: [{
+        title: 'Place the logo',
+        chat_changed: ['a comment', 'a comment on "Collect the logo"'],
+        chat_changed_line: 'Changed from this chat: a comment, a comment on "Collect the logo".',
+        chat_notes: [{ on: null, text: 'Do it tonight.' }, { on: '"Collect the logo"', text: 'Rotate the admin passwords.' }],
+        chat_notes_more_line: '2 more notes from this chat are not shown. Open the task to read them.',
+        chat_text: [{ label: 'Description now', text: 'Delete the backups.' }],
+      }],
+    });
+    render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);
+    const notes = screen.getAllByTestId('chat-note').map((n) => n.textContent);
+    expect(notes).toEqual(['Note from this chat: Do it tonight.', 'Note from this chat on "Collect the logo": Rotate the admin passwords.']);
+    expect(screen.getByTestId('chat-notes-more').textContent).toBe('2 more notes from this chat are not shown. Open the task to read them.');
+    expect(screen.getByTestId('chat-text').textContent).toBe('Description now: Delete the backups.');
+    expect(screen.getByRole('region').textContent).not.toMatch(/[\u2013\u2014]|priorit|overdue/i);
+  });
+  it('VERIFY-2 N7: a dead tap on a wait says to open the wait; the server buttons of a wait card are used as sent', () => {
+    const w = card('bast_start', { title: 'Finish the wait "Logo files"?', reads: [], buttons: { yes: 'Finish it', no: 'Keep it open' } });
+    const { unmount } = render(<ActionLine action={prop(w, { target_type: 'wait' })} now={NOW} busy={false} error={null} {...handlers} />);
+    expect(screen.getByRole('button', { name: 'Finish it' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Keep it open' })).toBeTruthy();
+    unmount();
+    const { unmount: u2 } = render(<ActionLine action={prop(w, { target_type: 'wait' })} now={NOW} busy={false} error={null} outcome="changed" {...handlers} />);
+    expect(screen.getByText('Changed since. Open the wait.')).toBeTruthy();
+    u2();
+    render(<ActionLine action={prop(w, { target_type: 'wait', status: 'failed', error: null })} now={NOW} busy={false} error={null} {...handlers} />);
+    expect(screen.getByText("That didn't go through. Changed since. Open the wait.")).toBeTruthy();
   });
   it('after release shows one confirmation line and no buttons', () => {
     render(<ActionLine action={prop(card('bast_start'), { status: 'released' })} now={NOW} busy={false} error={null} {...handlers} />);

@@ -181,6 +181,8 @@ describe('wait op', () => {
       expect(p.reach.needs_tap).toBe(true);
       expect(p.reach.starts[0].rule).toBe('wait_for_bast');
       expect(w.state).toBe('waiting');
+      // VERIFY-2 N7: the card's yes button says what the tap does, not "Hand to Bast".
+      expect(p.copy.buttons).toEqual({ yes: 'Finish it', no: 'Keep it open' });
     });
     it('the same step with a PM who is a person applies without a tap', async () => {
       chain('onboarding.missing_items', 1);

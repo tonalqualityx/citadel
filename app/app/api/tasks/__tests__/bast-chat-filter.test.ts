@@ -19,7 +19,7 @@ vi.mock('@/lib/db/prisma', () => {
     bastChatAction: { create: vi.fn(), findMany: vi.fn() },
     bastChatUsage: { upsert: vi.fn(), createMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     task: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn() },
-    comment: { findFirst: vi.fn() },
+    comment: { findFirst: vi.fn(), findMany: vi.fn() },
     emailAsk: { findFirst: vi.fn() },
     project: { findUnique: vi.fn() },
     arc: { findUnique: vi.fn() },
@@ -32,6 +32,8 @@ vi.mock('@/lib/db/prisma', () => {
     projectTeamAssignment: { findFirst: vi.fn() },
   };
   p.$transaction = vi.fn(async (fn: any) => fn(p));
+  p.$queryRaw = vi.fn(async () => []);
+  p.$executeRaw = vi.fn(async () => 0);
   return { prisma: p };
 });
 vi.mock('@/lib/api/formatters', () => ({ formatTaskResponse: vi.fn((t) => t) }));
@@ -97,11 +99,14 @@ beforeEach(() => {
   db.$transaction.mockImplementation(async (fn: any) => fn(db));
   db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, daily_write_cap: 1000 });
   db.bastChatConversation.findFirst.mockResolvedValue({ id: CONV });
-  db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'idle' });
+  db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'running' });
   db.bastChatAction.create.mockResolvedValue({ id: 'a1' });
   db.bastChatAction.findMany.mockResolvedValue([]);
   db.user.findUnique.mockResolvedValue({ id: BAST, name: 'Bast Fae', is_active: true });
   db.comment.findFirst.mockResolvedValue(null);
+  db.comment.findMany.mockResolvedValue([]);
+  db.$queryRaw.mockResolvedValue([]);
+  db.$executeRaw.mockResolvedValue(0);
   db.task.count.mockResolvedValue(0);
   db.task.findMany.mockResolvedValue([]);
   db.site.findMany.mockResolvedValue([]);

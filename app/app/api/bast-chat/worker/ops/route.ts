@@ -6,9 +6,8 @@ import { requireChatWorker, chatWorkerBody, isChatUuid } from '@/lib/bast-chat/w
 import { chatError, chatJson, workerOwnerId } from '@/lib/bast-chat/route-helpers';
 import { ownedConversation } from '@/lib/bast-chat/events';
 import { getSettings } from '@/lib/bast-chat/settings';
-import { reserveWrite } from '@/lib/bast-chat/usage';
-import { prepareOperation, storeProposal, UNDO_WINDOW_HOURS } from '@/lib/bast-chat/actions';
 import { getRunnableOp, OP_NAMES } from '@/lib/bast-chat/ops';
+import { applyChatOp } from '@/lib/bast-chat/ops/apply';
 
 const bodySchema = z.object({ conversation_id: z.string().uuid(), op: z.string().min(1).max(40), input: z.record(z.string(), z.unknown()) }).strict();
 
@@ -36,68 +35,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { is_active: true, role: true } });
     if (!owner || !owner.is_active || owner.role !== 'admin') throw new ApiError('The chat owner is not available.', 409, 'owner_unavailable');
 
-    const now = new Date();
-    const { input, prepared } = await prepareOperation(op.name, body.input, { ownerId, now, db: prisma });
-
-    if (prepared.reach.needs_tap) {
-      const p = await storeProposal({ ownerId, conversationId: conv.id, tool: op.tool, op: op.name, input, prepared, reserve: true, now, db: prisma });
-      const res = chatJson({ action_id: p.id, status: 'proposed', proposal_kind: p.proposal_kind, line: p.line }, 202);
-      res.headers.set('X-Bast-Chat-Action', p.id);
-      return res;
-    }
-
-    const record = async (db: typeof prisma, run: Awaited<ReturnType<typeof op.run>>) =>
-      db.bastChatAction.create({
-        data: {
-          conversation_id: conv.id,
-          tool: op.tool,
-          target_type: op.target_type,
-          target_id: run.target_id,
-          summary: run.summary,
-          before: run.before,
-          after: run.after,
-          status: 'applied',
-          undo_until: run.undoable ? new Date(now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000) : null,
-        },
-        select: { id: true, undo_until: true },
-      });
     if (!isChatUuid(conv.id)) throw new ApiError('Chat not found', 404, 'not_found');
 
-    let done: { run: Awaited<ReturnType<typeof op.run>>; row: { id: string; undo_until: Date | null } };
-    if (op.ownTransaction) {
-      // runHomeAct opens its own transaction, so reserve first and record after; a failed record undoes the write.
-      await reserveWrite(ownerId, settings.daily_write_cap, now, prisma);
-      const run = await op.run({ db: prisma, ownerId, now }, input as never, prepared.expect);
-      try {
-        done = { run, row: await record(prisma, run) };
-      } catch (e) {
-        const undone = await op.undo({ db: prisma, ownerId, now, actor: { userId: ownerId, email: '', role: 'admin', via: 'session' } }, { after: run.after } as never, prepared.expect).catch(() => null);
-        console.error('bast-chat: ops record failed', undone ? 'write undone' : 'write kept', e instanceof Error ? e.message : 'error');
-        throw e;
-      }
-    } else {
-      done = await prisma.$transaction(async (tx) => {
-        const db = tx as unknown as typeof prisma;
-        await reserveWrite(ownerId, settings.daily_write_cap, now, tx);
-        const run = await op.run({ db, ownerId, now }, input as never, prepared.expect);
-        return { run, row: await record(db, run) };
-      });
-    }
-    if (done.run.afterCommit) {
-      try {
-        await done.run.afterCommit();
-      } catch (e) {
-        console.error('bast-chat: ops after-commit step failed', e instanceof Error ? e.message : 'error');
-      }
+    const r = await applyChatOp({ ownerId, conversationId: conv.id, op, rawInput: body.input, dailyWriteCap: settings.daily_write_cap, now: new Date(), db: prisma });
+    if (r.kind === 'proposed') {
+      const res = chatJson({ action_id: r.proposal.id, status: 'proposed', proposal_kind: r.proposal.proposal_kind, line: r.proposal.line }, 202);
+      res.headers.set('X-Bast-Chat-Action', r.proposal.id);
+      return res;
     }
     return chatJson(
       {
-        action_id: done.row.id,
+        action_id: r.row.id,
         status: 'applied',
-        line: done.run.summary,
-        undo_until: done.row.undo_until ? done.row.undo_until.toISOString() : null,
-        can_undo: done.row.undo_until !== null,
-        result: done.run.result,
+        line: r.run.summary,
+        undo_until: r.row.undo_until ? r.row.undo_until.toISOString() : null,
+        can_undo: r.row.undo_until !== null,
+        result: r.run.result,
       },
       200,
     );

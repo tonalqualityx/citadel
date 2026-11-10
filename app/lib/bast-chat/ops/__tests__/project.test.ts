@@ -19,6 +19,8 @@ beforeEach(() => {
       findFirst: vi.fn(async () => (p ? { ...p } : null)),
       updateMany: vi.fn(async ({ where, data }: any) => { if (p.id !== where.id || (where.status && p.status !== where.status)) return { count: 0 }; Object.assign(p, data); return { count: 1 }; }),
     },
+    $queryRaw: vi.fn(async () => []),
+    $executeRaw: vi.fn(async () => 0),
   };
 });
 

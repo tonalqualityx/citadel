@@ -12,6 +12,13 @@
  * decides a wake, is a tap by the reach check (`checkComment`, amendment 10 c): the thread is read by a session.
  *
  * Undo hides the comment (is_deleted true). Nothing is deleted from the database. Hiding is itself reach checked.
+ *
+ * The race with the owner's tap (VERIFY-2 N1): when the chat writes (no `ctx.actor`), `run` takes the advisory locks of
+ * the task, the tasks it waits on and the tasks that wait on it (task-locks.ts) in the ops route's transaction, then
+ * runs the reach check again on what is committed now, and only then inserts. A tap that handed the task (or a task
+ * waiting on it) to Bast before the lock makes the check say "tap", and the write is refused with 409 changed since.
+ * The tap holds the same locks from its re-check to its write. When the tap itself applies this op (`ctx.actor` is
+ * set), the tap already holds the locks and has re-checked the fingerprint, so `run` does neither.
  * Record: target_id is the comment id; before is `{task_id, comment: null}`, after is `{task_id, comment_id}`.
  */
 import { z } from 'zod';
@@ -23,9 +30,11 @@ import { loadReachTask, opSummary, shortTitle, type OpContext, type PreparedOp }
 import { BAST_USER_ID, BOT_USER_IDS } from '../gate-mirror';
 import { checkComment, type CommentAuthorKind, type ReachOrigin } from '../worker-reach';
 import { isChatUuid } from '../worker-kit';
+import { CHAT_COMMENT_PREFIX } from '../worker-reads';
+import { lockScope, scopeFor } from '../task-locks';
 import type { OpDef, OpDb, OpRun } from './index';
 
-export const COMMENT_PREFIX = 'From Mike, through the chat: ';
+export const COMMENT_PREFIX = CHAT_COMMENT_PREFIX;
 export const COMMENT_MAX = 2000;
 
 const inputSchema = z.object({ task_id: z.string().uuid(), text: z.string().trim().min(1).max(COMMENT_MAX) }).strict();
@@ -65,6 +74,12 @@ async function run(ctx: OpContext, input: CommentInput, expect: unknown): Promis
   const e = expectSchema.safeParse(expect);
   if (!e.success) throw new ApiError('That changed. Ask again.', 409, 'changed_since');
   const db = ctx.db as OpDb;
+  if (!ctx.actor) {
+    // The chat's own write: lock, then judge again on what is committed now (the route's check ran before the lock).
+    await lockScope(db, await scopeFor(db, [input.task_id]));
+    const again = await prepare(ctx, input, 'chat');
+    if (again.reach.needs_tap) throw new ApiError('Changed since. Open the task.', 409, 'changed_since');
+  }
   const task = await db.task.findUnique({ where: { id: input.task_id }, select: { id: true, title: true, assignee_id: true, is_deleted: true, updated_at: true } });
   if (!task || task.is_deleted) throw new ApiError('That task does not exist.', 404, 'task_missing');
   const last = await latestComment(db, input.task_id);

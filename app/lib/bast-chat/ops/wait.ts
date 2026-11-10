@@ -169,6 +169,8 @@ async function prepare(ctx: OpContext, input: WaitInput, origin: ReachOrigin): P
               ? `finish the wait "${t}"`
               : `change the date of the wait "${t}"`,
       why: input.action === 'complete' ? [] : ['The wait makes a task for Bast when it comes due.'],
+      // Finishing a wait hands nothing over by itself: the button says what the tap does (VERIFY-2 N7).
+      ...(input.action === 'complete' ? { buttons: { yes: 'Finish it', no: 'Keep it open' } } : {}),
     },
   };
 }
