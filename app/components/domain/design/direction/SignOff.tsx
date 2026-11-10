@@ -20,9 +20,13 @@ export interface SignOffProps {
 
 const POLARITY: Record<string, string> = { require: 'The client needs this', avoid: 'The client wants this avoided' };
 
+/** The tab's own words for "someone saved while you were looking"; the form then shows the latest. */
+export const MOVED_MESSAGE = 'This was just updated. Here is the latest.';
+
 export function signErrorMessage(error: unknown): string {
   if (error instanceof DirectionError) {
     if (error.code === 'designer_only') return 'Only the designer on this project can sign off.';
+    if (error.code === 'version_moved') return MOVED_MESSAGE;
     return error.message;
   }
   return 'Could not sign off. Try again.';
@@ -36,17 +40,40 @@ export function SignOff({ sessionId, direction, stage, missing, reasons, onAnswe
   const [mode, setMode] = React.useState<'refinements' | 'rebuild'>('refinements');
   const later = stage !== 'art_direction';
   const reasonsId = React.useId();
+  // The version and revision on screen when the dialog opened: that is what she agrees to, so that is what is signed,
+  // even if a newer one is fetched while the dialog is open.
+  const [shown, setShown] = React.useState<{ version: number; revision: string } | null>(null);
+
+  function openDialog() {
+    setError(null);
+    setShown({ version: direction.version, revision: direction.revision });
+    setOpen(true);
+  }
+
+  // The direction moved under the open dialog (someone saved, and the refetch brought it in): close it, say so, and let
+  // the form show the latest before she can sign again. Not while a sign is in flight: the server answers that one.
+  React.useEffect(() => {
+    if (!open || busy || !shown) return;
+    if (direction.revision !== shown.revision || direction.version !== shown.version) {
+      setOpen(false);
+      setError(MOVED_MESSAGE);
+    }
+  }, [open, busy, shown, direction.revision, direction.version]);
 
   async function confirm() {
+    if (!shown) return;
     setBusy(true);
     setError(null);
     try {
-      await signDirection(sessionId, direction.version, later ? mode : undefined);
+      await signDirection(sessionId, shown.version, later ? mode : undefined, shown.revision);
       setOpen(false);
       await Promise.all([qc.invalidateQueries({ queryKey: directionKey(sessionId) }), qc.invalidateQueries({ queryKey: designKeys.session(sessionId) })]);
     } catch (e) {
       setError(signErrorMessage(e));
-      if (e instanceof DirectionError && e.code === 'version_moved') void qc.invalidateQueries({ queryKey: directionKey(sessionId) });
+      if (e instanceof DirectionError && e.code === 'version_moved') {
+        setOpen(false);
+        void qc.invalidateQueries({ queryKey: directionKey(sessionId) });
+      }
     } finally {
       setBusy(false);
     }
@@ -72,7 +99,7 @@ export function SignOff({ sessionId, direction, stage, missing, reasons, onAnswe
         </div>
       )}
       <div className="mt-4 flex flex-wrap items-start gap-3">
-        <Button type="button" disabled={reasons.length > 0} aria-describedby={reasonsId} className="min-h-[44px] sm:min-h-0" onClick={() => { setError(null); setOpen(true); }}>
+        <Button type="button" disabled={reasons.length > 0} aria-describedby={reasonsId} className="min-h-[44px] sm:min-h-0" onClick={openDialog}>
           Sign off
         </Button>
         <div id={reasonsId} className="min-w-0 flex-1 text-sm text-text-sub" data-testid="sign-reasons">

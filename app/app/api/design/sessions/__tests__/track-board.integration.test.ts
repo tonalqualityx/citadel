@@ -524,7 +524,12 @@ describe.skipIf(!SCRATCH)('brief, board, art direction and track uploads (real d
     const NAV = { desktop: { pattern: 'inline', items: [{ label: 'Shop', url: '/shop/' }], utility: ['cart'], sticky: true }, mobile: { pattern: 'drawer_right', trigger: 'icon_with_label', always_visible: ['cart'], cta_in_drawer: true, sticky: true } };
     const FULL = { summary: 'Plain and square.', feel: { words: ['plain'], register: 'quiet', detail: 'quiet' }, nav: NAV, container: { max_content_px: 1280, method: 'padding_cap', gutters_px: { phone: 16 } } };
     const patch = (sessionId: string, p: unknown, base: number) => direction.PATCH(json('PATCH', '/x', { patch: p, base_version: base }), ctx({ id: sessionId }));
-    const signIt = (sessionId: string, base: number, mode?: string) => sign.POST(json('POST', '/x', { base_version: base, ...(mode ? { mode } : {}) }), ctx({ id: sessionId }));
+    // Sign carries the revision on screen (W4.4a-fix): read it the way the form does, from the GET.
+    const signIt = async (sessionId: string, base: number, mode?: string) => {
+      const shown = (await (await direction.GET(get('/x'), ctx({ id: sessionId }))).json()) as { direction?: { revision?: string } | null };
+      const base_revision = shown.direction?.revision ?? 'none';
+      return sign.POST(json('POST', '/x', { base_version: base, base_revision, ...(mode ? { mode } : {}) }), ctx({ id: sessionId }));
+    };
 
     it('draft edits: merge patch, stale base, notes refused, version moved, no forbidden keys', async () => {
       const { session } = await tracked('ad1');

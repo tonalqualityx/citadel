@@ -43,6 +43,8 @@ export interface DirectionVersion {
   id: string;
   version: number;
   status: 'draft' | 'signed' | 'superseded' | string;
+  /** Opaque: moves on every save by anyone. Send it back as-is; never parse or compare it except for equality. */
+  revision: string;
   body: DirectionBody;
   drafted_by: string;
   signed_at: string | null;
@@ -98,12 +100,20 @@ async function request<T>(method: 'GET' | 'PATCH' | 'POST', sessionId: string, s
 
 export const fetchDirection = (sessionId: string) => request<DirectionResponse>('GET', sessionId, '');
 
-/** PATCH a JSON merge patch onto the open draft. `baseVersion` is 0 when there is no draft yet. */
-export const patchDirection = (sessionId: string, patch: Record<string, unknown>, baseVersion: number) =>
-  request<{ direction: DirectionVersion }>('PATCH', sessionId, '', { patch, base_version: baseVersion });
+/**
+ * PATCH a JSON merge patch onto the open draft. `baseVersion` is 0 when there is no draft yet. `baseRevision` is the
+ * `revision` of the direction the caller holds (leave it out only when there is no draft yet): with it, a save made on
+ * top of someone else's newer edit is refused with `version_moved` instead of overwriting it. Take the new revision
+ * from the response before the next save.
+ */
+export const patchDirection = (sessionId: string, patch: Record<string, unknown>, baseVersion: number, baseRevision?: string) =>
+  request<{ direction: DirectionVersion }>('PATCH', sessionId, '', { patch, base_version: baseVersion, ...(baseRevision ? { base_revision: baseRevision } : {}) });
 
-export const signDirection = (sessionId: string, baseVersion: number, mode?: 'refinements' | 'rebuild') =>
-  request<{ direction: DirectionVersion; stage: string }>('POST', sessionId, '/sign', { base_version: baseVersion, ...(mode ? { mode } : {}) });
+/** Sign the draft. `baseRevision` is the revision on screen; the server signs only that revision (else `version_moved`). */
+export const signDirection = (sessionId: string, baseVersion: number, mode?: 'refinements' | 'rebuild', baseRevision?: string) =>
+  request<{ direction: DirectionVersion; stage: string }>('POST', sessionId, '/sign', {
+    base_version: baseVersion, ...(mode ? { mode } : {}), ...(baseRevision ? { base_revision: baseRevision } : {}),
+  });
 
 export const reviseDirection = (sessionId: string) => request<{ direction: DirectionVersion }>('POST', sessionId, '/revise', {});
 

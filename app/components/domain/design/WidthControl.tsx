@@ -283,7 +283,8 @@ function ConnectedWidthControl({ sessionId, sendToken, frameEpoch }: { sessionId
 
   const onSave = async (container: Record<string, unknown>) => {
       try {
-        const res = await patchDirection(sessionId, { container }, direction?.version ?? 0);
+        // the revision on screen goes with the save, so a newer edit by the assistant is refused (version_moved), never overwritten
+        const res = await patchDirection(sessionId, { container }, direction?.version ?? 0, direction?.revision);
         qc.setQueryData<DirectionResponse>(directionKey(sessionId), (prev) => (prev ? { ...prev, direction: res.direction } : prev));
         void qc.invalidateQueries({ queryKey: directionKey(sessionId) });
       } catch (e) {

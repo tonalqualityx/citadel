@@ -80,6 +80,23 @@ export function DirectionTab({ sessionId, track, feed }: TrackTabProps) {
 
   for (const m of data?.missing_client_requests ?? []) quotes.current[m.id] = m.quote;
 
+  // A save by the assistant arrives as an `art_direction` feed line: refetch at once, not on the next poll, so the form
+  // shows the new text before she signs. Lines seen on the first render are already covered by the first load.
+  const lastDirectionSeq = React.useMemo(() => {
+    let max = 0;
+    for (const e of feed?.events ?? []) if (e.kind === 'art_direction' && typeof e.seq === 'number' && e.seq > max) max = e.seq;
+    return max;
+  }, [feed?.events]);
+  const seenDirectionSeq = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (seenDirectionSeq.current === null || lastDirectionSeq <= seenDirectionSeq.current) {
+      seenDirectionSeq.current = Math.max(seenDirectionSeq.current ?? 0, lastDirectionSeq);
+      return;
+    }
+    seenDirectionSeq.current = lastDirectionSeq;
+    void qc.invalidateQueries({ queryKey: directionKey(sessionId) });
+  }, [lastDirectionSeq, qc, sessionId]);
+
   // Live updates: mark the fields that changed under the designer, except the ones she is editing or just saved.
   const prevLeaves = React.useRef<{ id: string; leaves: Record<string, string> } | null>(null);
   React.useEffect(() => {
@@ -125,7 +142,8 @@ export function DirectionTab({ sessionId, track, feed }: TrackTabProps) {
     setSave('saving');
     setSaveError(null);
     try {
-      const res = await patchDirection(sessionId, patch, base);
+      // The revision of the direction this form holds; the response carries the next one (set into the cache below).
+      const res = await patchDirection(sessionId, patch, base, current?.revision);
       keys.forEach((k) => ownKeys.current.add(k));
       qc.setQueryData<DirectionResponse>(directionKey(sessionId), (prev) => (prev ? { ...prev, direction: res.direction } : prev));
       dataRef.current = qc.getQueryData<DirectionResponse>(directionKey(sessionId));

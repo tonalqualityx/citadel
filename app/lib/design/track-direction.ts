@@ -5,6 +5,10 @@
  *   the schema is strict, so an unknown key, `notes` included, is a 400.
  * - A draft is edited with a JSON merge patch (null removes a key, objects merge, arrays are replaced) and
  *   `base_version`: 409 `version_moved` on a stale base, 409 `direction_signed` when the current version is signed.
+ * - A draft has two writers (the designer's form and the design worker), and `version` does not move while a draft is
+ *   edited, so every view carries a `revision` that moves on every write. A write names the revision it read
+ *   (`base_revision`) and is a compare-and-swap on it; sign freezes only the revision it validated, which must be the
+ *   one the designer's screen showed.
  * - Signing freezes the draft, in the same transaction as the stage effects of `signDirection` / `rebuildHome`
  *   (track-stage.ts); revising makes a new draft from the signed body.
  */
@@ -70,21 +74,50 @@ export type DirectionBody = z.infer<typeof directionBodySchema>;
 const DANGEROUS = new Set(['__proto__', 'constructor', 'prototype']);
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** JSON merge patch (RFC 7386): null removes a key, objects merge, everything else replaces. Refuses prototype keys. */
-export function mergePatch(target: unknown, patch: unknown): unknown {
+/** How deep a patch's objects may nest. The record itself is at most four levels deep; this only stops abuse. */
+export const MAX_PATCH_DEPTH = 12;
+
+/**
+ * JSON merge patch (RFC 7386): null removes a key, objects merge, everything else replaces. Refuses prototype keys and
+ * objects nested deeper than `MAX_PATCH_DEPTH` (400 `bad_patch`, before the schema runs and before the stack can blow).
+ */
+export function mergePatch(target: unknown, patch: unknown, depth = 1): unknown {
   if (!isObject(patch)) return patch;
+  if (depth > MAX_PATCH_DEPTH) throw new ApiError('That patch is nested too deeply', 400, 'bad_patch');
   const base: Record<string, unknown> = isObject(target) ? { ...target } : {};
   for (const [k, v] of Object.entries(patch)) {
     if (DANGEROUS.has(k)) throw new ApiError('That patch carries a reserved key', 400, 'bad_patch');
     if (v === null) delete base[k];
-    else base[k] = mergePatch(base[k], v);
+    else base[k] = mergePatch(base[k], v, depth + 1);
   }
   return base;
 }
 
+/**
+ * The revision of a direction row: an OPAQUE token. Callers echo it back as `base_revision` and compare it for
+ * equality; they never parse it or order it. Today it is the row's `updated_at` as an ISO string, and every write to a
+ * draft moves `updated_at` strictly forward (`nextUpdatedAt`) under the track lock. Nothing else formats it.
+ */
+export function directionRevision(d: Pick<DesignArtDirection, 'updated_at'>): string {
+  return d.updated_at.toISOString();
+}
+
+/** The `updated_at` a write sets: now, or one millisecond past the row's current value, so two writes in the same millisecond still get two revisions. */
+export function nextUpdatedAt(current: Date | null | undefined): Date {
+  return new Date(Math.max(Date.now(), (current?.getTime() ?? 0) + 1));
+}
+
+/** The top-level sections of the record a patch names; anything else (a no-op `null` for an unknown key) is never echoed. */
+function patchedSections(patch: Record<string, unknown>): string[] {
+  return Object.keys(patch).filter((k) => Object.prototype.hasOwnProperty.call(directionBodySchema.shape, k));
+}
+
 /** What the designer sees of a direction version: no `client_email_*`, no signer id (SPEC 3.5). */
 export function directionView(d: DesignArtDirection) {
-  return { id: d.id, version: d.version, status: d.status, body: stripForbidden(d.body), drafted_by: d.drafted_by, signed_at: d.signed_at, created_at: d.created_at, updated_at: d.updated_at };
+  return {
+    id: d.id, version: d.version, status: d.status, revision: directionRevision(d), body: stripForbidden(d.body), drafted_by: d.drafted_by, signed_at: d.signed_at,
+    created_at: d.created_at, updated_at: d.updated_at,
+  };
 }
 
 /** The version the designer works on: the open draft, else the latest signed one, else null. */
@@ -136,19 +169,21 @@ async function recordDirectionEvent(trackId: string, payload: Record<string, unk
 }
 
 /** PATCH art-direction: merge `patch` into the open draft (or start version 1 in art_direction). */
-export async function patchDirection(trackId: string, designerId: string, input: { patch: Record<string, unknown>; base_version: number }) {
+export async function patchDirection(trackId: string, designerId: string, input: { patch: Record<string, unknown>; base_version: number; base_revision?: string }) {
   return patchDirectionAs(trackId, { draftedBy: 'designer', by: designerId }, input);
 }
 
 /**
  * The one implementation behind the designer PATCH and the worker PATCH (SPEC 5.1), so both get the same schema, size
  * cap and stage rules. The worker may omit `base_version` ("the version I just read"); the designer always sends it.
- * Nothing here signs or revises.
+ * `base_revision` is the revision the caller read: on an existing draft the worker must send it and the designer
+ * should (optional only so older callers keep working); a mismatch is 409 `version_moved`. Creating version 1 takes no
+ * revision. The write is a compare-and-swap on the revision read under the lock. Nothing here signs or revises.
  */
 export async function patchDirectionAs(
   trackId: string,
   actor: { draftedBy: 'designer' | 'worker'; by: string },
-  input: { patch: Record<string, unknown>; base_version?: number },
+  input: { patch: Record<string, unknown>; base_version?: number; base_revision?: string },
 ) {
   const signedMessage = actor.draftedBy === 'worker' ? 'This version is signed; the designer revises it to change it' : 'This version is signed; revise the direction to edit it';
   const movedMessage = actor.draftedBy === 'worker' ? 'The art direction changed; read it again' : 'The art direction changed; reload';
@@ -161,16 +196,27 @@ export async function patchDirectionAs(
       if (signed) throw new ApiError(signedMessage, 409, 'direction_signed');
       if (track.stage !== 'art_direction') throw new ApiError('There is no art direction to edit at this stage', 409, 'illegal_transition');
       if ((input.base_version ?? 0) !== 0) throw new ApiError(movedMessage, 409, 'version_moved');
+      if (input.base_revision !== undefined) throw new ApiError(movedMessage, 409, 'version_moved');
       const body = directionBodySchema.parse(mergePatch({}, input.patch));
       assertSize(body);
-      const created = await tx.designArtDirection.create({ data: { track_id: trackId, version: 1, status: 'draft', body: body as Prisma.InputJsonValue, drafted_by: actor.draftedBy } });
-      return { row: created, fields: Object.keys(input.patch) };
+      const created = await tx.designArtDirection.create({
+        data: { track_id: trackId, version: 1, status: 'draft', body: body as Prisma.InputJsonValue, drafted_by: actor.draftedBy, updated_at: nextUpdatedAt(null) },
+      });
+      return { row: created, fields: patchedSections(input.patch) };
     }
     if (input.base_version !== undefined && draft.version !== input.base_version) throw new ApiError(movedMessage, 409, 'version_moved');
+    if (input.base_revision === undefined ? actor.draftedBy === 'worker' : input.base_revision !== directionRevision(draft)) {
+      throw new ApiError(movedMessage, 409, 'version_moved');
+    }
     const merged = directionBodySchema.parse(mergePatch(draft.body, input.patch));
     assertSize(merged);
-    const row = await tx.designArtDirection.update({ where: { id: draft.id }, data: { body: merged as Prisma.InputJsonValue, drafted_by: actor.draftedBy } });
-    return { row, fields: Object.keys(input.patch) };
+    const res = await tx.designArtDirection.updateMany({
+      where: { id: draft.id, status: 'draft', version: draft.version, updated_at: draft.updated_at },
+      data: { body: merged as Prisma.InputJsonValue, drafted_by: actor.draftedBy, updated_at: nextUpdatedAt(draft.updated_at) },
+    });
+    if (res.count !== 1) throw new ApiError(movedMessage, 409, 'version_moved');
+    const row = await tx.designArtDirection.findUniqueOrThrow({ where: { id: draft.id } });
+    return { row, fields: patchedSections(input.patch) };
   });
   await recordDirectionEvent(trackId, { version: out.row.version, status: 'draft', fields: out.fields, by: actor.by });
   return directionView(out.row);
@@ -194,8 +240,13 @@ export type SignMode = 'refinements' | 'rebuild';
  * email). Later versions (refine, review, or a failed home build) ask `mode`: `rebuild` queues a new home build,
  * `refinements` (default) keeps the stage and appends one designer text event with the difference. Each signed version
  * queues its own `client_brief_email`.
+ *
+ * `base_revision` is the revision the designer's screen showed. The draft is read and validated here, outside the lock,
+ * and everything below (gaps, client requests, modules, the email and build payloads, the refinement text) comes from
+ * that one row. `freeze` then signs only if the row still holds that revision, under the lock every writer takes, so a
+ * write that lands between the read and the freeze makes the whole move 409 `version_moved` and nothing is queued.
  */
-export async function signArtDirection(trackId: string, designerId: string, input: { base_version: number; mode?: SignMode }) {
+export async function signArtDirection(trackId: string, designerId: string, input: { base_version: number; base_revision: string; mode?: SignMode }) {
   const track = await loadTrack(prisma, trackId);
   const draft = await prisma.designArtDirection.findFirst({ where: { track_id: trackId, status: 'draft' } });
   if (!draft) {
@@ -203,7 +254,7 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
     if (signed) throw new ApiError('This version is already signed', 409, 'direction_signed');
     throw new ApiError('There is no art direction draft to sign', 409, 'no_draft');
   }
-  if (draft.version !== input.base_version) throw new ApiError('The art direction changed; reload', 409, 'version_moved');
+  if (draft.version !== input.base_version || directionRevision(draft) !== input.base_revision) throw new ApiError('The art direction changed; reload', 409, 'version_moved');
   const parsed = directionBodySchema.safeParse(draft.body);
   if (!parsed.success) throw new ApiError('The art direction draft is not valid', 409, 'direction_incomplete');
   const body = parsed.data;
@@ -219,7 +270,7 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
     modules,
     clientEmailPayload: { art_direction_id: draft.id, version: draft.version },
     buildPayload: { art_direction_id: draft.id, version: draft.version, mode: track.stage === 'art_direction' ? 'first' : 'rebuild' },
-    onQueued: (scope, r) => freeze(scope, { trackId, draftId: draft.id, version: draft.version, designerId, emailJobId: r.clientEmailJobId }),
+    onQueued: (scope, r) => freeze(scope, { trackId, draftId: draft.id, version: draft.version, updatedAt: draft.updated_at, designerId, emailJobId: r.clientEmailJobId }),
   };
 
   let jobs: { build_job_id: string | null; client_email_job_id: string };
@@ -239,7 +290,7 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
       const fresh = await loadTrack(scope.tx, trackId);
       if (fresh.stage !== track.stage) throw new ApiError('Track changed state; reload and retry', 409, 'state_conflict');
       const mail = await queueJob(scope.tx, fresh, 'client_brief_email', { payload: common.clientEmailPayload as never, taskId: null });
-      await freeze(scope, { trackId, draftId: draft.id, version: draft.version, designerId, emailJobId: mail!.id });
+      await freeze(scope, { trackId, draftId: draft.id, version: draft.version, updatedAt: draft.updated_at, designerId, emailJobId: mail!.id });
       await appendRefinementEvent(scope, trackId, designerId, draft.id, draft.version, body.summary, diff);
       return { build_job_id: null, client_email_job_id: mail!.id };
     });
@@ -252,14 +303,22 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
   return { direction: directionView(row), stage, ...jobs };
 }
 
-/** Freeze the draft in the caller's transaction: signed, supersede the earlier signed version, point the track at it. */
-async function freeze(scope: TrackScope, a: { trackId: string; draftId: string; version: number; designerId: string; emailJobId: string }): Promise<void> {
+/**
+ * Freeze the draft in the caller's transaction: signed, supersede the earlier signed version, point the track at it.
+ * Only the revision that was validated (`updatedAt`) is frozen; the caller holds the track lock, which every draft
+ * writer takes, so the row cannot move between this check and the commit.
+ */
+async function freeze(scope: TrackScope, a: { trackId: string; draftId: string; version: number; updatedAt: Date; designerId: string; emailJobId: string }): Promise<void> {
   const { tx } = scope;
   const res = await tx.designArtDirection.updateMany({
-    where: { id: a.draftId, status: 'draft', version: a.version },
+    where: { id: a.draftId, status: 'draft', version: a.version, updated_at: a.updatedAt },
     data: { status: 'signed', signed_by_id: a.designerId, signed_at: new Date(), client_email_job_id: a.emailJobId, client_email_status: 'queued' },
   });
-  if (res.count !== 1) throw new ApiError('This version is already signed', 409, 'direction_signed');
+  if (res.count !== 1) {
+    const now = await tx.designArtDirection.findUnique({ where: { id: a.draftId }, select: { status: true } });
+    if (now && now.status !== 'draft') throw new ApiError('This version is already signed', 409, 'direction_signed');
+    throw new ApiError('The art direction changed; reload', 409, 'version_moved');
+  }
   await tx.designArtDirection.updateMany({ where: { track_id: a.trackId, status: 'signed', id: { not: a.draftId } }, data: { status: 'superseded' } });
   await tx.designTrack.update({ where: { id: a.trackId }, data: { art_direction_id: a.draftId } });
 }
@@ -301,7 +360,11 @@ export async function reviseDirection(trackId: string, designerId: string) {
     if (!signed) throw new ApiError('There is no signed direction to revise', 409, 'no_signed_direction');
     const last = await tx.designArtDirection.aggregate({ where: { track_id: trackId }, _max: { version: true } });
     return tx.designArtDirection.create({
-      data: { track_id: trackId, version: (last._max.version ?? signed.version) + 1, status: 'draft', body: signed.body as Prisma.InputJsonValue, drafted_by: 'designer' },
+      data: {
+        track_id: trackId, version: (last._max.version ?? signed.version) + 1, status: 'draft', body: signed.body as Prisma.InputJsonValue, drafted_by: 'designer',
+        // strictly after the signed row, so a revision read before the sign can never match the new draft
+        updated_at: nextUpdatedAt(signed.updated_at),
+      },
     });
   });
   await recordDirectionEvent(trackId, { version: row.version, status: 'draft', revised: true, by: designerId });

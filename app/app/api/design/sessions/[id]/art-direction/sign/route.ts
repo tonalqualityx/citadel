@@ -6,10 +6,15 @@ import { loadTrackedSession } from '@/lib/design/track-route';
 import { assertTrackWritable } from '@/lib/design/track-session';
 import { signArtDirection } from '@/lib/design/track-direction';
 
-const schema = z.object({ base_version: z.number().int().min(1).max(10_000), mode: z.enum(['refinements', 'rebuild']).optional() }).strict();
+const schema = z.object({
+  base_version: z.number().int().min(1).max(10_000),
+  base_revision: z.string().min(1).max(40),
+  mode: z.enum(['refinements', 'rebuild']).optional(),
+}).strict();
 
 // POST /api/design/sessions/:id/art-direction/sign (SPEC 4.4, 2.5, 4.11 #12): the session's designer only (an admin is 403
-// designer_only). Freezes the draft and queues the build jobs. `mode` matters only for a later version.
+// designer_only). Freezes the draft and queues the build jobs. `base_revision` is the `revision` her screen showed: only
+// that revision is signed (409 version_moved otherwise). `mode` matters only for a later version.
 export async function POST(request: NextRequest, { params }: IdParams) {
   try {
     const blocked = guardMutation(request);

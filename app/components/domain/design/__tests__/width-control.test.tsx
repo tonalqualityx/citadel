@@ -15,7 +15,7 @@ import { DirectionError } from '@/lib/hooks/use-design-direction';
 import { WidthControl } from '../WidthControl';
 
 function direction(over: Record<string, unknown> = {}, body: Record<string, unknown> = {}) {
-  return { data: { direction: { id: 'd1', version: 3, status: 'draft', body, ...over }, signed: null, missing_client_requests: [], sign_gaps: [] } };
+  return { data: { direction: { id: 'd1', version: 3, status: 'draft', revision: 'rev-3a', body, ...over }, signed: null, missing_client_requests: [], sign_gaps: [] } };
 }
 
 function renderControl(props: Partial<React.ComponentProps<typeof WidthControl>> = {}, epoch = 0) {
@@ -69,7 +69,7 @@ describe('WidthControl', () => {
     expect((screen.getByRole('button', { name: 'Save to direction' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('save PATCHes only the container fields she picked, against the draft version', async () => {
+  it('save PATCHes only the container fields she picked, against the draft version and the revision on screen', async () => {
     patchDirection.mockResolvedValue({ direction: { id: 'd1', version: 4, status: 'draft', body: {} } });
     renderControl();
     fireEvent.click(screen.getByRole('button', { name: '1280' }));
@@ -77,7 +77,7 @@ describe('WidthControl', () => {
     fireEvent.click(screen.getByLabelText(/Centred cap/));
     fireEvent.click(screen.getByRole('button', { name: 'Save to direction' }));
     await waitFor(() => expect(patchDirection).toHaveBeenCalledTimes(1));
-    expect(patchDirection).toHaveBeenCalledWith('s1', { container: { max_content_px: 1280, method: 'max_width', gutters_px: { phone: 16, tablet: 32, desktop: 48 } } }, 3);
+    expect(patchDirection).toHaveBeenCalledWith('s1', { container: { max_content_px: 1280, method: 'max_width', gutters_px: { phone: 16, tablet: 32, desktop: 48 } } }, 3, 'rev-3a');
     await waitFor(() => expect(screen.getByTestId('width-status').textContent).toBe('Saved to the direction.'));
   });
 

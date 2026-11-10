@@ -2,13 +2,15 @@
  * Designer Portal v2: what the design worker (the daemon) may read of a track and write to its art direction
  * (SPEC 5, 5.1, 3.3 machine reads, 3.5 projections).
  *
- * - The target always comes from the SESSION ROW (`loadWorkerTrackedSession`): a session with no track is 404, like a
- *   session that does not exist. Nothing the model sends picks a session, a track or a file.
+ * - The target always comes from the SESSION ROW (`loadWorkerTrackedSession`): a session with no track, or one that is
+ *   closed or abandoned, is 404, like a session that does not exist. Nothing the model sends picks a session, a track
+ *   or a file.
  * - `readWorkerContext` reuses the designer readers (track-board.ts, track-direction.ts) and runs the result through
  *   `stripForbidden`, so `client_id`, `notes`, `storage_key`, `email` and `contacts` cannot reach the box. Asset views
  *   carry no URL at all: the daemon asks the machine route for bytes by asset id.
  * - `patchDirectionAsWorker` calls the same implementation as the designer PATCH (`patchDirectionAs`), marking the
- *   draft `drafted_by: 'worker'` with `base_version` optional. It never signs and never revises.
+ *   draft `drafted_by: 'worker'` with `base_version` optional and `base_revision` required once a draft exists (the
+ *   `revision` of the direction it last read). It never signs and never revises.
  */
 import { z } from 'zod';
 import type { DesignSession, DesignTrack } from '@prisma/client';
@@ -23,11 +25,14 @@ export const CONTEXT_PARTS = ['brief', 'board', 'direction', 'client_statements'
 export type ContextPart = (typeof CONTEXT_PARTS)[number];
 export const MAX_CONTEXT_IDS = 20;
 
-/** The session row, then its track. 404 for a session that does not exist and for one with no track. */
+/** Terminal session states (DesignSessionStatus): the worker can no longer read or write through such a session. */
+const ENDED_SESSION_STATUSES: ReadonlySet<DesignSession['status']> = new Set(['closed', 'abandoned']);
+
+/** The session row, then its track. 404 for a session that does not exist, one with no track, and one that has ended. */
 export async function loadWorkerTrackedSession(sessionId: string): Promise<{ session: DesignSession; track: DesignTrack }> {
   if (!isUuid(sessionId)) throw new ApiError('Session not found', 404, 'not_found');
   const session = await prisma.designSession.findUnique({ where: { id: sessionId } });
-  if (!session || !session.track_id) throw new ApiError('Session not found', 404, 'not_found');
+  if (!session || !session.track_id || ENDED_SESSION_STATUSES.has(session.status)) throw new ApiError('Session not found', 404, 'not_found');
   return { session, track: await loadTrack(prisma, session.track_id) };
 }
 
@@ -106,8 +111,9 @@ export async function readWorkerContext(track: DesignTrack, session: Pick<Design
 /**
  * PATCH art-direction from the worker: the designer PATCH (one shared implementation, `patchDirectionAs`) with the draft
  * marked `drafted_by: 'worker'` and `base_version` optional. 409 `direction_signed` when the current version is signed,
- * 409 `version_moved` on a stale `base_version`. There is no sign or revise here.
+ * 409 `version_moved` on a stale `base_version`, and on a missing or stale `base_revision` once a draft exists. There
+ * is no sign or revise here.
  */
-export async function patchDirectionAsWorker(trackId: string, input: { patch: Record<string, unknown>; base_version?: number }) {
+export async function patchDirectionAsWorker(trackId: string, input: { patch: Record<string, unknown>; base_version?: number; base_revision?: string }) {
   return patchDirectionAs(trackId, { draftedBy: 'worker', by: 'worker' }, input);
 }

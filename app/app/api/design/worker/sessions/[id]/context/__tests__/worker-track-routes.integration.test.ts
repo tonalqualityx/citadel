@@ -1,6 +1,7 @@
 // @vitest-environment node
 // W4.4a: the three worker-lane routes for a tracked session: context, art-direction, track-assets (SPEC 5.1).
 import crypto from 'crypto';
+import { NextRequest } from 'next/server';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { SCRATCH, seedDesign, seedTask, seedTrack, teardownDesign, type DesignFixture } from '@/lib/design/__tests__/fixtures';
 import { seedWorld, teardownWorlds, type TrackWorld } from '@/lib/design/__tests__/track-world';
@@ -16,6 +17,7 @@ vi.mock('@/lib/services/s3', () => ({
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { DESIGN_WORKER_SERVICE_EMAIL } from '@/lib/design/helpers';
+import { findForbiddenKeys } from '@/lib/design/projections';
 import { createOrGetSession } from '@/lib/design/sessions';
 import { WORKER as WORKER_BASE, ctx, req } from '../../../../__tests__/harness';
 import * as context from '../route';
@@ -24,10 +26,16 @@ import * as trackAsset from '../../track-assets/[assetId]/route';
 
 const P = '/api/design/worker';
 const sha = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
-const FORBIDDEN = /"(client_id|notes|storage_key|email|contacts)"\s*:/;
+
+// The suite needs the scratch database and is skipped without it: this line says in every gate log whether it ran.
+it('reports whether the worker track routes suite ran against the scratch database', () => {
+  console.log(`[worker-track-routes] scratch database suite ${SCRATCH ? 'RAN' : 'SKIPPED (no scratch database)'}`);
+  expect(typeof SCRATCH).toBe('boolean');
+});
 
 describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
   let f: DesignFixture;
+  let foreignF: DesignFixture; // another client, project and track: its rows must never reach this session
   let w: TrackWorld;
   let trackId: string;
   let sid: string; // tracked session
@@ -39,12 +47,16 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
   let otherRefId = '';
   let noteId = '';
   let foreignAssetId = '';
+  let foreignRefId = '';
+  let foreignNoteId = '';
 
   const get = async (part: string, ids?: string) => {
     const q = `part=${part}${ids !== undefined ? `&ids=${ids}` : ''}`;
     return context.GET(req('GET', `${P}/sessions/${sid}/context?${q}`) as never, ctx({ id: sid }));
   };
   const patch = (body: unknown, id = sid) => direction.PATCH(req('PATCH', `${P}/sessions/${id}/art-direction`, body) as never, ctx({ id }));
+  /** The revision of the direction as the worker reads it (the token is opaque: it is only echoed back). */
+  const revision = async () => ((await (await get('direction')).json()).direction?.revision ?? null) as string;
   const readAsset = (assetId: string, id = sid) => trackAsset.GET(req('GET', `${P}/sessions/${id}/track-assets/${assetId}`), ctx({ id, assetId }));
 
   const mkAsset = async (tid: string, kind: string, bytes: Buffer, extra: Record<string, unknown> = {}) => {
@@ -78,8 +90,13 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
     assetIds.fold = await mkAsset(trackId, 'ref_fold', Buffer.from('FOLD-BYTES'));
     assetIds.log = await mkAsset(trackId, 'job_log', Buffer.from('log text'), { content_type: 'text/plain' });
     assetIds.briefImg = await mkAsset(trackId, 'brief_image', Buffer.from('BRIEF-IMG'));
-    const other = await seedTrack(f, { stage: 'research' });
+    foreignF = await seedDesign(`w44x${Date.now()}`);
+    const other = await seedTrack(foreignF, { stage: 'art_direction' });
     foreignAssetId = await mkAsset(other.id, 'ref_fold', Buffer.from('FOREIGN'));
+    foreignRefId = (await prisma.designReference.create({ data: { track_id: other.id, source: 'designer_url', url: 'https://foreign.example.test/', title: 'Foreign ref', desktop_fold_asset_id: foreignAssetId, capture_status: 'done' } })).id;
+    foreignNoteId = (await prisma.designNote.create({
+      data: { client_id: foreignF.clientId, source_kind: 'email', source_ref: 'foreign-1', source_date: new Date('2026-01-02'), speaker_name: 'Lee', speaker_role: 'client', quote: 'Only use red', quote_sha: sha('foreign'), category: 'colour', polarity: 'require', subject: 'red', confidence: 0.9, extracted_by: 'test' },
+    })).id;
 
     // board: one reference with a live markup, one of another track
     const ref = await prisma.designReference.create({ data: { track_id: trackId, source: 'designer_url', url: 'https://ref.example.test/', title: 'Ref one', desktop_fold_asset_id: assetIds.fold, capture_status: 'done', extracted: { client: 'x', palette: ['#fff'], email: 'a@b.test' } } });
@@ -99,6 +116,8 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
     await prisma.designPageReview.create({ data: { track_id: trackId, page_path: '/about/', title: 'About' } });
   });
   afterAll(async () => {
+    await prisma.designTrack.deleteMany({ where: { site_id: foreignF.siteId } });
+    await teardownDesign(foreignF);
     await prisma.designTrack.deleteMany({ where: { site_id: f.siteId } });
     await teardownWorlds(f, worlds);
     await teardownDesign(f);
@@ -132,12 +151,12 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
       expect(body.brief.body.client_name).toBe('Acme');
       expect(body.assets.map((a: { id: string }) => a.id)).toEqual([assetIds.briefImg]);
       expect(body.assets[0]).not.toHaveProperty('url');
-      expect(text).not.toMatch(FORBIDDEN);
+      expect(findForbiddenKeys(body)).toEqual([]);
       expect(text).not.toContain('design/tracks/');
       expect(body).not.toHaveProperty('client_statements'); // its own part
     });
 
-    it('board: references with live markups; ids narrow it and another track\'s id matches nothing; forbidden keys are stripped', async () => {
+    it('board: references with live markups; ids narrow it and a real reference of another project matches nothing; forbidden keys are stripped', async () => {
       const all = await (await get('board')).json();
       expect(all.references).toHaveLength(2);
       const one = all.references.find((r: { id: string }) => r.id === refId);
@@ -148,21 +167,26 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
       expect(one.extracted).toEqual({ client_name: 'x', palette: ['#fff'] });
       const narrowed = await (await get('board', refId)).json();
       expect(narrowed.references.map((r: { id: string }) => r.id)).toEqual([refId]);
-      const foreign = await (await get('board', crypto.randomUUID())).json();
+      const foreign = await (await get('board', foreignRefId)).json();
       expect(foreign.references).toEqual([]);
-      expect(JSON.stringify(all)).not.toMatch(FORBIDDEN);
+      const mixed = await (await get('board', `${refId},${foreignRefId}`)).json();
+      expect(mixed.references.map((r: { id: string }) => r.id)).toEqual([refId]);
+      expect(all.references.map((r: { id: string }) => r.id)).not.toContain(foreignRefId);
+      expect(JSON.stringify(all)).not.toContain(foreignAssetId);
+      expect(findForbiddenKeys(all)).toEqual([]);
       void otherRefId;
     });
 
-    it('client_statements: the client\'s own words, nothing of the client record', async () => {
+    it('client_statements: the client\'s own words, nothing of the client record, never another client\'s', async () => {
       const res = await get('client_statements');
       const text = await res.text();
       const body = JSON.parse(text);
       expect(body.client_statements).toHaveLength(1);
       expect(Object.keys(body.client_statements[0]).sort()).toEqual(['category', 'id', 'is_paraphrase', 'polarity', 'quote', 'source_date', 'source_kind', 'speaker_name', 'speaker_role', 'status', 'subject']);
       expect(body.client_statements[0].id).toBe(noteId);
-      expect(text).not.toMatch(FORBIDDEN);
-      expect((await (await get('client_statements', crypto.randomUUID())).json()).client_statements).toEqual([]);
+      expect(findForbiddenKeys(body)).toEqual([]);
+      expect(text).not.toContain(foreignNoteId);
+      expect((await (await get('client_statements', foreignNoteId)).json()).client_statements).toEqual([]);
     });
 
     it('direction: null before the first draft, then the draft with the gaps; pages: the track\'s page list', async () => {
@@ -178,15 +202,16 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
   });
 
   describe('PATCH art-direction', () => {
-    it('writes version 1 as a worker draft without a base_version, then merges; a stale base is 409 version_moved', async () => {
+    it('writes version 1 as a worker draft without a base_version, then merges with the revision it read; a stale base is 409 version_moved', async () => {
       const first = await patch({ patch: { summary: 'Quiet and square', feel: { register: 'quiet' } } });
       expect(first.status).toBe(200);
       const d1 = (await first.json()).direction;
       expect(d1).toMatchObject({ version: 1, status: 'draft', drafted_by: 'worker', body: { summary: 'Quiet and square', feel: { register: 'quiet' } } });
-      const second = await patch({ patch: { feel: { words: ['plain'] }, nav: { desktop: { pattern: 'inline' } } }, base_version: 1 });
+      expect(typeof d1.revision).toBe('string');
+      const second = await patch({ patch: { feel: { words: ['plain'] }, nav: { desktop: { pattern: 'inline' } } }, base_version: 1, base_revision: d1.revision });
       expect(second.status).toBe(200);
       expect((await second.json()).direction.body).toMatchObject({ feel: { register: 'quiet', words: ['plain'] }, nav: { desktop: { pattern: 'inline' } } });
-      expect((await patch({ patch: { summary: 'x' }, base_version: 7 })).status).toBe(409);
+      expect((await patch({ patch: { summary: 'x' }, base_version: 7, base_revision: await revision() })).status).toBe(409);
       const row = await prisma.designArtDirection.findFirstOrThrow({ where: { track_id: trackId } });
       expect(row.drafted_by).toBe('worker');
       // the designer feed gets one status line per write
@@ -197,16 +222,85 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
       expect(read.direction.version).toBe(1);
     });
 
+    it('on an existing draft the revision is required: missing or stale is 409 version_moved and writes nothing; the current one saves and moves it', async () => {
+      const before = await revision();
+      const missing = await patch({ patch: { summary: 'no revision' } });
+      expect(missing.status).toBe(409);
+      expect(await missing.json()).toMatchObject({ code: 'version_moved', error: 'The art direction changed; read it again' });
+      const withVersionOnly = await patch({ patch: { summary: 'no revision' }, base_version: 1 });
+      expect(withVersionOnly.status).toBe(409);
+      const stale = await patch({ patch: { summary: 'stale' }, base_revision: '2020-01-01T00:00:00.000Z' });
+      expect(stale.status).toBe(409);
+      expect((await stale.json()).code).toBe('version_moved');
+      expect(await revision()).toBe(before);
+      expect(((await prisma.designArtDirection.findFirstOrThrow({ where: { track_id: trackId } })).body as { summary: string }).summary).toBe('Quiet and square');
+      expect((await patch({ patch: { summary: 'x' }, base_revision: 'r'.repeat(41) })).status).toBe(400);
+      const ok = await patch({ patch: { open_questions: ['Who owns the photos?'] }, base_revision: before });
+      expect(ok.status).toBe(200);
+      const after = (await ok.json()).direction.revision;
+      expect(after).not.toBe(before);
+      expect(await revision()).toBe(after);
+      // the revision the worker just used is now stale
+      expect((await patch({ patch: { summary: 'again' }, base_revision: before })).status).toBe(409);
+    });
+
+    it('two writes in the same millisecond still get two different revisions', async () => {
+      const r0 = await revision();
+      const frozen = Date.parse(r0);
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(frozen);
+      try {
+        const a = await patch({ patch: { feel: { detail: 'one' } }, base_revision: r0 });
+        expect(a.status).toBe(200);
+        const ra = (await a.json()).direction.revision as string;
+        const b = await patch({ patch: { feel: { detail: 'two' } }, base_revision: ra });
+        expect(b.status).toBe(200);
+        const rb = (await b.json()).direction.revision as string;
+        expect(new Set([r0, ra, rb]).size).toBe(3);
+        expect((await patch({ patch: { feel: { detail: 'three' } }, base_revision: ra })).status).toBe(409);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
     it('validates like the designer route: `notes`, unknown keys and bad enums are 400; an unknown body key is 400', async () => {
-      expect((await patch({ patch: { notes: 'x' } })).status).toBe(400);
-      expect((await patch({ patch: { feel: { register: 'loud' } } })).status).toBe(400);
-      expect((await patch({ patch: { summary: Array.from({ length: 130 }, () => 'w').join(' ') } })).status).toBe(400);
+      const base_revision = await revision();
+      expect((await patch({ patch: { notes: 'x' }, base_revision })).status).toBe(400);
+      expect((await patch({ patch: { feel: { register: 'loud' } }, base_revision })).status).toBe(400);
+      expect((await patch({ patch: { summary: Array.from({ length: 130 }, () => 'w').join(' ') }, base_revision })).status).toBe(400);
+      const deep = `{"patch":{"unknown_key":${'{"a":'.repeat(10_000)}1${'}'.repeat(10_000)}},"base_revision":"${base_revision}"}`;
+      const tooDeep = await direction.PATCH(new NextRequest(`http://localhost:3000${P}/sessions/${sid}/art-direction`, { method: 'PATCH', body: deep, headers: { 'Content-Type': 'application/json' } }) as never, ctx({ id: sid }));
+      expect(tooDeep.status).toBe(400);
+      expect((await tooDeep.json()).code).toBe('bad_patch');
+      expect(await revision()).toBe(base_revision);
       expect((await patch({ patch: { summary: 's' }, sign: true })).status).toBe(400);
       expect((await patch({})).status).toBe(400);
     });
 
     it('404 for an untracked session', async () => {
       expect((await patch({ patch: { summary: 's' } }, plainSid)).status).toBe(404);
+    });
+
+    it('a closed or abandoned session is 404 on all three worker routes, like an unknown session', async () => {
+      const w2 = await seedWorld(f, 'w44c');
+      worlds.push(w2);
+      const slug2 = 'bcdefghijklmnopq'.split('').reverse().join('');
+      const t2 = await prisma.designTrack.create({
+        data: { site_id: w2.siteId, project_id: w2.projectId, slug: slug2, stage: 'art_direction', branch: `design/t-${slug2}`, preview_alias: `design-t-${slug2}` },
+      });
+      const s2 = (await createOrGetSession(f.designer, w2.t.art)).session.id;
+      const a2 = await mkAsset(t2.id, 'ref_fold', Buffer.from('CLOSED-BYTES'));
+      const ctxRead = () => context.GET(req('GET', `${P}/sessions/${s2}/context?part=brief`) as never, ctx({ id: s2 }));
+      expect((await ctxRead()).status).toBe(200);
+      expect((await readAsset(a2, s2)).status).toBe(200);
+      for (const status of ['closed', 'abandoned'] as const) {
+        await prisma.designSession.update({ where: { id: s2 }, data: { status } });
+        const c = await ctxRead();
+        expect(c.status, status).toBe(404);
+        expect((await c.json()).code, status).toBe('not_found');
+        expect((await patch({ patch: { summary: 's' } }, s2)).status, status).toBe(404);
+        expect((await readAsset(a2, s2)).status, status).toBe(404);
+      }
+      expect(await prisma.designArtDirection.count({ where: { track_id: t2.id } })).toBe(0);
     });
 
     it('a signed version is 409 direction_signed: nothing changes, the worker has no way to sign or revise', async () => {
@@ -234,7 +328,7 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
       expect(Buffer.from(await log.arrayBuffer()).toString()).toBe('log text');
     });
 
-    it('404 for an asset of another track, a random id, a malformed id and an untracked session', async () => {
+    it('404 for an asset of another project\'s track, a random id, a malformed id and an untracked session', async () => {
       expect((await readAsset(foreignAssetId)).status).toBe(404);
       expect((await readAsset(crypto.randomUUID())).status).toBe(404);
       expect((await readAsset('not-a-uuid')).status).toBe(404);
