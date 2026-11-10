@@ -181,9 +181,17 @@ export async function requestStop(conversationId: string, ownerId: string, db: D
 /**
  * House rule: no en or em dash in anything the reader sees. The model sometimes writes one anyway, so the server
  * swaps each (with the space around it) for ", " and collapses doubled spaces. Written as escapes on purpose.
+ * The same scrubber is the backstop for three more slips: the words for ranking a task ("priority", "priorities",
+ * "overdue" become "order", "order", "late"), literal bold marks (`**`), and heading marks at the start of a line.
  */
 export function stripDashes(text: string): string {
-  return text.replace(/\s*[\u2013\u2014]\s*/g, ', ').replace(/ {2,}/g, ' ');
+  return text
+    .replace(/\s*[\u2013\u2014]\s*/g, ', ')
+    .replace(/\bpriorit(?:y|ies)\b/gi, 'order')
+    .replace(/\boverdue\b/gi, 'late')
+    .replace(/\*\*/g, '')
+    .replace(/^[ \t]*#{1,6}[ \t]*/gm, '')
+    .replace(/ {2,}/g, ' ');
 }
 
 function cleanAssistantPayload(e: { role: string; kind: string; payload: Prisma.InputJsonValue }): Prisma.InputJsonValue {

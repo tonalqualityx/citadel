@@ -52,7 +52,7 @@ type Handler = (r: never, c: never) => Promise<Response>;
 interface Row { name: string; lane: string; h: Handler; method: string; path: string; body?: unknown; c: unknown; keys: string[]; owned?: boolean }
 const P = '/api/bast-chat/worker';
 const HB = { version: '1', sdk_version: '1', paused: false, live_conversations: [], isolation: null, auth_state: 'token' };
-const ACT = { conversation_id: CONV, tool: 'update_task', target_id: ACTION, summary: 'Moved it' };
+const ACT = { conversation_id: CONV, tool: 'propose_handoff', target_id: ACTION, status: 'proposed', proposed_assignee_id: OWNER_ID, summary: 'Proposed' };
 const rows: Row[] = [
   { name: 'GET inbox', lane: 'GET /api/bast-chat/worker/inbox', h: inbox.GET as Handler, method: 'GET', path: `${P}/inbox`, c: {}, keys: ['messages', 'settings', 'stops'] },
   { name: 'POST heartbeat', lane: 'POST /api/bast-chat/worker/heartbeat', h: heartbeat.POST as Handler, method: 'POST', path: `${P}/heartbeat`, body: HB, c: {}, keys: ['ok'] },
@@ -154,6 +154,19 @@ describe('worker route details', () => {
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ id: ACTION, status: 'applied', undo_until: '2026-11-11T00:00:00.000Z' });
     expect(recordAction).toHaveBeenCalledWith(expect.objectContaining(ACT), OWNER_ID);
+  });
+  it('actions: applied, filed and failed records from the worker are refused with 400 and a plain sentence', async () => {
+    vi.mocked(recordAction).mockImplementationOnce(async (raw, owner, now, db) => (await vi.importActual<typeof import('@/lib/bast-chat/actions')>('@/lib/bast-chat/actions')).recordAction(raw, owner, now, db));
+    for (const body of [
+      { conversation_id: CONV, tool: 'update_task', target_id: ACTION, status: 'applied', before: { status: 'done' }, after: { status: 'blocked' } },
+      { conversation_id: CONV, tool: 'create_task', target_id: ACTION, status: 'applied' },
+      { conversation_id: CONV, tool: 'update_task', target_id: ACTION, status: 'failed', error: 'x' },
+    ]) {
+      vi.mocked(recordAction).mockImplementationOnce(async (raw, owner, now, db) => (await vi.importActual<typeof import('@/lib/bast-chat/actions')>('@/lib/bast-chat/actions')).recordAction(raw, owner, now, db));
+      const res = await actions.POST(req('POST', `${P}/actions`, body) as never);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('The chat can only propose a handoff. Citadel records every change itself.');
+    }
   });
   it('actions: the status can only be applied, proposed or failed (never released)', async () => {
     const res = await actions.POST(req('POST', `${P}/actions`, { ...ACT, status: 'released' }) as never);

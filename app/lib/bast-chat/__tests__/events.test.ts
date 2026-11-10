@@ -99,6 +99,11 @@ describe('dashes in assistant text', () => {
     expect(stripDashes(`Can't do either ${EM} due dates are set by the system`)).toBe("Can't do either, due dates are set by the system");
     expect(stripDashes(`Done${EM}marked it. Mon${EN}Fri  ok`)).toBe('Done, marked it. Mon, Fri ok');
   });
+  it('stripDashes also swaps the ranking words, drops bold marks and leading heading marks', () => {
+    expect(stripDashes('Priority one. The priorities are set. PRIORITY, Overdue and overdue.')).toBe('order one. The order are set. order, late and late.');
+    expect(stripDashes('**Delete:** none\n## Next steps\n#Tag')).toBe('Delete: none\nNext steps\nTag');
+    expect(stripDashes('reprioritize and overdueness stay')).toBe('reprioritize and overdueness stay');
+  });
   it('assistant text is stored without a dash; other roles and kinds are untouched', async () => {
     const db = makeChatDb();
     await appendWorkerEvents(db.conv.id, null, { events: [

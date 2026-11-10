@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { guardChatTaskBody } from '@/lib/bast-chat/task-filter';
+import { recordChatPatch, withChatAction } from '@/lib/bast-chat/task-record';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { serializeRichText } from '@/lib/api/blocknote';
@@ -428,10 +429,11 @@ export async function PATCH(
         statusData.status
       );
 
-      return NextResponse.json({
+      const chatAction = await recordChatPatch(auth, existingTask, task);
+      return withChatAction(NextResponse.json({
         ...formatTaskResponse(task),
         ...(completionNudge ? { completion_nudge: completionNudge } : {}),
-      });
+      }), chatAction);
     }
 
     // Regular update - PM/Admin only for most fields
@@ -774,10 +776,11 @@ export async function PATCH(
       await notifyTaskAssigned(task.id, task.assignee_id, updater?.name || 'Someone');
     }
 
-    return NextResponse.json({
+    const chatAction = await recordChatPatch(auth, existingTask, task);
+    return withChatAction(NextResponse.json({
       ...formatTaskResponse(task),
       ...(completionNudge ? { completion_nudge: completionNudge } : {}),
-    });
+    }), chatAction);
   } catch (error) {
     return handleApiError(error);
   }

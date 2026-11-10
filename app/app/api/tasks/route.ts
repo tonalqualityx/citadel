@@ -14,6 +14,7 @@ import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependenc
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { guardChatTaskBody } from '@/lib/bast-chat/task-filter';
+import { recordChatCreate, withChatAction } from '@/lib/bast-chat/task-record';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -598,7 +599,8 @@ export async function POST(request: NextRequest) {
       await notifyTaskAssigned(task.id, task.assignee_id, creator?.name || 'Someone');
     }
 
-    return NextResponse.json(formatTaskResponse(task), { status: 201 });
+    const chatAction = await recordChatCreate(auth, task);
+    return withChatAction(NextResponse.json(formatTaskResponse(task), { status: 201 }), chatAction);
   } catch (error) {
     return handleApiError(error);
   }
