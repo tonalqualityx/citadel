@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
 import { ZodError } from 'zod';
-import { DEFAULT_SETTINGS, getSettings, updateSettings } from '../settings';
+import { DEFAULT_SETTINGS, MAX_TURNS_PER_ANSWER, getSettings, updateSettings } from '../settings';
 import { OFFLINE_AFTER_SECONDS, recordHeartbeat, workerStatus } from '../heartbeat';
 
 const OWNER = '3ecfb7be-0000-4000-8000-000000000001';
@@ -24,6 +24,12 @@ describe('settings', () => {
     await updateSettings({ model: 'haiku', daily_turn_cap: 50 }, OWNER, db);
     await updateSettings({ model: 'claude-sonnet-4-5-20250929' }, OWNER, db);
     await expect(updateSettings({ retention_days: 30 }, OWNER, db)).rejects.toBeInstanceOf(ZodError);
+  });
+  it('the limits are far out of reach and the owner can save them', async () => {
+    expect(MAX_TURNS_PER_ANSWER).toBe(200);
+    expect(DEFAULT_SETTINGS).toMatchObject({ turn_budget_usd: 1000, daily_turn_cap: 1_000_000, daily_write_cap: 1_000_000, daily_cost_cap_usd: 1_000_000 });
+    const db = mk({ role: 'admin', is_active: true });
+    await updateSettings({ turn_budget_usd: 1000, daily_turn_cap: 1_000_000, daily_write_cap: 1_000_000, daily_cost_cap_usd: 1_000_000 }, OWNER, db);
   });
   it('the owner must be an active admin', async () => {
     await expect(updateSettings({ owner_user_id: OWNER }, OWNER, mk({ role: 'pm', is_active: true }))).rejects.toMatchObject({ statusCode: 400 });

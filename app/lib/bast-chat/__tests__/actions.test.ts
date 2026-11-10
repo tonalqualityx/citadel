@@ -37,7 +37,8 @@ function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number;
       findUnique: vi.fn(async () => (o.task === null ? null : { id: TASK, title: 'Update the invoice template', status: 'done', arc_id: null, assignee_id: OWNER, tags: [], created_at: NOW, updated_at: NOW, is_deleted: false, ...o.task })),
     },
     user: { findUnique: vi.fn(async () => (o.assignee === undefined ? { id: BAST, name: 'Bast Fae', is_active: true } : o.assignee)) },
-    bastChatSettings: { findUnique: vi.fn(async () => null) },
+    // A tight daily write cap, so the cap mechanism itself stays tested (the live default is a million).
+    bastChatSettings: { findUnique: vi.fn(async () => ({ id: 1, enabled: true, owner_user_id: OWNER, model: 'sonnet', effort: 'low', turn_budget_usd: 0.4, daily_turn_cap: 100, daily_write_cap: 25, daily_cost_cap_usd: 8, stale_after_minutes: 120, idle_close_minutes: 10 })) },
     bastChatUsage: {
       upsert: vi.fn(async () => ({})),
       createMany: vi.fn(async () => ({ count: 0 })),

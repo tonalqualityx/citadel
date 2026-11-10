@@ -12,7 +12,7 @@ const base = (db: ReturnType<typeof makeChatDb>, over: Record<string, unknown> =
   text: 'where is VCDP at?',
   context: { kind: 'none' as const },
   clientRef: 'ref-1',
-  settings: DEFAULT_SETTINGS,
+  settings: { ...DEFAULT_SETTINGS, daily_turn_cap: 100, daily_write_cap: 25, daily_cost_cap_usd: 8 },
   ...over,
 });
 

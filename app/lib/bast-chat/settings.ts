@@ -15,7 +15,7 @@ import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 export const ALLOWED_MODEL_RE = /^(sonnet|haiku|claude-(sonnet|haiku)-\d+(-\d+)*(-\d{8})?)$/;
 export const EFFORTS = ['low', 'medium', 'high'] as const;
 /** Tool round trips per turn, served to the daemon. */
-export const MAX_TURNS_PER_ANSWER = 10;
+export const MAX_TURNS_PER_ANSWER = 200;
 
 /**
  * The only people a handoff proposal may name, fixed on the server (never read from the worker's words).
@@ -44,10 +44,10 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   owner_user_id: null,
   model: 'sonnet',
   effort: 'low',
-  turn_budget_usd: 0.4,
-  daily_turn_cap: 100,
-  daily_write_cap: 25,
-  daily_cost_cap_usd: 8,
+  turn_budget_usd: 1000,
+  daily_turn_cap: 1_000_000,
+  daily_write_cap: 1_000_000,
+  daily_cost_cap_usd: 1_000_000,
   stale_after_minutes: 120,
   idle_close_minutes: 10,
   handoff_user_ids: [...HANDOFF_USER_IDS],
@@ -83,10 +83,10 @@ export const settingsPatchSchema = z
     owner_user_id: z.string().uuid(),
     model: z.string().regex(ALLOWED_MODEL_RE, 'Only Sonnet or Haiku can answer in the chat'),
     effort: z.enum(EFFORTS),
-    turn_budget_usd: z.number().min(0.05).max(5),
-    daily_turn_cap: z.number().int().min(1).max(1000),
-    daily_write_cap: z.number().int().min(0).max(500),
-    daily_cost_cap_usd: z.number().min(0.5).max(100),
+    turn_budget_usd: z.number().min(0.05).max(10_000),
+    daily_turn_cap: z.number().int().min(1).max(10_000_000),
+    daily_write_cap: z.number().int().min(0).max(10_000_000),
+    daily_cost_cap_usd: z.number().min(0.5).max(10_000_000),
     stale_after_minutes: z.number().int().min(5).max(1440),
     idle_close_minutes: z.number().int().min(1).max(120),
   })

@@ -12,7 +12,7 @@ const patchSchema = z
     live_text: z.string().max(100_000).nullable(),
     live_action: z.string().max(1000).nullable(),
     model: z.string().max(100).nullable(),
-    cost_usd: z.number().min(0).max(1000),
+    cost_usd: z.number().min(0).max(10_000_000),
   })
   .partial()
   .strict();

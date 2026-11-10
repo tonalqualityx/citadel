@@ -65,7 +65,7 @@ describe('buildInbox', () => {
     db.usage.turns = 4;
     const inbox = await buildInbox(NOW, db);
     expect(inbox.messages).toEqual([{ conversation_id: db.conv.id, seq: 1, client_ref: 'r1', text: 'm1', context: { kind: 'task', id: '11111111-1111-4111-8111-111111111111' } }]);
-    expect(inbox.settings).toMatchObject({ enabled: true, owner_user_id: SETTINGS.owner_user_id, model: 'sonnet', effort: 'low', max_budget_usd: 0.4, max_turns: 10, idle_close_minutes: 10, turns_left: 96, writes_left: 25, usd_left: 8 });
+    expect(inbox.settings).toMatchObject({ enabled: true, owner_user_id: SETTINGS.owner_user_id, model: 'sonnet', effort: 'low', max_budget_usd: 0.4, max_turns: 200, idle_close_minutes: 10, turns_left: 96, writes_left: 25, usd_left: 8 });
     expect(inbox.stops).toEqual([]);
   });
   it('never returns an expired message', async () => {

@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/api/errors';
 import { DEFAULT_SETTINGS } from '../settings';
 import { assertCanSend, assertWriteAllowed, bumpUsage, reserveWrite, COST_CAP_TEXT, easternDay, getUsage, MESSAGE_CAP_TEXT, usageLeft, WRITE_CAP_TEXT } from '../usage';
 
+const TIGHT = { ...DEFAULT_SETTINGS, daily_turn_cap: 100, daily_write_cap: 25, daily_cost_cap_usd: 8 };
 const OWNER = '3ecfb7be-0000-4000-8000-000000000001';
 const row = (turns: number, writes: number, cost: number) => ({ turns, writes, cost_usd: { toString: () => String(cost) } });
 const db = (r: ReturnType<typeof row> | null) => ({ bastChatUsage: { findUnique: vi.fn().mockResolvedValue(r), upsert: vi.fn().mockResolvedValue({}) } }) as never;
@@ -27,25 +28,25 @@ describe('usage and caps', () => {
     expect(await getUsage(OWNER, new Date(), db(null))).toEqual({ turns: 0, writes: 0, cost_usd: 0 });
   });
   it('the 101st message is a 429 with a plain line', async () => {
-    await expect(assertCanSend(OWNER, DEFAULT_SETTINGS, new Date(), db(row(99, 0, 0)))).resolves.toBeUndefined();
-    const e = await refusal(assertCanSend(OWNER, DEFAULT_SETTINGS, new Date(), db(row(100, 0, 0))));
+    await expect(assertCanSend(OWNER, TIGHT, new Date(), db(row(99, 0, 0)))).resolves.toBeUndefined();
+    const e = await refusal(assertCanSend(OWNER, TIGHT, new Date(), db(row(100, 0, 0))));
     expect(e?.statusCode).toBe(429);
     expect(e?.message).toBe(MESSAGE_CAP_TEXT);
   });
   it('the cost cap refuses with its own line', async () => {
-    const e = await refusal(assertCanSend(OWNER, DEFAULT_SETTINGS, new Date(), db(row(3, 0, 8))));
+    const e = await refusal(assertCanSend(OWNER, TIGHT, new Date(), db(row(3, 0, 8))));
     expect(e?.statusCode).toBe(429);
     expect(e?.message).toBe(COST_CAP_TEXT);
   });
   it('the 26th task change is refused', async () => {
-    await expect(assertWriteAllowed(OWNER, DEFAULT_SETTINGS, new Date(), db(row(0, 24, 0)))).resolves.toBeUndefined();
-    const e = await refusal(assertWriteAllowed(OWNER, DEFAULT_SETTINGS, new Date(), db(row(0, 25, 0))));
+    await expect(assertWriteAllowed(OWNER, TIGHT, new Date(), db(row(0, 24, 0)))).resolves.toBeUndefined();
+    const e = await refusal(assertWriteAllowed(OWNER, TIGHT, new Date(), db(row(0, 25, 0))));
     expect(e?.statusCode).toBe(429);
     expect(e?.message).toBe(WRITE_CAP_TEXT);
   });
   it('usageLeft never goes below zero', () => {
-    expect(usageLeft(DEFAULT_SETTINGS, { turns: 150, writes: 30, cost_usd: 9 })).toEqual({ turns_left: 0, writes_left: 0, usd_left: 0 });
-    expect(usageLeft(DEFAULT_SETTINGS, { turns: 1, writes: 2, cost_usd: 0.5 })).toEqual({ turns_left: 99, writes_left: 23, usd_left: 7.5 });
+    expect(usageLeft(TIGHT, { turns: 150, writes: 30, cost_usd: 9 })).toEqual({ turns_left: 0, writes_left: 0, usd_left: 0 });
+    expect(usageLeft(TIGHT, { turns: 1, writes: 2, cost_usd: 0.5 })).toEqual({ turns_left: 99, writes_left: 23, usd_left: 7.5 });
   });
   it('every cap sentence is plain: no dash, no banned words', () => {
     for (const s of [MESSAGE_CAP_TEXT, WRITE_CAP_TEXT, COST_CAP_TEXT]) {
