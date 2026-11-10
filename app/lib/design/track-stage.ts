@@ -143,6 +143,8 @@ export interface HomeBuildInput {
   clientEmailPayload?: Record<string, unknown>;
   /** Payload of the home_build job (the signed art direction id and the mode). */
   buildPayload?: Record<string, unknown>;
+  /** Runs in the same transaction, after the jobs are queued (the art direction is frozen here, so a failure undoes the whole move). */
+  onQueued?: (scope: TrackScope, result: HomeBuildResult) => Promise<void>;
 }
 
 export interface HomeBuildResult {
@@ -161,7 +163,9 @@ async function queueHomeBuild(scope: TrackScope, track: DesignTrack, input: Home
     moduleJobIds.push(j!.id);
   }
   const mail = await queueJob(tx, track, 'client_brief_email', { payload: (input.clientEmailPayload ?? {}) as never, taskId: null });
-  return { buildJobId: build!.id, moduleJobIds, clientEmailJobId: mail!.id };
+  const result = { buildJobId: build!.id, moduleJobIds, clientEmailJobId: mail!.id };
+  if (input.onQueued) await input.onQueued(scope, result);
+  return result;
 }
 
 /**

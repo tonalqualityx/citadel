@@ -52,6 +52,19 @@ const sessionExample = {
   track: { id: 'uuid', stage: 'research|art_direction|home_build|refine|rest_build|review|done|cancelled', busy: 'boolean', busy_line: 'string|null', preview_alias: 'string', preview_url: 'string|null', finish: { green: 'boolean', finished_at: 'ISO-8601|null' } },
 };
 
+const trackAssetExample = {
+  id: 'uuid', kind: 'upload|render|ref_fold|ref_full|brief_image|approval_shot|spot_shot', content_type: 'string', width: 'number|null', height: 'number|null',
+  page: 'number|null', page_path: 'string|null', viewport_w: 'number|null', status: 'pending|ready|rejected', reject_reason: 'string|null',
+  url: 'string|null (the session-scoped read route; null for PDF and SVG originals and job logs)',
+};
+const markupExample = { id: 'uuid', reference_id: 'uuid', asset_id: 'uuid', rect: { x: 'number', y: 'number', w: 'number', h: 'number' }, sentiment: 'like|dislike|note', category: 'string', note: 'string|null', created_at: 'ISO-8601' };
+const referenceExample = {
+  id: 'uuid', source: 'bast_pick|client_named|designer_url|designer_upload|indelible_site', url: 'string|null', title: 'string', why_md: 'string|null', decision: 'pending|yes|no',
+  decided_at: 'ISO-8601|null', decision_note: 'string|null', capture_status: 'none|queued|captured|failed|blocked', capture_error: 'string|null',
+  captures: { desktop_fold: trackAssetExample, desktop_full: trackAssetExample, phone_fold: trackAssetExample, phone_full: trackAssetExample },
+  uploads: [{ asset: trackAssetExample, renders: [trackAssetExample] }], extracted: 'object|null', sort_order: 'number', markups: [markupExample],
+};
+
 const pinExample = {
   id: 'uuid',
   status: 'pending|sent|resolved|followup|discarded',
@@ -1146,6 +1159,242 @@ export const designEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  // Designer Portal v2 (SPEC 4.11 rows 1 to 13): brief, board, uploads, art direction. All session-scoped and tracked-only
+  // (404 for an untracked session or another designer's session); every write is also 409 track_done once the track is done.
+  {
+    path: '/api/design/sessions/:id/brief',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'The published brief of the session\'s track, the caller\'s own card reactions and the client\'s own words as client_statements (portal v2, SPEC 4.1).',
+        auth: 'required',
+        roles: READERS,
+        queryParams: [sessionIdParam],
+        responseExample: {
+          brief: { id: 'uuid', version: 'number', published_at: 'ISO-8601', body: 'object (SPEC 4.1; the top-level client key is returned as client_name)' },
+          assets: [trackAssetExample],
+          reactions: [{ card_id: 'string', reaction: 'useful|not_relevant', note: 'string|null' }],
+          client_statements: [{ id: 'uuid', quote: 'string', speaker_name: 'string', speaker_role: 'string', source_date: 'ISO-8601', source_kind: 'string', is_paraphrase: 'boolean', subject: 'string', category: 'string', polarity: 'string', status: 'string' }],
+        },
+        responseNotes: 'brief is null before the brief is published. 404 for an untracked session.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/brief/reactions',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Mark one brief card useful or not relevant, with an optional one-line note. One reaction per card per person (upsert).',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'card_id', type: 'string', required: true, description: 'A card id of the published brief' },
+          { name: 'reaction', type: 'string', required: true, description: 'useful | not_relevant' },
+          { name: 'note', type: 'string', required: false, description: 'At most 200 characters' },
+        ],
+        responseExample: { reaction: { card_id: 'string', reaction: 'useful|not_relevant', note: 'string|null' } },
+        responseNotes: '409 no_brief before a brief is published; 404 unknown_card; 409 track_done.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/references',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Mood board cards of the session\'s track with live markups, capture states and the renders of uploads (portal v2, SPEC 4.3).',
+        auth: 'required',
+        roles: READERS,
+        queryParams: [sessionIdParam],
+        responseExample: { references: [referenceExample] },
+      },
+      {
+        method: 'POST',
+        summary: 'Add a site to the board by https URL (parsed and validated server side, nothing fetched here; one capture job queued) or group board uploads into a card.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'url', type: 'string', required: false, description: 'https URL; or send upload_asset_ids instead' },
+          { name: 'upload_asset_ids', type: 'string[]', required: false, description: 'Board uploads of this track (1 to 20)' },
+          { name: 'title', type: 'string', required: false, description: 'At most 200 characters' },
+        ],
+        responseExample: { reference: referenceExample },
+        responseNotes: '201. 400 bad_url for a non-https, credentialed, IP-literal or local address; 409 duplicate_url; 409 upload_in_use; 400 bad_upload_ids.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/references/:refId',
+    group: 'design',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Decide a board card (yes, no, pending), add a note, or reorder it.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam, { name: 'refId', type: 'uuid', required: true, description: 'Reference id (path)' }],
+        bodySchema: [
+          { name: 'decision', type: 'string', required: false, description: 'pending | yes | no' },
+          { name: 'decision_note', type: 'string', required: false, description: 'At most 500 characters, or null' },
+          { name: 'sort_order', type: 'number', required: false, description: 'Integer 0 to 10000' },
+        ],
+        responseExample: { reference: referenceExample },
+        responseNotes: '404 for a reference of another track.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/markups',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Draw a markup box on a shot or upload of a board card, as fractions of the image.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'reference_id', type: 'uuid', required: true, description: 'Board card' },
+          { name: 'asset_id', type: 'uuid', required: true, description: 'A capture, raster upload or render on that card' },
+          { name: 'rect', type: 'object', required: true, description: '{x, y, w, h}, each 0 to 1, inside the image' },
+          { name: 'sentiment', type: 'string', required: true, description: 'like | dislike | note' },
+          { name: 'category', type: 'string', required: true, description: 'type | colour | layout | density | imagery | nav | decoration | motion | feature | tone | other' },
+          { name: 'note', type: 'string', required: false, description: 'At most 500 characters' },
+        ],
+        responseExample: { markup: markupExample },
+        responseNotes: '201. 400 bad_rect or bad_asset; 409 markup_limit at 50 live boxes on a card.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/markups/:markupId',
+    group: 'design',
+    methods: [
+      {
+        method: 'PATCH',
+        summary: 'Edit a markup box, or remove it with deleted: true (false restores it).',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam, { name: 'markupId', type: 'uuid', required: true, description: 'Markup id (path)' }],
+        bodySchema: [
+          { name: 'rect', type: 'object', required: false, description: '{x, y, w, h}' },
+          { name: 'sentiment', type: 'string', required: false, description: 'like | dislike | note' },
+          { name: 'category', type: 'string', required: false, description: 'Category chip' },
+          { name: 'note', type: 'string', required: false, description: 'At most 500 characters, or null' },
+          { name: 'deleted', type: 'boolean', required: false, description: 'true removes the box' },
+        ],
+        responseExample: { markup: markupExample },
+        responseNotes: '404 for a markup of another track.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/uploads',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Upload a sample, an image or decoration art (multipart file + purpose). The type comes from the bytes; the original is stored pending and a process_upload job is queued (portal v2, SPEC 3.3).',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'file', type: 'file', required: true, description: 'multipart/form-data file' },
+          { name: 'purpose', type: 'string', required: true, description: 'board (PNG JPEG WebP GIF, PDF without active content) | image (PNG JPEG WebP) | decor (PNG WebP, SVG up to 1 MB)' },
+        ],
+        responseExample: { asset: trackAssetExample },
+        responseNotes: '201 with status pending. 25 MB cap (413 asset_too_large; a declared length over 25 MB + 64 KB is 413 before the body is read). 400 bad_type, active_content, bad_svg, empty_file. 409 upload_limit (100 per track), upload_bytes_limit (1 GB per track). 429 rate_limited (20 a minute). Multipart content type only (415 otherwise).',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/track-assets/:assetId',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Stream one track asset image from private storage: capture shots, brief images, renders, approval and spot shots, and raster upload originals only.',
+        auth: 'required',
+        roles: READERS,
+        queryParams: [sessionIdParam, { name: 'assetId', type: 'uuid', required: true, description: 'Track asset id (path)' }],
+        responseExample: { note: 'Binary image, not JSON.', status: 200, cache_control: 'private, no-store' },
+        responseNotes: 'Headers: nosniff, Content-Security-Policy default-src none; sandbox, inline. PDF and SVG originals, job logs, rejected uploads and assets of another track are 404.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/art-direction',
+    group: 'design',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'The open art direction draft, or the latest signed version, plus the client requests the record still does not answer (portal v2, SPEC 4.4).',
+        auth: 'required',
+        roles: READERS,
+        queryParams: [sessionIdParam],
+        responseExample: {
+          direction: { id: 'uuid', version: 'number', status: 'draft|signed|superseded', body: 'object (SPEC 4.4; free text is named detail)', drafted_by: 'worker|designer|job', signed_at: 'ISO-8601|null' },
+          signed: { id: 'uuid', version: 'number', signed_at: 'ISO-8601' },
+          missing_client_requests: [{ id: 'uuid', quote: 'string', subject: 'string', polarity: 'require|avoid' }],
+          sign_gaps: ['nav.desktop|nav.mobile|container'],
+        },
+        responseNotes: 'direction is null before any draft exists.',
+      },
+      {
+        method: 'PATCH',
+        summary: 'Edit the open draft with a JSON merge patch (null removes a key, arrays are replaced). Strict: an unknown key, notes included, is 400.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'patch', type: 'object', required: true, description: 'Merge patch of the SPEC 4.4 record' },
+          { name: 'base_version', type: 'number', required: true, description: 'The draft version the caller saw (0 when no draft exists yet)' },
+        ],
+        responseExample: { direction: { id: 'uuid', version: 'number', status: 'draft', body: 'object' } },
+        responseNotes: '409 version_moved on a stale base; 409 direction_signed on a signed version; 409 track_busy while a build runs; 409 track_done.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/art-direction/sign',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Sign the art direction (the session\'s designer only). Freezes the draft; first sign-off moves the track to home_build and queues the build, module and client_brief_email jobs.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        bodySchema: [
+          { name: 'base_version', type: 'number', required: true, description: 'The draft version being signed' },
+          { name: 'mode', type: 'string', required: false, description: 'Later versions only: refinements (default) | rebuild' },
+        ],
+        responseExample: { direction: { id: 'uuid', version: 'number', status: 'signed', body: 'object' }, stage: 'home_build', build_job_id: 'uuid|null', client_email_job_id: 'uuid' },
+        responseNotes: '403 designer_only for an admin; 409 direction_signed, version_moved, no_draft, direction_incomplete (nav and container unfilled), client_requests_missing, illegal_transition, track_done.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/sessions/:id/art-direction/revise',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Start a new art direction draft from the signed version. Allowed in refine and review, and in home_build only after the build failed for good.',
+        auth: 'required',
+        roles: DESIGNER,
+        queryParams: [sessionIdParam],
+        responseExample: { direction: { id: 'uuid', version: 'number', status: 'draft', body: 'object' } },
+        responseNotes: '201. Strict empty body. 409 track_busy while a build runs; 409 draft_exists; 409 illegal_transition; 409 track_done.',
+      },
+    ],
+  },
   // Designer Portal v2 Bast runner (SPEC 6.1a): the design-track lane, exactly these 12 routes. Key: lane:design-track +
   // scope-mode:enforce (always enforced), minted for the Bast user. requireTrackRunner() gates every one.
   {
@@ -1241,11 +1490,20 @@ export const designEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Runner upload of captures, renders, spot shots and job logs (SPEC 3.3). Design-track lane only.',
+        summary: 'Runner upload of captures, renders, brief images, spot shots and job logs (SPEC 3.3). The type comes from the bytes. Design-track lane only.',
         auth: 'required',
         roles: RUNNER,
         queryParams: [trackIdParam],
-        responseNotes: '501 not_implemented until PLAN W1.3 lands the track asset storage and validators.',
+        bodySchema: [
+          { name: 'file', type: 'file', required: true, description: 'multipart/form-data: PNG or WebP up to 20 MB, or a text job log up to 1 MB' },
+          { name: 'kind', type: 'string', required: true, description: 'ref_fold | ref_full | brief_image | render | spot_shot | job_log' },
+          { name: 'parent_asset_id', type: 'uuid', required: false, description: 'Render only, required: the upload it came from (marks that upload ready)' },
+          { name: 'page', type: 'number', required: false, description: 'Render only: PDF page 1 to 10' },
+          { name: 'page_path', type: 'string', required: false, description: 'Spot shot only' },
+          { name: 'viewport_w', type: 'number', required: false, description: 'Viewport width 200 to 4000' },
+        ],
+        responseExample: { asset: { id: 'uuid', track_id: 'uuid', kind: 'string', parent_asset_id: 'uuid|null', status: 'ready', content_type: 'string', bytes: 'number', sha256: 'string', width: 'number|null', height: 'number|null' } },
+        responseNotes: '201. 400 bad_type, bad_parent, bad_field; 413 asset_too_large; 415 for a non-multipart body; 404 for an unknown track.',
       },
     ],
   },
@@ -1259,8 +1517,8 @@ export const designEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: RUNNER,
         queryParams: [trackIdParam, { name: 'assetId', type: 'uuid', required: true, description: 'Track asset id (path)' }],
-        responseExample: { note: 'binary' },
-        responseNotes: '501 not_implemented until PLAN W1.3 lands the track asset storage.',
+        responseExample: { note: 'Binary body, not JSON. Content-Type application/octet-stream; X-Design-Asset-Kind and X-Design-Asset-Type carry the kind and the sniffed type.' },
+        responseNotes: '404 for an asset of another track.',
       },
     ],
   },
