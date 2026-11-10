@@ -4926,8 +4926,8 @@ model BastChatAction {
   conversation_id      String               @db.Uuid
   conversation         BastChatConversation @relation(fields: [conversation_id], references: [id], onDelete: Restrict) // history is never deleted
   event_seq            Int? // the action event it belongs to
-  tool                 String               @db.VarChar(40) // create_task | update_task | add_to_arc | remove_from_arc | propose_handoff
-  target_type          String               @db.VarChar(20) // task
+  tool                 String               @db.VarChar(40) // create_task | change_task | comment_on_task | home_change | close_email_ask | change_wait | change_project | start_project | start_quote | (v1) update_task | add_to_arc | remove_from_arc | propose_handoff
+  target_type          String               @db.VarChar(20) // task | home | email_ask | wait | project | comment | accord
   target_id            String               @db.Uuid
   summary              String               @db.VarChar(300) // the line Mike sees
   before               Json? // allowlisted fields only
@@ -4939,10 +4939,16 @@ model BastChatAction {
   resolved_by_id       String?              @db.Uuid
   error                String?              @db.Text
   created_at           DateTime             @default(now())
+  // v2 (specs/bast-chat-v2-plan.md 4.2): a proposal carries the exact operation its tap performs and what it reaches.
+  proposal_kind        String?              @db.VarChar(30) // bast_start | client_show
+  plan                 Json? // server-built: {op, target, body, expect: {updated_at, assignee_id}}
+  reach                Json? // server-built: [{type, id, updated_at, title, why, lines[], chat_changed[]}]
+  turn_seq             Int? // seq of the Mike message this action answers
 
   @@index([conversation_id])
   @@index([target_id])
   @@index([status, created_at])
+  @@index([target_type, target_id, created_at])
   @@map("bast_chat_actions")
 }
 

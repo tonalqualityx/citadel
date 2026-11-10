@@ -278,7 +278,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design/worker/publishes/:id'),
   ],
   // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
-  // always enforced. Exactly these 26 method+path entries (the worker conversation route is GET and PATCH).
+  // always enforced. Exactly these 27 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route).
   // No DELETE, no comment write, no dependencies, no email-asks PATCH, no outbox, no decisions, no
   // api-keys, no admin, no home routes. Routes alone are not enough here: the task POST and PATCH bodies are
   // narrowed for this lane by lib/bast-chat/task-filter.ts (plan task C4).
@@ -291,6 +291,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/bast-chat/worker/conversations/:id/events'),
     r('POST', '/api/bast-chat/worker/actions'),
     r('GET', '/api/bast-chat/worker/today'),
+    // v2 (specs/bast-chat-v2-plan.md 2.2 and 4.4): one narrow route for every named op that is not a task PATCH
+    r('POST', '/api/bast-chat/worker/ops'),
     // The chat's reads and its two task writes (body-filtered)
     r('GET', '/api/tasks'),
     r('POST', '/api/tasks'),
