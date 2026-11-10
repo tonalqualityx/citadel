@@ -59,6 +59,7 @@ import {
   type TaskChange,
 } from './worker-reach';
 import { CHAT_COMMENT_PREFIX, isChatComment, scopeOfReads, tapFingerprint, type ReadTaskRow, type WorkerReadSet } from './worker-reads';
+import { UNDO_FORMATTING_TEXT, chatChecklist, chatRichText, everyWord, isPlainChecklist, isPlainRichText, plainLines } from './plain';
 import { EMPTY_SCOPE, mergeScopes, scopeCovers, scopeFor, withLocks, type LockScope } from './task-locks';
 
 type Db = PrismaClient;
@@ -182,41 +183,6 @@ export function cutAtWord(text: string, max: number): string {
   const room = t.slice(0, max - 3);
   const sp = room.lastIndexOf(' ');
   return `${(sp >= Math.floor(max / 4) ? room.slice(0, sp) : room).replace(/[\s.,;:]+$/, '')}...`;
-}
-
-/** Plain text of a stored rich-text field (a BlockNote JSON string or array), or of a plain string. */
-export function plainText(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  let v: unknown = value;
-  if (typeof v === 'string') {
-    const s = v.trim();
-    if (!s.startsWith('[')) return s;
-    try {
-      v = JSON.parse(s);
-    } catch {
-      return s;
-    }
-  }
-  const out: string[] = [];
-  const walk = (node: unknown): void => {
-    if (typeof node === 'string') {
-      out.push(node);
-      return;
-    }
-    if (Array.isArray(node)) {
-      node.forEach(walk);
-      return;
-    }
-    if (node && typeof node === 'object') {
-      const o = node as { text?: unknown; content?: unknown; children?: unknown };
-      if (typeof o.text === 'string') out.push(o.text);
-      if (o.content !== undefined) walk(o.content);
-      if (o.children !== undefined) walk(o.children);
-      out.push(' ');
-    }
-  };
-  walk(v);
-  return out.join('').replace(/\s+/g, ' ').trim();
 }
 
 /** The first `n` checklist lines of a stored requirements list (items, and items inside sections). */
@@ -480,6 +446,8 @@ export interface CardRead {
   checklist: string[];
   /** What this change writes on that task, in plain words. */
   writes: string[];
+  /** Plain lines about this task's place on the card ("This chat wants to change this task.", a formatting note). */
+  notices: string[];
   /** What the chat itself changed on that task in the last day, in plain words ("description", "a comment"). */
   chat_changed: string[];
   /** "Changed from this chat: description, a comment, a comment on "Collect the logo"." or null. */
@@ -1067,6 +1035,16 @@ function taskRestoreFor(a: BastChatAction): TaskRestore {
       body.blocked_by_ids = { ...(connect.length ? { connect } : {}), ...(disconnect.length ? { disconnect } : {}) };
     } else body[k] = before[k];
   }
+  // Undo writes through the chat lane too (VERIFY-4 R1): the text it puts back is stored as plain text, with the ids and
+  // ticks the recorded checklist had. Text that cannot be plain (a picture, a table, a section) is not put back.
+  try {
+    if ('description' in body) body.description = chatRichText(body.description, `${a.target_id}:description`);
+    if ('notes' in body) body.notes = chatRichText(body.notes, `${a.target_id}:notes`);
+    if ('requirements' in body) body.requirements = chatChecklist(body.requirements, before.requirements, `${a.target_id}:requirements`);
+  } catch (e) {
+    if (e instanceof ApiError) throw conflict(UNDO_FORMATTING_TEXT, 'undo_formatting');
+    throw e;
+  }
   const parsed = taskPlanBodySchema.safeParse(body);
   if (!parsed.success) throw conflict(CANNOT_UNDO_TEXT, 'not_undoable');
   const compare = Object.fromEntries(keys.map((k) => [k, after[k]])) as TaskFields;
@@ -1216,9 +1194,9 @@ const words = (v: unknown) => (typeof v === 'string' ? v.replace(/_/g, ' ') : 'n
 /** Keyed by the record's field names (task-record.ts, TASK_RECORD_FIELDS) plus `sop_id` from a create. */
 export const CARD_FIELDS: Record<string, CardField> = {
   title: { word: 'title', label: 'Title', text: true, show: (r) => r.title ?? '' },
-  description: { word: 'description', label: 'Description', text: true, show: (r) => plainText(r.description) },
-  requirements: { word: 'checklist', label: 'Checklist', text: true, show: (r) => allChecklistLines(r.requirements).map((l, i) => `${i + 1}. ${l}`).join('\n') },
-  notes: { word: 'notes', label: 'Notes', text: true, show: (r) => plainText(r.notes) },
+  description: { word: 'description', label: 'Description', text: true, show: (r) => richShown(r.description) },
+  requirements: { word: 'checklist', label: 'Checklist', text: true, show: (r) => checklistShown(r.requirements) },
+  notes: { word: 'notes', label: 'Notes', text: true, show: (r) => richShown(r.notes) },
   promised_to: { word: 'promise', label: 'Promised to', text: true, show: (r) => (r.promised_to as string | null) ?? 'nobody' },
   tags: { word: 'tags', label: 'Tags', text: true, show: (r) => ((r.tags ?? []).length ? r.tags.join(', ') : 'none') },
   status: { word: 'status', label: 'Status', show: (r) => STATUS_WORDS[r.status] ?? 'unknown' },
@@ -1239,21 +1217,52 @@ export const CARD_FIELDS: Record<string, CardField> = {
   approved: { word: 'approval', label: 'Approved', show: (r) => yesNo(r.approved) },
   client_visible: { word: 'sharing', label: 'Shared with the client', show: (r) => yesNo(r.client_visible) },
 };
+/**
+ * A stored description or notes as the card shows it (VERIFY-4 R1): plain paragraphs (what the chat writes now) as
+ * their lines; anything else (older or human text) as every string a session could read in it (`everyWord`).
+ */
+function richShown(v: unknown): string {
+  return (plainLines(v) ?? everyWord(v)).join('\n');
+}
+/** A stored checklist as the card shows it: every item, numbered, ticked ones marked; anything else as `everyWord`. */
+function checklistShown(v: unknown): string {
+  if (!isPlainChecklist(v)) return everyWord(v).join('\n');
+  return ((v as { text: string; completed?: boolean }[] | null) ?? []).map((it, i) => `${i + 1}. ${it.text}${it.completed ? ' (ticked)' : ''}`).join('\n');
+}
+
+/**
+ * The exact payload a proposal will write (VERIFY-4 R2), for the card to show in full: the task it writes, each field
+ * in its stored form (record names), a comment it adds, the tasks it connects as blockers.
+ */
+export interface CardPayload {
+  task_id: string;
+  body: Record<string, unknown>;
+  /** "will be" for a change, "after Undo" for an Undo. */
+  label: 'will be' | 'after Undo';
+  /** The stored content of a comment the plan adds. */
+  comment?: string;
+  /** Tasks the plan connects as blockers: Bast will read them. */
+  connect: string[];
+}
+
 /** What a filed task (create_task) shows: every field a create can set. */
 const WHOLE_TASK_FIELDS = ['status', 'title', 'description', 'requirements', 'notes', 'tags', 'promised_to', 'assignee_id', 'project_id', 'client_id', 'site_id', 'sop_id', 'arc_id', 'energy_estimate', 'priority', 'is_focus', 'needs_review'];
 const FIELD_ORDER = ['the whole task', ...new Set(Object.values(CARD_FIELDS).map((f) => f.word))];
 
 /**
- * What the chat changed on each task, at any time and through any path that leaves a record: an applied change
- * (task-record.ts) or a released proposal (the owner's tap of a chat plan). Undone changes are left out (the text is
- * back). No row limit, newest first, so the answer does not depend on how many records there are (VERIFY-2 N3).
+ * What the chat lane last wrote on each task (VERIFY-4 R3, provenance, not conversation): any record of a chat change
+ * in any conversation, on any day, by either chat version: applied, released by a tap, or undone (an Undo writes too:
+ * the text it put back came through the chat lane, and an undone create leaves the task and its text as filed). A task
+ * carrying the `from-chat` tag was filed by the chat (version one too, or a create whose record failed) and counts as a
+ * whole. Over-counting is safe: it only shows more. No row limit, newest first (VERIFY-2 N3).
  * Returns the record field names changed per task (`*` for a filed task).
  */
-async function chatChangesOf(db: Db, ids: string[]): Promise<Map<string, string[]>> {
+async function chatChangesOf(db: Db, ids: string[], set: WorkerReadSet): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (ids.length === 0) return out;
+  for (const id of ids) if ((set.tasks.get(id)?.tags ?? []).includes(CHAT_TAG)) out.set(id, ['*']);
   const rows = await db.bastChatAction.findMany({
-    where: { target_type: 'task', target_id: { in: ids }, status: { in: ['applied', 'released'] } },
+    where: { target_type: 'task', target_id: { in: ids }, status: { in: ['applied', 'released', 'undone'] } },
     orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
     select: { target_id: true, tool: true, after: true, plan: true, status: true },
   });
@@ -1273,11 +1282,11 @@ async function chatChangesOf(db: Db, ids: string[]): Promise<Map<string, string[
   return out;
 }
 
-/** The projects whose status the chat changed (the project op), at any time; undone changes left out. */
+/** The projects whose status the chat lane changed (the project op, or its Undo), at any time. */
 async function chatProjectChangesOf(db: Db, ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const rows = await db.bastChatAction.findMany({
-    where: { target_type: 'project', target_id: { in: ids }, status: { in: ['applied', 'released'] } },
+    where: { target_type: 'project', target_id: { in: ids }, status: { in: ['applied', 'released', 'undone'] } },
     orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
     select: { target_id: true },
   });
@@ -1287,21 +1296,6 @@ async function chatProjectChangesOf(db: Db, ids: string[]): Promise<Set<string>>
 /** Comments the chat wrote on a task that the worker still reads (not hidden), newest first. */
 function chatNotesOf(set: WorkerReadSet, taskId: string) {
   return [...(set.comments.get(taskId) ?? [])].filter((c) => !c.is_deleted && isChatComment(c)).reverse();
-}
-
-/** Every checklist line of a stored requirements list, in full (items, and items inside sections). */
-function allChecklistLines(req: unknown): string[] {
-  if (!Array.isArray(req)) return [];
-  const lines: string[] = [];
-  for (const e of req) {
-    if (!e || typeof e !== 'object') continue;
-    const o = e as { type?: unknown; text?: unknown; title?: unknown; items?: unknown };
-    if (o.type === 'section') {
-      if (typeof o.title === 'string' && o.title) lines.push(o.title);
-      if (Array.isArray(o.items)) for (const it of o.items) if (it && typeof (it as { text?: unknown }).text === 'string') lines.push((it as { text: string }).text);
-    } else if (typeof o.text === 'string') lines.push(o.text);
-  }
-  return lines;
 }
 
 async function namesById(db: Db, kind: 'site' | 'client' | 'sop' | 'arc' | 'user', ids: (string | null | undefined)[]): Promise<Map<string, string>> {
@@ -1323,16 +1317,30 @@ async function namesById(db: Db, kind: 'site' | 'client' | 'sop' | 'arc' | 'user
  * re-checks. For each task Bast would read it shows the text, and everything the chat wrote there or on a task it
  * waits on: the flag line, the current text of each changed field, and the text of each chat comment (VERIFY-2 N2, N3).
  */
-async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, set: WorkerReadSet): Promise<ProposalCard> {
-  void now;
-  // A start that names a task with no read of its own (a "could not rule out" hit) still gets its text on the card.
-  const extra = [...new Set(reach.starts.map((h) => h.task_id))]
-    .filter((id): id is string => !!id && !reach.reads.some((r) => r.task_id === id) && set.tasks.has(id))
-    .map((id) => {
-      const t = set.tasks.get(id)!;
-      return { task_id: id, title: t.title, description: t.description, requirements: t.requirements, status: t.status, site_id: (t.site_id as string | null) ?? null, client_id: (t.client_id as string | null) ?? null, sop_id: (t.sop_id as string | null) ?? null, changed: [] as string[] };
-    });
-  const reads = [...reach.reads, ...extra];
+async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, set: WorkerReadSet, payload: CardPayload | null = null): Promise<ProposalCard> {
+  type ReadLike = { task_id: string; title: string | null; description: unknown; requirements: unknown; status: string | null; site_id: string | null; client_id: string | null; sop_id: string | null; changed: string[] };
+  const fromSet = (id: string): ReadLike => {
+    const t = set.tasks.get(id)!;
+    return { task_id: id, title: t.title, description: t.description, requirements: t.requirements, status: t.status, site_id: (t.site_id as string | null) ?? null, client_id: (t.client_id as string | null) ?? null, sop_id: (t.sop_id as string | null) ?? null, changed: [] };
+  };
+  // Every task whose text the card must carry: the reads, a start with no read of its own (a "could not rule out"
+  // hit), the task the plan writes and every task it connects as a blocker (VERIFY-4 Y1).
+  const reads: ReadLike[] = [...reach.reads];
+  const notices = new Map<string, string[]>();
+  const notice = (id: string, l: string) => notices.set(id, [...new Set([...(notices.get(id) ?? []), l])]);
+  const addRead = (id: string | null | undefined) => {
+    if (id && !reads.some((r) => r.task_id === id) && set.tasks.has(id)) reads.push(fromSet(id));
+  };
+  for (const h of reach.starts) addRead(h.task_id);
+  if (payload) {
+    const known = reads.some((r) => r.task_id === payload.task_id);
+    addRead(payload.task_id);
+    if (!known) notice(payload.task_id, payload.label === 'after Undo' ? 'Undo changes this task.' : 'This chat wants to change this task.');
+    for (const c of payload.connect) {
+      addRead(c);
+      notice(c, 'Bast will read this task when you tap.');
+    }
+  }
   const ids = reads.map((r) => r.task_id);
   const blockersOf = (id: string) => set.blockers_of.get(id) ?? [];
   /** The tasks that wait on a read task, as its GET lists them (id and title). */
@@ -1340,16 +1348,22 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
   const allIds = [...new Set([...ids, ...ids.flatMap(blockersOf), ...ids.flatMap((id) => dependentsOf(id).map((d) => d.id))])];
   const projectIds = [...new Set(ids.map((id) => set.tasks.get(id)?.project_id as string | null | undefined).filter((x): x is string => !!x))];
   const rowsOf = allIds.map((id) => set.tasks.get(id)).filter((x): x is ReadTaskRow => !!x);
-  const col = (k: string) => [...reads.map((r) => (r as unknown as Record<string, unknown>)[k] as string | null), ...rowsOf.map((r) => r[k] as string | null)];
+  const planned = payload?.body ?? {};
+  const col = (k: string) => [
+    ...reads.map((r) => (r as unknown as Record<string, unknown>)[k] as string | null),
+    ...rowsOf.map((r) => r[k] as string | null),
+    typeof planned[k] === 'string' ? (planned[k] as string) : null,
+  ];
   const [sites, clients, sops, arcs, users, changed] = await Promise.all([
     namesById(db, 'site', col('site_id')),
     namesById(db, 'client', col('client_id')),
     namesById(db, 'sop', col('sop_id')),
     namesById(db, 'arc', col('arc_id')),
     namesById(db, 'user', col('assignee_id')),
-    chatChangesOf(db, allIds),
+    chatChangesOf(db, allIds, set),
   ]);
   const projectChanged = await chatProjectChangesOf(db, projectIds);
+  const plannedProject = typeof planned.project_id === 'string' && db.project ? await db.project.findUnique({ where: { id: planned.project_id }, select: { name: true } }) : null;
   const names: CardNames = { users, sites, clients, sops, arcs, now };
   const titleIn = (id: string) => quoted((set.tasks.get(id)?.title as string | undefined) ?? 'a task');
   let incomplete = false;
@@ -1364,6 +1378,41 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
     const flags: string[] = [];
     const texts: CardText[] = [];
     const notes: CardNote[] = [];
+    const own = set.tasks.get(r.task_id);
+    const isConnected = !!payload && payload.connect.includes(r.task_id) && payload.task_id !== r.task_id;
+    // The payload first: what the plan will write on this task, every field in its stored form, in full (VERIFY-4 R2).
+    if (payload && payload.task_id === r.task_id && own) {
+      const after = { ...own, ...planned } as ReadTaskRow;
+      if (typeof planned.project_id === 'string') after.project = { name: plannedProject?.name ?? null };
+      for (const [k, v] of Object.entries(planned)) {
+        const f = CARD_FIELDS[k];
+        if (!f) {
+          texts.push({ label: `A field ${payload.label}`, text: cleanLine(`${k}: ${JSON.stringify(v)}`, 2000) });
+          continue;
+        }
+        if ((k === 'description' || k === 'notes') && !isPlainRichText(own[k])) notice(r.task_id, `The ${f.word}'s formatting will be replaced by plain text.`);
+        if (k === 'requirements' && !isPlainChecklist(own.requirements)) notice(r.task_id, "The checklist's formatting will be replaced by plain text.");
+        let shown: string | null;
+        if (k === 'blocked_by_ids') {
+          const links = (v ?? {}) as { connect?: string[]; disconnect?: string[] } | string[];
+          const now2 = Array.isArray(links) ? links : [...blockersOf(r.task_id).filter((b) => !(links.disconnect ?? []).includes(b)), ...(links.connect ?? [])];
+          shown = now2.map((b) => titleIn(b)).join(', ') || 'nothing';
+        } else shown = f.show(after, names);
+        if (shown === null) continue;
+        texts.push({ label: `${f.label} ${payload.label}`, text: f.text ? take(shown, CARD_TEXT_MAX) || '(empty)' : cleanLine(shown, 300) });
+      }
+      if (payload.comment !== undefined) {
+        const t = payload.comment.startsWith(CHAT_COMMENT_PREFIX) ? payload.comment.slice(CHAT_COMMENT_PREFIX.length) : payload.comment;
+        texts.push({ label: 'Note this chat will add', text: take(t, CARD_NOTE_MAX) || '(empty)' });
+      }
+    }
+    // A task the plan connects as a blocker: Bast reads all of its text when the tap goes through.
+    if (isConnected && own) {
+      for (const k of ['description', 'requirements', 'notes']) {
+        const shown = CARD_FIELDS[k].show(own, names);
+        if (shown) texts.push({ label: `${CARD_FIELDS[k].label} now`, text: take(shown, CARD_TEXT_MAX) });
+      }
+    }
     /** The flag words and current values of what the chat changed on one task. `on` names a task it waits on. */
     const fieldsOf = (taskId: string, on: string | null) => {
       const keys = changed.get(taskId) ?? [];
@@ -1374,12 +1423,13 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
         const i = FIELD_ORDER.indexOf(CARD_FIELDS[k]?.word ?? '');
         return i < 0 ? FIELD_ORDER.length : i;
       };
-      const own = keys.filter((k) => k !== '*').sort((x, y) => rank(x) - rank(y));
-      for (const k of [...(keys.includes('*') ? WHOLE_TASK_FIELDS : []), ...own]) {
+      const ownKeys = keys.filter((k) => k !== '*').sort((x, y) => rank(x) - rank(y));
+      for (const k of [...(keys.includes('*') ? WHOLE_TASK_FIELDS : []), ...ownKeys]) {
         const f = CARD_FIELDS[k];
         if (!keys.includes('*') || !WHOLE_TASK_FIELDS.includes(k)) flags.push(f ? (on ? `the ${f.word} of ${on}` : f.word) : on ? `details of ${on}` : 'details');
         // The task's own title is the heading of its block, in full; a task it waits on gets a line.
         if (!f || !row || (k === 'title' && !on) || shown.has(f.label)) continue;
+        if (isConnected && !on && ['description', 'requirements', 'notes'].includes(k)) continue; // already shown in full above
         const v = k === 'blocked_by_ids' && !on ? blockersOf(taskId).map((b) => titleIn(b)).join(', ') || 'nothing' : f.show(row, names);
         if (v === null) continue;
         shown.add(f.label);
@@ -1402,15 +1452,15 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       flags.push(`the title of ${on}, a task that waits on it`);
       texts.push({ label: 'Title of a task that waits on it now', text: take(d.title, CARD_TITLE_MAX) || '(empty now)' });
     }
-    const pid = set.tasks.get(r.task_id)?.project_id as string | null | undefined;
+    const pid = own?.project_id as string | null | undefined;
     if (pid && projectChanged.has(pid)) {
-      const p = set.tasks.get(r.task_id)?.project as { status?: string } | null | undefined;
+      const p = own?.project as { status?: string } | null | undefined;
       flags.push("the project's status");
       texts.push({ label: 'Project status now', text: PROJECT_STATUS_WORDS[p?.status ?? ''] ?? 'unknown' });
     }
     const cc = [...new Set(flags)];
     const title = take(r.title ?? 'Untitled', CARD_TITLE_MAX) || 'Untitled';
-    const text = plainText(r.description);
+    const text = (plainLines(r.description) ?? everyWord(r.description)).join(' ');
     return {
       task_id: r.task_id,
       title,
@@ -1421,6 +1471,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       excerpt: text ? cutAtWord(cleanLine(text, 2000), 200) : null,
       checklist: checklistLines(r.requirements),
       writes: [...new Set(r.changed.filter((f) => !f.startsWith('blocker:')).map((f) => CARD_WRITE_WORDS[f] ?? FIELD_WORDS[f] ?? 'details'))],
+      notices: notices.get(r.task_id) ?? [],
       chat_changed: cc,
       chat_changed_line: cc.length ? cleanLine(`Changed from this chat: ${cc.join(', ')}.`, 2000) : null,
       chat_notes: notes,
@@ -1528,8 +1579,14 @@ const parsePlan = (v: unknown): StoredPlan | null => {
 };
 
 /** The task (or project) an applied record changed: a task record's task, a comment record's task, a project record's project. */
-function recordSeeds(a: Pick<BastChatAction, 'target_type' | 'target_id' | 'after'>): LockScope {
-  if (a.target_type === 'task') return { tasks: [a.target_id], projects: [] };
+function recordSeeds(a: Pick<BastChatAction, 'target_type' | 'target_id' | 'after'> & { before?: unknown }): LockScope {
+  if (a.target_type === 'task') {
+    // An Undo that puts back blockers connects them again: Bast reads them, so they are read and locked too.
+    const was = ((a.before as { blocked_by_ids?: unknown } | null)?.blocked_by_ids ?? []) as unknown[];
+    const now = ((a.after as { blocked_by_ids?: unknown } | null)?.blocked_by_ids ?? []) as unknown[];
+    const back = Array.isArray(was) ? was.filter((x): x is string => typeof x === 'string' && !(Array.isArray(now) && now.includes(x))) : [];
+    return { tasks: [a.target_id, ...back], projects: [] };
+  }
   if (a.target_type === 'comment') {
     const t = (a.after as { task_id?: unknown } | null)?.task_id;
     return typeof t === 'string' ? { tasks: [t], projects: [] } : EMPTY_SCOPE;
@@ -1543,12 +1600,40 @@ function recordSeeds(a: Pick<BastChatAction, 'target_type' | 'target_id' | 'afte
  * on, the project a project plan changes; for an Undo plan, the record's own (`recordSeeds`). The fingerprint reads
  * these tasks too (so a comment on the very task a plan changes is always seen), and the tap locks them.
  */
-function seedsOf(plan: StoredPlan, undone: Pick<BastChatAction, 'target_type' | 'target_id' | 'after'> | null): LockScope {
+function seedsOf(plan: StoredPlan, undone: (Pick<BastChatAction, 'target_type' | 'target_id' | 'after'> & { before?: unknown }) | null): LockScope {
   if (plan.kind === 'undo') return undone ? recordSeeds(undone) : EMPTY_SCOPE;
-  const input = plan.input as { task_id?: unknown; project_id?: unknown } | null;
-  if ((plan.op === 'task' || plan.op === 'comment') && typeof input?.task_id === 'string') return { tasks: [input.task_id], projects: [] };
+  const input = plan.input as { task_id?: unknown; project_id?: unknown; body?: { blocked_by_ids?: { connect?: unknown } } } | null;
+  if (plan.op === 'task' && typeof input?.task_id === 'string') {
+    // A blocker the plan connects is read by Bast once the tap goes through: it is in the fingerprint and the locks.
+    const connect = input.body?.blocked_by_ids?.connect;
+    return { tasks: [input.task_id, ...(Array.isArray(connect) ? connect.filter((x): x is string => typeof x === 'string') : [])], projects: [] };
+  }
+  if (plan.op === 'comment' && typeof input?.task_id === 'string') return { tasks: [input.task_id], projects: [] };
   if (plan.op === 'project' && typeof input?.project_id === 'string') return { tasks: [], projects: [input.project_id] };
   return EMPTY_SCOPE;
+}
+
+/** The payload a plan writes, for the card (VERIFY-4 R2). Null when it writes no task text (home, wait, project, hide). */
+function payloadOf(plan: StoredPlan, undone: BastChatAction | null): CardPayload | null {
+  if (plan.kind === 'apply') {
+    const input = plan.input as { task_id?: unknown; body?: Record<string, unknown>; text?: unknown } | null;
+    if (plan.op === 'task' && typeof input?.task_id === 'string' && input.body && typeof input.body === 'object') {
+      const connect = (input.body.blocked_by_ids as { connect?: unknown } | undefined)?.connect;
+      return { task_id: input.task_id, body: { ...input.body }, label: 'will be', connect: Array.isArray(connect) ? connect.filter((x): x is string => typeof x === 'string') : [] };
+    }
+    if (plan.op === 'comment' && typeof input?.task_id === 'string' && typeof input.text === 'string') {
+      return { task_id: input.task_id, body: {}, label: 'will be', comment: `${CHAT_COMMENT_PREFIX}${input.text}`, connect: [] };
+    }
+    return null;
+  }
+  if (!undone || undone.target_type !== 'task') return null;
+  try {
+    const r = taskRestoreFor(undone);
+    const connect = (r.body.blocked_by_ids as { connect?: string[] } | undefined)?.connect ?? [];
+    return { task_id: undone.target_id, body: { ...r.body }, label: 'after Undo', connect };
+  } catch {
+    return null;
+  }
 }
 
 /** Everything the tap or an Undo locks: the seeds, the tasks the stored card reads, their blockers and dependents, their projects. */
@@ -1640,7 +1725,7 @@ async function storeProposalRow(
   // and anything written after this load changes the fingerprint.
   const seeds = seedsOf(p.plan, p.undone ?? null);
   const { fingerprint, set } = await tapFingerprint(db, reach, seeds.tasks);
-  const card = await buildCard(db, reach, p.prepared.copy, now, set);
+  const card = await buildCard(db, reach, p.prepared.copy, now, set, payloadOf(p.plan, p.undone ?? null));
   const why = card.lines[0] ?? card.client[0] ?? '';
   const line = cleanLine(`Proposed: ${card.clause}.${why ? ` ${why}` : ''}`, 300);
   const kind: 'bast_start' | 'client_show' = reach.proposal_kind ?? 'bast_start';

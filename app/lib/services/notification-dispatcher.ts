@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { deferUntilCommit } from '@/lib/db/scope';
 import { NotificationType, NotificationPriority } from '@prisma/client';
 import {
   getNotificationPreference,
@@ -264,6 +265,15 @@ async function updateDeliveryTracking(
 export async function dispatchNotification(
   options: DispatchOptions
 ): Promise<DispatchResult> {
+  // Inside a locked Bast chat request the whole dispatch (the in-app row, the email, the Slack send) waits for the
+  // commit, runs outside the transaction, and is dropped if it rolls back (lib/db/scope.ts, VERIFY-4 Y6).
+  if (deferUntilCommit('notification', () => dispatchNow(options))) {
+    return { inApp: { sent: false }, email: { sent: false }, slack: { sent: false } };
+  }
+  return dispatchNow(options);
+}
+
+async function dispatchNow(options: DispatchOptions): Promise<DispatchResult> {
   const priority = options.priority || 'normal';
 
   // Determine which channels to use

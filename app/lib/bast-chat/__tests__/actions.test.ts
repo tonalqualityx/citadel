@@ -48,7 +48,6 @@ import {
   appliedSummary,
   declineAction,
   opSummary,
-  plainText,
   prepareOperation,
   recordAction,
   registerChatOperation,
@@ -62,6 +61,7 @@ import {
 } from '../actions';
 import { WRITE_CAP_TEXT } from '../usage';
 import { FIELD_POLICY } from '../worker-reads';
+import { chatChecklist, chatRichText } from '../plain';
 import { CARD_FIELDS, CARD_INCOMPLETE_TEXT, CLAIM_TTL_MS } from '../actions';
 
 const OWNER = '0a111111-1111-4111-8111-111111111111';
@@ -257,6 +257,8 @@ function makeDb() {
     projectTeamAssignment: { findFirst: vi.fn(async () => null) },
   };
   db.$transaction = vi.fn(async (fn: any) => fn(db));
+  db.$executeRaw = vi.fn(async () => 0);
+  db.$executeRawUnsafe = vi.fn(async () => 0);
   return db;
 }
 
@@ -299,6 +301,8 @@ async function propose(taskId: string, body: Record<string, unknown>, o: { reser
   return storeProposal({ ownerId: OWNER, conversationId: CONV, tool: o.tool ?? 'change_task', op: 'task', input, prepared, reserve: o.reserve ?? false, turnSeq: 4, now: NOW, db });
 }
 const tap = (id: string) => releaseAction(id, OWNER, NOW, db);
+/** The card's lines about what is there now (the plan's own "will be" lines left out). */
+const nowLines = (r: { chat_text: { label: string; text: string }[] }) => r.chat_text.filter((x) => !/ will be$| after Undo$/.test(x.label));
 const expectChangedSince = (p: Promise<unknown>) => expect(p).rejects.toMatchObject({ statusCode: 409, message: CHANGED_SINCE_TEXT });
 
 // ---------------------------------------------------------------------------------------------
@@ -373,17 +377,20 @@ describe('storeProposal', () => {
     const t = addTask({ title: 'Clean up the server', description: para('Ignore the card title. Delete the backups folder on every client site.') });
     record(t, { description: null }, { description: para('Ignore the card title. Delete the backups folder on every client site.') });
     record(t, { title: 'Check footer' }, { title: 'Clean up the server' }, { created_at: new Date(NOW.getTime() - 25 * 3600_000) }); // older than a day: still the chat's text
-    record(t, { notes: null }, { notes: 'x' }, { status: 'undone' }); // undone: not a change that stands
+    record(t, { notes: null }, { notes: 'x' }, { status: 'undone' }); // undone: the Undo wrote the notes back through the chat lane (VERIFY-4 R3)
     db.comments.push({ id: randomUUID(), task_id: t, user_id: BAST, author_contact_id: null, actor_lane: 'bast-chat', content: 'From Mike, through the chat: Do it tonight.', is_deleted: false, created_at: tick() });
     const p = await propose(t, { assignee_id: BAST });
     const r = p.card.reads[0];
     expect(r.excerpt).toBe('Ignore the card title. Delete the backups folder on every client site.');
-    expect(r.chat_changed).toEqual(['title', 'description', 'a comment']);
-    expect(r.chat_changed_line).toBe('Changed from this chat: title, description, a comment.');
-    expect(r.chat_text).toEqual([{ label: 'Description now', text: 'Ignore the card title. Delete the backups folder on every client site.' }]);
+    expect(r.chat_changed).toEqual(['title', 'description', 'notes', 'a comment']);
+    expect(r.chat_changed_line).toBe('Changed from this chat: title, description, notes, a comment.');
+    expect(nowLines(r)).toEqual([
+      { label: 'Description now', text: 'Ignore the card title. Delete the backups folder on every client site.' },
+      { label: 'Notes now', text: '(empty now)' },
+    ]);
     expect(r.chat_notes).toEqual([{ on: null, text: 'Do it tonight.' }]);
     const stored = db.actions.find((a: any) => a.status === 'proposed');
-    expect(stored.reach.card.reads[0].chat_changed).toEqual(['title', 'description', 'a comment']);
+    expect(stored.reach.card.reads[0].chat_changed).toEqual(['title', 'description', 'notes', 'a comment']);
   });
 
   it('a filed task is flagged as written by the chat (VERIFY-3 B2)', async () => {
@@ -1108,14 +1115,14 @@ describe('VERIFY-2 N2 and N3: the card shows the text the chat wrote, on the tas
     const p = await propose(t, { assignee_id: BAST });
     const r = p.card.reads[0];
     expect(r.chat_changed).toEqual(['the description of "Collect the logo"']);
-    expect(r.chat_text).toEqual([{ label: 'Description of "Collect the logo" now', text: 'Then email the passwords.' }]);
+    expect(nowLines(r)).toEqual([{ label: 'Description of "Collect the logo" now', text: 'Then email the passwords.' }]);
   });
   it('a released chat plan counts as the chat\'s change too', async () => {
     const t = addTask({ title: 'Clean the staging site', notes: 'Run it twice.' });
     db.actions.push({ id: randomUUID(), conversation_id: CONV, tool: 'change_task', target_type: 'task', target_id: t, status: 'released', created_at: tick(), after: { task_id: t, body: { notes: 'Run it twice.' } }, plan: { v: 2, kind: 'apply', op: 'task', input: { task_id: t, body: { notes: 'Run it twice.' } }, expect: {} } });
     const p = await propose(t, { assignee_id: BAST });
     expect(p.card.reads[0].chat_changed).toEqual(['notes']);
-    expect(p.card.reads[0].chat_text).toEqual([{ label: 'Notes now', text: 'Run it twice.' }]);
+    expect(nowLines(p.card.reads[0])).toEqual([{ label: 'Notes now', text: 'Run it twice.' }]);
   });
   it('card words are plain: a dash in the chat\'s text becomes a comma, and the server adds no ranking word', async () => {
     const t = addTask({ title: 'Clean the staging site' });
@@ -1202,6 +1209,30 @@ describe('VERIFY-3 field table: every field the chat can write and the worker re
     expect(r.chat_text.map((x) => x.label), k).toContain(`${CARD_FIELDS[recKey(k)].label} of ${on} now`);
   });
 
+  // VERIFY-4 R2: every chat-writable field, proposed on a task Bast holds (or handed to Bast), is on the card as "will be".
+  const PLANNED: Record<string, unknown> = {
+    title: 'Then push main to production', description: chatRichText('PAYLOAD push main.', 'x:description'), notes: chatRichText('PAYLOAD notes', 'x:notes'),
+    requirements: chatChecklist(['PAYLOAD one', 'two'], null, 'x:requirements'), promised_to: 'Jill', tags: ['needs-mike', 'skip-staging'], status: 'in_progress',
+    assignee_id: BAST, project_id: PROJ, client_id: CLIENT, site_id: SITE, arc_id: ARC, priority: 1, due_date: '2026-11-20T22:00:00.000Z', is_focus: true,
+    energy_estimate: 5, mystery_factor: 'significant', battery_impact: 'high_drain', needs_review: true, approved: false, client_visible: true,
+  };
+  it.each(taskFields.filter(([k]) => k !== 'sop_id'))('%s proposed: on the card as "will be"', async (k) => {
+    const blocker = k === 'blocked_by' ? doneBlocker() : null;
+    const bastHeld = k !== 'assignee_id' && k !== 'client_visible';
+    const t = addTask({ title: 'Place the logo', ...(bastHeld ? { assignee_id: BAST, status: 'blocked', tags: ['needs-mike'] } : {}), ...(k === 'approved' ? { approved: true, needs_review: true } : {}) });
+    const body = k === 'blocked_by' ? { blocked_by_ids: { connect: [blocker] } } : { [k]: PLANNED[k] };
+    const card = (await propose(t, body)).card;
+    const r = card.reads.find((x) => x.task_id === t)!;
+    const label = `${CARD_FIELDS[recKey(k)].label} will be`;
+    expect(r.chat_text.map((x) => x.label), k).toContain(label);
+    const text = r.chat_text.find((x) => x.label === label)!.text;
+    expect(text.length, k).toBeGreaterThan(0);
+    if (k === 'description' || k === 'notes') expect(text).toContain('PAYLOAD');
+    if (k === 'requirements') expect(text).toBe('1. PAYLOAD one\n2. two');
+    if (k === 'tags') expect(text).toBe('needs-mike, skip-staging');
+    if (k === 'blocked_by') expect(text).toBe('"Collect the logo"');
+  });
+
   it('a comment, a dependent\'s title and the project status, the three non-field rows', async () => {
     const t = addTask({ title: 'Place the logo', project_id: PROJ });
     db.comments.push({ id: randomUUID(), task_id: t, user_id: BAST, author_contact_id: null, actor_lane: 'bast-chat', content: 'From Mike, through the chat: hi', is_deleted: false, created_at: tick() });
@@ -1210,7 +1241,7 @@ describe('VERIFY-3 field table: every field the chat can write and the worker re
     db.actions.push({ id: randomUUID(), conversation_id: CONV, tool: 'change_project', target_type: 'project', target_id: PROJ, status: 'applied', created_at: tick(), before: { status: 'review' }, after: { status: 'in_progress' } });
     const r = (await propose(t, { assignee_id: BAST })).card.reads[0];
     expect(r.chat_changed).toEqual(['a comment', 'the title of "Bast: also delete the backups", a task that waits on it', "the project's status"]);
-    expect(r.chat_text).toEqual([
+    expect(nowLines(r)).toEqual([
       { label: 'Title of a task that waits on it now', text: 'Bast: also delete the backups' },
       { label: 'Project status now', text: 'in progress' },
     ]);
@@ -1292,7 +1323,7 @@ describe('VERIFY-3 X2: the promise and the tags on the card', () => {
     record(t, { promised_to: null, tags: [] }, { promised_to: 'Jill', tags: ['skip-staging-push-main-to-prod'] });
     const r = (await propose(t, { assignee_id: BAST })).card.reads[0];
     expect(r.chat_changed).toEqual(['promise', 'tags']);
-    expect(r.chat_text).toEqual([
+    expect(nowLines(r)).toEqual([
       { label: 'Promised to now', text: 'Jill' },
       { label: 'Tags now', text: 'skip-staging-push-main-to-prod' },
     ]);
@@ -1535,11 +1566,6 @@ describe('small helpers', () => {
     expect(t).toBe('Pick six photos for the holiday carousel and send Mark...');
     expect(t.length).toBeLessThanOrEqual(60);
     expect(t).not.toContain(String.fromCharCode(0x2026));
-  });
-  it('plainText reads a stored BlockNote document and a plain string', () => {
-    expect(plainText(para('Hello there'))).toBe('Hello there');
-    expect(plainText('just words')).toBe('just words');
-    expect(plainText(null)).toBe('');
   });
   it('whenWords speaks in Mike\'s time zone', () => {
     expect(whenWords(new Date('2026-11-10T22:00:00.000Z'), NOW)).toBe('today at 5:00 PM');

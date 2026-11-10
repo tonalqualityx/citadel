@@ -18,6 +18,7 @@ vi.mock('@/lib/db/prisma', () => {
     bastChatAction: { create: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     comment: { findFirst: vi.fn(), findMany: vi.fn() },
     $executeRaw: vi.fn(),
+    $executeRawUnsafe: vi.fn(async () => 0),
     bastChatEvent: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), count: vi.fn() },
     $queryRaw: vi.fn(),
     bastChatUsage: { upsert: vi.fn(), createMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },

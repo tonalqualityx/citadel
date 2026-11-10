@@ -306,21 +306,14 @@ export interface ReachResult {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Plan 4.2 R1 safe set: never changes whether or what the worker runs. Every member is a typed value that cannot carry
- * words (a date, a number, a flag, a fixed choice). `promised_to` is free text the session reads, so it is NOT here
- * (VERIFY-3 X2): changing it on a task Bast holds is a re-steer and taps.
+ * The safe set (VERIFY-4: reduced to almost nothing). On a task Bast holds, every chat change to a field the session
+ * reads taps, typed or not; the only changes that pass without a tap are the ones that only stop Bast (a parking status,
+ * a parking tag, taking the task off Bast, a review switched off, an approval given) and `client_visible`, which the
+ * client rule (R5) judges.
  */
-export const SAFE_FIELDS: readonly string[] = [
-  'due_date',
-  'priority',
-  'is_focus',
-  'energy_estimate',
-  'mystery_factor',
-  'battery_impact',
-  'client_visible', // worker-safe; R5 judges it
-];
-/** Safe on a Bast task (W2 and W3 do not read the arc), read on a woken delegate task (W1 line 345). */
-const ARC_FIELD = 'arc_id';
+export const SAFE_FIELDS: readonly string[] = ['client_visible'];
+/** Fields the session reads that have no rule of their own: on a task Bast holds, changing one taps. */
+const READ_ONLY_FIELDS: readonly string[] = ['due_date', 'priority', 'is_focus', 'energy_estimate', 'mystery_factor', 'battery_impact', 'promised_to'];
 /** Statuses that only park or close: safe as a field; the view model still catches a wake (blocked with a human comment, the sweep). */
 const PARKING_STATUSES: readonly string[] = ['blocked', 'done', 'abandoned'];
 /** Tags whose meaning to the worker is known to be "do not act": adding one is safe. */
@@ -357,8 +350,7 @@ export const KNOWN_CHANGE_KEYS: readonly string[] = [
   ...TASK_WRITE_KEYS,
   'blocked_by_connect',
   'blocked_by_disconnect',
-  ...SAFE_FIELDS.filter((f) => f !== 'client_visible'),
-  'promised_to',
+  ...READ_ONLY_FIELDS,
   ...CONTEXT_KEYS,
 ];
 
@@ -585,15 +577,10 @@ function applyChange(current: ReachTask, change: TaskChange): ReachTask {
 }
 
 /** Which changed fields fall outside the safe set for this task. */
-function nonSafeFields(changed: string[], before: ReachTask | null, after: ReachTask, change: TaskChange): string[] {
-  const afterIsDelegate = typeof after.assignee_id === 'string' && DELEGATE_USER_IDS.includes(after.assignee_id);
+function nonSafeFields(changed: string[], before: ReachTask | null, after: ReachTask): string[] {
   const out: string[] = [];
   for (const f of changed) {
     if (SAFE_FIELDS.includes(f)) continue;
-    if (f === ARC_FIELD) {
-      if (afterIsDelegate) out.push(f);
-      continue;
-    }
     if (f === 'status') {
       if (!PARKING_STATUSES.includes(after.status ?? '')) out.push(f);
       continue;
@@ -610,10 +597,9 @@ function nonSafeFields(changed: string[], before: ReachTask | null, after: Reach
       if (removed.length > 0 || added.some((t) => !PARKING_TAGS.includes(t))) out.push(f);
       continue;
     }
+    // A connected blocker is new text the session reads (its title, its thread: W3), open or not (VERIFY-4 R10).
     if (f === 'blocked_by_connect') {
-      const refs = change.blocked_by_connect ?? [];
-      const allOpen = refs.every((b) => b.status !== undefined && !SATISFIED_BLOCKER_STATUSES.includes(b.status));
-      if (!allOpen) out.push(f);
+      out.push(f);
       continue;
     }
     if (f === 'needs_review') {
@@ -718,7 +704,7 @@ function evaluateSelf(
   now: Date,
 ): void {
   if (changed.length === 0) return;
-  const nonSafe = nonSafeFields(changed, before, after, change);
+  const nonSafe = nonSafeFields(changed, before, after);
   const vb: ViewResult = before ? workerView(before, now) : { view: 'none', missing: [] };
   const va = workerView(after, now);
   const readChanged = changed.filter((f) => !SAFE_FIELDS.includes(f));

@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { NextResponse } from 'next/server';
 import { prisma as defaultDb } from '@/lib/db/prisma';
+import { withSavepoint } from '@/lib/db/scope';
 import { CHAT_LANE } from './task-filter';
 import { UNDO_WINDOW_HOURS, TASK_RECORD_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
 import { cleanLine } from './card-context';
@@ -113,7 +114,18 @@ export async function recordChatPatch(
   db: Db = defaultDb,
 ): Promise<string | null> {
   if (!isChat(auth)) return null;
+  // A savepoint inside a locked request (lib/db/scope.ts): a record that cannot be written costs only itself, as on
+  // main, and never aborts the change it records.
   try {
+    return await withSavepoint(() => patchRecord(before, after, conversationId, now, db));
+  } catch (e) {
+    console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
+    return null;
+  }
+}
+
+async function patchRecord(before: TaskShape, after: TaskShape, conversationId: string | null, now: Date, db: Db): Promise<string | null> {
+  {
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
     const b: Record<string, unknown> = {};
@@ -133,9 +145,6 @@ export async function recordChatPatch(
     const summary = await appliedSummary(db, { title: after.title }, bf, af, ownerId, now);
     if (!summary) return null;
     return await writeRecord(db, ownerId, conversationId, { tool: 'change_task', target_id: after.id, summary, before: bf, after: af }, now);
-  } catch (e) {
-    console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
-    return null;
   }
 }
 
@@ -149,6 +158,15 @@ export async function recordChatCreate(
 ): Promise<string | null> {
   if (!isChat(auth)) return null;
   try {
+    return await withSavepoint(() => createRecord(task, conversationId, now, db));
+  } catch (e) {
+    console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
+    return null;
+  }
+}
+
+async function createRecord(task: TaskShape, conversationId: string | null, now: Date, db: Db): Promise<string | null> {
+  {
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
     // The chat may file a task for any active person now; the record names whoever it is on.
@@ -165,9 +183,6 @@ export async function recordChatCreate(
       { tool: 'create_task', target_id: task.id, summary, after: { status: task.status as TaskFields['status'], assignee_id: task.assignee_id } },
       now,
     );
-  } catch (e) {
-    console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
-    return null;
   }
 }
 

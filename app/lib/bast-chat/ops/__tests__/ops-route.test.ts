@@ -56,6 +56,7 @@ function makeDb() {
   // The advisory locks (task-locks.ts): no keys come back, so nothing waits.
   db.$queryRaw = vi.fn(async () => []);
   db.$executeRaw = vi.fn(async () => 0);
+  db.$executeRawUnsafe = vi.fn(async () => 0);
   return db;
 }
 

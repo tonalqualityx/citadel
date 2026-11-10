@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { Prisma } from '@prisma/client';
 import { actorLaneField } from '@/lib/auth/actor-lane';
+import { deferUntilCommit } from '@/lib/db/scope';
 
 export type ActivityAction =
   | 'created'
@@ -30,9 +31,16 @@ export interface ActivityLogInput {
  * Log an activity to the activity log
  */
 export async function logActivity(input: ActivityLogInput): Promise<void> {
+  // Inside a locked Bast chat request this best-effort write waits for the commit and runs on its own, as on main
+  // (lib/db/scope.ts). Everywhere else nothing changes.
+  if (deferUntilCommit('activity log', async () => logActivityNow(input, await actorLaneField()))) return;
+  return logActivityNow(input, await actorLaneField());
+}
+
+async function logActivityNow(input: ActivityLogInput, lane: { actor_lane?: string }): Promise<void> {
   try {
     await prisma.activityLog.create({
-      data: { ...(await actorLaneField()),
+      data: { ...lane,
         user_id: input.userId,
         action: input.action,
         entity_type: input.entityType,

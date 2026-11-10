@@ -5,6 +5,7 @@ import {
 } from '../task-filter';
 import { BAST_USER_ID } from '../gate-mirror';
 import { REFUSED_FIELD_TEXT, taskInputSchema } from '../actions';
+import { CHECKLIST_REFUSED_TEXT, chatChecklist, chatRichText } from '../plain';
 
 type Refusal = Extract<ChatFilterResult, { ok: false }>;
 type Accepted = Extract<ChatFilterResult, { ok: true }>;
@@ -50,8 +51,7 @@ describe('PATCH: every field in the table is open on someone else\'s task, with 
   const ok: [string, unknown][] = [
     ['status', 'not_started'], ['status', 'in_progress'], ['status', 'review'], ['status', 'done'], ['status', 'blocked'], ['status', 'abandoned'],
     ['title', 'A new title'], ['description', 'Plain text or **Markdown**'], ['description', null], ['notes', 'Internal note'], ['notes', null],
-    ['requirements', [{ id: 'a', text: 'Do it', sort_order: 0 }]],
-    ['requirements', [{ id: 's', type: 'section', title: 'Part', sort_order: 0, items: [{ id: 'a', text: 'x', sort_order: 0 }] }]], ['requirements', null],
+    ['requirements', [{ id: 'a', text: 'Do it', sort_order: 0 }]], ['requirements', null],
     ['assignee_id', OWNER], ['assignee_id', SABEEN], ['assignee_id', BAST], ['assignee_id', null],
     ['project_id', OTHER], ['project_id', null], ['client_id', OTHER], ['client_id', null], ['site_id', OTHER], ['site_id', null],
     ['arc_id', OTHER], ['arc_id', null], ['energy_estimate', 3], ['energy_estimate', null], ['mystery_factor', 'significant'],
@@ -59,10 +59,16 @@ describe('PATCH: every field in the table is open on someone else\'s task, with 
     ['priority', 1], ['priority', 5], ['is_focus', true], ['needs_review', true], ['approved', true], ['client_visible', false], ['client_visible', true],
     ['blocked_by_ids', { connect: [OTHER] }], ['blocked_by_ids', { disconnect: [OTHER] }], ['blocked_by_ids', { connect: [OTHER], disconnect: [SABEEN] }],
   ];
-  it.each(ok)('%s = %j passes and the body is returned as it was', (k, v) => {
-    const body = { [k]: v };
-    const r = accepted(patch(body));
-    expect(r.body).toBe(body);
+  // VERIFY-4 R1: the body comes back with every text field in its exact stored form; every other field as it was.
+  const stored = (k: string, v: unknown) =>
+    k === 'description' || k === 'notes' ? chatRichText(v, `${TASK}:${k}`) : k === 'requirements' ? chatChecklist(v, undefined, `${TASK}:requirements`) : v;
+  it.each(ok)('%s = %j passes and comes back in its stored form', (k, v) => {
+    const r = accepted(patch({ [k]: v }));
+    expect(r.body).toEqual({ [k]: stored(k, v) });
+  });
+  it('VERIFY-4 R1: a checklist section from the chat is refused, not flattened', () => {
+    const r = refusal(patch({ requirements: [{ id: 's', type: 'section', title: 'Part', sort_order: 0, items: [{ id: 'a', text: 'x', sort_order: 0 }] }] }));
+    expect(r.message).toBe(`${CHECKLIST_REFUSED_TEXT} Field: requirements`);
   });
 
   it('the table is exactly the allowlist (a field not in it is refused)', () => {
@@ -121,7 +127,8 @@ describe('PATCH: origin_url and description blocks (create-task.py\'s follow-up)
   const filed = { id: TASK, assignee_id: OWNER, tags: ['from-chat'] };
   const body = { requirements: [{ id: 'r', text: 'x', sort_order: 0 }], description: [{ id: 'b', type: 'paragraph', content: [], children: [] }], origin_url: 'https://mail.google.com/x' };
   it('passes on a task that is the owner\'s and tagged from-chat', () => {
-    expect(accepted(patch(body, filed)).body).toBe(body);
+    // VERIFY-4 R1: the checklist and the blocks come back in their stored form (text only, the server's ids).
+    expect(accepted(patch(body, filed)).body).toEqual({ ...body, requirements: chatChecklist(body.requirements, undefined, `${TASK}:requirements`), description: null });
   });
   it('is refused, naming the field, on any other task', () => {
     for (const existing of [theirs, { id: TASK, assignee_id: OWNER, tags: [] }, { id: TASK, assignee_id: SABEEN, tags: ['from-chat'] }, null]) {
@@ -202,7 +209,7 @@ describe('POST allowlist for the chat lane', () => {
   const base = { title: 'Do a thing', assignee_id: OWNER, tags: ['from-chat'] };
 
   it('allows the base body and the create-task.py shape', () => {
-    expect(accepted(post(base)).body).toBe(base);
+    expect(accepted(post(base)).body).toEqual(base);
     const full = {
       ...base, description: [], client_id: 'c', site_id: 's', sop_id: 'o', project_id: 'p', arc_id: 'a',
       energy_estimate: 1, mystery_factor: 'average', battery_impact: 'energizing', priority: 3, is_focus: false, needs_review: false, promised_to: 'Jill',

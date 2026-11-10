@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { scopedTransaction } from './scope';
+import { scopedTransaction, withSavepoint } from './scope';
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -23,12 +23,15 @@ export const prisma: PrismaClient = new Proxy(base, {
     const tx = scopedTransaction();
     if (tx) {
       if (prop === '$transaction') {
-        return async (arg: unknown) => {
-          if (typeof arg === 'function') return (arg as (t: typeof tx) => unknown)(tx);
-          const out: unknown[] = [];
-          for (const p of arg as Promise<unknown>[]) out.push(await p);
-          return out;
-        };
+        // A nested transaction is a savepoint (VERIFY-4 Y9): a throw rolls back its own writes, as a real one would.
+        // Its options (timeout, isolation) cannot apply inside the outer transaction and are ignored.
+        return async (arg: unknown) =>
+          withSavepoint(async () => {
+            if (typeof arg === 'function') return (arg as (t: typeof tx) => unknown)(tx);
+            const out: unknown[] = [];
+            for (const p of arg as Promise<unknown>[]) out.push(await p);
+            return out;
+          });
       }
       const v = (tx as unknown as Record<PropertyKey, unknown>)[prop];
       if (v !== undefined) return v;

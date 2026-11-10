@@ -107,6 +107,12 @@ describe('ActionLine', () => {
     expect(screen.getByTestId('chat-text-value').textContent).toBe('1. one\n2. two');
     expect(screen.getByTestId('chat-hidden').textContent).toBe('Invisible characters were taken out of this text before it was shown: 600.');
   });
+  it('VERIFY-4: a task the plan writes or connects says so in its own line', () => {
+    const c = card('bast_resteer', { reads: [{ title: 'Collect the logo', notices: ['This chat wants to change this task.', "The description's formatting will be replaced by plain text."], chat_text: [{ label: 'Description will be', text: 'Plain now.' }] }] });
+    render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);
+    expect(screen.getAllByTestId('card-notice').map((n) => n.textContent)).toEqual(['This chat wants to change this task.', "The description's formatting will be replaced by plain text."]);
+    expect(screen.getByTestId('chat-text').textContent).toBe('Description will be:Plain now.');
+  });
   it('VERIFY-3 X1: a card that could not show everything says so and its yes button cannot be pressed', () => {
     const onRelease = vi.fn();
     const c = card('bast_start', { incomplete: true, incomplete_line: "Some of the chat's text is too long to show here, so this can't be tapped. Open the task." });

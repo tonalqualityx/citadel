@@ -34,6 +34,7 @@ vi.mock('@/lib/db/prisma', () => {
   p.$transaction = vi.fn(async (fn: any) => fn(p));
   p.$queryRaw = vi.fn(async () => []);
   p.$executeRaw = vi.fn(async () => 0);
+  p.$executeRawUnsafe = vi.fn(async () => 0);
   return { prisma: p };
 });
 vi.mock('@/lib/api/formatters', () => ({ formatTaskResponse: vi.fn((t) => t) }));
@@ -107,6 +108,7 @@ beforeEach(() => {
   db.comment.findMany.mockResolvedValue([]);
   db.$queryRaw.mockResolvedValue([]);
   db.$executeRaw.mockResolvedValue(0);
+  db.$executeRawUnsafe.mockResolvedValue(0);
   db.task.count.mockResolvedValue(0);
   db.task.findMany.mockResolvedValue([]);
   db.site.findMany.mockResolvedValue([]);

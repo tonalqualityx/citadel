@@ -21,6 +21,7 @@ beforeEach(() => {
     },
     $queryRaw: vi.fn(async () => []),
     $executeRaw: vi.fn(async () => 0),
+    $executeRawUnsafe: vi.fn(async () => 0),
   };
 });
 

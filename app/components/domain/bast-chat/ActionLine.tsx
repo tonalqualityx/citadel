@@ -72,6 +72,11 @@ function ReadBlock({ read }: { read: CardRead }) {
           {changed}
         </p>
       ) : null}
+      {(read.notices ?? []).map((l, i) => (
+        <p key={`x${i}`} className="home-small" data-testid="card-notice" style={{ ...FLAG, fontWeight: 600 }}>
+          {l}
+        </p>
+      ))}
       {read.hidden_line ? (
         <p className="home-small" data-testid="chat-hidden" style={FLAG}>
           {read.hidden_line}

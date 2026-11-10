@@ -99,6 +99,8 @@ export interface CardRead {
   chat_text?: { label: string; text: string }[] | null;
   /** "Invisible characters were taken out of this text before it was shown: 600." */
   hidden_line?: string | null;
+  /** Lines about this task's place on the card: "This chat wants to change this task.", a formatting note. */
+  notices?: string[] | null;
 }
 export interface ProposalCard {
   kind: CardKind;

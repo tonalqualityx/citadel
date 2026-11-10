@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
+import { withSavepoint } from '@/lib/db/scope';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { taskWriteWhere, chatWriteMiss } from '@/lib/bast-chat/task-filter';
 import { recordChatPatch } from '@/lib/bast-chat/task-record';
@@ -222,6 +223,7 @@ async function afterStatusChange(
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- unchanged since main; this file is linted now because the chat round touched it
 export async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
   const task = await prisma.task.findUnique({
     where: { id: taskId, is_deleted: false },
@@ -296,7 +298,8 @@ async function resolvePortalFirstResponse(task: {
 }) {
   if (task.source !== 'portal') return;
   try {
-    await onTaskProgress(prisma, task);
+    // A savepoint inside a locked Bast chat request, so this best-effort write cannot abort the change (lib/db/scope.ts).
+    await withSavepoint(() => onTaskProgress(prisma, task));
   } catch (error) {
     console.error('portal first-response resolve failed', error);
   }
@@ -589,6 +592,7 @@ export async function patchTask(input: PatchTaskInput) {
       : statusChange;
 
   // Build update data explicitly to avoid Prisma type conflicts
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- unchanged since main
   const updateData: Record<string, any> = {
     estimated_minutes: estimatedMinutes,
     // Applied first so an explicit field in the same body (e.g. is_focus) wins.

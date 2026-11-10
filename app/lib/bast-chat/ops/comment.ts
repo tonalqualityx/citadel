@@ -31,13 +31,18 @@ import { BAST_USER_ID, BOT_USER_IDS } from '../gate-mirror';
 import { checkComment, type CommentAuthorKind, type ReachOrigin } from '../worker-reach';
 import { isChatUuid } from '../worker-kit';
 import { CHAT_COMMENT_PREFIX } from '../worker-reads';
+import { plainString } from '../plain';
 import { lockScope, scopeFor } from '../task-locks';
 import type { OpDef, OpDb, OpRun } from './index';
 
 export const COMMENT_PREFIX = CHAT_COMMENT_PREFIX;
 export const COMMENT_MAX = 2000;
 
-const inputSchema = z.object({ task_id: z.string().uuid(), text: z.string().trim().min(1).max(COMMENT_MAX) }).strict();
+// The text is plain (VERIFY-4 R1): invisible and control characters go before anything else sees it, so the stored
+// comment, the reach check and the card carry the same words.
+const inputSchema = z
+  .object({ task_id: z.string().uuid(), text: z.string().transform((t) => plainString(t).trim()).pipe(z.string().min(1).max(COMMENT_MAX)) })
+  .strict();
 export type CommentInput = z.infer<typeof inputSchema>;
 
 const expectSchema = z.object({ task_updated_at: z.string(), last_comment_id: z.string().nullable() }).strict();

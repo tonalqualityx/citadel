@@ -290,8 +290,13 @@ describe('R1: edits to a task Bast holds, any status', () => {
       expect(r.starts[0].fields).toContain('promised_to');
     }
   });
-  it('the safe set does not reach on an eligible Bast task', () => {
-    const safe: TaskChange[] = [
+  it('VERIFY-4 R10: connecting any blocker to a Bast task taps, an open one too (Bast reads its title and thread)', () => {
+    for (const change of [{ blocked_by_connect: [blocker('open-1', 'in_progress')] }, { status: 'blocked', blocked_by_connect: [blocker('open-2', 'not_started')] }] as TaskChange[]) {
+      expect(patch(bast(), change).needs_tap).toBe(true);
+    }
+  });
+  it('VERIFY-4: every field the session reads taps on a Bast task, typed ones too', () => {
+    const reads: TaskChange[] = [
       { due_date: '2026-11-14T22:00:00Z' },
       { priority: 1 },
       { is_focus: true },
@@ -299,10 +304,13 @@ describe('R1: edits to a task Bast holds, any status', () => {
       { mystery_factor: 'average' },
       { battery_impact: 'high_drain' },
       { arc_id: 'arc-1' },
+    ];
+    for (const change of reads) expect(patch(bast(), change).needs_tap, JSON.stringify(change)).toBe(true);
+  });
+  it('only a change that stops Bast passes on a Bast task without a tap', () => {
+    const safe: TaskChange[] = [
       { tags: ['needs-mike'] },
       { tags: ['chat-clarifying'] },
-      { blocked_by_connect: [blocker('open-1', 'in_progress')] },
-      { status: 'blocked', blocked_by_connect: [blocker('open-2', 'not_started')] },
       { status: 'done' },
       { status: 'abandoned' },
     ];
@@ -490,11 +498,11 @@ describe('R2: release', () => {
     expect(rules(r)).toEqual(['releases_dependent']);
     expect(r.reads[0].changed).toEqual([`blocker:${m.id}:title`]);
   });
-  it('split: add the dependency (safe, it parks), then close the blocker (reaches)', () => {
+  it('split: add the dependency (a tap now, VERIFY-4 R10: Bast reads the new blocker), then close the blocker (reaches)', () => {
     const m = task({ status: 'in_progress' });
     const b = bast();
     const ref = blocker(m.id, 'in_progress');
-    none(patch(b, { blocked_by_connect: [ref] }));
+    expect(patch(b, { blocked_by_connect: [ref] }).needs_tap).toBe(true);
     const m2 = applied(m, { dependents: [applied(b, { blocked_by: [ref] })] });
     reachesWith(patch(m2, { status: 'done' }), 'releases_dependent', b.id);
   });
@@ -545,7 +553,7 @@ describe('R3: delegate wake', () => {
     const woken = sabeen({ last_comment_author: 'human' });
     reachesWith(patch(woken, { description: 'New ask' }), 'edits_woken_delegate_task');
     reachesWith(patch(woken, { arc_id: 'arc-2' }), 'edits_woken_delegate_task');
-    none(patch(woken, { due_date: '2026-11-12T10:00:00Z' }));
+    reachesWith(patch(woken, { due_date: '2026-11-12T10:00:00Z' }), 'edits_woken_delegate_task'); // VERIFY-4: the session reads it
     none(patch(sabeen({ last_comment_author: 'bot' }), { description: 'New ask' }));
   });
   it('split: hand to Sabeen while closed (no reach), then reopen (reaches)', () => {

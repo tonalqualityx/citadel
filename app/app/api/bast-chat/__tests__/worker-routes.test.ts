@@ -14,6 +14,8 @@ vi.mock('@/lib/db/prisma', () => {
     bastChatAction: { create: vi.fn(async () => ({ id: '22222222-2222-4222-8222-222222222222', undo_until: new Date('2026-11-11T00:00:00Z') })) },
   };
   db.$transaction = async (fn: (tx: unknown) => unknown) => fn(db);
+  // The commit check of a locked write (lib/db/scope.ts assertAlive).
+  db.$queryRaw = async () => [{ alive: 1 }];
   return { prisma: db };
 });
 vi.mock('@/lib/bast-chat/usage', async (orig) => ({ ...(await orig<typeof import('@/lib/bast-chat/usage')>()), reserveWrite: vi.fn(async () => undefined) }));

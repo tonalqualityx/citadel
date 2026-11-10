@@ -30,6 +30,7 @@ beforeEach(() => {
     task: { findUnique: vi.fn(async () => task()), findMany: vi.fn(async () => [task()]) },
     $queryRaw: vi.fn(async () => []),
     $executeRaw: vi.fn(async () => 0),
+    $executeRawUnsafe: vi.fn(async () => 0),
     comment: {
       findFirst: vi.fn(async ({ where }: any) => [...comments].filter((c) => !c.is_deleted && (!where.id?.not || c.id !== where.id.not)).at(-1) ?? null),
       create: vi.fn(async ({ data }: any) => { const c = { id: COMMENT, is_deleted: false, ...data }; comments.push(c); return { id: COMMENT }; }),

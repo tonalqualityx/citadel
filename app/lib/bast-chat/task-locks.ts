@@ -34,7 +34,7 @@
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
-import { runOnTransaction } from '@/lib/db/scope';
+import { TX_ABORTED_TEXT, assertAlive, openScope, runAfterCommit, runInScope } from '@/lib/db/scope';
 
 type LockDb = Pick<PrismaClient, '$queryRaw' | '$executeRaw'> | Prisma.TransactionClient;
 type ScopeDb = { task: Pick<PrismaClient['task'], 'findMany'> };
@@ -125,13 +125,35 @@ export function isBusyError(e: unknown): boolean {
  */
 export async function withLocks<T>(db: PrismaClient, scope: LockScope, fn: (tx: Prisma.TransactionClient | PrismaClient) => Promise<T>): Promise<T> {
   if (isEmptyScope(scope)) return fn(db);
+  return inLockedTransaction(db, (tx) => lockScope(tx, scope), fn);
+}
+
+/**
+ * The one way locked work runs (withLocks here, the ops route's write in ops/apply.ts): a transaction, `before` (the
+ * locks), then `fn` in a scope on the same connection. Before the commit the transaction must still be alive (an abort
+ * is a 500 "That didn't go through. Try again.", never a success with nothing written); after it, the scope's
+ * best-effort queue runs outside the transaction (lib/db/scope.ts). A rollback drops the queue.
+ */
+export async function inLockedTransaction<T>(
+  db: PrismaClient,
+  before: (tx: Prisma.TransactionClient) => Promise<void>,
+  fn: (tx: Prisma.TransactionClient | PrismaClient) => Promise<T>,
+): Promise<T> {
+  let scoped: ReturnType<typeof openScope> | null = null;
+  let result: T;
   try {
-    return await db.$transaction(async (tx) => {
-      await lockScope(tx, scope);
-      return runOnTransaction(tx, () => fn(tx));
+    result = await db.$transaction(async (tx) => {
+      await before(tx);
+      scoped = openScope(tx);
+      const r = await runInScope(scoped, () => fn(tx));
+      await assertAlive(tx);
+      return r;
     }, LOCKED_TX_OPTIONS);
   } catch (e) {
+    if ((e as { code?: unknown } | null)?.code === 'tx_aborted') throw new ApiError(TX_ABORTED_TEXT, 500, 'tx_aborted');
     if (!(e instanceof ApiError) && isBusyError(e)) throw new ApiError(BUSY_TEXT, 409, 'busy');
     throw e;
   }
+  if (scoped) await runAfterCommit(scoped);
+  return result;
 }

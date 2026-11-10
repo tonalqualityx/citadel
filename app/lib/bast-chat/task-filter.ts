@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
+import { chatChecklist, chatRichText, plainString } from './plain';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
@@ -33,9 +35,20 @@ export const HAND_TO_BAST_TEXT = 'Handing work to Bast needs your tap. File it t
 /** VERIFY-3 X2: the model tier is Mike's alone (policy.json tag_overrides: "Only Mike sets these"). */
 export const TIER_TAG_TEXT = 'Only you set the model tier, on the task page.';
 /** `promised_to` holds a person's or a client's name. */
-export const PROMISE_MAX = 80;
-export const PROMISE_RE = /^[\p{L}\p{M}\p{N}'\u2019 .&-]+$/u;
-export const PROMISE_MAX_WORDS = 8;
+/**
+ * `promised_to` from the chat (VERIFY-4 R5): a person's or a client's name. Letters (with their accents), spaces,
+ * hyphens and apostrophes; a full stop only right after a single letter, for an initial ("J. Smith", "J.R. Ewing");
+ * at most 60 characters and 4 words. Anything else is refused with PROMISE_TEXT.
+ */
+export const PROMISE_MAX = 60;
+export const PROMISE_MAX_WORDS = 4;
+const PROMISE_WORD = /^(?:(?:\p{L}\.)+|\p{L}[\p{L}\p{M}'\u2019-]*)$/u;
+export function isPromiseName(v: string): boolean {
+  if (v.length === 0 || v.length > PROMISE_MAX || v !== v.trim() || /\s{2,}/.test(v) || /[^\S ]/.test(v)) return false;
+  const words = v.split(' ');
+  return words.length <= PROMISE_MAX_WORDS && words.every((w) => PROMISE_WORD.test(w));
+}
+export const PROMISE_TEXT = 'A promise is a name, up to four words, like Jill or J. Smith.';
 /** Tags that pick the model a worker runs on (model-policy.py `find_tag_override`). */
 export const isTierTag = (t: string) => t.trim().toLowerCase().startsWith('tier:');
 
@@ -68,7 +81,7 @@ export type ChatFilterInput = {
   /** The chat owner's user id (BastChatSettings.owner_user_id). Only read for the bast-chat lane. */
   ownerId?: string | null;
   /** PATCH only: the task as stored now (its tags build the full list from `tags_add` and `tags_remove`). */
-  existing?: { id?: string; assignee_id?: string | null; tags?: string[] | null } | null;
+  existing?: { id?: string; assignee_id?: string | null; tags?: string[] | null; requirements?: unknown } | null;
 };
 
 export type ChatFilterResult =
@@ -77,16 +90,12 @@ export type ChatFilterResult =
 
 const refuse = (code: Code, message: string): ChatFilterResult => ({ ok: false, status: 403, code, message });
 const refuseField = (field: string): ChatFilterResult => refuse('chat_field_refused', `${CLOSED_FIELD_TEXT} Field: ${field}`);
-const badValue = (field: string, what: string): ChatFilterResult => refuse('chat_field_refused', `${what}: ${field}`);
+/** "<what>: <field>", or for a whole sentence (ends in a full stop) "<sentence> Field: <field>", like the closed fields. */
+const badValue = (field: string, what: string): ChatFilterResult => refuse('chat_field_refused', what.endsWith('.') ? `${what} Field: ${field}` : `${what}: ${field}`);
 
-// Each field's own validation. A copy of the route's requirement schema: the filter must refuse a malformed list
-// before the reach check, so a bad list can never become a stored proposal.
-const reqItem = z.object({
-  id: z.string(), type: z.literal('item').optional(), text: z.string(), completed: z.boolean().optional(),
-  completed_at: z.string().nullable().optional(), completed_by: z.string().nullable().optional(), sort_order: z.number(),
-});
-const reqSection = z.object({ id: z.string(), type: z.literal('section'), title: z.string(), icon: z.string().optional(), sort_order: z.number(), items: z.array(reqItem) });
-const requirementsSchema = z.array(z.union([reqSection, reqItem])).max(200);
+// Each field's own validation, on the value after `plainString` (VERIFY-4 R1). The checklist's shape is judged by
+// `chatChecklist` (lines of text only), which runs right after.
+const requirementsSchema = z.array(z.unknown()).max(200);
 
 const uuidOrNull = z.string().uuid().nullable();
 const fieldSchemas: Record<string, { schema: z.ZodTypeAny; what: string }> = {
@@ -110,7 +119,7 @@ const fieldSchemas: Record<string, { schema: z.ZodTypeAny; what: string }> = {
   battery_impact: { schema: z.enum(['average_drain', 'high_drain', 'energizing']), what: 'That is not a battery impact' },
   due_date: { schema: z.string().datetime().nullable(), what: 'The date must be an ISO date and time or null' },
   // Who it was promised to: a short name on one line, never a sentence (VERIFY-3 X2: the worker reads it).
-  promised_to: { schema: z.string().trim().min(1).max(PROMISE_MAX).regex(PROMISE_RE).refine((v) => v.split(/\s+/).length <= PROMISE_MAX_WORDS).nullable(), what: `The promise must be a name of up to ${PROMISE_MAX} characters or null` },
+  promised_to: { schema: z.string().refine(isPromiseName).nullable(), what: PROMISE_TEXT },
   priority: { schema: z.number().int().min(1).max(5), what: 'The order must be 1 to 5' },
   is_focus: { schema: z.boolean(), what: 'The focus flag must be true or false' },
   needs_review: { schema: z.boolean(), what: 'The review flag must be true or false' },
@@ -167,10 +176,11 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
       if (k === 'tags') return badValue(k, 'Send tags_add or tags_remove, not tags');
       if (!(CHAT_PATCH_FIELDS as readonly string[]).includes(k)) return badValue(k, 'The chat cannot change this field');
     }
+    const plain = plainBody(b);
     for (const k of keys) {
       if (k === 'tags_add' || k === 'tags_remove' || k === 'blocked_by_ids') continue;
       const f = fieldSchemas[k];
-      if (!f.schema.safeParse(b[k]).success) return badValue(k, f.what);
+      if (!f.schema.safeParse(plain[k]).success) return badValue(k, f.what);
     }
     // origin_url is open as in version one: only on a task that is the owner's and that the chat filed.
     if ('origin_url' in b && !(existing?.assignee_id === ownerId && (existing?.tags ?? []).includes(CHAT_TAG))) return refuseField('origin_url');
@@ -179,10 +189,12 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
       if (!p.success) return badValue('blocked_by_ids', 'The tasks it waits on must be lists of ids');
       if (existing?.id && [...(p.data.connect ?? [])].includes(existing.id)) return badValue('blocked_by_ids', 'A task cannot wait on itself');
     }
-    if (!('tags_add' in b) && !('tags_remove' in b)) return { ok: true, body };
-    const t = tagsFor(b, existing);
+    const stored = storedForms(plain, existing?.id ?? 'task', existing?.requirements);
+    if (!stored.ok) return stored.res;
+    if (!('tags_add' in b) && !('tags_remove' in b)) return { ok: true, body: stored.body };
+    const t = tagsFor(plain, existing);
     if (!t.ok) return t.res;
-    const { tags_add: _a, tags_remove: _r, ...rest } = b;
+    const { tags_add: _a, tags_remove: _r, ...rest } = stored.body;
     void _a; void _r;
     return { ok: true, body: { ...rest, tags: t.tags } };
   }
@@ -191,12 +203,13 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   for (const k of keys) {
     if (!(CHAT_POST_ALLOWED as readonly string[]).includes(k)) return refuseField(k);
   }
+  const pb = plainBody(b);
   if (typeof b.assignee_id !== 'string' || !z.string().uuid().safeParse(b.assignee_id).success) {
     return badValue('assignee_id', 'A task from the chat must be assigned to someone');
   }
   // Bast as the assignee is a proposal only Mike's tap can release; a create has no proposal, so it is refused.
   if (b.assignee_id === BAST_USER_ID) return refuse('chat_field_refused', `${HAND_TO_BAST_TEXT} Field: assignee_id`);
-  const tags = b.tags;
+  const tags = pb.tags;
   const extra = Array.isArray(tags) ? tags.filter((t) => t !== CHAT_TAG) : [];
   if (
     !Array.isArray(tags) || !tags.includes(CHAT_TAG) || tags.filter((t) => t === CHAT_TAG).length !== 1 ||
@@ -210,14 +223,47 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   if ('priority' in b && b.priority !== 3) return badValue('priority', 'The chat cannot set this field');
   if ('is_focus' in b && b.is_focus !== false) return badValue('is_focus', 'The chat cannot set this field');
   if ('needs_review' in b && b.needs_review !== false) return badValue('needs_review', 'The chat cannot set this field');
-  if ('promised_to' in b && !fieldSchemas.promised_to.schema.safeParse(b.promised_to).success) return badValue('promised_to', fieldSchemas.promised_to.what);
+  if ('promised_to' in pb && !fieldSchemas.promised_to.schema.safeParse(pb.promised_to).success) return badValue('promised_to', fieldSchemas.promised_to.what);
+  if ('title' in pb && !fieldSchemas.title.schema.safeParse(pb.title).success) return badValue('title', fieldSchemas.title.what);
+  if ('description' in pb && !fieldSchemas.description.schema.safeParse(pb.description).success) return badValue('description', fieldSchemas.description.what);
+  const stored = storedForms(pb, randomUUID(), null);
+  if (!stored.ok) return stored.res;
   // create-task.py always sends a default date, so the date is dropped here (a date Mike names is set by a PATCH).
-  if ('due_date' in b) {
-    const rest = { ...b };
+  if ('due_date' in stored.body) {
+    const rest = { ...stored.body };
     delete rest.due_date;
     return { ok: true, body: rest, dropped: ['due_date'] };
   }
-  return { ok: true, body };
+  return { ok: true, body: stored.body };
+}
+
+/** Free-text keys of a chat body (VERIFY-4 R1): each string loses its invisible and control characters. */
+const TEXT_KEYS = ['title', 'description', 'notes', 'promised_to', 'origin_url'];
+const TEXT_LIST_KEYS = ['tags', 'tags_add', 'tags_remove'];
+function plainBody(b: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...b };
+  for (const k of TEXT_KEYS) if (typeof out[k] === 'string') out[k] = plainString(out[k] as string);
+  for (const k of TEXT_LIST_KEYS) if (Array.isArray(out[k])) out[k] = (out[k] as unknown[]).map((t) => (typeof t === 'string' ? plainString(t) : t));
+  return out;
+}
+
+/**
+ * The exact stored form of the chat's text (VERIFY-4 R1, R2): description and notes as plain paragraphs, the
+ * checklist as lines of text with the server's ids and ticks. What this returns is what the reach check judges, the
+ * card shows, the write stores and a tap writes again, byte for byte. Rich content the chat cannot write is refused.
+ */
+function storedForms(b: Record<string, unknown>, seed: string, currentChecklist: unknown): { ok: true; body: Record<string, unknown> } | { ok: false; res: ChatFilterResult } {
+  const out = { ...b };
+  for (const k of ['description', 'notes', 'requirements'] as const) {
+    if (!(k in out)) continue;
+    try {
+      out[k] = k === 'requirements' ? chatChecklist(out[k], currentChecklist, `${seed}:requirements`) : chatRichText(out[k], `${seed}:${k}`);
+    } catch (e) {
+      if (e instanceof ApiError) return { ok: false, res: refuse('chat_field_refused', `${e.message} Field: ${k}`) };
+      throw e;
+    }
+  }
+  return { ok: true, body: out };
 }
 
 export const NOTHING_TO_CHANGE_TEXT = 'There is nothing to change in that request.';
@@ -231,7 +277,7 @@ export async function guardChatTaskBody<T>(
   auth: Pick<AuthPayload, 'lane' | 'laneEnforced'>,
   method: 'POST' | 'PATCH',
   body: T,
-  existing?: { id?: string; assignee_id?: string | null; tags?: string[] | null } | null,
+  existing?: { id?: string; assignee_id?: string | null; tags?: string[] | null; requirements?: unknown } | null,
 ): Promise<T> {
   if (auth.lane !== CHAT_LANE) return body;
   const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
@@ -357,14 +403,14 @@ export async function chatPatchGate(a: {
   const ownerId = settings?.owner_user_id;
   if (!ownerId) throw new ApiError('The chat owner is not set.', 403, 'chat_lane_refused');
   if (!a.conversationId) throw new ApiError(NEEDS_CONVERSATION_TEXT, 400, 'chat_conversation_required');
-  const { prepareOperation, storeProposal, plainText } = await import('./actions');
+  const { prepareOperation, storeProposal } = await import('./actions');
   const now = a.now ?? new Date();
   // `origin_url` is not a task column (patchTask drops it) and the plan body is strict, so it stays out of the plan.
-  // A description sent as BlockNote blocks goes into the plan as its plain text; the write itself uses the body as sent.
+  // Every text field is already in its exact stored form (filterChatTaskBody, plain.ts): the plan, the reach check and
+  // the write all see the same bytes (VERIFY-4 R2, Y3).
   const { origin_url: _link, ...rest } = a.body;
   void _link;
   const planBody: Record<string, unknown> = { ...rest };
-  if (Array.isArray(planBody.description)) planBody.description = plainText(planBody.description);
   if (Object.keys(planBody).length === 0) {
     const e = a.existing as { updated_at?: Date; assignee_id?: string | null };
     return { kind: 'write', expect: { assignee_id: e.assignee_id ?? null, ...(e.updated_at ? { updated_at: e.updated_at } : {}) }, existing: a.existing };
