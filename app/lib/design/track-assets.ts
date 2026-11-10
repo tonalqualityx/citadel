@@ -202,13 +202,32 @@ export function validateRunnerAsset(kind: RunnerAssetKind, buf: Buffer, declared
 
 type AssetFacts = Pick<DesignTrackAsset, 'kind' | 'content_type' | 'status'>;
 
-/** May any Citadel designer route serve this asset's bytes to a browser? PDF and SVG originals and job logs never. */
+/**
+ * May any Citadel designer route serve this asset's bytes to a browser? PDF and SVG originals and job logs never. A
+ * designer upload only once the box has checked it (`ready`): a pending one may be a pixel bomb or carry location data
+ * (W6.1 F11), and its bytes are then those of its stripped render (`readServableAsset`).
+ */
 export function isBrowserServable(a: AssetFacts): boolean {
   if (!SERVABLE_KINDS.includes(a.kind)) return false;
   if (!SERVABLE_IMAGE_TYPES.includes(a.content_type.toLowerCase())) return false;
   if (a.status === 'rejected') return false;
+  if (a.kind === 'upload' && a.status !== 'ready') return false;
   return true;
 }
+
+/**
+ * The stripped copy of a raster designer upload: its first `render` (re-encoded on the box, EXIF, GPS and text chunks
+ * gone, at most 2,400 px). The same picture, so markup boxes (fractions of the image) still line up. Null when there is
+ * none, and then nothing is served: an original is never sent with its metadata.
+ */
+async function strippedRenderOf(asset: DesignTrackAsset): Promise<DesignTrackAsset | null> {
+  return prisma.designTrackAsset.findFirst({
+    where: { track_id: asset.track_id, parent_asset_id: asset.id, kind: 'render', status: 'ready' },
+    orderBy: [{ page: { sort: 'asc', nulls: 'first' } }, { created_at: 'asc' }],
+  });
+}
+
+const isRasterUpload = (a: Pick<DesignTrackAsset, 'kind' | 'content_type'>) => a.kind === 'upload' && SERVABLE_IMAGE_TYPES.includes(a.content_type.toLowerCase());
 
 /** The designer projection of a track asset (SPEC 3.5): no storage key, no hash, no creator. */
 export function trackAssetView(a: DesignTrackAsset, sessionId: string) {
@@ -342,16 +361,33 @@ export async function readServableAsset(trackId: string, assetId: string, deps: 
   if (!isUuid(trackId) || !isUuid(assetId)) throw notFound();
   const asset = await prisma.designTrackAsset.findFirst({ where: { id: assetId, track_id: trackId } });
   if (!asset || !isBrowserServable(asset)) throw notFound();
-  const bytes = await loadBytes(asset, deps);
-  const headers = serveHeaders({ content_type: asset.content_type, filename: asset.original_name ?? `asset.${asset.content_type.split('/')[1] ?? 'bin'}`, size_bytes: bytes.length });
+  // A raster upload is served as its stripped render, never as the original with its EXIF and GPS block (W6.1 F11).
+  const served = isRasterUpload(asset) ? await strippedRenderOf(asset) : asset;
+  if (!served) throw notFound();
+  const bytes = await loadBytes(served, deps);
+  const name = (asset.original_name ?? 'asset').replace(/\.[A-Za-z0-9]+$/, '');
+  const ext = served.content_type.split('/')[1] ?? 'bin';
+  const headers = serveHeaders({ content_type: served.content_type, filename: served === asset ? (asset.original_name ?? `asset.${ext}`) : `${name}.${ext}`, size_bytes: bytes.length });
   return { bytes, headers };
 }
 
-/** The machine read: any asset of the track as application/octet-stream (the runner and the daemon). */
-export async function readAssetForMachine(trackId: string, assetId: string, deps: StoreDeps = {}): Promise<{ bytes: Buffer; headers: Record<string, string> }> {
+/**
+ * The machine read: any asset of the track as application/octet-stream (the runner and the daemon). The runner needs
+ * originals (it processes them). The daemon passes `strippedUploads`: a raster upload comes back as its stripped
+ * render, only once it is ready (404 before), so a photo's location data never reaches the worker (W6.1 F11).
+ */
+export async function readAssetForMachine(
+  trackId: string, assetId: string, deps: StoreDeps = {}, opts: { strippedUploads?: boolean } = {},
+): Promise<{ bytes: Buffer; headers: Record<string, string> }> {
   if (!isUuid(trackId) || !isUuid(assetId)) throw notFound();
-  const asset = await prisma.designTrackAsset.findFirst({ where: { id: assetId, track_id: trackId } });
-  if (!asset) throw notFound();
+  const found = await prisma.designTrackAsset.findFirst({ where: { id: assetId, track_id: trackId } });
+  if (!found) throw notFound();
+  let asset = found;
+  if (opts.strippedUploads && isRasterUpload(found)) {
+    const render = found.status === 'ready' ? await strippedRenderOf(found) : null;
+    if (!render) throw notFound();
+    asset = render;
+  }
   const bytes = await loadBytes(asset, deps);
   return {
     bytes,

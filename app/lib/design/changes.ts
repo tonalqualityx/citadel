@@ -7,6 +7,7 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { appendDesignerEvent } from './events';
 import { createCommand } from './commands';
+import { assertTrackWritable } from './track-session';
 import type { DesignActor } from './helpers';
 
 export const decideChangeSchema = z
@@ -30,11 +31,13 @@ function assertOpen(session: Pick<DesignSession, 'status'>): void {
 export async function decideChange(
   actor: DesignActor,
   change: DesignChange,
-  session: Pick<DesignSession, 'id' | 'status'>,
+  session: Pick<DesignSession, 'id' | 'status' | 'track_id'>,
   input: DecideChangeBody,
   db: PrismaClient = defaultDb,
 ): Promise<DesignChange> {
   assertOpen(session);
+  // A denial writes a designer message for the worker: never on a busy or finished track (SPEC 2.2, 2.3).
+  await assertTrackWritable(session, { busy: true, done: true }, db);
   const note = input.note?.trim() ? input.note.trim() : null;
   if (input.decision === 'denied' && change.decision !== 'denied') {
     const text = `Denied: ${change.summary}.${note ? ` ${note}` : ''}`.slice(0, 8000);

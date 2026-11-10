@@ -111,4 +111,14 @@ describe('POST /api/design/sessions/:id/preview-link', () => {
     expect(res.headers.get('Retry-After')).toBeTruthy();
     expect(send).toHaveBeenCalledTimes(10);
   });
+  it('the limit follows the signed-in user, not X-Forwarded-For (W6.1 F3)', async () => {
+    const owner = '99999999-0000-4000-8000-000000000002';
+    arrange({ designer_id: owner });
+    as('designer', owner);
+    for (let i = 0; i < 10; i++) expect((await call({ path: '/' }, { 'x-forwarded-for': `203.0.113.${i}` })).status).toBe(200);
+    const res = await call({ path: '/' }, { 'x-forwarded-for': '198.51.100.77' });
+    expect(res.status).toBe(429);
+    expect((await res.json()).limit).toBe('user:design-preview-link');
+    expect(send).toHaveBeenCalledTimes(10);
+  });
 });

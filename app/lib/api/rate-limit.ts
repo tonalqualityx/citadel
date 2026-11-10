@@ -39,8 +39,25 @@ export function rateLimit(
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ||
              request.headers.get('x-real-ip') ||
              'unknown';
-  const now = Date.now();
   const key = bucket === 'default' ? ip : `${bucket}:${ip}`;
+  return countHit(key, limit, windowMs, `ip:${bucket}`);
+}
+
+/**
+ * The same in-memory limiter keyed on a value the server already trusts (a signed-in user id), never on a request
+ * header. For per-user limits: changing X-Forwarded-For cannot reset it. Reported as `limit: "user:<bucket>"`.
+ */
+export function rateLimitByKey(
+  key: string,
+  limit: number,
+  windowMs: number,
+  bucket: string
+): NextResponse | null {
+  return countHit(`key:${bucket}:${key}`, limit, windowMs, `user:${bucket}`);
+}
+
+function countHit(key: string, limit: number, windowMs: number, label: string): NextResponse | null {
+  const now = Date.now();
   const entry = rateLimitMap.get(key);
 
   if (!entry || now - entry.lastReset > windowMs) {
@@ -50,7 +67,7 @@ export function rateLimit(
 
   if (entry.count >= limit) {
     return NextResponse.json(
-      { error: 'Too many requests. Please try again later.', limit: `ip:${bucket}` },
+      { error: 'Too many requests. Please try again later.', limit: label },
       {
         status: 429,
         headers: {

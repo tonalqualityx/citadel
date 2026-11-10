@@ -7,6 +7,7 @@
  * polyglots.
  */
 import crypto from 'crypto';
+import zlib from 'zlib';
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_FILES_PER_MESSAGE = 10;
@@ -60,13 +61,91 @@ export function zipEntryNames(buf: Buffer): string[] | null {
 }
 
 /**
- * Known limit: this reads the raw bytes, so actions kept inside compressed object streams are not seen.
- * The rest of the chain (private storage, download-only, nosniff, no preview) is what stands behind it.
- * PDF actions that run code or open things on their own. Names may be hex-obfuscated (#6A = j), so decode first. */
+ * PDF actions that run code or open things on their own. Names may be hex-obfuscated (#6A = j), so decode first.
+ * The raw bytes are scanned, and so is every object stream (W6.1 F10): a reader finds dictionaries inside a compressed
+ * object stream (any stream whose dictionary carries `/First` or `/Type /ObjStm`), so those are inflated with the
+ * built-in zlib and scanned the same way. Hard caps: 1,000 object streams, 16 MB inflated per stream, 64 MB in all.
+ * Anything that cannot be checked (a filter other than Flate, a predictor, a stream that does not inflate, a cap
+ * reached) counts as active: the PDF is refused, never let through unread.
+ */
 const PDF_ACTIVE = /\/(?:JavaScript|JS|OpenAction|Launch|AA|RichMedia|XFA)(?![A-Za-z0-9])/;
+export const PDF_MAX_OBJECT_STREAMS = 1000;
+export const PDF_MAX_INFLATED_PER_STREAM = 16 * 1024 * 1024;
+export const PDF_MAX_INFLATED_TOTAL = 64 * 1024 * 1024;
+
+const decodePdfNames = (text: string): string => text.replace(/#([0-9A-Fa-f]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
+
 export function pdfHasActiveContent(buf: Buffer): boolean {
-  const text = buf.toString('latin1').replace(/#([0-9A-Fa-f]{2})/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)));
-  return PDF_ACTIVE.test(text);
+  const raw = buf.toString('latin1');
+  if (PDF_ACTIVE.test(decodePdfNames(raw))) return true;
+  try {
+    return objectStreamsHaveActiveContent(buf, raw);
+  } catch {
+    return true; // could not be checked: refuse
+  }
+}
+
+/** The dictionary that ends just before `end` (exclusive, at a `>>`), found by balancing `<<` and `>>` backwards. */
+function dictBefore(text: string, end: number): string | null {
+  let j = end - 1;
+  while (j >= 0 && /\s/.test(text[j])) j--;
+  if (j < 1 || text[j] !== '>' || text[j - 1] !== '>') return null;
+  let depth = 0;
+  const floor = Math.max(0, j - 64 * 1024);
+  for (let i = j; i > floor; i--) {
+    if (text[i] === '>' && text[i - 1] === '>') { depth++; i--; continue; }
+    if (text[i] === '<' && text[i - 1] === '<') {
+      depth--;
+      i--;
+      if (depth === 0) return text.slice(i, j + 1);
+    }
+  }
+  return null;
+}
+
+function objectStreamsHaveActiveContent(buf: Buffer, text: string): boolean {
+  let pos = 0;
+  let streams = 0;
+  let total = 0;
+  for (;;) {
+    const idx = text.indexOf('stream', pos);
+    if (idx < 0) return false;
+    pos = idx + 6;
+    if (text.slice(idx - 3, idx) === 'end') continue;
+    const eol = text.startsWith('\r\n', idx + 6) ? 2 : text[idx + 6] === '\n' ? 1 : 0;
+    if (eol === 0) continue;
+    const dictRaw = dictBefore(text, idx);
+    if (!dictRaw) continue;
+    const dataStart = idx + 6 + eol;
+    const dict = decodePdfNames(dictRaw);
+    const direct = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(dict);
+    let dataEnd = direct ? dataStart + Number(direct[1]) : -1;
+    if (dataEnd < dataStart || dataEnd > buf.length || !/^\s*endstream/.test(text.slice(dataEnd, dataEnd + 32))) {
+      const e = text.indexOf('endstream', dataStart);
+      dataEnd = e < 0 ? buf.length : e;
+      while (dataEnd > dataStart && (text[dataEnd - 1] === '\n' || text[dataEnd - 1] === '\r')) dataEnd--;
+    }
+    pos = Math.max(pos, dataEnd);
+    const isObjStm = /\/First(?![A-Za-z0-9])/.test(dict) || /\/Type\s*\/ObjStm(?![A-Za-z0-9])/.test(dict);
+    if (!isObjStm) continue;
+    if (++streams > PDF_MAX_OBJECT_STREAMS) return true;
+    const filter = /\/Filter\s*(\/[A-Za-z0-9]+|\[[^\]]*\])/.exec(dict);
+    const filters = filter ? filter[1].match(/\/[A-Za-z0-9]+/g) ?? [] : [];
+    const data = buf.subarray(dataStart, dataEnd);
+    let inner: Buffer;
+    if (filters.length === 0) {
+      inner = data; // uncompressed: already in the raw scan, checked again for clarity
+    } else if (filters.length === 1 && (filters[0] === '/FlateDecode' || filters[0] === '/Fl')) {
+      const pred = /\/Predictor\s+(\d+)/.exec(dict);
+      if (pred && Number(pred[1]) > 1) return true;
+      inner = zlib.inflateSync(data, { maxOutputLength: PDF_MAX_INFLATED_PER_STREAM, finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    } else {
+      return true; // a filter chain we do not decode
+    }
+    total += inner.length;
+    if (total > PDF_MAX_INFLATED_TOTAL) return true;
+    if (PDF_ACTIVE.test(decodePdfNames(inner.toString('latin1')))) return true;
+  }
 }
 
 const SCRIPTISH = /<\s*script\b|<\?php|<\s*html\b|<\s*svg\b|<!doctype\s+html/i;

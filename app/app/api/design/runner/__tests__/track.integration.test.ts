@@ -712,5 +712,27 @@ describe.skipIf(!SCRATCH)('design track engine (real database)', () => {
       await prisma.projectContact.deleteMany({ where: { project_id: w.projectId } });
       await prisma.clientContact.deleteMany({ where: { id: { in: [owner.id, viewer.id, outsider.id, gone.id] } } });
     });
+
+    it('recipients (W6.1 F9): no fallback for a site with no URL; a contact on a parent or public-suffix domain needs a grant', async () => {
+      const w = await world('rcpt2');
+      const mk = (email: string) => prisma.clientContact.create({ data: { client_id: f.clientId, email, name: email.split('@')[0], can_initiate_work: true } });
+      const tag = f.tag.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const onSite = await mk(`owner@w63${tag}.co.uk`);
+      const onSub = await mk(`team@mail.w63${tag}.co.uk`);
+      const onSuffix = await mk(`anyone@co.uk`);
+      try {
+        await prisma.site.update({ where: { id: w.siteId }, data: { url: null } });
+        expect(await computeRecipients(w.projectId)).toEqual([]);
+        await prisma.site.update({ where: { id: w.siteId }, data: { url: `https://www.w63${tag}.co.uk./` } });
+        const got = (await computeRecipients(w.projectId)).map((r) => r.email);
+        expect(got).toEqual(expect.arrayContaining([onSite.email, onSub.email]));
+        expect(got).not.toContain(onSuffix.email);
+        // a site on a subdomain no longer accepts a contact on the parent domain without a grant
+        await prisma.site.update({ where: { id: w.siteId }, data: { url: `https://shop.w63${tag}.co.uk` } });
+        expect((await computeRecipients(w.projectId)).map((r) => r.email)).toEqual([]);
+      } finally {
+        await prisma.clientContact.deleteMany({ where: { id: { in: [onSite.id, onSub.id, onSuffix.id] } } });
+      }
+    });
   });
 });

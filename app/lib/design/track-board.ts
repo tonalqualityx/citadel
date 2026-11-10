@@ -9,7 +9,7 @@ import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { FORBIDDEN_PROJECTION_KEYS } from './projections';
 import { isUuid } from './helpers';
-import { loadTrack, lockTrack, queueJob, trackTx } from './track-core';
+import { ACTIVE_JOB_STATUSES, loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
 import { isBrowserServable, trackAssetView } from './track-assets';
 
 export const REACTIONS = ['useful', 'not_relevant'] as const;
@@ -17,6 +17,10 @@ export const MARKUP_SENTIMENTS = ['like', 'dislike', 'note'] as const;
 export const MARKUP_CATEGORIES = ['type', 'colour', 'layout', 'density', 'imagery', 'nav', 'decoration', 'motion', 'feature', 'tone', 'other'] as const;
 export const REFERENCE_DECISIONS = ['pending', 'yes', 'no'] as const;
 export const MAX_LIVE_MARKUPS_PER_REFERENCE = 50;
+/** Board references added by URL (each one is a capture job on the shared runner queue): per track, per minute, in flight. */
+export const MAX_URL_REFERENCES_PER_TRACK = 40;
+export const MAX_URL_REFERENCES_PER_MINUTE = 10;
+export const MAX_ACTIVE_DESIGNER_CAPTURES_PER_TRACK = 10;
 
 const FORBIDDEN = new Set<string>(FORBIDDEN_PROJECTION_KEYS);
 /** Brief and direction bodies are runner or designer JSON: rename `client` (a forbidden key) and drop any other forbidden key at any depth. */
@@ -44,11 +48,19 @@ export const statementView = (n: NoteRow): ClientStatement => ({
   source_kind: n.source_kind, is_paraphrase: n.is_paraphrase, subject: n.subject, category: n.category, polarity: n.polarity, status: n.status,
 });
 
-/** Active design notes of the project's client, as `client_statements` (the only way a note reaches a designer). */
-export async function clientStatementsFor(projectId: string): Promise<ClientStatement[]> {
+/**
+ * A client with two sites must not get the other site's notes (W6.2 F7): a note counts for a track when it names the
+ * track's site or no site, and the track's project or no project.
+ */
+export function statementScope(projectId: string, siteId: string): Prisma.DesignNoteWhereInput {
+  return { AND: [{ OR: [{ site_id: siteId }, { site_id: null }] }, { OR: [{ project_id: projectId }, { project_id: null }] }] };
+}
+
+/** Active design notes of the project's client for this track's site, as `client_statements` (the only way a note reaches a designer). */
+export async function clientStatementsFor(projectId: string, siteId: string): Promise<ClientStatement[]> {
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { client_id: true } });
   if (!project?.client_id) return [];
-  const notes = await prisma.designNote.findMany({ where: { client_id: project.client_id, status: 'active' }, orderBy: { source_date: 'asc' } });
+  const notes = await prisma.designNote.findMany({ where: { client_id: project.client_id, status: 'active', ...statementScope(projectId, siteId) }, orderBy: { source_date: 'asc' } });
   return notes.map(statementView);
 }
 
@@ -57,7 +69,7 @@ export async function clientStatementsFor(projectId: string): Promise<ClientStat
 // ---------------------------------------------------------------------------------------------------------
 
 /** GET brief: the published brief, the caller's own reactions, `client_statements`, and the assets its cards name. */
-export async function readBrief(track: { id: string; project_id: string; brief_id: string | null }, sessionId: string, userId: string) {
+export async function readBrief(track: { id: string; project_id: string; site_id: string; brief_id: string | null }, sessionId: string, userId: string) {
   const brief = track.brief_id ? await prisma.designBrief.findUnique({ where: { id: track.brief_id } }) : null;
   const published = brief && brief.status === 'published' ? brief : null;
   let assets: ReturnType<typeof trackAssetView>[] = [];
@@ -77,7 +89,7 @@ export async function readBrief(track: { id: string; project_id: string; brief_i
     brief: published ? { id: published.id, version: published.version, published_at: published.published_at, body: stripForbidden(published.body) } : null,
     assets,
     reactions,
-    client_statements: await clientStatementsFor(track.project_id),
+    client_statements: await clientStatementsFor(track.project_id, track.site_id),
   };
 }
 
@@ -121,7 +133,10 @@ export function parseReferenceUrl(raw: string): string {
   if (u.protocol !== 'https:') throw bad('it must start with https://');
   if (u.username || u.password) throw bad('it must not carry a login');
   if (u.port && u.port !== '443') throw bad('it must use the standard port');
+  // One trailing dot is the same name as without it (`localhost.`): drop it before the checks and store it without.
+  if (u.hostname.endsWith('.')) u.hostname = u.hostname.slice(0, -1);
   const host = u.hostname.toLowerCase();
+  if (host.endsWith('.')) throw bad('it must be a site name');
   if (!host.includes('.') || host.startsWith('[') || /^\d+(\.\d+){3}$/.test(host) || /^[\d.]+$/.test(host)) throw bad('it must be a site name');
   if (host === 'localhost' || /\.(?:local|localhost|internal|lan|home|test|invalid)$/.test(host)) throw bad('it must be a public site');
   u.hash = '';
@@ -196,6 +211,7 @@ export async function addDesignerReference(
     const sort_order = (last._max.sort_order ?? -1) + 1;
     if (url) {
       if (await tx.designReference.findFirst({ where: { track_id: trackId, url }, select: { id: true } })) throw new ApiError('That site is already on the board', 409, 'duplicate_url');
+      await assertUrlReferenceRoom(tx, trackId);
       const title = (input.title?.trim() || new URL(url).hostname.replace(/^www\./, '')).slice(0, 200);
       const ref = await tx.designReference.create({ data: { track_id: trackId, source: 'designer_url', url, title, capture_status: 'queued', sort_order } });
       await queueJob(tx, track, 'capture', { payload: { reference_id: ref.id, url }, taskId: null });
@@ -211,6 +227,29 @@ export async function addDesignerReference(
     return ref.id;
   });
   return oneReference(trackId, id, sessionId);
+}
+
+/**
+ * The URL reference caps, checked under the track lock (W6.1 F2): at most 40 designer URL references on a track
+ * (409 `reference_limit`), 10 a minute (429 `references_per_minute`), and 10 designer captures queued or running at
+ * once (429 `captures_in_flight`), so one session cannot push every other track's jobs back on the shared queue.
+ */
+async function assertUrlReferenceRoom(tx: Tx, trackId: string): Promise<void> {
+  const refs = await tx.designReference.findMany({ where: { track_id: trackId, source: 'designer_url' }, select: { id: true, created_at: true } });
+  if (refs.length >= MAX_URL_REFERENCES_PER_TRACK) throw new ApiError(`This board already has ${MAX_URL_REFERENCES_PER_TRACK} sites added by address`, 409, 'reference_limit');
+  const since = Date.now() - 60_000;
+  if (refs.filter((r) => r.created_at.getTime() > since).length >= MAX_URL_REFERENCES_PER_MINUTE) {
+    throw new ApiError(`At most ${MAX_URL_REFERENCES_PER_MINUTE} sites a minute; wait a moment and try again`, 429, 'rate_limited', 'references_per_minute');
+  }
+  const mine = new Set(refs.map((r) => r.id));
+  const active = await tx.designJob.findMany({ where: { track_id: trackId, kind: 'capture', status: { in: [...ACTIVE_JOB_STATUSES] } }, select: { payload: true } });
+  const inFlight = active.filter((j) => {
+    const refId = (j.payload as { reference_id?: unknown } | null)?.reference_id;
+    return typeof refId === 'string' && mine.has(refId);
+  }).length;
+  if (inFlight >= MAX_ACTIVE_DESIGNER_CAPTURES_PER_TRACK) {
+    throw new ApiError(`Bast is still capturing ${inFlight} sites for this board; add more when those are done`, 429, 'rate_limited', 'captures_in_flight');
+  }
 }
 
 /** PATCH references/:refId: decision, decision note, sort order. 404 for a reference of another track. */

@@ -17,11 +17,13 @@ import type { DesignArtDirection, Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { appendWorkerEvents } from './events';
-import { loadTrack, lockTrack, queueJob, trackTx, type TrackScope } from './track-core';
+import { loadTrack, lockTrack, queueJob, trackTx, type TrackScope, type Tx } from './track-core';
 import { rebuildHome, signDirection, type HomeBuildInput } from './track-stage';
 import { clientStatementsFor, stripForbidden } from './track-board';
 
 export const MAX_DIRECTION_BYTES = 128 * 1024;
+/** 120 words is the rule; the character cap stops one 100,000-character "word" (W6.2 F10). A refine, like the daemon's. */
+export const MAX_SUMMARY_CHARS = 1200;
 
 const words = (s: string) => (s.trim() ? s.trim().split(/\s+/).length : 0);
 const str = (n: number) => z.string().max(n);
@@ -30,10 +32,29 @@ const detail = str(2000);
 const uuid = z.string().uuid();
 
 const fontPick = z.object({ family: str(100).min(1), source: z.enum(['brand', 'designer', 'reference-derived']).optional(), why: str(500).optional() }).strict();
-const link = z.object({ label: str(80), url: str(300) }).strict();
+/**
+ * A nav link goes to a site path (one leading slash, never `//` or `/\\`) or an `https://` address; anything else
+ * (`javascript:`, `data:`, `http:`, a protocol-relative `//host`, a `user@host` credential trick) is a 400 (W6.2 F6).
+ * Exactly the daemon mirror's rule (`navUrlOk`), so both sides agree: no `@` anywhere, and an empty address is refused
+ * too. A refine, not a regex in the type, so the JSON Schema fixture shared with the daemon is unchanged.
+ */
+const SITE_PATH = /^\/(?![/\\])[A-Za-z0-9/_.~%#?=&+,;:!*()-]*$/;
+const HTTPS_URL = /^https:\/\/[A-Za-z0-9.-]{1,253}(?::[0-9]{1,5})?(?:[/?#][A-Za-z0-9/_.~%#?=&+,;:!*()-]*)?$/;
+export function isNavUrl(raw: string): boolean {
+  if (SITE_PATH.test(raw)) return true;
+  if (!HTTPS_URL.test(raw)) return false;
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'https:' && !u.username && !u.password && u.hostname.includes('.') && !u.hostname.startsWith('.') && !u.hostname.endsWith('.');
+  } catch {
+    return false;
+  }
+}
+const navUrl = str(300).refine(isNavUrl, 'url must be a site path such as /shop/ or an https:// address');
+const link = z.object({ label: str(80), url: navUrl }).strict();
 
 export const directionBodySchema = z.object({
-  summary: z.string().refine((s) => words(s) <= 120, 'summary is at most 120 words'),
+  summary: z.string().refine((s) => words(s) <= 120, 'summary is at most 120 words').refine((s) => s.length <= MAX_SUMMARY_CHARS, `summary is at most ${MAX_SUMMARY_CHARS} characters`),
   feel: z.object({ words: list(12, str(40)), register: z.enum(['quiet', 'bold']), detail }).partial().strict(),
   type: z.object({ display: fontPick, body: fontPick, detail }).partial().strict(),
   colour: z.object({ brand_tokens_kept: list(30, str(80)), accent_job: str(300), grounds: list(20, str(80)), avoid: list(20, str(80)) }).partial().strict(),
@@ -128,8 +149,8 @@ async function currentDirection(trackId: string, db: Pick<typeof prisma, 'design
 }
 
 /** Active `require` or `avoid` notes of the client that the body answers in neither `client_requests` nor `open_questions`. */
-export async function missingClientRequests(projectId: string, body: DirectionBody | null) {
-  const statements = (await clientStatementsFor(projectId)).filter((n) => n.polarity === 'require' || n.polarity === 'avoid');
+export async function missingClientRequests(track: { project_id: string; site_id: string }, body: DirectionBody | null) {
+  const statements = (await clientStatementsFor(track.project_id, track.site_id)).filter((n) => n.polarity === 'require' || n.polarity === 'avoid');
   const honoured = new Set((body?.client_requests ?? []).map((r) => r.design_note_id));
   const questions = body?.open_questions ?? [];
   return statements.filter((n) => !honoured.has(n.id) && !questions.some((q) => q.includes(n.id)));
@@ -144,7 +165,7 @@ export function signGaps(body: DirectionBody): string[] {
   return gaps;
 }
 
-export async function readDirection(track: { id: string; project_id: string }) {
+export async function readDirection(track: { id: string; project_id: string; site_id: string }) {
   const current = await currentDirection(track.id);
   const parsed = current ? directionBodySchema.safeParse(current.body) : null;
   const body = parsed?.success ? parsed.data : null;
@@ -152,7 +173,7 @@ export async function readDirection(track: { id: string; project_id: string }) {
   return {
     direction: current ? directionView(current) : null,
     signed: lastSigned,
-    missing_client_requests: await missingClientRequests(track.project_id, body),
+    missing_client_requests: await missingClientRequests(track, body),
     sign_gaps: body ? signGaps(body) : ['nav.desktop', 'nav.mobile', 'container'],
   };
 }
@@ -199,6 +220,7 @@ export async function patchDirectionAs(
       if (input.base_revision !== undefined) throw new ApiError(movedMessage, 409, 'version_moved');
       const body = directionBodySchema.parse(mergePatch({}, input.patch));
       assertSize(body);
+      await assertOwnedIds(tx, track, {}, body);
       const created = await tx.designArtDirection.create({
         data: { track_id: trackId, version: 1, status: 'draft', body: body as Prisma.InputJsonValue, drafted_by: actor.draftedBy, updated_at: nextUpdatedAt(null) },
       });
@@ -210,6 +232,7 @@ export async function patchDirectionAs(
     }
     const merged = directionBodySchema.parse(mergePatch(draft.body, input.patch));
     assertSize(merged);
+    await assertOwnedIds(tx, track, draft.body, merged);
     const res = await tx.designArtDirection.updateMany({
       where: { id: draft.id, status: 'draft', version: draft.version, updated_at: draft.updated_at },
       data: { body: merged as Prisma.InputJsonValue, drafted_by: actor.draftedBy, updated_at: nextUpdatedAt(draft.updated_at) },
@@ -222,15 +245,58 @@ export async function patchDirectionAs(
   return directionView(out.row);
 }
 
+/** Every reference, markup and design note id a direction body names, by kind. Reads raw JSON as well as parsed bodies. */
+export function directionIds(body: unknown): { references: Set<string>; markups: Set<string>; notes: Set<string> } {
+  const out = { references: new Set<string>(), markups: new Set<string>(), notes: new Set<string>() };
+  if (!isObject(body)) return out;
+  const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const add = (set: Set<string>, v: unknown) => { if (typeof v === 'string') set.add(v); };
+  for (const t of arr(body.taken_from_references)) {
+    if (!isObject(t)) continue;
+    add(out.references, t.reference_id);
+    for (const m of arr(t.markup_ids)) add(out.markups, m);
+  }
+  for (const key of ['features', 'flair'] as const) for (const x of arr(body[key])) if (isObject(x)) for (const r of arr(x.references)) add(out.references, r);
+  for (const c of arr(body.client_requests)) if (isObject(c)) add(out.notes, c.design_note_id);
+  return out;
+}
+
+/**
+ * Ids a write adds to the direction must belong to it (W6.1 F15): references and markups of this track, design notes of
+ * this project's client. Only ids new in this write are checked, so an older draft never blocks its own edits. 400
+ * `bad_direction_ids` otherwise; nothing is stored.
+ */
+async function assertOwnedIds(tx: Tx, track: { id: string; project_id: string }, before: unknown, after: unknown): Promise<void> {
+  const was = directionIds(before);
+  const now = directionIds(after);
+  const fresh = (kind: 'references' | 'markups' | 'notes') => [...now[kind]].filter((id) => !was[kind].has(id));
+  const refs = fresh('references');
+  const markups = fresh('markups');
+  const notes = fresh('notes');
+  const bad = () => new ApiError('The art direction names a reference, markup or client note that is not part of this design', 400, 'bad_direction_ids');
+  if (refs.length > 0 && (await tx.designReference.count({ where: { id: { in: refs }, track_id: track.id } })) !== refs.length) throw bad();
+  if (markups.length > 0 && (await tx.designMarkup.count({ where: { id: { in: markups }, reference: { track_id: track.id } } })) !== markups.length) throw bad();
+  if (notes.length > 0) {
+    const project = await tx.project.findUnique({ where: { id: track.project_id }, select: { client_id: true } });
+    if (!project?.client_id || (await tx.designNote.count({ where: { id: { in: notes }, client_id: project.client_id } })) !== notes.length) throw bad();
+  }
+}
+
 function assertSize(body: unknown): void {
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_DIRECTION_BYTES) throw new ApiError('The art direction is over 128 KB', 413, 'direction_too_large');
 }
 
-/** Top-level sections that differ between two bodies, for the plain-language line a refinement carries. */
-function changedSections(before: unknown, after: unknown): string[] {
+/** The section names a refinement line may carry: the record's own top-level keys, nothing else. */
+export const DIRECTION_SECTIONS: readonly string[] = Object.keys(directionBodySchema.shape);
+
+/**
+ * Top-level sections that differ between two bodies, for the plain-language line a refinement carries. Bodies are raw
+ * stored JSON, so a key is kept only when it is one of `DIRECTION_SECTIONS` (a stray key can never reach the text).
+ */
+export function changedSections(before: unknown, after: unknown): string[] {
   const a = isObject(before) ? before : {};
   const b = isObject(after) ? after : {};
-  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  return DIRECTION_SECTIONS.filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 }
 
 export type SignMode = 'refinements' | 'rebuild';
@@ -260,7 +326,7 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
   const body = parsed.data;
   const gaps = signGaps(body);
   if (gaps.length > 0) throw new ApiError(`Fill in ${gaps.join(', ')} before signing`, 409, 'direction_incomplete');
-  const missing = await missingClientRequests(track.project_id, body);
+  const missing = await missingClientRequests(track, body);
   if (missing.length > 0) throw new ApiError(`${missing.length} client request(s) are not answered yet`, 409, 'client_requests_missing');
 
   const mode: SignMode = input.mode ?? 'refinements';
@@ -291,7 +357,7 @@ export async function signArtDirection(trackId: string, designerId: string, inpu
       if (fresh.stage !== track.stage) throw new ApiError('Track changed state; reload and retry', 409, 'state_conflict');
       const mail = await queueJob(scope.tx, fresh, 'client_brief_email', { payload: common.clientEmailPayload as never, taskId: null });
       await freeze(scope, { trackId, draftId: draft.id, version: draft.version, updatedAt: draft.updated_at, designerId, emailJobId: mail!.id });
-      await appendRefinementEvent(scope, trackId, designerId, draft.id, draft.version, body.summary, diff);
+      await appendRefinementEvent(scope, trackId, designerId, draft.id, draft.version, diff);
       return { build_job_id: null, client_email_job_id: mail!.id };
     });
     stage = track.stage;
@@ -323,16 +389,26 @@ async function freeze(scope: TrackScope, a: { trackId: string; draftId: string; 
   await tx.designTrack.update({ where: { id: a.trackId }, data: { art_direction_id: a.draftId } });
 }
 
-/** One designer `text` event, authored by the designer, so the worker picks the difference up as a normal message (SPEC 2.5). */
-async function appendRefinementEvent(scope: TrackScope, trackId: string, designerId: string, directionId: string, version: number, summary: string | undefined, diff: string[]): Promise<void> {
+/**
+ * One designer `text` event, authored by the designer, so the worker picks the difference up as a normal message
+ * (SPEC 2.5). The text is fixed wording plus section names from `DIRECTION_SECTIONS` only: nothing the worker or a
+ * reference can write (the summary, any free text) ever becomes a designer message (W6.2 F2). The worker reads the
+ * signed record itself through `design_context`, where it is fenced as data.
+ */
+export function refinementText(version: number, diff: readonly string[]): string {
+  const sections = diff.filter((k) => DIRECTION_SECTIONS.includes(k));
+  return [
+    `The art direction was revised and signed as version ${version}. Apply the difference to the current build as refinements; do not rebuild the home page.`,
+    sections.length ? `Changed sections: ${sections.join(', ')}.` : '',
+    'Read the signed art direction to see what changed.',
+  ].filter(Boolean).join(' ');
+}
+
+async function appendRefinementEvent(scope: TrackScope, trackId: string, designerId: string, directionId: string, version: number, diff: string[]): Promise<void> {
   const { tx } = scope;
   const live = await tx.designSession.findFirst({ where: { track_id: trackId, status: { notIn: ['closed', 'abandoned'] } }, select: { id: true } });
   if (!live) return;
-  const text = [
-    `The art direction was revised and signed as version ${version}. Apply the difference to the current build as refinements; do not rebuild the home page.`,
-    diff.length ? `Changed: ${diff.join(', ')}.` : '',
-    summary ? `Direction in short: ${summary}` : '',
-  ].filter(Boolean).join(' ').slice(0, 8000);
+  const text = refinementText(version, diff);
   const rows = await tx.$queryRaw<{ last_seq: number }[]>`UPDATE design_sessions SET last_seq = last_seq + 1 WHERE id = ${live.id}::uuid RETURNING last_seq`;
   await tx.designEvent.create({
     data: { session_id: live.id, seq: rows[0].last_seq, role: 'designer', kind: 'text', payload: { text }, author_id: designerId, client_ref: `art-direction:${directionId}` },

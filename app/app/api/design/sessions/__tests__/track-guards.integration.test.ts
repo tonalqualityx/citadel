@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { SCRATCH, seedDesign, teardownDesign, type DesignFixture } from '@/lib/design/__tests__/fixtures';
 import { seedWorld, teardownWorlds, type TrackWorld } from '@/lib/design/__tests__/track-world';
 
@@ -21,6 +22,8 @@ import * as requestPublish from '../[id]/request-publish/route';
 import * as close from '../[id]/close/route';
 import * as siteTasks from '../[id]/site-tasks/route';
 import * as work from '../../work/route';
+import * as changeRoute from '../../changes/[id]/route';
+import * as pinRoute from '../../pins/[id]/route';
 import * as tasksRoute from '../../tasks/route';
 
 const as = requireAuth as ReturnType<typeof vi.fn>;
@@ -128,6 +131,39 @@ describe.skipIf(!SCRATCH)('track guards on the designer routes (real database)',
     const body = await read.json();
     expect(body.session.track).toMatchObject({ stage: 'done', busy: false, finish: { green: true } });
     expect(findForbiddenKeys(body)).toEqual([]);
+  });
+
+  // W6.1 F1: the two v1 routes outside the session folder are held like the rest. A change denial becomes a designer
+  // message for the worker, so after "Finish design review" it must not get through.
+  it('PATCH changes/:id and PATCH pins/:id: 409 track_busy while building, 409 track_done once finished; nothing written', async () => {
+    const { track, session } = await tracked('v1routes', 'rest_build');
+    const mkChange = () => prisma.designChange.create({ data: { session_id: session.id, commit_sha: crypto.randomUUID().replace(/-/g, '').padEnd(40, '0'), summary: 'w63 change' } });
+    const mkPin = () => prisma.designPin.create({ data: { session_id: session.id, author_id: f.designer.userId, page_path: '/', selector: 'section', bbox: { x: 0, y: 0, w: 1, h: 1 }, viewport_width: 1280, note: 'w63' } });
+    const change = await mkChange();
+    const pin = await mkPin();
+    const deny = () => changeRoute.PATCH(json('PATCH', `/api/design/changes/${change.id}`, { decision: 'denied', note: 'make the hero red' }), ctx(change.id));
+    const discard = () => pinRoute.PATCH(json('PATCH', `/api/design/pins/${pin.id}`, { note: 'later', status: 'discarded' }), ctx(pin.id));
+    await setBusy(track.id, true);
+    for (const [name, call] of [['changes', deny], ['pins', discard]] as const) {
+      const res = await call();
+      expect(res.status, name).toBe(409);
+      expect(await code(res), name).toBe('track_busy');
+    }
+    await setBusy(track.id, false);
+    await prisma.designTrack.update({ where: { id: track.id }, data: { stage: 'done', finished_at: new Date(), finish_result: { green: true } } });
+    for (const [name, call] of [['changes', deny], ['pins', discard]] as const) {
+      const res = await call();
+      expect(res.status, name).toBe(409);
+      expect(await code(res), name).toBe('track_done');
+    }
+    expect(await prisma.designEvent.count({ where: { session_id: session.id, role: 'designer' } })).toBe(0);
+    expect(await prisma.designChange.findUniqueOrThrow({ where: { id: change.id } })).toMatchObject({ decision: 'pending', designer_note: null });
+    expect(await prisma.designPin.findUniqueOrThrow({ where: { id: pin.id } })).toMatchObject({ status: 'pending', note: 'w63' });
+    // an open track: both routes work as before
+    await prisma.designTrack.update({ where: { id: track.id }, data: { stage: 'refine', finished_at: null, finish_result: Prisma.DbNull } });
+    expect((await deny()).status).toBe(200);
+    expect(await prisma.designEvent.count({ where: { session_id: session.id, role: 'designer' } })).toBe(1);
+    expect((await discard()).status).toBe(200);
   });
 
   it('another designer gets 404 (not 409) on a busy track: access comes first', async () => {

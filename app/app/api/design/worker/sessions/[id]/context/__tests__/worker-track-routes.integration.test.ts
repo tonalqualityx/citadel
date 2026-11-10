@@ -328,6 +328,22 @@ describe.skipIf(!SCRATCH)('worker track routes (real database)', () => {
       expect(Buffer.from(await log.arrayBuffer()).toString()).toBe('log text');
     });
 
+    // W6.1 F11: a raster designer upload reaches the worker only as its stripped render, and only once it is ready.
+    it('a raster upload: 404 while pending; once ready, the stripped render bytes, never the original', async () => {
+      const original = await mkAsset(trackId, 'upload', Buffer.from('ORIGINAL-WITH-EXIF'), { content_type: 'image/jpeg', status: 'pending', source: 'designer', purpose: 'board' });
+      expect((await readAsset(original)).status).toBe(404);
+      await prisma.designTrackAsset.update({ where: { id: original }, data: { status: 'ready' } });
+      expect((await readAsset(original)).status).toBe(404); // ready but no render: nothing is served
+      await mkAsset(trackId, 'render', Buffer.from('STRIPPED-RENDER'), { parent_asset_id: original, status: 'ready' });
+      const res = await readAsset(original);
+      expect(res.status).toBe(200);
+      expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('STRIPPED-RENDER');
+      expect(res.headers.get('x-design-asset-kind')).toBe('render');
+      // a PDF original is not a raster: the machine read still serves it as before
+      const pdf = await mkAsset(trackId, 'upload', Buffer.from('%PDF-1.4'), { content_type: 'application/pdf', status: 'ready', source: 'designer', purpose: 'board' });
+      expect(Buffer.from(await (await readAsset(pdf)).arrayBuffer()).toString()).toBe('%PDF-1.4');
+    });
+
     it('404 for an asset of another project\'s track, a random id, a malformed id and an untracked session', async () => {
       expect((await readAsset(foreignAssetId)).status).toBe(404);
       expect((await readAsset(crypto.randomUUID())).status).toBe(404);

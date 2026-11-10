@@ -189,7 +189,7 @@ describe.skipIf(!SCRATCH)('runner reject route and client_name on the track read
   it('client_name never reaches a designer-facing projection', async () => {
     const sess = await loadSessionTrackView({ track_id: t.id });
     expect(Object.keys(sess!).sort()).toEqual(['busy', 'busy_line', 'finish', 'id', 'preview_alias', 'preview_url', 'stage']);
-    const brief = await readBrief({ id: t.id, project_id: f.projectId, brief_id: null }, 'sess', f.designer.userId);
+    const brief = await readBrief({ id: t.id, project_id: f.projectId, site_id: f.siteId, brief_id: null }, 'sess', f.designer.userId);
     expect(Object.keys(brief).sort()).toEqual(['assets', 'brief', 'client_statements', 'reactions']);
     expect(JSON.stringify({ sess, brief })).not.toMatch(/client_name|DP w38bA Co/);
   });

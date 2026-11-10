@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 
-// Design track lane (portal v2, SPEC 6.1a): born enforced, exactly 12 runner routes, and never the design worker.
+// Design track lane (portal v2, SPEC 6.1a): born enforced, exactly 14 runner routes, and never the design worker.
 vi.mock('next/headers', () => ({ cookies: vi.fn(), headers: vi.fn() }));
 vi.mock('@/lib/auth/jwt', () => ({ verifyAccessToken: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
@@ -50,6 +50,7 @@ const RUNNER_ROUTES = [
   'GET /api/design/runner/tracks/7f1c',
   'POST /api/design/runner/claims',
   'PATCH /api/design/runner/jobs/7f1c',
+  'POST /api/design/runner/jobs/7f1c/client-email',
   'POST /api/design/runner/tracks/7f1c/assets',
   'GET /api/design/runner/tracks/7f1c/assets/9a2b',
   'PATCH /api/design/runner/tracks/7f1c/assets/9a2b',
@@ -72,8 +73,8 @@ describe('lane design-track', () => {
     expect(keyScopesSchema.safeParse(['lane:design-track', 'lane:design-worker', 'scope-mode:enforce']).success).toBe(false);
   });
 
-  it('the lane list holds exactly the 13 runner routes, all under /api/design/runner/', () => {
-    expect(LANE_ROUTES['design-track']).toHaveLength(13);
+  it('the lane list holds exactly the 14 runner routes, all under /api/design/runner/', () => {
+    expect(LANE_ROUTES['design-track']).toHaveLength(14);
     expect(LANE_ROUTES['design-track'].every((r) => r.pattern.startsWith('/api/design/runner/'))).toBe(true);
     for (const rt of RUNNER_ROUTES) {
       const [method, path] = rt.split(' ');
@@ -97,6 +98,9 @@ describe('lane design-track', () => {
       ['DELETE', '/api/design/runner/jobs/x'],
       ['GET', '/api/design/runner/claims'],
       ['POST', '/api/design/runner/candidates'],
+      ['PATCH', '/api/design/runner/jobs/x/client-email'],
+      ['GET', '/api/design/runner/jobs/x/client-email'],
+      ['POST', '/api/design/runner/jobs/x/client-email/x'],
     ] as const) {
       expect(laneAllows('design-track', m, p), `${m} ${p}`).toBe(false);
     }

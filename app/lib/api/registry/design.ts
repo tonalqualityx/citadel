@@ -1474,7 +1474,7 @@ export const designEndpoints: ApiEndpoint[] = [
       },
     ],
   },
-  // Designer Portal v2 Bast runner (SPEC 6.1a): the design-track lane, exactly these 12 routes. Key: lane:design-track +
+  // Designer Portal v2 Bast runner (SPEC 6.1a): the design-track lane, exactly these 14 routes. Key: lane:design-track +
   // scope-mode:enforce (always enforced), minted for the Bast user. requireTrackRunner() gates every one.
   {
     path: '/api/design/runner/candidates',
@@ -1560,6 +1560,25 @@ export const designEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { job: { id: 'uuid', kind: 'string', status: 'queued|claimed|running|done|failed', attempts: 'number' } },
         responseNotes: '409 adopt_pending for done on a job that adopts a branch (it closes when its adopt command completes); 409 job_not_active. failed with attempts left returns the job to the queue; at attempts 2 it stays failed, the task gets the needs-mike tag and an error comment, and busy is cleared.',
+      },
+    ],
+  },
+  {
+    path: '/api/design/runner/jobs/:id/client-email',
+    group: 'design',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'One client brief email per signed art direction version: claim it before sending, then report sent or held. Each action is one conditional update on the DesignArtDirection row whose client_email_job_id is :id. Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [{ name: 'id', type: 'uuid', required: true, description: 'The client_brief_email job id (path); must be a DesignArtDirection client_email_job_id, else 404' }],
+        bodySchema: [
+          { name: 'action', type: 'string', required: true, description: 'claim (queued or held to sending) | sent (sending to sent, sets client_email_sent_at) | held (queued or sending to held)' },
+          { name: 'reason', type: 'string', required: false, description: 'held: stored as client_email_held_reason, cut at 2,000 characters' },
+        ],
+        responseExample: { claimed: true },
+        responseNotes: 'claim answers 200 { claimed: true }; sent and held answer 200 { ok: true }. 409 email_already_claimed (claim when sending or sent), 409 email_not_claimed (sent when not sending), 409 email_not_holdable (held when neither queued nor sending); every 409 carries client_email_status, the row\'s current status. 404 for a job id that is no direction\'s client email job. Strict body.',
       },
     ],
   },

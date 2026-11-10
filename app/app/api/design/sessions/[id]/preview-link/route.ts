@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ApiError, handleApiError } from '@/lib/api/errors';
-import { rateLimit } from '@/lib/api/rate-limit';
+import { rateLimitByKey } from '@/lib/api/rate-limit';
 import { prisma } from '@/lib/db/prisma';
 import { sendEmail } from '@/lib/services/email';
 import { loadSessionFor } from '@/lib/design/access';
@@ -37,7 +37,8 @@ export async function POST(request: NextRequest, { params }: IdParams) {
     const site = await prisma.site.findUnique({ where: { id: session.site_id }, select: { name: true } });
     const siteName = site?.name?.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 120) || 'your site';
 
-    const limited = rateLimit(request, PREVIEW_LINKS_PER_HOUR, HOUR_MS, `design-preview-link:${actor.userId}`);
+    // Keyed on the signed-in user alone: a caller-set X-Forwarded-For must not reset it (W6.1 F3).
+    const limited = rateLimitByKey(actor.userId, PREVIEW_LINKS_PER_HOUR, HOUR_MS, 'design-preview-link');
     if (limited) return limited;
 
     const subject = `Your preview link for ${siteName}`;

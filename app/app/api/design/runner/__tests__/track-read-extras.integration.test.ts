@@ -67,7 +67,7 @@ describe.skipIf(!SCRATCH)('runner track read: statements with superseded notes, 
     expect(JSON.stringify(body)).not.toContain(foreign.id);
 
     // the designer-facing brief response is unchanged: same keys, active notes only, no superseded note
-    const d = await readBrief({ id: t.id, project_id: f.projectId, brief_id: null }, 'sess', f.designer.userId);
+    const d = await readBrief({ id: t.id, project_id: f.projectId, site_id: f.siteId, brief_id: null }, 'sess', f.designer.userId);
     expect(Object.keys(d).sort()).toEqual(['assets', 'brief', 'client_statements', 'reactions']);
     expect(d.client_statements.map((x) => x.id)).toEqual([newer.id]);
     expect(d.client_statements.map((x) => x.id)).not.toContain(older.id);

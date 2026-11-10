@@ -10,7 +10,7 @@ import { ApiError } from '@/lib/api/errors';
 import { briefBodySchema, MAX_BRIEF_BYTES } from './brief-schema';
 import { loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
 import { maybeEnterArtDirection } from './track-stage';
-import { statementView, type ClientStatement } from './track-board';
+import { statementScope, statementView, type ClientStatement } from './track-board';
 
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
 /** 16 characters of lowercase base32 from a cryptographic source: 80 bits (SPEC 2.2). Lowercase only, `[a-z2-7]{16}`. */
@@ -132,14 +132,24 @@ export function parseIncludes(raw: string | null): TrackInclude[] {
 
 const domainOf = (email: string) => email.split('@')[1]?.toLowerCase() ?? '';
 const siteDomain = (url: string | null) => {
-  try { return new URL(url ?? '').hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; }
+  try { return new URL(url ?? '').hostname.replace(/\.$/, '').replace(/^www\./, '').toLowerCase(); } catch { return ''; }
 };
+
+/**
+ * May a contact on `emailDomain` be a fallback recipient for a site on `host`? Only the site's own host or a subdomain
+ * of it. The other direction (a site on a subdomain of the contact's domain) is left out: without a public suffix list
+ * it cannot tell `example.com` from `co.uk`, so such a contact needs an explicit grant (W6.1 F9).
+ */
+export function fallbackDomainOk(host: string, emailDomain: string): boolean {
+  if (!host || !emailDomain || !host.includes('.')) return false;
+  return emailDomain === host || emailDomain.endsWith(`.${host}`);
+}
 
 /**
  * The authorized recipients of a client email, computed here and never by the runner (SPEC 6.1a): contacts of the
  * project's client, not deleted, holding a ProjectContact grant on the project with role owner or member; when the
  * project has no grants at all, the client's contacts with can_initiate_work. A recipient whose email domain differs
- * from the site's is included only with an explicit grant.
+ * from the site's is included only with an explicit grant; a site with no URL has no fallback recipients at all.
  */
 export async function computeRecipients(projectId: string) {
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { client_id: true, site: { select: { url: true } } } });
@@ -156,6 +166,8 @@ export async function computeRecipients(projectId: string) {
   }
   if (grants.length === 0) {
     const host = siteDomain(project.site?.url ?? null);
+    // A site with no usable address has no domain to check against: no fallback recipients (explicit grants only).
+    if (!host) return out;
     const contacts = await prisma.clientContact.findMany({
       where: { client_id: project.client_id, is_deleted: false, can_initiate_work: true },
       select: { id: true, name: true, email: true },
@@ -163,7 +175,7 @@ export async function computeRecipients(projectId: string) {
     });
     for (const c of contacts) {
       const d = domainOf(c.email);
-      if (host && d !== host && !d.endsWith(`.${host}`) && !host.endsWith(`.${d}`)) continue; // other domain: explicit grant only
+      if (!fallbackDomainOk(host, d)) continue; // other domain: explicit grant only
       out.push({ contact_id: c.id, name: c.name, email: c.email, basis: 'client_fallback' });
     }
   }
@@ -177,13 +189,14 @@ export type RunnerStatement = ClientStatement & { superseded_by_id: string | nul
  * Runner-only `client_statements` (SPEC 4.1, 6.2): the client's notes with status `active` or `superseded` (never
  * `withdrawn` or anything else). Order: `source_date` ascending, then `created_at`, then `id`. A superseded note is
  * placed under the note that replaced it by grouping on `superseded_by_id` (the replacing note's `id`); the order itself
- * is chronological and stable. The designer-facing `clientStatementsFor` is separate and stays active-only.
+ * is chronological and stable. The designer-facing `clientStatementsFor` is separate and stays active-only. Scoped like
+ * it: the track's site and project, or notes recorded with no site or project (W6.2 F7).
  */
-export async function runnerStatementsFor(projectId: string): Promise<RunnerStatement[]> {
+export async function runnerStatementsFor(projectId: string, siteId: string): Promise<RunnerStatement[]> {
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { client_id: true } });
   if (!project?.client_id) return [];
   const notes = await prisma.designNote.findMany({
-    where: { client_id: project.client_id, status: { in: ['active', 'superseded'] } },
+    where: { client_id: project.client_id, status: { in: ['active', 'superseded'] }, ...statementScope(projectId, siteId) },
     orderBy: [{ source_date: 'asc' }, { created_at: 'asc' }, { id: 'asc' }],
   });
   return notes.map((n) => ({ ...statementView(n), superseded_by_id: n.superseded_by_id, reference_url: n.reference_url, source_ref: n.source_ref }));
@@ -233,7 +246,7 @@ export async function readTrack(trackId: string, includes: TrackInclude[]) {
         break;
       }
       case 'client_statements':
-        out.client_statements = await runnerStatementsFor(track.project_id);
+        out.client_statements = await runnerStatementsFor(track.project_id, track.site_id);
         break;
       case 'brand_profile':
         out.brand_profile = await runnerBrandProfileFor(track.project_id);

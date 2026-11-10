@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { pdfHasActiveContent, sanitizeFilename, serveHeaders, sniffFile, validateUpload, zipEntryNames, MAX_FILE_BYTES } from '../uploads';
+import zlib from 'zlib';
+import { PDF_MAX_INFLATED_PER_STREAM, pdfHasActiveContent, sanitizeFilename, serveHeaders, sniffFile, validateUpload, zipEntryNames, MAX_FILE_BYTES } from '../uploads';
 
 /** A stored (uncompressed) zip with empty entries: enough for the container checks. */
 export function makeZip(names: string[]): Buffer {
@@ -159,5 +160,50 @@ describe('PDFs with active content are refused', () => {
     const plain = pdf('<< /Type /Catalog /Pages 2 0 R >>\nBT (We build with JavaScript and OpenAction-free pages) Tj ET');
     expect(pdfHasActiveContent(plain)).toBe(false);
     expect(validateUpload(plain, 'menu.pdf')).toMatchObject({ ok: true, file: { content_type: 'application/pdf' } });
+  });
+});
+
+// W6.1 F10: actions hidden inside a compressed object stream are found by inflating it (built-in zlib only).
+describe('PDF object streams are inflated and scanned', () => {
+  const objStm = (inner: string, dictExtra = '', data?: Buffer) => {
+    const body = data ?? zlib.deflateSync(Buffer.from(inner, 'latin1'));
+    return Buffer.concat([
+      Buffer.from(`%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n5 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode /Length ${body.length}${dictExtra} >>\nstream\n`, 'latin1'),
+      body,
+      Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1'),
+    ]);
+  };
+  it('refuses /OpenAction and /JavaScript inside a FlateDecode object stream', () => {
+    const pdf = objStm('3 0 << /Type /Catalog /OpenAction 4 0 R >> << /S /JavaScript /JS (app.alert(1)) >>');
+    expect(pdf.toString('latin1')).not.toMatch(/OpenAction|JavaScript/);
+    expect(pdfHasActiveContent(pdf)).toBe(true);
+    expect(validateUpload(pdf, 'brochure.pdf').ok).toBe(false);
+  });
+  it('refuses a hex-obfuscated name inside the stream, and a stream found by /First alone', () => {
+    expect(pdfHasActiveContent(objStm('3 0 << /#4Fpen#41ction 4 0 R >>'))).toBe(true);
+    const noType = Buffer.from(objStm('3 0 << /AA << /O 4 0 R >> >>').toString('latin1').replace('/Type /ObjStm ', ''), 'latin1');
+    expect(pdfHasActiveContent(noType)).toBe(true);
+  });
+  it('accepts a plain object stream', () => {
+    const pdf = objStm('3 0 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>');
+    expect(pdfHasActiveContent(pdf)).toBe(false);
+    expect(validateUpload(pdf, 'menu.pdf').ok).toBe(true);
+  });
+  it('refuses what it cannot check: a stream that does not inflate, another filter, a predictor, an inflation bomb', () => {
+    expect(pdfHasActiveContent(objStm('', '', Buffer.from('this is not deflate data at all')))).toBe(true);
+    const a85 = Buffer.from(objStm('3 0 << /Type /Page >>').toString('latin1').replace('/Filter /FlateDecode', '/Filter [/ASCII85Decode /FlateDecode]'), 'latin1');
+    expect(pdfHasActiveContent(a85)).toBe(true);
+    expect(pdfHasActiveContent(objStm('3 0 << /Type /Page >>', ' /DecodeParms << /Predictor 12 /Columns 4 >>'))).toBe(true);
+    const bomb = zlib.deflateSync(Buffer.alloc(PDF_MAX_INFLATED_PER_STREAM + 1024, 0x20));
+    expect(pdfHasActiveContent(objStm('', '', bomb))).toBe(true);
+  });
+  it('does not inflate image or content streams (no blow-up, no false hits)', () => {
+    const img = zlib.deflateSync(Buffer.alloc(PDF_MAX_INFLATED_PER_STREAM * 2, 0x41));
+    const pdf = Buffer.concat([
+      Buffer.from(`%PDF-1.7\n7 0 obj\n<< /Type /XObject /Subtype /Image /Width 10 /Height 10 /Filter /FlateDecode /Length ${img.length} >>\nstream\n`, 'latin1'),
+      img,
+      Buffer.from('\nendstream\nendobj\n%%EOF\n', 'latin1'),
+    ]);
+    expect(pdfHasActiveContent(pdf)).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NextRequest } from 'next/server';
-import { rateLimit, sweepRateLimits, portalReadRateLimit, PORTAL_READ_LIMIT_PER_MINUTE } from '../rate-limit';
+import { rateLimit, rateLimitByKey, sweepRateLimits, portalReadRateLimit, PORTAL_READ_LIMIT_PER_MINUTE } from '../rate-limit';
 
 const req = (ip: string) => new NextRequest('http://localhost/x', { headers: { 'x-forwarded-for': ip } });
 
@@ -46,5 +46,20 @@ describe('rateLimit windows longer than a minute', () => {
     // past the hour the hourly entry goes
     sweepRateLimits(t0 + hour + 1000);
     expect(rateLimit(req(ip), 2, hour, 'hourly')).toBeNull();
+  });
+});
+
+describe('rateLimitByKey (a key the server trusts, never a header)', () => {
+  it('counts per key and bucket, apart from the address limiter', async () => {
+    for (let i = 0; i < 3; i++) expect(rateLimitByKey('user-a', 3, 60000, 'keyed')).toBeNull();
+    const res = rateLimitByKey('user-a', 3, 60000, 'keyed')!;
+    expect(res.status).toBe(429);
+    expect((await res.json()).limit).toBe('user:keyed');
+    expect(res.headers.get('Retry-After')).toBeTruthy();
+    // another user, or the same name in another bucket, has its own count
+    expect(rateLimitByKey('user-b', 3, 60000, 'keyed')).toBeNull();
+    expect(rateLimitByKey('user-a', 3, 60000, 'other')).toBeNull();
+    // an address that happens to equal the key does not share the count
+    expect(rateLimit(req('user-a'), 3, 60000, 'keyed')).toBeNull();
   });
 });

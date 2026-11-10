@@ -15,13 +15,13 @@ vi.mock('@/lib/design/track-board', async (orig) => {
   const real = await orig<typeof import('@/lib/design/track-board')>();
   return {
     ...real,
-    clientStatementsFor: async (projectId: string) => {
+    clientStatementsFor: async (projectId: string, siteId: string) => {
       const h = hooks.duringSignRead;
       if (h) {
         hooks.duringSignRead = null;
         await h();
       }
-      return real.clientStatementsFor(projectId);
+      return real.clientStatementsFor(projectId, siteId);
     },
   };
 });

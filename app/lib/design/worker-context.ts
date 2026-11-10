@@ -90,7 +90,7 @@ export async function readWorkerContext(track: DesignTrack, session: Pick<Design
       data = await readDirection(track);
       break;
     case 'client_statements':
-      data = { client_statements: only(await clientStatementsFor(track.project_id), ids) };
+      data = { client_statements: only(await clientStatementsFor(track.project_id, track.site_id), ids) };
       break;
     case 'pages': {
       // What the data model holds today: one DesignPageReview row per built page (written when a build is adopted).
