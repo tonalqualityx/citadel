@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
-import { guardChatTaskBody } from '@/lib/bast-chat/task-filter';
+import { guardChatTaskBody, chatConversationFor, taskWriteWhere, chatWriteMiss } from '@/lib/bast-chat/task-filter';
 import { recordChatPatch, withChatAction } from '@/lib/bast-chat/task-record';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
@@ -370,7 +370,9 @@ export async function PATCH(
     const { id } = await params;
 
     const existingTask = await checkTaskAccess(id, auth);
-    const body = await guardChatTaskBody(auth, 'PATCH', await request.json(), existingTask);
+    const rawBody = await request.json();
+    const body = await guardChatTaskBody(auth, 'PATCH', rawBody, existingTask);
+    const chatConversation = await chatConversationFor(auth, request.headers, 'PATCH', body);
 
     // Fleet item 3: wherever `status` appears in the body (status-only or mixed), moves to in_progress,
     // review or done need the claim token while another worker holds a live lease. A person on a browser
@@ -392,7 +394,7 @@ export async function PATCH(
       const updateData = { ...statusTransitionData(existingTask, statusData.status), ...claimCleared };
 
       const task = await prisma.task.update({
-        where: { id },
+        where: taskWriteWhere(auth, id, existingTask),
         data: updateData,
         include: {
           project: {
@@ -415,7 +417,7 @@ export async function PATCH(
           blocked_by: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } } },
           blocking: { select: { id: true, title: true, status: true, assignee_id: true, assignee: { select: { id: true, name: true } }, project: { select: { id: true, name: true, status: true } } } },
         },
-      });
+      }).catch(chatWriteMiss(auth));
 
       await claimCheck?.logOverride();
 
@@ -429,7 +431,7 @@ export async function PATCH(
         statusData.status
       );
 
-      const chatAction = await recordChatPatch(auth, existingTask, task);
+      const chatAction = await recordChatPatch(auth, existingTask, task, chatConversation);
       return withChatAction(NextResponse.json({
         ...formatTaskResponse(task),
         ...(completionNudge ? { completion_nudge: completionNudge } : {}),
@@ -711,7 +713,7 @@ export async function PATCH(
     }
 
     const task = await prisma.task.update({
-      where: { id },
+      where: taskWriteWhere(auth, id, existingTask),
       data: updateData,
       include: {
         project: {
@@ -739,7 +741,7 @@ export async function PATCH(
           select: { id: true, duration: true },
         },
       },
-    });
+    }).catch(chatWriteMiss(auth));
     if (existingTask.status === 'review' && updateData.status && updateData.status !== 'review' && updateData.status !== 'done') await clearPreviewClaims(id);
     await claimCheck?.logOverride();
 
@@ -776,7 +778,7 @@ export async function PATCH(
       await notifyTaskAssigned(task.id, task.assignee_id, updater?.name || 'Someone');
     }
 
-    const chatAction = await recordChatPatch(auth, existingTask, task);
+    const chatAction = await recordChatPatch(auth, existingTask, task, chatConversation);
     return withChatAction(NextResponse.json({
       ...formatTaskResponse(task),
       ...(completionNudge ? { completion_nudge: completionNudge } : {}),

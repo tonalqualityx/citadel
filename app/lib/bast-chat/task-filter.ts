@@ -1,6 +1,9 @@
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
+import { getSettings } from './settings';
+import { assertWriteAllowed } from './usage';
+import { isChatUuid } from './worker-kit';
 
 /**
  * Body filter for the `bast-chat` API-key lane on POST /api/tasks and PATCH /api/tasks/:id.
@@ -126,5 +129,77 @@ export async function guardChatTaskBody<T>(
   const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
   const r = filterChatTaskBody({ auth, method, body, ownerId: settings?.owner_user_id ?? null, existing });
   if (!r.ok) throw new ApiError(r.message, r.status, r.code);
+  // The daily write cap is enforced here, before any write: 429 with the plain cap sentence.
+  await assertWriteAllowed(settings!.owner_user_id!, await getSettings(prisma), new Date(), prisma);
   return r.body as T;
+}
+
+export const CHAT_CONVERSATION_HEADER = 'X-Bast-Chat-Conversation';
+const CONTENT_ONLY_FIELDS = ['description', 'requirements', 'origin_url'] as const;
+export const NEEDS_CONVERSATION_TEXT = 'Say which chat this change belongs to.';
+export const BAD_CONVERSATION_TEXT = 'That chat was not found.';
+export const NO_OPEN_CHAT_TEXT = 'Open the chat first.';
+
+/**
+ * Which conversation a chat-lane write belongs to. Null for every other caller (nothing is read).
+ * - PATCH: the header `X-Bast-Chat-Conversation` is required, except for a body of content fields only
+ *   (description, requirements, origin_url), which writes no record and needs no conversation.
+ * - POST: the header is checked when present; when absent the owner's current open conversation is used, and
+ *   with none open the create is refused.
+ * The conversation must exist and belong to the chat owner. Call it after the guard and before any write.
+ */
+export async function chatConversationFor(
+  auth: Pick<AuthPayload, 'lane'>,
+  headers: Headers,
+  method: 'POST' | 'PATCH',
+  body: unknown,
+): Promise<string | null> {
+  if (auth.lane !== CHAT_LANE) return null;
+  const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
+  const ownerId = settings?.owner_user_id;
+  if (!ownerId) throw new ApiError('The chat owner is not set.', 403, 'chat_lane_refused');
+  const header = headers.get(CHAT_CONVERSATION_HEADER);
+  if (header === null || header === '') {
+    if (method === 'POST') {
+      const open = await prisma.bastChatConversation.findFirst({
+        where: { owner_id: ownerId, status: { not: 'closed' } },
+        orderBy: { created_at: 'desc' },
+        select: { id: true },
+      });
+      if (!open) throw new ApiError(NO_OPEN_CHAT_TEXT, 400, 'chat_no_conversation');
+      return open.id;
+    }
+    const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body as object) : [];
+    if (keys.length > 0 && keys.every((k) => (CONTENT_ONLY_FIELDS as readonly string[]).includes(k))) return null;
+    throw new ApiError(NEEDS_CONVERSATION_TEXT, 400, 'chat_conversation_required');
+  }
+  if (!isChatUuid(header)) throw new ApiError(BAD_CONVERSATION_TEXT, 400, 'chat_conversation_invalid');
+  const conv = await prisma.bastChatConversation.findUnique({ where: { id: header }, select: { owner_id: true } });
+  if (!conv || conv.owner_id !== ownerId) throw new ApiError(BAD_CONVERSATION_TEXT, 400, 'chat_conversation_invalid');
+  return header;
+}
+
+export const RACE_TEXT = 'The task changed while that was being written. Open the task.';
+
+/**
+ * PATCH write target. The chat lane writes only if the owner and `updated_at` are still what the request read at
+ * its start (a miss is a 409); every other caller keeps `{ id }` exactly.
+ */
+export function taskWriteWhere(
+  auth: Pick<AuthPayload, 'lane'>,
+  id: string,
+  existing: { assignee_id?: string | null; updated_at?: Date | null },
+): { id: string; assignee_id?: string | null; updated_at?: Date } {
+  if (auth.lane !== CHAT_LANE) return { id };
+  return { id, assignee_id: existing.assignee_id ?? null, ...(existing.updated_at ? { updated_at: existing.updated_at } : {}) };
+}
+
+/** `.catch` handler for the PATCH writes: a compare-and-set miss from the chat lane becomes a 409. */
+export function chatWriteMiss(auth: Pick<AuthPayload, 'lane'>) {
+  return (e: unknown): never => {
+    if (auth.lane === CHAT_LANE && typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2025') {
+      throw new ApiError(RACE_TEXT, 409, 'changed_since');
+    }
+    throw e;
+  };
 }

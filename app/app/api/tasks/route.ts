@@ -13,7 +13,7 @@ import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
-import { guardChatTaskBody } from '@/lib/bast-chat/task-filter';
+import { guardChatTaskBody, chatConversationFor } from '@/lib/bast-chat/task-filter';
 import { recordChatCreate, withChatAction } from '@/lib/bast-chat/task-record';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
@@ -265,6 +265,7 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
 
     const body = await guardChatTaskBody(auth, 'POST', await request.json());
+    const chatConversation = await chatConversationFor(auth, request.headers, 'POST', body);
     const data = createTaskSchema.parse(body);
 
     // Determine client_id - auto-populate from project if not provided directly
@@ -599,7 +600,7 @@ export async function POST(request: NextRequest) {
       await notifyTaskAssigned(task.id, task.assignee_id, creator?.name || 'Someone');
     }
 
-    const chatAction = await recordChatCreate(auth, task);
+    const chatAction = await recordChatCreate(auth, task, chatConversation);
     return withChatAction(NextResponse.json(formatTaskResponse(task), { status: 201 }), chatAction);
   } catch (error) {
     return handleApiError(error);

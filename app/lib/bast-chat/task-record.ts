@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type { NextResponse } from 'next/server';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { CHAT_LANE } from './task-filter';
-import { UNDO_WINDOW_HOURS, TASK_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
+import { UNDO_WINDOW_HOURS, TASK_FIELDS, RESTORE_EXTRA_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
 import { cleanLine } from './card-context';
 import { bumpUsage } from './usage';
 
@@ -16,27 +16,18 @@ import { bumpUsage } from './usage';
  * really happened. Any other caller: nothing runs, nothing is read, no header.
  *
  * The task routes write with a plain `prisma.task.update`/`create` (no transaction), so the record is written
- * immediately after, with today's write count, in its own transaction. A failure to write the record is logged
+ * immediately after in its own transaction, and the write is counted once (record or not). A failure to write the record is logged
  * and the response goes out without the header: the change already happened and the route must not fail it.
  */
 export const CHAT_ACTION_HEADER = 'X-Bast-Chat-Action';
 
-type TaskShape = { id: string; title: string; status: string; arc_id: string | null; assignee_id: string | null };
+type TaskShape = {
+  id: string; title: string; status: string; arc_id: string | null; assignee_id: string | null;
+  due_date?: Date | null; completed_at?: Date | null;
+};
 type Db = PrismaClient;
 
 const isChat = (auth: { lane?: string | null }) => auth.lane === CHAT_LANE;
-
-/** The conversation a record belongs to: the owner's open one, else their newest (the column is required). */
-async function conversationFor(ownerId: string, db: Db): Promise<string | null> {
-  const open = await db.bastChatConversation.findFirst({
-    where: { owner_id: ownerId, status: { not: 'closed' } },
-    orderBy: { created_at: 'desc' },
-    select: { id: true },
-  });
-  if (open) return open.id;
-  const newest = await db.bastChatConversation.findFirst({ where: { owner_id: ownerId }, orderBy: { created_at: 'desc' }, select: { id: true } });
-  return newest?.id ?? null;
-}
 
 async function ownerOf(db: Db): Promise<string | null> {
   const s = await db.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
@@ -46,11 +37,11 @@ async function ownerOf(db: Db): Promise<string | null> {
 async function writeRecord(
   db: Db,
   ownerId: string,
+  conversation_id: string | null,
   row: { tool: string; target_id: string; summary: string; before?: TaskFields; after: TaskFields },
   now: Date,
 ): Promise<string | null> {
-  const conversation_id = await conversationFor(ownerId, db);
-  if (!conversation_id) return null; // no conversation exists at all: the column is required, so nothing can be written
+  if (!conversation_id) return null; // the column is required; the routes name the conversation before the write
   return db.$transaction(async (tx) => {
     const r = await tx.bastChatAction.create({
       data: {
@@ -66,7 +57,6 @@ async function writeRecord(
       },
       select: { id: true },
     });
-    await bumpUsage(ownerId, { writes: 1 }, now, tx);
     return r.id;
   });
 }
@@ -76,11 +66,16 @@ export async function recordChatPatch(
   auth: { lane?: string | null },
   before: TaskShape,
   after: TaskShape,
+  conversationId: string | null,
   now: Date = new Date(),
   db: Db = defaultDb,
 ): Promise<string | null> {
   if (!isChat(auth)) return null;
   try {
+    const ownerId = await ownerOf(db);
+    if (!ownerId) return null;
+    // Every successful chat-lane write counts once, whether or not it leaves a record.
+    await bumpUsage(ownerId, { writes: 1 }, now, db);
     const b: Record<string, unknown> = {};
     const a: Record<string, unknown> = {};
     for (const k of TASK_FIELDS) {
@@ -90,15 +85,22 @@ export async function recordChatPatch(
       }
     }
     if (Object.keys(a).length === 0) return null;
-    const ownerId = await ownerOf(db);
-    if (!ownerId) return null;
+    // What the same PATCH cleared or set beside those fields, so Undo can put it back.
+    for (const k of RESTORE_EXTRA_FIELDS) {
+      const bv = before[k] ?? null;
+      const av = after[k] ?? null;
+      if ((bv?.getTime() ?? null) !== (av?.getTime() ?? null)) {
+        b[k] = bv ? bv.toISOString() : null;
+        a[k] = av ? av.toISOString() : null;
+      }
+    }
     const bf = b as TaskFields;
     const af = a as TaskFields;
     const summary = await appliedSummary(db, { title: after.title }, bf, af, ownerId);
     if (!summary) return null;
     const onlyArc = Object.keys(af).length === 1 && 'arc_id' in af;
     const tool = onlyArc ? (af.arc_id ? 'add_to_arc' : 'remove_from_arc') : 'update_task';
-    return await writeRecord(db, ownerId, { tool, target_id: after.id, summary, before: bf, after: af }, now);
+    return await writeRecord(db, ownerId, conversationId, { tool, target_id: after.id, summary, before: bf, after: af }, now);
   } catch (e) {
     console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
     return null;
@@ -109,16 +111,20 @@ export async function recordChatPatch(
 export async function recordChatCreate(
   auth: { lane?: string | null },
   task: TaskShape,
+  conversationId: string | null,
   now: Date = new Date(),
   db: Db = defaultDb,
 ): Promise<string | null> {
   if (!isChat(auth)) return null;
   try {
     const ownerId = await ownerOf(db);
-    if (!ownerId || task.assignee_id !== ownerId) return null;
+    if (!ownerId) return null;
+    await bumpUsage(ownerId, { writes: 1 }, now, db);
+    if (task.assignee_id !== ownerId) return null;
     return await writeRecord(
       db,
       ownerId,
+      conversationId,
       { tool: 'create_task', target_id: task.id, summary: `Filed "${shortTitle(task.title)}".`, after: { status: task.status as TaskFields['status'], assignee_id: ownerId } },
       now,
     );

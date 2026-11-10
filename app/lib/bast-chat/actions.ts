@@ -22,7 +22,7 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { cleanLine } from './card-context';
 import { getSettings } from './settings';
-import { assertWriteAllowed } from './usage';
+import { assertWriteAllowed, bumpUsage } from './usage';
 import { isChatUuid } from './worker-kit';
 
 const CHAT_TAG = 'from-chat';
@@ -30,6 +30,8 @@ const CHAT_TAG = 'from-chat';
 export const UNDO_WINDOW_HOURS = 24;
 export const CHANGED_SINCE_TEXT = 'Changed since. Open the task.';
 export const TASK_FIELDS = ['status', 'title', 'arc_id', 'assignee_id'] as const;
+/** Recorded only beside a change to one of TASK_FIELDS, so Undo can put back what the same PATCH cleared. */
+export const RESTORE_EXTRA_FIELDS = ['due_date', 'completed_at'] as const;
 export const ACTION_TOOLS = ['create_task', 'update_task', 'add_to_arc', 'remove_from_arc', 'propose_handoff'] as const;
 const TASK_STATUSES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
 
@@ -39,6 +41,8 @@ const fieldsSchema = z
     title: z.string().min(1).max(500),
     arc_id: z.string().uuid().nullable(),
     assignee_id: z.string().uuid().nullable(),
+    due_date: z.string().datetime().nullable(),
+    completed_at: z.string().datetime().nullable(),
   })
   .partial()
   .strict();
@@ -164,7 +168,7 @@ export async function recordAction(
 
   const task = await db.task.findUnique({
     where: { id: input.target_id },
-    select: { id: true, title: true, assignee_id: true, is_deleted: true },
+    select: { id: true, title: true, status: true, assignee_id: true, is_deleted: true, updated_at: true },
   });
   if (!task || task.is_deleted) throw bad('That task does not exist.', 'task_missing');
   const settings = await getSettings(db);
@@ -174,20 +178,45 @@ export async function recordAction(
   const name = await firstNameOf(db, who);
   if (!name) throw bad('That person is not available.', 'bad_handoff_target');
 
-  return db.bastChatAction.create({
-    data: {
-      conversation_id: input.conversation_id,
-      event_seq: input.event_seq ?? null,
-      tool: 'propose_handoff',
-      target_type: 'task',
-      target_id: input.target_id,
-      summary: cleanLine(`Proposed: hand ${quoted(task.title)} to ${name}.`, 300),
-      proposed_assignee_id: who,
-      status: 'proposed',
-      undo_until: null,
-    },
-    select: { id: true, status: true, undo_until: true },
+  // A proposal is one write on the daily cap, refused past it.
+  await assertWriteAllowed(ownerId, settings, now, db);
+  return db.$transaction(async (tx) => {
+    const r = await tx.bastChatAction.create({
+      data: {
+        conversation_id: input.conversation_id,
+        event_seq: input.event_seq ?? null,
+        tool: 'propose_handoff',
+        target_type: 'task',
+        target_id: input.target_id,
+        summary: handoffLine(task, `to ${name}`),
+        before: handoffBefore(task),
+        after: handoffAfter(task),
+        proposed_assignee_id: who,
+        status: 'proposed',
+        undo_until: null,
+      },
+      select: { id: true, status: true, undo_until: true },
+    });
+    await bumpUsage(ownerId, { writes: 1 }, now, tx);
+    return r;
   });
+}
+
+type TaskPicture = { title: string; status: string; updated_at: Date };
+/** What the task was when the proposal was made: a tap goes through only if it still is exactly this. */
+const handoffBefore = (t: TaskPicture) => ({ updated_at: t.updated_at.toISOString() }) as Prisma.InputJsonValue;
+const handoffAfter = (t: TaskPicture) => ({ status: t.status, title: t.title }) as Prisma.InputJsonValue;
+function handoffLine(t: TaskPicture, toWhom: string): string {
+  const state = STATUS_WORDS[t.status] ?? 'in its current status';
+  const tail = t.status === 'not_started' ? ', so Bast starts on it' : '';
+  return cleanLine(`Proposed: hand ${quoted(t.title)} ${toWhom}. It is ${state}${tail}.`, 300);
+}
+function readPicture(a: BastChatAction): { status: string; title: string; updated_at: Date } | null {
+  const af = a.after as { status?: unknown; title?: unknown } | null;
+  const bf = a.before as { updated_at?: unknown } | null;
+  if (!af || !bf || typeof af.status !== 'string' || typeof af.title !== 'string' || typeof bf.updated_at !== 'string') return null;
+  const at = new Date(bf.updated_at);
+  return Number.isNaN(at.getTime()) ? null : { status: af.status, title: af.title, updated_at: at };
 }
 
 /** Refuse the next write when today's write cap is used up (for the task routes and the daemon's own check). */
@@ -251,7 +280,6 @@ export async function undoAction(actionId: string, actorId: string, now: Date = 
     // the previous assignee is a fixed handoff person.
     let handBack: string | null = null;
     let handBackName: string | null = null;
-    let title: string | null = null;
     if (takeBack) {
       const settings = await getSettings(tx);
       handBack = typeof backTo === 'string' && backTo !== actorId && settings.handoff_user_ids.includes(backTo) ? backTo : null;
@@ -275,8 +303,8 @@ export async function undoAction(actionId: string, actorId: string, now: Date = 
       throw new ApiError(CHANGED_SINCE_TEXT, 409, 'changed_since');
     }
     if (handBack) {
-      const t = await tx.task.findUnique({ where: { id: a.target_id }, select: { title: true } });
-      title = t?.title ?? null;
+      const t = await tx.task.findUnique({ where: { id: a.target_id }, select: { title: true, status: true, updated_at: true } });
+      if (!t) throw new ApiError(CHANGED_SINCE_TEXT, 409, 'changed_since');
       await tx.bastChatAction.create({
         data: {
           conversation_id: a.conversation_id,
@@ -284,7 +312,9 @@ export async function undoAction(actionId: string, actorId: string, now: Date = 
           tool: 'propose_handoff',
           target_type: 'task',
           target_id: a.target_id,
-          summary: cleanLine(`Proposed: hand ${quoted(title)} back to ${handBackName}.`, 300),
+          summary: handoffLine(t, `back to ${handBackName}`),
+          before: handoffBefore(t),
+          after: handoffAfter(t),
           proposed_assignee_id: handBack,
           status: 'proposed',
         },
@@ -301,7 +331,7 @@ export async function undoAction(actionId: string, actorId: string, now: Date = 
  * The person must still be a fixed handoff user and the task must still be the owner's, or nothing moves.
  */
 export async function releaseAction(actionId: string, actorId: string, now: Date = new Date(), db: PrismaClient = defaultDb): Promise<ActionView> {
-  return db.$transaction(async (tx) => {
+  const out = await db.$transaction(async (tx) => {
     const a = await loadOwned(actionId, actorId, tx);
     if (a.status !== 'proposed' || !a.proposed_assignee_id) throw new ApiError('That is not waiting for a decision.', 409, 'not_proposed');
     const settings = await getSettings(tx);
@@ -310,11 +340,24 @@ export async function releaseAction(actionId: string, actorId: string, now: Date
     if (!target || !target.is_active) throw new ApiError('That person is not available.', 409, 'assignee_unavailable');
     const claim = await tx.bastChatAction.updateMany({ where: { id: a.id, status: 'proposed' }, data: { status: 'released', resolved_at: now, resolved_by_id: actorId } });
     if (claim.count !== 1) throw new ApiError('That is not waiting for a decision.', 409, 'not_proposed');
-    const moved = await tx.task.updateMany({ where: { id: a.target_id, is_deleted: false, assignee_id: actorId }, data: { assignee_id: a.proposed_assignee_id } });
-    if (moved.count !== 1) throw new ApiError(CHANGED_SINCE_TEXT, 409, 'changed_since');
+    // One compare and set: the task must still be the owner's and exactly as it was when proposed.
+    const pic = readPicture(a);
+    const moved = pic
+      ? await tx.task.updateMany({
+          where: { id: a.target_id, is_deleted: false, assignee_id: actorId, status: pic.status as Prisma.TaskWhereInput['status'], title: pic.title, updated_at: pic.updated_at },
+          data: { assignee_id: a.proposed_assignee_id },
+        })
+      : { count: 0 };
+    if (moved.count !== 1) {
+      // Dead for good: the proposal cannot be tapped again (it is kept, marked failed, and the task is untouched).
+      await tx.bastChatAction.update({ where: { id: a.id }, data: { status: 'failed', resolved_at: now, resolved_by_id: actorId } });
+      return null;
+    }
     const row = await tx.bastChatAction.findUniqueOrThrow({ where: { id: a.id } });
     return actionView(row, now);
   });
+  if (!out) throw new ApiError(CHANGED_SINCE_TEXT, 409, 'changed_since');
+  return out;
 }
 
 /** "Keep it": drop a handoff proposal. The task is not touched. */

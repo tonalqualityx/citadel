@@ -2,7 +2,7 @@
  * Bast chat: daily usage and the caps. One BastChatUsage row per owner per Eastern day.
  *
  * Messages (`turns`) are counted when Citadel accepts a send, so the daemon must not count them again. Task
- * changes (`writes`) are counted when the daemon records an applied action. Cost is added from the daemon's
+ * changes (`writes`) are counted by the server, once per successful chat-lane write on the task routes and once per handoff proposal. Cost is added from the daemon's
  * cost events. The refusals are one plain line each and a 429.
  */
 import type { Prisma, PrismaClient } from '@prisma/client';

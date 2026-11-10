@@ -6,6 +6,7 @@ vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { CHANGED_SINCE_TEXT, WORKER_RECORD_REFUSED, declineAction, recordAction, releaseAction, shortTitle, undoAction } from '../actions';
 import { HANDOFF_USER_IDS } from '../settings';
+import { WRITE_CAP_TEXT } from '../usage';
 
 const OWNER = '0a111111-1111-4111-8111-111111111111';
 const CONV = 'c1111111-1111-4111-8111-111111111111';
@@ -16,7 +17,7 @@ const ARC = '33333333-3333-4333-8333-333333333333';
 const ACTION = '44444444-4444-4444-8444-444444444444';
 const NOW = new Date('2026-11-10T12:00:00Z');
 
-function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number; claimCount?: number; assignee?: unknown; task?: Record<string, unknown> | null; later?: unknown } = {}) {
+function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number; claimCount?: number; assignee?: unknown; task?: Record<string, unknown> | null; later?: unknown; usage?: Record<string, unknown> | null } = {}) {
   const state = { action: action ? { id: ACTION, conversation_id: CONV, event_seq: 1, tool: 'update_task', target_id: TASK, summary: 's', before: null, after: null, proposed_assignee_id: null, status: 'applied', undo_until: new Date(NOW.getTime() + 3600_000), created_at: NOW, ...action } : null } as { action: any };
   const db: any = {
     state,
@@ -32,11 +33,11 @@ function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number;
     task: {
       updateMany: vi.fn(async () => ({ count: o.taskCount ?? 1 })),
       count: vi.fn(async () => o.taskCount ?? 1),
-      findUnique: vi.fn(async () => (o.task === null ? null : { id: TASK, title: 'Update the invoice template', status: 'done', arc_id: null, assignee_id: OWNER, tags: [], created_at: NOW, is_deleted: false, ...o.task })),
+      findUnique: vi.fn(async () => (o.task === null ? null : { id: TASK, title: 'Update the invoice template', status: 'done', arc_id: null, assignee_id: OWNER, tags: [], created_at: NOW, updated_at: NOW, is_deleted: false, ...o.task })),
     },
     user: { findUnique: vi.fn(async () => (o.assignee === undefined ? { id: BAST, name: 'Bast Fae', is_active: true } : o.assignee)) },
     bastChatSettings: { findUnique: vi.fn(async () => null) },
-    bastChatUsage: { upsert: vi.fn(async () => ({})) },
+    bastChatUsage: { upsert: vi.fn(async () => ({})), findUnique: vi.fn(async () => o.usage ?? null) },
     $transaction: vi.fn(async (fn: any) => fn(db)),
   };
   return db;
@@ -84,10 +85,25 @@ describe('recordAction (the worker can only propose a handoff)', () => {
       const db = makeDb(null);
       const ok = await recordAction(prop, OWNER, NOW, db);
       expect(ok.undo_until).toBeNull();
-      expect(row(db).summary).toBe('Proposed: hand "Update the invoice template" to Bast.');
+      expect(row(db).summary).toBe('Proposed: hand "Update the invoice template" to Bast. It is done.');
       expect(row(db).proposed_assignee_id).toBe(BAST);
-      expect(row(db).before).toBeUndefined();
-      expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+      expect(row(db).before).toEqual({ updated_at: NOW.toISOString() });
+      expect(row(db).after).toEqual({ status: 'done', title: 'Update the invoice template' });
+      expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(1);
+    });
+    it('F1: the line says what happens for a not started task', async () => {
+      const db = makeDb(null, { task: { status: 'not_started' } });
+      await recordAction(prop, OWNER, NOW, db);
+      expect(row(db).summary).toBe('Proposed: hand "Update the invoice template" to Bast. It is not started, so Bast starts on it.');
+    });
+    it('F6: a proposal counts as one write, and is refused with the cap sentence once the cap is used up', async () => {
+      const used = makeDb(null, { usage: { turns: 0, writes: 25, cost_usd: '0' } });
+      await expect(recordAction(prop, OWNER, NOW, used)).rejects.toMatchObject({ statusCode: 429, message: WRITE_CAP_TEXT });
+      expect(used.bastChatAction.create).not.toHaveBeenCalled();
+      expect(used.bastChatUsage.upsert).not.toHaveBeenCalled();
+      const last = makeDb(null, { usage: { turns: 0, writes: 24, cost_usd: '0' } });
+      await recordAction(prop, OWNER, NOW, last);
+      expect(last.bastChatUsage.upsert).toHaveBeenCalledTimes(1);
     });
     it('is accepted with the status left out and ignores before and after the worker sent', async () => {
       const { status: _s, ...noStatus } = prop;
@@ -95,8 +111,8 @@ describe('recordAction (the worker can only propose a handoff)', () => {
       const db = makeDb(null);
       await recordAction({ ...noStatus, before: { assignee_id: STRANGER }, after: { assignee_id: BAST } }, OWNER, NOW, db);
       expect(row(db).status).toBe('proposed');
-      expect(row(db).before).toBeUndefined();
-      expect(row(db).after).toBeUndefined();
+      expect(row(db).before).toEqual({ updated_at: NOW.toISOString() });
+      expect(row(db).after).toEqual({ status: 'done', title: 'Update the invoice template' });
     });
     it('is refused for anyone who is not a fixed handoff user (Bast only)', async () => {
       await rejects400({ ...prop, proposed_assignee_id: STRANGER }, makeDb(null), 'bad_handoff_target');
@@ -198,7 +214,9 @@ describe('undo of a take-back', () => {
     expect(db.task.updateMany).not.toHaveBeenCalled();
     const p = db.bastChatAction.create.mock.calls[0][0].data;
     expect(p).toMatchObject({ tool: 'propose_handoff', status: 'proposed', proposed_assignee_id: BAST, target_id: TASK });
-    expect(p.summary).toBe('Proposed: hand "Update the invoice template" back to Bast.');
+    expect(p.summary).toBe('Proposed: hand "Update the invoice template" back to Bast. It is done.');
+    expect(p.before).toEqual({ updated_at: NOW.toISOString() });
+    expect(p.after).toEqual({ status: 'done', title: 'Update the invoice template' });
   });
   it('is refused with Changed since while a later chat action on the task is still applied', async () => {
     const db = makeDb(takeBack, { later: { id: 'later' } });
@@ -229,12 +247,14 @@ describe('undo of a take-back', () => {
 });
 
 describe('release and decline', () => {
-  const proposal = { tool: 'propose_handoff', status: 'proposed', proposed_assignee_id: BAST, undo_until: null };
+  const snap = { before: { updated_at: NOW.toISOString() }, after: { status: 'done', title: 'Update the invoice template' } };
+  const proposal = { tool: 'propose_handoff', status: 'proposed', proposed_assignee_id: BAST, undo_until: null, ...snap };
   it('release reassigns the task to the proposed person under the caller id and marks it released', async () => {
     const db = makeDb(proposal);
     const v = await releaseAction(ACTION, OWNER, NOW, db);
     expect(db.task.updateMany.mock.calls[0][0].data).toEqual({ assignee_id: BAST });
-    expect(db.task.updateMany.mock.calls[0][0].where).toMatchObject({ id: TASK, assignee_id: OWNER });
+    expect(db.task.updateMany.mock.calls[0][0].where).toMatchObject({ id: TASK, assignee_id: OWNER, status: 'done', title: 'Update the invoice template', updated_at: NOW });
+    expect(db.task.updateMany).toHaveBeenCalledTimes(1);
     expect(v.status).toBe('released');
     expect(db.state.action.resolved_by_id).toBe(OWNER);
   });
@@ -250,6 +270,20 @@ describe('release and decline', () => {
     await expect(releaseAction(ACTION, OWNER, NOW, makeDb(proposal, { assignee: null }))).rejects.toMatchObject({ code: 'assignee_unavailable' });
     await expect(releaseAction(ACTION, OWNER, NOW, makeDb(proposal, { taskCount: 0 }))).rejects.toMatchObject({ code: 'changed_since' });
     await expect(releaseAction(ACTION, OWNER, NOW, makeDb({ ...proposal, proposed_assignee_id: STRANGER }))).rejects.toMatchObject({ code: 'assignee_unavailable' });
+  });
+  it('F1: a tap on a task that changed since is a 409, the task is untouched and the proposal cannot be tapped again', async () => {
+    const db = makeDb(proposal, { taskCount: 0 });
+    await expect(releaseAction(ACTION, OWNER, NOW, db)).rejects.toMatchObject({ statusCode: 409, message: CHANGED_SINCE_TEXT });
+    expect(db.state.action.status).toBe('failed');
+    expect(db.bastChatAction.update).toHaveBeenCalledTimes(1);
+    await expect(releaseAction(ACTION, OWNER, NOW, db)).rejects.toMatchObject({ code: 'not_proposed' });
+    expect(db.task.updateMany).toHaveBeenCalledTimes(1);
+  });
+  it('F1: a proposal with no picture of the task is refused and marked dead', async () => {
+    const db = makeDb({ ...proposal, before: null, after: null });
+    await expect(releaseAction(ACTION, OWNER, NOW, db)).rejects.toMatchObject({ statusCode: 409, message: CHANGED_SINCE_TEXT });
+    expect(db.task.updateMany).not.toHaveBeenCalled();
+    expect(db.state.action.status).toBe('failed');
   });
   it('decline leaves the task alone', async () => {
     const db = makeDb(proposal);
