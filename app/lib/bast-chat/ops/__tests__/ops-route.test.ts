@@ -14,6 +14,7 @@ vi.mock('@/lib/services/notifications', () => ({ createNotification: vi.fn() }))
 vi.mock('@/lib/bast-chat/events', async (orig) => ({ ...(await orig<typeof import('@/lib/bast-chat/events')>()), appendChatNote: vi.fn(async () => undefined) }));
 const homeAct = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/home/act', async (orig) => ({ ...(await orig<typeof import('@/lib/home/act')>()), runHomeAct: homeAct, runHomeUndo: vi.fn() }));
+vi.mock('@/lib/home/ensure-day', () => ({ ensureHomeDay: vi.fn(async () => '2026-11-10') }));
 vi.mock('@/lib/home/state', () => ({ getHomeAction: vi.fn(async () => ({ before: { states: [] }, after: { states: [] } })), getItemState: vi.fn(async () => null) }));
 
 import { requireAuth } from '@/lib/auth/middleware';
@@ -112,6 +113,10 @@ describe('what it refuses, always as {error}', () => {
   it('a closed conversation, a foreign one, a missing one', async () => {
     conv = { id: CONV, owner_id: OWNER_ID, status: 'closed' };
     await refused(proj('review'), 409);
+    for (const status of ['idle', 'queued']) {
+      conv = { id: CONV, owner_id: OWNER_ID, status };
+      await refused(proj('review'), 409);
+    }
     conv = { id: CONV, owner_id: OTHER_ID, status: 'running' };
     await refused(proj('review'), 404);
     conv = null;

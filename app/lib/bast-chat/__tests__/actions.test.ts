@@ -461,6 +461,41 @@ describe('releaseAction (the tap)', () => {
       await expect(tap(pId)).rejects.toMatchObject({ statusCode: 409, code: 'not_proposed' });
       expect(notes().at(-1)).toMatchObject({ code: 'action_failed', action_id: pId });
     };
+    const addComment = (taskId: string, userId: string = BAST, content = 'From Mike, through the chat: Change of plan.') => {
+      const id = randomUUID();
+      db.comments.push({ id, task_id: taskId, user_id: userId, author_contact_id: null, content, is_deleted: false, created_at: tick() });
+      return id;
+    };
+    it('V1: a comment on the task after the proposal, with a bot comment already last, kills the tap', async () => {
+      const t = addTask({ title: 'Update the invoice template wording' });
+      addComment(t, BAST, 'Bast: earlier note.');
+      const p = await propose(t, { assignee_id: BAST });
+      addComment(t);
+      await killed(p.id, t);
+      expect(task(t).assignee_id).toBe(OWNER);
+    });
+    it('V1: a comment on the task when there was none before kills the tap', async () => {
+      const t = addTask({ title: 'Update the invoice template wording' });
+      const p = await propose(t, { assignee_id: BAST });
+      addComment(t);
+      await killed(p.id, t);
+    });
+    it('V1: a comment on a task it waits on (a done blocker) after the proposal kills the tap', async () => {
+      const blocker = addTask({ title: 'Collect the logo', status: 'done', approved: true });
+      const t = addTask({ title: 'Place the logo in the header', blocked_by_ids: [blocker] });
+      const p = await propose(t, { assignee_id: BAST });
+      addComment(blocker);
+      await killed(p.id, t);
+      expect(task(t).assignee_id).toBe(OWNER);
+    });
+    it('V1: with no comment added, the tap still goes through', async () => {
+      const blocker = addTask({ title: 'Collect the logo', status: 'done', approved: true });
+      addComment(blocker, BAST, 'Bast: logo is in Drive.');
+      const t = addTask({ title: 'Place the logo in the header', blocked_by_ids: [blocker] });
+      addComment(t, BAST, 'Bast: note.');
+      const p = await propose(t, { assignee_id: BAST });
+      expect(await tap(p.id)).toMatchObject({ status: 'released' });
+    });
     it('a title edit by the chat key', async () => {
       const t = addTask({ title: 'Update the invoice template wording' });
       const p = await propose(t, { assignee_id: BAST });
@@ -757,6 +792,34 @@ describe('undoSince', () => {
     expect(res.stopped).toMatchObject({ id: r1, reason: 'A later change to this waits for your tap first.' });
   });
 
+  it('V3: a record blocked by a later change that can never be undone is skipped with that reason, and the walk goes on', async () => {
+    const start = new Date(clock + 1);
+    const a = addTask({ title: 'Alpha' });
+    const b = addTask({ title: 'Bravo' });
+    const rOlderA = record(a, { title: 'Alpha old' }, { title: 'Alpha mid' }, { summary: 'Renamed A.' });
+    const rB = record(b, { title: 'Bravo old' }, { title: 'Bravo' }, { summary: 'Renamed B.' });
+    const rA = record(a, { title: 'Alpha mid' }, { title: 'Alpha' }, { summary: 'Finished A.', undo_until: null }); // cannot be undone
+    const res = await undoSince(OWNER, { since: start.toISOString() }, NOW, db);
+    expect(res.undone).toEqual([{ id: rB, summary: 'Renamed B.' }]);
+    expect(res.stopped).toBeNull();
+    expect(res.left).toEqual([
+      { id: rA, summary: 'Finished A.', reason: 'It is too late to undo that.' },
+      { id: rOlderA, summary: 'Renamed A.', reason: "A later change to this can't be undone." },
+    ]);
+    expect(task(b).title).toBe('Bravo old');
+    expect(task(a).title).toBe('Alpha');
+    expect(row(rOlderA).status).toBe('applied');
+  });
+  it('V3: a skipped record never reads as waiting for a tap when nothing is waiting', async () => {
+    const start = new Date(clock + 1);
+    const a = addTask({ title: 'Alpha' });
+    record(a, { title: 'x' }, { title: 'y' }, { summary: 'Renamed A.' });
+    record(a, { title: 'y' }, { title: 'Alpha' }, { summary: 'Finished A.', undo_until: null });
+    const res = await undoSince(OWNER, { since: start.toISOString() }, NOW, db);
+    expect(JSON.stringify(res)).not.toMatch(/waits for your tap/);
+    expect(res.proposed).toEqual([]);
+  });
+
   it('needs a time or an action, not both', async () => {
     await expect(undoSince(OWNER, {}, NOW, db)).rejects.toThrow();
     await expect(undoSince(OWNER, { since: NOW.toISOString(), from_action_id: randomUUID() }, NOW, db)).rejects.toThrow();
@@ -1018,5 +1081,57 @@ describe('small helpers', () => {
   it('whenWords speaks in Mike\'s time zone', () => {
     expect(whenWords(new Date('2026-11-10T22:00:00.000Z'), NOW)).toBe('today at 5:00 PM');
     expect(whenWords(new Date('2026-11-25T15:00:00.000Z'), NOW)).toBe('Nov 25 at 10:00 AM');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// V5: the words on the tap card
+// ---------------------------------------------------------------------------------------------
+
+describe('card copy (V5)', () => {
+  const TARGET = 'bb222222-2222-4222-8222-222222222222';
+  const card = { reach: null as unknown as ReachResult, copy: { clause: 'x' } as { clause: string; client_lines?: string[] } };
+  const op: ChatOperation<{ id: string }> = {
+    name: 'fake_card',
+    target_type: 'fake_card',
+    validate: () => ({ id: TARGET }),
+    targetId: () => TARGET,
+    prepare: async () => ({ reach: card.reach, expect: {}, copy: card.copy }),
+    apply: async () => ({ ok: true }),
+    prepareUndo: async () => ({ reach: card.reach, expect: {}, copy: card.copy }),
+    undo: async () => ({ ok: true }),
+  };
+  registerChatOperation(op);
+  const reach = (over: Partial<ReachResult>): ReachResult => ({ reaches: false, needs_tap: true, proposal_kind: 'client_show', starts: [], reads: [], shows_client: [], ...over });
+  const store = async () => {
+    const { input, prepared } = await prepareOperation('fake_card', {}, { ownerId: OWNER, now: NOW, db });
+    return storeProposal({ ownerId: OWNER, conversationId: CONV, tool: 'change_project', op: 'fake_card', input, prepared, reserve: false, now: NOW, db });
+  };
+
+  it('a project going live says so once, not twice', async () => {
+    card.reach = reach({ shows_client: [{ rule: 'project_goes_live', reason: 'x', fields: ['status'], project_id: TARGET, via_undo: false }] });
+    card.copy = { clause: 'move the "VCDP Bedrock site build" project to ready', client_lines: ['The "VCDP Bedrock site build" project will show in the client\'s portal.'] };
+    const p = await store();
+    expect(p.card.client).toEqual(['The client will see the project in their portal.']);
+  });
+  it('the op\'s own client line still shows when the rule has no line of its own', async () => {
+    card.reach = reach({ shows_client: [{ rule: 'unknown_status', reason: 'x', fields: ['status'], via_undo: false }] });
+    card.copy = { clause: 'x', client_lines: ['A line only the op knows.'] };
+    const p = await store();
+    expect(p.card.client).toContain('A line only the op knows.');
+  });
+  it('an Undo that wakes Sabeen\'s queue does not say "back with Bast"', async () => {
+    const t = addTask({ title: 'Send the holiday photos' });
+    card.reach = reach({ reaches: true, proposal_kind: 'bast_start', shows_client: [], starts: [{ rule: 'wakes_delegate', reason: 'x', task_id: t, fields: ['assignee_id'], via_undo: true }] });
+    card.copy = { clause: 'put it back' };
+    const p = await store();
+    expect(p.card.lines[0]).toBe("Undo makes Bast's worker read Sabeen's thread.");
+    expect(p.card.lines.join(' ')).not.toMatch(/back with Bast/);
+  });
+  it('the changes line of a card names who it is on, in words that stand alone', async () => {
+    const t = addTask({ title: 'Menu proof' });
+    const p = await propose(t, { assignee_id: BAST });
+    expect(p.card.reads[0].writes).toEqual(['who it is on']);
+    expect(JSON.stringify(p.card)).not.toMatch(/—|–|priorit|overdue/i);
   });
 });

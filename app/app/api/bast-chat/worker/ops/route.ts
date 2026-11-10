@@ -30,7 +30,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const ownerId = await workerOwnerId();
     if (!settings.enabled) throw new ApiError('The chat is off.', 409, 'chat_off');
     const conv = await ownedConversation(body.conversation_id, ownerId, prisma);
-    if (conv.status === 'closed') throw new ApiError('Open the chat first.', 409, 'conversation_closed');
+    if (conv.status !== 'running') throw new ApiError('Open the chat first.', 409, 'conversation_not_running');
     const op = getRunnableOp(body.op);
     if (!op) throw new ApiError(`That change is not known here. Known: ${OP_NAMES.join(', ')}.`, 400, 'unknown_op');
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { is_active: true, role: true } });

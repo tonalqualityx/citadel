@@ -10,6 +10,8 @@ vi.mock('@/lib/home/act', async (orig) => ({
   runHomeAct: h.run,
   runHomeUndo: h.undo,
 }));
+const ensure = vi.hoisted(() => vi.fn(async () => '2026-11-10'));
+vi.mock('@/lib/home/ensure-day', () => ({ ensureHomeDay: ensure }));
 vi.mock('@/lib/home/state', () => ({ getHomeAction: vi.fn(async () => h.action), getItemState: vi.fn(async () => h.state) }));
 
 import { getRunnableOp } from '..';
@@ -58,6 +60,19 @@ describe('home op', () => {
     expect(r.summary).toBe(opSummary({ op: 'home_act', action: 'not_now', title: 'Grok rescan', until: h.state.view_at }, NOW));
     expect(r.undoable).toBe(true);
     expect(r.result).toEqual({ message: 'Back tomorrow at 9:00.', item_key: KEY });
+  });
+  it('V4: stores today\'s day row before the act runs, for the owner in the owner\'s zone', async () => {
+    const order: string[] = [];
+    ensure.mockImplementation(async () => { order.push('ensure'); return '2026-11-10'; });
+    h.run.mockImplementation(async () => { order.push('act'); return { ok: true, action_id: '77777777-7777-4777-8777-777777777777', undo_until: null, item_key: KEY, message: null }; });
+    await op.run(ctx() as any, op.validate({ action: 'lighter', to_group_key: 'own' }), {});
+    expect(order).toEqual(['ensure', 'act']);
+    expect(ensure).toHaveBeenCalledWith(h.db, OWNER, NOW, 'America/New_York');
+  });
+  it('V4: a screen that is off stores nothing', async () => {
+    h.db.userPreference.findUnique.mockResolvedValue({ home_view: 'overlook' });
+    await expect(op.run(ctx() as any, op.validate({ action: 'lighter', to_group_key: 'own' }), {})).rejects.toMatchObject({ statusCode: 409 });
+    expect(ensure).not.toHaveBeenCalled();
   });
   it('a third Not now says it stays in view', async () => {
     h.state = { view_at: null };

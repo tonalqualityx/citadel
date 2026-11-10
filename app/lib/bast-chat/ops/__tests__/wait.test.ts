@@ -163,6 +163,47 @@ describe('wait op', () => {
       await expect(op.prepareUndo(ctx() as any, record(r, action))).rejects.toMatchObject({ statusCode: 409 });
     }
   });
+  describe('complete opens the next step of its chain (V2)', () => {
+    const PROJECT = '9d9d9d9d-9d9d-4d9d-8d9d-9d9d9d9d9d9d';
+    const chain = (template_key: string, step: number) => {
+      w.template_key = template_key;
+      w.step = step;
+      w.project_id = PROJECT;
+      w.action_payload = { owner_role: 'client' };
+    };
+    const pmIs = (userId: string) => {
+      h.db.projectTeamAssignment.findMany = vi.fn(async () => [{ user_id: userId, is_lead: true, function: { name: 'Project Manager' } }]);
+    };
+    it('a next step that is a task for the PM, where the PM is Bast, needs a tap and nothing is written', async () => {
+      chain('onboarding.missing_items', 1);
+      pmIs(BAST_USER_ID);
+      const { p } = await doIt({ action: 'complete' });
+      expect(p.reach.needs_tap).toBe(true);
+      expect(p.reach.starts[0].rule).toBe('wait_for_bast');
+      expect(w.state).toBe('waiting');
+    });
+    it('the same step with a PM who is a person applies without a tap', async () => {
+      chain('onboarding.missing_items', 1);
+      pmIs(SABEEN_USER_ID);
+      const { p } = await doIt({ action: 'complete' });
+      expect(p.reach.needs_tap).toBe(false);
+    });
+    it('a next step that sends to a client needs a tap even when Bast owns nothing', async () => {
+      // sales.proposal_no_action has two send steps: finishing step 1 opens a send.
+      chain('sales.proposal_no_action', 1);
+      const { p } = await doIt({ action: 'complete' });
+      expect(p.reach.needs_tap).toBe(true);
+      expect(p.reach.reaches).toBe(false);
+      expect(p.reach.shows_client[0].rule).toBe('wait_sends');
+    });
+    it('the last step of a chain, and a single-step wait, apply without a tap', async () => {
+      chain('onboarding.missing_items', 2);
+      expect((await doIt({ action: 'complete' })).p.reach.needs_tap).toBe(false);
+      w.template_key = 'proposal.follow_up';
+      w.step = 1;
+      expect((await doIt({ action: 'complete' })).p.reach.needs_tap).toBe(false);
+    });
+  });
   it('a finished wait takes no further change', async () => {
     w.state = 'done';
     await expect(doIt({ action: 'redate', due_at: '2026-11-20T22:00:00Z' })).rejects.toMatchObject({ statusCode: 409 });

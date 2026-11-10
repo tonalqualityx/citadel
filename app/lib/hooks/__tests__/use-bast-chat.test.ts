@@ -202,6 +202,11 @@ describe('undoSinceLines', () => {
       'Stopped at "Menu proof" moved. Undo the later change to this first.',
     ]);
   });
+  it('no double full stop when the summary already ends with one', () => {
+    const lines = undoSinceLines({ undone: [{}, {}], proposed: [{}], stopped: { summary: '"Mark Mitchell: send the holiday photos" is on Margot now.', reason: 'A later change to this waits for your tap first.' }, left: [], waiting: [] });
+    expect(lines[1]).toBe('Stopped at "Mark Mitchell: send the holiday photos" is on Margot now. A later change to this waits for your tap first.');
+    expect(lines.join(' ')).not.toContain('..');
+  });
   it('copes with an empty answer', () => {
     expect(undoSinceLines(null)).toEqual(['Nothing was undone.']);
   });

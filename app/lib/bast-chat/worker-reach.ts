@@ -65,6 +65,8 @@ export interface BlockerRef {
   approved?: boolean;
   /** The blocker's project `dependencies_ordering_only`; null when the blocker has no project. */
   ordering_only?: boolean | null;
+  /** Id of the blocker's newest comment (the worker's W3 reads it). Part of the tap's re-check. */
+  last_comment_id?: string | null;
 }
 
 /**
@@ -91,6 +93,8 @@ export interface ReachTask {
   client_approved_at?: DateLike | null;
   lease_until?: DateLike | null;
   last_comment_author?: CommentAuthorKind;
+  /** Id of the newest comment on the task, ordered by created_at then id. Part of the tap's re-check (a new comment changes it). */
+  last_comment_id?: string | null;
   blocked_by?: readonly BlockerRef[];
   /** This task's own project `dependencies_ordering_only` (null: no project). Decides whether closing it releases a blocked dependent. */
   ordering_only?: boolean | null;
@@ -154,10 +158,15 @@ export type ReachOp =
       wait_id: string;
       /** redate, extend, pause, resume, reassign, complete, cancel. */
       action?: string;
-      /** The wait is still open after the change (a paused wait is open). */
+      /**
+       * The wait is still open after the change (a paused wait is open). For `complete`: the chain has a next step
+       * and finishing this one opens it.
+       */
       open_after?: boolean;
       /** `resolveWaitOwner` (lib/waits/sweeper.ts 233) gives Bast after the change. */
       owner_is_bast_after?: boolean;
+      /** For `complete`: the action of the step it opens (`task`, `send`, `proceed`, `escalate`). */
+      next_action?: string;
     };
 
 // ---------------------------------------------------------------------------------------------
@@ -255,15 +264,17 @@ export interface WorkerReads {
   client_id: string | null;
   sop_id: string | null;
   arc_id: string | null;
-  blocked_by: { id: string; title: string | null; status: string | null }[] | null;
+  blocked_by: { id: string; title: string | null; status: string | null; last_comment_id: string | null }[] | null;
   last_comment_author: CommentAuthorKind | null;
+  /** Newest comment id on the task, so the fingerprint notices any comment added or hidden since the proposal. */
+  last_comment_id: string | null;
   /** Which of these this change writes. For a dependent: `blocker:<id>:<field>`. */
   changed: string[];
   /** Read fields the caller did not pass: load them before the card is shown. */
   not_given: string[];
 }
 
-export type ClientShowRule = 'shares_task' | 'moves_visible_task' | 'project_goes_live' | 'unknown_status' | 'missing_data';
+export type ClientShowRule = 'shares_task' | 'wait_sends' | 'moves_visible_task' | 'project_goes_live' | 'unknown_status' | 'missing_data';
 
 export interface ClientShowHit {
   rule: ClientShowRule;
@@ -350,7 +361,7 @@ export const PORTAL_HIDDEN_PROJECT_STATUSES: readonly string[] = ['quote', 'queu
 export const PROJECT_STATUSES: readonly string[] = ['quote', 'queue', 'ready', 'in_progress', 'review', 'done', 'suspended', 'cancelled'];
 
 /** Wait actions that only stop or close a wait. */
-const WAIT_STOP_ACTIONS: readonly string[] = ['pause', 'complete', 'cancel'];
+const WAIT_STOP_ACTIONS: readonly string[] = ['pause', 'cancel'];
 /** Wait actions that keep or bring it due (plan 4.2 R4). */
 const WAIT_MOVE_ACTIONS: readonly string[] = ['redate', 'extend', 'resume', 'reassign'];
 
@@ -637,8 +648,9 @@ function readsOf(t: ReachTask, view: WorkerView, changed: string[]): WorkerReads
     blocked_by:
       t.blocked_by === undefined
         ? null
-        : t.blocked_by.map((b) => ({ id: b.id, title: b.title ?? null, status: b.status ?? null })),
+        : t.blocked_by.map((b) => ({ id: b.id, title: b.title ?? null, status: b.status ?? null, last_comment_id: b.last_comment_id ?? null })),
     last_comment_author: t.last_comment_author ?? null,
+    last_comment_id: t.last_comment_id ?? null,
     changed: [...changed],
     not_given: notGiven,
   };
@@ -732,6 +744,19 @@ function evaluateSelf(
     if (before === null) rule = 'create_for_bast';
     else if (toBast) rule = 'hand_to_bast';
     else rule = onlyComments ? 'comment_on_bast_task' : 'edits_held_bast_task';
+  } else if (
+    // Plan 4.2 R1 (any status) and acceptance item 9: rewriting a closed Bast task taps too, because the reopen that
+    // follows shows the edited text and the card should have flagged it. Only a rewrite of the text counts: tags,
+    // comments and a bare status change between closed states are not what the worker will read as the task's text.
+    before !== null &&
+    vb.view === 'none' &&
+    va.view === 'none' &&
+    before.assignee_id === BAST_USER_ID &&
+    after.assignee_id === BAST_USER_ID &&
+    (after.status === 'done' || after.status === 'abandoned') &&
+    nonSafe.some((f) => READ_TEXT_FIELDS.includes(f))
+  ) {
+    rule = 'edits_held_bast_task';
   }
   if (rule === null) return;
   acc.hit(rule, after.id, `view ${vb.view} to ${va.view}; fields ${fields.join(', ')}`, fields, {
@@ -742,7 +767,7 @@ function evaluateSelf(
 }
 
 function blockerRefOf(t: ReachTask): BlockerRef {
-  return { id: t.id, title: t.title, status: t.status, approved: t.approved, ordering_only: t.ordering_only };
+  return { id: t.id, title: t.title, status: t.status, approved: t.approved, ordering_only: t.ordering_only, last_comment_id: t.last_comment_id };
 }
 
 function withBlocker(d: ReachTask, ref: BlockerRef): ReachTask {
@@ -922,6 +947,8 @@ export interface CommentInput {
   added_author?: CommentAuthorKind;
   /** For `hide`: who wrote the newest comment that is still visible once this one is hidden. */
   last_comment_author_after?: CommentAuthorKind;
+  /** For `hide`: the newest visible comment id once this one is hidden (null when none). */
+  last_comment_id_after?: string | null;
   now: Date;
   origin?: ReachOrigin;
 }
@@ -934,7 +961,15 @@ export function checkComment(input: CommentInput): ReachResult {
   if (lastAfter === undefined) {
     acc.hit('missing_data', task.id, 'missing: last_comment_author_after for a hidden comment', ['comments']);
   }
-  const after: ReachTask = { ...task, last_comment_author: lastAfter };
+  // An added comment has no id yet: mark it on top of the id it lands after, so another comment that slips in
+  // before the tap still changes the fingerprint. A hidden one carries the id that becomes newest.
+  const lastIdAfter =
+    input.action === 'add'
+      ? `${task.last_comment_id ?? ''}+new`
+      : input.last_comment_id_after !== undefined
+        ? input.last_comment_id_after
+        : `${task.last_comment_id ?? ''}-hidden`;
+  const after: ReachTask = { ...task, last_comment_author: lastAfter, last_comment_id: lastIdAfter };
   delete (after as ReachTaskWithDependents).dependents;
   evaluateSelf(acc, task, after, ['comments'], {}, input.now);
   evaluateDependents(acc, task, after, ['comments'], input.now);
@@ -975,6 +1010,21 @@ export function checkOp(input: OpInput): ReachResult {
     case 'wait_change': {
       const action = op.action;
       if (action !== undefined && WAIT_STOP_ACTIONS.includes(action)) break;
+      if (action === 'complete') {
+        // `completed` advances the chain: resolveWait opens the next step, which may file a Bast task or send to a client.
+        if (!op.open_after) break;
+        if (op.owner_is_bast_after === undefined) {
+          acc.hit('missing_data', null, 'missing: owner_is_bast_after of the next step', [action], { wait_id: op.wait_id });
+          break;
+        }
+        if (op.owner_is_bast_after) {
+          acc.hit('wait_for_bast', null, 'wait complete: the next step of the chain opens owned by Bast', [action], { wait_id: op.wait_id });
+        }
+        if (op.next_action === 'send') {
+          acc.show('wait_sends', 'wait complete: the next step of the chain sends to a client', [action], {});
+        }
+        break;
+      }
       if (action === undefined || !WAIT_MOVE_ACTIONS.includes(action)) {
         acc.hit('unknown_op', null, `wait action ${String(action)} has no reach rule`, ['action'], { wait_id: op.wait_id });
         break;
@@ -1047,8 +1097,9 @@ export function reachFingerprint(r: ReachResult): string {
       project_id: x.project_id,
       client_id: x.client_id,
       sop_id: x.sop_id,
-      blocked_by: x.blocked_by ? x.blocked_by.map((b) => `${b.id}:${b.status ?? ''}`).sort() : null,
+      blocked_by: x.blocked_by ? x.blocked_by.map((b) => `${b.id}:${b.status ?? ''}:${b.last_comment_id ?? ''}`).sort() : null,
       last: x.last_comment_author,
+      last_id: x.last_comment_id,
     }));
   const shows = r.shows_client.map((c) => [c.rule, c.task_id ?? '', c.project_id ?? ''].join('|')).sort();
   return stableStringify({ starts, reads, shows });

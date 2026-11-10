@@ -79,7 +79,7 @@ function ReadBlock({ read }: { read: CardRead }) {
           </ul>
         </div>
       ) : null}
-      {writes.length > 0 ? <p className="home-small home-muted">{writes.join(' ')}</p> : null}
+      {writes.length > 0 ? <p className="home-small home-muted">Changes: {writes.join(', ')}.</p> : null}
     </li>
   );
 }

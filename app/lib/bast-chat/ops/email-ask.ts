@@ -4,7 +4,8 @@
  * Input `{ask_id, state}` where state is `handled`, `dismissed` (no reply needed) or `open` (reopen). Only an ask
  * that is open, handled or dismissed can change; an ask the classifier already filed another way is refused. The
  * write is the same as PATCH /api/email-asks/:id with a state: leaving `open` clears the draft marker and its link
- * in the same write, which this record keeps so Undo can put both back. Writes are compare-and-set on the state
+ * in the same write, which this record keeps so Undo can put both back. Reopening does not restore them (only Undo
+ * does), and its line says so. Writes are compare-and-set on the state
  * read. No worker session reads ask state, so the reach check never hits.
  *
  * Record: target_id is the ask id; before and after hold `{ask_id, state, draft_started_at, draft_url}`.
@@ -58,7 +59,7 @@ async function run(ctx: OpContext, input: EmailAskInput, expect: unknown): Promi
     target_id: a.id,
     before: snap(a, e.data.state, false),
     after: snap(a, input.state, leaving),
-    summary: opSummary({ op: 'email_ask_state', subject: a.subject, state: input.state }, ctx.now),
+    summary: opSummary({ op: 'email_ask_state', subject: a.subject, state: input.state, ...(input.state === 'open' ? { draft_kept: !!(a.draft_started_at || a.draft_url) } : {}) }, ctx.now),
     result: { ask_id: a.id, state: input.state },
     undoable: true,
   };

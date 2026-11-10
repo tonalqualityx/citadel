@@ -47,8 +47,21 @@ describe('email_ask op', () => {
     expect(r.summary).toBe('"Re: footer links": marked no reply needed.');
     ask.draft_url = null;
     const r2 = await op.run(ctx() as any, op.validate({ ask_id: ASK, state: 'open' }), { state: 'dismissed' });
-    expect(r2.summary).toBe('"Re: footer links": open again.');
+    expect(r2.summary).toBe('"Re: footer links": open again. The draft marker and link it had are not restored.');
     expect(ask.state).toBe('open');
+    expect(ask.draft_url).toBeNull();
+  });
+  it('reopen does not claim a lost draft is back, and says nothing extra when the ask still holds one', async () => {
+    ask.state = 'dismissed';
+    ask.draft_url = null;
+    ask.draft_started_at = null;
+    const r = await op.run(ctx() as any, op.validate({ ask_id: ASK, state: 'open' }), { state: 'dismissed' });
+    expect(r.summary).not.toMatch(/still in Gmail/);
+    expect(r.summary).toContain('not restored');
+    ask.state = 'dismissed';
+    ask.draft_url = 'https://mail.google.com/mail/#drafts/abc';
+    const r2 = await op.run(ctx() as any, op.validate({ ask_id: ASK, state: 'open' }), { state: 'dismissed' });
+    expect(r2.summary).toBe('"Re: footer links": open again.');
   });
   it('refuses an ask already filed another way, a no-change, and a stale write', async () => {
     ask.state = 'archive_requested';

@@ -64,6 +64,11 @@ describe('ActionLine', () => {
     expect(onRelease).toHaveBeenCalledWith('a1');
     expect(onDecline).toHaveBeenCalledWith('a1');
   });
+  it('the writes line is a labelled sentence, never a bare phrase', () => {
+    const c = card('bast_start', { reads: [{ title: 'Menu proof', writes: ['who it is on', 'status'], chat_changed: [], chat_changed_line: null }] });
+    render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);
+    expect(screen.getByText('Changes: who it is on, status.')).toBeTruthy();
+  });
   it('flags text the chat changed, and says nothing when it did not', () => {
     const changed = card('bast_start', { reads: [{ title: 'Menu proof', chat_changed: ['description'], chat_changed_line: 'Changed from this chat in the last day: description.' }] });
     const { unmount } = render(<ActionLine action={prop(changed)} now={NOW} busy={false} error={null} {...handlers} />);

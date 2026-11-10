@@ -267,13 +267,21 @@ describe('R1: edits to a task Bast holds, any status', () => {
       }
     });
   }
-  it('a done (not in review) or abandoned Bast task is not read: edits do not reach, the reopen does', () => {
+  it('a done (not in review) or abandoned Bast task: a text rewrite taps (plan acceptance item 9), and so does the reopen', () => {
     const t = bast({ status: 'done' });
-    none(patch(t, { description: 'Edited after close' }));
-    none(patch(bast({ status: 'abandoned' }), { title: 'x' }));
+    reachesWith(patch(t, { description: 'Edited after close' }), 'edits_held_bast_task');
+    reachesWith(patch(bast({ status: 'abandoned' }), { title: 'x' }), 'edits_held_bast_task');
     const r = patch(applied(t, { description: 'Edited after close' }), { status: 'in_progress' });
     reachesWith(r, 'starts_bast_task');
     expect(r.reads[0].description).toBe('Edited after close');
+  });
+  it('a closed Bast task: tags, due date and a bare status change between closed states do not tap', () => {
+    none(patch(bast({ status: 'done' }), { tags: ['x'] }));
+    none(patch(bast({ status: 'done' }), { due_date: '2026-11-14T22:00:00Z' }));
+    none(patch(bast({ status: 'done' }), { status: 'abandoned' }));
+  });
+  it('a closed task of Mike\'s or Sabeen\'s is still free to rewrite', () => {
+    none(patch(bast({ status: 'done', assignee_id: MIKE_USER_ID }), { description: 'x' }));
   });
   it('the safe set does not reach on an eligible Bast task', () => {
     const safe: TaskChange[] = [
@@ -566,8 +574,21 @@ describe('R4: waits', () => {
       expect(hit.wait_id).toBe('w1');
     }
   });
-  it('pause, complete and cancel only stop: no reach', () => {
-    for (const a of ['pause', 'complete', 'cancel']) none(wait(a));
+  it('pause and cancel only stop: no reach', () => {
+    for (const a of ['pause', 'cancel']) none(wait(a));
+  });
+  it('complete with no next step only stops; with a next step it reaches when Bast owns it or it sends to a client', () => {
+    const complete = (extra: object) => checkOp({ op: { op: 'wait_change', wait_id: 'w1', action: 'complete', ...extra }, now: NOW });
+    none(complete({}));
+    none(complete({ open_after: false }));
+    none(complete({ open_after: true, owner_is_bast_after: false, next_action: 'task' }));
+    none(complete({ open_after: true, owner_is_bast_after: false, next_action: 'escalate' }));
+    reachesWith(complete({ open_after: true, owner_is_bast_after: true, next_action: 'task' }), 'wait_for_bast');
+    const send = complete({ open_after: true, owner_is_bast_after: false, next_action: 'send' });
+    expect(send.needs_tap).toBe(true);
+    expect(send.reaches).toBe(false);
+    expect(send.shows_client[0].rule).toBe('wait_sends');
+    reachesWith(complete({ open_after: true }), 'missing_data');
   });
   it('a wait that is not Bast\'s, or not open, does not reach', () => {
     none(wait('reassign', true, false));
@@ -774,6 +795,25 @@ describe('VERIFY-3 F1 and F2: the tap recomputes, and a chat write on Bast\'s ta
     const atTap = patch(moved, { assignee_id: BAST });
     expect(atTap.starts[0].view_after).toBe('wake_stale_in_progress');
     expect(reachFingerprint(atTap)).not.toBe(reachFingerprint(proposed));
+  });
+  it('V1: a comment added on the task after the proposal changes the fingerprint, even when the last author kind stays bot', () => {
+    const t = task({ last_comment_author: 'bot', last_comment_id: 'c1' });
+    const proposed = patch(t, { assignee_id: BAST });
+    const later = applied(t, { last_comment_id: 'c2' });
+    expect(reachFingerprint(patch(later, { assignee_id: BAST }))).not.toBe(reachFingerprint(proposed));
+    expect(reachFingerprint(patch(t, { assignee_id: BAST }))).toBe(reachFingerprint(proposed));
+  });
+  it('V1: a comment on a task the Bast task waits on changes the fingerprint (blocker key carries the last comment id)', () => {
+    const base = task({ blocked_by: [blocker('b1', 'done', { last_comment_id: 'c1' })], last_comment_id: null });
+    const proposed = patch(base, { assignee_id: BAST });
+    const later = applied(base, { blocked_by: [blocker('b1', 'done', { last_comment_id: 'c2' })] });
+    expect(reachFingerprint(patch(later, { assignee_id: BAST }))).not.toBe(reachFingerprint(proposed));
+  });
+  it('V1: a comment proposal on a Bast task carries the id it lands after, so a second comment before the tap changes it', () => {
+    const t = bast({ tags: ['needs-mike'], last_comment_id: 'c1' });
+    const proposed = checkComment({ task: t, action: 'add', now: NOW });
+    const later = checkComment({ task: { ...t, last_comment_id: 'c2' }, action: 'add', now: NOW });
+    expect(reachFingerprint(later)).not.toBe(reachFingerprint(proposed));
   });
   it('an unchanged task gives the same fingerprint at tap time', () => {
     const t = task();

@@ -133,7 +133,7 @@ export const commentOp: OpDef<CommentInput> = {
     const loaded = await loadReachTask(db, task_id);
     if (!loaded) throw new ApiError('Changed since. Open the task.', 409, 'changed_since');
     const after = await latestComment(db, task_id, comment_id);
-    const reach = checkComment({ task: loaded.reach, action: 'hide', last_comment_author_after: kindOf(after), now: ctx.now, origin: 'undo' });
+    const reach = checkComment({ task: loaded.reach, action: 'hide', last_comment_author_after: kindOf(after), last_comment_id_after: after?.id ?? null, now: ctx.now, origin: 'undo' });
     return { reach, expect: { comment_id }, copy: { clause: `hide the note on "${shortTitle(loaded.row.title)}"` } };
   },
   async undo(ctx, record) {

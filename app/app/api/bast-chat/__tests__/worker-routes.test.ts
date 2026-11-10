@@ -146,6 +146,8 @@ describe('the eight worker routes', () => {
         });
       }
       it('happy path: exact key set, no-store', async () => {
+        // The ops route needs the conversation to be running (a tool call happens inside a turn).
+        if (r.name === 'POST ops') h.conv = { id: CONV, owner_id: OWNER_ID, status: 'running' };
         const res = await call(r);
         expect([200, 201]).toContain(res.status);
         expect(res.headers.get('cache-control')).toBe('no-store');

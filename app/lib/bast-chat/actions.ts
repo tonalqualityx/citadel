@@ -363,7 +363,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
-  | { op: 'email_ask_state'; subject: string; state: 'handled' | 'dismissed' | 'open' }
+  | { op: 'email_ask_state'; subject: string; state: 'handled' | 'dismissed' | 'open'; draft_kept?: boolean }
   | { op: 'wait_change'; action: 'redate' | 'extend'; title: string; due: Date }
   | { op: 'wait_change'; action: 'pause' | 'resume' | 'complete' | 'cancel'; title: string }
   | { op: 'wait_change'; action: 'reassign'; title: string; to_name: string }
@@ -415,7 +415,7 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
       s = o.hidden ? `Hid the note on ${quoted(o.task_title)}.` : `Added a note to ${quoted(o.task_title)}.`;
       break;
     case 'email_ask_state':
-      s = o.state === 'handled' ? `${quoted(o.subject)}: marked handled.` : o.state === 'dismissed' ? `${quoted(o.subject)}: marked no reply needed.` : `${quoted(o.subject)}: open again.`;
+      s = o.state === 'handled' ? `${quoted(o.subject)}: marked handled.` : o.state === 'dismissed' ? `${quoted(o.subject)}: marked no reply needed.` : o.draft_kept === false ? `${quoted(o.subject)}: open again. The draft marker and link it had are not restored.` : `${quoted(o.subject)}: open again.`;
       break;
     case 'wait_change':
       switch (o.action) {
@@ -718,17 +718,41 @@ type TaskReachRow = {
   blocking?: TaskReachRow[];
 };
 
-const blockerRef = (b: BlockerRow): BlockerRef => ({ id: b.id, title: b.title, status: b.status, approved: b.approved, ordering_only: b.project ? b.project.dependencies_ordering_only : null });
+const blockerRef = (b: BlockerRow, lastCommentId: string | null = null): BlockerRef => ({
+  id: b.id,
+  title: b.title,
+  status: b.status,
+  approved: b.approved,
+  ordering_only: b.project ? b.project.dependencies_ordering_only : null,
+  last_comment_id: lastCommentId,
+});
 
-async function lastCommentAuthor(db: Db, taskId: string): Promise<CommentAuthorKind> {
-  const c = await db.comment.findFirst({ where: { task_id: taskId, is_deleted: false }, orderBy: { created_at: 'desc' }, select: { user_id: true, author_contact_id: true } });
-  if (!c) return 'none';
-  if (c.author_contact_id) return 'client';
-  if (c.user_id && BOT_USER_IDS.includes(c.user_id)) return 'bot';
-  return 'human';
+type LastComment = { kind: CommentAuthorKind; id: string | null };
+
+/**
+ * The newest comment on a task, by created_at then id (the gate's tie rule). Every non-deleted comment counts,
+ * internal and client ones too: the worker session reads the whole thread, so the tap re-checks all of it.
+ */
+async function lastComment(db: Db, taskId: string): Promise<LastComment> {
+  const c = await db.comment.findFirst({
+    where: { task_id: taskId, is_deleted: false },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+    select: { id: true, user_id: true, author_contact_id: true },
+  });
+  if (!c) return { kind: 'none', id: null };
+  if (c.author_contact_id) return { kind: 'client', id: c.id };
+  if (c.user_id && BOT_USER_IDS.includes(c.user_id)) return { kind: 'bot', id: c.id };
+  return { kind: 'human', id: c.id };
 }
 
-function toReachTask(row: TaskReachRow, last: CommentAuthorKind): ReachTask & Record<string, unknown> {
+async function reachTaskOf(db: Db, row: TaskReachRow): Promise<ReachTask & Record<string, unknown>> {
+  const last = await lastComment(db, row.id);
+  const blockerLast = new Map<string, string | null>();
+  for (const b of row.blocked_by ?? []) blockerLast.set(b.id, (await lastComment(db, b.id)).id);
+  return toReachTask(row, last, blockerLast);
+}
+
+function toReachTask(row: TaskReachRow, last: LastComment, blockerLast: ReadonlyMap<string, string | null> = new Map()): ReachTask & Record<string, unknown> {
   return {
     id: row.id,
     assignee_id: row.assignee_id,
@@ -747,8 +771,9 @@ function toReachTask(row: TaskReachRow, last: CommentAuthorKind): ReachTask & Re
     approved: row.approved,
     client_approved_at: row.client_approved_at,
     lease_until: row.lease_until,
-    last_comment_author: last,
-    blocked_by: (row.blocked_by ?? []).map(blockerRef),
+    last_comment_author: last.kind,
+    last_comment_id: last.id,
+    blocked_by: (row.blocked_by ?? []).map((b) => blockerRef(b, blockerLast.get(b.id) ?? null)),
     ordering_only: row.project ? row.project.dependencies_ordering_only : null,
     project_status: row.project?.status ?? null,
     client_visible: row.client_visible,
@@ -778,8 +803,8 @@ export async function loadReachTask(db: Db, taskId: string): Promise<{ reach: Re
   })) as unknown as TaskReachRow | null;
   if (!row || row.is_deleted) return null;
   const dependents: ReachTask[] = [];
-  for (const d of row.blocking ?? []) dependents.push(toReachTask(d, await lastCommentAuthor(db, d.id)));
-  const reach: ReachTaskWithDependents = { ...toReachTask(row, await lastCommentAuthor(db, row.id)), dependents };
+  for (const d of row.blocking ?? []) dependents.push(await reachTaskOf(db, d));
+  const reach: ReachTaskWithDependents = { ...(await reachTaskOf(db, row)), dependents };
   return { reach, row };
 }
 
@@ -864,10 +889,12 @@ export async function taskChangeFromBody(db: Db, body: TaskPlanBody, row: { proj
   const disc = body.blocked_by_ids?.disconnect ?? [];
   if (conn.length > 0) {
     const rows = (await db.task.findMany({ where: { id: { in: conn } }, select: BLOCKER_SELECT })) as unknown as BlockerRow[];
-    c.blocked_by_connect = conn.map((id) => {
+    const refs: BlockerRef[] = [];
+    for (const id of conn) {
       const r = rows.find((x) => x.id === id);
-      return r ? blockerRef(r) : { id };
-    });
+      refs.push(r ? blockerRef(r, (await lastComment(db, r.id)).id) : { id });
+    }
+    c.blocked_by_connect = refs;
   }
   if (disc.length > 0) c.blocked_by_disconnect = [...disc];
   return c;
@@ -915,6 +942,8 @@ const FIELD_WORDS: Record<string, string> = {
   battery_impact: 'estimate',
   comments: 'thread',
 };
+/** The card's "Changes:" line reads on its own, so a few words differ from the clause's. */
+const CARD_WRITE_WORDS: Record<string, string> = { assignee_id: 'who it is on' };
 const bodyWords = (body: Record<string, unknown>) => [...new Set(Object.keys(body).map((k) => FIELD_WORDS[k] ?? 'details'))];
 
 async function assertAssignable(db: Db, id: string | null | undefined): Promise<void> {
@@ -1168,7 +1197,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date): P
       sop: r.sop_id ? (sops.get(r.sop_id) ?? null) : null,
       excerpt: text ? cutAtWord(cleanLine(text, 2000), 200) : null,
       checklist: checklistLines(r.requirements),
-      writes: [...new Set(r.changed.filter((f) => !f.startsWith('blocker:')).map((f) => FIELD_WORDS[f] ?? 'details'))],
+      writes: [...new Set(r.changed.filter((f) => !f.startsWith('blocker:')).map((f) => CARD_WRITE_WORDS[f] ?? FIELD_WORDS[f] ?? 'details'))],
       chat_changed: cc,
       chat_changed_line: cc.length ? `Changed from this chat in the last day: ${cc.join(', ')}.` : null,
     };
@@ -1187,7 +1216,10 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date): P
   };
   const viaUndo = reach.starts.some((h) => h.via_undo) || reach.shows_client.some((h) => h.via_undo);
   const isStart = reach.starts.some((h) => START_RULES.includes(h.rule));
-  if (viaUndo && reach.starts.length > 0) push(isStart ? 'Undo puts this back with Bast, so Bast starts on it.' : 'Undo changes what Bast reads.');
+  const onlyDelegate = reach.starts.length > 0 && reach.starts.every((h) => h.rule === 'wakes_delegate');
+  if (viaUndo && reach.starts.length > 0) {
+    push(onlyDelegate ? "Undo makes Bast's worker read Sabeen's thread." : isStart ? 'Undo puts this back with Bast, so Bast starts on it.' : 'Undo changes what Bast reads.');
+  }
   const released = reach.starts.filter((h) => h.rule === 'releases_dependent').map((h) => titleOf(h.task_id));
   if (released.length) push(`This lets Bast start: ${andList([...new Set(released)])}.`);
   for (const h of reach.starts as ReachHit[]) {
@@ -1212,7 +1244,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date): P
         push("Bast's worker will read Sabeen's thread.");
         break;
       case 'wait_for_bast':
-        push('The wait will make a task for Bast when it comes due.');
+        push(h.fields.includes('complete') ? 'Finishing this opens the next step of the wait, and it is Bast\'s.' : 'The wait will make a task for Bast when it comes due.');
         break;
       case 'releases_dependent':
         break;
@@ -1228,10 +1260,13 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date): P
     if (c.rule === 'shares_task') l = `The client will see ${t ?? 'the task'} in their portal.`;
     else if (c.rule === 'moves_visible_task') l = `${t ?? 'The task'} shows in a client portal, and this moves it to another client or project.`;
     else if (c.rule === 'project_goes_live') l = 'The client will see the project in their portal.';
+    else if (c.rule === 'wait_sends') l = 'Finishing this opens the next step of the wait, and that step sends to a client.';
     else l = 'Citadel could not rule out that the client sees this.';
     if (!client.includes(l)) client.push(l);
   }
-  for (const l of copy.client_lines ?? []) if (!client.includes(l)) client.push(cleanLine(l, 300));
+  // The project's own line already says the project goes live; the op's copy would say the same thing again.
+  const saysProjectLive = (reach.shows_client as ClientShowHit[]).some((c) => c.rule === 'project_goes_live');
+  if (!saysProjectLive) for (const l of copy.client_lines ?? []) if (!client.includes(l)) client.push(cleanLine(l, 300));
   const kind: CardKind = reach.starts.length > 0 ? (isStart ? 'bast_start' : 'bast_resteer') : 'client_show';
   const clause = cleanLine(copy.clause, 200);
   return { kind, title: `${capFirst(clause)}?`, lines, reads: cardReads, client, buttons: CARD_BUTTONS[kind], clause };
@@ -1632,9 +1667,9 @@ export interface UndoSinceResult {
   undone: UndoSinceLine[];
   /** Undo would start or re-steer Bast or show the client: each is a tap card now (`proposal_id`). */
   proposed: (UndoSinceLine & { proposal_id: string })[];
-  /** The first one that could not be undone, where the walk stopped. */
+  /** The first one that could not be undone for a reason that ends the walk (a change since, an error). */
   stopped: (UndoSinceLine & { reason: string }) | null;
-  /** Not tried: older than the stop, or past the 24 hour window. */
+  /** Skipped, each with its reason: older than the stop, past the 24 hour window, or blocked by a later change that can't be undone. */
   left: (UndoSinceLine & { reason: string })[];
   /** Chat proposals made since then that still wait for a tap (not touched). */
   waiting: UndoSinceLine[];
@@ -1642,8 +1677,9 @@ export interface UndoSinceResult {
 
 /**
  * "Undo everything since": the chat's applied changes at or after `since` (or from the action `from_action_id`,
- * that one included), newest first, each through `undoAction` with all its checks. Stops at the first that cannot be
- * undone and reports it; what became a proposal is listed and the walk goes on.
+ * that one included), newest first, each through `undoAction` with all its checks. Stops at the first that fails for
+ * a reason that ends the walk and reports it. What became a proposal is listed and the walk goes on, and so does a
+ * record blocked only by a later change that can never be undone: it is skipped (in `left`, with that reason).
  */
 export async function undoSince(ownerId: string, raw: unknown, now: Date = new Date(), db: Db = defaultDb): Promise<UndoSinceResult> {
   const input = undoSinceSchema.parse(raw);
@@ -1675,7 +1711,22 @@ export async function undoSince(ownerId: string, raw: unknown, now: Date = new D
       else result.undone.push(line(r));
     } catch (e) {
       let reason = e instanceof ApiError && e.statusCode < 500 ? e.message : 'That did not go through.';
-      if (e instanceof ApiError && e.code === 'later_change' && result.proposed.length > 0) reason = 'A later change to this waits for your tap first.';
+      if (e instanceof ApiError && e.code === 'later_change') {
+        // A newer change to the same record is what blocks this one. Say which kind of block it is.
+        const laterRows = await db.bastChatAction.findMany({
+          where: { target_type: r.target_type, target_id: r.target_id, status: 'applied', created_at: { gt: r.created_at }, id: { not: r.id } },
+          select: { id: true, undo_until: true },
+          take: 50,
+        });
+        const proposedIds = new Set(result.proposed.map((p) => p.id));
+        if (laterRows.some((l) => proposedIds.has(l.id))) {
+          reason = 'A later change to this waits for your tap first.';
+        } else if (laterRows.length > 0 && laterRows.every((l) => !l.undo_until || l.undo_until.getTime() <= now.getTime())) {
+          // The later change can never be undone (a finished wait, say), so this one cannot either. Skip it; the older ones may still go.
+          result.left.push({ ...line(r), reason: "A later change to this can't be undone." });
+          continue;
+        }
+      }
       if (!(e instanceof ApiError)) console.error('bast-chat: undo since stopped on an error', e instanceof Error ? e.message : 'error');
       result.stopped = { ...line(r), reason };
     }

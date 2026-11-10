@@ -221,7 +221,7 @@ export function undoSinceLines(data: unknown): string[] {
   if (proposed > 0) first.push(`${plural(proposed, 'change became a card', 'changes became cards')} waiting for your tap.`);
   const lines = [first.join(' ')];
   if (stopped) {
-    const what = typeof stopped.summary === 'string' && stopped.summary ? ` at ${stopped.summary}` : '';
+    const what = typeof stopped.summary === 'string' && stopped.summary ? ` at ${stopped.summary.trim().replace(/\.+$/, '')}` : '';
     const why = typeof stopped.reason === 'string' && stopped.reason ? ` ${stopped.reason}` : '';
     lines.push(`Stopped${what}.${why}`);
   } else if (left > 0) {

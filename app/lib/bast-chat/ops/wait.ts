@@ -18,9 +18,9 @@
  * needs_human; the chat never does that).
  *
  * Reach (R4): redate, extend, resume and reassign tap when the wait is open and its owner resolves to Bast after the
- * change (its task step would file a Bast task). Pause, complete and cancel never tap by the reach check. Known gap in
- * `checkOp`: `complete` advances a chain (resolveWait opens the next step, which may be Bast's); the reach check does
- * not see that.
+ * change (its task step would file a Bast task). Pause and cancel never tap by the reach check. `complete` advances a
+ * chain (resolveWait opens the next step), so it taps when that step, built with buildNextStepData, resolves to Bast
+ * or sends to a client; with no next step, or one that is not either, it applies without a tap.
  *
  * Undo: redate, extend, pause, resume and reassign restore the recorded values. A finished wait (complete, cancel)
  * CANNOT be reopened: no code path in Citadel moves a wait out of `done` (the route refuses any action on a done wait,
@@ -35,6 +35,7 @@ import { isPriceReviewApproval } from '@/lib/price-review/guard';
 import { PRICE_REVIEW_TEMPLATE_KEY } from '@/lib/price-review/terms';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { prismaOwnerLookups } from '@/lib/waits/owner';
+import { buildNextStepData } from '@/lib/waits/templates';
 import { resolveWaitOwner, type SweepStore, type WaitRow } from '@/lib/waits/sweeper';
 import { extendWait, pauseWait, redateWait, reassignWait, resolveByPerson, resumeWait } from '@/lib/waits/actions';
 import { cleanLine } from '../card-context';
@@ -124,9 +125,22 @@ async function bastOwns(db: OpDb, w: WaitRow, over: Partial<WaitRow>): Promise<b
   return (await resolveWaitOwner({ ...w, ...over }, lookups(db))).user_id === BAST_USER_ID;
 }
 
-async function reachOpFor(db: OpDb, w: WaitRow, input: WaitInput): Promise<ReachOp> {
+/**
+ * `complete` advances the chain (resolveWait opens the next step through buildNextStepData). Build that step the way
+ * the sweeper will, resolve who it is for, and say what it does. No next step: finishing only stops.
+ */
+async function nextStepReach(db: OpDb, w: WaitRow, now: Date): Promise<{ open_after: boolean; owner_is_bast_after?: boolean; next_action?: string }> {
+  const data = buildNextStepData(w as unknown as Parameters<typeof buildNextStepData>[0], now);
+  if (!data) return { open_after: false };
+  const next = { ...w, ...data, stand_in_user_id: null, escalated_to_user_id: null } as unknown as WaitRow;
+  const owner = await resolveWaitOwner(next, lookups(db));
+  return { open_after: true, owner_is_bast_after: owner.user_id === BAST_USER_ID, next_action: data.terminal_action };
+}
+
+async function reachOpFor(db: OpDb, w: WaitRow, input: WaitInput, now: Date): Promise<ReachOp> {
   const base = { op: 'wait_change' as const, wait_id: w.id, action: input.action };
-  if (input.action === 'pause' || input.action === 'complete' || input.action === 'cancel') return base;
+  if (input.action === 'complete') return { ...base, ...(await nextStepReach(db, w, now)) };
+  if (input.action === 'pause' || input.action === 'cancel') return base;
   const over: Partial<WaitRow> = input.action === 'reassign' ? { owner_user_id: input.owner_user_id, escalated_to_user_id: null } : {};
   return { ...base, open_after: true, owner_is_bast_after: await bastOwns(db, w, over) };
 }
@@ -140,14 +154,21 @@ async function prepare(ctx: OpContext, input: WaitInput, origin: ReachOrigin): P
   if (input.action === 'extend' && !input.business_days && !input.until) throw new ApiError('Give business_days or until.', 400, 'bad_extend');
   if (input.action === 'extend' && input.business_days && input.until) throw new ApiError('Give business_days or until, not both.', 400, 'bad_extend');
   if (input.action === 'reassign') await activeUser(db, input.owner_user_id);
-  const reach = checkOp({ op: await reachOpFor(db, w, input), now: ctx.now, origin });
+  const reach = checkOp({ op: await reachOpFor(db, w, input, ctx.now), now: ctx.now, origin });
   const t = cleanLine(w.title, 60);
   return {
     reach,
     expect: { updated_at: w.updated_at.toISOString(), state: w.state },
     copy: {
-      clause: input.action === 'reassign' ? `give the wait "${t}" to someone` : input.action === 'resume' ? `resume the wait "${t}"` : `change the date of the wait "${t}"`,
-      why: ['The wait makes a task for Bast when it comes due.'],
+      clause:
+        input.action === 'reassign'
+          ? `give the wait "${t}" to someone`
+          : input.action === 'resume'
+            ? `resume the wait "${t}"`
+            : input.action === 'complete'
+              ? `finish the wait "${t}"`
+              : `change the date of the wait "${t}"`,
+      why: input.action === 'complete' ? [] : ['The wait makes a task for Bast when it comes due.'],
     },
   };
 }

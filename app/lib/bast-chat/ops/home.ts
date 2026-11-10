@@ -6,7 +6,8 @@
  * is the home screen's own strict request schema, so a user id anywhere in it is a 400. The `record` action (the
  * screen's log of a button that changed a shared record) is not available here.
  *
- * Writes only home_item_state, home_day and home_actions of the owner. The home routes refuse API keys by design
+ * Writes only home_item_state, home_day and home_actions of the owner. If today's home_day row does not exist yet (the
+ * screen has not loaded the day), it stores the same proposal GET /api/home would (lib/home/ensure-day.ts) first. The home routes refuse API keys by design
  * and stay that way: this is the worker-side door. No reach check can hit (the worker never reads these rows).
  *
  * Record: target_id is the home_actions row id. before and after hold that row's own before and after.
@@ -14,6 +15,7 @@
  */
 import type { BastChatAction } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
+import { ensureHomeDay } from '@/lib/home/ensure-day';
 import { homeActSchema, runHomeAct, runHomeUndo, zonedDateString } from '@/lib/home/act';
 import { parseItemKey, parseGroupKey } from '@/lib/home/item-key';
 import { getHomeAction, getItemState } from '@/lib/home/state';
@@ -110,6 +112,9 @@ async function run(ctx: OpContext, input: HomeInput): Promise<OpRun> {
   const pref = await db.userPreference.findUnique({ where: { user_id: ctx.ownerId }, select: { home_view: true } });
   if (pref?.home_view !== 'home') throw new ApiError(OFF_TEXT, 409, 'home_off');
   const timezone = await resolveUserTimezone(ctx.ownerId);
+  // Today's steps, swap and lighter need today's day row. The screen stores it on its first load of the day; if it has
+  // not loaded yet, store the same proposal here before acting (V4).
+  await ensureHomeDay(db as unknown as Parameters<typeof ensureHomeDay>[0], ctx.ownerId, ctx.now, timezone);
   const res = await runHomeAct(db, ctx.ownerId, input, { now: ctx.now, timezone, date: zonedDateString(ctx.now, timezone) });
   const row = await getHomeAction(db, ctx.ownerId, res.action_id);
   let until: Date | null = null;
