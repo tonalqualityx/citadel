@@ -1,0 +1,137 @@
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { ItemCard } from '../ItemCard';
+import type { HomeItem } from '@/lib/home/types';
+
+const { mockPeek } = vi.hoisted(() => ({ mockPeek: vi.fn() }));
+vi.mock('@/lib/contexts/task-peek-context', () => ({ useTaskPeek: () => ({ openTaskPeek: mockPeek }) }));
+
+function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {
+  return {
+    key,
+    type: 'task',
+    title: `Title ${key}`,
+    who: 'Gene Roberts',
+    age: '3 days',
+    why_now: 'A reason.',
+    hard_date: null,
+    effort: 'About 10 minutes',
+    minutes: 10,
+    actions: [{ id: 'done', label: 'Done', filled: true, href: null }],
+    more_actions: [],
+    default_if_ignored: 'Stays here.',
+    reason: 'It is here.',
+    pinned: false,
+    opened: { summary: 'Summary.', done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+    source: { kind: 'task', id: key, ids: [key], task_status: 'not_started' },
+    client: null,
+    project: null,
+    ...over,
+  };
+}
+
+
+const base = { emptyText: 'Nothing urgent.', onAction: () => {} };
+
+describe('ItemCard', () => {
+  it('shows the empty sentence with no item', () => {
+    render(<ItemCard {...base} item={null} />);
+    expect(screen.getByText('Nothing urgent.')).toBeInTheDocument();
+  });
+  it('follows the 2B order: statement, meta, why, buttons, summary', () => {
+    const item = mkItem('task:1', {
+      hard_date: 'Due Friday, November 14 (Gene)',
+      actions: [
+        { id: 'do_now', label: "I'll do it now", filled: true, href: null },
+        { id: 'done', label: 'Done', filled: false, href: null },
+      ],
+    });
+    const { container } = render(<ItemCard {...base} item={item} />);
+    const text = container.textContent ?? '';
+    const order = ['Title task:1', 'Due Friday', 'A reason.', "I'll do it now", 'Summary.', 'If you do nothing', "Why it's here"].map((s) => text.indexOf(s));
+    expect(order.every((n) => n >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+  it('only the filled action is filled; one filled button', () => {
+    const item = mkItem('task:1', {
+      actions: [
+        { id: 'do_now', label: 'A', filled: true, href: null },
+        { id: 'done', label: 'B', filled: false, href: null },
+      ],
+    });
+    render(<ItemCard {...base} item={item} />);
+    expect(screen.getByRole('button', { name: 'A' })).toHaveAttribute('data-filled', 'true');
+    expect(screen.getByRole('button', { name: 'B' })).not.toHaveAttribute('data-filled');
+  });
+  it('calls onAction and disables while pending', () => {
+    const onAction = vi.fn();
+    const item = mkItem('task:1');
+    const { rerender } = render(<ItemCard {...base} item={item} onAction={onAction} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onAction).toHaveBeenCalledWith(item.actions[0], item);
+    rerender(<ItemCard {...base} item={item} onAction={onAction} pendingAction="done" />);
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+  });
+  it('More reveals the rest', () => {
+    const item = mkItem('task:1', { more_actions: [{ id: 'not_now', label: 'Not now', filled: false, href: null }] });
+    render(<ItemCard {...base} item={item} />);
+    expect(screen.queryByRole('button', { name: 'Not now' })).toBeNull();
+    const more = screen.getByRole('button', { name: 'More' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(more);
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeInTheDocument();
+  });
+  it('Done when only for two or more deliverables', () => {
+    const one = mkItem('a', { opened: { ...mkItem('a').opened, done_when: [{ text: 'Only one', done: false }] } });
+    const { unmount } = render(<ItemCard {...base} item={one} />);
+    expect(screen.queryByText('Done when')).toBeNull();
+    unmount();
+    const two = mkItem('b', { opened: { ...mkItem('b').opened, done_when: [{ text: 'First', done: true }, { text: 'Second', done: false }] } });
+    render(<ItemCard {...base} item={two} />);
+    expect(screen.getByText('Done when')).toBeInTheDocument();
+    expect(screen.getByText(/First/)).toBeInTheDocument();
+  });
+  it('links are named links, in-app and outside', () => {
+    const item = mkItem('a', {
+      opened: { ...mkItem('a').opened, links: [{ label: 'The project', href: '/projects/1' }, { label: 'The draft', href: 'https://mail.example.com/x' }], how: { label: 'The runbook', href: 'https://x.example.com' } },
+    });
+    render(<ItemCard {...base} item={item} />);
+    expect(screen.getByRole('link', { name: 'The project' })).toHaveAttribute('href', '/projects/1');
+    const out = screen.getByRole('link', { name: 'The draft' });
+    expect(out).toHaveAttribute('target', '_blank');
+    expect(out).toHaveAttribute('rel', expect.stringContaining('noopener'));
+    expect(screen.getByRole('link', { name: 'The runbook' })).toBeInTheDocument();
+  });
+  it('Original notes opens the peek drawer', () => {
+    const item = mkItem('a', { opened: { ...mkItem('a').opened, task_id: 't-9' } });
+    render(<ItemCard {...base} item={item} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Original notes' }));
+    expect(mockPeek).toHaveBeenCalledWith('t-9');
+  });
+  it('status line is a live region; prompt buttons work', () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <ItemCard
+        {...base}
+        item={mkItem('a')}
+        statusText="That didn't go through."
+        prompt={{ text: 'Switch to this one?', confirmLabel: 'Switch', cancelLabel: 'Keep the first', onConfirm, onCancel }}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent("That didn't go through.");
+    fireEvent.click(screen.getByRole('button', { name: 'Switch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep the first' }));
+    expect(onConfirm).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalled();
+  });
+  it('shows no dash even if stored text has one', () => {
+    const item = mkItem('a', { title: 'Fix it — now', why_now: 'Late – again' });
+    const { container } = render(<ItemCard {...base} item={item} />);
+    expect(container.textContent).not.toMatch(/[–—]/);
+  });
+  it('hideActions drops the buttons', () => {
+    render(<ItemCard {...base} item={mkItem('a')} hideActions />);
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
+  });
+});

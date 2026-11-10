@@ -10,6 +10,8 @@ export interface UserPreferences {
   // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chip, persisted
   // cross-device same as today_view above.
   energy_filter: 'all' | 'low_energy' | 'deep_work';
+  // Home screen Slice 1: which first screen /dashboard renders.
+  home_view: 'overlook' | 'home';
 }
 
 interface PreferencesResponse {

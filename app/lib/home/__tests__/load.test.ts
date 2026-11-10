@@ -1,0 +1,414 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { PrismaClient } from '@prisma/client';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
+
+vi.mock('@/lib/waits/load-blocks', () => ({ loadWaitCandidates: vi.fn() }));
+
+import { loadWaitCandidates } from '@/lib/waits/load-blocks';
+import { loadHomeInputs, zonedDayBounds } from '../load';
+
+const U = 'user-1';
+const NOW = new Date('2026-11-10T15:00:00Z');
+const T = (s: string) => new Date(s);
+
+const client = { id: 'c1', name: 'Grok', status: 'active' };
+const project = { id: 'p1', name: 'Site', status: 'in_progress' };
+
+function taskRow(over: object = {}) {
+  return {
+    id: 't1',
+    title: 'Fix it',
+    description: null,
+    status: 'in_progress',
+    tags: ['security'],
+    promised_to: null,
+    due_date: null,
+    created_at: T('2026-11-01T12:00:00Z'),
+    estimated_minutes: 30,
+    energy_estimate: 3,
+    mystery_factor: 'none',
+    battery_impact: 'average_drain',
+    site_id: null,
+    charter_id: null,
+    accord_id: null,
+    billing_amount: { toString: () => '120.5' },
+    requested_by_contact_id: null,
+    client_visible: false,
+    requirements: [
+      { id: 'b', text: 'Second', completed: true, sort_order: 2 },
+      { id: 'a', text: 'First', completed: false, sort_order: 1 },
+      { id: 'x', text: '   ' },
+    ],
+    origin_url: null,
+    staging_preview_url: null,
+    client,
+    project,
+    arc: null,
+    sop: null,
+    requested_by_contact: null,
+    blocking: [{ id: 'z1' }, { id: 'z2' }],
+    email_asks: [],
+    ...over,
+  };
+}
+
+function askRow(over: object = {}) {
+  return {
+    id: 'e1',
+    message_id: 'm1',
+    thread_id: 'th1',
+    account: 'mike@becomeindelible.com',
+    from_name: 'Jess',
+    from_email: 'jess@x.com',
+    subject: 'Hi',
+    gist: null,
+    intent: null,
+    is_urgent: false,
+    state: 'open',
+    task_id: null,
+    arc_id: null,
+    draft_url: null,
+    draft_started_at: null,
+    deep_link: 'https://mail/x',
+    received_at: T('2026-11-09T12:00:00Z'),
+    client: null,
+    project: null,
+    ...over,
+  };
+}
+
+function makeDb() {
+  return {
+    task: {
+      findMany: vi.fn().mockImplementation(async (a: { where: { status?: unknown } }) => (a.where.status === 'done' ? [] : [])),
+      count: vi.fn().mockResolvedValue(4),
+    },
+    comment: { findMany: vi.fn().mockResolvedValue([]) },
+    oracleSession: { findMany: vi.fn().mockResolvedValue([]) },
+    wait: { findMany: vi.fn().mockResolvedValue([]) },
+    emailAsk: { findMany: vi.fn().mockResolvedValue([]) },
+    calendarEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    userPreference: { findUnique: vi.fn().mockResolvedValue(null) },
+  };
+}
+type Db = ReturnType<typeof makeDb>;
+const asDb = (db: Db) => db as unknown as PrismaClient;
+
+let db: Db;
+beforeEach(() => {
+  vi.clearAllMocks();
+  db = makeDb();
+  (loadWaitCandidates as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+});
+
+const taskCall = (db: Db, review: boolean) =>
+  db.task.findMany.mock.calls.map((c) => c[0]).find((a) => (a.where.status === 'done') === review);
+const askCalls = (db: Db) => db.emailAsk.findMany.mock.calls.map((c) => c[0]);
+
+describe('loadHomeInputs: tasks', () => {
+  it('scopes the task read to the one user and the plan 1.1 rule', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    const arg = taskCall(db, false);
+    expect(arg.where.assignee_id).toBe(U);
+    expect(arg.where.is_deleted).toBe(false);
+    expect(arg.where.status).toEqual({ notIn: ['done', 'abandoned'] });
+    expect(arg.where.OR).toEqual([
+      { project_id: null },
+      { project: { status: { notIn: ['quote', 'queue', 'suspended', 'cancelled', 'done'] } } },
+    ]);
+  });
+
+  it('never selects priority or is_focus', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    const select = taskCall(db, false).select;
+    expect(select).not.toHaveProperty('priority');
+    expect(select).not.toHaveProperty('is_focus');
+  });
+
+  it('maps a task: decimals, requirements, counts, nested refs', async () => {
+    db.task.findMany.mockImplementation(async (a: { where: { status?: unknown } }) =>
+      a.where.status === 'done' ? [] : [taskRow()]
+    );
+    const { tasks } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(tasks).toHaveLength(1);
+    const t = tasks[0];
+    expect(t.billing_amount).toBe(120.5);
+    expect(t.open_blocking_count).toBe(2);
+    expect(t.has_open_email_ask).toBe(false);
+    expect(t.requirements).toEqual([
+      { text: 'First', completed: false },
+      { text: 'Second', completed: true },
+    ]);
+    expect(t.client).toEqual(client);
+    expect(t).not.toHaveProperty('priority');
+    expect(t).not.toHaveProperty('is_focus');
+  });
+
+  it('person-waiting clock: created_at, moved forward by the newest human comment only', async () => {
+    db.task.findMany.mockImplementation(async (a: { where: { status?: unknown } }) =>
+      a.where.status === 'done'
+        ? []
+        : [taskRow({ id: 't1' }), taskRow({ id: 't2' }), taskRow({ id: 't3', created_at: T('2026-11-05T00:00:00Z') })]
+    );
+    db.comment.findMany.mockResolvedValue([
+      { task_id: 't1', created_at: T('2026-11-08T00:00:00Z') }, // newest first
+      { task_id: 't1', created_at: T('2026-11-03T00:00:00Z') },
+      { task_id: 't3', created_at: T('2026-11-02T00:00:00Z') }, // older than created_at: ignored
+    ]);
+    const { tasks } = await loadHomeInputs(asDb(db), U, NOW);
+    const by = Object.fromEntries(tasks.map((t) => [t.id, t.clock_started_at.toISOString()]));
+    expect(by.t1).toBe('2026-11-08T00:00:00.000Z');
+    expect(by.t2).toBe('2026-11-01T12:00:00.000Z');
+    expect(by.t3).toBe('2026-11-05T00:00:00.000Z');
+    const where = db.comment.findMany.mock.calls[0][0].where;
+    expect(where.user_id).toEqual({ notIn: [...BOT_USER_IDS] });
+    expect(where.is_deleted).toBe(false);
+    expect(where.task_id).toEqual({ in: ['t1', 't2', 't3'] });
+  });
+
+  it('skips the comment read when there are no tasks', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    expect(db.comment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('counts the user\'s tasks on held projects', async () => {
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.held_project_task_count).toBe(4);
+    const where = db.task.count.mock.calls[0][0].where;
+    expect(where.assignee_id).toBe(U);
+    expect(where.project).toEqual({ status: { in: ['quote', 'queue', 'suspended'] } });
+  });
+});
+
+describe('loadHomeInputs: review folds', () => {
+  const piece = (id: string, projectId: string | null, completed: string | null, updated = '2026-11-09T00:00:00Z') => ({
+    id,
+    title: `Piece ${id}`,
+    completed_at: completed ? T(completed) : null,
+    updated_at: T(updated),
+    project: projectId ? { ...project, id: projectId, client } : null,
+  });
+
+  it('uses the waiting-on-me rule', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    const w = taskCall(db, true).where;
+    expect(w).toMatchObject({ is_deleted: false, status: 'done', needs_review: true, approved: false });
+    expect(w.OR).toEqual([{ reviewer_id: null }, { reviewer_id: U }]);
+  });
+
+  it('folds by project, oldest finished piece first, clock from the earliest completion', async () => {
+    db.task.findMany.mockImplementation(async (a: { where: { status?: unknown } }) =>
+      a.where.status === 'done'
+        ? [
+            piece('b', 'p9', '2026-11-05T00:00:00Z'),
+            piece('a', 'p9', '2026-11-03T00:00:00Z'),
+            piece('n', null, null, '2026-11-07T00:00:00Z'),
+            piece('o', 'p2', '2026-11-08T00:00:00Z'),
+          ]
+        : []
+    );
+    const { review_folds } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(review_folds).toHaveLength(3);
+    const p9 = review_folds.find((f) => f.project?.id === 'p9')!;
+    expect(p9.pieces.map((p) => p.id)).toEqual(['a', 'b']);
+    expect(p9.waiting_since.toISOString()).toBe('2026-11-03T00:00:00.000Z');
+    expect(p9.client).toEqual(client);
+    const none = review_folds.find((f) => f.project === null)!;
+    expect(none.client).toBeNull();
+    expect(none.waiting_since.toISOString()).toBe('2026-11-07T00:00:00.000Z'); // updated_at fallback
+    expect(review_folds[0].project?.id).toBe('p9'); // oldest clock first
+  });
+});
+
+describe('loadHomeInputs: session asks', () => {
+  const sess = (over: object) => ({
+    id: 's1',
+    external_id: 'ext-1',
+    title: 'Stronghold',
+    waiting_on: 'Pick a color',
+    ask_queue: 'decide',
+    ask_severity: 'client_blocking',
+    status: 'running',
+    remote_url: 'https://claude.ai/code/x',
+    last_event_at: T('2026-11-10T10:00:00Z'),
+    updated_at: T('2026-11-09T10:00:00Z'),
+    arc: null,
+    ...over,
+  });
+
+  it('applies the plan 1.1 filter', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    const where = db.oracleSession.findMany.mock.calls[0][0].where;
+    expect(where).toEqual({ waiting_on: { not: null }, archived_at: null, status: { notIn: ['ended', 'stale'] } });
+  });
+
+  it('keeps the newest when an external_id collides, skips blank asks and unkeyable ids, takes arc client and project', async () => {
+    db.oracleSession.findMany.mockResolvedValue([
+      sess({ id: 'old', last_event_at: T('2026-11-01T00:00:00Z') }),
+      sess({ id: 'new', last_event_at: T('2026-11-10T11:00:00Z'), arc: { id: 'a1', name: 'Arc', client_id: 'c1', project_id: 'p1', closed_at: null, snoozed_until: null, client, project } }),
+      sess({ id: 'blank', external_id: 'ext-2', waiting_on: '   ' }),
+      sess({ id: 'spacey', external_id: 'has space' }),
+      sess({ id: 'nolast', external_id: 'ext-3', last_event_at: null, updated_at: T('2026-11-04T00:00:00Z') }),
+    ]);
+    const { session_asks } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(session_asks.map((s) => s.id)).toEqual(['new', 'nolast']);
+    expect(session_asks[0].client).toEqual(client);
+    expect(session_asks[0].project).toEqual(project);
+    expect(session_asks[0].arc?.id).toBe('a1');
+    expect(session_asks[1].asked_at.toISOString()).toBe('2026-11-04T00:00:00.000Z');
+  });
+});
+
+describe('loadHomeInputs: waits', () => {
+  const cand = (id: string, owner: string, state = 'needs_human') => ({
+    id,
+    kind: 'internal',
+    state,
+    title: id,
+    due_at: T('2026-11-12T00:00:00Z'),
+    blocks_client: false,
+    client_waiting_since: null,
+    nag_level: 0,
+    project_id: null,
+    task_id: null,
+    approval_request_id: null,
+    client: null,
+    resolved_user_id: owner,
+  });
+  const waitRow = (id: string) => ({
+    id,
+    kind: 'internal',
+    template_key: 'charter.price_review',
+    state: 'needs_human',
+    title: id,
+    detail: 'details',
+    started_at: T('2026-11-01T00:00:00Z'),
+    due_at: T('2026-11-12T00:00:00Z'),
+    blocks_client: true,
+    client_waiting_since: T('2026-11-02T00:00:00Z'),
+    task_id: 'tk',
+    approval_request_id: null,
+    charter_id: 'ch1',
+    email_thread_id: 'th9',
+    email_account: 'mike@becomeindelible.com',
+    client,
+    project,
+  });
+
+  it('keeps only the user\'s waits and does a second read for the missing fields', async () => {
+    (loadWaitCandidates as ReturnType<typeof vi.fn>).mockResolvedValue([cand('w1', U), cand('w2', 'someone-else'), cand('w3', U)]);
+    db.wait.findMany.mockResolvedValue([waitRow('w3'), waitRow('w1')]);
+    const { waits } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(db.wait.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['w1', 'w3'] } });
+    expect(waits.map((w) => w.id)).toEqual(['w1', 'w3']); // candidate order (due_at asc) kept
+    expect(waits[0]).toMatchObject({
+      template_key: 'charter.price_review',
+      detail: 'details',
+      charter_id: 'ch1',
+      email_thread_id: 'th9',
+      email_account: 'mike@becomeindelible.com',
+      client,
+      project,
+    });
+    expect(waits[0].started_at.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+  });
+
+  it('skips the second read when none are the user\'s, and drops a wait resolved between reads', async () => {
+    (loadWaitCandidates as ReturnType<typeof vi.fn>).mockResolvedValue([cand('w2', 'someone-else')]);
+    expect((await loadHomeInputs(asDb(db), U, NOW)).waits).toEqual([]);
+    expect(db.wait.findMany).not.toHaveBeenCalled();
+
+    (loadWaitCandidates as ReturnType<typeof vi.fn>).mockResolvedValue([cand('w1', U)]);
+    db.wait.findMany.mockResolvedValue([]);
+    expect((await loadHomeInputs(asDb(db), U, NOW)).waits).toEqual([]);
+  });
+});
+
+describe('loadHomeInputs: email asks', () => {
+  it('groups open non-urgent asks by account and thread, falling back to message_id', async () => {
+    db.emailAsk.findMany.mockImplementation(async (a: { where: { state: string; is_urgent?: boolean } }) => {
+      if (a.where.state === 'open' && a.where.is_urgent === false) {
+        return [
+          askRow({ id: 'e3', message_id: 'm3', thread_id: 'th1', received_at: T('2026-11-09T12:00:00Z') }),
+          askRow({ id: 'e5', message_id: 'm5', thread_id: null, received_at: T('2026-11-08T12:00:00Z') }),
+          askRow({ id: 'e2', message_id: 'm2', thread_id: 'th1', received_at: T('2026-11-07T12:00:00Z') }),
+          askRow({ id: 'e6', message_id: 'm6', thread_id: 'th1', account: 'mike@whoismikedion.com', received_at: T('2026-11-06T12:00:00Z') }),
+          askRow({ id: 'bad', message_id: 'mb', thread_id: 'has space' }),
+        ];
+      }
+      return [];
+    });
+    const { threads } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(threads.map((t) => [t.account, t.thread_id, t.asks.map((x) => x.id)])).toEqual([
+      ['mike@becomeindelible.com', 'th1', ['e3', 'e2']],
+      ['mike@becomeindelible.com', 'm5', ['e5']],
+      ['mike@whoismikedion.com', 'th1', ['e6']],
+    ]);
+  });
+
+  it('reads crisis mail as open and urgent', async () => {
+    db.emailAsk.findMany.mockImplementation(async (a: { where: { is_urgent?: boolean } }) =>
+      a.where.is_urgent === true ? [askRow({ id: 'c1', is_urgent: true })] : []
+    );
+    const { crises } = await loadHomeInputs(asDb(db), U, NOW);
+    expect(crises.map((c) => c.id)).toEqual(['c1']);
+    expect(askCalls(db).some((a) => a.where.state === 'open' && a.where.is_urgent === true)).toBe(true);
+  });
+
+  it('reads classifier auto-closes of the last 24 hours', async () => {
+    db.emailAsk.findMany.mockImplementation(async (a: { where: { state: string } }) =>
+      a.where.state === 'handled'
+        ? [{ id: 'h1', from_name: 'X', from_email: 'x@y.z', subject: 's', gist: null, deep_link: 'l', updated_at: T('2026-11-10T14:00:00Z'), client: { name: 'Acme' } }]
+        : []
+    );
+    const { auto_handled } = await loadHomeInputs(asDb(db), U, NOW);
+    const where = askCalls(db).find((a) => a.where.state === 'handled').where;
+    expect(where.updated_at).toEqual({ gte: new Date(NOW.getTime() - 24 * 3600 * 1000) });
+    expect(where.training_note).toEqual({ startsWith: '[auto] ' });
+    expect(auto_handled).toEqual([
+      { id: 'h1', from_name: 'X', from_email: 'x@y.z', subject: 's', gist: null, client_name: 'Acme', deep_link: 'l', handled_at: T('2026-11-10T14:00:00Z') },
+    ]);
+  });
+});
+
+describe('loadHomeInputs: calendar and time zone', () => {
+  it('reads events overlapping the zoned day', async () => {
+    await loadHomeInputs(asDb(db), U, NOW, { timezone: 'America/New_York' });
+    const where = db.calendarEvent.findMany.mock.calls[0][0].where;
+    expect(where.starts_at.lt.toISOString()).toBe('2026-11-11T05:00:00.000Z');
+    expect(where.ends_at.gt.toISOString()).toBe('2026-11-10T05:00:00.000Z');
+    expect(db.userPreference.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('reads the user\'s own preference when no zone is passed, and falls back to New York', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    expect(db.userPreference.findUnique).toHaveBeenCalledWith({ where: { user_id: U }, select: { timezone: true } });
+    const where = db.calendarEvent.findMany.mock.calls[0][0].where;
+    expect(where.ends_at.gt.toISOString()).toBe('2026-11-10T05:00:00.000Z');
+  });
+
+  it('zonedDayBounds handles the fall-back day (25 hours) and other zones', () => {
+    const b = zonedDayBounds(T('2026-11-01T12:00:00Z'), 'America/New_York');
+    expect(b.start.toISOString()).toBe('2026-11-01T04:00:00.000Z');
+    expect(b.end.toISOString()).toBe('2026-11-02T05:00:00.000Z');
+    const k = zonedDayBounds(T('2026-11-10T22:00:00Z'), 'Asia/Karachi');
+    expect(k.start.toISOString()).toBe('2026-11-10T19:00:00.000Z'); // already Nov 11 in Karachi
+    expect(k.start.getTime() - 5 * 3600 * 1000).toBeLessThan(T('2026-11-11T00:00:00Z').getTime());
+  });
+});
+
+describe('loadHomeInputs: read-only', () => {
+  it('returns the user id and now', async () => {
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.user_id).toBe(U);
+    expect(r.now).toBe(NOW);
+  });
+
+  it('calls no write method (the fake db has none) and the source never mentions rollover or /api/today', () => {
+    const src = readFileSync(join(__dirname, '..', 'load.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    expect(src).not.toMatch(/rolloverTodayPicksIfNeeded|today-rollover|\/api\/today/);
+    expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany|\$transaction)\(/);
+  });
+});

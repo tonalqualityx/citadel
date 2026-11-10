@@ -94,3 +94,56 @@ describe('PATCH /api/users/me/preferences', () => {
     );
   });
 });
+
+describe('home_view', () => {
+  it('GET defaults home_view to overlook when no row exists', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    const res = await GET(new NextRequest('http://localhost:3000/api/users/me/preferences'));
+    const body = await res.json();
+    expect(body.preferences.home_view).toBe('overlook');
+  });
+
+  it('GET returns a stored home_view of home', async () => {
+    mockFindUnique.mockResolvedValue({
+      naming_convention: 'awesome',
+      theme: 'system',
+      notification_bundle: true,
+      today_view: 'list',
+      energy_filter: 'all',
+      home_view: 'home',
+    });
+    const res = await GET(new NextRequest('http://localhost:3000/api/users/me/preferences'));
+    const body = await res.json();
+    expect(body.preferences.home_view).toBe('home');
+  });
+
+  it('PATCH home_view=home persists for an admin', async () => {
+    mockUpsert.mockResolvedValue({ home_view: 'home' });
+    const res = await PATCH(patchReq({ home_view: 'home' }));
+    expect(res.status).toBe(200);
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ home_view: 'home' }) })
+    );
+  });
+
+  it.each(['pm', 'tech'])('PATCH home_view=home returns 403 for %s and never upserts', async (role) => {
+    mockRequireAuth.mockResolvedValue({ userId: 'user-2', role, email: 'x@example.com' } as never);
+    const res = await PATCH(patchReq({ home_view: 'home' }));
+    expect(res.status).toBe(403);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  it('PATCH home_view=overlook succeeds for a tech user', async () => {
+    mockRequireAuth.mockResolvedValue({ userId: 'user-2', role: 'tech', email: 'x@example.com' } as never);
+    mockUpsert.mockResolvedValue({ home_view: 'overlook' });
+    const res = await PATCH(patchReq({ home_view: 'overlook' }));
+    expect(res.status).toBe(200);
+    expect(mockUpsert).toHaveBeenCalled();
+  });
+
+  it('PATCH rejects an invalid home_view value with 400', async () => {
+    const res = await PATCH(patchReq({ home_view: 'kanban' }));
+    expect(res.status).toBe(400);
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+});

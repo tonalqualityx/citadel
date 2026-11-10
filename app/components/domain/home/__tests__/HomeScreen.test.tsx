@@ -1,0 +1,153 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import type { HomeItem, HomeResponse } from '@/lib/home/types';
+
+const h = vi.hoisted(() => ({
+  home: { data: undefined as unknown, isLoading: false, isError: false, refetch: vi.fn() },
+  run: vi.fn(),
+  done: vi.fn(),
+  stop: vi.fn(),
+  act: vi.fn(),
+}));
+
+vi.mock('@/lib/hooks/use-home', () => ({
+  useHome: () => h.home,
+  useHomeAct: () => h.act,
+  useHomeItemAction: () => ({
+    run: h.run,
+    done: h.done,
+    stop: h.stop,
+    pendingFor: () => null,
+    statusFor: () => null,
+    promptFor: () => null,
+    busy: false,
+  }),
+}));
+vi.mock('@/lib/hooks/use-oracle-projects', () => ({
+  useOracleProjects: () => ({
+    data: { projects: [{ id: 'p1', name: 'Grok rebuild', client: { id: 'c1', name: 'Gene Roberts' }, next_step: { text: 'Send the preview' } }], stalled_count: 0, generated_at: '' },
+  }),
+}));
+vi.mock('@/lib/contexts/task-peek-context', () => ({
+  TaskPeekProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useTaskPeek: () => ({ openTaskPeek: vi.fn() }),
+}));
+vi.mock('@/components/domain/oracle/modes/projects/ProjectDrawer', () => ({
+  ProjectDrawer: ({ project }: { project: { id: string } | null }) => <div data-testid="drawer">{project ? `open:${project.id}` : 'closed'}</div>,
+}));
+vi.mock('../TodayList', () => ({
+  TodayList: (props: { today: { arc_name: string } | null; selectedKey: string | null; onSelect: (i: HomeItem) => void; emptyText: string }) => (
+    <div data-testid="today-list" data-selected={props.selectedKey ?? ''}>
+      {props.today ? props.today.arc_name : props.emptyText}
+    </div>
+  ),
+}));
+
+import { HomeScreen } from '../HomeScreen';
+
+function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {
+  return {
+    key, type: 'task', title: `Title ${key}`, who: 'Gene Roberts', age: '3 days', why_now: 'A reason.', hard_date: null,
+    effort: 'About 10 minutes', minutes: 10,
+    actions: [{ id: 'done', label: 'Done', filled: true, href: null }], more_actions: [],
+    default_if_ignored: 'Stays here.', reason: 'It is here.', pinned: false,
+    opened: { summary: `Summary ${key}.`, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+    source: { kind: 'task', id: key, ids: [key], task_status: 'not_started' }, client: null, project: null, ...over,
+  };
+}
+function mkRes(): HomeResponse {
+  return {
+    generated_at: '', date: '2026-11-09', timezone: 'America/New_York', screen_date_line: 'Monday, November 9', user_id: 'u1',
+    today: { group_key: 'arc:1', arc_id: '1', arc_name: 'Grok of the Rock', client: null, project: null, why: 'Why.', size_line: 'About 1 hour', minutes_total: 60, minutes_free: 300, quick: [mkItem('task:q1')], steps: [mkItem('task:s1'), mkItem('task:s2')], added_keys: [], swap: [], lighter: null },
+    sections: {
+      needs_you_now: [mkItem('task:n1', { type: 'emergency' })], working_on: [], leads: [], mail: [], next: [mkItem('task:x1'), mkItem('task:x2')],
+      handled: [{ id: 'h1', text: 'Replied to Mark', href: 'https://mail.example.com/t', at: '' }], handled_more: null,
+    },
+    everything_else: { count: 3, line: '3 other items are on your plate and counted here.', groups: [{ key: 'parked', label: 'Parked by you', count: 3, owner: 'You' }] },
+    empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
+  };
+}
+
+beforeEach(() => {
+  h.run.mockClear();
+  h.home = { data: mkRes(), isLoading: false, isError: false, refetch: vi.fn() };
+});
+
+describe('HomeScreen', () => {
+  it('opens on Today with the first arc step open in the card', () => {
+    render(<HomeScreen />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Monday, November 9');
+    expect(screen.getByRole('button', { name: /Today: Grok of the Rock/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('today-list')).toHaveAttribute('data-selected', 'task:s1');
+    expect(screen.getByRole('heading', { level: 2, name: 'Title task:s1' })).toBeInTheDocument();
+  });
+  it('picking a tile lists its rows and opens the first one', () => {
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /need you now|needs you now/ }));
+    expect(screen.getByRole('button', { name: /Title task:n1/ })).toHaveAttribute('data-rule', 'now');
+    expect(screen.getByRole('heading', { level: 2, name: 'Title task:n1' })).toBeInTheDocument();
+  });
+  it('choosing another row swaps the card, and nothing reorders', () => {
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /decisions ready/ }));
+    const rows = () => screen.getAllByRole('button', { name: /Title task:x/ }).map((b) => b.textContent);
+    const before = rows();
+    fireEvent.click(screen.getByRole('button', { name: /Title task:x2/ }));
+    expect(screen.getByRole('heading', { level: 2, name: 'Title task:x2' })).toBeInTheDocument();
+    expect(rows()).toEqual(before);
+  });
+  it('a card button runs through the item actions with the day group key', () => {
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(h.run).toHaveBeenCalledTimes(1);
+    expect(h.run.mock.calls[0][1].key).toBe('task:s1');
+    expect(h.run.mock.calls[0][2]).toEqual({ groupKey: 'arc:1' });
+  });
+  it('empty tile shows its sentence', () => {
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /sales leads waiting/ }));
+    expect(screen.getAllByText('No sales leads are waiting on you.').length).toBeGreaterThan(0);
+  });
+  it('handled, everything else and projects tiles work', () => {
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /handled for you/ }));
+    expect(screen.getByRole('link', { name: 'Open the thread' })).toHaveAttribute('target', '_blank');
+    fireEvent.click(screen.getByRole('button', { name: /everything else/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Parked by you/ }));
+    expect(screen.getByText(/Held by: You/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^1\s*project$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open the project' }));
+    expect(screen.getByTestId('drawer')).toHaveTextContent('open:p1');
+  });
+  it('a pinned item shows the working bar and collapses the lists to one line', () => {
+    const res = mkRes();
+    res.sections.working_on = [mkItem('task:p', { pinned: true })];
+    h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
+    render(<HomeScreen />);
+    expect(screen.getByRole('region', { name: 'Working on' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'What needs you' })).toBeNull();
+    expect(screen.getByText(/more are waiting\. They'll keep\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show my lists' }));
+    expect(screen.getByRole('group', { name: 'What needs you' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide my lists' }));
+    fireEvent.click(within(screen.getByRole('region', { name: 'Working on' })).getByRole('button', { name: 'Stop for now' }));
+    fireEvent.change(screen.getByLabelText('Where did you leave it?'), { target: { value: 'At step 2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop for now' }));
+    expect(h.stop).toHaveBeenCalledWith(res.sections.working_on[0], 'At step 2');
+  });
+  it('loading and error states', () => {
+    h.home = { data: undefined, isLoading: true, isError: false, refetch: vi.fn() };
+    const { unmount } = render(<HomeScreen />);
+    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
+    unmount();
+    const refetch = vi.fn();
+    h.home = { data: undefined, isLoading: false, isError: true, refetch };
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(refetch).toHaveBeenCalled();
+  });
+  it('shows no em or en dash anywhere', () => {
+    const { container } = render(<HomeScreen />);
+    expect(container.textContent).not.toMatch(/[–—]/);
+  });
+});

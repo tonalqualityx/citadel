@@ -1,0 +1,1002 @@
+/**
+ * Home screen Slice 1: from raw loader inputs to the lists behind the tiles (plan 1.2, 1.3,
+ * task H4).
+ *
+ * selectHome() takes the raw inputs, the user's item states and "now", and returns:
+ * - `sections` and `everything_else`, exactly as the HomeResponse carries them;
+ * - `candidates`, every item the screen can show anywhere (including parked, queued and
+ *   Everything-else items), each with its internal ranking facts. today.ts reads these to
+ *   propose the day. Candidates never leave the server; only `candidate.item` does.
+ *
+ * Placement, first match wins, per item:
+ *   pinned (working_since)                      -> Things in progress
+ *   meets an emergency rule, not marked
+ *   "Not an emergency"                          -> Needs you now (view_at is ignored)
+ *   Not now still running (view_at in future)   -> Everything else, "Parked by you"
+ *   thread older than 21 days                   -> Everything else, "Older open threads"
+ *   other venture, not boosted                  -> Everything else, "Other ventures"
+ *   qualifying thread, newest ask is sales      -> Sales leads waiting
+ *   other qualifying thread                     -> Client emails waiting (3 visible)
+ *   task, sign-off, session ask, wait in view
+ *   that meets the Next rule                    -> Decisions ready (3 visible)
+ *   everything else (overflow, not yet due)     -> Everything else, "Waiting their turn"
+ *
+ * No score, class, emergency rule or quadrant is placed on any HomeItem.
+ */
+
+import { calculateEstimatedMinutes } from '@/lib/calculations/energy';
+import { actionsFor } from './actions-for';
+import {
+  IF_IGNORED,
+  REASON,
+  REST_GROUP_COPY,
+  ageWords,
+  daysSince,
+  displayText,
+  effortWords,
+  everythingElseLine,
+  handledLine,
+  handledMoreText,
+  hardDateChip,
+  reasonEmergency,
+  waitedFor,
+  whyEmergency,
+  whySession,
+  whySignOff,
+  whyTask,
+  whyThread,
+  whyWait,
+} from './copy';
+import {
+  arcGroupKey,
+  clientGroupKey,
+  crisisKey,
+  projectGroupKey,
+  reviewKey,
+  sessionKey,
+  taskKey,
+  threadKey,
+  waitKey,
+  OWN_GROUP_KEY,
+} from './item-key';
+import { cardSummary, truncateWords } from './plain-text';
+import {
+  CAPS,
+  MINUTES,
+  NEXT_ENTRY,
+  OPEN_WAIT_STATES,
+  PRICE_REVIEW_WAIT_TEMPLATE,
+  OWN_GROUP_LABEL,
+  THREAD_MAX_AGE_DAYS,
+  THREAD_MIN_AGE_BUSINESS_DAYS,
+  WAIT_IN_VIEW_STATE,
+  businessDaysElapsed,
+  crisisEmergencyRule,
+  isPersonMessage,
+  sessionEmergencyRule,
+  taskEmergencyRule,
+  waitEmergencyRule,
+  type EmergencyRule,
+} from './rules';
+import {
+  normalizeDueDate,
+  scoreCrisis,
+  scoreReview,
+  scoreSession,
+  scoreTask,
+  scoreThread,
+  scoreWait,
+  taskHasPersonWaiting,
+  threadClient,
+  threadProject,
+  waitClockStart,
+  type Score,
+} from './score';
+import type {
+  HomeEverythingElse,
+  HomeEverythingElseGroup,
+  HomeItem,
+  HomeItemType,
+  HomeQuietLine,
+  HomeRef,
+  HomeRestGroupKey,
+  HomeSections,
+  HomeSourceKind,
+  RawArcRef,
+  RawClientRef,
+  RawEmailAsk,
+  RawHomeInputs,
+  RawItemState,
+  RawProjectRef,
+  RawReviewFold,
+  RawSessionAsk,
+  RawTask,
+  RawThread,
+  RawWait,
+} from './types';
+
+// ============================================================================
+// Candidate
+// ============================================================================
+
+export type SectionName = 'needs_you_now' | 'working_on' | 'leads' | 'mail' | 'next' | 'rest';
+
+/** The group Today would propose an item under: an open arc, its client, its project, or own work. */
+export interface GroupInfo {
+  key: string;
+  name: string;
+  client: HomeRef | null;
+  project: HomeRef | null;
+  /** The open arc behind an arc group, else null. */
+  arc: RawArcRef | null;
+}
+
+/** An item with its internal ranking facts. Server only. */
+export interface Candidate {
+  key: string;
+  kind: HomeSourceKind;
+  /** The row and card, without a score or class. Buttons and footer lines are final. */
+  item: HomeItem;
+  /** The emergency rule met, after "Not an emergency" is applied; null when not an emergency. */
+  rule: EmergencyRule | null;
+  score: Score;
+  boosted: boolean;
+  parked: boolean;
+  pinned: boolean;
+  /** In Needs you now, Things in progress, a People list, or the visible Next rows. */
+  shown: boolean;
+  /**
+   * In view: qualifies for one of those lists before the caps. A People or Next row beyond its
+   * cap is in view but not shown. Today reads this, so a client who waits behind the cap still
+   * counts as a group to pick or swap to.
+   */
+  inView: boolean;
+  section: SectionName;
+  /** The Everything-else group when section is 'rest'. */
+  restGroup: HomeRestGroupKey | null;
+  /** When the clock behind its age started (oldest first breaks ties). */
+  since: Date;
+  /** A person is waiting on it (threads, folds, sessions, waits with a client, promised or requested tasks). */
+  personWaiting: boolean;
+  /** The hard date (date-only values normalized), or null. */
+  hardDate: Date | null;
+  minutes: number;
+  group: GroupInfo;
+  state: RawItemState | undefined;
+  /** A task's open arc id, else null. */
+  arcId: string | null;
+}
+
+export interface SelectInput {
+  raw: RawHomeInputs;
+  states: RawItemState[];
+  now: Date;
+}
+
+export interface SelectResult {
+  sections: HomeSections;
+  everything_else: HomeEverythingElse;
+  candidates: Candidate[];
+  byKey: Map<string, Candidate>;
+}
+
+// ============================================================================
+// Ordering
+// ============================================================================
+
+function t(d: Date | null): number {
+  return d ? d.getTime() : Number.POSITIVE_INFINITY;
+}
+
+function compareKey(a: Candidate, b: Candidate): number {
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
+/**
+ * Overall rank, best first: emergencies, then "This matters more", then consequence class,
+ * then urgency (higher first), then the oldest clock, then key (so the order is stable).
+ */
+export function rankCompare(a: Candidate, b: Candidate): number {
+  if ((a.rule !== null) !== (b.rule !== null)) return a.rule !== null ? -1 : 1;
+  if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
+  if (a.score.klass !== b.score.klass) return a.score.klass - b.score.klass;
+  if (a.score.urgency !== b.score.urgency) return b.score.urgency - a.score.urgency;
+  if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
+  return compareKey(a, b);
+}
+
+/** Needs you now: client-facing first, then the nearest hard date, then the oldest. */
+export function emergencyCompare(a: Candidate, b: Candidate): number {
+  const ac = a.item.client !== null;
+  const bc = b.item.client !== null;
+  if (ac !== bc) return ac ? -1 : 1;
+  const ah = t(a.hardDate);
+  const bh = t(b.hardDate);
+  if (ah !== bh) return ah - bh;
+  if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
+  return compareKey(a, b);
+}
+
+/** Next: boosted first, then class, then urgency, then oldest. */
+export function nextCompare(a: Candidate, b: Candidate): number {
+  if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
+  if (a.score.klass !== b.score.klass) return a.score.klass - b.score.klass;
+  if (a.score.urgency !== b.score.urgency) return b.score.urgency - a.score.urgency;
+  if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
+  return compareKey(a, b);
+}
+
+/** People lists: boosted first, then the oldest thread first. */
+function peopleCompare(a: Candidate, b: Candidate): number {
+  if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
+  if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
+  return compareKey(a, b);
+}
+
+// ============================================================================
+// Threads
+// ============================================================================
+
+/**
+ * How a thread stands for the People tiles (plan 1.3):
+ * 'show' qualifies now; 'young' is not yet a business day old (not shown, not counted);
+ * 'older' qualifies except that its newest open ask is over 21 days old (counted in Everything
+ * else); 'no' is not a known person, or is automated, noise or a calendar reply.
+ */
+export function threadStatus(thread: RawThread, now: Date): 'show' | 'young' | 'older' | 'no' {
+  const newest = thread.asks[0];
+  if (!newest) return 'no';
+  const client = threadClient(thread);
+  if (!isPersonMessage({ from_email: newest.from_email, subject: newest.subject, client_name: client?.name ?? null })) {
+    return 'no';
+  }
+  const known =
+    thread.asks.some((a) => a.client !== null) ||
+    thread.asks.some((a) => !!a.draft_url) ||
+    thread.asks.some((a) => a.intent === 'sales');
+  if (!known) return 'no';
+  if (daysSince(newest.received_at, now) > THREAD_MAX_AGE_DAYS) return 'older';
+  const lead = newest.intent === 'sales';
+  if (!lead && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) return 'young';
+  return 'show';
+}
+
+// ============================================================================
+// Building candidates
+// ============================================================================
+
+interface Refs {
+  clients: Map<string, HomeRef>;
+  projects: Map<string, HomeRef>;
+}
+
+function refOf(r: RawClientRef | RawProjectRef | null | undefined): HomeRef | null {
+  return r ? { id: r.id, name: displayText(r.name) || r.name } : null;
+}
+
+function collectRefs(raw: RawHomeInputs): Refs {
+  const clients = new Map<string, HomeRef>();
+  const projects = new Map<string, HomeRef>();
+  const addC = (c: RawClientRef | null | undefined) => {
+    const r = refOf(c);
+    if (r) clients.set(r.id, r);
+  };
+  const addP = (p: RawProjectRef | null | undefined) => {
+    const r = refOf(p);
+    if (r) projects.set(r.id, r);
+  };
+  for (const x of raw.tasks) {
+    addC(x.client);
+    addP(x.project);
+  }
+  for (const x of raw.review_folds) {
+    addC(x.client);
+    addP(x.project);
+  }
+  for (const x of raw.session_asks) {
+    addC(x.client);
+    addP(x.project);
+  }
+  for (const x of raw.waits) {
+    addC(x.client);
+    addP(x.project);
+  }
+  for (const th of raw.threads) {
+    for (const a of th.asks) {
+      addC(a.client);
+      addP(a.project);
+    }
+  }
+  for (const a of raw.crises) {
+    addC(a.client);
+    addP(a.project);
+  }
+  return { clients, projects };
+}
+
+function arcIsOpen(arc: RawArcRef | null | undefined, now: Date): arc is RawArcRef {
+  if (!arc) return false;
+  if (arc.closed_at) return false;
+  return !arc.snoozed_until || arc.snoozed_until.getTime() <= now.getTime();
+}
+
+function groupFor(
+  client: HomeRef | null,
+  project: HomeRef | null,
+  arc: RawArcRef | null,
+  refs: Refs,
+): GroupInfo {
+  if (arc) {
+    const c = (arc.client_id && refs.clients.get(arc.client_id)) || client;
+    const p = (arc.project_id && refs.projects.get(arc.project_id)) || project;
+    return { key: arcGroupKey(arc.id), name: displayText(arc.name) || 'Untitled arc', client: c, project: p, arc };
+  }
+  if (client) return { key: clientGroupKey(client.id), name: client.name, client, project, arc: null };
+  if (project) return { key: projectGroupKey(project.id), name: project.name, client: null, project, arc: null };
+  return { key: OWN_GROUP_KEY, name: OWN_GROUP_LABEL, client: null, project: null, arc: null };
+}
+
+function emptyItem(): Pick<HomeItem, 'actions' | 'more_actions' | 'pinned' | 'reason' | 'default_if_ignored'> {
+  return { actions: [], more_actions: [], pinned: false, reason: '', default_if_ignored: '' };
+}
+
+function taskMinutes(task: RawTask): number {
+  if (task.estimated_minutes && task.estimated_minutes > 0) return task.estimated_minutes;
+  return calculateEstimatedMinutes(task.energy_estimate, task.mystery_factor, task.battery_impact) ?? MINUTES.taskDefault;
+}
+
+function nameOfAsk(a: RawEmailAsk): string {
+  return displayText(a.from_name) || a.from_email;
+}
+
+function stripEndPeriod(s: string): string {
+  return s.replace(/[.\s]+$/, '');
+}
+
+/** What a build step returns before placement. */
+interface Draft {
+  cand: Omit<Candidate, 'shown' | 'inView' | 'section' | 'restGroup' | 'parked' | 'pinned' | 'boosted' | 'rule' | 'state'> & {
+    rule: EmergencyRule | null;
+  };
+  /** Extra inputs for actionsFor and the footer lines. */
+  ctx: {
+    waitInView?: boolean;
+    waitNeedsHuman?: boolean;
+    pieceCount?: number;
+    sessionUrl?: string | null;
+    draftUrl?: string | null;
+    threadUrl?: string | null;
+    waitPriceReview?: boolean;
+    waitApprovable?: boolean;
+    waitHref?: string | null;
+    hasTaskId?: boolean;
+    lead?: boolean;
+    thread?: { status: 'show' | 'older' };
+  };
+}
+
+function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
+  const score = scoreTask(task, now);
+  const client = refOf(task.client);
+  const project = refOf(task.project);
+  const arc = arcIsOpen(task.arc, now) ? task.arc : null;
+  const rule = taskEmergencyRule(
+    {
+      due_date: task.due_date ? normalizeDueDate(task.due_date) : null,
+      promised_to: task.promised_to,
+      tags: task.tags,
+      site_id: task.site_id,
+      client: task.client ? { id: task.client.id, name: task.client.name } : null,
+    },
+    now,
+  );
+  const personWaiting = taskHasPersonWaiting(task);
+  const since = score.waitingSince ?? task.created_at;
+  const who = displayText(task.requested_by_name) || client?.name || null;
+  const minutes = taskMinutes(task);
+  const why = rule
+    ? whyEmergency(rule, { client: client?.name })
+    : whyTask({
+        who,
+        client: client?.name ?? null,
+        personWaiting,
+        waited: waitedFor(since, now),
+        unblocks: task.open_blocking_count,
+        daysOnList: Math.max(0, Math.round((now.getTime() - task.created_at.getTime()) / 86_400_000)),
+      });
+  const links: { label: string; href: string }[] = [];
+  if (task.origin_url) links.push({ label: 'The email it came from', href: task.origin_url });
+  if (task.staging_preview_url) links.push({ label: 'The preview', href: task.staging_preview_url });
+  if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const doneWhen = task.requirements
+    .map((r) => ({ text: displayText(r.text), done: r.completed }))
+    .filter((r) => r.text !== '');
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: taskKey(task.id),
+    type: 'task',
+    title: displayText(task.title) || 'Untitled task',
+    who,
+    age: ageWords(since, now),
+    why_now: why,
+    hard_date: score.hardDate ? hardDateChip(score.hardDate, task.promised_to) : null,
+    effort: effortWords(minutes),
+    minutes,
+    opened: {
+      summary: displayText(cardSummary(task.description)),
+      done_when: doneWhen.length >= 2 ? doneWhen : [],
+      how: task.sop ? { label: displayText(task.sop.title) || 'The SOP', href: `/sops/${task.sop.id}` } : null,
+      links,
+      task_id: task.id,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'task', id: task.id, ids: [task.id], task_status: task.status },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'task',
+      item,
+      rule,
+      score,
+      since,
+      personWaiting,
+      hardDate: score.hardDate,
+      minutes,
+      group: groupFor(client, project, arc, refs),
+      arcId: arc ? arc.id : null,
+    },
+    ctx: { hasTaskId: true },
+  };
+}
+
+function buildReview(fold: RawReviewFold, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
+  const score = scoreReview(fold, now);
+  const client = refOf(fold.client);
+  const project = refOf(fold.project);
+  const n = fold.pieces.length;
+  const pieces = n === 1 ? 'finished piece' : 'finished pieces';
+  const minutes = Math.min(MINUTES.reviewCap, MINUTES.reviewBase + n * MINUTES.reviewPerPiece);
+  const links: { label: string; href: string }[] = [];
+  if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: reviewKey(fold.project?.id ?? null),
+    type: 'sign_off',
+    title: project ? `Sign off ${n} ${pieces} for ${project.name}` : `Sign off ${n} ${pieces}`,
+    who: client?.name ?? null,
+    age: ageWords(fold.waiting_since, now),
+    why_now: whySignOff({ pieces: n, since: waitedFor(fold.waiting_since, now) }),
+    hard_date: null,
+    effort: effortWords(minutes),
+    minutes,
+    opened: {
+      summary: `${n} ${pieces}${project ? ` on ${project.name}` : ''} ${n === 1 ? 'is' : 'are'} done and waiting for your approval.`,
+      done_when: [],
+      how: null,
+      links,
+      task_id: null,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'review', id: fold.project?.id ?? 'none', ids: fold.pieces.map((p) => p.id), task_status: null },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'review',
+      item,
+      rule: null,
+      score,
+      since: fold.waiting_since,
+      personWaiting: true,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, project, null, refs),
+      arcId: null,
+    },
+    ctx: { pieceCount: n },
+  };
+}
+
+function buildSession(s: RawSessionAsk, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
+  const score = scoreSession(s, now);
+  const client = refOf(s.client);
+  const project = refOf(s.project);
+  const arc = arcIsOpen(s.arc, now) ? s.arc : null;
+  const rule = sessionEmergencyRule(s);
+  const ask = truncateWords(displayText(s.waiting_on), 14);
+  const label = displayText(s.title);
+  const title = label ? `${label}: ${ask}` : ask || 'A session is waiting for you';
+  const links: { label: string; href: string }[] = [];
+  if (s.remote_url) links.push({ label: 'The session', href: s.remote_url });
+  if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const minutes = MINUTES.sessionAsk;
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: sessionKey(s.external_id),
+    type: 'session_ask',
+    title,
+    who: client?.name ?? null,
+    age: ageWords(s.asked_at, now),
+    why_now: rule ? whyEmergency(rule, { client: client?.name }) : whySession({ since: waitedFor(s.asked_at, now) }),
+    hard_date: null,
+    effort: effortWords(minutes),
+    minutes,
+    opened: {
+      summary: displayText(cardSummary(s.waiting_on)),
+      done_when: [],
+      how: null,
+      links,
+      task_id: null,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'session', id: s.id, ids: [s.id], task_status: null },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'session',
+      item,
+      rule,
+      score,
+      since: s.asked_at,
+      personWaiting: true,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, project, arc, refs),
+      arcId: arc ? arc.id : null,
+    },
+    ctx: { sessionUrl: s.remote_url },
+  };
+}
+
+function buildWait(w: RawWait, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
+  const score = scoreWait(w, now);
+  const client = refOf(w.client);
+  const project = refOf(w.project);
+  const rule = waitEmergencyRule({ blocks_client: w.blocks_client, client_waiting_since: w.client_waiting_since }, now);
+  const since = waitClockStart(w, now) ?? w.started_at;
+  const needsHuman = w.state === WAIT_IN_VIEW_STATE;
+  const priceReview = w.template_key === PRICE_REVIEW_WAIT_TEMPLATE;
+  const waitHref = priceReview && w.charter_id ? `/charters/${w.charter_id}` : null;
+  const links: { label: string; href: string }[] = [];
+  if (waitHref) links.push({ label: 'The charter', href: waitHref });
+  if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const minutes = MINUTES.wait;
+  const title = displayText(w.title) || 'A wait needs you';
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: waitKey(w.id),
+    type: 'wait',
+    title,
+    who: client?.name ?? null,
+    age: ageWords(since, now),
+    why_now: rule ? whyEmergency(rule, { client: client?.name }) : whyWait({ needsHuman }),
+    hard_date: null,
+    effort: effortWords(minutes),
+    minutes,
+    opened: {
+      summary: displayText(cardSummary(w.detail)) || title,
+      done_when: [],
+      how: null,
+      links,
+      task_id: w.task_id,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'wait', id: w.id, ids: [w.id], task_status: null },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'wait',
+      item,
+      rule,
+      score,
+      since,
+      personWaiting: !!w.client || w.blocks_client,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, project, null, refs),
+      arcId: null,
+    },
+    ctx: {
+      waitInView: needsHuman || w.due_at.getTime() <= now.getTime(),
+      waitNeedsHuman: needsHuman,
+      waitPriceReview: priceReview,
+      waitApprovable: !!w.approval_request_id,
+      waitHref,
+      hasTaskId: !!w.task_id,
+    },
+  };
+}
+
+function buildThread(
+  th: RawThread,
+  status: 'show' | 'older',
+  now: Date,
+  refs: Refs,
+  st: RawItemState | undefined,
+): Draft {
+  const score = scoreThread(th, now);
+  const newest = th.asks[0];
+  const clientRaw = threadClient(th);
+  const projectRaw = threadProject(th);
+  const client = refOf(clientRaw);
+  const project = refOf(projectRaw);
+  const person = nameOfAsk(newest);
+  const draftUrl = th.asks.find((a) => !!a.draft_url)?.draft_url ?? null;
+  const lead = newest.intent === 'sales';
+  const minutes = draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
+  const said = stripEndPeriod(displayText(newest.gist) || displayText(newest.subject)) || 'a message';
+  const links: { label: string; href: string }[] = [];
+  if (draftUrl) links.push({ label: 'Your draft in Gmail', href: draftUrl });
+  if (newest.deep_link) links.push({ label: 'The email thread', href: newest.deep_link });
+  if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: threadKey(th.account, th.thread_id),
+    type: lead ? 'lead' : 'owed_reply',
+    title: `${person}${client ? ` (${client.name})` : ''}: ${said}`,
+    who: client ? `${person}, ${client.name}` : person,
+    age: ageWords(newest.received_at, now, 'arrived'),
+    why_now: whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
+    hard_date: null,
+    effort: effortWords(minutes, !!draftUrl),
+    minutes,
+    opened: {
+      summary: newest.gist
+        ? displayText(cardSummary(newest.gist))
+        : `${person} wrote about "${displayText(newest.subject)}".`,
+      done_when: [],
+      how: null,
+      links,
+      task_id: null,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'thread', id: newest.id, ids: th.asks.map((a) => a.id), task_status: null },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'thread',
+      item,
+      rule: null,
+      score,
+      since: newest.received_at,
+      personWaiting: true,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, project, null, refs),
+      arcId: null,
+    },
+    ctx: { draftUrl, threadUrl: newest.deep_link || null, lead, thread: { status } },
+  };
+}
+
+function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
+  const score = scoreCrisis(a, now);
+  const client = refOf(a.client);
+  const project = refOf(a.project);
+  const person = nameOfAsk(a);
+  const minutes = a.draft_url ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
+  const links: { label: string; href: string }[] = [];
+  if (a.deep_link) links.push({ label: 'The email thread', href: a.deep_link });
+  if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: crisisKey(a.id),
+    type: 'emergency',
+    title: displayText(a.subject) || 'Urgent email',
+    who: client ? `${person}, ${client.name}` : person,
+    age: ageWords(a.received_at, now, 'arrived'),
+    why_now: whyEmergency(rule, { client: client?.name, sender: person }),
+    hard_date: null,
+    effort: effortWords(minutes, !!a.draft_url),
+    minutes,
+    opened: {
+      summary: a.gist ? displayText(cardSummary(a.gist)) : `An urgent email from ${person}: "${displayText(a.subject)}".`,
+      done_when: [],
+      how: null,
+      links,
+      task_id: null,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'crisis', id: a.id, ids: [a.id], task_status: null },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'crisis',
+      item,
+      rule,
+      score,
+      since: a.received_at,
+      personWaiting: true,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, project, null, refs),
+      arcId: null,
+    },
+    ctx: { draftUrl: a.draft_url, threadUrl: a.deep_link || null },
+  };
+}
+
+// ============================================================================
+// Footer lines and buttons (need the final placement)
+// ============================================================================
+
+function ifIgnored(c: Candidate): string {
+  if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
+  switch (c.kind) {
+    case 'thread':
+      return IF_IGNORED.thread;
+    case 'review':
+      return IF_IGNORED.signOff;
+    case 'session':
+      return IF_IGNORED.session;
+    case 'wait':
+      return IF_IGNORED.wait;
+    default:
+      return IF_IGNORED.stays;
+  }
+}
+
+function reasonFor(c: Candidate): string {
+  if (c.pinned) return REASON.working;
+  if (c.rule) return reasonEmergency(c.rule);
+  if (c.boosted) return REASON.boosted;
+  switch (c.section) {
+    case 'leads':
+      return REASON.lead;
+    case 'mail':
+      return REASON.mail;
+    case 'next':
+      if (c.kind === 'review') return REASON.signOff;
+      if (c.kind === 'session') return REASON.session;
+      if (c.kind === 'wait') return REASON.wait;
+      if (c.score.klass === 1) return REASON.class1;
+      if (c.score.klass === 2) return REASON.class2;
+      return REASON.class3;
+    default:
+      return REASON.rest;
+  }
+}
+
+function itemType(c: Candidate): HomeItemType {
+  if (c.rule) return 'emergency';
+  return c.item.type === 'emergency' ? 'owed_reply' : c.item.type;
+}
+
+type FinalizeCtx = Draft['ctx'];
+
+function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
+  const out = actionsFor({
+    kind: c.kind,
+    emergency: c.rule !== null,
+    pinned: c.pinned,
+    parkCount: c.state?.park_count ?? 0,
+    filledFirst,
+    pieceCount: ctx.pieceCount,
+    sessionUrl: ctx.sessionUrl,
+    draftUrl: ctx.draftUrl,
+    threadUrl: ctx.threadUrl,
+    waitPriceReview: ctx.waitPriceReview,
+    waitApprovable: ctx.waitApprovable,
+    waitHref: ctx.waitHref,
+    hasTaskId: ctx.hasTaskId,
+  });
+  c.item = {
+    ...c.item,
+    type: itemType(c),
+    pinned: c.pinned,
+    reason: reasonFor(c),
+    default_if_ignored: ifIgnored(c),
+    actions: out.actions,
+    more_actions: out.more_actions,
+  };
+}
+
+// ============================================================================
+// selectHome
+// ============================================================================
+
+function meetsNextRule(c: Candidate): boolean {
+  if (c.boosted) return true;
+  if (c.kind === 'session' || c.kind === 'review') return true;
+  if (c.kind === 'wait') return true; // in view is checked by the caller
+  const { klass, urgency } = c.score;
+  if (klass === 1 && urgency >= NEXT_ENTRY.class1MinUrgency) return true;
+  if ((klass === 2 || klass === 3) && urgency >= NEXT_ENTRY.class2or3MinUrgency) return true;
+  return false;
+}
+
+export function selectHome(input: SelectInput): SelectResult {
+  const { raw, now } = input;
+  const states = new Map(input.states.map((s) => [s.item_key, s]));
+  const refs = collectRefs(raw);
+
+  // ---- 1. Drafts ---------------------------------------------------------
+  const drafts: Draft[] = [];
+  const push = (d: Draft) => drafts.push(d);
+
+  for (const task of raw.tasks) push(buildTask(task, now, refs, states.get(taskKey(task.id))));
+  for (const fold of raw.review_folds) push(buildReview(fold, now, refs, states.get(reviewKey(fold.project?.id ?? null))));
+  for (const s of raw.session_asks) push(buildSession(s, now, refs, states.get(sessionKey(s.external_id))));
+  for (const w of raw.waits) {
+    if (!(OPEN_WAIT_STATES as readonly string[]).includes(w.state)) continue;
+    push(buildWait(w, now, refs, states.get(waitKey(w.id))));
+  }
+  for (const th of raw.threads) {
+    const status = threadStatus(th, now);
+    if (status === 'show' || status === 'older') {
+      push(buildThread(th, status, now, refs, states.get(threadKey(th.account, th.thread_id))));
+    }
+  }
+  for (const a of raw.crises) {
+    const rule = crisisEmergencyRule({ is_urgent: a.is_urgent, state: a.state, from_email: a.from_email, client: a.client });
+    if (!rule) continue; // noise, or not urgent and open
+    push(buildCrisis(a, rule, now, refs, states.get(crisisKey(a.id))));
+  }
+
+  // ---- 2. State facts: boost, not-an-emergency, parked, pinned ----------
+  const candidates: Candidate[] = [];
+  const ctxByKey = new Map<string, FinalizeCtx>();
+  for (const draft of drafts) {
+    const st = states.get(draft.cand.key);
+    const emergencyRule = draft.cand.rule && !st?.not_emergency_at ? draft.cand.rule : null;
+    const c: Candidate = {
+      ...draft.cand,
+      rule: emergencyRule,
+      boosted: !!st?.boosted_at,
+      parked: false,
+      pinned: false,
+      shown: false,
+      inView: false,
+      section: 'rest',
+      restGroup: 'waiting_turn',
+      state: st,
+    };
+    candidates.push(c);
+    ctxByKey.set(c.key, draft.ctx);
+  }
+
+  // The pinned item: the newest working_since; only one at a time.
+  let pinnedCand: Candidate | null = null;
+  for (const c of candidates) {
+    const ws = c.state?.working_since;
+    if (!ws) continue;
+    if (!pinnedCand || ws.getTime() > (pinnedCand.state?.working_since?.getTime() ?? 0)) pinnedCand = c;
+  }
+  if (pinnedCand) pinnedCand.pinned = true;
+
+  for (const c of candidates) {
+    const vw = c.state?.view_at;
+    c.parked = !c.pinned && c.rule === null && !!vw && vw.getTime() > now.getTime();
+  }
+
+  // ---- 3. Placement ------------------------------------------------------
+  const needs: Candidate[] = [];
+  const leads: Candidate[] = [];
+  const mailAll: Candidate[] = [];
+  const nextAll: Candidate[] = [];
+  const working: Candidate[] = [];
+
+  for (const c of candidates) {
+    const ctx = ctxByKey.get(c.key) ?? {};
+    if (c.pinned) {
+      c.section = 'working_on';
+      c.restGroup = null;
+      working.push(c);
+    } else if (c.rule) {
+      c.section = 'needs_you_now';
+      c.restGroup = null;
+      needs.push(c);
+    } else if (c.parked) {
+      c.restGroup = 'parked';
+    } else if (c.kind === 'crisis') {
+      c.restGroup = 'waiting_turn'; // marked "Not an emergency": counted, not listed
+    } else if (c.kind === 'thread' && ctx.thread?.status === 'older') {
+      c.restGroup = 'older_threads';
+    } else if (c.score.venture && !c.boosted) {
+      c.restGroup = 'ventures';
+    } else if (c.kind === 'thread') {
+      c.section = ctx.lead ? 'leads' : 'mail';
+      c.restGroup = null;
+      (ctx.lead ? leads : mailAll).push(c);
+    } else if (c.kind === 'wait' && !ctx.waitInView) {
+      c.restGroup = 'waiting_turn';
+    } else if (meetsNextRule(c)) {
+      c.section = 'next';
+      c.restGroup = null;
+      nextAll.push(c);
+    } else {
+      c.restGroup = 'waiting_turn';
+    }
+  }
+
+  for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) c.inView = true;
+
+  needs.sort(emergencyCompare);
+  leads.sort(peopleCompare);
+  mailAll.sort(peopleCompare);
+  nextAll.sort(nextCompare);
+
+  const mail = mailAll.slice(0, CAPS.mail);
+  for (const c of mailAll.slice(CAPS.mail)) {
+    c.section = 'rest';
+    c.restGroup = 'waiting_turn';
+  }
+  const next = nextAll.slice(0, CAPS.next);
+  for (const c of nextAll.slice(CAPS.next)) {
+    c.section = 'rest';
+    c.restGroup = 'waiting_turn';
+  }
+  for (const c of [...needs, ...working, ...leads, ...mail, ...next]) c.shown = true;
+
+  // ---- 4. Final items (buttons, footer lines) ---------------------------
+  const topNextKey = next[0]?.key ?? null;
+  for (const c of candidates) finalize(c, ctxByKey.get(c.key) ?? {}, c.key === topNextKey);
+
+  // ---- 5. Everything else -----------------------------------------------
+  const counts: Record<HomeRestGroupKey, number> = {
+    waiting_turn: 0,
+    parked: 0,
+    held_projects: raw.held_project_task_count,
+    review_pieces: raw.review_folds.reduce((n, f) => n + f.pieces.length, 0),
+    older_threads: 0,
+    ventures: 0,
+  };
+  for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
+  const order: HomeRestGroupKey[] = ['waiting_turn', 'parked', 'held_projects', 'review_pieces', 'older_threads', 'ventures'];
+  const groups: HomeEverythingElseGroup[] = order
+    .filter((k) => counts[k] > 0)
+    .map((k) => ({ key: k, label: REST_GROUP_COPY[k].label, count: counts[k], owner: REST_GROUP_COPY[k].owner }));
+  const total = groups.reduce((n, g) => n + g.count, 0);
+
+  // ---- 6. Handled for you -----------------------------------------------
+  const handledSorted = [...raw.auto_handled].sort((a, b) => b.handled_at.getTime() - a.handled_at.getTime());
+  const handled: HomeQuietLine[] = handledSorted.slice(0, CAPS.handled).map((h) => ({
+    id: h.id,
+    text: handledLine({ who: displayText(h.from_name) || h.from_email, subject: h.subject }),
+    href: h.deep_link || null,
+    at: h.handled_at.toISOString(),
+  }));
+  const moreCount = Math.max(0, handledSorted.length - CAPS.handled);
+
+  const itemOf = (c: Candidate): HomeItem => c.item;
+  // Only the top Next row's first button is filled: finalize() already did that for that one row.
+  const sections: HomeSections = {
+    needs_you_now: needs.map(itemOf),
+    working_on: working.map(itemOf),
+    leads: leads.map(itemOf),
+    mail: mail.map(itemOf),
+    next: next.map(itemOf),
+    handled,
+    handled_more: moreCount > 0 ? { count: moreCount, text: handledMoreText(moreCount) } : null,
+  };
+
+  return {
+    sections,
+    everything_else: { count: total, line: everythingElseLine(total), groups },
+    candidates,
+    byKey: new Map(candidates.map((c) => [c.key, c])),
+  };
+}

@@ -14,6 +14,8 @@ import { AdminOverlook } from '@/components/domain/dashboard/admin-overlook';
 import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { usePreferences } from '@/lib/hooks/use-preferences';
 
 const LOCAL_STORAGE_KEY = 'dashboard-my-tasks-sort';
 
@@ -26,7 +28,7 @@ function getStoredSort(): TaskSortBy {
   return 'priority';
 }
 
-export default function OverlookPage() {
+function OverlookPage() {
   // My Tasks sort preference with localStorage persistence
   // Track hydration to avoid SSR/CSR mismatch
   const [isHydrated, setIsHydrated] = React.useState(false);
@@ -97,5 +99,44 @@ export default function OverlookPage() {
       <h1 className="text-2xl font-bold text-text-main">Overlook</h1>
       <p className="text-text-sub mt-2">Welcome back!</p>
     </div>
+  );
+}
+
+// Home screen Slice 1: only a user whose own preference is `home` gets HomeScreen.
+// Everyone else, and any failed preferences call, gets the Overlook unchanged.
+const HomeScreen = React.lazy(() =>
+  import('@/components/domain/home/HomeScreen').then((m) => ({ default: m.HomeScreen })),
+);
+
+function RouteSpinner() {
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <Spinner size="lg" />
+    </div>
+  );
+}
+
+function DashboardSwitch() {
+  const { data, isLoading } = usePreferences();
+  const searchParams = useSearchParams();
+
+  // Neutral loading state until the preference is known, so nobody sees the wrong screen flash.
+  if (isLoading) return <RouteSpinner />;
+
+  if (data?.preferences?.home_view === 'home' && searchParams?.get('view') !== 'overlook') {
+    return (
+      <React.Suspense fallback={<RouteSpinner />}>
+        <HomeScreen />
+      </React.Suspense>
+    );
+  }
+  return <OverlookPage />;
+}
+
+export default function DashboardRoute() {
+  return (
+    <React.Suspense fallback={<RouteSpinner />}>
+      <DashboardSwitch />
+    </React.Suspense>
   );
 }

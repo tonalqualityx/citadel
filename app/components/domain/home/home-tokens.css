@@ -1,0 +1,145 @@
+/* Home screen tokens and layout, scoped under [data-home] so no other screen changes.
+   Same pattern as app/(portal)/portal-tokens.css. app/globals.css is not touched.
+   The values come from the approved preview (design/home-preview-template.html). They
+   add --accent-text, --accent-ink and --warning-line, and override --text-muted, --warning
+   and --success (plus --text-secondary in the dim theme) so every pair reaches 4.5:1 on the
+   real page surfaces; the gold rule is darkened in light to reach 3:1. The filled button uses
+   --accent-text as its fill (the page's --accent with white text is only 3.5:1).
+   home-tokens-contrast.test.ts parses the four token blocks below, so keep their shape.
+   Never red: attention is the muted gold rule, never a red anything. */
+
+[data-home] {
+  --accent-text: #3F6F96;
+  --accent-ink: #FFFFFF;
+  --text-muted: #707070;
+  --success: #4F7F5E;
+  --warning: #8A6D1C;
+  --warning-line: #A8861F;
+}
+
+.theme-dim [data-home] {
+  --text-secondary: #B0AEAB;
+  --accent-text: #9CC6E4;
+  --accent-ink: #1E2327;
+  --text-muted: #A8A6A3;
+  --success: #7DAF8C;
+  --warning: #D4B95D;
+  --warning-line: #D4B95D;
+}
+
+.theme-dark [data-home] {
+  --accent-text: #9CC6E4;
+  --accent-ink: #1E2327;
+  --text-muted: #A8A6A3;
+  --success: #7DAF8C;
+  --warning: #D4B95D;
+  --warning-line: #D4B95D;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light):not(.theme-dim):not(.theme-dark) [data-home] {
+    --accent-text: #9CC6E4;
+    --accent-ink: #1E2327;
+    --text-muted: #A8A6A3;
+    --success: #7DAF8C;
+    --warning: #D4B95D;
+    --warning-line: #D4B95D;
+  }
+}
+
+/* ---------------------------------------------------------------- layout */
+
+[data-home] {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* The app shell pads its content 24px; on a phone the gutter is 16px. */
+@media (max-width: 639px) {
+  [data-home] { margin-inline: -8px; }
+}
+[data-home] h1, [data-home] h2, [data-home] h3, [data-home] p { margin: 0; }
+[data-home] h1 { font-size: 1.25rem; font-weight: 600; }
+[data-home] h2 { font-size: 1.15rem; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+[data-home] h3 { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); }
+[data-home] ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; }
+[data-home] button { font: inherit; color: inherit; }
+[data-home] .home-small { font-size: 0.85rem; }
+[data-home] .home-muted { color: var(--text-secondary); }
+[data-home] a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
+[data-home] button:focus-visible,
+[data-home] a:focus-visible,
+[data-home] textarea:focus-visible,
+[data-home] summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+[data-home] .home-top { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; justify-content: space-between; }
+
+/* ----------------------------------------------------------------- tiles */
+
+[data-home] .home-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+[data-home] .home-tile { text-align: left; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+[data-home] .home-tile-n { font-size: 1.35rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+[data-home] .home-tile-l { font-size: 0.85rem; color: var(--text-secondary); }
+[data-home] .home-tile[data-zero="true"] .home-tile-n { color: var(--text-muted); font-weight: 500; }
+[data-home] .home-tile[data-hot="true"] { background: var(--warning-subtle); border-color: var(--warning-line); }
+[data-home] .home-tile[data-hot="true"] .home-tile-n { color: var(--warning); }
+[data-home] .home-tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+[data-home] .home-tile[aria-pressed="true"] .home-tile-l { color: var(--text-primary); font-weight: 600; }
+[data-home] .home-tile[data-today="true"] { grid-column: span 2; background: var(--accent-subtle); border-color: var(--accent); }
+[data-home] .home-tile[data-today="true"] .home-tile-n { color: var(--accent-text); }
+[data-home] .home-tile[data-today="true"] .home-tile-l { color: var(--text-primary); }
+@media (max-width: 420px) {
+  [data-home] .home-tile[data-today="true"] { grid-column: span 1; }
+}
+
+/* ------------------------------------------------------------ two panes */
+
+[data-home] .home-work { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 900px) {
+  [data-home] .home-work { grid-template-columns: minmax(300px, 30%) minmax(0, 1fr); }
+}
+[data-home] .home-pane { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+[data-home] .home-list { display: flex; flex-direction: column; }
+[data-home] .home-row { text-align: left; background: none; border: 0; border-top: 1px solid var(--border); border-left: 3px solid transparent; padding: 11px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; width: 100%; }
+[data-home] .home-row:first-child { border-top: 0; border-top-left-radius: 8px; border-top-right-radius: 8px; }
+[data-home] .home-row strong { font-weight: 600; font-size: 0.93rem; line-height: 1.35; }
+[data-home] .home-row-meta { font-size: 0.8rem; color: var(--text-secondary); }
+/* Needs you now: a muted gold rule on the row edge, never red. */
+[data-home] .home-row[data-rule="now"] { border-left-color: var(--warning-line); }
+[data-home] .home-row[aria-current="true"] { background: var(--accent-subtle); border-left-color: var(--accent); }
+[data-home] .home-row[aria-current="true"][data-rule="now"] { border-left-color: var(--warning-line); }
+[data-home] .home-empty { padding: 18px 14px; color: var(--text-secondary); }
+
+/* ------------------------------------------------------------------ card */
+
+[data-home] .home-card { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+[data-home] .home-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 0.85rem; color: var(--text-secondary); }
+[data-home] .home-pill { font-size: 0.78rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--warning-subtle); color: var(--warning); border: 1px solid var(--warning-line); }
+[data-home] .home-why { font-size: 1rem; }
+[data-home] .home-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+[data-home] .home-btn { font-size: 0.9rem; font-weight: 600; border-radius: 8px; padding: 8px 14px; min-height: 40px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+[data-home] .home-btn[data-filled="true"] { background: var(--accent-text); border-color: var(--accent-text); color: var(--accent-ink); }
+[data-home] .home-btn:disabled { opacity: 0.55; cursor: default; }
+[data-home] .home-linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+[data-home] .home-said { font-size: 0.85rem; color: var(--accent-text); min-height: 1.3em; }
+[data-home] .home-prompt { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; display: flex; flex-direction: column; gap: 8px; }
+[data-home] .home-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 28px; border-top: 1px solid var(--border); padding-top: 14px; }
+@media (min-width: 1200px) {
+  [data-home] .home-cols { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+}
+[data-home] .home-blk { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+[data-home] .home-check { display: flex; gap: 8px; align-items: baseline; }
+[data-home] .home-box { flex: none; width: 13px; height: 13px; border: 1.5px solid var(--text-muted); border-radius: 3px; transform: translateY(2px); }
+[data-home] .home-box[data-done="true"] { background: var(--success); border-color: var(--success); }
+[data-home] .home-foot { border-top: 1px solid var(--border); padding-top: 10px; font-size: 0.85rem; color: var(--text-secondary); }
+[data-home] .home-note { border-left: 3px solid var(--border); padding: 6px 12px; font-size: 0.9rem; }
+
+/* ------------------------------------------------------------ working on */
+
+[data-home] .home-working { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--accent); }
+[data-home] .home-working textarea { font: inherit; font-size: 0.9rem; width: 100%; box-sizing: border-box; min-height: 3.6em; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-elevated); color: var(--text-primary); resize: vertical; }

@@ -82,6 +82,10 @@ model User {
   stand_ins_for      StandIn[]    @relation("StandInFor")
   stand_ins_covering StandIn[]    @relation("StandInCovering")
 
+  home_item_states HomeItemState[] @relation("HomeItemStateUser")
+  home_days        HomeDay[]       @relation("HomeDayUser")
+  home_actions     HomeAction[]    @relation("HomeActionUser")
+
   @@map("users")
 }
 
@@ -101,6 +105,8 @@ model UserPreference {
   // Clarity Phase 3 (Reckoning, spec Q9/G10) — Today's energy filter chip, persisted
   // cross-device same as today_view above.
   energy_filter       EnergyFilter     @default(all)
+  // Home screen Slice 1: which first screen /dashboard renders for this user.
+  home_view           HomeView         @default(overlook)
   created_at          DateTime         @default(now())
   updated_at          DateTime         @updatedAt
 
@@ -4754,4 +4760,83 @@ model DesignWorkerState {
   sdk_version         String?   @db.VarChar(40)
 
   @@map("design_worker_state")
+}
+
+// Home screen (specs/home-build-plan.md, Slice 1). Per-user first-screen switch. Default
+// overlook: every user keeps today's Overlook unless their own row says home.
+enum HomeView {
+  overlook
+  home
+}
+
+// Home screen Slice 1: one row per item the home screen has shown or the user has acted on,
+// for that user only. Never read by any other screen. Later slices add the keeper's columns.
+model HomeItemState {
+  id                String    @id @default(uuid()) @db.Uuid
+  user_id           String    @db.Uuid
+  user              User      @relation("HomeItemStateUser", fields: [user_id], references: [id], onDelete: Cascade)
+  item_key          String    @db.VarChar(300)
+  park_count        Int       @default(0)
+  view_at           DateTime?
+  boosted_at        DateTime?
+  not_emergency_at  DateTime?
+  working_since     DateTime?
+  left_off_note     String?   @db.Text
+  arc_added_at      DateTime?
+  arc_added_group   String?   @db.VarChar(120)
+  arc_removed_at    DateTime?
+  arc_removed_group String?   @db.VarChar(120)
+  first_seen_at     DateTime  @default(now())
+  last_shown_at     DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  @@unique([user_id, item_key])
+  @@index([user_id, view_at])
+  @@map("home_item_state")
+}
+
+// Home screen Slice 1: the day's proposal, written once per zoned day and changed only by
+// Swap, Lighter or the user's own edits. arc_id is a plain id (no relation) so an arc's
+// later close or edit never touches this row.
+model HomeDay {
+  id                 String    @id @default(uuid()) @db.Uuid
+  user_id            String    @db.Uuid
+  user               User      @relation("HomeDayUser", fields: [user_id], references: [id], onDelete: Cascade)
+  date               DateTime  @db.Date
+  group_key          String    @db.VarChar(120)
+  group_label        String    @db.VarChar(300)
+  arc_id             String?   @db.Uuid
+  quick_item_keys    String[]  @default([]) @db.VarChar(300)
+  step_item_keys     String[]  @default([]) @db.VarChar(300)
+  sized_minutes      Int?
+  proposed_at        DateTime  @default(now())
+  started_at         DateTime?
+  swapped_from_group String?   @db.VarChar(120)
+  lighter_at         DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  @@unique([user_id, date])
+  @@map("home_day")
+}
+
+// Home screen Slice 1: every home-only action with its before and after, for undo and for
+// the "where he acts" measure. Rows are never deleted.
+model HomeAction {
+  id         String    @id @default(uuid()) @db.Uuid
+  user_id    String    @db.Uuid
+  user       User      @relation("HomeActionUser", fields: [user_id], references: [id], onDelete: Cascade)
+  item_key   String?   @db.VarChar(300)
+  action     String    @db.VarChar(60)
+  before     Json?
+  after      Json?
+  undo_until DateTime?
+  undone_at  DateTime?
+  source     String    @default("home") @db.VarChar(30)
+  created_at DateTime  @default(now())
+
+  @@index([user_id, created_at])
+  @@index([user_id, item_key])
+  @@map("home_actions")
 }
