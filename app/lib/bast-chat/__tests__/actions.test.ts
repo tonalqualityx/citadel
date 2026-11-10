@@ -40,6 +40,7 @@ function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number;
     bastChatSettings: { findUnique: vi.fn(async () => null) },
     bastChatUsage: {
       upsert: vi.fn(async () => ({})),
+      createMany: vi.fn(async () => ({ count: 0 })),
       findUnique: vi.fn(async () => o.usage ?? null),
       // honors the `lt` condition like the database does; the stored count lives in `used`
       updateMany: vi.fn(async ({ where, data }: any) => {
@@ -58,7 +59,7 @@ describe('recordAction (the worker can only propose a handoff)', () => {
   const rejects400 = async (input: unknown, db: any, code?: string) => {
     await expect(recordAction(input, OWNER, NOW, db)).rejects.toMatchObject({ statusCode: 400, ...(code ? { code } : {}) });
     expect(db.bastChatAction.create).not.toHaveBeenCalled();
-    expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+    expect(db.bastChatUsage.createMany).not.toHaveBeenCalled();
   };
 
   describe('applied, filed and failed records from the worker are refused', () => {
@@ -99,7 +100,7 @@ describe('recordAction (the worker can only propose a handoff)', () => {
       expect(row(db).proposed_assignee_id).toBe(BAST);
       expect(row(db).before).toEqual({ updated_at: NOW.toISOString() });
       expect(row(db).after).toEqual({ status: 'done', title: 'Update the invoice template' });
-      expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(1); // the row is ensured once
+      expect(db.bastChatUsage.createMany).toHaveBeenCalledTimes(1); // the row is ensured once
       expect(db.bastChatUsage.updateMany).toHaveBeenCalledTimes(1); // one reservation, nothing counted after
       expect(db.bastChatUsage.updateMany.mock.calls[0][0].where).toMatchObject({ owner_id: OWNER, writes: { lt: 25 } });
       expect(db.bastChatUsage.updateMany.mock.calls[0][0].data).toEqual({ writes: { increment: 1 } });

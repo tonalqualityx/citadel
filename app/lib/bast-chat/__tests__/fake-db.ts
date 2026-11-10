@@ -65,6 +65,7 @@ export function makeChatDb(opts: { conv?: Partial<FakeConv>; settings?: Record<s
     },
     bastChatUsage: {
       findUnique: vi.fn(async () => ({ turns: usage.turns, writes: usage.writes, cost_usd: { toString: () => String(usage.cost) } })),
+      createMany: vi.fn(async () => ({ count: 0 })),
       upsert: vi.fn(async ({ update }: any) => { usage.turns += update.turns.increment; usage.writes += update.writes.increment; usage.cost += update.cost_usd.increment; return {}; }),
     },
     bastChatSettings: { findUnique: vi.fn(async () => settings) },

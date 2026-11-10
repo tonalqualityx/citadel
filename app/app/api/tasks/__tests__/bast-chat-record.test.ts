@@ -16,7 +16,7 @@ vi.mock('@/lib/db/prisma', () => {
     bastChatSettings: { findUnique: vi.fn() },
     bastChatConversation: { findFirst: vi.fn(), findUnique: vi.fn() },
     bastChatAction: { create: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    bastChatUsage: { upsert: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+    bastChatUsage: { upsert: vi.fn(), createMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     task: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
     project: { findUnique: vi.fn() },
     arc: { findUnique: vi.fn() },
@@ -62,6 +62,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   usageWrites = 0;
   db.bastChatUsage.upsert.mockResolvedValue({});
+  db.bastChatUsage.createMany.mockResolvedValue({ count: 0 });
   db.bastChatUsage.updateMany.mockImplementation(async ({ where, data }: any) => {
     if (!(usageWrites < where.writes.lt)) return { count: 0 };
     usageWrites += data.writes.increment;
@@ -230,7 +231,7 @@ describe('VERIFY-2 N1 to N3 replayed against the worker route: each is refused n
       expect(res.status).toBe(400);
       expect((await res.json()).error).toBe('The chat can only propose a handoff. Citadel records every change itself.');
       expect(db.bastChatAction.create).not.toHaveBeenCalled();
-      expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+      expect(db.bastChatUsage.createMany).not.toHaveBeenCalled();
     });
   }
   it('a filed record and a failed record are refused too', async () => {
@@ -698,7 +699,7 @@ describe('G4 and G3: a change that changes nothing, and a closed chat', () => {
       expect((await res.json()).error).toBe('There is nothing to change in that request.');
     }
     expect(usageWrites).toBe(0);
-    expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+    expect(db.bastChatUsage.createMany).not.toHaveBeenCalled();
     expect(db.bastChatUsage.updateMany).not.toHaveBeenCalled();
     expect(db.task.update).not.toHaveBeenCalled();
   });
@@ -744,7 +745,7 @@ describe('every non-chat caller takes the untouched path: no usage read, no rese
       expect((await postTask({ title: 't', assignee_id: OWNER })).status).toBe(201);
     }
     expect(db.bastChatUsage.findUnique).not.toHaveBeenCalled();
-    expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+    expect(db.bastChatUsage.createMany).not.toHaveBeenCalled();
     expect(db.bastChatUsage.updateMany).not.toHaveBeenCalled();
     expect(db.bastChatSettings.findUnique).not.toHaveBeenCalled();
   });

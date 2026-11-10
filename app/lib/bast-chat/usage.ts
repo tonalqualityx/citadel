@@ -71,16 +71,13 @@ export async function assertWriteAllowed(ownerId: string, settings: ChatSettings
  */
 export async function reserveWrite(ownerId: string, cap: number, now: Date = new Date(), db: UsageDb = defaultDb): Promise<void> {
   const day = easternDay(now);
-  try {
-    await db.bastChatUsage.upsert({
-      where: { owner_id_day: { owner_id: ownerId, day } },
-      create: { owner_id: ownerId, day, turns: 0, writes: 0, cost_usd: 0 },
-      update: {},
-    });
-  } catch (e) {
-    // Another request created the row first: carry on to the conditional update.
-    if (!(typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2002')) throw e;
-  }
+  // An insert that ignores a duplicate (ON CONFLICT DO NOTHING). Not an upsert: Prisma runs that as SELECT then INSERT,
+  // and inside a transaction a failed INSERT aborts the Postgres transaction, so a swallowed duplicate error made
+  // the next statement fail (25P02). A duplicate here raises nothing. The row's other columns default to 0.
+  await db.bastChatUsage.createMany({
+    data: [{ owner_id: ownerId, day }],
+    skipDuplicates: true,
+  });
   const r = await db.bastChatUsage.updateMany({
     where: { owner_id: ownerId, day, writes: { lt: cap } },
     data: { writes: { increment: 1 } },
