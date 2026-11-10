@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { UPLOAD_REJECT_CODES, UPLOAD_REJECT_SENTENCES } from '../track-assets';
+import { UPLOAD_REJECT_CODES, UPLOAD_REJECT_SENTENCES } from '../upload-reject';
 
 describe('upload reject codes (W3.8b)', () => {
   it('is the handler vocabulary, in order', () => {
