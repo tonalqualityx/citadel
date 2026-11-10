@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { ChatDock } from './ChatDock';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDesignBridge, type UseDesignBridgeResult } from '@/lib/hooks/use-design-bridge';
-import { previewOriginOf } from '@/lib/design/bridge';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
+import { PreviewLinks } from './PreviewLinks';
 import { PreviewPane } from './PreviewPane';
 import { TimerPill } from './TimerPill';
 import { StageStrip } from './track/StageStrip';
@@ -113,7 +113,6 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
   const view = { path: pageView?.path ?? null, width: pageView?.width ?? null, previewSha: previewSha ?? null };
   const slots: WorkspaceSlots = { ...useSlots({ bridge, view }), ...givenSlots };
   const state = previewState({ preview_url: previewUrl, preview_sha: previewSha, head_sha: headSha });
-  const safeLink = previewOriginOf(previewUrl) ? previewUrl : null;
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3">
@@ -130,16 +129,10 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
           {state === 'up_to_date' && 'Preview up to date'}
           {state === 'out_of_date' && 'Preview out of date'}
           {state === 'building' && 'Preview building...'}
-          {safeLink && state !== 'building' && (
-            <>
-              {' '}
-              <a href={safeLink} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
-                Open preview
-              </a>
-            </>
-          )}
         </p>
         <div className="ml-auto flex items-center gap-2">
+          {/* SPEC 4.10: the links a designer opens on a phone or another machine. The control builds them from the stored preview URL. */}
+          <PreviewLinks sessionId={data.session.id} previewUrl={state === 'building' ? null : previewUrl ?? null} path={bridge.path ?? view.path} />
           <TimerPill timer={feed?.timer} />
           {slots.publishButton ?? (
             <Button type="button" variant="secondary" size="sm" disabled title="Available soon">
@@ -161,6 +154,10 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             onSelectModeChange={bridge.setSelectMode}
             reportedPath={bridge.path}
             onViewChange={onViewChange}
+            // Width preview (SPEC 4.2) is a tracked-session tool; an untracked (v1) session keeps the v1 pane.
+            sendPreviewToken={data.session.track ? bridge.sendPreviewToken : undefined}
+            frameEpoch={bridge.frameEpoch}
+            directionSessionId={data.session.track ? data.session.id : null}
           />
         </section>
         <ChatDock

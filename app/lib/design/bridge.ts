@@ -15,10 +15,11 @@
  * A `dp:packet` becomes a `PinDraft` shaped exactly like the body of POST /api/design/sessions/:id/pins; turning a
  * draft into a pin is the designer's own later click (the tray), never this module.
  *
- * Outbound, `send()` posts only the three parent -> overlay types (`dp:select`, `dp:highlight`, `dp:scroll`), only
+ * Outbound, `send()` posts only the four parent -> overlay types (`dp:select`, `dp:highlight`, `dp:scroll`, `dp:preview-token`), only
  * to the iframe's window, and only with the preview origin as `targetOrigin` (never "*").
  */
 import { z } from 'zod';
+import { PREVIEW_TOKEN_NAMES, isPreviewTokenValid } from './preview-tokens';
 
 /** Caps as shipped by the overlay (design-overlay.js) and accepted by the pins route (lib/design/pins.ts). */
 export const BRIDGE_CAPS = {
@@ -109,11 +110,19 @@ type InboundType = keyof typeof INBOUND_SCHEMAS;
 // ---------------------------------------------------------------------------------------------------------
 
 const outboundSelector = z.string().min(1).max(BRIDGE_CAPS.selector);
-export const outboundMessageSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('dp:select'), on: z.boolean() }).strict(),
-  z.object({ type: z.literal('dp:highlight'), selector: outboundSelector }).strict(),
-  z.object({ type: z.literal('dp:scroll'), selector: outboundSelector }).strict(),
-]);
+export const outboundMessageSchema = z
+  .discriminatedUnion('type', [
+    z.object({ type: z.literal('dp:select'), on: z.boolean() }).strict(),
+    z.object({ type: z.literal('dp:highlight'), selector: outboundSelector }).strict(),
+    z.object({ type: z.literal('dp:scroll'), selector: outboundSelector }).strict(),
+    // Container width preview: a fixed name list and the px grammar of lib/design/preview-tokens.ts (checked below).
+    z.object({ type: z.literal('dp:preview-token'), name: z.enum(PREVIEW_TOKEN_NAMES), value: z.string().max(40).nullable() }).strict(),
+  ])
+  .superRefine((msg, ctx) => {
+    if (msg.type === 'dp:preview-token' && !isPreviewTokenValid(msg.name, msg.value)) {
+      ctx.addIssue({ code: 'custom', message: 'value not allowed for this token', path: ['value'] });
+    }
+  });
 export type OutboundMessage = z.infer<typeof outboundMessageSchema>;
 
 // ---------------------------------------------------------------------------------------------------------
