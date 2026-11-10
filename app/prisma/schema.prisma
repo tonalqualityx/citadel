@@ -4840,3 +4840,155 @@ model HomeAction {
   @@index([user_id, item_key])
   @@map("home_actions")
 }
+
+// ============================================
+// BAST CHAT (Mike's home screen panel; implementation/plans/bast-chat.md + bast-chat-amendments.md)
+// History is kept: nothing in this build deletes a conversation, event or action (amendment 3).
+// ============================================
+
+enum BastChatRole {
+  mike
+  assistant
+  tool
+  system
+}
+
+enum BastChatKind {
+  text // Mike's message or Bast's final reply
+  action // a tool started: {tool, label, args_summary}
+  result // a tool finished: {tool, ok, summary}
+  status // acks, offline and expired notices, stop reports, errors
+  cost // {turn_usd, day_usd}
+}
+
+enum BastChatConversationStatus {
+  idle
+  queued
+  running
+  closed
+}
+
+enum BastChatActionStatus {
+  applied // a write the chat made; undo open until undo_until
+  proposed // waiting for Mike's tap (handoff, or a change to someone else's task)
+  released // Mike tapped it; Citadel carried it out
+  declined // Mike chose "Keep it"
+  undone
+  failed
+}
+
+model BastChatConversation {
+  id              String                     @id @default(uuid()) @db.Uuid
+  owner_id        String                     @db.Uuid // BastChatSettings.owner_user_id; no relation on purpose (User unchanged)
+  status          BastChatConversationStatus @default(idle)
+  title           String?                    @db.VarChar(200)
+  last_seq        Int                        @default(0) // allocates BastChatEvent.seq under row lock
+  live_text       String?                    @db.Text // overwritten while a reply streams
+  live_action     String?                    @db.VarChar(200)
+  model           String?                    @db.VarChar(60) // resolved model of the last turn; never fable (checked)
+  cost_usd        Decimal                    @default(0) @db.Decimal(10, 4)
+  last_message_at DateTime?
+  created_at      DateTime                   @default(now())
+  updated_at      DateTime                   @updatedAt
+  closed_at       DateTime?
+
+  events  BastChatEvent[]
+  actions BastChatAction[]
+
+  @@index([owner_id, updated_at])
+  @@index([status])
+  @@map("bast_chat_conversations")
+}
+
+model BastChatEvent {
+  id              String               @id @default(uuid()) @db.Uuid
+  conversation_id String               @db.Uuid
+  conversation    BastChatConversation @relation(fields: [conversation_id], references: [id], onDelete: Restrict) // history is never deleted
+  seq             Int // per conversation, gapless
+  role            BastChatRole
+  kind            BastChatKind
+  payload         Json // capped at 16 KB server-side (text 8 KB)
+  context         Json? // Mike's messages: {screen, tile, kind, id} of the open card, validated server-side
+  client_ref      String?              @db.VarChar(64) // browser uuid: a double send is a no-op
+  turn            Int?
+  delivered_at    DateTime? // Mike's messages: when the daemon pushed it into the query
+  expired_at      DateTime? // Mike's messages: not picked up within stale_after_minutes (marked, never deleted)
+  created_at      DateTime             @default(now())
+
+  @@unique([conversation_id, seq])
+  @@unique([conversation_id, client_ref])
+  @@index([conversation_id, role, delivered_at])
+  @@map("bast_chat_events")
+}
+
+model BastChatAction {
+  id                   String               @id @default(uuid()) @db.Uuid
+  conversation_id      String               @db.Uuid
+  conversation         BastChatConversation @relation(fields: [conversation_id], references: [id], onDelete: Restrict) // history is never deleted
+  event_seq            Int? // the action event it belongs to
+  tool                 String               @db.VarChar(40) // create_task | update_task | add_to_arc | remove_from_arc | propose_handoff
+  target_type          String               @db.VarChar(20) // task
+  target_id            String               @db.Uuid
+  summary              String               @db.VarChar(300) // the line Mike sees
+  before               Json? // allowlisted fields only
+  after                Json?
+  proposed_assignee_id String?              @db.Uuid
+  status               BastChatActionStatus
+  undo_until           DateTime?
+  resolved_at          DateTime?
+  resolved_by_id       String?              @db.Uuid
+  error                String?              @db.Text
+  created_at           DateTime             @default(now())
+
+  @@index([conversation_id])
+  @@index([target_id])
+  @@index([status, created_at])
+  @@map("bast_chat_actions")
+}
+
+// One row per owner per Eastern day: the caps read this, not a sum over events.
+model BastChatUsage {
+  id       String   @id @default(uuid()) @db.Uuid
+  owner_id String   @db.Uuid
+  day      DateTime @db.Date
+  turns    Int      @default(0)
+  writes   Int      @default(0)
+  cost_usd Decimal  @default(0) @db.Decimal(10, 4)
+
+  @@unique([owner_id, day])
+  @@map("bast_chat_usage")
+}
+
+// Singleton (id = 1), like DesignPortalSettings.
+model BastChatSettings {
+  id                  Int      @id @default(1)
+  enabled             Boolean  @default(false) // server kill switch
+  owner_user_id       String?  @db.Uuid // Mike; must be an active admin
+  model               String   @default("sonnet") @db.VarChar(60) // sonnet | haiku only (checked here and on the machine)
+  effort              String   @default("low") @db.VarChar(10)
+  turn_budget_usd     Decimal  @default(0.40) @db.Decimal(10, 2)
+  daily_turn_cap      Int      @default(100)
+  daily_write_cap     Int      @default(25)
+  daily_cost_cap_usd  Decimal  @default(8) @db.Decimal(10, 2)
+  stale_after_minutes Int      @default(120)
+  idle_close_minutes  Int      @default(10)
+  updated_by_id       String?  @db.Uuid
+  updated_at          DateTime @updatedAt
+
+  @@map("bast_chat_settings")
+}
+
+// Singleton (id = 1): the daemon's last heartbeat.
+model BastChatWorkerState {
+  id                 Int       @id @default(1)
+  last_heartbeat_at  DateTime?
+  version            String?   @db.VarChar(40)
+  sdk_version        String?   @db.VarChar(40)
+  paused             Boolean   @default(false)
+  pause_reason       String?   @db.VarChar(100) // fleet_pause | chat_pause | isolation_failed
+  auth_state         String?   @db.VarChar(20) // token | login | failed
+  live_conversations Int       @default(0)
+  isolation_ok_at    DateTime?
+
+  @@map("bast_chat_worker_state")
+}

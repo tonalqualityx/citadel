@@ -33,17 +33,18 @@ export const LANES = [
   'troubador',
   'oracle',
   'design-worker',
+  'bast-chat',
 ] as const;
 
 export type Lane = (typeof LANES)[number];
 
 /**
- * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker lane was born enforced: its key
- * must carry scope-mode:enforce (refused at mint and PATCH, lib/auth/key-scopes.ts), and a key planted without
- * it is still refused outside the lane instead of running in shadow. The fleet-6 lanes keep shadow mode for
- * their staged rollout, so they are not listed here.
+ * Lanes that are enforced whatever the key says (W8.2 H3). The design-worker and bast-chat lanes were born
+ * enforced: their keys must carry scope-mode:enforce (refused at mint and PATCH, lib/auth/key-scopes.ts), and a
+ * key planted without it is still refused outside the lane instead of running in shadow. The fleet-6 lanes keep
+ * shadow mode for their staged rollout, so they are not listed here.
  */
-export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker'];
+export const ALWAYS_ENFORCED_LANES: readonly Lane[] = ['design-worker', 'bast-chat'];
 export type LaneMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface LaneRoute {
@@ -67,6 +68,7 @@ export const LANE_IDENTITY: Record<Lane, 'bast' | 'troubador' | 'oracle' | 'desi
   troubador: 'troubador',
   oracle: 'oracle',
   'design-worker': 'design-worker',
+  'bast-chat': 'bast',
 };
 
 export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
@@ -274,6 +276,42 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/design/worker/sessions/:id/scope-flags'),
     r('PATCH', '/api/design/worker/commands/:id'),
     r('PATCH', '/api/design/worker/publishes/:id'),
+  ],
+  // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
+  // always enforced. Exactly these 26 method+path entries (the worker conversation route is GET and PATCH).
+  // No DELETE, no comment write, no dependencies, no email-asks PATCH, no outbox, no decisions, no
+  // api-keys, no admin, no home routes. Routes alone are not enough here: the task POST and PATCH bodies are
+  // narrowed for this lane by lib/bast-chat/task-filter.ts (plan task C4).
+  'bast-chat': [
+    // The daemon's own worker routes (requireChatWorker)
+    r('GET', '/api/bast-chat/worker/inbox'),
+    r('POST', '/api/bast-chat/worker/heartbeat'),
+    r('GET', '/api/bast-chat/worker/conversations/:id'),
+    r('PATCH', '/api/bast-chat/worker/conversations/:id'),
+    r('POST', '/api/bast-chat/worker/conversations/:id/events'),
+    r('POST', '/api/bast-chat/worker/actions'),
+    r('GET', '/api/bast-chat/worker/today'),
+    // The chat's reads and its two task writes (body-filtered)
+    r('GET', '/api/tasks'),
+    r('POST', '/api/tasks'),
+    r('GET', '/api/tasks/:id'),
+    r('PATCH', '/api/tasks/:id'),
+    r('GET', '/api/tasks/:id/comments'),
+    r('GET', '/api/projects'),
+    r('GET', '/api/projects/:id'),
+    r('GET', '/api/oracle/projects'),
+    r('GET', '/api/clients'),
+    r('GET', '/api/clients/:id'),
+    r('GET', '/api/arcs'),
+    r('GET', '/api/arcs/:id'),
+    r('GET', '/api/waits'),
+    r('GET', '/api/email-asks'),
+    r('GET', '/api/waiting-on-me'),
+    // What create-task.py resolves names through
+    r('GET', '/api/sites'),
+    r('GET', '/api/sops'),
+    r('GET', '/api/sops/:id'),
+    r('GET', '/api/users'),
   ],
 };
 

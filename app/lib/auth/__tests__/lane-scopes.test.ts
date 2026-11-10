@@ -39,18 +39,33 @@ function routeTree(): Array<[string[], Set<string>]> {
 }
 
 const isDyn = (s: string) => s.startsWith('[');
+
+/**
+ * Lane entries whose route file a later task of the same build creates. Bast chat (implementation/plans/
+ * bast-chat.md): task C1 lands the lane, task C3 lands these worker routes. An entry here may be missing from
+ * the tree; once its file exists it is checked like any other entry. C3 empties this list.
+ */
+const PENDING_ROUTES: ReadonlySet<string> = new Set([
+  'bast-chat: GET /api/bast-chat/worker/inbox',
+  'bast-chat: POST /api/bast-chat/worker/heartbeat',
+  'bast-chat: GET /api/bast-chat/worker/conversations/:id',
+  'bast-chat: PATCH /api/bast-chat/worker/conversations/:id',
+  'bast-chat: POST /api/bast-chat/worker/conversations/:id/events',
+  'bast-chat: POST /api/bast-chat/worker/actions',
+  'bast-chat: GET /api/bast-chat/worker/today',
+]);
 const segMatch = (p: string, s: string) => (p.startsWith(':') ? isDyn(s) : p === s);
 
 describe('lane list', () => {
   it('has the fixed lanes in order, each with a route and an identity', () => {
     expect(LANES).toEqual([
       'courier', 'bellringer', 'portal-chat-machine', 'qbo', 'porter', 'wright', 'clarity', 'bast',
-      'audit-lane', 'troubador', 'oracle', 'design-worker',
+      'audit-lane', 'troubador', 'oracle', 'design-worker', 'bast-chat',
     ]);
     for (const l of LANES) expect(LANE_ROUTES[l].length).toBeGreaterThan(0);
   });
 
-  it('every lane key is Bast except Troubador, Oracle and design-worker (no lane acts as Mike)', () => {
+  it('every lane key is Bast except Troubador, Oracle and design-worker (no lane acts as Mike; bast-chat is Bast)', () => {
     for (const l of LANES) {
       expect(LANE_IDENTITY[l]).toBe(l === 'troubador' ? 'troubador' : l === 'oracle' ? 'oracle' : l === 'design-worker' ? 'design-worker' : 'bast');
     }
@@ -73,10 +88,20 @@ describe('lane list', () => {
         const want = r.pattern.split('/');
         const hit = tree.some(([segs, ms]) =>
           segs.length === want.length && want.every((p, i) => segMatch(p, segs[i])) && ms.has(r.method));
-        if (!hit) missing.push(`${l}: ${r.method} ${r.pattern}`);
+        const name = `${l}: ${r.method} ${r.pattern}`;
+        if (!hit && !PENDING_ROUTES.has(name)) missing.push(name);
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it('the pending list names only bast-chat worker routes that are in the lane', () => {
+    for (const name of PENDING_ROUTES) {
+      expect(name.startsWith('bast-chat: ')).toBe(true);
+      const [method, pattern] = name.slice('bast-chat: '.length).split(' ');
+      expect(pattern.startsWith('/api/bast-chat/worker/')).toBe(true);
+      expect(LANE_ROUTES['bast-chat'].some((r) => r.method === method && r.pattern === pattern)).toBe(true);
+    }
   });
 
   it('a :param never stands in for a static sibling route (exceptions cover the tree)', () => {
