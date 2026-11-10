@@ -34,6 +34,7 @@ const rows: Array<{ route: string; handler: Handler; path: string; method: strin
   { route: 'PATCH /api/design/runner/jobs/:id', handler: job.PATCH as never, path: `/jobs/${ID}`, method: 'PATCH', params: { id: ID } },
   { route: 'POST /api/design/runner/tracks/:id/assets', handler: assets.POST as never, path: `/tracks/${ID}/assets`, method: 'POST', params: { id: ID } },
   { route: 'GET /api/design/runner/tracks/:id/assets/:assetId', handler: asset.GET as never, path: `/tracks/${ID}/assets/${ID}`, method: 'GET', params: { id: ID, assetId: ID } },
+  { route: 'PATCH /api/design/runner/tracks/:id/assets/:assetId', handler: asset.PATCH as never, path: `/tracks/${ID}/assets/${ID}`, method: 'PATCH', params: { id: ID, assetId: ID } },
   { route: 'POST /api/design/runner/tracks/:id/references', handler: refs.POST as never, path: `/tracks/${ID}/references`, method: 'POST', params: { id: ID } },
   { route: 'PATCH /api/design/runner/references/:id', handler: ref.PATCH as never, path: `/references/${ID}`, method: 'PATCH', params: { id: ID } },
   { route: 'POST /api/design/runner/tracks/:id/briefs', handler: briefs.POST as never, path: `/tracks/${ID}/briefs`, method: 'POST', params: { id: ID } },
@@ -60,7 +61,7 @@ const call = (r: (typeof rows)[number]) =>
 describe('design-track runner routes: auth matrix', () => {
   it('has a handler row for every lane route and no other', () => {
     expect(rows.map((r) => r.route).sort()).toEqual(LANE_ROUTES['design-track'].map((r) => `${r.method} ${r.pattern}`).sort());
-    expect(rows).toHaveLength(12);
+    expect(rows).toHaveLength(13);
   });
 
   it.each(rows.map((r) => [r.route, r] as const))('%s: anonymous is 401', async (_n, r) => {
@@ -75,7 +76,7 @@ describe('design-track runner routes: auth matrix', () => {
     });
   }
 
-  it('no runner route is reachable through the session identity: a designer session is refused on all 12', async () => {
+  it('no runner route is reachable through the session identity: a designer session is refused on all 13', async () => {
     as.mockResolvedValue({ userId: ID, email: 'd@example.test', role: 'designer', via: 'session' });
     for (const r of rows) expect((await call(r)).status, r.route).toBe(403);
   });

@@ -279,7 +279,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design/worker/commands/:id'),
     r('PATCH', '/api/design/worker/publishes/:id'),
   ],
-  // Designer Portal v2 Bast runner (SPEC 6.1a). Minted for the Bast user, always enforced; exactly these 12, all under
+  // Designer Portal v2 Bast runner (SPEC 6.1a). Minted for the Bast user, always enforced; exactly these 13, all under
   // /api/design/runner/. Every :param sits in a folder that holds only its [id] segment, so PARAM_EXCEPT needs no entry.
   'design-track': [
     r('GET', '/api/design/runner/candidates'),
@@ -289,6 +289,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design/runner/jobs/:id'),
     r('POST', '/api/design/runner/tracks/:id/assets'),
     r('GET', '/api/design/runner/tracks/:id/assets/:assetId'),
+    r('PATCH', '/api/design/runner/tracks/:id/assets/:assetId'),
     r('POST', '/api/design/runner/tracks/:id/references'),
     r('PATCH', '/api/design/runner/references/:id'),
     r('POST', '/api/design/runner/tracks/:id/briefs'),

@@ -1521,6 +1521,19 @@ export const designEndpoints: ApiEndpoint[] = [
         responseExample: { note: 'Binary body, not JSON. Content-Type application/octet-stream; X-Design-Asset-Kind and X-Design-Asset-Type carry the kind and the sniffed type.' },
         responseNotes: '404 for an asset of another track.',
       },
+      {
+        method: 'PATCH',
+        summary: 'Reject a pending upload (SPEC 3.3). Design-track lane only.',
+        auth: 'required',
+        roles: RUNNER,
+        queryParams: [trackIdParam, { name: 'assetId', type: 'uuid', required: true, description: 'Track asset id (path)' }],
+        bodySchema: [
+          { name: 'status', type: 'string', required: true, description: 'Only "rejected"' },
+          { name: 'reject_reason', type: 'string', required: true, description: 'too_many_pixels, not_an_image, type_not_allowed, pdf_failed, svg_refused, svg_failed, timeout, too_large or processing_failed' },
+        ],
+        responseExample: { asset: { id: 'uuid', track_id: 'uuid', kind: 'upload', status: 'rejected', content_type: 'string', bytes: 'number' } },
+        responseNotes: '200. A pending upload becomes rejected; one already rejected is returned unchanged (the first reason stays). 409 already_ready (the upload has renders), 409 not_upload; 400 for any other body; 404 for an asset of another track.',
+      },
     ],
   },
   {

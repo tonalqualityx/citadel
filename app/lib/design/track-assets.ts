@@ -225,6 +225,45 @@ export const runnerAssetView = (a: DesignTrackAsset) => ({
   page_path: a.page_path, viewport_w: a.viewport_w,
 });
 
+/** The reasons the runner may give when it rejects an upload. Mirrors REJECT_MESSAGES in design-track/upload_handler.py. */
+export const UPLOAD_REJECT_CODES = [
+  'too_many_pixels', 'not_an_image', 'type_not_allowed', 'pdf_failed', 'svg_refused', 'svg_failed', 'timeout', 'too_large', 'processing_failed',
+] as const;
+export type UploadRejectCode = (typeof UPLOAD_REJECT_CODES)[number];
+
+/** A plain sentence for a designer, per reject code (the board shows it). */
+export const UPLOAD_REJECT_SENTENCES: Record<UploadRejectCode, string> = {
+  too_many_pixels: 'This image is bigger than we can handle. Please make it smaller and upload it again.',
+  not_an_image: 'We could not read this file as an image or a PDF.',
+  type_not_allowed: 'We do not accept this kind of file here.',
+  pdf_failed: 'We could not turn this PDF into pictures.',
+  svg_refused: 'We could not accept this SVG because it holds things an upload may not, such as scripts, links or other files.',
+  svg_failed: 'We could not draw this SVG.',
+  timeout: 'This file took too long to open.',
+  too_large: 'This file, or the picture made from it, is too large.',
+  processing_failed: 'We could not open this file.',
+};
+
+/**
+ * The runner rejects a pending upload (SPEC 6.1a): one conditional update, so two concurrent calls cannot both write.
+ * pending becomes rejected with the reason; already rejected is returned unchanged (the stored reason stays); ready is
+ * 409 already_ready; a non-upload is 409 not_upload; an asset of another track is 404.
+ */
+export async function rejectUpload(trackId: string, assetId: string, reason: UploadRejectCode): Promise<DesignTrackAsset> {
+  if (!isUuid(trackId) || !isUuid(assetId)) throw notFound();
+  const asset = await prisma.designTrackAsset.findFirst({ where: { id: assetId, track_id: trackId } });
+  if (!asset) throw notFound();
+  if (asset.kind !== 'upload') throw new ApiError('Only an upload can be rejected', 409, 'not_upload');
+  const done = await prisma.designTrackAsset.updateMany({
+    where: { id: assetId, track_id: trackId, kind: 'upload', status: 'pending' },
+    data: { status: 'rejected', reject_reason: reason },
+  });
+  const now = await prisma.designTrackAsset.findFirst({ where: { id: assetId, track_id: trackId } });
+  if (!now) throw notFound();
+  if (done.count === 1 || now.status === 'rejected') return now;
+  throw new ApiError('That upload is already ready', 409, 'already_ready');
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------------------------------------

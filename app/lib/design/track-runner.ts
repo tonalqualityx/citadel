@@ -203,9 +203,18 @@ export async function runnerBrandProfileFor(projectId: string) {
 }
 
 /** The track row plus any of the requested includes. */
+/** The name of the client that owns the track's project, else its site; null when neither has one. Runner view only. */
+export async function clientNameFor(projectId: string, siteId: string): Promise<string | null> {
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { client: { select: { name: true } } } });
+  if (project?.client?.name) return project.client.name;
+  const site = await prisma.site.findUnique({ where: { id: siteId }, select: { client: { select: { name: true } } } });
+  return site?.client?.name ?? null;
+}
+
 export async function readTrack(trackId: string, includes: TrackInclude[]) {
   const track = await loadTrack(prisma, trackId);
-  const out: Record<string, unknown> = { track: trackView(track) };
+  // client_name rides on the runner's track read only (never in trackView, which the claim and start routes share).
+  const out: Record<string, unknown> = { track: { ...trackView(track), client_name: await clientNameFor(track.project_id, track.site_id) } };
   for (const inc of includes) {
     switch (inc) {
       case 'brief': {

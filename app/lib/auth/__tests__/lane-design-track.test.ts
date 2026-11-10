@@ -52,6 +52,7 @@ const RUNNER_ROUTES = [
   'PATCH /api/design/runner/jobs/7f1c',
   'POST /api/design/runner/tracks/7f1c/assets',
   'GET /api/design/runner/tracks/7f1c/assets/9a2b',
+  'PATCH /api/design/runner/tracks/7f1c/assets/9a2b',
   'POST /api/design/runner/tracks/7f1c/references',
   'PATCH /api/design/runner/references/7f1c',
   'POST /api/design/runner/tracks/7f1c/briefs',
@@ -71,8 +72,8 @@ describe('lane design-track', () => {
     expect(keyScopesSchema.safeParse(['lane:design-track', 'lane:design-worker', 'scope-mode:enforce']).success).toBe(false);
   });
 
-  it('the lane list holds exactly the 12 runner routes, all under /api/design/runner/', () => {
-    expect(LANE_ROUTES['design-track']).toHaveLength(12);
+  it('the lane list holds exactly the 13 runner routes, all under /api/design/runner/', () => {
+    expect(LANE_ROUTES['design-track']).toHaveLength(13);
     expect(LANE_ROUTES['design-track'].every((r) => r.pattern.startsWith('/api/design/runner/'))).toBe(true);
     for (const rt of RUNNER_ROUTES) {
       const [method, path] = rt.split(' ');
