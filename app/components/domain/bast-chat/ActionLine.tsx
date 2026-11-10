@@ -33,6 +33,24 @@ const BTN = 'home-btn';
 const FLAG: React.CSSProperties = { borderLeft: '3px solid var(--accent)', paddingLeft: 8 };
 /** Chat-written text in full (VERIFY-3 X1): kept line breaks, long words wrap, a long text scrolls inside its box. */
 const FULL_TEXT: React.CSSProperties = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 240, overflowY: 'auto' };
+/**
+ * VERIFY-5 Z11: words a task holds (a title, a description, a note, a checklist line: anyone, the chat included, could
+ * have written them) are shown only inside a quoted box under a fixed label the server or the panel writes. So text
+ * that imitates the card's own lines ("Changed from this chat: nothing.") can only ever appear inside a box, never as
+ * a line of the card.
+ */
+const QUOTE: React.CSSProperties = { ...FULL_TEXT, border: '1px dashed var(--border)', borderRadius: 4, padding: '4px 8px', background: 'var(--bg)' };
+
+function Quoted({ label, children, testId, textTestId }: { label: string; children: React.ReactNode; testId?: string; textTestId?: string }) {
+  return (
+    <div className="home-small" data-testid={testId} style={FLAG}>
+      <p style={{ fontWeight: 600 }}>{label}</p>
+      <div data-testid={textTestId} data-quoted="true" style={QUOTE}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 const STATUS_WORDS: Record<string, string> = {
   not_started: 'not started',
@@ -63,9 +81,9 @@ function ReadBlock({ read }: { read: CardRead }) {
   const changed = changedLine(read);
   return (
     <li data-testid="card-read" style={{ display: 'flex', flexDirection: 'column', gap: 2, listStyle: 'none' }}>
-      <p className="home-small" style={{ fontWeight: 600 }}>
+      <Quoted label="Task:" testId="card-read-title" textTestId="card-read-title-text">
         {read.title}
-      </p>
+      </Quoted>
       {meta.length > 0 ? <p className="home-small home-muted">{meta.join(', ')}</p> : null}
       {changed ? (
         <p className="home-small" data-testid="chat-changed" style={{ fontWeight: 600, borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
@@ -83,12 +101,9 @@ function ReadBlock({ read }: { read: CardRead }) {
         </p>
       ) : null}
       {(read.chat_notes ?? []).map((n, i) => (
-        <div key={`n${i}`} className="home-small" data-testid="chat-note" style={FLAG}>
-          <p style={{ fontWeight: 600 }}>{n.on ? `Note from this chat on ${n.on}:` : 'Note from this chat:'}</p>
-          <p data-testid="chat-note-text" style={FULL_TEXT}>
-            {n.text}
-          </p>
-        </div>
+        <Quoted key={`n${i}`} label={n.on ? `Note from this chat on ${n.on}:` : 'Note from this chat:'} testId="chat-note" textTestId="chat-note-text">
+          {n.text}
+        </Quoted>
       ))}
       {read.chat_notes_more_line ? (
         <p className="home-small" data-testid="chat-notes-more" style={{ ...FLAG, fontWeight: 600 }}>
@@ -96,23 +111,23 @@ function ReadBlock({ read }: { read: CardRead }) {
         </p>
       ) : null}
       {(read.chat_text ?? []).map((t, i) => (
-        <div key={`t${i}`} className="home-small" data-testid="chat-text" style={FLAG}>
-          <p style={{ fontWeight: 600 }}>{`${t.label}:`}</p>
-          <p data-testid="chat-text-value" style={FULL_TEXT}>
-            {t.text}
-          </p>
-        </div>
+        <Quoted key={`t${i}`} label={`${t.label}:`} testId="chat-text" textTestId="chat-text-value">
+          {t.text}
+        </Quoted>
       ))}
-      {read.excerpt ? <p className="home-small">{read.excerpt}</p> : null}
+      {read.excerpt ? (
+        <Quoted label="Description starts:" testId="card-excerpt">
+          {read.excerpt}
+        </Quoted>
+      ) : null}
       {checklist.length > 0 ? (
-        <div className="home-small">
-          <p className="home-muted">Checklist: {checklist.length}</p>
+        <Quoted label={`Checklist: ${checklist.length}`} testId="card-checklist">
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {checklist.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
           </ul>
-        </div>
+        </Quoted>
       ) : null}
       {writes.length > 0 ? <p className="home-small home-muted">Changes: {writes.join(', ')}.</p> : null}
     </li>

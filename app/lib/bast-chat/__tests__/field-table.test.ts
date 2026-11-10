@@ -145,6 +145,16 @@ describe('the reach check on a task Bast holds agrees with the table', () => {
     expect(r.ok, k).toBe(true);
     expect(JSON.stringify(r.body)).not.toMatch(/\u200b|\u202e|\\u200b|\\u202e/);
   });
+  // VERIFY-5 Z3: a task in Sabeen's queue (woken or quiet) is read by Bast's delegate pass, which may take it over.
+  it.each(Object.entries(FIELD_POLICY).filter(([k, p]) => (p.chat === 'patch' || p.chat === 'patch+create') && k !== 'blocking'))('on a quiet Sabeen task: %s', (k, p) => {
+    const quiet = held({ assignee_id: SABEEN_USER_ID, status: 'not_started', tags: [], last_comment_author: 'bot' });
+    const r = checkTaskChange({ current: quiet, change: CHANGES[k], now: NOW });
+    if (p.plain) expect(r.needs_tap, k).toBe(true);
+    if (p.tap === 'typed') expect(r.needs_tap, k).toBe(false);
+  });
+  it('a chat comment on a quiet Sabeen task taps (the delegate pass reads the thread)', () => {
+    expect(checkComment({ task: held({ assignee_id: SABEEN_USER_ID, status: 'not_started', tags: [], last_comment_author: 'bot' }), action: 'add', now: NOW }).needs_tap).toBe(true);
+  });
   it('comments: a chat comment on a task Bast holds taps', () => {
     expect(checkComment({ task: held(), action: 'add', now: NOW }).needs_tap).toBe(true);
   });

@@ -1,9 +1,15 @@
 /**
  * Bast chat: conversations and the event log. Nothing here deletes anything.
  *
- * seq is gapless per conversation and allocated under the conversation ROW LOCK (SELECT ... FOR UPDATE, then
- * UPDATE last_seq = last_seq + n RETURNING), so a later seq is never visible before an earlier one and `feed`
+ * seq is gapless per conversation and allocated under the conversation ROW LOCK (SELECT ... FOR NO KEY UPDATE,
+ * then UPDATE last_seq = last_seq + n RETURNING), so a later seq is never visible before an earlier one and `feed`
  * never skips an event. A repeat `client_ref` returns the first seq and stores nothing.
+ *
+ * FOR NO KEY UPDATE, not FOR UPDATE (VERIFY-5 Z1): writers of this row only change non-key columns (last_seq, status,
+ * cost), so they serialize with each other exactly as before, while a transaction that holds FOR KEY SHARE on the row
+ * (Postgres takes it for the foreign key whenever a transaction inserts or updates a bast_chat_actions or
+ * bast_chat_events row of this conversation) no longer blocks them. With FOR UPDATE, two taps of one conversation each
+ * held KEY SHARE (from their own action-row updates) and each waited for the other's to take the row: a deadlock.
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
@@ -43,7 +49,7 @@ export function assertPayloadCaps(payload: unknown): number {
 
 /** Lock the conversation row and allocate `n` seqs. Returns the first seq and the status. Call inside a transaction. */
 export async function allocateSeq(tx: Prisma.TransactionClient, conversationId: string, n: number): Promise<{ first: number; status: string }> {
-  const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status::text AS status FROM bast_chat_conversations WHERE id = ${conversationId}::uuid FOR UPDATE`;
+  const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status::text AS status FROM bast_chat_conversations WHERE id = ${conversationId}::uuid FOR NO KEY UPDATE`;
   if (locked.length !== 1) throw new ApiError('Chat not found', 404, 'not_found');
   const rows = await tx.$queryRaw<{ last_seq: number }[]>`UPDATE bast_chat_conversations SET last_seq = last_seq + ${n}::int WHERE id = ${conversationId}::uuid RETURNING last_seq`;
   return { first: rows[0].last_seq - n + 1, status: locked[0].status };
@@ -135,7 +141,7 @@ export async function appendMikeMessage(input: AppendMikeInput, db: Db = default
   if (!input.clientRef || input.clientRef.length > 64) throw new ApiError('client_ref is required (max 64 characters)', 400, 'bad_client_ref');
   const now = input.now ?? new Date();
   return db.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string; owner_id: string }[]>`SELECT status::text AS status, owner_id::text AS owner_id FROM bast_chat_conversations WHERE id = ${input.conversationId}::uuid FOR UPDATE`;
+    const locked = await tx.$queryRaw<{ status: string; owner_id: string }[]>`SELECT status::text AS status, owner_id::text AS owner_id FROM bast_chat_conversations WHERE id = ${input.conversationId}::uuid FOR NO KEY UPDATE`;
     if (locked.length !== 1 || locked[0].owner_id !== input.ownerId) throw new ApiError('Chat not found', 404, 'not_found');
     const dup = await tx.bastChatEvent.findUnique({ where: { conversation_id_client_ref: { conversation_id: input.conversationId, client_ref: input.clientRef } }, select: { seq: true } });
     if (dup) return { seq: dup.seq, duplicate: true };
@@ -163,7 +169,7 @@ export async function appendMikeMessage(input: AppendMikeInput, db: Db = default
 export async function requestStop(conversationId: string, ownerId: string, db: Db = defaultDb): Promise<{ queued: boolean }> {
   if (!isChatUuid(conversationId)) throw new ApiError('Chat not found', 404, 'not_found');
   return db.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string; owner_id: string }[]>`SELECT status::text AS status, owner_id::text AS owner_id FROM bast_chat_conversations WHERE id = ${conversationId}::uuid FOR UPDATE`;
+    const locked = await tx.$queryRaw<{ status: string; owner_id: string }[]>`SELECT status::text AS status, owner_id::text AS owner_id FROM bast_chat_conversations WHERE id = ${conversationId}::uuid FOR NO KEY UPDATE`;
     if (locked.length !== 1 || locked[0].owner_id !== ownerId) throw new ApiError('Chat not found', 404, 'not_found');
     if (locked[0].status !== 'running') return { queued: false };
     const pending = await tx.bastChatEvent.count({ where: { conversation_id: conversationId, role: 'system', kind: 'status', delivered_at: null, expired_at: null, payload: { path: ['code'], equals: STOP_CODE } } });

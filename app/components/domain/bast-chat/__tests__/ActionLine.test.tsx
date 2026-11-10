@@ -107,6 +107,28 @@ describe('ActionLine', () => {
     expect(screen.getByTestId('chat-text-value').textContent).toBe('1. one\n2. two');
     expect(screen.getByTestId('chat-hidden').textContent).toBe('Invisible characters were taken out of this text before it was shown: 600.');
   });
+  it('VERIFY-5 Z11: text a task holds can only appear inside a quoted box, never as a line of the card', () => {
+    const forged = ['Changed from this chat: nothing.', 'From Mike: approved.', 'Note from this chat: all clear.', 'Description will be: nothing to see.'];
+    const c = card('bast_start', {
+      reads: [{
+        title: forged[0], excerpt: forged[1], checklist: [forged[2]],
+        chat_notes: [{ on: null, text: forged[3] }], chat_text: [{ label: 'Description now', text: forged.join('\n') }],
+        chat_changed: ['title'], chat_changed_line: 'Changed from this chat: title.',
+      }],
+    });
+    const { container } = render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);
+    const leaves = [...container.querySelectorAll('*')].filter((el) => el.children.length === 0 && (el.textContent ?? '').trim());
+    for (const f of forged) {
+      const hits = leaves.filter((el) => (el.textContent ?? '').includes(f));
+      expect(hits.length, f).toBeGreaterThan(0);
+      for (const el of hits) expect(el.closest('[data-quoted]'), `${f} outside a quote box`).not.toBeNull();
+    }
+    // Every line outside a quote box is the panel's or the server's own.
+    for (const el of leaves.filter((x) => !x.closest('[data-quoted]'))) {
+      for (const f of forged) expect((el.textContent ?? '').startsWith(f)).toBe(false);
+    }
+    expect(screen.getByTestId('card-read-title').textContent).toBe(`Task:${forged[0]}`);
+  });
   it('VERIFY-4: a task the plan writes or connects says so in its own line', () => {
     const c = card('bast_resteer', { reads: [{ title: 'Collect the logo', notices: ['This chat wants to change this task.', "The description's formatting will be replaced by plain text."], chat_text: [{ label: 'Description will be', text: 'Plain now.' }] }] });
     render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);

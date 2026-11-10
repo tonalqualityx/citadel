@@ -44,7 +44,7 @@ import { getSettings } from './settings';
 import { assertWriteAllowed, reserveWrite } from './usage';
 import { isChatUuid } from './worker-kit';
 import { appendChatNote, type ChatNoteCode } from './events';
-import { BAST_USER_ID, BOT_USER_IDS } from './gate-mirror';
+import { BAST_USER_ID, BOT_USER_IDS, DELEGATE_USER_IDS } from './gate-mirror';
 import {
   checkTaskChange,
   checkUndo,
@@ -59,7 +59,7 @@ import {
   type TaskChange,
 } from './worker-reach';
 import { CHAT_COMMENT_PREFIX, isChatComment, scopeOfReads, tapFingerprint, type ReadTaskRow, type WorkerReadSet } from './worker-reads';
-import { UNDO_FORMATTING_TEXT, chatChecklist, chatRichText, everyWord, isPlainChecklist, isPlainRichText, plainLines } from './plain';
+import { UNDO_FORMATTING_TEXT, chatChecklist, chatRichText, everyWord, isPlainChecklist, isPlainRichText, plainFormOf, plainLines, plainString, stripInvisible } from './plain';
 import { EMPTY_SCOPE, mergeScopes, scopeCovers, scopeFor, withLocks, type LockScope } from './task-locks';
 
 type Db = PrismaClient;
@@ -824,6 +824,24 @@ export async function loadReachTask(db: Db, taskId: string): Promise<{ reach: Re
   return { reach, row };
 }
 
+/**
+ * VERIFY-5 Z3: whether a task that is, or is about to be, in a delegate's queue already carries text the chat lane
+ * wrote (a chat record on it, the from-chat tag, a chat comment). Only asked when the task is or goes to a delegate, so
+ * every other change costs no query. Over-counting is safe: it only makes a hand-over a card.
+ */
+async function delegateChatText(db: Db, row: { id: string; assignee_id: string | null; tags: string[] }, plannedAssignee: string | null | undefined): Promise<boolean> {
+  const to = plannedAssignee === undefined ? row.assignee_id : plannedAssignee;
+  if (!to || !DELEGATE_USER_IDS.includes(to)) return false;
+  if ((row.tags ?? []).includes(CHAT_TAG)) return true;
+  const rec = await db.bastChatAction.findFirst({ where: { target_type: 'task', target_id: row.id, status: { in: ['applied', 'released', 'undone'] } }, select: { id: true } });
+  if (rec) return true;
+  const c = await db.comment.findFirst({
+    where: { task_id: row.id, is_deleted: false, OR: [{ actor_lane: { contains: 'bast-chat' } }, { content: { startsWith: CHAT_COMMENT_PREFIX } }] },
+    select: { id: true },
+  });
+  return !!c;
+}
+
 /** Keys a task plan may carry: the section 1.2 fields, by their PATCH body names. Everything else is refused. */
 const taskPlanBodySchema = z
   .object({
@@ -866,6 +884,8 @@ const taskExpectSchema = z
     assignee_id: uuidN.optional(),
     status: z.enum(TASK_STATUSES).optional(),
     title: z.string().optional(),
+    /** An Undo's exact restore, made by prepareUndo (VERIFY-5 Z5). */
+    restore: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -1013,7 +1033,32 @@ interface TaskRestore {
 }
 
 /** What Undo writes for a task record, from the server-written before and after only. Throws when it cannot. */
-function taskRestoreFor(a: BastChatAction): TaskRestore {
+/** The text fields an Undo may normalise, when the value it puts back was itself written by the chat lane. */
+const RESTORE_TEXT_KEYS = ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags'] as const;
+
+/**
+ * Which restored text values were written by the chat lane (VERIFY-5 Z5): an earlier chat record on the task whose
+ * `after` holds exactly that value, or a task the chat filed (`from-chat`: its first text came through the chat). A
+ * value nobody can trace to the chat was written by a person and is put back exactly as it was stored.
+ */
+async function chatWrittenBefore(db: Db, a: BastChatAction, tags: string[]): Promise<Set<string>> {
+  const before = (a.before ?? {}) as Record<string, unknown>;
+  const keys = RESTORE_TEXT_KEYS.filter((k) => k in before);
+  if (keys.length === 0) return new Set();
+  if (tags.includes(CHAT_TAG)) return new Set(keys);
+  const earlier = await db.bastChatAction.findMany({
+    where: { target_type: 'task', target_id: a.target_id, status: { in: ['applied', 'released', 'undone'] }, created_at: { lt: a.created_at }, id: { not: a.id } },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+    select: { after: true },
+  });
+  const out = new Set<string>();
+  for (const k of keys) {
+    if (earlier.some((r) => r.after && typeof r.after === 'object' && k in (r.after as object) && sortedJson((r.after as Record<string, unknown>)[k]) === sortedJson(before[k]))) out.add(k);
+  }
+  return out;
+}
+
+function taskRestoreFor(a: BastChatAction, chatWritten: ReadonlySet<string> = new Set()): TaskRestore {
   const after = recordFields(a.after);
   const before = recordFields(a.before);
   if (!after || !before) throw conflict(CANNOT_UNDO_TEXT, 'not_undoable');
@@ -1035,12 +1080,15 @@ function taskRestoreFor(a: BastChatAction): TaskRestore {
       body.blocked_by_ids = { ...(connect.length ? { connect } : {}), ...(disconnect.length ? { disconnect } : {}) };
     } else body[k] = before[k];
   }
-  // Undo writes through the chat lane too (VERIFY-4 R1): the text it puts back is stored as plain text, with the ids and
-  // ticks the recorded checklist had. Text that cannot be plain (a picture, a table, a section) is not put back.
+  // A value a person wrote is put back exactly as it was stored: it is trusted (VERIFY-5 Z5). A value the chat lane wrote
+  // goes back as plain text (VERIFY-4 R1), with the checklist's server metadata; one that cannot be plain is not put back.
   try {
-    if ('description' in body) body.description = chatRichText(body.description, `${a.target_id}:description`);
-    if ('notes' in body) body.notes = chatRichText(body.notes, `${a.target_id}:notes`);
-    if ('requirements' in body) body.requirements = chatChecklist(body.requirements, before.requirements, `${a.target_id}:requirements`);
+    if ('description' in body && chatWritten.has('description')) body.description = chatRichText(body.description, `${a.target_id}:description`);
+    if ('notes' in body && chatWritten.has('notes')) body.notes = chatRichText(body.notes, `${a.target_id}:notes`);
+    if ('requirements' in body && chatWritten.has('requirements')) body.requirements = chatChecklist(body.requirements, before.requirements, `${a.target_id}:requirements`);
+    if (typeof body.title === 'string' && chatWritten.has('title')) body.title = plainString(body.title).trim();
+    if (typeof body.promised_to === 'string' && chatWritten.has('promised_to')) body.promised_to = plainString(body.promised_to).trim();
+    if (Array.isArray(body.tags) && chatWritten.has('tags')) body.tags = (body.tags as string[]).map((t) => plainString(t).trim());
   } catch (e) {
     if (e instanceof ApiError) throw conflict(UNDO_FORMATTING_TEXT, 'undo_formatting');
     throw e;
@@ -1076,7 +1124,8 @@ export const taskOperation: ChatOperation<TaskInput> = {
     assertPlanTags(loaded.row.tags ?? [], input.body.tags);
     await assertAssignable(ctx.db, input.body.assignee_id);
     const change = await taskChangeFromBody(ctx.db, input.body, loaded.row);
-    const reach = checkTaskChange({ current: loaded.reach, change, now: ctx.now, origin });
+    const chat_written = await delegateChatText(ctx.db, loaded.row, input.body.assignee_id);
+    const reach = checkTaskChange({ current: loaded.reach, change, now: ctx.now, origin, chat_written });
     const r = loaded.row;
     return {
       reach,
@@ -1091,10 +1140,10 @@ export const taskOperation: ChatOperation<TaskInput> = {
     return runPatch(ctx, input.task_id, input.body, e.data as PatchTaskExpect);
   },
   async prepareUndo(ctx, record) {
-    const restore = taskRestoreFor(record);
     const loaded = await loadReachTask(ctx.db, record.target_id);
     if (!loaded) throw conflict(CHANGED_SINCE_TEXT, 'changed_since');
     const row = loaded.row;
+    const restore = taskRestoreFor(record, await chatWrittenBefore(ctx.db, record, row.tags ?? []));
     for (const [k, v] of Object.entries(restore.compare)) {
       if (!holds(row, k as keyof TaskFields, v)) throw conflict(CHANGED_SINCE_TEXT, 'changed_since');
     }
@@ -1104,13 +1153,17 @@ export const taskOperation: ChatOperation<TaskInput> = {
     assertPlanTags(row.tags ?? [], restore.body.tags);
     await assertAssignable(ctx.db, restore.body.assignee_id);
     const change = await taskChangeFromBody(ctx.db, restore.body, row);
-    const reach = checkUndo({ current: loaded.reach, restore: change, now: ctx.now });
-    return { reach, expect: { updated_at: row.updated_at.toISOString() }, copy: { clause: `undo the change to ${quoted(row.title)}` } };
+    const chat_written = await delegateChatText(ctx.db, row, restore.body.assignee_id);
+    const reach = checkUndo({ current: loaded.reach, restore: change, now: ctx.now, chat_written });
+    // The exact restore goes into `expect`, so the card shows it and the write stores it byte for byte (VERIFY-4 R2).
+    return { reach, expect: { updated_at: row.updated_at.toISOString(), restore: restore.body as Json }, copy: { clause: `undo the change to ${quoted(row.title)}` } };
   },
   async undo(ctx, record, expect) {
     const e = taskExpectSchema.safeParse(expect);
     if (!e.success) return { ok: false, reason: 'invalid' };
-    const restore = taskRestoreFor(record);
+    const planned = e.data.restore === undefined ? null : taskPlanBodySchema.safeParse(e.data.restore);
+    if (planned && !planned.success) return { ok: false, reason: 'invalid' };
+    const restore = { ...taskRestoreFor(record), ...(planned?.success ? { body: planned.data } : {}) };
     // The values the record wrote join the compare-and-set where patchTask can take them; the rest were compared
     // on the read that `expect.updated_at` pins.
     const c = restore.compare;
@@ -1163,11 +1216,10 @@ function viewLine(view: string | undefined): string {
  * tag characters; and control characters other than a line break), which are taken out and counted so the card can
  * say so. Line breaks are kept, an em or en dash reads as a comma. Over `max` it is cut and marked.
  */
-const INVISIBLE = /[\p{Cf}\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu;
 export function cardText(raw: unknown, max: number): { text: string; hidden: number; cut: boolean } {
-  let t = String(raw ?? '').replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n');
-  const hidden = (t.match(INVISIBLE) ?? []).length;
-  t = t.replace(INVISIBLE, '').replace(/[ \t]*[\u2013\u2014][ \t]*/g, ', ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const stripped = stripInvisible(String(raw ?? ''));
+  const hidden = stripped.removed;
+  const t = stripped.text.replace(/[ \t]*[\u2013\u2014][ \t]*/g, ', ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   const cut = t.length > max;
   return { text: cut ? t.slice(0, max) : t, hidden, cut };
 }
@@ -1317,7 +1369,8 @@ async function namesById(db: Db, kind: 'site' | 'client' | 'sop' | 'arc' | 'user
  * re-checks. For each task Bast would read it shows the text, and everything the chat wrote there or on a task it
  * waits on: the flag line, the current text of each changed field, and the text of each chat comment (VERIFY-2 N2, N3).
  */
-async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, set: WorkerReadSet, payload: CardPayload | null = null): Promise<ProposalCard> {
+async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, set: WorkerReadSet, payload: CardPayload | null = null): Promise<{ card: ProposalCard; rewrites: PlanRewrite[] }> {
+  const rewrites: PlanRewrite[] = [];
   type ReadLike = { task_id: string; title: string | null; description: unknown; requirements: unknown; status: string | null; site_id: string | null; client_id: string | null; sop_id: string | null; changed: string[] };
   const fromSet = (id: string): ReadLike => {
     const t = set.tasks.get(id)!;
@@ -1424,6 +1477,26 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
         return i < 0 ? FIELD_ORDER.length : i;
       };
       const ownKeys = keys.filter((k) => k !== '*').sort((x, y) => rank(x) - rank(y));
+      // VERIFY-5 Z4: chat text stored earlier with more than plain words is shown plain and stored plain by the tap.
+      if (row) {
+        for (const k of ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags'] as const) {
+          if (!keys.includes(k) && !(keys.includes('*') && WHOLE_TASK_FIELDS.includes(k))) continue;
+          if (payload && payload.task_id === taskId && k in planned) continue; // the plan writes it anyway
+          if (rewrites.some((w) => w.task_id === taskId && w.field === k)) continue;
+          let form: ReturnType<typeof plainFormOf>;
+          try {
+            form = plainFormOf(k, row[k], taskId);
+          } catch {
+            incomplete = true; // no plain form can be made: the card cannot promise what Bast reads
+            continue;
+          }
+          if (!form) continue;
+          rewrites.push({ task_id: taskId, field: k, value: form.value as never });
+          const f = CARD_FIELDS[k];
+          notice(r.task_id, `The ${f.word}${on ? ` of ${on}` : ''} the chat wrote earlier holds more than plain text. Your tap stores it as the plain text shown.`);
+          texts.push({ label: on ? `${f.label} of ${on} after your tap` : `${f.label} after your tap`, text: take(form.display, CARD_TEXT_MAX) || '(empty)' });
+        }
+      }
       for (const k of [...(keys.includes('*') ? WHOLE_TASK_FIELDS : []), ...ownKeys]) {
         const f = CARD_FIELDS[k];
         if (!keys.includes('*') || !WHOLE_TASK_FIELDS.includes(k)) flags.push(f ? (on ? `the ${f.word} of ${on}` : f.word) : on ? `details of ${on}` : 'details');
@@ -1520,6 +1593,10 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       case 'changes_dependent_title':
         push(`Bast's task ${titleOf(h.task_id)} lists this title as a task that waits on it.`);
         break;
+      case 'edits_delegate_text':
+      case 'hands_chat_text_to_delegate':
+        push("This is in Sabeen's queue. When a person next writes on it, Bast's worker reads it and may take it over.");
+        break;
       case 'wakes_delegate':
       case 'edits_woken_delegate_task':
         push("Bast's worker will read Sabeen's thread.");
@@ -1551,7 +1628,8 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
   const kind: CardKind = reach.starts.length > 0 ? (isStart ? 'bast_start' : 'bast_resteer') : 'client_show';
   const clause = cleanLine(copy.clause, 200);
   const buttons = copy.buttons ? { yes: cleanLine(copy.buttons.yes, 40), no: cleanLine(copy.buttons.no, 40) } : CARD_BUTTONS[kind];
-  return { kind, title: `${capFirst(clause)}?`, lines, reads: cardReads, client, buttons, clause, ...(incomplete ? { incomplete: true, incomplete_line: CARD_INCOMPLETE_TEXT } : {}) };
+  const card: ProposalCard = { kind, title: `${capFirst(clause)}?`, lines, reads: cardReads, client, buttons, clause, ...(incomplete ? { incomplete: true, incomplete_line: CARD_INCOMPLETE_TEXT } : {}) };
+  return { card, rewrites };
 }
 
 function storedReach(reach: ReachResult, card: ProposalCard, fingerprint: string): StoredReach {
@@ -1568,9 +1646,19 @@ function storedReach(reach: ReachResult, card: ProposalCard, fingerprint: string
 // Plans
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The version of a stored plan and of the fingerprint beside it (VERIFY-5 Z6). A proposal stored by any other version
+ * fails closed at the tap: its fingerprint was made by other rules, so a match proves nothing.
+ */
+export const PLAN_VERSION = 6;
+/** A rewrite the tap makes in the same transaction (VERIFY-5 Z4): older chat text stored with more than plain words. */
+const rewriteSchema = z
+  .object({ task_id: z.string().uuid(), field: z.enum(['title', 'description', 'notes', 'requirements', 'promised_to', 'tags']), value: z.unknown() })
+  .strict();
+export type PlanRewrite = z.infer<typeof rewriteSchema>;
 const planSchema = z.discriminatedUnion('kind', [
-  z.object({ v: z.literal(2), kind: z.literal('apply'), op: z.string().min(1).max(40), input: z.unknown(), expect: z.unknown() }).strict(),
-  z.object({ v: z.literal(2), kind: z.literal('undo'), op: z.string().min(1).max(40), undo_of: z.string().uuid(), expect: z.unknown() }).strict(),
+  z.object({ v: z.literal(PLAN_VERSION), kind: z.literal('apply'), op: z.string().min(1).max(40), input: z.unknown(), expect: z.unknown(), rewrites: z.array(rewriteSchema).max(200).optional() }).strict(),
+  z.object({ v: z.literal(PLAN_VERSION), kind: z.literal('undo'), op: z.string().min(1).max(40), undo_of: z.string().uuid(), expect: z.unknown(), rewrites: z.array(rewriteSchema).max(200).optional() }).strict(),
 ]);
 type StoredPlan = z.infer<typeof planSchema>;
 const parsePlan = (v: unknown): StoredPlan | null => {
@@ -1627,13 +1715,10 @@ function payloadOf(plan: StoredPlan, undone: BastChatAction | null): CardPayload
     return null;
   }
   if (!undone || undone.target_type !== 'task') return null;
-  try {
-    const r = taskRestoreFor(undone);
-    const connect = (r.body.blocked_by_ids as { connect?: string[] } | undefined)?.connect ?? [];
-    return { task_id: undone.target_id, body: { ...r.body }, label: 'after Undo', connect };
-  } catch {
-    return null;
-  }
+  const restore = (plan.expect as { restore?: Record<string, unknown> } | null)?.restore;
+  if (!restore || typeof restore !== 'object') return null;
+  const connect = (restore.blocked_by_ids as { connect?: string[] } | undefined)?.connect ?? [];
+  return { task_id: undone.target_id, body: { ...restore }, label: 'after Undo', connect };
 }
 
 /** Everything the tap or an Undo locks: the seeds, the tasks the stored card reads, their blockers and dependents, their projects. */
@@ -1687,7 +1772,7 @@ export interface ProposalResult {
  * the conversation, the target and `turn_seq`. Reserves today's write when `reserve` is true.
  */
 export async function storeProposal(p: StoreProposalInput): Promise<ProposalResult> {
-  return storeProposalRow({ ...p, plan: { v: 2, kind: 'apply', op: p.op, input: p.input, expect: p.prepared.expect } });
+  return storeProposalRow({ ...p, plan: { v: PLAN_VERSION, kind: 'apply', op: p.op, input: p.input, expect: p.prepared.expect } });
 }
 
 async function storeProposalRow(
@@ -1725,7 +1810,9 @@ async function storeProposalRow(
   // and anything written after this load changes the fingerprint.
   const seeds = seedsOf(p.plan, p.undone ?? null);
   const { fingerprint, set } = await tapFingerprint(db, reach, seeds.tasks);
-  const card = await buildCard(db, reach, p.prepared.copy, now, set, payloadOf(p.plan, p.undone ?? null));
+  const built = await buildCard(db, reach, p.prepared.copy, now, set, payloadOf(p.plan, p.undone ?? null));
+  const card = built.card;
+  const plan: StoredPlan = built.rewrites.length ? { ...p.plan, rewrites: built.rewrites } : p.plan;
   const why = card.lines[0] ?? card.client[0] ?? '';
   const line = cleanLine(`Proposed: ${card.clause}.${why ? ` ${why}` : ''}`, 300);
   const kind: 'bast_start' | 'client_show' = reach.proposal_kind ?? 'bast_start';
@@ -1747,7 +1834,7 @@ async function storeProposalRow(
         status: 'proposed',
         undo_until: null,
         proposal_kind: kind,
-        plan: p.plan as unknown as Json,
+        plan: plan as unknown as Json,
         reach: storedReach(reach, card, fingerprint) as unknown as Json,
       },
       select: { id: true },
@@ -1826,7 +1913,7 @@ export async function recordAction(
     prepared,
     reserve: true,
     eventSeq: input.event_seq ?? null,
-    plan: { v: 2, kind: 'apply', op: 'task', input: taskInput, expect: prepared.expect },
+    plan: { v: PLAN_VERSION, kind: 'apply', op: 'task', input: taskInput, expect: prepared.expect },
     allowNoReach: true,
     now,
     db,
@@ -1920,21 +2007,24 @@ export async function releaseAction(actionId: string, actorId: string, now: Date
   } catch (e) {
     if (!(e instanceof DeadTap)) throw e;
     // Everything the tap did under the locks rolled back; the proposal is marked dead on its own, for good.
-    const refusal = changedSinceFor(a.target_type);
+    const refusal = e.refusal ?? changedSinceFor(a.target_type);
     const marked = await db.bastChatAction.updateMany({ where: { id: a.id, status: 'proposed' }, data: { status: 'failed', error: refusal, resolved_at: now, resolved_by_id: actorId } });
     if (marked.count === 1) {
-      await db.$transaction((tx) => appendChatNote(tx, a.conversation_id, { code: 'action_failed', text: `Mike's tap did not go through, nothing changed: ${clauseOf(a)}. It changed since.`, action_id: a.id }));
+      await db.$transaction((tx) => appendChatNote(tx, a.conversation_id, { code: 'action_failed', text: `Mike's tap did not go through, nothing changed: ${clauseOf(a)}. ${e.refusal ? 'It was too long to show on the card.' : 'It changed since.'}`, action_id: a.id }));
     }
-    throw conflict(refusal, 'changed_since');
+    throw conflict(refusal, e.refusal ? 'card_incomplete' : 'changed_since');
   }
 }
 
 /** Thrown inside the locks when the tap must not go through: it rolls back the claim and anything written. */
 class DeadTap extends Error {
-  constructor() {
+  /** The refusal to give instead of "Changed since", when that would not be true. */
+  constructor(readonly refusal: string | null = null) {
     super('dead tap');
   }
 }
+/** VERIFY-5 Z9: a card that could not show everything never changed; say what is true. */
+export const TOO_LONG_TEXT = 'This is too long to show on the card. Open the task.';
 
 /**
  * How long a claim on a proposal may stand without its outcome. A locked tap claims inside its transaction, so a
@@ -1969,7 +2059,7 @@ async function releaseLocked(
     throw new DeadTap();
   };
   if (!plan || !op || !stored) return dead();
-  if (stored.card?.incomplete) return dead(); // a card that could not show all the text can never be tapped
+  if (stored.card?.incomplete) throw new DeadTap(TOO_LONG_TEXT); // a card that could not show all the text can never be tapped
   const ctx: OpApplyContext = { db, ownerId: actorId, now, actor: await ownerActor(db, actorId) };
   /** The recomputed reach must give the stored fingerprint, and everything it reads must be under the locks. */
   const same = async (reach: ReachResult, seeds: LockScope): Promise<boolean> => {
@@ -2004,6 +2094,11 @@ async function releaseLocked(
     throw e; // a fault: everything rolls back and the proposal is still waiting for a tap
   }
   if (!outcome.ok) return dead();
+  // VERIFY-5 Z4: older chat text the card showed plain is stored plain, in this same transaction.
+  for (const w of plan.rewrites ?? []) {
+    if (!scope.tasks.includes(w.task_id)) return dead();
+    await db.task.update({ where: { id: w.task_id }, data: { [w.field]: w.value as never } });
+  }
   if (undone) {
     await db.bastChatAction.updateMany({ where: { id: undone.id, status: 'applied' }, data: { status: 'undone', resolved_at: now, resolved_by_id: actorId } });
   }
@@ -2082,7 +2177,7 @@ async function undoLocked(first: BastChatAction, op: ChatOperation<unknown>, act
       reserve: false,
       eventSeq: a.event_seq,
       turnSeq: a.turn_seq,
-      plan: { v: 2, kind: 'undo', op: op.name, undo_of: a.id, expect: prepared.expect },
+      plan: { v: PLAN_VERSION, kind: 'undo', op: op.name, undo_of: a.id, expect: prepared.expect },
       targetType: a.target_type,
       targetId: a.target_id,
       undone: a,

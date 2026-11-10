@@ -550,12 +550,22 @@ describe('R3: delegate wake', () => {
   it('Bast\'s eligible task handed to Sabeen with a human last comment changes the wake: reaches', () => {
     reachesWith(patch(bast({ last_comment_author: 'human' }), { assignee_id: SABEEN }), 'wakes_delegate');
   });
-  it('editing a woken Sabeen task changes what the queued session reads; a quiet one does not reach', () => {
+  it('editing a woken Sabeen task changes what the queued session reads; on a quiet one text taps too (VERIFY-5 Z3), typed fields stay free', () => {
     const woken = sabeen({ last_comment_author: 'human' });
     reachesWith(patch(woken, { description: 'New ask' }), 'edits_woken_delegate_task');
     reachesWith(patch(woken, { arc_id: 'arc-2' }), 'edits_woken_delegate_task');
     none(patch(woken, { due_date: '2026-11-12T10:00:00Z' }));
-    none(patch(sabeen({ last_comment_author: 'bot' }), { description: 'New ask' }));
+    const quiet = sabeen({ last_comment_author: 'bot' });
+    for (const change of [{ description: 'New ask' }, { title: 'New' }, { notes: 'n' }, { requirements: [{ text: 'x' }] }, { promised_to: 'Jill' }, { tags: ['x'] }] as TaskChange[]) {
+      reachesWith(patch(quiet, change), 'edits_delegate_text');
+    }
+    for (const change of [{ due_date: '2026-11-12T10:00:00Z' }, { priority: 1 }, { arc_id: 'arc-2' }, { status: 'in_progress' }] as TaskChange[]) none(patch(quiet, change));
+    // A done Sabeen task is out of her queue: the delegate pass does not read it.
+    none(patch(sabeen({ status: 'done' }), { description: 'New ask' }));
+  });
+  it('VERIFY-5 Z3: handing a task to Sabeen taps only when it carries chat-written text', () => {
+    none(checkTaskChange({ current: task(), change: { assignee_id: SABEEN }, now: NOW }));
+    reachesWith(checkTaskChange({ current: task(), change: { assignee_id: SABEEN }, now: NOW, chat_written: true }), 'hands_chat_text_to_delegate');
   });
   it('split: hand to Sabeen while closed (no reach), then reopen (reaches)', () => {
     const t = task({ status: 'done', last_comment_author: 'human' });
@@ -684,8 +694,8 @@ describe('R6: Undo', () => {
     const current2 = bast({ status: 'blocked', tags: ['needs-mike'] });
     reachesWith(checkUndo({ current: current2, restore: { status: 'not_started', tags: [] }, now: NOW }), 'starts_bast_task');
   });
-  it('VERIFY-2 N1: Undo renaming Sabeen\'s task reaches only when her task is woken', () => {
-    none(checkUndo({ current: sabeen(), restore: { title: 'Forged' }, now: NOW }));
+  it('VERIFY-2 N1, VERIFY-5 Z3: Undo renaming Sabeen\'s task reaches, woken or quiet', () => {
+    reachesWith(checkUndo({ current: sabeen(), restore: { title: 'Forged' }, now: NOW }), 'edits_delegate_text');
     reachesWith(checkUndo({ current: sabeen({ last_comment_author: 'human' }), restore: { title: 'Forged' }, now: NOW }), 'edits_woken_delegate_task');
   });
   it('VERIFY-2 N2: Undo abandoning Mike\'s task that a Bast task waits on releases it', () => {
@@ -731,9 +741,9 @@ describe('R7 and 1.3: creating tasks', () => {
   it('a new task for Bast tagged needs-mike still reaches (held)', () => {
     reachesWith(create({ id: 'new', assignee_id: BAST, title: 'x', tags: ['needs-mike'] }), 'create_for_bast');
   });
-  it('a new task for Mike or Sabeen does not reach', () => {
+  it('a new task for Mike does not reach; one for Sabeen does (VERIFY-5 Z3: its text lands in her queue)', () => {
     none(create({ id: 'new', assignee_id: MIKE, title: 'x', tags: ['from-chat'] }));
-    none(create({ id: 'new', assignee_id: SABEEN, title: 'x', tags: ['from-chat'] }));
+    reachesWith(create({ id: 'new', assignee_id: SABEEN, title: 'x', tags: ['from-chat'] }), 'edits_delegate_text');
   });
   it('an unresolved assignee on a project, SOP or arc task reaches (the route may auto-assign)', () => {
     reachesWith(create({ id: 'new', title: 'x', project_id: 'p1' }, false), 'missing_data');
@@ -762,10 +772,11 @@ describe('comments', () => {
     reachesWith(add(bast({ status: 'review' })), 'comment_on_bast_task');
     reachesWith(add(bast({ tags: ['needs-mike'], last_comment_author: 'human' })), 'comment_on_bast_task');
   });
-  it('a chat comment on a closed Bast task, Mike\'s task or a woken Sabeen task does not reach (it quiets her wake)', () => {
+  it('a chat comment on a closed Bast task or Mike\'s task does not reach; on a Sabeen task it does (VERIFY-5 Z3)', () => {
     none(add(bast({ status: 'done' })));
     none(add(task()));
-    none(add(sabeen({ last_comment_author: 'human' })));
+    reachesWith(add(sabeen({ last_comment_author: 'human' })), 'edits_delegate_text');
+    reachesWith(add(sabeen({ last_comment_author: 'bot' })), 'edits_delegate_text');
   });
   it('a chat comment on a task a Bast task waits on reaches (the dependent reads its last comment)', () => {
     const m = task();

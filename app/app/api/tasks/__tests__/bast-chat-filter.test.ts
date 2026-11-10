@@ -6,6 +6,8 @@ import { NextRequest } from 'next/server';
 const OWNER = '3ecfb7be-0000-4000-8000-000000000001';
 const BAST = 'ca5335e7-a374-4eff-92dc-fd67ceef2297';
 const SABEEN = 'b565b492-cdea-497b-a13d-85f003916bf9';
+/** Someone else who is not a delegate: a task of theirs is not in any queue Bast's worker reads (VERIFY-5 Z3). */
+const ANGE = '7a7a7a7a-7a7a-4a7a-8a7a-7a7a7a7a7a7a';
 const CONV = '11111111-1111-4111-8111-111111111111';
 const TASK = '22222222-2222-4222-8222-222222222222';
 const DEP = '33333333-3333-4333-8333-333333333333';
@@ -127,7 +129,7 @@ const bastDependent = (status = 'in_progress') =>
 
 describe('the closed fields are refused with 403 naming the field, nothing written, nothing reserved', () => {
   it.each([...CHAT_CLOSED_FIELDS])('%s', async (field) => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE }));
     const res = await patch({ title: 'ok', [field]: 'x' });
     expect(res.status).toBe(403);
     const j = await res.json();
@@ -141,7 +143,7 @@ describe('the closed fields are refused with 403 naming the field, nothing writt
   });
 
   it('adding client-approved, cp:*, preview-notified:* or from-chat; removing security or security-report: 403', async () => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN, tags: ['security', 'security-report', 'from-chat', 'client-approved'] }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE, tags: ['security', 'security-report', 'from-chat', 'client-approved'] }));
     for (const body of [
       { tags_add: ['client-approved'] }, { tags_add: ['cp:abc'] }, { tags_add: ['preview-notified:x'] }, { tags_add: ['from-chat'] },
       { tags_remove: ['from-chat'] }, { tags_remove: ['client-approved'] },
@@ -202,7 +204,7 @@ describe('a change that starts Bast is a 202 proposal and the task is untouched'
   });
 
   it('assigning Sabeen\'s task to Bast', async () => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE }));
     await expectProposal(await patch({ assignee_id: BAST }));
   });
 
@@ -236,7 +238,7 @@ describe('a change that starts Bast is a 202 proposal and the task is untouched'
       vi.clearAllMocks();
       usageWrites = 0;
       db.bastChatAction.create.mockResolvedValue({ id: 'a1' });
-      db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN, status: 'in_progress', blocking: [bastDependent()] }));
+      db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE, status: 'in_progress', blocking: [bastDependent()] }));
       const res = await patch({ status });
       await expectProposal(res);
       const card = rowOf().reach.card;
@@ -245,7 +247,7 @@ describe('a change that starts Bast is a 202 proposal and the task is untouched'
   });
 
   it('sharing a task with the client is a client_show proposal', async () => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN, client_id: '44444444-4444-4444-8444-444444444444' }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE, client_id: '44444444-4444-4444-8444-444444444444' }));
     const res = await patch({ client_visible: true });
     expect(res.status).toBe(202);
     expect((await res.json()).proposal_kind).toBe('client_show');
@@ -294,7 +296,7 @@ describe('the split attempts (plan 4.2): each step is judged on its own, through
   });
 
   it('rewrite a task Bast waits on, then close it: the rewrite is a proposal too (Bast reads it), and so is the close', async () => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN, status: 'in_progress', blocking: [bastDependent()] }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE, status: 'in_progress', blocking: [bastDependent()] }));
     expect((await patch({ title: 'New name' })).status).toBe(202);
     expect((await patch({ status: 'done' })).status).toBe(202);
     untouched();
@@ -303,18 +305,18 @@ describe('the split attempts (plan 4.2): each step is judged on its own, through
 
 describe('a change that does not reach is written through patchTask with the reach check\'s expect', () => {
   it('Sabeen\'s task is changed: 200, a record, and the write names owner, time, status and title as read', async () => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN, status: 'in_progress' }));
-    db.task.update.mockResolvedValue(task({ assignee_id: SABEEN, status: 'done' }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE, status: 'in_progress' }));
+    db.task.update.mockResolvedValue(task({ assignee_id: ANGE, status: 'done' }));
     const res = await patch({ status: 'done' });
     expect(res.status).toBe(200);
     expect(res.headers.get('X-Bast-Chat-Action')).toBe('a1');
-    expect(db.task.update.mock.calls[0][0].where).toEqual({ id: TASK, assignee_id: SABEEN, updated_at: UPDATED, status: 'in_progress', title: 'Update the invoice template' });
+    expect(db.task.update.mock.calls[0][0].where).toEqual({ id: TASK, assignee_id: ANGE, updated_at: UPDATED, status: 'in_progress', title: 'Update the invoice template' });
     expect(prepareOperation).toHaveBeenCalledTimes(1);
     expect(storeProposal).not.toHaveBeenCalled();
   });
 
   it('the task changed between the reach check and the write: 409, nothing written', async () => {
-    db.task.findUnique.mockResolvedValue(task({ assignee_id: SABEEN, status: 'in_progress' }));
+    db.task.findUnique.mockResolvedValue(task({ assignee_id: ANGE, status: 'in_progress' }));
     db.task.update.mockRejectedValue(Object.assign(new Error('gone'), { code: 'P2025' }));
     const res = await patch({ status: 'done' });
     expect(res.status).toBe(409);
@@ -341,14 +343,22 @@ describe('POST: a create from the chat', () => {
     expect(db.task.create).not.toHaveBeenCalled();
   });
 
-  it('filed for Sabeen, with an ordinary tag: 201, one record that names her', async () => {
-    db.user.findUnique.mockResolvedValue({ id: SABEEN, name: 'Sabeen Ahmed', is_active: true });
-    db.task.create.mockResolvedValue(task({ assignee_id: SABEEN, tags: ['from-chat', 'seo'] }));
-    const res = await post({ ...OK, assignee_id: SABEEN, tags: ['from-chat', 'seo'], promised_to: 'Jill' });
+  it('filed for another person, with an ordinary tag: 201, one record that names them', async () => {
+    db.user.findUnique.mockResolvedValue({ id: ANGE, name: 'Ange Martin', is_active: true });
+    db.task.create.mockResolvedValue(task({ assignee_id: ANGE, tags: ['from-chat', 'seo'] }));
+    const res = await post({ ...OK, assignee_id: ANGE, tags: ['from-chat', 'seo'], promised_to: 'Jill' });
     expect(res.status).toBe(201);
     expect(res.headers.get('X-Bast-Chat-Action')).toBe('a1');
-    expect(rowOf()).toMatchObject({ tool: 'create_task', target_type: 'task', after: { status: 'not_started', assignee_id: SABEEN }, summary: 'Filed "Update the invoice template" for Sabeen.' });
+    expect(rowOf()).toMatchObject({ tool: 'create_task', target_type: 'task', after: { status: 'not_started', assignee_id: ANGE }, summary: 'Filed "Update the invoice template" for Ange.' });
     expect(checkTaskCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('VERIFY-5 Z3: filed into Sabeen\'s queue is refused with its own sentence (Bast\'s delegate pass reads it); nothing written', async () => {
+    db.user.findUnique.mockResolvedValue({ id: SABEEN, name: 'Sabeen Ahmed', is_active: true });
+    const res = await post({ ...OK, assignee_id: SABEEN, tags: ['from-chat', 'seo'] });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("Filing work into Sabeen's queue needs your tap. File it to yourself first, then hand it over.");
+    expect(db.task.create).not.toHaveBeenCalled();
   });
 
   it('a date sent with the create is dropped, not written', async () => {

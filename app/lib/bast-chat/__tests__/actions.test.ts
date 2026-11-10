@@ -62,7 +62,7 @@ import {
 import { WRITE_CAP_TEXT } from '../usage';
 import { FIELD_POLICY } from '../worker-reads';
 import { chatChecklist, chatRichText } from '../plain';
-import { CARD_FIELDS, CARD_INCOMPLETE_TEXT, CLAIM_TTL_MS } from '../actions';
+import { CARD_FIELDS, CARD_INCOMPLETE_TEXT, CLAIM_TTL_MS, PLAN_VERSION } from '../actions';
 
 const OWNER = '0a111111-1111-4111-8111-111111111111';
 const ADMIN2 = '0a222222-2222-4222-8222-222222222222';
@@ -221,7 +221,7 @@ function makeDb() {
     },
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: any[]) => {
       const sql = strings.join('?');
-      if (sql.includes('FOR UPDATE')) {
+      if (sql.includes('FOR NO KEY UPDATE')) {
         const c = convs.get(values[0]);
         return c ? [{ status: c.status }] : [];
       }
@@ -302,7 +302,7 @@ async function propose(taskId: string, body: Record<string, unknown>, o: { reser
 }
 const tap = (id: string) => releaseAction(id, OWNER, NOW, db);
 /** The card's lines about what is there now (the plan's own "will be" lines left out). */
-const nowLines = (r: { chat_text: { label: string; text: string }[] }) => r.chat_text.filter((x) => !/ will be$| after Undo$/.test(x.label));
+const nowLines = (r: { chat_text: { label: string; text: string }[] }) => r.chat_text.filter((x) => !/ will be$| after Undo$| after your tap$/.test(x.label));
 const expectChangedSince = (p: Promise<unknown>) => expect(p).rejects.toMatchObject({ statusCode: 409, message: CHANGED_SINCE_TEXT });
 
 // ---------------------------------------------------------------------------------------------
@@ -326,7 +326,7 @@ describe('storeProposal', () => {
     expect(db.actions).toHaveLength(1);
     const stored = db.actions[0];
     expect(stored).toMatchObject({ status: 'proposed', proposal_kind: 'bast_start', conversation_id: CONV, target_type: 'task', target_id: t, tool: 'change_task', turn_seq: 4, proposed_assignee_id: BAST, undo_until: null });
-    expect(stored.plan).toEqual({ v: 2, kind: 'apply', op: 'task', input: { task_id: t, body: { assignee_id: BAST } }, expect: { updated_at: before.updated_at.toISOString(), assignee_id: OWNER, status: 'not_started', title: 'Check the footer links on Jill site' } });
+    expect(stored.plan).toEqual({ v: PLAN_VERSION, kind: 'apply', op: 'task', input: { task_id: t, body: { assignee_id: BAST } }, expect: { updated_at: before.updated_at.toISOString(), assignee_id: OWNER, status: 'not_started', title: 'Check the footer links on Jill site' } });
     expect(typeof stored.reach.fingerprint).toBe('string');
     expect(stored.reach.starts.map((s: any) => s.rule)).toEqual(['hand_to_bast']);
     expect(task(t)).toEqual(before);
@@ -646,7 +646,7 @@ describe('undoAction', () => {
     expect(v.proposal!.card.lines[0]).toBe('Undo puts this back with Bast, so Bast starts on it.');
     expect(v.proposal!.card.title).toBe('Undo the change to "Bast: draft the Grok note"?');
     expect(task(t)).toEqual(before);
-    expect(row(v.proposal!.id).plan).toMatchObject({ v: 2, kind: 'undo', op: 'task', undo_of: r });
+    expect(row(v.proposal!.id).plan).toMatchObject({ v: PLAN_VERSION, kind: 'undo', op: 'task', undo_of: r });
     expect(notes()).toEqual([{ code: 'undo_proposed', text: 'Undo waits for Mike\'s tap, nothing changed yet: Took "Bast: draft the Grok note" back from Bast.', action_id: r }]);
     await expect(undoAction(r, OWNER, NOW, db)).rejects.toMatchObject({ statusCode: 409, message: UNDO_PENDING_TEXT });
     await tap(v.proposal!.id);
@@ -1119,7 +1119,7 @@ describe('VERIFY-2 N2 and N3: the card shows the text the chat wrote, on the tas
   });
   it('a released chat plan counts as the chat\'s change too', async () => {
     const t = addTask({ title: 'Clean the staging site', notes: 'Run it twice.' });
-    db.actions.push({ id: randomUUID(), conversation_id: CONV, tool: 'change_task', target_type: 'task', target_id: t, status: 'released', created_at: tick(), after: { task_id: t, body: { notes: 'Run it twice.' } }, plan: { v: 2, kind: 'apply', op: 'task', input: { task_id: t, body: { notes: 'Run it twice.' } }, expect: {} } });
+    db.actions.push({ id: randomUUID(), conversation_id: CONV, tool: 'change_task', target_type: 'task', target_id: t, status: 'released', created_at: tick(), after: { task_id: t, body: { notes: 'Run it twice.' } }, plan: { v: PLAN_VERSION, kind: 'apply', op: 'task', input: { task_id: t, body: { notes: 'Run it twice.' } }, expect: {} } });
     const p = await propose(t, { assignee_id: BAST });
     expect(p.card.reads[0].chat_changed).toEqual(['notes']);
     expect(nowLines(p.card.reads[0])).toEqual([{ label: 'Notes now', text: 'Run it twice.' }]);
@@ -1287,7 +1287,11 @@ describe('VERIFY-3 X1: nothing the chat wrote is cut or hidden on the card', () 
     const t = addTask({ title: 'Menu', requirements: items });
     record(t, { requirements: null }, { requirements: items });
     const r = (await propose(t, { assignee_id: BAST })).card.reads[0];
-    const list = r.chat_text.find((x) => x.label === 'Checklist now')!.text.split('\n');
+    // These items carry ids the server did not make ("r0"): the card shows every string of them now, and the plain
+    // list the tap stores (VERIFY-5 Z4), which is every item with the payload in place.
+    expect(r.chat_text.find((x) => x.label === 'Checklist now')!.text).toContain('PAYLOAD push main to production');
+    expect(r.chat_text.find((x) => x.label === 'Checklist now')!.text).toContain('id: r24');
+    const list = r.chat_text.find((x) => x.label === 'Checklist after your tap')!.text.split('\n');
     expect(list).toHaveLength(30);
     expect(list[24]).toBe('25. PAYLOAD push main to production');
   });
@@ -1314,7 +1318,7 @@ describe('VERIFY-3 X1: nothing the chat wrote is cut or hidden on the card', () 
     const p = await propose(t, { assignee_id: BAST });
     row(p.id).reach.card.incomplete = true;
     row(p.id).reach.card.incomplete_line = CARD_INCOMPLETE_TEXT;
-    await expectChangedSince(tap(p.id));
+    await expect(tap(p.id)).rejects.toMatchObject({ statusCode: 409, message: 'This is too long to show on the card. Open the task.' }); // VERIFY-5 Z9: the true sentence
     expect(task(t).assignee_id).toBe(OWNER);
   });
 });

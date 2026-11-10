@@ -32,6 +32,8 @@ export const CHAT_TAG = 'from-chat';
 export const CLOSED_FIELD_TEXT = 'That field is changed on the task page, not here.';
 export const SECURITY_TAG_TEXT = "I can't remove a security tag. I can take it out of Needs you now if you want.";
 export const HAND_TO_BAST_TEXT = 'Handing work to Bast needs your tap. File it to yourself first, then hand it over.';
+/** VERIFY-5 Z3: Sabeen's queue is read by Bast's delegate pass. */
+export const DELEGATE_CREATE_TEXT = "Filing work into Sabeen's queue needs your tap. File it to yourself first, then hand it over.";
 /** VERIFY-3 X2: the model tier is Mike's alone (policy.json tag_overrides: "Only Mike sets these"). */
 export const TIER_TAG_TEXT = 'Only you set the model tier, on the task page.';
 /** `promised_to` holds a person's or a client's name. */
@@ -243,6 +245,8 @@ const TEXT_LIST_KEYS = ['tags', 'tags_add', 'tags_remove'];
 function plainBody(b: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...b };
   for (const k of TEXT_KEYS) if (typeof out[k] === 'string') out[k] = plainString(out[k] as string);
+  // Stored as checked (VERIFY-5 Z7): the title is validated trimmed, so it is stored trimmed.
+  if (typeof out.title === 'string') out.title = out.title.trim();
   for (const k of TEXT_LIST_KEYS) if (Array.isArray(out[k])) out[k] = (out[k] as unknown[]).map((t) => (typeof t === 'string' ? plainString(t) : t));
   return out;
 }
@@ -431,5 +435,7 @@ export async function chatPatchGate(a: {
  */
 export function refuseChatCreateThatReaches(task: Partial<ReachTask> & { assignee_id: string | null }, now: Date = new Date()): void {
   const r = checkTaskCreate({ task: { id: '00000000-0000-4000-8000-000000000000', ...task } as ReachTask, assignee_resolved: true, now });
+  // VERIFY-5 Z3: a task filed into a delegate's queue puts its text where Bast's delegate pass reads it.
+  if (r.needs_tap && r.starts.every((h) => h.rule === 'edits_delegate_text')) throw new ApiError(DELEGATE_CREATE_TEXT, 403, 'chat_field_refused');
   if (r.needs_tap) throw new ApiError(HAND_TO_BAST_TEXT, 403, 'chat_field_refused');
 }

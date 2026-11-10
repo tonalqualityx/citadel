@@ -21,13 +21,33 @@ import { ApiError } from '@/lib/api/errors';
 
 export const RICH_TEXT_REFUSED_TEXT = "That has formatting the chat can't write, like a picture or a table. Send it as plain text.";
 export const CHECKLIST_REFUSED_TEXT = 'A checklist from the chat is a list of lines of text.';
+/** VERIFY-5 Z9: a line the card can always show in full. */
+export const CHECKLIST_LINE_MAX = 500;
+export const CHECKLIST_LINE_TEXT = `A checklist line can be up to ${CHECKLIST_LINE_MAX} characters.`;
 export const UNDO_FORMATTING_TEXT = "That can't be put back as plain text. Open the task.";
 
-const INVISIBLE = /[\p{Cf}\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu;
+/**
+ * Characters nobody can see (VERIFY-5 Z2), by Unicode property rather than by list: every format character (Cf),
+ * control (Cc, except the line break, which is the text's own), private-use (Co), unassigned (Cn) and lone surrogate
+ * (Cs) code point, and every Default_Ignorable_Code_Point (variation selectors, Hangul fillers, the tag block, the
+ * combining grapheme joiner, the Mongolian selectors), plus the two visible-as-nothing characters that are none of
+ * these: the braille blank and the object replacement character.
+ */
+export const INVISIBLE = /(?!\n)[\p{Cf}\p{Cc}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800\uFFFC]/gu;
 
-/** Invisible and control characters out (a tab becomes a space), line breaks plain (a single-line field's own rule then refuses a line break). */
+/** Line breaks made plain and tabs made spaces: the step before the invisible characters go. */
+const plainBreaks = (v: string) => v.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(/\t/g, ' ');
+
+/** Text without its invisible characters, in NFC, and how many were taken out (the card says how many). */
+export function stripInvisible(v: string): { text: string; removed: number } {
+  const b = plainBreaks(v);
+  const removed = (b.match(INVISIBLE) ?? []).length;
+  return { text: b.replace(INVISIBLE, '').normalize('NFC'), removed };
+}
+
+/** Invisible characters out, line breaks plain, NFC (a single-line field's own rule then refuses a line break). */
 export function plainString(v: string): string {
-  return v.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(/\t/g, ' ').replace(INVISIBLE, '');
+  return stripInvisible(v).text;
 }
 
 /** A uuid-shaped id from a seed: the same seed, the same id. */
@@ -141,8 +161,64 @@ export function chatRichText(value: unknown, seed: string): string | null {
   const lines = chatLines(value)
     .map((l) => l.replace(/[ ]+$/g, ''))
     .filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return null;
-  return JSON.stringify(lines.map((l, i) => paragraph(derivedId(seed, 'p', i, l), l)));
+  return plainParagraphs(lines, seed);
+}
+
+/** Lines of plain text as the exact stored paragraphs (null for none). */
+export function plainParagraphs(lines: string[], seed: string): string | null {
+  const ls = lines.filter((l) => l.trim().length > 0);
+  if (ls.length === 0) return null;
+  return JSON.stringify(ls.map((l, i) => paragraph(derivedId(seed, 'p', i, l), l)));
+}
+
+/** Every item text of a stored checklist, sections flattened (for a rewrite of older text). */
+function itemTexts(stored: unknown): string[] {
+  const out: string[] = [];
+  const visit = (v: unknown) => {
+    if (!v || typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    if (Array.isArray(o.items)) {
+      if (typeof o.title === 'string' && o.title.trim()) out.push(o.title);
+      for (const i of o.items) visit(i);
+    } else if (typeof o.text === 'string') out.push(o.text);
+  };
+  if (Array.isArray(stored)) stored.forEach(visit);
+  return out;
+}
+
+export type PlainForm = { value: unknown; display: string };
+
+/**
+ * VERIFY-5 Z4: the plain form of a stored field the chat lane wrote earlier, when it holds more than the plain form
+ * (block ids, types, styles, property names, tick metadata the server did not make, invisible characters), else null.
+ * The card shows `display`, and the tap stores `value` in the same transaction, so what Bast reads after the tap is
+ * exactly the plain text the card showed. Throws an ApiError when the plain form cannot be made (a line over the cap).
+ */
+export function plainFormOf(field: string, value: unknown, taskId: string): PlainForm | null {
+  if (value === null || value === undefined) return null;
+  if (field === 'description' || field === 'notes') {
+    const lines = plainLines(value);
+    if (lines && lines.every((l) => plainString(l) === l)) return null; // plain already, only its ids differ: nothing hidden
+    const src = (lines ?? everyWord(value)).map((l) => plainString(l).replace(/[ ]+$/g, '')).filter((l) => l.trim());
+    return { value: plainParagraphs(src, `${taskId}:${field}`), display: src.join('\n') };
+  }
+  if (field === 'requirements') {
+    const texts = isPlainChecklist(value) ? (value as { text: string }[]).map((i) => i.text) : itemTexts(value);
+    if (isPlainChecklist(value) && texts.every((t) => plainString(t).replace(/\n+/g, ' ').trim() === t)) return null;
+    const list = chatChecklist(texts.filter((t) => plainString(t).trim()), value, `${taskId}:requirements`) ?? [];
+    return { value: list, display: list.map((i, n) => `${n + 1}. ${i.text}`).join('\n') };
+  }
+  if (field === 'title' || field === 'promised_to') {
+    if (typeof value !== 'string') return null;
+    const p = plainString(value).trim();
+    return p === value ? null : { value: p, display: p };
+  }
+  if (field === 'tags') {
+    if (!Array.isArray(value)) return null;
+    const p = (value as unknown[]).map((t) => (typeof t === 'string' ? plainString(t).trim() : String(t)));
+    return p.every((t, i) => t === value[i]) ? null : { value: p, display: p.join(', ') || 'none' };
+  }
+  return null;
 }
 
 /** True when a stored rich text is plain paragraphs exactly as `chatRichText` writes them (or empty). */
@@ -215,33 +291,54 @@ export function chatChecklist(value: unknown, current: unknown, seed: string): C
     if (typeof raw !== 'string') throw refuseList();
     const text = plainString(raw).replace(/\n+/g, ' ').trim();
     if (!text) throw refuseList();
+    if (text.length > CHECKLIST_LINE_MAX) throw new ApiError(CHECKLIST_LINE_TEXT, 403, 'chat_field_refused');
     const old = (have.get(text.toLowerCase()) ?? []).find((x) => !used.has(x));
     if (old) used.add(old);
     const done = !!old && (old.completed === true || old.is_complete === true);
-    const id = old && typeof old.id === 'string' && /^[0-9a-f-]{8,64}$/i.test(old.id) ? old.id : derivedId(seed, 'r', i, text);
+    // The server's metadata only (VERIFY-5 Z4): an id, a time or a person carried from an older item only when it is a
+    // uuid or an ISO time, so no words can ride in them; anything else is made again.
+    const id = old && typeof old.id === 'string' && UUID_RE.test(old.id) ? old.id.toLowerCase() : derivedId(seed, 'r', i, text);
     return {
       id,
       type: 'item' as const,
       text,
       completed: done,
-      completed_at: done && typeof old?.completed_at === 'string' ? old.completed_at : null,
-      completed_by: done && typeof old?.completed_by === 'string' ? old.completed_by : null,
+      completed_at: done && typeof old?.completed_at === 'string' && ISO_RE.test(old.completed_at) ? old.completed_at : null,
+      completed_by: done && typeof old?.completed_by === 'string' && UUID_RE.test(old.completed_by) ? old.completed_by : null,
       sort_order: i,
     };
   });
 }
 
 /** True when a stored checklist is items of text with server metadata only (what `chatChecklist` writes). */
+/**
+ * True when a stored checklist is exactly what `chatChecklist` writes: items of text, and metadata that cannot hold
+ * words (a uuid id, a tick, an ISO time or null, a uuid person or null, a number). Anything else is shown through
+ * `everyWord` and, when the chat wrote it, rewritten by the tap (VERIFY-5 Z4).
+ */
 export function isPlainChecklist(stored: unknown): boolean {
   if (stored === null || stored === undefined) return true;
   if (!Array.isArray(stored)) return false;
-  return stored.every((o) => o && typeof o === 'object' && (o.type === undefined || o.type === 'item') && typeof o.text === 'string' && Object.keys(o).every((k) => LINE_KEYS.includes(k)));
+  return stored.every((o) => {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+    const r = o as Record<string, unknown>;
+    if (Object.keys(r).some((k) => !['id', 'type', 'text', 'completed', 'completed_at', 'completed_by', 'sort_order'].includes(k))) return false;
+    return (
+      typeof r.text === 'string' && (r.type === undefined || r.type === 'item') && typeof r.id === 'string' && UUID_RE.test(r.id) &&
+      (r.completed === undefined || typeof r.completed === 'boolean') && (r.completed_at === undefined || r.completed_at === null || (typeof r.completed_at === 'string' && ISO_RE.test(r.completed_at))) &&
+      (r.completed_by === undefined || r.completed_by === null || (typeof r.completed_by === 'string' && UUID_RE.test(r.completed_by))) &&
+      (r.sort_order === undefined || typeof r.sort_order === 'number')
+    );
+  });
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
-const QUIET_KEYS = ['type', 'styles'];
-const QUIET_VALUES = ['default', 'left', 'center', 'right', 'justify', 'item', 'section', 'paragraph', 'text', 'link'];
+/** BlockNote's structural keys and the keys of a checklist item: their names carry no words. */
+const STRUCTURAL_KEYS = ['id', 'type', 'props', 'content', 'children', 'text', 'styles', 'href', 'textColor', 'backgroundColor', 'textAlignment', 'level', 'start', 'checked', 'bold', 'italic', 'underline', 'strike', 'code', 'title', 'items', 'completed', 'completed_at', 'completed_by', 'sort_order', 'is_complete', 'icon', 'rows', 'cells', 'columnWidths'];
+/** Block, inline and item type names. */
+const KNOWN_TYPES = ['paragraph', 'heading', 'bulletListItem', 'numberedListItem', 'checkListItem', 'text', 'link', 'item', 'section', 'table', 'tableContent', 'image', 'file', 'video', 'audio', 'codeBlock', 'quote', 'toggleListItem', 'pageBreak'];
+const QUIET_VALUES = ['default', 'left', 'center', 'right', 'justify'];
 
 /**
  * Every string a session could read in a stored value that is not plain (older text, written before R1): the words,
@@ -260,16 +357,30 @@ export function everyWord(stored: unknown): string[] {
     }
   }
   const out: string[] = [];
+  const say = (s: string) => {
+    const p = plainString(s);
+    if (p.trim()) out.push(p);
+  };
+  // VERIFY-5 Z4: every string that could hold words is printed. An id or a time only when it is not a uuid or an ISO
+  // time; a type only when BlockNote does not have it; a style value whenever it is a string; and every key that is not
+  // structural, with its value, as "key: value".
   const walk = (x: unknown, key: string | null): void => {
     if (typeof x === 'string') {
-      if (key === 'id' || UUID_RE.test(x) || ISO_RE.test(x)) return;
-      if (key !== null && QUIET_KEYS.includes(key)) return;
-      if (key !== 'text' && QUIET_VALUES.includes(x)) return;
-      if (x.trim()) out.push(key && key !== 'text' && key !== 'title' ? `${key}: ${plainString(x)}` : plainString(x));
+      if (UUID_RE.test(x) || ISO_RE.test(x)) return;
+      if (key === 'type' && KNOWN_TYPES.includes(x)) return;
+      if ((key === 'textColor' || key === 'backgroundColor' || key === 'textAlignment') && QUIET_VALUES.includes(x)) return;
+      say(key === null || key === 'text' || key === 'title' ? x : `${key}: ${x}`);
       return;
     }
+    if (typeof x === 'number' || typeof x === 'boolean' || x === null || x === undefined) return;
     if (Array.isArray(x)) x.forEach((y) => walk(y, key));
-    else if (x && typeof x === 'object') for (const [k, y] of Object.entries(x as Record<string, unknown>)) walk(y, k);
+    else if (typeof x === 'object') {
+      for (const [k, y] of Object.entries(x as Record<string, unknown>)) {
+        if (!STRUCTURAL_KEYS.includes(k) && (key !== 'styles' || typeof y !== 'boolean')) say(`key: ${k}`);
+        else if (key === 'styles' && typeof y === 'boolean' && !['bold', 'italic', 'underline', 'strike', 'code'].includes(k)) say(`key: ${k}`);
+        walk(y, k);
+      }
+    }
   };
   walk(v, null);
   return out;

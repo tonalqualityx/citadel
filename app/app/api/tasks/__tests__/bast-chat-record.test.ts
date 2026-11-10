@@ -102,7 +102,7 @@ beforeEach(() => {
   let seq = 0;
   db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
     const q = strings.join('');
-    if (q.includes('FOR UPDATE')) return [{ status: 'idle', owner_id: OWNER }];
+    if (q.includes('FOR NO KEY UPDATE')) return [{ status: 'idle', owner_id: OWNER }];
     if (q.includes('RETURNING last_seq')) return [{ last_seq: ++seq }];
     return [];
   });
@@ -943,7 +943,8 @@ describe('every non-chat caller takes the untouched path: no usage read, no rese
 
 // ---- Version 2: every open field, on someone else's task, recorded with the true before and after, and undone ----
 
-describe('v2: each open field changed on Sabeen\'s task is recorded truly, and Undo puts it back', () => {
+describe('v2: each open field changed on someone else\'s task (not a delegate, VERIFY-5 Z3) is recorded truly, and Undo puts it back', () => {
+  const ANGE = '7a7a7a7a-7a7a-4a7a-8a7a-7a7a7a7a7a7a';
   const BLOCKER = '77777777-7777-4777-8777-777777777777';
   const OTHER_PROJECT = '88888888-8888-4888-8888-888888888888';
   const due = new Date('2026-11-12T22:00:00.000Z');
@@ -964,7 +965,7 @@ describe('v2: each open field changed on Sabeen\'s task is recorded truly, and U
     { name: 'description', body: { description: 'New text' }, before: { description: 'Old text' }, after: { description: 'New text' }, rec: { before: { description: 'Old text' }, after: { description: 'New text' } }, undo: ['description'] },
     { name: 'requirements', body: { requirements: reqB }, before: { requirements: reqA }, after: { requirements: reqB }, rec: { before: { requirements: reqA }, after: { requirements: reqB } }, undo: ['requirements'] },
     { name: 'notes', body: { notes: 'Internal' }, before: {}, after: { notes: 'Internal' }, rec: { before: { notes: null }, after: { notes: 'Internal' } }, undo: ['notes'] },
-    { name: 'assignee_id', body: { assignee_id: OWNER }, before: {}, after: { assignee_id: OWNER }, rec: { before: { assignee_id: SABEEN }, after: { assignee_id: OWNER } }, undo: { assignee_id: SABEEN } },
+    { name: 'assignee_id', body: { assignee_id: OWNER }, before: {}, after: { assignee_id: OWNER }, rec: { before: { assignee_id: ANGE }, after: { assignee_id: OWNER } }, undo: { assignee_id: ANGE } },
     { name: 'project_id', body: { project_id: OTHER_PROJECT }, before: {}, after: { project_id: OTHER_PROJECT }, rec: { before: { project_id: null }, after: { project_id: OTHER_PROJECT } }, undo: ['project_id'] },
     { name: 'client_id', body: { client_id: OTHER_PROJECT }, before: {}, after: { client_id: OTHER_PROJECT }, rec: { before: { client_id: null }, after: { client_id: OTHER_PROJECT } }, undo: { client_id: null } },
     { name: 'site_id', body: { site_id: OTHER_PROJECT }, before: {}, after: { site_id: OTHER_PROJECT }, rec: { before: { site_id: null }, after: { site_id: OTHER_PROJECT } }, undo: { site_id: null } },
@@ -988,8 +989,8 @@ describe('v2: each open field changed on Sabeen\'s task is recorded truly, and U
     authMock.mockResolvedValue(chat);
     db.arc.findUnique.mockResolvedValue({ id: ARC });
     if (c.name.startsWith('blocked_by')) db.task.findMany.mockResolvedValue([{ id: BLOCKER, title: 'Blocker', status: 'in_progress', approved: false, project: null }]);
-    const before = task({ assignee_id: SABEEN, status: 'in_progress', ...c.before });
-    const after = task({ assignee_id: SABEEN, status: 'in_progress', ...c.before, ...c.after });
+    const before = task({ assignee_id: ANGE, status: 'in_progress', ...c.before });
+    const after = task({ assignee_id: ANGE, status: 'in_progress', ...c.before, ...c.after });
     db.task.findUnique.mockResolvedValue(before);
     db.task.update.mockResolvedValue(after);
     const res = await patch(c.body);

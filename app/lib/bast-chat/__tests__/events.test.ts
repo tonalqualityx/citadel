@@ -21,7 +21,7 @@ describe('appendMikeMessage', () => {
     const db = makeChatDb();
     const r = await appendMikeMessage(base(db), db);
     expect(r).toEqual({ seq: 1, duplicate: false });
-    expect(db.$queryRaw.mock.calls[0][0].join('?')).toContain('FOR UPDATE');
+    expect(db.$queryRaw.mock.calls[0][0].join('?')).toContain('FOR NO KEY UPDATE');
     expect(db.events[0]).toMatchObject({ seq: 1, role: 'mike', kind: 'text', delivered_at: null, client_ref: 'ref-1' });
     expect(db.conv.status).toBe('queued');
     expect(db.conv.title).toBe('where is VCDP at?');
@@ -150,7 +150,7 @@ describe('notes for the chat (undo, release, decline, failed tap, Undo waiting f
     const db = makeChatDb({ conv: { status: 'idle', last_seq: 4 } });
     const seq = await appendChatNote(db, db.conv.id, { code: 'action_undone', text: `Mike undid this ${String.fromCharCode(0x2014)} it is back.`, action_id: 'a1' });
     expect(seq).toBe(5);
-    expect(db.$queryRaw.mock.calls[0][0].join('?')).toContain('FOR UPDATE');
+    expect(db.$queryRaw.mock.calls[0][0].join('?')).toContain('FOR NO KEY UPDATE');
     expect(db.events[0]).toMatchObject({ seq: 5, role: 'system', kind: 'status', delivered_at: null, payload: { code: 'action_undone', text: 'Mike undid this, it is back.', action_id: 'a1' } });
     await expect(appendChatNote(db, db.conv.id, { code: 'nope' as never, text: 'x' })).rejects.toMatchObject({ statusCode: 400 });
   });

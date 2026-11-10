@@ -37,7 +37,7 @@ const SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,120}$/;
  */
 export function cleanLine(input: string, max: number): string {
   return input
-    .replace(/\p{Cf}/gu, '')
+    .replace(/(?!\n)[\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800\uFFFC]/gu, '')
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>]/g, ' ')
     .replace(/\s*[–—]\s*/g, ', ')
     .replace(/\s+/g, ' ')

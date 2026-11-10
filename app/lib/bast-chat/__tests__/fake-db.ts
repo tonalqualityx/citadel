@@ -40,7 +40,7 @@ export function makeChatDb(opts: { conv?: Partial<FakeConv>; settings?: Record<s
     conv, events, usage,
     $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
       const sql = strings.join('?');
-      if (sql.includes('FOR UPDATE')) return [{ status: conv.status, owner_id: conv.owner_id }];
+      if (sql.includes('FOR NO KEY UPDATE')) return [{ status: conv.status, owner_id: conv.owner_id }];
       if (sql.includes('last_seq = last_seq +')) {
         conv.last_seq += (api._n ?? 1);
         return [{ last_seq: conv.last_seq }];

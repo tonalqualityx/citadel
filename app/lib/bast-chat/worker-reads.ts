@@ -181,6 +181,11 @@ export const READ_ROW_FIELDS = {
  *   client_visible                patch          yes    typed  client       sharing
  *   blocked_by (blocked_by_ids)   patch          yes    typed  yes          tasks it waits on; a connected one in full
  *   comments (thread)             op comment     yes    yes    yes          a comment (every note, in full)
+ *   any text field above, or a comment, on a task in a delegate's queue (Sabeen: not_started, blocked, in_progress),
+ *   woken or quiet             patch, create, op  yes  yes    yes          as above (VERIFY-5 Z3: the delegate pass reads
+ *                                                                           it and may hand it to Bast); typed fields free;
+ *                                                                           a hand-over INTO her queue taps when the task
+ *                                                                           already carries chat-written text
  *   blocker title, text, thread   patch, op      yes    yes    yes          the title of "B", a comment on "B" (R2)
  *   dependents' titles            patch          yes    yes    yes          the title of "D", a task that waits on it
  *   project.status                op project     yes    typed  no worker reach (shown)   the project's status

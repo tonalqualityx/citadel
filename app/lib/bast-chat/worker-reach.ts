@@ -229,6 +229,8 @@ export type ReachRule =
   | 'releases_dependent' // R2: a Bast task that waits on this one starts, or wakes differently
   | 'changes_blocker_text' // R2: a Bast task waits on this one and its session reads this text (W3 line 415)
   | 'changes_dependent_title' // this task waits on a Bast task, whose GET lists this task's title (`blocking`)
+  | 'edits_delegate_text' // VERIFY-5 Z3: text on a task in a delegate's queue, which Bast's delegate pass reads and may take over
+  | 'hands_chat_text_to_delegate' // VERIFY-5 Z3: a task carrying chat-written text goes into a delegate's queue
   | 'wakes_delegate' // R3: a delegate task becomes woken by a human last comment
   | 'edits_woken_delegate_task' // R3: a woken delegate task changes what its session reads
   | 'wait_for_bast' // R4
@@ -712,6 +714,7 @@ function evaluateSelf(
   changed: string[],
   change: TaskChange,
   now: Date,
+  chatWritten = false,
 ): void {
   if (changed.length === 0) return;
   const nonSafe = nonSafeFields(changed, before, after);
@@ -747,6 +750,16 @@ function evaluateSelf(
     if (before === null) rule = 'create_for_bast';
     else if (toBast) rule = 'hand_to_bast';
     else rule = onlyComments ? 'comment_on_bast_task' : 'edits_held_bast_task';
+  } else if (va.view === 'delegate_quiet' && nonSafe.some((f) => DELEGATE_TEXT_FIELDS.includes(f))) {
+    fields = nonSafe.filter((f) => DELEGATE_TEXT_FIELDS.includes(f));
+    rule = 'edits_delegate_text';
+  } else if (
+    va.view === 'delegate_quiet' &&
+    chatWritten &&
+    (before === null || before.assignee_id !== after.assignee_id || workerView(before, now).view !== 'delegate_quiet')
+  ) {
+    fields = changed;
+    rule = 'hands_chat_text_to_delegate';
   } else if (
     // Plan 4.2 R1 (any status) and acceptance item 9: rewriting a closed Bast task taps too, because the reopen that
     // follows shows the edited text and the card should have flagged it. Only a rewrite of the text counts: tags,
@@ -859,7 +872,19 @@ export interface TaskChangeInput {
   change: TaskChange;
   now: Date;
   origin?: ReachOrigin;
+  /** The task already carries text the chat lane wrote (a record, the from-chat tag, a chat comment). VERIFY-5 Z3. */
+  chat_written?: boolean;
 }
+
+/**
+ * VERIFY-5 Z3, from the worker skill (SKILL.md W1 342 to 363) and spawn-gate.py (`fetch_delegate_tasks`, statuses
+ * not_started, blocked and in_progress): the delegate pass reads the whole thread, the description (and the source email
+ * it links) and the arc of a task in a delegate's queue as soon as a person writes on it, and for content work it hands
+ * the task to Bast and does it, reading all of it. So on a task in that queue, woken or quiet, the chat's TEXT is text a
+ * Bast session may act on. These are the text fields; typed fields stay free (the owner's ruling), and the arc taps
+ * only on a woken task (the delegate pass reads it then).
+ */
+const DELEGATE_TEXT_FIELDS: readonly string[] = ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags', 'comments'];
 
 /**
  * A PATCH of one task (S1-C4), or the restore an Undo would write (S1-C5, pass origin 'undo'), or a
@@ -885,7 +910,7 @@ export function checkTaskChange(input: TaskChangeInput): ReachResult {
   }
   const after = applyChange(current, change);
   const changed = changedFields(current, change);
-  evaluateSelf(acc, current, after, changed, change, input.now);
+  evaluateSelf(acc, current, after, changed, change, input.now, input.chat_written === true);
   evaluateDependents(acc, current, after, changed, input.now);
   evaluateDependentTitle(acc, current, changed);
   evaluateClient(acc, current, after, changed);
@@ -913,8 +938,8 @@ function evaluateDependentTitle(acc: Acc, current: ReachTask, changed: string[])
 }
 
 /** Undo (R6): the same check on the state the Undo would restore. `restore` is the before-values it writes. */
-export function checkUndo(input: { current: ReachTaskWithDependents; restore: TaskChange; now: Date }): ReachResult {
-  return checkTaskChange({ current: input.current, change: input.restore, now: input.now, origin: 'undo' });
+export function checkUndo(input: { current: ReachTaskWithDependents; restore: TaskChange; now: Date; chat_written?: boolean }): ReachResult {
+  return checkTaskChange({ current: input.current, change: input.restore, now: input.now, origin: 'undo', chat_written: input.chat_written });
 }
 
 export interface TaskCreateInput {
