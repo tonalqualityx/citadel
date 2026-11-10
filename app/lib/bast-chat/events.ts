@@ -314,7 +314,74 @@ export interface FeedEvent {
   created_at: Date;
 }
 
-/** Events with seq > after, ascending, at most `limit`. Stop requests are internal and are not shown. */
+// ---------------------------------------------------------------------------
+// Notes for the chat: what Mike did to its actions (plan v2 section 6, VERIFY D16 and F8)
+// ---------------------------------------------------------------------------
+
+/**
+ * One system status event per occurrence, so the chat is told on its next turn what changed under it:
+ * - `action_undone`: Mike undid a change (the text is the server's line of that change).
+ * - `action_released`: Mike tapped yes on a proposal and it was carried out.
+ * - `action_declined`: Mike tapped no; nothing changed.
+ * - `action_failed`: Mike's tap was refused because the record changed since; nothing changed.
+ * - `undo_proposed`: Mike's Undo would start or re-steer Bast or show the client, so it waits for his tap.
+ * These are for the chat only. The panel does not show them (its action lines already show the new state), so
+ * `feed` hides them, as it hides stop requests. Only `expired` and the other status events stay visible.
+ */
+export const CHAT_NOTE_CODES = ['action_undone', 'action_released', 'action_declined', 'action_failed', 'undo_proposed'] as const;
+export type ChatNoteCode = (typeof CHAT_NOTE_CODES)[number];
+/** Status codes the panel feed never shows. */
+export const PANEL_HIDDEN_STATUS_CODES: readonly string[] = [STOP_CODE, ...CHAT_NOTE_CODES];
+
+export interface ChatNote {
+  seq: number;
+  code: ChatNoteCode;
+  text: string;
+  action_id: string | null;
+}
+
+/**
+ * Add one note to the conversation, under its row lock (gapless seq). Call inside a transaction. The text is the
+ * server's own line, cleaned (one line, 300 characters, no dash). Allowed on a closed conversation.
+ */
+export async function appendChatNote(
+  tx: Prisma.TransactionClient,
+  conversationId: string,
+  note: { code: ChatNoteCode; text: string; action_id?: string | null },
+): Promise<number> {
+  if (!(CHAT_NOTE_CODES as readonly string[]).includes(note.code)) throw new ApiError('Unknown note', 400, 'bad_note');
+  const alloc = await allocateSeq(tx, conversationId, 1);
+  const text = stripDashes(cleanLine(note.text, 300));
+  await tx.bastChatEvent.create({
+    data: { conversation_id: conversationId, seq: alloc.first, role: 'system', kind: 'status', payload: { code: note.code, text, action_id: note.action_id ?? null } },
+  });
+  return alloc.first;
+}
+
+/**
+ * The notes the chat has not been told yet, oldest first, marked delivered in the same call (each is served once).
+ * For the inbox or the daemon's next turn of that conversation.
+ */
+export async function takeChatNotes(conversationId: string, now: Date = new Date(), db: Pick<PrismaClient, 'bastChatEvent'> = defaultDb): Promise<ChatNote[]> {
+  const rows = await db.bastChatEvent.findMany({
+    where: { conversation_id: conversationId, role: 'system', kind: 'status', delivered_at: null },
+    orderBy: { seq: 'asc' },
+    take: 200,
+    select: { seq: true, payload: true },
+  });
+  const notes: ChatNote[] = [];
+  for (const r of rows) {
+    const p = (r.payload ?? {}) as { code?: unknown; text?: unknown; action_id?: unknown };
+    if (typeof p.code !== 'string' || !(CHAT_NOTE_CODES as readonly string[]).includes(p.code)) continue;
+    notes.push({ seq: r.seq, code: p.code as ChatNoteCode, text: typeof p.text === 'string' ? p.text : '', action_id: typeof p.action_id === 'string' ? p.action_id : null });
+  }
+  if (notes.length > 0) {
+    await db.bastChatEvent.updateMany({ where: { conversation_id: conversationId, role: 'system', kind: 'status', seq: { in: notes.map((n) => n.seq) }, delivered_at: null }, data: { delivered_at: now } });
+  }
+  return notes;
+}
+
+/** Events with seq > after, ascending, at most `limit`. Stop requests and the chat's notes are internal and are not shown. */
 export async function feed(
   conversationId: string,
   opts: { after?: number; limit?: number } = {},
@@ -330,7 +397,11 @@ export async function feed(
   });
   const has_more = rows.length > limit;
   const page = has_more ? rows.slice(0, limit) : rows;
-  const events = page.filter((e) => !(e.role === 'system' && e.kind === 'status' && (e.payload as { code?: unknown } | null)?.code === STOP_CODE));
+  const events = page.filter((e) => {
+    if (e.role !== 'system' || e.kind !== 'status') return true;
+    const code = (e.payload as { code?: unknown } | null)?.code;
+    return !(typeof code === 'string' && PANEL_HIDDEN_STATUS_CODES.includes(code));
+  });
   return { events, last_seq: page.length > 0 ? page[page.length - 1].seq : after, has_more };
 }
 

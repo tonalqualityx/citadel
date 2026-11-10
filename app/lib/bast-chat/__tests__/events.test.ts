@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
-import { appendMikeMessage, appendWorkerEvents, feed, patchWorkerConversation, requestStop, stripDashes, STOP_CODE } from '../events';
+import { appendChatNote, appendMikeMessage, appendWorkerEvents, CHAT_NOTE_CODES, feed, patchWorkerConversation, PANEL_HIDDEN_STATUS_CODES, requestStop, stripDashes, STOP_CODE, takeChatNotes } from '../events';
 import { DEFAULT_SETTINGS } from '../settings';
 import { makeChatDb, type FakeEvent } from './fake-db';
 
@@ -142,5 +142,41 @@ describe('stop and feed', () => {
     expect(running.events).toHaveLength(1);
     expect((running.events[0].payload as { code: string }).code).toBe(STOP_CODE);
     expect((await feed(running.conv.id, {}, running)).events).toHaveLength(0);
+  });
+});
+
+describe('notes for the chat (undo, release, decline, failed tap, Undo waiting for a tap)', () => {
+  it('appendChatNote adds one system status event under the row lock, with the code, the cleaned line and the action', async () => {
+    const db = makeChatDb({ conv: { status: 'idle', last_seq: 4 } });
+    const seq = await appendChatNote(db, db.conv.id, { code: 'action_undone', text: `Mike undid this ${String.fromCharCode(0x2014)} it is back.`, action_id: 'a1' });
+    expect(seq).toBe(5);
+    expect(db.$queryRaw.mock.calls[0][0].join('?')).toContain('FOR UPDATE');
+    expect(db.events[0]).toMatchObject({ seq: 5, role: 'system', kind: 'status', delivered_at: null, payload: { code: 'action_undone', text: 'Mike undid this, it is back.', action_id: 'a1' } });
+    await expect(appendChatNote(db, db.conv.id, { code: 'nope' as never, text: 'x' })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('the feed hides every note and the stop as before, and still shows other status events', async () => {
+    const db = makeChatDb({ conv: { status: 'running' } });
+    for (const code of CHAT_NOTE_CODES) await appendChatNote(db, db.conv.id, { code, text: code });
+    await requestStop(db.conv.id, db.conv.owner_id, db);
+    db.events.push({ conversation_id: db.conv.id, seq: 99, role: 'system', kind: 'status', payload: { code: 'expired', text: 'Not answered' }, delivered_at: null, expired_at: null, created_at: new Date() });
+    const page = await feed(db.conv.id, {}, db);
+    expect(page.events.map((e) => (e.payload as { code: string }).code)).toEqual(['expired']);
+    expect(PANEL_HIDDEN_STATUS_CODES).toEqual([STOP_CODE, 'action_undone', 'action_released', 'action_declined', 'action_failed', 'undo_proposed']);
+  });
+
+  it('takeChatNotes serves each note once, oldest first, and leaves stops and other events alone', async () => {
+    const db = makeChatDb({ conv: { status: 'running' } });
+    await appendChatNote(db, db.conv.id, { code: 'action_released', text: 'Mike tapped yes.', action_id: 'p1' });
+    await requestStop(db.conv.id, db.conv.owner_id, db);
+    await appendChatNote(db, db.conv.id, { code: 'action_declined', text: 'Mike said no.', action_id: 'p2' });
+    const first = await takeChatNotes(db.conv.id, new Date(), db);
+    expect(first).toEqual([
+      { seq: 1, code: 'action_released', text: 'Mike tapped yes.', action_id: 'p1' },
+      { seq: 3, code: 'action_declined', text: 'Mike said no.', action_id: 'p2' },
+    ]);
+    expect(await takeChatNotes(db.conv.id, new Date(), db)).toEqual([]);
+    const stop = db.events.find((e: FakeEvent) => (e.payload as { code: string }).code === STOP_CODE);
+    expect(stop?.delivered_at).toBeNull();
   });
 });
