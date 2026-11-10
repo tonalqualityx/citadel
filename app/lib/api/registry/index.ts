@@ -71,6 +71,7 @@ import { portalChatEndpoints } from './portal-chat';
 import { kpiChecklistEndpoints } from './kpis-checklists';
 import { taskClaimEndpoints } from './task-claims';
 import { designEndpoints } from './design';
+import { bastChatEndpoints } from './bast-chat';
 
 export const apiRegistry: ApiEndpoint[] = [
   ...authEndpoints,
@@ -110,6 +111,7 @@ export const apiRegistry: ApiEndpoint[] = [
   ...kpiChecklistEndpoints,
   ...taskClaimEndpoints,
   ...designEndpoints,
+  ...bastChatEndpoints,
 ];
 
 /**

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { guardChatTaskBody } from '@/lib/bast-chat/task-filter';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { serializeRichText } from '@/lib/api/blocknote';
@@ -368,7 +369,7 @@ export async function PATCH(
     const { id } = await params;
 
     const existingTask = await checkTaskAccess(id, auth);
-    const body = await request.json();
+    const body = await guardChatTaskBody(auth, 'PATCH', await request.json(), existingTask);
 
     // Fleet item 3: wherever `status` appears in the body (status-only or mixed), moves to in_progress,
     // review or done need the claim token while another worker holds a live lease. A person on a browser

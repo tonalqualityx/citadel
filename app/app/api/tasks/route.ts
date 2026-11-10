@@ -13,6 +13,7 @@ import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
+import { guardChatTaskBody } from '@/lib/bast-chat/task-filter';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -262,7 +263,7 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAuth();
 
-    const body = await request.json();
+    const body = await guardChatTaskBody(auth, 'POST', await request.json());
     const data = createTaskSchema.parse(body);
 
     // Determine client_id - auto-populate from project if not provided directly

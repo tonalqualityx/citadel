@@ -45,15 +45,7 @@ const isDyn = (s: string) => s.startsWith('[');
  * bast-chat.md): task C1 lands the lane, task C3 lands these worker routes. An entry here may be missing from
  * the tree; once its file exists it is checked like any other entry. C3 empties this list.
  */
-const PENDING_ROUTES: ReadonlySet<string> = new Set([
-  'bast-chat: GET /api/bast-chat/worker/inbox',
-  'bast-chat: POST /api/bast-chat/worker/heartbeat',
-  'bast-chat: GET /api/bast-chat/worker/conversations/:id',
-  'bast-chat: PATCH /api/bast-chat/worker/conversations/:id',
-  'bast-chat: POST /api/bast-chat/worker/conversations/:id/events',
-  'bast-chat: POST /api/bast-chat/worker/actions',
-  'bast-chat: GET /api/bast-chat/worker/today',
-]);
+const PENDING_ROUTES: ReadonlySet<string> = new Set<string>([]);
 const segMatch = (p: string, s: string) => (p.startsWith(':') ? isDyn(s) : p === s);
 
 describe('lane list', () => {

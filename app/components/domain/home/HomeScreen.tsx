@@ -14,6 +14,7 @@ import { ItemList } from './ItemList';
 import { ItemCard } from './ItemCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
+import { BastChatDock } from '@/components/domain/bast-chat/BastChatDock';
 import {
   addCandidates,
   buildTiles,
@@ -219,6 +220,14 @@ function HomeBody(p: BodyProps) {
 
   const openProject = projects.find((x) => x.id === p.openProjectId) ?? null;
 
+  // The card Mike is looking at, for the Bast chat's "About" line. Kind and id only leave the browser.
+  const shown = pinned && !p.showLists ? pinned : selectedItem;
+  const chatCard = shown
+    ? { key: shown.key, title: shown.title, type: shown.type, task_id: shown.opened.task_id, tile }
+    : tile === 'projects' && detail && selectedKey
+      ? { key: selectedKey, title: detail.title, tile }
+      : null;
+
   return (
     <div data-home className="home">
       <div className="home-top">
@@ -248,6 +257,7 @@ function HomeBody(p: BodyProps) {
       ) : (
         lists
       )}
+      <BastChatDock card={chatCard} />
       <ProjectDrawer
         project={openProject}
         open={openProject !== null}
