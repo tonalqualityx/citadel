@@ -60,6 +60,25 @@ export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge, vi
     if (unseen) queryClient.invalidateQueries({ queryKey: designKeys.session(sessionId) });
   }, [unseen, sessionId, queryClient]);
 
+  // v2: a stage change arrives as a track_stage feed line; the session load carries the track, so refetch it once
+  // per new line (the stage strip and the tracked tabs read data.session.track).
+  const lastStageSeq = React.useMemo(() => {
+    let max = 0;
+    for (const e of feedEvents) if (e.kind === 'track_stage' && typeof e.seq === 'number' && e.seq > max) max = e.seq;
+    return max;
+  }, [feedEvents]);
+  const seenStageSeq = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (seenStageSeq.current === null) {
+      seenStageSeq.current = lastStageSeq;
+      return;
+    }
+    if (lastStageSeq > seenStageSeq.current) {
+      seenStageSeq.current = lastStageSeq;
+      queryClient.invalidateQueries({ queryKey: designKeys.session(sessionId) });
+    }
+  }, [lastStageSeq, sessionId, queryClient]);
+
   const headSha = feed ? feed.head_sha : data.session.head_sha;
   const closed = (feed?.status ?? data.session.status) === 'closed' || (feed?.status ?? data.session.status) === 'abandoned';
   const track = data.session.track ?? null;

@@ -11,6 +11,7 @@ import { previewOriginOf } from '@/lib/design/bridge';
 import type { DesignFeedResponse, DesignSessionResponse } from '@/lib/hooks/use-design';
 import { PreviewPane } from './PreviewPane';
 import { TimerPill } from './TimerPill';
+import { StageStrip } from './track/StageStrip';
 
 export const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'error' | 'info' }> = {
   pending: { label: 'Setting up', variant: 'info' },
@@ -146,6 +147,7 @@ export function Workspace({ data, feed, slots: givenSlots = {}, useSlots = useNo
             </Button>
           )}
         </div>
+        <StageStrip track={data.session.track} />
       </header>
 
       <div data-testid="workspace-stage" className="relative h-[calc(100dvh-11rem)] min-h-[560px] min-w-0">

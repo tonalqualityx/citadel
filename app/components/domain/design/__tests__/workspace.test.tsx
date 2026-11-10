@@ -165,6 +165,22 @@ describe('Workspace header', () => {
     }
   });
 
+  it('a tracked header shows the stage strip with the current step and the busy line', () => {
+    const track = { id: 'trk', stage: 'home_build', busy: true, busy_line: 'Building the home page', preview_alias: 'a', preview_url: null, finish: null };
+    render(<Workspace data={base({ track })} feed={undefined} />);
+    const strip = screen.getByRole('navigation', { name: 'Design stages' });
+    const current = within(strip).getAllByRole('listitem').filter((li) => li.getAttribute('aria-current') === 'step');
+    expect(current.map((li) => li.textContent)).toEqual([expect.stringContaining('Home')]);
+    expect(screen.getByTestId('stage-busy-line').textContent).toBe('Building the home page');
+    expect(within(screen.getByRole('banner')).getByTestId('stage-strip')).toBeTruthy();
+  });
+
+  it('an untracked header has no stage strip at all', () => {
+    render(<Workspace data={base()} feed={undefined} />);
+    expect(screen.queryByTestId('stage-strip')).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Design stages' })).toBeNull();
+  });
+
   it('gives the preview the whole stage and floats the chat over it (no grid column)', () => {
     render(<Workspace data={base()} feed={undefined} />);
     expect(screen.queryByTestId('workspace-grid')).toBeNull();
