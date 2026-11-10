@@ -283,10 +283,16 @@ describe('R1: edits to a task Bast holds, any status', () => {
   it('a closed task of Mike\'s or Sabeen\'s is still free to rewrite', () => {
     none(patch(bast({ status: 'done', assignee_id: MIKE_USER_ID }), { description: 'x' }));
   });
+  it('VERIFY-3 X2: promised_to is free text the worker reads, so on a task Bast holds it taps like the description', () => {
+    for (const status of ['not_started', 'blocked']) {
+      const r = patch(bast({ status, promised_to: 'Jane', tags: status === 'blocked' ? ['needs-mike'] : [] } as never), { promised_to: 'Jill' });
+      expect(r.needs_tap).toBe(true);
+      expect(r.starts[0].fields).toContain('promised_to');
+    }
+  });
   it('the safe set does not reach on an eligible Bast task', () => {
     const safe: TaskChange[] = [
       { due_date: '2026-11-14T22:00:00Z' },
-      { promised_to: 'Jill' },
       { priority: 1 },
       { is_focus: true },
       { energy_estimate: 3 },

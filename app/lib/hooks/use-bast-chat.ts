@@ -97,6 +97,8 @@ export interface CardRead {
   chat_notes_more_line?: string | null;
   /** The current text of each read field the chat changed. */
   chat_text?: { label: string; text: string }[] | null;
+  /** "Invisible characters were taken out of this text before it was shown: 600." */
+  hidden_line?: string | null;
 }
 export interface ProposalCard {
   kind: CardKind;
@@ -106,6 +108,9 @@ export interface ProposalCard {
   client?: string[] | null;
   buttons?: { yes: string; no: string } | null;
   clause?: string | null;
+  /** Some chat-written text could not be shown in full: the card says so and cannot be tapped. */
+  incomplete?: boolean | null;
+  incomplete_line?: string | null;
 }
 
 /** Same words as the server's CARD_BUTTONS, used only if a card arrives without its buttons. */

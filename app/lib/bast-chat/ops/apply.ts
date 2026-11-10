@@ -11,7 +11,9 @@
 import type { PrismaClient } from '@prisma/client';
 import { prepareOperation, storeProposal, UNDO_WINDOW_HOURS, type ProposalResult } from '../actions';
 import { reserveWrite } from '../usage';
-import { LOCKED_TX_OPTIONS } from '../task-locks';
+import { ApiError } from '@/lib/api/errors';
+import { runOnTransaction } from '@/lib/db/scope';
+import { BUSY_TEXT, LOCKED_TX_OPTIONS, isBusyError } from '../task-locks';
 import type { OpRun, RunnableOp } from './index';
 
 export type ChatOpResult =
@@ -63,12 +65,23 @@ export async function applyChatOp(a: {
       throw e;
     }
   } else {
-    done = await db.$transaction(async (tx) => {
-      const tdb = tx as unknown as PrismaClient;
-      await reserveWrite(ownerId, a.dailyWriteCap, now, tx);
-      const run = await op.run({ db: tdb, ownerId, now }, input as never, prepared.expect);
-      return { run, row: await record(tdb, run) };
-    }, LOCKED_TX_OPTIONS);
+    try {
+      // Every query of the write, the op's helpers included, runs on this transaction's connection (lib/db/scope.ts):
+      // an op that takes locks in `run` holds them on this one connection and never waits for a second (VERIFY-3 X3).
+      done = await db.$transaction(
+        async (tx) =>
+          runOnTransaction(tx, async () => {
+            const tdb = tx as unknown as PrismaClient;
+            await reserveWrite(ownerId, a.dailyWriteCap, now, tx);
+            const run = await op.run({ db: tdb, ownerId, now }, input as never, prepared.expect);
+            return { run, row: await record(tdb, run) };
+          }),
+        LOCKED_TX_OPTIONS,
+      );
+    } catch (e) {
+      if (!(e instanceof ApiError) && isBusyError(e)) throw new ApiError(BUSY_TEXT, 409, 'busy');
+      throw e;
+    }
   }
   if (done.run.afterCommit) {
     try {

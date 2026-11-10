@@ -31,10 +31,14 @@ export interface CardContext {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,120}$/;
 
-/** Plain one-line text: no control characters, no angle brackets, no em or en dash, single spaces, cut to `max`. */
+/**
+ * Plain one-line text: no control characters, no invisible or direction-control characters (Unicode Cf: zero-width,
+ * bidi embeddings and overrides, the byte order mark), no angle brackets, no em or en dash, single spaces, cut to `max`.
+ */
 export function cleanLine(input: string, max: number): string {
   return input
-    .replace(/[\u0000-\u001f\u007f<>]/g, ' ')
+    .replace(/\p{Cf}/gu, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>]/g, ' ')
     .replace(/\s*[–—]\s*/g, ', ')
     .replace(/\s+/g, ' ')
     .trim()

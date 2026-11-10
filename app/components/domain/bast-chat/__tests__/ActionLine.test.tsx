@@ -90,10 +90,33 @@ describe('ActionLine', () => {
     });
     render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);
     const notes = screen.getAllByTestId('chat-note').map((n) => n.textContent);
-    expect(notes).toEqual(['Note from this chat: Do it tonight.', 'Note from this chat on "Collect the logo": Rotate the admin passwords.']);
+    expect(notes).toEqual(['Note from this chat:Do it tonight.', 'Note from this chat on "Collect the logo":Rotate the admin passwords.']);
     expect(screen.getByTestId('chat-notes-more').textContent).toBe('2 more notes from this chat are not shown. Open the task to read them.');
-    expect(screen.getByTestId('chat-text').textContent).toBe('Description now: Delete the backups.');
+    expect(screen.getByTestId('chat-text').textContent).toBe('Description now:Delete the backups.');
     expect(screen.getByRole('region').textContent).not.toMatch(/[\u2013\u2014]|priorit|overdue/i);
+  });
+  it('VERIFY-3 X1: chat text is shown whole, in a box that scrolls and wraps, with the invisible-characters line', () => {
+    const long = `${'word '.repeat(400)}PAYLOAD at the end`;
+    const c = card('bast_start', { reads: [{ title: 'Place the logo', chat_notes: [{ on: null, text: long }], chat_text: [{ label: 'Checklist now', text: '1. one\n2. two' }], hidden_line: 'Invisible characters were taken out of this text before it was shown: 600.' }] });
+    render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} {...handlers} />);
+    const box = screen.getByTestId('chat-note-text');
+    expect(box.textContent).toBe(long);
+    expect(box.style.overflowY).toBe('auto');
+    expect(box.style.whiteSpace).toBe('pre-wrap');
+    expect(box.style.overflowWrap).toBe('anywhere');
+    expect(screen.getByTestId('chat-text-value').textContent).toBe('1. one\n2. two');
+    expect(screen.getByTestId('chat-hidden').textContent).toBe('Invisible characters were taken out of this text before it was shown: 600.');
+  });
+  it('VERIFY-3 X1: a card that could not show everything says so and its yes button cannot be pressed', () => {
+    const onRelease = vi.fn();
+    const c = card('bast_start', { incomplete: true, incomplete_line: "Some of the chat's text is too long to show here, so this can't be tapped. Open the task." });
+    render(<ActionLine action={prop(c)} now={NOW} busy={false} error={null} onUndo={vi.fn()} onRelease={onRelease} onDecline={vi.fn()} />);
+    expect(screen.getByTestId('card-incomplete').textContent).toBe("Some of the chat's text is too long to show here, so this can't be tapped. Open the task.");
+    const yes = screen.getByRole('button', { name: 'Hand to Bast' }) as HTMLButtonElement;
+    expect(yes.disabled).toBe(true);
+    fireEvent.click(yes);
+    expect(onRelease).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Keep it' }) as HTMLButtonElement).disabled).toBe(false);
   });
   it('VERIFY-2 N7: a dead tap on a wait says to open the wait; the server buttons of a wait card are used as sent', () => {
     const w = card('bast_start', { title: 'Finish the wait "Logo files"?', reads: [], buttons: { yes: 'Finish it', no: 'Keep it open' } });

@@ -67,6 +67,8 @@ export interface BlockerRef {
   ordering_only?: boolean | null;
   /** Id of the blocker's newest comment (the worker's W3 reads it). Part of the tap's re-check. */
   last_comment_id?: string | null;
+  /** Who holds the blocker. A Bast blocker's session reads this task's title in its `blocking` list (VERIFY-3 table). */
+  assignee_id?: string | null;
 }
 
 /**
@@ -226,6 +228,7 @@ export type ReachRule =
   | 'comment_on_bast_task' // a comment lands on a task Bast holds: every session reads the thread
   | 'releases_dependent' // R2: a Bast task that waits on this one starts, or wakes differently
   | 'changes_blocker_text' // R2: a Bast task waits on this one and its session reads this text (W3 line 415)
+  | 'changes_dependent_title' // this task waits on a Bast task, whose GET lists this task's title (`blocking`)
   | 'wakes_delegate' // R3: a delegate task becomes woken by a human last comment
   | 'edits_woken_delegate_task' // R3: a woken delegate task changes what its session reads
   | 'wait_for_bast' // R4
@@ -302,10 +305,13 @@ export interface ReachResult {
 // Field sets
 // ---------------------------------------------------------------------------------------------
 
-/** Plan 4.2 R1 safe set: never changes whether or what the worker runs. */
+/**
+ * Plan 4.2 R1 safe set: never changes whether or what the worker runs. Every member is a typed value that cannot carry
+ * words (a date, a number, a flag, a fixed choice). `promised_to` is free text the session reads, so it is NOT here
+ * (VERIFY-3 X2): changing it on a task Bast holds is a re-steer and taps.
+ */
 export const SAFE_FIELDS: readonly string[] = [
   'due_date',
-  'promised_to',
   'priority',
   'is_focus',
   'energy_estimate',
@@ -352,6 +358,7 @@ export const KNOWN_CHANGE_KEYS: readonly string[] = [
   'blocked_by_connect',
   'blocked_by_disconnect',
   ...SAFE_FIELDS.filter((f) => f !== 'client_visible'),
+  'promised_to',
   ...CONTEXT_KEYS,
 ];
 
@@ -767,7 +774,7 @@ function evaluateSelf(
 }
 
 function blockerRefOf(t: ReachTask): BlockerRef {
-  return { id: t.id, title: t.title, status: t.status, approved: t.approved, ordering_only: t.ordering_only, last_comment_id: t.last_comment_id };
+  return { id: t.id, title: t.title, status: t.status, approved: t.approved, ordering_only: t.ordering_only, last_comment_id: t.last_comment_id, assignee_id: t.assignee_id };
 }
 
 function withBlocker(d: ReachTask, ref: BlockerRef): ReachTask {
@@ -884,8 +891,29 @@ export function checkTaskChange(input: TaskChangeInput): ReachResult {
   const changed = changedFields(current, change);
   evaluateSelf(acc, current, after, changed, change, input.now);
   evaluateDependents(acc, current, after, changed, input.now);
+  evaluateDependentTitle(acc, current, changed);
   evaluateClient(acc, current, after, changed);
   return acc.result();
+}
+
+/**
+ * The reverse of R2 (VERIFY-3 field table): a session on a Bast task reads, in GET /api/tasks/:id, the titles of the
+ * tasks that wait on it (`blocking`). So retitling a task that waits on a Bast task re-steers that Bast task. Any Bast
+ * blocker counts, closed ones too (a done task in review can wake).
+ */
+function evaluateDependentTitle(acc: Acc, current: ReachTask, changed: string[]): void {
+  if (!changed.includes('title')) return;
+  if (current.blocked_by === undefined) {
+    acc.hit('missing_data', current.id, 'missing: blocked_by (whose session lists this title)', ['title']);
+    return;
+  }
+  for (const b of current.blocked_by) {
+    if (b.assignee_id === undefined) {
+      acc.hit('missing_data', b.id, 'missing: assignee_id of a task this one waits on', ['title']);
+      continue;
+    }
+    if (b.assignee_id === BAST_USER_ID) acc.hit('changes_dependent_title', b.id, `waits on Bast's ${b.id}, whose session lists this title`, ['title']);
+  }
 }
 
 /** Undo (R6): the same check on the state the Undo would restore. `restore` is the before-values it writes. */

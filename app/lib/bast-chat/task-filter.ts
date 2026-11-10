@@ -30,6 +30,14 @@ export const CHAT_TAG = 'from-chat';
 export const CLOSED_FIELD_TEXT = 'That field is changed on the task page, not here.';
 export const SECURITY_TAG_TEXT = "I can't remove a security tag. I can take it out of Needs you now if you want.";
 export const HAND_TO_BAST_TEXT = 'Handing work to Bast needs your tap. File it to yourself first, then hand it over.';
+/** VERIFY-3 X2: the model tier is Mike's alone (policy.json tag_overrides: "Only Mike sets these"). */
+export const TIER_TAG_TEXT = 'Only you set the model tier, on the task page.';
+/** `promised_to` holds a person's or a client's name. */
+export const PROMISE_MAX = 80;
+export const PROMISE_RE = /^[\p{L}\p{M}\p{N}'\u2019 .&-]+$/u;
+export const PROMISE_MAX_WORDS = 8;
+/** Tags that pick the model a worker runs on (model-policy.py `find_tag_override`). */
+export const isTierTag = (t: string) => t.trim().toLowerCase().startsWith('tier:');
 
 /** PATCH: the keys the chat may send. `tags_add` and `tags_remove` become the full `tags` list on the server. */
 export const CHAT_PATCH_FIELDS = [
@@ -101,7 +109,8 @@ const fieldSchemas: Record<string, { schema: z.ZodTypeAny; what: string }> = {
   mystery_factor: { schema: z.enum(['none', 'average', 'significant', 'no_idea']), what: 'That is not a mystery factor' },
   battery_impact: { schema: z.enum(['average_drain', 'high_drain', 'energizing']), what: 'That is not a battery impact' },
   due_date: { schema: z.string().datetime().nullable(), what: 'The date must be an ISO date and time or null' },
-  promised_to: { schema: z.string().max(200).nullable(), what: 'The promise must be text of up to 200 characters or null' },
+  // Who it was promised to: a short name on one line, never a sentence (VERIFY-3 X2: the worker reads it).
+  promised_to: { schema: z.string().trim().min(1).max(PROMISE_MAX).regex(PROMISE_RE).refine((v) => v.split(/\s+/).length <= PROMISE_MAX_WORDS).nullable(), what: `The promise must be a name of up to ${PROMISE_MAX} characters or null` },
   priority: { schema: z.number().int().min(1).max(5), what: 'The order must be 1 to 5' },
   is_focus: { schema: z.boolean(), what: 'The focus flag must be true or false' },
   needs_review: { schema: z.boolean(), what: 'The review flag must be true or false' },
@@ -129,6 +138,8 @@ function tagsFor(b: Record<string, unknown>, existing: ChatFilterInput['existing
   const add = addRaw?.success ? addRaw.data : [];
   const rem = remRaw?.success ? remRaw.data : [];
   if (rem.some(isSecurityTag)) return { ok: false, res: refuse('chat_field_refused', `${SECURITY_TAG_TEXT} Field: tags_remove`) };
+  if (add.some(isTierTag)) return { ok: false, res: refuse('chat_field_refused', `${TIER_TAG_TEXT} Field: tags_add`) };
+  if (rem.some(isTierTag)) return { ok: false, res: refuse('chat_field_refused', `${TIER_TAG_TEXT} Field: tags_remove`) };
   if (add.some(isMachineryTag)) return { ok: false, res: refuseField('tags_add') };
   if (rem.some(isMachineryTag)) return { ok: false, res: refuseField('tags_remove') };
   const current = [...(existing?.tags ?? [])];
@@ -193,6 +204,7 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   ) {
     return badValue('tags', `Tags must be ${CHAT_TAG} and at most 4 others`);
   }
+  if (extra.some((t) => typeof t === 'string' && isTierTag(t))) return refuse('chat_field_refused', `${TIER_TAG_TEXT} Field: tags`);
   if (extra.some((t) => isMachineryTag(t))) return refuseField('tags');
   // create-task.py sends its defaults; only the do-nothing values pass.
   if ('priority' in b && b.priority !== 3) return badValue('priority', 'The chat cannot set this field');

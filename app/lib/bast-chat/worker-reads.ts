@@ -37,8 +37,11 @@
  *   6  the SOP: title, content, bast_executable,           `sop` of each read task
  *      template checklist
  *   7  the project: name, description, status, notes,      `project` of each read task (and name and status for a
- *      plan_folder ("Project folder:" line), ordering      blocker)
- *      rule, client, site
+ *      plan_folder ("Project folder:" line), ordering      blocker), with its site's settings and its team
+ *      rule, client, site; its team (who is @-mentioned)
+ *   7b the site settings the capability gate and the ship  `site` of each read task (and `project.site`)
+ *      decision read: bast_enabled, auto_deploy,
+ *      site_type, staging and prod branch, repo
  *   8  the arc (delegate pass): name, description          `arc` of each read task
  *   9  client and site names                               `client`, `site` of each read task
  *   10 the last ten time entries' descriptions             `time` of each read task (id, description, deleted flag;
@@ -65,7 +68,13 @@ export const CHAT_COMMENT_PREFIX = 'From Mike, through the chat: ';
 /** The chat key's lane, as `actor_lane` records it. */
 export const CHAT_LANE_NAME = 'bast-chat';
 
-const BLOCKER_ROW_FIELDS = {
+/** The site settings the worker's capability gate and ship decision read (W4.5, W6; VERIFY-3 X5). */
+const SITE_SELECT = {
+  select: { name: true, bast_enabled: true, auto_deploy: true, site_type: true, staging_branch: true, prod_branch: true, repo_url: true, repo_branch: true },
+} as const;
+
+/** Every scalar a chat PATCH can write, on a blocker too, so the card can show what the chat set there. */
+export const BLOCKER_ROW_FIELDS = {
   id: true,
   title: true,
   description: true,
@@ -77,24 +86,28 @@ const BLOCKER_ROW_FIELDS = {
   approved: true,
   needs_review: true,
   project_id: true,
-  is_deleted: true,
-  project: { select: { name: true, status: true, dependencies_ordering_only: true } },
-} as const;
-
-const READ_ROW_FIELDS = {
-  ...BLOCKER_ROW_FIELDS,
-  review_requirements: true,
   client_id: true,
   site_id: true,
   sop_id: true,
   arc_id: true,
-  function_id: true,
-  charter_id: true,
   priority: true,
   due_date: true,
   promised_to: true,
-  reviewer_id: true,
+  is_focus: true,
+  energy_estimate: true,
+  mystery_factor: true,
+  battery_impact: true,
   client_visible: true,
+  is_deleted: true,
+  project: { select: { name: true, status: true, dependencies_ordering_only: true } },
+} as const;
+
+export const READ_ROW_FIELDS = {
+  ...BLOCKER_ROW_FIELDS,
+  review_requirements: true,
+  function_id: true,
+  charter_id: true,
+  reviewer_id: true,
   client_title: true,
   client_intake: true,
   source: true,
@@ -117,16 +130,153 @@ const READ_ROW_FIELDS = {
       client_id: true,
       site_id: true,
       is_deleted: true,
+      site: SITE_SELECT,
+      // Who the session @-mentions: the project's team (VERIFY-3 X5).
+      team_assignments: { select: { user_id: true, function_id: true, is_lead: true }, orderBy: { function_id: 'asc' as const } },
     },
   },
   client: { select: { name: true } },
-  site: { select: { name: true } },
+  site: SITE_SELECT,
   sop: { select: { title: true, content: true, bast_executable: true, template_requirements: true } },
   arc: { select: { name: true, description: true } },
   time_entries: { select: { id: true, description: true, is_deleted: true }, orderBy: { started_at: 'desc' as const }, take: 10 },
   blocked_by: { select: { id: true, status: true } },
   blocking: { select: { id: true, title: true, status: true, assignee_id: true } },
 } as const;
+
+/**
+ * THE FIELD TABLE (VERIFY-3 X2 c). Every fingerprinted item, with: can the chat key write it, does the worker read it,
+ * does a chat write on a task Bast holds (or a task the card hands to Bast) need Mike's tap, and does the card show it
+ * when the chat wrote it. The rule: a field the chat writes and the worker reads must be on the card when the chat
+ * wrote it, AND must tap on a Bast task unless its value cannot carry words (a date, a number, a flag, a fixed
+ * choice, an id: `typed`). `lib/bast-chat/__tests__/field-table.test.ts` and the table test in actions.test.ts walk this
+ * table against the real filter, reach check and card, and fail on any field (in READ_ROW_FIELDS, BLOCKER_ROW_FIELDS,
+ * the chat PATCH or POST allowlist) that is not in it.
+ *
+ *   chat:  patch = PATCH /api/tasks/:id from the chat; create = POST /api/tasks from the chat; op = an ops-route op;
+ *          no = the chat key cannot write it (closed field, or no route in its lane)
+ *   tap:   yes = taps on a Bast task; typed = cannot carry words, so it need not tap (some values still do, such as
+ *          turning a review on); the card still shows it; n/a = the chat cannot change it on an existing task
+ *   card:  the word the card's "Changed from this chat" line uses, and the "... now" line shows the value
+ *
+ *   field                         chat           reads  tap    card
+ *   title                         patch, create  yes    yes    title (the read's heading, in full)
+ *   description                   patch, create  yes    yes    description
+ *   requirements                  patch          yes    yes    checklist (every item)
+ *   notes                         patch          yes    yes    notes
+ *   promised_to                   patch, create  yes    yes    promise (a name, 80 characters, one line)
+ *   tags                          patch, create  yes    yes    tags (adding a parking tag only stops work; tier: refused)
+ *   status                        patch          yes    yes    status (parking statuses only stop work)
+ *   assignee_id                   patch, create  yes    typed  who it is on (handing to Bast is itself the tap)
+ *   project_id                    patch, create  yes    yes    project
+ *   client_id                     patch, create  yes    yes    client
+ *   site_id                       patch, create  yes    yes    site
+ *   sop_id                        create         yes    n/a    SOP (a create; a create for Bast is refused)
+ *   arc_id                        patch, create  yes    typed  arc
+ *   priority                      patch          yes    typed  order
+ *   due_date                      patch          yes    typed  date
+ *   is_focus                      patch          yes    typed  focus
+ *   energy_estimate, mystery_factor, battery_impact
+ *                                 patch          yes    typed  estimate
+ *   needs_review, approved        patch          yes    typed  review, approval
+ *   client_visible                patch          yes    typed  sharing (the client rule R5 taps)
+ *   blocked_by (blocked_by_ids)   patch          yes    yes    tasks it waits on (an open blocker only parks)
+ *   comments (thread)             op comment     yes    yes    a comment (every note, in full)
+ *   blocker title, text, thread   patch, op      yes    yes    the title of "B", a comment on "B" (R2 taps)
+ *   blocker other fields          patch          no     n/a    shown anyway when the chat changed them
+ *   dependents' titles            patch          yes    yes    the title of "D", a task that waits on it
+ *   project.status                op project     yes    typed  the project's status
+ *   project name, notes, plan_folder, description, ordering rule, client, site, team
+ *                                 no             yes    n/a    (cannot be chat-written)
+ *   site settings (bast_enabled, auto_deploy, site_type, branches, repo)
+ *                                 no             yes    n/a    (cannot be chat-written)
+ *   sop, arc and client contents, time entries, review_requirements, function_id, charter_id, reviewer_id,
+ *   client_title, client_intake, source, source_ref, origin_url, requested_by_contact_id, staging_preview_url,
+ *   approved_preview_url, client_approved_at, approved_by_contact_id, phase, is_deleted, id
+ *                                 no             yes    n/a    (closed to the chat; origin_url is accepted and dropped)
+ */
+export type FieldChat = 'patch' | 'create' | 'patch+create' | 'op' | 'no';
+export interface FieldPolicy {
+  chat: FieldChat;
+  /** The worker reads it for a task Bast holds (GET /api/tasks/:id, the thread, W3). */
+  reads: boolean;
+  tap: 'yes' | 'typed' | 'n/a';
+  /** The card's word for it (CARD_FIELDS in actions.ts), or null when the chat cannot write it. */
+  card: string | null;
+}
+const closed = (reads = true): FieldPolicy => ({ chat: 'no', reads, tap: 'n/a', card: null });
+export const FIELD_POLICY: Record<string, FieldPolicy> = {
+  id: closed(),
+  title: { chat: 'patch+create', reads: true, tap: 'yes', card: 'title' },
+  description: { chat: 'patch+create', reads: true, tap: 'yes', card: 'description' },
+  requirements: { chat: 'patch', reads: true, tap: 'yes', card: 'checklist' },
+  notes: { chat: 'patch', reads: true, tap: 'yes', card: 'notes' },
+  promised_to: { chat: 'patch+create', reads: true, tap: 'yes', card: 'promise' },
+  tags: { chat: 'patch+create', reads: true, tap: 'yes', card: 'tags' },
+  status: { chat: 'patch', reads: true, tap: 'yes', card: 'status' },
+  assignee_id: { chat: 'patch+create', reads: true, tap: 'typed', card: 'who it is on' },
+  project_id: { chat: 'patch+create', reads: true, tap: 'yes', card: 'project' },
+  client_id: { chat: 'patch+create', reads: true, tap: 'yes', card: 'client' },
+  site_id: { chat: 'patch+create', reads: true, tap: 'yes', card: 'site' },
+  sop_id: { chat: 'create', reads: true, tap: 'n/a', card: 'SOP' },
+  arc_id: { chat: 'patch+create', reads: true, tap: 'typed', card: 'arc' },
+  priority: { chat: 'patch', reads: true, tap: 'typed', card: 'order' },
+  due_date: { chat: 'patch', reads: true, tap: 'typed', card: 'date' },
+  is_focus: { chat: 'patch', reads: true, tap: 'typed', card: 'focus' },
+  energy_estimate: { chat: 'patch', reads: true, tap: 'typed', card: 'estimate' },
+  mystery_factor: { chat: 'patch', reads: true, tap: 'typed', card: 'estimate' },
+  battery_impact: { chat: 'patch', reads: true, tap: 'typed', card: 'estimate' },
+  needs_review: { chat: 'patch', reads: true, tap: 'typed', card: 'review' },
+  approved: { chat: 'patch', reads: true, tap: 'typed', card: 'approval' },
+  client_visible: { chat: 'patch', reads: true, tap: 'typed', card: 'sharing' },
+  blocked_by: { chat: 'patch', reads: true, tap: 'yes', card: 'tasks it waits on' },
+  blocking: { chat: 'patch', reads: true, tap: 'yes', card: 'title' },
+  comments: { chat: 'op', reads: true, tap: 'yes', card: 'a comment' },
+  project: { chat: 'op', reads: true, tap: 'typed', card: "the project's status" },
+  is_deleted: closed(),
+  review_requirements: closed(),
+  function_id: closed(),
+  charter_id: closed(),
+  reviewer_id: closed(),
+  client_title: closed(),
+  client_intake: closed(),
+  source: closed(),
+  source_ref: closed(),
+  origin_url: closed(),
+  requested_by_contact_id: closed(),
+  staging_preview_url: closed(),
+  approved_preview_url: closed(),
+  client_approved_at: closed(),
+  approved_by_contact_id: closed(),
+  phase: closed(),
+  client: closed(),
+  site: closed(),
+  sop: closed(),
+  arc: closed(),
+  time_entries: closed(),
+};
+/** Inside `project` and `site`: what the chat can write there (the project op writes `status` only). */
+export const NESTED_POLICY: Record<string, FieldChat> = {
+  'project.status': 'op',
+  'project.name': 'no',
+  'project.description': 'no',
+  'project.notes': 'no',
+  'project.plan_folder': 'no',
+  'project.dependencies_ordering_only': 'no',
+  'project.client_id': 'no',
+  'project.site_id': 'no',
+  'project.is_deleted': 'no',
+  'project.site': 'no',
+  'project.team_assignments': 'no',
+  'site.name': 'no',
+  'site.bast_enabled': 'no',
+  'site.auto_deploy': 'no',
+  'site.site_type': 'no',
+  'site.staging_branch': 'no',
+  'site.prod_branch': 'no',
+  'site.repo_url': 'no',
+  'site.repo_branch': 'no',
+};
 
 const COMMENT_FIELDS = {
   id: true,

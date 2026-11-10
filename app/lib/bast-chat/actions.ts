@@ -486,14 +486,16 @@ export interface CardRead {
   chat_changed_line: string | null;
   /**
    * The text of every comment the chat wrote on this task or on a task it waits on that the worker still reads,
-   * newest first (`on` is null for this task, else the other task's quoted title). At most CARD_NOTES_SHOWN, each cut
-   * at CARD_NOTE_MAX characters; the rest are counted in `chat_notes_more_line`.
+   * newest first, each in full (`on` is null for this task, else the other task's quoted title). VERIFY-3 X1: no note is
+   * left out and none is cut; the panel scrolls.
    */
   chat_notes: CardNote[];
-  /** "2 more notes from this chat are not shown. Open the task to read them." or null. */
+  /** Kept for cards stored before VERIFY-3; always null now, since every note is on the card. */
   chat_notes_more_line: string | null;
-  /** The current text of every read field the chat changed, on this task or a task it waits on. */
+  /** The current value of every field the chat changed, on this task or a task it waits on, in full. */
   chat_text: CardText[];
+  /** "Invisible characters were taken out of this text before it was shown: 600." or null. */
+  hidden_line: string | null;
 }
 
 export interface CardNote {
@@ -504,9 +506,15 @@ export interface CardText {
   label: string;
   text: string;
 }
-export const CARD_NOTES_SHOWN = 5;
-export const CARD_NOTE_MAX = 500;
-export const CARD_TEXT_MAX = 500;
+/**
+ * Caps on what the card shows, each at least the most the field can hold, so in practice nothing is ever cut: a comment
+ * (10,000, the comment route's own limit; the chat's is 2,000), a description, notes or checklist (400,000, the plan's
+ * limit), a title (500). If text is ever longer, the card says so and can never be tapped (`incomplete`).
+ */
+export const CARD_NOTE_MAX = 10_000;
+export const CARD_TEXT_MAX = 400_000;
+export const CARD_TITLE_MAX = 500;
+export const CARD_INCOMPLETE_TEXT = "Some of the chat's text is too long to show here, so this can't be tapped. Open the task.";
 
 export interface ProposalCard {
   kind: CardKind;
@@ -520,6 +528,12 @@ export interface ProposalCard {
   buttons: { yes: string; no: string };
   /** The plain clause ("hand "Menu proof" to Bast"), used in status lines. */
   clause: string;
+  /**
+   * True when some chat-written text could not be put on the card in full. Such a card can never be tapped
+   * (releaseAction refuses it) and `incomplete_line` says so.
+   */
+  incomplete?: boolean;
+  incomplete_line?: string | null;
 }
 
 export interface ActionView {
@@ -678,6 +692,7 @@ const BLOCKER_SELECT = {
   title: true,
   status: true,
   approved: true,
+  assignee_id: true,
   project: { select: { dependencies_ordering_only: true } },
 } as const;
 const TASK_REACH_SCALARS = {
@@ -714,7 +729,7 @@ const TASK_REACH_SCALARS = {
   blocked_by: { where: { is_deleted: false }, select: BLOCKER_SELECT },
 } as const;
 
-type BlockerRow = { id: string; title: string; status: string; approved: boolean; project: { dependencies_ordering_only: boolean } | null };
+type BlockerRow = { id: string; title: string; status: string; approved: boolean; assignee_id?: string | null; project: { dependencies_ordering_only: boolean } | null };
 type TaskReachRow = {
   id: string;
   title: string;
@@ -757,6 +772,7 @@ const blockerRef = (b: BlockerRow, lastCommentId: string | null = null): Blocker
   approved: b.approved,
   ordering_only: b.project ? b.project.dependencies_ordering_only : null,
   last_comment_id: lastCommentId,
+  assignee_id: b.assignee_id === undefined ? undefined : b.assignee_id,
 });
 
 type LastComment = { kind: CommentAuthorKind; id: string | null };
@@ -886,7 +902,7 @@ const taskExpectSchema = z
   .strict();
 
 /** Tags no plan may add, or remove (plan 1.2, ruling 6). */
-const isApprovalTag = (t: string) => t === 'client-approved' || t.startsWith('cp:') || t.startsWith('preview-notified:') || t === CHAT_TAG;
+const isApprovalTag = (t: string) => t === 'client-approved' || t.startsWith('cp:') || t.startsWith('preview-notified:') || t === CHAT_TAG || t.toLowerCase().startsWith('tier:');
 const NEVER_REMOVE = ['security', 'security-report'];
 function assertPlanTags(current: string[], next: string[] | undefined): void {
   if (!next) return;
@@ -1163,13 +1179,75 @@ function viewLine(view: string | undefined): string {
   }
 }
 
-const FIELD_ORDER = ['the whole task', 'title', 'description', 'checklist', 'notes', 'site', 'project'];
-const RECORD_FIELD_WORDS: Record<string, string> = { title: 'title', description: 'description', requirements: 'checklist', notes: 'notes', site_id: 'site', project_id: 'project' };
+/**
+ * Text as the card shows it (VERIFY-3 X1): every character kept, except invisible and direction-control ones (Unicode
+ * format characters, Cf: zero-width spaces and joiners, bidi embeddings, overrides and isolates, the byte order mark,
+ * tag characters; and control characters other than a line break), which are taken out and counted so the card can
+ * say so. Line breaks are kept, an em or en dash reads as a comma. Over `max` it is cut and marked.
+ */
+const INVISIBLE = /[\p{Cf}\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu;
+export function cardText(raw: unknown, max: number): { text: string; hidden: number; cut: boolean } {
+  let t = String(raw ?? '').replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n');
+  const hidden = (t.match(INVISIBLE) ?? []).length;
+  t = t.replace(INVISIBLE, '').replace(/[ \t]*[\u2013\u2014][ \t]*/g, ', ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const cut = t.length > max;
+  return { text: cut ? t.slice(0, max) : t, hidden, cut };
+}
+
+/** Each record field the chat can change, the word its flag uses and how the card shows its current value. */
+interface CardField {
+  word: string;
+  label: string;
+  /** Text fields go through `cardText` in full; typed ones are short words. Null: nothing to show for this row. */
+  show: (row: ReadTaskRow, n: CardNames) => string | null;
+  text?: boolean;
+}
+interface CardNames {
+  users: Map<string, string>;
+  sites: Map<string, string>;
+  clients: Map<string, string>;
+  sops: Map<string, string>;
+  arcs: Map<string, string>;
+  now: Date;
+}
+const yesNo = (v: unknown) => (v ? 'yes' : 'no');
+const idName = (m: Map<string, string>, v: unknown, none: string) => (typeof v === 'string' && v ? (m.get(v) ?? 'one not found') : none);
+const words = (v: unknown) => (typeof v === 'string' ? v.replace(/_/g, ' ') : 'not set');
+/** Keyed by the record's field names (task-record.ts, TASK_RECORD_FIELDS) plus `sop_id` from a create. */
+export const CARD_FIELDS: Record<string, CardField> = {
+  title: { word: 'title', label: 'Title', text: true, show: (r) => r.title ?? '' },
+  description: { word: 'description', label: 'Description', text: true, show: (r) => plainText(r.description) },
+  requirements: { word: 'checklist', label: 'Checklist', text: true, show: (r) => allChecklistLines(r.requirements).map((l, i) => `${i + 1}. ${l}`).join('\n') },
+  notes: { word: 'notes', label: 'Notes', text: true, show: (r) => plainText(r.notes) },
+  promised_to: { word: 'promise', label: 'Promised to', text: true, show: (r) => (r.promised_to as string | null) ?? 'nobody' },
+  tags: { word: 'tags', label: 'Tags', text: true, show: (r) => ((r.tags ?? []).length ? r.tags.join(', ') : 'none') },
+  status: { word: 'status', label: 'Status', show: (r) => STATUS_WORDS[r.status] ?? 'unknown' },
+  assignee_id: { word: 'who it is on', label: 'On', show: (r, n) => idName(n.users, r.assignee_id, 'nobody') },
+  project_id: { word: 'project', label: 'Project', show: (r) => ((r.project as { name?: string } | null)?.name ?? (r.project_id ? 'one not found' : 'none')) },
+  client_id: { word: 'client', label: 'Client', show: (r, n) => idName(n.clients, r.client_id, 'none') },
+  site_id: { word: 'site', label: 'Site', show: (r, n) => idName(n.sites, r.site_id, 'none') },
+  sop_id: { word: 'SOP', label: 'SOP', show: (r, n) => idName(n.sops, r.sop_id, 'none') },
+  arc_id: { word: 'arc', label: 'Arc', show: (r, n) => idName(n.arcs, r.arc_id, 'none') },
+  energy_estimate: { word: 'estimate', label: 'Estimate', show: (r) => `energy ${r.energy_estimate ?? 'not set'}, mystery ${words(r.mystery_factor)}, battery ${words(r.battery_impact)}` },
+  mystery_factor: { word: 'estimate', label: 'Estimate', show: (r) => `energy ${r.energy_estimate ?? 'not set'}, mystery ${words(r.mystery_factor)}, battery ${words(r.battery_impact)}` },
+  battery_impact: { word: 'estimate', label: 'Estimate', show: (r) => `energy ${r.energy_estimate ?? 'not set'}, mystery ${words(r.mystery_factor)}, battery ${words(r.battery_impact)}` },
+  due_date: { word: 'date', label: 'Due', show: (r, n) => (r.due_date ? whenWords(new Date(r.due_date as string), n.now) : 'no date') },
+  priority: { word: 'order', label: 'Order in the team lists (1 is first)', show: (r) => String(r.priority ?? 'not set') },
+  is_focus: { word: 'focus', label: 'A focus', show: (r) => yesNo(r.is_focus) },
+  blocked_by_ids: { word: 'tasks it waits on', label: 'Waits on', show: () => null },
+  needs_review: { word: 'review', label: 'Needs a review', show: (r) => yesNo(r.needs_review) },
+  approved: { word: 'approval', label: 'Approved', show: (r) => yesNo(r.approved) },
+  client_visible: { word: 'sharing', label: 'Shared with the client', show: (r) => yesNo(r.client_visible) },
+};
+/** What a filed task (create_task) shows: every field a create can set. */
+const WHOLE_TASK_FIELDS = ['status', 'title', 'description', 'requirements', 'notes', 'tags', 'promised_to', 'assignee_id', 'project_id', 'client_id', 'site_id', 'sop_id', 'arc_id', 'energy_estimate', 'priority', 'is_focus', 'needs_review'];
+const FIELD_ORDER = ['the whole task', ...new Set(Object.values(CARD_FIELDS).map((f) => f.word))];
 
 /**
  * What the chat changed on each task, at any time and through any path that leaves a record: an applied change
  * (task-record.ts) or a released proposal (the owner's tap of a chat plan). Undone changes are left out (the text is
  * back). No row limit, newest first, so the answer does not depend on how many records there are (VERIFY-2 N3).
+ * Returns the record field names changed per task (`*` for a filed task).
  */
 async function chatChangesOf(db: Db, ids: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -1179,23 +1257,31 @@ async function chatChangesOf(db: Db, ids: string[]): Promise<Map<string, string[
     orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
     select: { target_id: true, tool: true, after: true, plan: true, status: true },
   });
-  const add = (id: string, w: string) => out.set(id, [...new Set([...(out.get(id) ?? []), w])]);
+  const add = (id: string, k: string) => out.set(id, [...new Set([...(out.get(id) ?? []), k])]);
   for (const r of rows) {
     if (!ids.includes(r.target_id)) continue;
-    if (r.tool === 'create_task') add(r.target_id, 'the whole task');
+    if (r.tool === 'create_task') add(r.target_id, '*');
     let keys: string[] = [];
     if (r.status === 'released') {
       const plan = r.plan as { kind?: unknown; input?: { body?: unknown } } | null;
       const body = plan?.kind === 'apply' ? plan.input?.body : null;
       keys = body && typeof body === 'object' ? Object.keys(body as object) : [];
     } else keys = r.after && typeof r.after === 'object' && !Array.isArray(r.after) ? Object.keys(r.after as object) : [];
-    for (const k of keys) {
-      const w = RECORD_FIELD_WORDS[k];
-      if (w) add(r.target_id, w);
-    }
+    // Any key the card does not know still flags the task, as "details".
+    for (const k of keys) add(r.target_id, k === 'completed_at' ? 'status' : k);
   }
-  for (const [k, v] of out) out.set(k, FIELD_ORDER.filter((w) => v.includes(w)));
   return out;
+}
+
+/** The projects whose status the chat changed (the project op), at any time; undone changes left out. */
+async function chatProjectChangesOf(db: Db, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db.bastChatAction.findMany({
+    where: { target_type: 'project', target_id: { in: ids }, status: { in: ['applied', 'released'] } },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+    select: { target_id: true },
+  });
+  return new Set(rows.map((r) => r.target_id).filter((id) => ids.includes(id)));
 }
 
 /** Comments the chat wrote on a task that the worker still reads (not hidden), newest first. */
@@ -1203,40 +1289,32 @@ function chatNotesOf(set: WorkerReadSet, taskId: string) {
   return [...(set.comments.get(taskId) ?? [])].filter((c) => !c.is_deleted && isChatComment(c)).reverse();
 }
 
-const noteText = (content: string) => {
-  const t = content.startsWith(CHAT_COMMENT_PREFIX) ? content.slice(CHAT_COMMENT_PREFIX.length) : content;
-  return cutAtWord(cleanLine(t, 20_000), CARD_NOTE_MAX);
-};
-
-/** The current text of a read field, for the card. */
-function fieldText(row: ReadTaskRow | undefined, word: string): string | null {
-  if (!row) return null;
-  let t = '';
-  if (word === 'description') t = plainText(row.description);
-  else if (word === 'notes') t = plainText(row.notes);
-  else if (word === 'checklist') t = checklistLines(row.requirements, 200).join('; ');
-  else if (word === 'title') t = row.title ?? '';
-  else return null;
-  t = cleanLine(t, 20_000);
-  return t ? cutAtWord(t, CARD_TEXT_MAX) : '(empty now)';
-}
-const TEXT_LABEL: Record<string, string> = { description: 'Description', notes: 'Notes', checklist: 'Checklist', title: 'Title' };
-/** The read fields whose text the card shows for a set of change words; a filed task shows all of them. */
-function textFields(words: string[], withTitle: boolean): string[] {
-  const all = words.includes('the whole task') ? ['title', 'description', 'checklist', 'notes'] : words;
-  return ['title', 'description', 'checklist', 'notes'].filter((w) => all.includes(w) && (withTitle || w !== 'title'));
+/** Every checklist line of a stored requirements list, in full (items, and items inside sections). */
+function allChecklistLines(req: unknown): string[] {
+  if (!Array.isArray(req)) return [];
+  const lines: string[] = [];
+  for (const e of req) {
+    if (!e || typeof e !== 'object') continue;
+    const o = e as { type?: unknown; text?: unknown; title?: unknown; items?: unknown };
+    if (o.type === 'section') {
+      if (typeof o.title === 'string' && o.title) lines.push(o.title);
+      if (Array.isArray(o.items)) for (const it of o.items) if (it && typeof (it as { text?: unknown }).text === 'string') lines.push((it as { text: string }).text);
+    } else if (typeof o.text === 'string') lines.push(o.text);
+  }
+  return lines;
 }
 
-async function namesById(db: Db, kind: 'site' | 'client' | 'sop', ids: (string | null)[]): Promise<Map<string, string>> {
-  const want = [...new Set(ids.filter((x): x is string => !!x))];
+async function namesById(db: Db, kind: 'site' | 'client' | 'sop' | 'arc' | 'user', ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+  const want = [...new Set(ids.filter((x): x is string => typeof x === 'string' && isChatUuid(x)))];
   if (want.length === 0) return new Map();
   if (kind === 'sop') {
     const rows = await db.sop.findMany({ where: { id: { in: want } }, select: { id: true, title: true } });
-    return new Map(rows.map((r) => [r.id, cleanLine(r.title, 80)]));
+    return new Map(rows.map((r) => [r.id, cleanLine(r.title, 200)]));
   }
-  const delegate = (kind === 'site' ? db.site : db.client) as unknown as { findMany: (a: unknown) => Promise<{ id: string; name: string }[]> };
+  const delegate = (db as unknown as Record<string, { findMany?: (a: unknown) => Promise<{ id: string; name: string }[]> } | undefined>)[kind];
+  if (!delegate?.findMany) return new Map();
   const rows = await delegate.findMany({ where: { id: { in: want } }, select: { id: true, name: true } });
-  return new Map(rows.map((r) => [r.id, cleanLine(r.name, 80)]));
+  return new Map(rows.map((r) => [r.id, cleanLine(r.name, 200)]));
 }
 
 /**
@@ -1257,42 +1335,85 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
   const reads = [...reach.reads, ...extra];
   const ids = reads.map((r) => r.task_id);
   const blockersOf = (id: string) => set.blockers_of.get(id) ?? [];
-  const allIds = [...new Set([...ids, ...ids.flatMap(blockersOf)])];
-  const [sites, clients, sops, changed] = await Promise.all([
-    namesById(db, 'site', reads.map((r) => r.site_id)),
-    namesById(db, 'client', reads.map((r) => r.client_id)),
-    namesById(db, 'sop', reads.map((r) => r.sop_id)),
+  /** The tasks that wait on a read task, as its GET lists them (id and title). */
+  const dependentsOf = (id: string) => ((set.tasks.get(id)?.blocking as { id: string; title: string }[] | undefined) ?? []);
+  const allIds = [...new Set([...ids, ...ids.flatMap(blockersOf), ...ids.flatMap((id) => dependentsOf(id).map((d) => d.id))])];
+  const projectIds = [...new Set(ids.map((id) => set.tasks.get(id)?.project_id as string | null | undefined).filter((x): x is string => !!x))];
+  const rowsOf = allIds.map((id) => set.tasks.get(id)).filter((x): x is ReadTaskRow => !!x);
+  const col = (k: string) => [...reads.map((r) => (r as unknown as Record<string, unknown>)[k] as string | null), ...rowsOf.map((r) => r[k] as string | null)];
+  const [sites, clients, sops, arcs, users, changed] = await Promise.all([
+    namesById(db, 'site', col('site_id')),
+    namesById(db, 'client', col('client_id')),
+    namesById(db, 'sop', col('sop_id')),
+    namesById(db, 'arc', col('arc_id')),
+    namesById(db, 'user', col('assignee_id')),
     chatChangesOf(db, allIds),
   ]);
+  const projectChanged = await chatProjectChangesOf(db, projectIds);
+  const names: CardNames = { users, sites, clients, sops, arcs, now };
   const titleIn = (id: string) => quoted((set.tasks.get(id)?.title as string | undefined) ?? 'a task');
+  let incomplete = false;
   const cardReads: CardRead[] = reads.map((r) => {
-    const own = [...(changed.get(r.task_id) ?? [])];
-    const notes: CardNote[] = chatNotesOf(set, r.task_id).map((c) => ({ on: null, text: noteText(c.content) }));
-    if (notes.length) own.push('a comment');
-    const words = [...own];
-    // The title is the card's own heading already.
-    const texts: CardText[] = textFields(own, false).flatMap((w) => {
-      const t = fieldText(set.tasks.get(r.task_id), w);
-      return t === null ? [] : [{ label: `${TEXT_LABEL[w]} now`, text: t }];
-    });
-    for (const b of blockersOf(r.task_id)) {
-      const on = titleIn(b);
-      const bw = changed.get(b) ?? [];
-      for (const w of bw) words.push(w === 'the whole task' ? `the task it waits on, ${on}` : `the ${w} of ${on}`);
-      for (const w of textFields(bw, true)) {
-        const t = fieldText(set.tasks.get(b), w);
-        if (t !== null) texts.push({ label: `${TEXT_LABEL[w]} of ${on} now`, text: t });
+    let hidden = 0;
+    const take = (raw: unknown, max: number) => {
+      const c = cardText(raw, max);
+      hidden += c.hidden;
+      if (c.cut) incomplete = true;
+      return c.text;
+    };
+    const flags: string[] = [];
+    const texts: CardText[] = [];
+    const notes: CardNote[] = [];
+    /** The flag words and current values of what the chat changed on one task. `on` names a task it waits on. */
+    const fieldsOf = (taskId: string, on: string | null) => {
+      const keys = changed.get(taskId) ?? [];
+      const row = set.tasks.get(taskId);
+      if (keys.includes('*')) flags.push(on ? `the task it waits on, ${on}` : 'the whole task');
+      const shown = new Set<string>();
+      const rank = (k: string) => {
+        const i = FIELD_ORDER.indexOf(CARD_FIELDS[k]?.word ?? '');
+        return i < 0 ? FIELD_ORDER.length : i;
+      };
+      const own = keys.filter((k) => k !== '*').sort((x, y) => rank(x) - rank(y));
+      for (const k of [...(keys.includes('*') ? WHOLE_TASK_FIELDS : []), ...own]) {
+        const f = CARD_FIELDS[k];
+        if (!keys.includes('*') || !WHOLE_TASK_FIELDS.includes(k)) flags.push(f ? (on ? `the ${f.word} of ${on}` : f.word) : on ? `details of ${on}` : 'details');
+        // The task's own title is the heading of its block, in full; a task it waits on gets a line.
+        if (!f || !row || (k === 'title' && !on) || shown.has(f.label)) continue;
+        const v = k === 'blocked_by_ids' && !on ? blockersOf(taskId).map((b) => titleIn(b)).join(', ') || 'nothing' : f.show(row, names);
+        if (v === null) continue;
+        shown.add(f.label);
+        texts.push({ label: on ? `${f.label} of ${on} now` : `${f.label} now`, text: f.text ? take(v, CARD_TEXT_MAX) || '(empty now)' : cleanLine(v, 300) });
       }
-      const bn = chatNotesOf(set, b);
-      if (bn.length) words.push(`a comment on ${on}`);
-      for (const c of bn) notes.push({ on, text: noteText(c.content) });
+      const ns = chatNotesOf(set, taskId);
+      if (ns.length) flags.push(on ? `a comment on ${on}` : 'a comment');
+      for (const c of ns) {
+        const t = c.content.startsWith(CHAT_COMMENT_PREFIX) ? c.content.slice(CHAT_COMMENT_PREFIX.length) : c.content;
+        notes.push({ on, text: take(t, CARD_NOTE_MAX) || '(empty)' });
+      }
+    };
+    fieldsOf(r.task_id, null);
+    for (const b of blockersOf(r.task_id)) fieldsOf(b, titleIn(b));
+    // The tasks that wait on it: their titles are in what the session reads (VERIFY-3 field table).
+    for (const d of dependentsOf(r.task_id)) {
+      const keys = changed.get(d.id) ?? [];
+      if (!keys.includes('title') && !keys.includes('*')) continue;
+      const on = quoted(d.title);
+      flags.push(`the title of ${on}, a task that waits on it`);
+      texts.push({ label: 'Title of a task that waits on it now', text: take(d.title, CARD_TITLE_MAX) || '(empty now)' });
     }
-    const cc = [...new Set(words)];
+    const pid = set.tasks.get(r.task_id)?.project_id as string | null | undefined;
+    if (pid && projectChanged.has(pid)) {
+      const p = set.tasks.get(r.task_id)?.project as { status?: string } | null | undefined;
+      flags.push("the project's status");
+      texts.push({ label: 'Project status now', text: PROJECT_STATUS_WORDS[p?.status ?? ''] ?? 'unknown' });
+    }
+    const cc = [...new Set(flags)];
+    const title = take(r.title ?? 'Untitled', CARD_TITLE_MAX) || 'Untitled';
     const text = plainText(r.description);
-    const more = Math.max(0, notes.length - CARD_NOTES_SHOWN);
     return {
       task_id: r.task_id,
-      title: cutAtWord(cleanLine(r.title ?? 'Untitled', 300), 120),
+      title,
       status: r.status ? (STATUS_WORDS[r.status] ?? null) : null,
       site: r.site_id ? (sites.get(r.site_id) ?? null) : null,
       client: r.client_id ? (clients.get(r.client_id) ?? null) : null,
@@ -1301,10 +1422,11 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       checklist: checklistLines(r.requirements),
       writes: [...new Set(r.changed.filter((f) => !f.startsWith('blocker:')).map((f) => CARD_WRITE_WORDS[f] ?? FIELD_WORDS[f] ?? 'details'))],
       chat_changed: cc,
-      chat_changed_line: cc.length ? cleanLine(`Changed from this chat: ${cc.join(', ')}.`, 1000) : null,
-      chat_notes: notes.slice(0, CARD_NOTES_SHOWN),
-      chat_notes_more_line: more ? `${more} more note${more > 1 ? 's' : ''} from this chat ${more > 1 ? 'are' : 'is'} not shown. Open the task to read ${more > 1 ? 'them' : 'it'}.` : null,
+      chat_changed_line: cc.length ? cleanLine(`Changed from this chat: ${cc.join(', ')}.`, 2000) : null,
+      chat_notes: notes,
+      chat_notes_more_line: null,
       chat_text: texts,
+      hidden_line: hidden ? `Invisible characters were taken out of this text before it was shown: ${hidden}.` : null,
     };
   });
   const otherIds = [...new Set([...reach.starts.map((h) => h.task_id), ...reach.shows_client.map((c) => c.task_id ?? null)])].filter(
@@ -1344,6 +1466,9 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       case 'changes_blocker_text':
         push(`Bast's waiting task ${titleOf(h.task_id)} reads this text.`);
         break;
+      case 'changes_dependent_title':
+        push(`Bast's task ${titleOf(h.task_id)} lists this title as a task that waits on it.`);
+        break;
       case 'wakes_delegate':
       case 'edits_woken_delegate_task':
         push("Bast's worker will read Sabeen's thread.");
@@ -1375,7 +1500,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
   const kind: CardKind = reach.starts.length > 0 ? (isStart ? 'bast_start' : 'bast_resteer') : 'client_show';
   const clause = cleanLine(copy.clause, 200);
   const buttons = copy.buttons ? { yes: cleanLine(copy.buttons.yes, 40), no: cleanLine(copy.buttons.no, 40) } : CARD_BUTTONS[kind];
-  return { kind, title: `${capFirst(clause)}?`, lines, reads: cardReads, client, buttons, clause };
+  return { kind, title: `${capFirst(clause)}?`, lines, reads: cardReads, client, buttons, clause, ...(incomplete ? { incomplete: true, incomplete_line: CARD_INCOMPLETE_TEXT } : {}) };
 }
 
 function storedReach(reach: ReachResult, card: ProposalCard, fingerprint: string): StoredReach {
@@ -1688,14 +1813,16 @@ function storedReadIds(stored: StoredReach | null): string[] {
  * released proposal is a 409 "That is not waiting for a decision."). Then: the plan must still validate, the reach
  * recomputed now (origin 'tap') must give the stored `tapFingerprint` (the reach plus every field and comment the
  * worker reads for those tasks and their blockers), the tasks it reads now must all be under the locks, and the
- * write must hit its compare-and-set on the values stored at proposal time. Any miss marks the proposal failed for
- * good, writes nothing, tells the chat, and answers 409 "Changed since. Open the task." (the wait, for a wait). A lock
- * not free in time is a 409 "That is busy right now. Try again." with nothing claimed. Owner taps are not counted
- * against the daily limit.
+ * write must hit its compare-and-set on the values stored at proposal time. Any miss rolls back everything the tap
+ * did under the locks, then marks the proposal failed for good, tells the chat, and answers 409 "Changed since. Open
+ * the task." (the wait, for a wait). Every query under the locks runs on the locks' own connection (task-locks.ts), and
+ * the claim is part of that transaction, so a tap that dies half way leaves the proposal waiting, unclaimed. A lock not
+ * free in time is a 409 "That is busy right now. Try again." with nothing claimed. A card that could not show all the
+ * chat's text (`incomplete`) can never be tapped. Owner taps are not counted against the daily limit.
  */
 export async function releaseAction(actionId: string, actorId: string, now: Date = new Date(), db: Db = defaultDb): Promise<ActionView> {
   const a = await loadOwned(actionId, actorId, db);
-  if (a.status !== 'proposed' || a.resolved_at) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
+  if (!isOpenProposal(a, now)) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
   const plan = parsePlan(a.plan);
   const op = plan ? operationFor(plan.op) : null;
   if (plan && !op) throw conflict('That cannot be done right now. Try again later.', 'op_unavailable');
@@ -1703,8 +1830,42 @@ export async function releaseAction(actionId: string, actorId: string, now: Date
   // The undone record is read here only to know what to lock; it is read again under the locks.
   const undoneNow = plan?.kind === 'undo' ? await db.bastChatAction.findUnique({ where: { id: plan.undo_of } }) : null;
   const scope = await lockScopeFor(db, plan ? seedsOf(plan, undoneNow) : EMPTY_SCOPE, storedReadIds(stored));
-  return withLocks(db, scope, () => releaseLocked(a, plan, op, stored, scope, actorId, now, db));
+  try {
+    return await withLocks(db, scope, () => releaseLocked(a, plan, op, stored, scope, actorId, now, db));
+  } catch (e) {
+    if (!(e instanceof DeadTap)) throw e;
+    // Everything the tap did under the locks rolled back; the proposal is marked dead on its own, for good.
+    const refusal = changedSinceFor(a.target_type);
+    const marked = await db.bastChatAction.updateMany({ where: { id: a.id, status: 'proposed' }, data: { status: 'failed', error: refusal, resolved_at: now, resolved_by_id: actorId } });
+    if (marked.count === 1) {
+      await db.$transaction((tx) => appendChatNote(tx, a.conversation_id, { code: 'action_failed', text: `Mike's tap did not go through, nothing changed: ${clauseOf(a)}. It changed since.`, action_id: a.id }));
+    }
+    throw conflict(refusal, 'changed_since');
+  }
 }
+
+/** Thrown inside the locks when the tap must not go through: it rolls back the claim and anything written. */
+class DeadTap extends Error {
+  constructor() {
+    super('dead tap');
+  }
+}
+
+/**
+ * How long a claim on a proposal may stand without its outcome. A locked tap claims inside its transaction, so a
+ * crash rolls the claim back; a tap with nothing to lock (a wait, a home change) claims on its own, and a crash before
+ * its outcome leaves the claim. Past this age the proposal can be tapped or declined again (VERIFY-3 X4).
+ */
+export const CLAIM_TTL_MS = 2 * 60 * 1000;
+function isOpenProposal(a: Pick<BastChatAction, 'status' | 'resolved_at'>, now: Date): boolean {
+  if (a.status !== 'proposed') return false;
+  return !a.resolved_at || a.resolved_at.getTime() < now.getTime() - CLAIM_TTL_MS;
+}
+const openProposalWhere = (id: string, now: Date): Prisma.BastChatActionWhereInput => ({
+  id,
+  status: 'proposed',
+  OR: [{ resolved_at: null }, { resolved_at: { lt: new Date(now.getTime() - CLAIM_TTL_MS) } }],
+});
 
 async function releaseLocked(
   a: BastChatAction,
@@ -1716,15 +1877,14 @@ async function releaseLocked(
   now: Date,
   db: Db,
 ): Promise<ActionView> {
-  const claim = await db.bastChatAction.updateMany({ where: { id: a.id, status: 'proposed', resolved_at: null }, data: { resolved_at: now, resolved_by_id: actorId } });
+  const claim = await db.bastChatAction.updateMany({ where: openProposalWhere(a.id, now), data: { resolved_at: now, resolved_by_id: actorId } });
   if (claim.count !== 1) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
 
-  const refusal = changedSinceFor(a.target_type);
-  const dead = async (): Promise<never> => {
-    await noteAndSet(db, a, { status: 'failed', error: refusal }, { code: 'action_failed', text: `Mike's tap did not go through, nothing changed: ${clauseOf(a)}. It changed since.` });
-    throw conflict(refusal, 'changed_since');
+  const dead = (): never => {
+    throw new DeadTap();
   };
   if (!plan || !op || !stored) return dead();
+  if (stored.card?.incomplete) return dead(); // a card that could not show all the text can never be tapped
   const ctx: OpApplyContext = { db, ownerId: actorId, now, actor: await ownerActor(db, actorId) };
   /** The recomputed reach must give the stored fingerprint, and everything it reads must be under the locks. */
   const same = async (reach: ReachResult, seeds: LockScope): Promise<boolean> => {
@@ -1752,10 +1912,11 @@ async function releaseLocked(
       outcome = await op.undo(ctx, undone, plan.expect);
     }
   } catch (e) {
+    if (e instanceof DeadTap) throw e;
+    if (e instanceof ApiError && e.code === 'busy') throw e;
     if (e instanceof ApiError && e.statusCode < 500) return dead();
     if (e instanceof z.ZodError) return dead();
-    await db.bastChatAction.update({ where: { id: a.id }, data: { status: 'failed', error: 'That did not go through.' } });
-    throw e;
+    throw e; // a fault: everything rolls back and the proposal is still waiting for a tap
   }
   if (!outcome.ok) return dead();
   if (undone) {
@@ -1768,8 +1929,8 @@ async function releaseLocked(
 /** "Keep it": the proposal is declined and nothing else changes. */
 export async function declineAction(actionId: string, actorId: string, now: Date = new Date(), db: Db = defaultDb): Promise<ActionView> {
   const a = await loadOwned(actionId, actorId, db);
-  if (a.status !== 'proposed' || a.resolved_at) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
-  const claim = await db.bastChatAction.updateMany({ where: { id: a.id, status: 'proposed', resolved_at: null }, data: { status: 'declined', resolved_at: now, resolved_by_id: actorId } });
+  if (!isOpenProposal(a, now)) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
+  const claim = await db.bastChatAction.updateMany({ where: openProposalWhere(a.id, now), data: { status: 'declined', resolved_at: now, resolved_by_id: actorId } });
   if (claim.count !== 1) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
   const row = await db.$transaction(async (tx) => {
     await appendChatNote(tx, a.conversation_id, { code: 'action_declined', text: `Mike said no, nothing changed: ${clauseOf(a)}.`, action_id: a.id });

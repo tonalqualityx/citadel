@@ -19,25 +19,27 @@
  *
  * Keys are `hashtextextended('bast-chat-task:<id>', 0)` and `...('bast-chat-project:<id>', 0)`, taken one statement
  * at a time in ascending key order, all in one go before any check, so two holders can never wait on each other in
- * a cycle. `lock_timeout` is 10 seconds; a lock that cannot be had in time is a 409 "That is busy right now. Try
+ * a cycle. `lock_timeout` is 8 seconds; a lock that cannot be had in time is a 409 "That is busy right now. Try
  * again." and nothing is written. The locks go when the transaction ends.
  *
  * Only chat paths call this module: a session, a staff key or any other caller never takes these locks and never
  * runs these queries.
  *
- * The holding transaction only holds the locks: the checks and writes inside `fn` may run on other connections
- * (patchTask and its side effects use the shared client). Advisory locks taken by this transaction are seen by every
- * other connection, so that is enough. Code running inside `fn` must never take one of these locks on a DIFFERENT
- * connection (it would wait for itself): ops that lock in `run` do so only when called by the chat, never when the
- * tap or Undo applies them (`ctx.actor` set).
+ * Everything inside `fn` runs on the holding transaction's own connection (VERIFY-3 X3): `withLocks` runs `fn` under
+ * `runOnTransaction` (lib/db/scope.ts), so every query of the shared client, from patchTask down to the activity log
+ * and the notices, goes to that one connection. A locked request never waits for a second pool connection while it
+ * holds one, so the pool cannot starve however many arrive at once, and every write of the request commits or rolls
+ * back together (a tap that dies half way leaves its proposal exactly as it was: VERIFY-3 X4). Locks taken again
+ * inside `fn` (an op's `run`) are taken on the same connection and simply stack.
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
+import { runOnTransaction } from '@/lib/db/scope';
 
 type LockDb = Pick<PrismaClient, '$queryRaw' | '$executeRaw'> | Prisma.TransactionClient;
 type ScopeDb = { task: Pick<PrismaClient['task'], 'findMany'> };
 
-export const LOCK_TIMEOUT_MS = 10_000;
+export const LOCK_TIMEOUT_MS = 8_000;
 /** Options for the holding transaction: long enough for a patchTask with its side effects under load. */
 export const LOCKED_TX_OPTIONS = { timeout: 30_000, maxWait: 10_000 } as const;
 export const BUSY_TEXT = 'That is busy right now. Try again.';
@@ -107,14 +109,29 @@ export async function lockScope(db: LockDb, scope: LockScope): Promise<void> {
   }
 }
 
+/** A database error that means "someone else holds it" (lock timeout, deadlock) or a transaction that ran out of time: all roll back. */
+export function isBusyError(e: unknown): boolean {
+  if (e instanceof ApiError) return e.code === 'busy';
+  const o = e as { code?: unknown; message?: unknown; meta?: { code?: unknown } } | null;
+  const text = `${String(o?.code ?? '')} ${String(o?.meta?.code ?? '')} ${String(o?.message ?? '')}`;
+  return /55P03|40P01|P2024|P2028|P2034|lock timeout|Timed out fetching a new connection|deadlock detected|Transaction already closed|expired transaction/i.test(text);
+}
+
 /**
- * Run `fn` while holding the scope's locks. An empty scope runs `fn` straight away with no transaction. `fn` gets the
- * holding transaction client; most callers ignore it and use the shared client (see the module comment).
+ * Run `fn` while holding the scope's locks, with every query of the shared client on the holding transaction (see the
+ * module comment). Everything `fn` writes commits together when it returns, and rolls back if it throws. An empty
+ * scope runs `fn` straight away with no transaction. A lock that cannot be had, a deadlock or a transaction that ran
+ * out of time is a 409 busy with nothing written.
  */
 export async function withLocks<T>(db: PrismaClient, scope: LockScope, fn: (tx: Prisma.TransactionClient | PrismaClient) => Promise<T>): Promise<T> {
   if (isEmptyScope(scope)) return fn(db);
-  return db.$transaction(async (tx) => {
-    await lockScope(tx, scope);
-    return fn(tx);
-  }, LOCKED_TX_OPTIONS);
+  try {
+    return await db.$transaction(async (tx) => {
+      await lockScope(tx, scope);
+      return runOnTransaction(tx, () => fn(tx));
+    }, LOCKED_TX_OPTIONS);
+  } catch (e) {
+    if (!(e instanceof ApiError) && isBusyError(e)) throw new ApiError(BUSY_TEXT, 409, 'busy');
+    throw e;
+  }
 }

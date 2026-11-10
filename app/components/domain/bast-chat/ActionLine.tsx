@@ -29,6 +29,10 @@ export interface ActionLineProps {
 }
 
 const BTN = 'home-btn';
+/** The chat's own words: a marked block. */
+const FLAG: React.CSSProperties = { borderLeft: '3px solid var(--accent)', paddingLeft: 8 };
+/** Chat-written text in full (VERIFY-3 X1): kept line breaks, long words wrap, a long text scrolls inside its box. */
+const FULL_TEXT: React.CSSProperties = { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 240, overflowY: 'auto' };
 
 const STATUS_WORDS: Record<string, string> = {
   not_started: 'not started',
@@ -68,22 +72,31 @@ function ReadBlock({ read }: { read: CardRead }) {
           {changed}
         </p>
       ) : null}
-      {(read.chat_notes ?? []).map((n, i) => (
-        <p key={`n${i}`} className="home-small" data-testid="chat-note" style={{ borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
-          <span style={{ fontWeight: 600 }}>{n.on ? `Note from this chat on ${n.on}: ` : 'Note from this chat: '}</span>
-          {n.text}
+      {read.hidden_line ? (
+        <p className="home-small" data-testid="chat-hidden" style={FLAG}>
+          {read.hidden_line}
         </p>
+      ) : null}
+      {(read.chat_notes ?? []).map((n, i) => (
+        <div key={`n${i}`} className="home-small" data-testid="chat-note" style={FLAG}>
+          <p style={{ fontWeight: 600 }}>{n.on ? `Note from this chat on ${n.on}:` : 'Note from this chat:'}</p>
+          <p data-testid="chat-note-text" style={FULL_TEXT}>
+            {n.text}
+          </p>
+        </div>
       ))}
       {read.chat_notes_more_line ? (
-        <p className="home-small" data-testid="chat-notes-more" style={{ fontWeight: 600, borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
+        <p className="home-small" data-testid="chat-notes-more" style={{ ...FLAG, fontWeight: 600 }}>
           {read.chat_notes_more_line}
         </p>
       ) : null}
       {(read.chat_text ?? []).map((t, i) => (
-        <p key={`t${i}`} className="home-small" data-testid="chat-text" style={{ borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
-          <span style={{ fontWeight: 600 }}>{`${t.label}: `}</span>
-          {t.text}
-        </p>
+        <div key={`t${i}`} className="home-small" data-testid="chat-text" style={FLAG}>
+          <p style={{ fontWeight: 600 }}>{`${t.label}:`}</p>
+          <p data-testid="chat-text-value" style={FULL_TEXT}>
+            {t.text}
+          </p>
+        </div>
       ))}
       {read.excerpt ? <p className="home-small">{read.excerpt}</p> : null}
       {checklist.length > 0 ? (
@@ -129,6 +142,11 @@ function TapCard({ card, action, busy, onRelease, onDecline }: { card: ProposalC
           ))}
         </ul>
       ) : null}
+      {card.incomplete ? (
+        <p className="home-small" role="status" data-testid="card-incomplete" style={{ ...FLAG, fontWeight: 600 }}>
+          {card.incomplete_line ?? "Some of the chat's text is too long to show here, so this can't be tapped. Open the task."}
+        </p>
+      ) : null}
       {client.length > 0 ? (
         <div className="home-small" data-testid="card-client">
           <p className="home-muted">The client will see</p>
@@ -138,7 +156,7 @@ function TapCard({ card, action, busy, onRelease, onDecline }: { card: ProposalC
         </div>
       ) : null}
       <div className="home-actions" role="group" aria-label="Your choice">
-        <button type="button" className={BTN} data-filled="true" disabled={busy} onClick={() => onRelease(action.id)}>
+        <button type="button" className={BTN} data-filled="true" disabled={busy || !!card.incomplete} onClick={() => onRelease(action.id)}>
           {buttons.yes}
         </button>
         <button type="button" className={BTN} disabled={busy} onClick={() => onDecline(action.id)}>
