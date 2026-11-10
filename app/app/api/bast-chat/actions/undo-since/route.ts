@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireChatOwner } from '@/lib/bast-chat/access';
 import { undoSince, undoSinceSchema } from '@/lib/bast-chat/actions';
 import { chatError, chatJson, ownerJsonBody, ownerPostGuard } from '@/lib/bast-chat/route-helpers';
+import '@/lib/bast-chat/ops'; // registers the chat's operations so their Undo and taps work
 
 /**
  * POST /api/bast-chat/actions/undo-since {since} or {from_action_id}: "Undo everything since", Mike's remedy if the

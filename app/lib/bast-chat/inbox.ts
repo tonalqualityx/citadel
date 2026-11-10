@@ -6,11 +6,14 @@
  *   `expired_at` on them and adds one status event each ("Not answered: ..."). It marks, never deletes.
  * - A stop is served once (and marked delivered) while its conversation is running.
  * - Messages carry only the validated card (kind and id, never the title).
+ * - Each message carries `notes: [{code, line}]`: what happened to the chat's changes since its last answer (Undo, a tap,
+ *   a refused tap). The notes of a conversation are taken once (`takeChatNotes` marks them delivered) and ride on that
+ *   conversation's first message in the batch; its other messages carry `notes: []`.
  * - When the chat is switched off or has no owner, the arrays are empty and `settings.enabled` is false.
  */
 import type { PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
-import { allocateSeq, closeIdleConversations, EXPIRED_TEXT, STOP_CODE } from './events';
+import { allocateSeq, closeIdleConversations, EXPIRED_TEXT, STOP_CODE, takeChatNotes } from './events';
 import { contextForWorker } from './card-context';
 import { getSettings, MAX_TURNS_PER_ANSWER } from './settings';
 import { getUsage, usageLeft } from './usage';
@@ -31,7 +34,7 @@ export interface InboxSettingsView {
 }
 
 export interface InboxView {
-  messages: { conversation_id: string; seq: number; client_ref?: string; text: string; context: { screen?: string; tile?: string; kind: string; id?: string } }[];
+  messages: { conversation_id: string; seq: number; client_ref?: string; text: string; context: { screen?: string; tile?: string; kind: string; id?: string }; notes: { code: string; line: string }[] }[];
   stops: { conversation_id: string }[];
   settings: InboxSettingsView;
 }
@@ -105,13 +108,22 @@ export async function buildInbox(now: Date = new Date(), db: PrismaClient = defa
     take: INBOX_MAX_MESSAGES,
     select: { conversation_id: true, seq: true, client_ref: true, payload: true, context: true },
   });
-  const messages = rows.map((r) => ({
-    conversation_id: r.conversation_id,
-    seq: r.seq,
-    ...(r.client_ref ? { client_ref: r.client_ref } : {}),
-    text: String((r.payload as { text?: unknown } | null)?.text ?? ''),
-    context: contextForWorker(r.context),
-  }));
+  const notesBy = new Map<string, { code: string; line: string }[]>();
+  for (const id of [...new Set(rows.map((r) => r.conversation_id))]) {
+    notesBy.set(id, (await takeChatNotes(id, now, db)).map((n) => ({ code: n.code, line: n.text })));
+  }
+  const messages = rows.map((r) => {
+    const notes = notesBy.get(r.conversation_id) ?? [];
+    notesBy.set(r.conversation_id, []);
+    return {
+      conversation_id: r.conversation_id,
+      seq: r.seq,
+      ...(r.client_ref ? { client_ref: r.client_ref } : {}),
+      text: String((r.payload as { text?: unknown } | null)?.text ?? ''),
+      context: contextForWorker(r.context),
+      notes,
+    };
+  });
 
   const stopRows = await db.bastChatEvent.findMany({
     where: { role: 'system', kind: 'status', delivered_at: null, payload: { path: ['code'], equals: STOP_CODE } },

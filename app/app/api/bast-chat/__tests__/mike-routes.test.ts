@@ -46,7 +46,7 @@ vi.mock('@/lib/bast-chat/actions', async (orig) => ({
   releaseAction: vi.fn(async () => ({ id: ACTION, status: 'released' })),
   declineAction: vi.fn(async () => ({ id: ACTION, status: 'declined' })),
   listActions: vi.fn(async () => [
-    { id: ACTION, conversation_id: CONV, event_seq: 2, tool: 'propose_handoff', target_id: CONV, summary: 'Hand it over', status: 'proposed', can_undo: false, undo_until: null, proposed_assignee_id: OWNER_ID, created_at: new Date() },
+    { id: ACTION, conversation_id: CONV, event_seq: 2, tool: 'propose_handoff', target_type: 'task', target_id: CONV, summary: 'Hand it over', status: 'proposed', proposal_kind: 'bast_start', card: { kind: 'bast_start' }, error: null, can_undo: false, undo_until: null, proposed_assignee_id: OWNER_ID, created_at: new Date() },
   ]),
 }));
 vi.mock('@/lib/bast-chat/heartbeat', async (orig) => ({
@@ -207,7 +207,8 @@ describe('Mike routes: shapes the panel hook reads', () => {
     expect(Object.keys(b.events[1]).sort()).toEqual(['created_at', 'kind', 'payload', 'role', 'seq']);
     expect(b.events[2].payload).toEqual({});
     expect(b.waiting).toEqual([{ seq: 1, delivered: false, expired: false }]);
-    expect(Object.keys(b.actions[0]).sort()).toEqual(['event_seq', 'id', 'proposed_assignee', 'status', 'summary', 'tool', 'undo_until']);
+    expect(Object.keys(b.actions[0]).sort()).toEqual(['card', 'error', 'event_seq', 'id', 'proposal_kind', 'proposed_assignee', 'status', 'summary', 'target_type', 'tool', 'undo_until']);
+    expect(b.actions[0]).toMatchObject({ target_type: 'task', proposal_kind: 'bast_start', card: { kind: 'bast_start' }, error: null });
     expect(Object.keys(b.worker).sort()).toEqual(['auth_state', 'online', 'pause_reason', 'paused']);
   });
   it('feed and status lapse old waiting messages first, so a stopped machine still shows Not answered', async () => {

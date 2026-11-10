@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type { NextResponse } from 'next/server';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { CHAT_LANE } from './task-filter';
-import { UNDO_WINDOW_HOURS, TASK_FIELDS, RESTORE_EXTRA_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
+import { UNDO_WINDOW_HOURS, TASK_RECORD_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
 import { cleanLine } from './card-context';
 
 /**
@@ -23,6 +23,8 @@ export const CHAT_ACTION_HEADER = 'X-Bast-Chat-Action';
 type TaskShape = {
   id: string; title: string; status: string; arc_id: string | null; assignee_id: string | null;
   due_date?: Date | null; completed_at?: Date | null;
+  /** The rest of `TASK_RECORD_FIELDS`, as the database holds them. `blocked_by` is `{id}` rows. */
+  [key: string]: unknown;
 };
 type Db = PrismaClient;
 
@@ -60,7 +62,48 @@ async function writeRecord(
   });
 }
 
-/** After a PATCH by the chat lane: one record for exactly the fields that changed among status, title, arc and assignee. */
+const sortedJson = (v: unknown): string => {
+  if (Array.isArray(v)) return `[${v.map(sortedJson).join(',')}]`;
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${sortedJson(o[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v ?? null);
+};
+const sameSet = (a: readonly string[], b: readonly string[]) => {
+  const x = [...new Set(a)].sort();
+  const y = [...new Set(b)].sort();
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+};
+const blockerIds = (t: TaskShape): string[] | null =>
+  Array.isArray(t.blocked_by) ? (t.blocked_by as { id: string }[]).map((x) => x.id).sort() : null;
+
+/**
+ * The value of one record field as the record stores it (plan 1.2 and amendment 14): dates as ISO strings,
+ * description and notes as the stored text, `requirements` as stored, `tags` as the full list, `blocked_by_ids`
+ * as the full sorted list of blocker ids. Null for a field the task row does not carry.
+ */
+function valueOf(t: TaskShape, k: (typeof TASK_RECORD_FIELDS)[number]): unknown {
+  if (k === 'blocked_by_ids') return blockerIds(t);
+  const v = t[k];
+  if (v === undefined || v === null) return null;
+  if (k === 'due_date') return v instanceof Date ? v.toISOString() : new Date(v as string).toISOString();
+  if (k === 'tags') return [...(v as string[])];
+  return v;
+}
+
+function changed(k: (typeof TASK_RECORD_FIELDS)[number], bv: unknown, av: unknown): boolean {
+  if (k === 'tags' || k === 'blocked_by_ids') return !sameSet((bv as string[] | null) ?? [], (av as string[] | null) ?? []);
+  if (k === 'requirements') return sortedJson(bv) !== sortedJson(av);
+  return bv !== av;
+}
+
+/**
+ * After a PATCH by the chat lane: one record with exactly the keys that changed, among every field in
+ * `TASK_RECORD_FIELDS`, with the true before and after, so Undo can restore any of them. Side effects of the same
+ * write (a client filled from the new project, a focus flag a status clears) are real changes and are recorded too.
+ * `blocked_by_ids` is recorded only when the caller read the task's blockers into `before` (the chat-lane route does).
+ */
 export async function recordChatPatch(
   auth: { lane?: string | null },
   before: TaskShape,
@@ -75,36 +118,28 @@ export async function recordChatPatch(
     if (!ownerId) return null;
     const b: Record<string, unknown> = {};
     const a: Record<string, unknown> = {};
-    for (const k of TASK_FIELDS) {
-      if (before[k] !== after[k]) {
-        b[k] = before[k] ?? null;
-        a[k] = after[k] ?? null;
+    for (const k of TASK_RECORD_FIELDS) {
+      if (k === 'blocked_by_ids' && blockerIds(before) === null) continue;
+      const bv = valueOf(before, k);
+      const av = valueOf(after, k);
+      if (changed(k, bv, av)) {
+        b[k] = bv;
+        a[k] = av;
       }
     }
     if (Object.keys(a).length === 0) return null;
-    // What the same PATCH cleared or set beside those fields, so Undo can put it back.
-    for (const k of RESTORE_EXTRA_FIELDS) {
-      const bv = before[k] ?? null;
-      const av = after[k] ?? null;
-      if ((bv?.getTime() ?? null) !== (av?.getTime() ?? null)) {
-        b[k] = bv ? bv.toISOString() : null;
-        a[k] = av ? av.toISOString() : null;
-      }
-    }
     const bf = b as TaskFields;
     const af = a as TaskFields;
-    const summary = await appliedSummary(db, { title: after.title }, bf, af, ownerId);
+    const summary = await appliedSummary(db, { title: after.title }, bf, af, ownerId, now);
     if (!summary) return null;
-    const onlyArc = Object.keys(af).length === 1 && 'arc_id' in af;
-    const tool = onlyArc ? (af.arc_id ? 'add_to_arc' : 'remove_from_arc') : 'update_task';
-    return await writeRecord(db, ownerId, conversationId, { tool, target_id: after.id, summary, before: bf, after: af }, now);
+    return await writeRecord(db, ownerId, conversationId, { tool: 'change_task', target_id: after.id, summary, before: bf, after: af }, now);
   } catch (e) {
     console.error('bast-chat: could not write the change record', e instanceof Error ? e.message : 'error');
     return null;
   }
 }
 
-/** After a POST by the chat lane: one record for the new task. */
+/** After a POST by the chat lane: one record for the new task (`target_type: 'task'`, `after` holds its status and assignee). */
 export async function recordChatCreate(
   auth: { lane?: string | null },
   task: TaskShape,
@@ -116,12 +151,18 @@ export async function recordChatCreate(
   try {
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
-    if (task.assignee_id !== ownerId) return null;
+    // The chat may file a task for any active person now; the record names whoever it is on.
+    let summary = `Filed "${shortTitle(task.title)}".`;
+    if (task.assignee_id && task.assignee_id !== ownerId) {
+      const u = await db.user.findUnique({ where: { id: task.assignee_id }, select: { name: true } });
+      const first = (u?.name ?? '').trim().split(/\s+/)[0];
+      if (first) summary = `Filed "${shortTitle(task.title)}" for ${cleanLine(first, 40)}.`;
+    }
     return await writeRecord(
       db,
       ownerId,
       conversationId,
-      { tool: 'create_task', target_id: task.id, summary: `Filed "${shortTitle(task.title)}".`, after: { status: task.status as TaskFields['status'], assignee_id: ownerId } },
+      { tool: 'create_task', target_id: task.id, summary, after: { status: task.status as TaskFields['status'], assignee_id: task.assignee_id } },
       now,
     );
   } catch (e) {

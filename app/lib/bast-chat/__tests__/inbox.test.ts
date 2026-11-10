@@ -64,7 +64,7 @@ describe('buildInbox', () => {
     seedMessage(db, 1, 5);
     db.usage.turns = 4;
     const inbox = await buildInbox(NOW, db);
-    expect(inbox.messages).toEqual([{ conversation_id: db.conv.id, seq: 1, client_ref: 'r1', text: 'm1', context: { kind: 'task', id: '11111111-1111-4111-8111-111111111111' } }]);
+    expect(inbox.messages).toEqual([{ conversation_id: db.conv.id, seq: 1, client_ref: 'r1', text: 'm1', context: { kind: 'task', id: '11111111-1111-4111-8111-111111111111' }, notes: [] }]);
     expect(inbox.settings).toMatchObject({ enabled: true, owner_user_id: SETTINGS.owner_user_id, model: 'sonnet', effort: 'low', max_budget_usd: 0.4, max_turns: 200, idle_close_minutes: 10, turns_left: 96, writes_left: 25, usd_left: 8 });
     expect(inbox.stops).toEqual([]);
   });
@@ -72,6 +72,21 @@ describe('buildInbox', () => {
     const db = makeChatDb({ conv: { status: 'queued' }, settings: SETTINGS });
     seedMessage(db, 1, 300);
     expect((await buildInbox(NOW, db)).messages).toEqual([]);
+  });
+  it('serves the chat\'s notes once, on the first message of the conversation, as {code, line}', async () => {
+    const db = makeChatDb({ conv: { status: 'queued' }, settings: SETTINGS });
+    db.events.push({ conversation_id: db.conv.id, seq: 1, role: 'system', kind: 'status', payload: { code: 'action_undone', text: 'Mike undid this, it is back as it was: Moved the VCDP project to review.', action_id: 'a1' }, delivered_at: null, expired_at: null, created_at: ago(9) });
+    db.events.push({ conversation_id: db.conv.id, seq: 2, role: 'system', kind: 'status', payload: { code: STOP_CODE }, delivered_at: null, expired_at: null, created_at: ago(9) });
+    seedMessage(db, 3, 5);
+    seedMessage(db, 4, 4);
+    const first = await buildInbox(NOW, db);
+    expect(first.messages.map((m: { seq: number }) => m.seq)).toEqual([3, 4]);
+    expect(first.messages[0].notes).toEqual([{ code: 'action_undone', line: 'Mike undid this, it is back as it was: Moved the VCDP project to review.' }]);
+    expect(first.messages[1].notes).toEqual([]);
+    expect(db.events.find((e: FakeEvent) => e.seq === 1)!.delivered_at).toEqual(NOW);
+    // Served once: the next poll carries none, and a stop request is never taken as a note.
+    db.events.find((e: FakeEvent) => e.seq === 3)!.delivered_at = null;
+    expect((await buildInbox(NOW, db)).messages[0].notes).toEqual([]);
   });
   it('serves a stop once for a running chat', async () => {
     const db = makeChatDb({ conv: { status: 'running' }, settings: SETTINGS });

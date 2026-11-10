@@ -24,7 +24,7 @@ import { assembleHomeResponse, proposeDay } from '@/lib/home/today';
 import type { HomeItem } from '@/lib/home/types';
 import { cleanLine } from './card-context';
 import { feed, type FeedEvent } from './events';
-import { listActions } from './actions';
+import { listActions, type ProposalCard } from './actions';
 import { getSettings } from './settings';
 import { chatWorkerBody } from './worker-kit';
 
@@ -128,6 +128,14 @@ export interface PanelAction {
   undo_until: string | null;
   event_seq: number | null;
   proposed_assignee?: string | null;
+  /** v2: what the change was about (task, home, comment, email_ask, wait, project). */
+  target_type: string;
+  /** v2: bast_start or client_show for a proposal, else null. */
+  proposal_kind: string | null;
+  /** v2: the tap card of a proposal (kept after it is resolved), else null. */
+  card: ProposalCard | null;
+  /** v2: the plain refusal of a failed proposal, else null. */
+  error: string | null;
 }
 
 /** The conversation's actions as the panel reads them. A proposal names who it would go to by first name. */
@@ -147,6 +155,10 @@ export async function panelActions(
     status: a.status,
     undo_until: a.can_undo && a.undo_until ? a.undo_until.toISOString() : null,
     event_seq: a.event_seq,
+    target_type: a.target_type,
+    proposal_kind: a.proposal_kind,
+    card: a.card,
+    error: a.error,
     ...(a.proposed_assignee_id ? { proposed_assignee: nameOf.get(a.proposed_assignee_id) ?? null } : {}),
   }));
 }
@@ -169,6 +181,13 @@ export interface TodayLine {
   effort: string;
 }
 
+/** A group Today could be instead (swap, lighter). */
+export interface TodayChoice {
+  group_key: string;
+  name: string;
+  effort: string;
+}
+
 export interface OwnerToday {
   date: string;
   arc_name: string | null;
@@ -176,14 +195,32 @@ export interface OwnerToday {
   size_line: string | null;
   quick: TodayLine[];
   steps: TodayLine[];
+  /** v2: today's group key (send it back for arc edits), or null when nothing is in view. */
+  group_key: string | null;
+  /** v2: other groups Today could swap to. */
+  swap: TodayChoice[];
+  /** v2: the lighter group, or null. */
+  lighter: TodayChoice | null;
+  /** v2: the item being worked on now, or null. */
+  pinned: { key: string; title: string } | null;
+  /** v2: everything in Needs you now, each marked `emergency: true`. Never a rule, a class or a score. */
+  emergencies: { key: string; title: string; emergency: true }[];
+  /** v2: items put off with Not now, and until when (ISO) or null when they stay out until brought back. */
+  parked: { key: string; title: string; until: string | null }[];
+  /** v2: how many items each tile holds. */
+  counts: { needs_you_now: number; working_on: number; leads: number; mail: number; next: number; handled: number; everything_else: number };
 }
 
 const line = (i: HomeItem): TodayLine => ({ key: i.key, title: i.title, who: i.who, age: i.age, effort: i.effort });
+const choice = (c: { group_key: string; name: string; effort: string }): TodayChoice => ({ group_key: c.group_key, name: c.name, effort: c.effort });
+const PARKED_MAX = 30;
 
 /**
  * The owner's Today, the way GET /api/home builds it but read only (it stores nothing and moves no emergency):
  * the stored day of the local date, else what would be proposed now. Trimmed to the arc name and, per item, the key,
- * title, who, age and effort. No score, class, reason or button ever leaves this function.
+ * title, who, age and effort, plus (v2) what the chat needs to see what it changes: the day's group key, the swap
+ * and lighter choices, what is pinned, the emergency list, what is parked and until when, and the tile counts.
+ * No score, class, reason or button ever leaves this function.
  */
 export async function ownerToday(ownerId: string, now: Date = new Date(), db: PrismaClient = defaultDb): Promise<OwnerToday> {
   const timezone = await resolveUserTimezone(ownerId);
@@ -193,6 +230,30 @@ export async function ownerToday(ownerId: string, now: Date = new Date(), db: Pr
   const day = (await getHomeDay(db, ownerId, date)) ?? proposeDay(sel, raw.calendar_events, now);
   const body = assembleHomeResponse({ sel, day, calendar: raw.calendar_events, now, timezone, user_id: ownerId });
   const t = body.today;
-  if (!t) return { date, arc_name: null, why: null, size_line: null, quick: [], steps: [] };
-  return { date, arc_name: t.arc_name, why: t.why, size_line: t.size_line, quick: t.quick.map(line), steps: t.steps.map(line) };
+  const s = body.sections;
+  const working = s.working_on[0] ?? null;
+  const parked = sel.candidates
+    .filter((c) => c.parked)
+    .sort((a, b) => (a.state?.view_at?.getTime() ?? Infinity) - (b.state?.view_at?.getTime() ?? Infinity))
+    .slice(0, PARKED_MAX)
+    .map((c) => ({ key: c.key, title: c.item.title, until: c.state?.view_at ? c.state.view_at.toISOString() : null }));
+  const extra = {
+    group_key: t ? t.group_key : null,
+    swap: t ? t.swap.map(choice) : [],
+    lighter: t?.lighter ? choice(t.lighter) : null,
+    pinned: working ? { key: working.key, title: working.title } : null,
+    emergencies: s.needs_you_now.map((i) => ({ key: i.key, title: i.title, emergency: true as const })),
+    parked,
+    counts: {
+      needs_you_now: s.needs_you_now.length,
+      working_on: s.working_on.length,
+      leads: s.leads.length,
+      mail: s.mail.length,
+      next: s.next.length,
+      handled: s.handled.length + (s.handled_more?.count ?? 0),
+      everything_else: body.everything_else.count,
+    },
+  };
+  if (!t) return { date, arc_name: null, why: null, size_line: null, quick: [], steps: [], ...extra };
+  return { date, arc_name: t.arc_name, why: t.why, size_line: t.size_line, quick: t.quick.map(line), steps: t.steps.map(line), ...extra };
 }

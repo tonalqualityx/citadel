@@ -4,6 +4,7 @@ import { requireChatOwner } from '@/lib/bast-chat/access';
 import { releaseAction } from '@/lib/bast-chat/actions';
 import { chatIdParam } from '@/lib/bast-chat/worker-kit';
 import { chatError, chatJson, ownerJsonBody, ownerPostGuard } from '@/lib/bast-chat/route-helpers';
+import '@/lib/bast-chat/ops'; // registers the chat's operations so their Undo and taps work
 
 const emptyBody = z.object({}).strict();
 

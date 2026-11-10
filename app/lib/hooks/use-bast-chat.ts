@@ -66,7 +66,52 @@ export interface ChatAction {
   event_seq: number | null;
   /** For a proposal: who it would go to ("Bast", "Sabeen"). */
   proposed_assignee?: string | null;
+  /** Version 2 fields. Every one is optional: an older feed does not send them and the panel still works. */
+  target_type?: string | null;
+  proposal_kind?: string | null;
+  can_undo?: boolean;
+  /** The tap card of a proposal, kept on the row after it is resolved. */
+  card?: ProposalCard | null;
+  /** For a failed proposal: the server's plain refusal. */
+  error?: string | null;
 }
+
+export type CardKind = 'bast_start' | 'bast_resteer' | 'client_show';
+/** One task the session would read, as the server cut it. */
+export interface CardRead {
+  task_id?: string;
+  title: string;
+  status?: string | null;
+  site?: string | null;
+  client?: string | null;
+  sop?: string | null;
+  excerpt?: string | null;
+  checklist?: string[] | null;
+  writes?: string[] | null;
+  /** The server sends the list of what the chat changed; a plain true is also understood. */
+  chat_changed?: boolean | string[] | null;
+  chat_changed_line?: string | null;
+}
+export interface ProposalCard {
+  kind: CardKind;
+  title: string;
+  lines?: string[] | null;
+  reads?: CardRead[] | null;
+  client?: string[] | null;
+  buttons?: { yes: string; no: string } | null;
+  clause?: string | null;
+}
+
+/** Same words as the server's CARD_BUTTONS, used only if a card arrives without its buttons. */
+export const CARD_BUTTON_FALLBACK: Record<CardKind, { yes: string; no: string }> = {
+  bast_start: { yes: 'Hand to Bast', no: 'Keep it' },
+  bast_resteer: { yes: 'Let Bast re-read it', no: 'Leave it' },
+  client_show: { yes: 'Share it', no: 'Keep it private' },
+};
+export const CHANGED_SINCE_LINE = 'Changed since. Open the task.';
+/** Status events the panel never shows (the stop request and the five notes the server writes for Bast). */
+export const HIDDEN_STATUS_CODES: readonly string[] = ['stop_requested', 'action_undone', 'action_released', 'action_declined', 'action_failed', 'undo_proposed'];
+export type ActionOutcome = 'released' | 'declined' | 'changed';
 export interface ChatFeed {
   conversation: { id: string; status: ConversationStatus };
   /** Events with seq greater than `after`, oldest first. */
@@ -159,6 +204,32 @@ function errorSentence(data: unknown, fallback: string): string {
   return fallback;
 }
 
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** The result of "Undo everything since", in one or two plain lines. Every field is read defensively. */
+export function undoSinceLines(data: unknown): string[] {
+  const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+  const undone = count(d.undone);
+  const proposed = count(d.proposed);
+  const left = count(d.left);
+  const stopped = d.stopped && typeof d.stopped === 'object' ? (d.stopped as { summary?: unknown; reason?: unknown }) : null;
+  const first: string[] = [];
+  first.push(undone === 0 ? 'Nothing was undone.' : `Undid ${plural(undone, 'change', 'changes')}.`);
+  if (proposed > 0) first.push(`${plural(proposed, 'change became a card', 'changes became cards')} waiting for your tap.`);
+  const lines = [first.join(' ')];
+  if (stopped) {
+    const what = typeof stopped.summary === 'string' && stopped.summary ? ` at ${stopped.summary}` : '';
+    const why = typeof stopped.reason === 'string' && stopped.reason ? ` ${stopped.reason}` : '';
+    lines.push(`Stopped${what}.${why}`);
+  } else if (left > 0) {
+    lines.push(`${plural(left, 'older change was', 'older changes were')} left alone.`);
+  }
+  return lines;
+}
+
 function newRef(): string {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -215,6 +286,11 @@ export interface UseBastChat {
   newChat: () => Promise<void>;
   actOn: (id: string, verb: 'undo' | 'release' | 'decline') => Promise<void>;
   actionError: (id: string) => string | null;
+  /** What Mike's last tap on a card did, until the feed catches up. */
+  actionOutcome: (id: string) => ActionOutcome | null;
+  /** "Undo everything since" from this action: the plain result lines, or null. */
+  undoSince: (fromId: string) => Promise<void>;
+  sinceLines: (fromId: string) => string[] | null;
   actionBusy: (id: string) => boolean;
   now: number;
 }
@@ -235,6 +311,8 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
   const [error, setError] = useState<string | null>(null);
   const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
   const [actionBusyIds, setActionBusyIds] = useState<string[]>([]);
+  const [outcomes, setOutcomes] = useState<Record<string, ActionOutcome>>({});
+  const [sinceResults, setSinceResults] = useState<Record<string, string[]>>({});
   const [now, setNow] = useState(() => Date.now());
 
   // Refs so the poll loop always reads the latest values without restarting.
@@ -464,9 +542,32 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
       if (r.status === 403 || r.status === 404) {
         // 404 on an action id is "not found", not "not for you": say so on the line, do not hide the dock.
         setActionErrors((e) => ({ ...e, [id]: ACTION_FAILED_TEXT }));
+      } else if (r.status === 409 && verb === 'release') {
+        setOutcomes((o) => ({ ...o, [id]: 'changed' }));
       } else if (!r.ok) {
         setActionErrors((e) => ({ ...e, [id]: errorSentence(r.data, ACTION_FAILED_TEXT) }));
+      } else if (verb === 'release') {
+        setOutcomes((o) => ({ ...o, [id]: 'released' }));
+      } else if (verb === 'decline') {
+        setOutcomes((o) => ({ ...o, [id]: 'declined' }));
       }
+      void pollOnce();
+    },
+    [pollOnce],
+  );
+
+  const undoSince = useCallback(
+    async (fromId: string) => {
+      setActionBusyIds((b) => [...b, fromId]);
+      setActionErrors((e) => {
+        const { [fromId]: _drop, ...rest } = e;
+        void _drop;
+        return rest;
+      });
+      const r = await chatFetch<unknown>('POST', '/actions/undo-since', { from_action_id: fromId });
+      setActionBusyIds((b) => b.filter((x) => x !== fromId));
+      if (r.ok) setSinceResults((m) => ({ ...m, [fromId]: undoSinceLines(r.data) }));
+      else setActionErrors((e) => ({ ...e, [fromId]: errorSentence(r.data, ACTION_FAILED_TEXT) }));
       void pollOnce();
     },
     [pollOnce],
@@ -503,7 +604,12 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
             message: { key: `e${e.seq}`, seq: e.seq, role: e.role, text, state, canResend: state === 'expired' && !resent.includes(e.seq) },
           },
         });
-      } else if (e.kind === 'status' && typeof e.payload?.text === 'string' && e.payload.text) {
+      } else if (
+        e.kind === 'status' &&
+        typeof e.payload?.text === 'string' &&
+        e.payload.text &&
+        !HIDDEN_STATUS_CODES.includes(String(e.payload?.code ?? ''))
+      ) {
         items.push({ order: e.seq, item: { type: 'note', key: `e${e.seq}`, text: e.payload.text } });
       }
       for (const a of actionBySeq.get(e.seq) ?? []) items.push({ order: e.seq + 0.5, item: { type: 'action', key: `a${a.id}`, action: a } });
@@ -547,6 +653,9 @@ export function useBastChat({ open }: { open: boolean }): UseBastChat {
     newChat,
     actOn,
     actionError: (id) => actionErrors[id] ?? null,
+    actionOutcome: (id) => outcomes[id] ?? null,
+    undoSince,
+    sinceLines: (id) => sinceResults[id] ?? null,
     actionBusy: (id) => actionBusyIds.includes(id),
     now,
   };

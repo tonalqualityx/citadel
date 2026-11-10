@@ -1,48 +1,141 @@
+import { z } from 'zod';
 import type { AuthPayload } from '@/lib/auth/middleware';
 import { ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
 import { getSettings } from './settings';
 import { reserveWrite } from './usage';
 import { isChatUuid } from './worker-kit';
+import { BAST_USER_ID } from './gate-mirror';
+import { checkTaskCreate, type ReachTask } from './worker-reach';
+import type { ProposalResult } from './actions';
+import type { PatchTaskExpect } from '@/lib/services/task-patch';
 
 /**
- * Body filter for the `bast-chat` API-key lane on POST /api/tasks and PATCH /api/tasks/:id.
- * Lane keys are checked per route, not per field, so this is the field allowlist (plan T3, task C4).
+ * Body filter for the `bast-chat` API-key lane on POST /api/tasks and PATCH /api/tasks/:id (plan v2 1.2, 1.3).
+ * Lane keys are checked per route, not per field, so this is the field allowlist. It is an ALLOWLIST: a field
+ * that is not in the table below is refused, so a column added to the schema later does not open by accident.
  * Every caller that is not the `bast-chat` lane gets the very same body object back, untouched.
+ *
+ * Open is the default: the chat changes any task, whoever holds it, in every field of the table, each with its
+ * own validation here. Closed is the exception and each closed field has a reason in the plan: the approval and
+ * provenance machinery (a client's yes publishes), billing (ruling 7), `function_id` (can auto-assign to Bast),
+ * board layout. Whether an open change would start or re-steer Bast, or show something to a client, is not decided
+ * here: `chatPatchGate` (below) asks the reach check after the body passes, and a hit becomes a proposal.
  */
 
 export const CHAT_LANE = 'bast-chat';
 export const CHAT_TAG = 'from-chat';
 
-/** PATCH: the only keys the chat may send, and only on a task assigned to the chat owner. */
-export const CHAT_PATCH_ALLOWED = ['status', 'title', 'arc_id', 'assignee_id', 'due_date'] as const;
-/** PATCH: extra keys, only on a task the chat itself filed (assigned to the owner and tagged from-chat). */
-export const CHAT_PATCH_FROM_CHAT_ONLY = ['description', 'requirements', 'origin_url'] as const;
-/** PATCH status values the chat may set (no `review`: that leaves a task for a person to approve). */
-export const CHAT_PATCH_STATUSES = ['not_started', 'in_progress', 'blocked', 'done', 'abandoned'] as const;
-/** POST: the only keys the chat may send. due_date is dropped, not refused (see below). */
+/** Plan section 6, verbatim: the line for a closed field, and for a security tag. */
+export const CLOSED_FIELD_TEXT = 'That field is changed on the task page, not here.';
+export const SECURITY_TAG_TEXT = "I can't remove a security tag. I can take it out of Needs you now if you want.";
+export const HAND_TO_BAST_TEXT = 'Handing work to Bast needs your tap. File it to yourself first, then hand it over.';
+
+/** PATCH: the keys the chat may send. `tags_add` and `tags_remove` become the full `tags` list on the server. */
+export const CHAT_PATCH_FIELDS = [
+  'status', 'title', 'description', 'requirements', 'notes', 'assignee_id', 'project_id', 'client_id', 'site_id',
+  'arc_id', 'origin_url', 'tags_add', 'tags_remove', 'energy_estimate', 'mystery_factor', 'battery_impact', 'due_date', 'promised_to',
+  'priority', 'is_focus', 'blocked_by_ids', 'needs_review', 'approved', 'client_visible',
+] as const;
+/** PATCH: fields that are closed on purpose (plan 1.2). Named so the refusal can give the plan's sentence. Any other key is refused too. */
+export const CHAT_CLOSED_FIELDS = [
+  'client_approved_at', 'approved_by_contact_id', 'approval_source', 'staging_preview_url', 'staging_deployed_at',
+  'source', 'source_ref', 'requested_by_contact_id', 'review_requirements', 'reviewer_id',
+  'is_billable', 'billing_target', 'billing_amount', 'is_retainer_work', 'is_support',
+  'function_id', 'phase', 'sort_order', 'hard_due_at', 'hard_due_source',
+] as const;
+/** POST: the only keys the chat may send. `due_date` is dropped, not refused (see the POST rules below). */
 export const CHAT_POST_ALLOWED = [
   'title', 'description', 'assignee_id', 'tags', 'client_id', 'site_id', 'sop_id', 'project_id', 'arc_id',
-  'energy_estimate', 'mystery_factor', 'battery_impact', 'priority', 'is_focus', 'needs_review', 'due_date',
+  'energy_estimate', 'mystery_factor', 'battery_impact', 'priority', 'is_focus', 'needs_review', 'due_date', 'promised_to',
 ] as const;
+/** Statuses: all six (plan 1.2). Closing is `done`, letting go is `abandoned`, reopening is `not_started` or `in_progress`. */
+export const CHAT_PATCH_STATUSES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
 
+type Code = 'chat_field_refused' | 'chat_lane_refused';
 export type ChatFilterInput = {
   auth: Pick<AuthPayload, 'lane' | 'laneEnforced'>;
   method: 'POST' | 'PATCH';
   body: unknown;
   /** The chat owner's user id (BastChatSettings.owner_user_id). Only read for the bast-chat lane. */
   ownerId?: string | null;
-  /** PATCH only: the task as stored now. */
-  existing?: { assignee_id?: string | null; tags?: string[] | null } | null;
+  /** PATCH only: the task as stored now (its tags build the full list from `tags_add` and `tags_remove`). */
+  existing?: { id?: string; assignee_id?: string | null; tags?: string[] | null } | null;
 };
 
 export type ChatFilterResult =
   | { ok: true; body: unknown; dropped?: string[] }
-  | { ok: false; status: 403; code: 'chat_field_refused' | 'chat_not_owner_task' | 'chat_lane_refused'; message: string };
+  | { ok: false; status: 403; code: Code; message: string };
 
-const refuse = (code: Extract<ChatFilterResult, { ok: false }>['code'], message: string): ChatFilterResult => ({
-  ok: false, status: 403, code, message,
+const refuse = (code: Code, message: string): ChatFilterResult => ({ ok: false, status: 403, code, message });
+const refuseField = (field: string): ChatFilterResult => refuse('chat_field_refused', `${CLOSED_FIELD_TEXT} Field: ${field}`);
+const badValue = (field: string, what: string): ChatFilterResult => refuse('chat_field_refused', `${what}: ${field}`);
+
+// Each field's own validation. A copy of the route's requirement schema: the filter must refuse a malformed list
+// before the reach check, so a bad list can never become a stored proposal.
+const reqItem = z.object({
+  id: z.string(), type: z.literal('item').optional(), text: z.string(), completed: z.boolean().optional(),
+  completed_at: z.string().nullable().optional(), completed_by: z.string().nullable().optional(), sort_order: z.number(),
 });
+const reqSection = z.object({ id: z.string(), type: z.literal('section'), title: z.string(), icon: z.string().optional(), sort_order: z.number(), items: z.array(reqItem) });
+const requirementsSchema = z.array(z.union([reqSection, reqItem])).max(200);
+
+const uuidOrNull = z.string().uuid().nullable();
+const fieldSchemas: Record<string, { schema: z.ZodTypeAny; what: string }> = {
+  status: { schema: z.enum(CHAT_PATCH_STATUSES), what: 'That is not a status' },
+  title: { schema: z.string().trim().min(1).max(200).refine((t) => !/[\r\n]/.test(t)), what: 'The title must be one line of up to 200 characters' },
+  // Text, or the BlockNote blocks create-task.py sends in its follow-up PATCH (the route serializes either).
+  description: {
+    schema: z.union([z.string().max(4000), z.array(z.unknown()).max(200).refine((a) => JSON.stringify(a).length <= 40000)]).nullable(),
+    what: 'The description must be text of up to 4,000 characters',
+  },
+  origin_url: { schema: z.string().max(1000), what: 'The link must be text of up to 1,000 characters' },
+  notes: { schema: z.string().max(4000).nullable(), what: 'The notes must be text of up to 4,000 characters' },
+  requirements: { schema: requirementsSchema.nullable(), what: 'The checklist is not in the right shape' },
+  assignee_id: { schema: uuidOrNull, what: 'The person must be an id or null' },
+  project_id: { schema: uuidOrNull, what: 'The project must be an id or null' },
+  client_id: { schema: uuidOrNull, what: 'The client must be an id or null' },
+  site_id: { schema: uuidOrNull, what: 'The site must be an id or null' },
+  arc_id: { schema: uuidOrNull, what: 'The arc must be an id or null' },
+  energy_estimate: { schema: z.number().int().min(1).max(8).nullable(), what: 'The estimate must be 1 to 8 or null' },
+  mystery_factor: { schema: z.enum(['none', 'average', 'significant', 'no_idea']), what: 'That is not a mystery factor' },
+  battery_impact: { schema: z.enum(['average_drain', 'high_drain', 'energizing']), what: 'That is not a battery impact' },
+  due_date: { schema: z.string().datetime().nullable(), what: 'The date must be an ISO date and time or null' },
+  promised_to: { schema: z.string().max(200).nullable(), what: 'The promise must be text of up to 200 characters or null' },
+  priority: { schema: z.number().int().min(1).max(5), what: 'The order must be 1 to 5' },
+  is_focus: { schema: z.boolean(), what: 'The focus flag must be true or false' },
+  needs_review: { schema: z.boolean(), what: 'The review flag must be true or false' },
+  approved: { schema: z.boolean(), what: 'The approval flag must be true or false' },
+  client_visible: { schema: z.boolean(), what: 'The sharing flag must be true or false' },
+};
+const blockersSchema = z
+  .object({ connect: z.array(z.string().uuid()).max(20).optional(), disconnect: z.array(z.string().uuid()).max(20).optional() })
+  .strict();
+const tagList = z.array(z.string().trim().min(1).max(50)).max(10);
+
+const lower = (t: string) => t.trim().toLowerCase();
+/** Tags the chat never adds or removes: the approval machinery, and `from-chat` itself. */
+const isMachineryTag = (t: string) => {
+  const x = lower(t);
+  return x === 'client-approved' || x.startsWith('cp:') || x.startsWith('preview-notified:') || x === CHAT_TAG;
+};
+const isSecurityTag = (t: string) => ['security', 'security-report'].includes(lower(t));
+
+function tagsFor(b: Record<string, unknown>, existing: ChatFilterInput['existing']): { ok: true; tags: string[] } | { ok: false; res: ChatFilterResult } {
+  const addRaw = 'tags_add' in b ? tagList.safeParse(b.tags_add) : null;
+  const remRaw = 'tags_remove' in b ? tagList.safeParse(b.tags_remove) : null;
+  if (addRaw && !addRaw.success) return { ok: false, res: badValue('tags_add', 'The tags must be a short list of text') };
+  if (remRaw && !remRaw.success) return { ok: false, res: badValue('tags_remove', 'The tags must be a short list of text') };
+  const add = addRaw?.success ? addRaw.data : [];
+  const rem = remRaw?.success ? remRaw.data : [];
+  if (rem.some(isSecurityTag)) return { ok: false, res: refuse('chat_field_refused', `${SECURITY_TAG_TEXT} Field: tags_remove`) };
+  if (add.some(isMachineryTag)) return { ok: false, res: refuseField('tags_add') };
+  if (rem.some(isMachineryTag)) return { ok: false, res: refuseField('tags_remove') };
+  const current = [...(existing?.tags ?? [])];
+  const out = current.filter((t) => !rem.some((r) => lower(r) === lower(t)));
+  for (const t of add) if (!out.some((x) => lower(x) === lower(t))) out.push(t.trim());
+  return { ok: true, tags: out };
+}
 
 export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   const { auth, method, body, ownerId, existing } = input;
@@ -58,55 +151,55 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   const keys = Object.keys(b);
 
   if (method === 'PATCH') {
-    const current = existing?.assignee_id ?? null;
-    if (current !== ownerId) {
-      // The one exception: taking a task back to the owner, as the only change.
-      if (keys.length === 1 && keys[0] === 'assignee_id' && b.assignee_id === ownerId) return { ok: true, body };
-      return refuse('chat_not_owner_task', 'The chat can only change tasks assigned to you, or take one back.');
-    }
-    const filedByChat = (existing?.tags ?? []).includes(CHAT_TAG);
     for (const k of keys) {
-      if ((CHAT_PATCH_FROM_CHAT_ONLY as readonly string[]).includes(k) && filedByChat) continue;
-      if (!(CHAT_PATCH_ALLOWED as readonly string[]).includes(k)) {
-        return refuse('chat_field_refused', `The chat cannot change this field: ${k}`);
-      }
+      if ((CHAT_CLOSED_FIELDS as readonly string[]).includes(k)) return refuseField(k);
+      if (k === 'tags') return badValue(k, 'Send tags_add or tags_remove, not tags');
+      if (!(CHAT_PATCH_FIELDS as readonly string[]).includes(k)) return badValue(k, 'The chat cannot change this field');
     }
-    if ('status' in b && !(CHAT_PATCH_STATUSES as readonly string[]).includes(b.status as string)) {
-      return refuse('chat_field_refused', 'The chat cannot set this status: status');
+    for (const k of keys) {
+      if (k === 'tags_add' || k === 'tags_remove' || k === 'blocked_by_ids') continue;
+      const f = fieldSchemas[k];
+      if (!f.schema.safeParse(b[k]).success) return badValue(k, f.what);
     }
-    if ('title' in b && typeof b.title !== 'string') return refuse('chat_field_refused', 'The title must be text: title');
-    if ('arc_id' in b && b.arc_id !== null && typeof b.arc_id !== 'string') {
-      return refuse('chat_field_refused', 'The arc must be an id or null: arc_id');
+    // origin_url is open as in version one: only on a task that is the owner's and that the chat filed.
+    if ('origin_url' in b && !(existing?.assignee_id === ownerId && (existing?.tags ?? []).includes(CHAT_TAG))) return refuseField('origin_url');
+    if ('blocked_by_ids' in b) {
+      const p = blockersSchema.safeParse(b.blocked_by_ids);
+      if (!p.success) return badValue('blocked_by_ids', 'The tasks it waits on must be lists of ids');
+      if (existing?.id && [...(p.data.connect ?? [])].includes(existing.id)) return badValue('blocked_by_ids', 'A task cannot wait on itself');
     }
-    if ('assignee_id' in b && b.assignee_id !== ownerId) {
-      return refuse('chat_field_refused', 'The chat can only assign a task to you: assignee_id');
-    }
-    if ('requirements' in b && !Array.isArray(b.requirements)) {
-      return refuse('chat_field_refused', 'The requirements must be a list: requirements');
-    }
-    if ('origin_url' in b && typeof b.origin_url !== 'string') {
-      return refuse('chat_field_refused', 'The link must be text: origin_url');
-    }
-    // Clearing a date is allowed (job-watch removes the default one); setting one is not.
-    if ('due_date' in b && b.due_date !== null) return refuse('chat_field_refused', 'The chat cannot set a date: due_date');
-    return { ok: true, body };
+    if (!('tags_add' in b) && !('tags_remove' in b)) return { ok: true, body };
+    const t = tagsFor(b, existing);
+    if (!t.ok) return t.res;
+    const { tags_add: _a, tags_remove: _r, ...rest } = b;
+    void _a; void _r;
+    return { ok: true, body: { ...rest, tags: t.tags } };
   }
 
   // POST
   for (const k of keys) {
-    if (!(CHAT_POST_ALLOWED as readonly string[]).includes(k)) {
-      return refuse('chat_field_refused', `The chat cannot set this field: ${k}`);
-    }
+    if (!(CHAT_POST_ALLOWED as readonly string[]).includes(k)) return refuseField(k);
   }
-  if (b.assignee_id !== ownerId) return refuse('chat_field_refused', 'A task from the chat must be assigned to you: assignee_id');
+  if (typeof b.assignee_id !== 'string' || !z.string().uuid().safeParse(b.assignee_id).success) {
+    return badValue('assignee_id', 'A task from the chat must be assigned to someone');
+  }
+  // Bast as the assignee is a proposal only Mike's tap can release; a create has no proposal, so it is refused.
+  if (b.assignee_id === BAST_USER_ID) return refuse('chat_field_refused', `${HAND_TO_BAST_TEXT} Field: assignee_id`);
   const tags = b.tags;
-  if (!Array.isArray(tags) || tags.length !== 1 || tags[0] !== CHAT_TAG) {
-    return refuse('chat_field_refused', `Tags must be exactly ${CHAT_TAG}: tags`);
+  const extra = Array.isArray(tags) ? tags.filter((t) => t !== CHAT_TAG) : [];
+  if (
+    !Array.isArray(tags) || !tags.includes(CHAT_TAG) || tags.filter((t) => t === CHAT_TAG).length !== 1 ||
+    tags.length > 5 || extra.some((t) => typeof t !== 'string' || t.trim().length === 0 || t.length > 50)
+  ) {
+    return badValue('tags', `Tags must be ${CHAT_TAG} and at most 4 others`);
   }
+  if (extra.some((t) => isMachineryTag(t))) return refuseField('tags');
   // create-task.py sends its defaults; only the do-nothing values pass.
-  if ('priority' in b && b.priority !== 3) return refuse('chat_field_refused', 'The chat cannot set this field: priority');
-  if ('is_focus' in b && b.is_focus !== false) return refuse('chat_field_refused', 'The chat cannot set this field: is_focus');
-  if ('needs_review' in b && b.needs_review !== false) return refuse('chat_field_refused', 'The chat cannot set this field: needs_review');
+  if ('priority' in b && b.priority !== 3) return badValue('priority', 'The chat cannot set this field');
+  if ('is_focus' in b && b.is_focus !== false) return badValue('is_focus', 'The chat cannot set this field');
+  if ('needs_review' in b && b.needs_review !== false) return badValue('needs_review', 'The chat cannot set this field');
+  if ('promised_to' in b && !fieldSchemas.promised_to.schema.safeParse(b.promised_to).success) return badValue('promised_to', fieldSchemas.promised_to.what);
+  // create-task.py always sends a default date, so the date is dropped here (a date Mike names is set by a PATCH).
   if ('due_date' in b) {
     const rest = { ...b };
     delete rest.due_date;
@@ -118,13 +211,6 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
 export const NOTHING_TO_CHANGE_TEXT = 'There is nothing to change in that request.';
 export const CLOSED_CHAT_TEXT = 'That chat is closed. Start a new one.';
 
-/** A PATCH body that names at least one field the chat may send. */
-function hasRecognizedPatchField(body: unknown): boolean {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
-  const known: readonly string[] = [...CHAT_PATCH_ALLOWED, ...CHAT_PATCH_FROM_CHAT_ONLY];
-  return Object.keys(body as object).some((k) => known.includes(k));
-}
-
 /**
  * Route helper: returns the body untouched (no database read) for any non-chat caller; for the chat lane it
  * reads the owner from BastChatSettings, applies the filter, and throws a 403 ApiError on a refusal.
@@ -133,39 +219,40 @@ export async function guardChatTaskBody<T>(
   auth: Pick<AuthPayload, 'lane' | 'laneEnforced'>,
   method: 'POST' | 'PATCH',
   body: T,
-  existing?: { assignee_id?: string | null; tags?: string[] | null } | null,
+  existing?: { id?: string; assignee_id?: string | null; tags?: string[] | null } | null,
 ): Promise<T> {
   if (auth.lane !== CHAT_LANE) return body;
   const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
   const r = filterChatTaskBody({ auth, method, body, ownerId: settings?.owner_user_id ?? null, existing });
   if (!r.ok) throw new ApiError(r.message, r.status, r.code);
-  if (method === 'PATCH' && !hasRecognizedPatchField(r.body)) throw new ApiError(NOTHING_TO_CHANGE_TEXT, 400, 'chat_nothing_to_change');
+  if (method === 'PATCH' && (!r.body || typeof r.body !== 'object' || Object.keys(r.body as object).length === 0)) {
+    throw new ApiError(NOTHING_TO_CHANGE_TEXT, 400, 'chat_nothing_to_change');
+  }
   // The daily write cap is reserved here, atomically, before any write: 429 with the plain cap sentence.
   // A reserved write whose task write then fails (409, validation error) stays counted: a refused attempt
-  // costing a slot is acceptable and simpler than a refund.
+  // costing a slot is acceptable and simpler than a refund. A proposal stored by a task route is not reserved
+  // again (`reserve: false`): this reservation is its one.
   await reserveWrite(settings!.owner_user_id!, (await getSettings(prisma)).daily_write_cap, new Date(), prisma);
   return r.body as T;
 }
 
 export const CHAT_CONVERSATION_HEADER = 'X-Bast-Chat-Conversation';
-const CONTENT_ONLY_FIELDS = ['description', 'requirements', 'origin_url'] as const;
 export const NEEDS_CONVERSATION_TEXT = 'Say which chat this change belongs to.';
 export const BAD_CONVERSATION_TEXT = 'That chat was not found.';
 export const NO_OPEN_CHAT_TEXT = 'Open the chat first.';
 
 /**
  * Which conversation a chat-lane write belongs to. Null for every other caller (nothing is read).
- * - PATCH: the header `X-Bast-Chat-Conversation` is required, except for a body of content fields only
- *   (description, requirements, origin_url), which writes no record and needs no conversation.
- * - POST: the header is checked when present; when absent the owner's current open conversation is used, and
- *   with none open the create is refused.
+ * - PATCH and POST alike: the header `X-Bast-Chat-Conversation` is checked when present (malformed, foreign or,
+ *   for a PATCH, closed is refused). When absent (create-task.py's follow-up PATCH cannot send it) the owner's
+ *   current open conversation is used, and with none open the request is a 400. Every chat change writes a record
+ *   or a proposal, and both belong to a conversation.
  * The conversation must exist and belong to the chat owner. Call it after the guard and before any write.
  */
 export async function chatConversationFor(
   auth: Pick<AuthPayload, 'lane'>,
   headers: Headers,
   method: 'POST' | 'PATCH',
-  body: unknown,
 ): Promise<string | null> {
   if (auth.lane !== CHAT_LANE) return null;
   const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
@@ -173,18 +260,14 @@ export async function chatConversationFor(
   if (!ownerId) throw new ApiError('The chat owner is not set.', 403, 'chat_lane_refused');
   const header = headers.get(CHAT_CONVERSATION_HEADER);
   if (header === null || header === '') {
-    if (method === 'POST') {
-      const open = await prisma.bastChatConversation.findFirst({
-        where: { owner_id: ownerId, status: { not: 'closed' } },
-        orderBy: { created_at: 'desc' },
-        select: { id: true },
-      });
-      if (!open) throw new ApiError(NO_OPEN_CHAT_TEXT, 400, 'chat_no_conversation');
-      return open.id;
-    }
-    const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body as object) : [];
-    if (keys.length > 0 && keys.every((k) => (CONTENT_ONLY_FIELDS as readonly string[]).includes(k))) return null;
-    throw new ApiError(NEEDS_CONVERSATION_TEXT, 400, 'chat_conversation_required');
+    // No header (create-task.py's follow-up PATCH cannot send one): the owner's current open conversation.
+    const open = await prisma.bastChatConversation.findFirst({
+      where: { owner_id: ownerId, status: { not: 'closed' } },
+      orderBy: { created_at: 'desc' },
+      select: { id: true },
+    });
+    if (!open) throw new ApiError(NO_OPEN_CHAT_TEXT, 400, 'chat_no_conversation');
+    return open.id;
   }
   if (!isChatUuid(header)) throw new ApiError(BAD_CONVERSATION_TEXT, 400, 'chat_conversation_invalid');
   const conv = await prisma.bastChatConversation.findUnique({ where: { id: header }, select: { owner_id: true, status: true } });
@@ -216,4 +299,61 @@ export function chatWriteMiss(auth: Pick<AuthPayload, 'lane'>) {
     }
     throw e;
   };
+}
+
+/** What the chat-lane PATCH route needs after the body and conversation are checked. */
+export type ChatPatchGate =
+  | { kind: 'proposal'; proposal: Pick<ProposalResult, 'id' | 'line' | 'proposal_kind'> }
+  | { kind: 'write'; expect: PatchTaskExpect; existing: Record<string, unknown> };
+
+/**
+ * Chat lane only (the route calls it only for that lane): the reach check on a PATCH that passed the filter and
+ * the conversation check (plan 4.2). `prepareOperation` loads the task the way the tap does and runs the rules.
+ * - A hit (it would start or re-steer Bast, or show something to a client): the proposal is stored, nothing is
+ *   written to the task, and the route answers 202 with the action id and the line. The daily write was already
+ *   reserved by `guardChatTaskBody`, so the proposal passes `reserve: false`.
+ * - No hit: the route writes through `patchTask` with `expect`, so the write lands only on the row the reach was
+ *   judged on. `existing` is the route's task row plus its blockers, so the change record can name them.
+ * The actions module is loaded here, on demand, so no other caller ever loads or runs it.
+ */
+export async function chatPatchGate(a: {
+  taskId: string;
+  body: Record<string, unknown>;
+  conversationId: string | null;
+  existing: Record<string, unknown>;
+  now?: Date;
+}): Promise<ChatPatchGate> {
+  const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
+  const ownerId = settings?.owner_user_id;
+  if (!ownerId) throw new ApiError('The chat owner is not set.', 403, 'chat_lane_refused');
+  if (!a.conversationId) throw new ApiError(NEEDS_CONVERSATION_TEXT, 400, 'chat_conversation_required');
+  const { prepareOperation, storeProposal, plainText } = await import('./actions');
+  const now = a.now ?? new Date();
+  // `origin_url` is not a task column (patchTask drops it) and the plan body is strict, so it stays out of the plan.
+  // A description sent as BlockNote blocks goes into the plan as its plain text; the write itself uses the body as sent.
+  const { origin_url: _link, ...rest } = a.body;
+  void _link;
+  const planBody: Record<string, unknown> = { ...rest };
+  if (Array.isArray(planBody.description)) planBody.description = plainText(planBody.description);
+  if (Object.keys(planBody).length === 0) {
+    const e = a.existing as { updated_at?: Date; assignee_id?: string | null };
+    return { kind: 'write', expect: { assignee_id: e.assignee_id ?? null, ...(e.updated_at ? { updated_at: e.updated_at } : {}) }, existing: a.existing };
+  }
+  const { input, prepared } = await prepareOperation('task', { task_id: a.taskId, body: planBody }, { ownerId, now });
+  if (prepared.reach.needs_tap) {
+    const p = await storeProposal({ ownerId, conversationId: a.conversationId, tool: 'change_task', op: 'task', input, prepared, reserve: false, now });
+    return { kind: 'proposal', proposal: { id: p.id, line: p.line, proposal_kind: p.proposal_kind } };
+  }
+  const blockers = await prisma.task.findUnique({ where: { id: a.taskId }, select: { blocked_by: { select: { id: true } } } });
+  return { kind: 'write', expect: prepared.expect as PatchTaskExpect, existing: { ...a.existing, blocked_by: blockers?.blocked_by ?? [] } };
+}
+
+/**
+ * Chat lane only: a create that would reach (the reach check's create rules) is refused. A create has no
+ * proposal kind, so a new task assigned to Bast, or anything else the check names, is a 403 and nothing is
+ * written. The chat files the task to Mike and then changes its assignee, which is a proposal.
+ */
+export function refuseChatCreateThatReaches(task: Partial<ReachTask> & { assignee_id: string | null }, now: Date = new Date()): void {
+  const r = checkTaskCreate({ task: { id: '00000000-0000-4000-8000-000000000000', ...task } as ReachTask, assignee_resolved: true, now });
+  if (r.needs_tap) throw new ApiError(HAND_TO_BAST_TEXT, 403, 'chat_field_refused');
 }

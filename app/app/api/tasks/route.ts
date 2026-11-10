@@ -13,7 +13,7 @@ import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
-import { guardChatTaskBody, chatConversationFor } from '@/lib/bast-chat/task-filter';
+import { guardChatTaskBody, chatConversationFor, refuseChatCreateThatReaches, CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { recordChatCreate, withChatAction } from '@/lib/bast-chat/task-record';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
@@ -265,8 +265,15 @@ export async function POST(request: NextRequest) {
     const auth = await requireAuth();
 
     const body = await guardChatTaskBody(auth, 'POST', await request.json());
-    const chatConversation = await chatConversationFor(auth, request.headers, 'POST', body);
+    const chatConversation = await chatConversationFor(auth, request.headers, 'POST');
     const data = createTaskSchema.parse(body);
+    // Chat lane only: a create the reach check would tap (a task assigned to Bast) writes nothing.
+    if (auth.lane === CHAT_LANE) {
+      refuseChatCreateThatReaches({
+        assignee_id: data.assignee_id ?? null, tags: data.tags ?? [], title: data.title, project_id: data.project_id ?? null,
+        arc_id: data.arc_id ?? null, sop_id: data.sop_id ?? null, client_id: data.client_id ?? null, site_id: data.site_id ?? null,
+      });
+    }
 
     // Determine client_id - auto-populate from project if not provided directly
     let clientId = data.client_id;

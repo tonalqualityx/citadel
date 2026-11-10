@@ -17,6 +17,16 @@ export interface BastChatPanelProps {
   setDraft: React.Dispatch<React.SetStateAction<string>>;
 }
 
+/** Applied actions at or after this position in the feed: what "Undo everything since here" would undo. */
+function appliedFrom(timeline: UseBastChat['timeline'], from: number): number {
+  let n = 0;
+  for (let i = from; i < timeline.length; i++) {
+    const it = timeline[i];
+    if (it.type === 'action' && it.action.status === 'applied') n++;
+  }
+  return n;
+}
+
 function MessageRow({ m, onResend }: { m: TimelineMessage; onResend: (m: TimelineMessage) => void }) {
   const mine = m.role === 'mike';
   return (
@@ -87,7 +97,7 @@ export function BastChatPanel({ chat, card, aboutDropped, onDropAbout, draft, se
         style={{ flex: 1, minHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}
       >
         {empty ? <p className="home-small home-muted">Ask about a task or a project. Bast answers from what is in Citadel.</p> : null}
-        {chat.timeline.map((item) => {
+        {chat.timeline.map((item, idx) => {
           if (item.type === 'message') {
             return (
               <MessageRow
@@ -108,6 +118,10 @@ export function BastChatPanel({ chat, card, aboutDropped, onDropAbout, draft, se
               onUndo={(id) => void chat.actOn(id, 'undo')}
               onRelease={(id) => void chat.actOn(id, 'release')}
               onDecline={(id) => void chat.actOn(id, 'decline')}
+              outcome={chat.actionOutcome(item.action.id)}
+              sinceCount={appliedFrom(chat.timeline, idx)}
+              onUndoSince={(id) => void chat.undoSince(id)}
+              sinceLines={chat.sinceLines(item.action.id)}
             />
           );
         })}

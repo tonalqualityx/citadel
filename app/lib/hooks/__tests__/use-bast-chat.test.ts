@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useBastChat, workerNotice, OFFLINE_TEXT, undoOpen } from '../use-bast-chat';
+import { useBastChat, workerNotice, OFFLINE_TEXT, undoOpen, undoSinceLines } from '../use-bast-chat';
 
 const U = '3ecfb7be-1111-4222-8333-444455556666';
 type Handler = (url: string, init?: RequestInit) => { status: number; body?: unknown } | undefined;
@@ -134,6 +134,76 @@ describe('useBastChat', () => {
     });
     expect(calls.some((c) => c.url === '/api/bast-chat/actions/a1/undo' && c.method === 'POST')).toBe(true);
     expect(result.current.actionError('a1')).toBe('Changed since. Open the task.');
+  });
+  const quiet = (url: string, extra?: (u: string) => { status: number; body?: unknown } | undefined) => {
+    if (url.endsWith('/status')) return { status: 200, body: { ...status, conversation_id: 'c1' } };
+    if (url.includes('/feed')) return { status: 200, body: { conversation: { id: 'c1', status: 'idle' }, events: [], live_text: null, live_action: null, worker: online, actions: [] } };
+    return extra?.(url);
+  };
+  it('release 200 records released, 409 records changed since, decline records declined', async () => {
+    handler = (url) => quiet(url, (u) => (u === '/api/bast-chat/actions/r1/release' ? { status: 200, body: { action: {} } } : u === '/api/bast-chat/actions/r2/release' ? { status: 409, body: { error: 'x' } } : u === '/api/bast-chat/actions/r3/decline' ? { status: 200, body: { action: {} } } : undefined));
+    const { result } = renderHook(() => useBastChat({ open: true }));
+    await waitFor(() => expect(result.current.availability).toBe('available'));
+    await act(async () => {
+      await result.current.actOn('r1', 'release');
+      await result.current.actOn('r2', 'release');
+      await result.current.actOn('r3', 'decline');
+    });
+    expect(result.current.actionOutcome('r1')).toBe('released');
+    expect(result.current.actionOutcome('r2')).toBe('changed');
+    expect(result.current.actionError('r2')).toBeNull();
+    expect(result.current.actionOutcome('r3')).toBe('declined');
+    const post = calls.find((c) => c.url.endsWith('/r1/release'))!;
+    expect(post.method).toBe('POST');
+    expect(post.body).toEqual({});
+  });
+  it('posts undo-since with from_action_id and keeps the result lines', async () => {
+    handler = (url) => quiet(url, (u) => (u === '/api/bast-chat/actions/undo-since' ? { status: 200, body: { undone: [{ id: 'a', summary: 's' }, { id: 'b', summary: 't' }], proposed: [{ id: 'c', summary: 'u', proposal_id: 'p' }], stopped: null, left: [], waiting: [] } } : undefined));
+    const { result } = renderHook(() => useBastChat({ open: true }));
+    await waitFor(() => expect(result.current.availability).toBe('available'));
+    await act(async () => {
+      await result.current.undoSince('a9');
+    });
+    const post = calls.find((c) => c.url.endsWith('/actions/undo-since'))!;
+    expect(post.method).toBe('POST');
+    expect(post.body).toEqual({ from_action_id: 'a9' });
+    expect(result.current.sinceLines('a9')).toEqual(['Undid 2 changes. 1 change became a card waiting for your tap.']);
+  });
+  it('hides the five note codes and the stop request but shows other status lines', async () => {
+    const ev = (seq: number, code: string, text: string) => ({ seq, role: 'system', kind: 'status', payload: { code, text } });
+    handler = (url) => {
+      if (url.endsWith('/status')) return { status: 200, body: { ...status, conversation_id: 'c1' } };
+      if (url.includes('/feed')) {
+        return {
+          status: 200,
+          body: {
+            conversation: { id: 'c1', status: 'idle' },
+            events: [ev(1, 'action_undone', 'a'), ev(2, 'action_released', 'b'), ev(3, 'action_declined', 'c'), ev(4, 'action_failed', 'd'), ev(5, 'undo_proposed', 'e'), ev(6, 'stop_requested', 'f'), ev(7, 'other', 'Visible line')],
+            live_text: null,
+            live_action: null,
+            worker: online,
+            actions: [],
+          },
+        };
+      }
+      return undefined;
+    };
+    const { result } = renderHook(() => useBastChat({ open: true }));
+    await waitFor(() => expect(result.current.timeline.length).toBe(1));
+    const t = result.current.timeline[0];
+    expect(t.type === 'note' && t.text).toBe('Visible line');
+  });
+});
+
+describe('undoSinceLines', () => {
+  it('says where it stopped and why', () => {
+    expect(undoSinceLines({ undone: [{}], proposed: [], stopped: { summary: '"Menu proof" moved', reason: 'Undo the later change to this first.' }, left: [{}], waiting: [] })).toEqual([
+      'Undid 1 change.',
+      'Stopped at "Menu proof" moved. Undo the later change to this first.',
+    ]);
+  });
+  it('copes with an empty answer', () => {
+    expect(undoSinceLines(null)).toEqual(['Nothing was undone.']);
   });
 });
 

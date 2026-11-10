@@ -46,7 +46,7 @@ const isDyn = (s: string) => s.startsWith('[');
  * the tree; once its file exists it is checked like any other entry. C3 empties this list.
  * v2 (specs/bast-chat-v2-plan.md S1-C1): the ops route file is created by S1-C6; S1-C6 empties this list.
  */
-const PENDING_ROUTES: ReadonlySet<string> = new Set<string>(['bast-chat: POST /api/bast-chat/worker/ops']);
+const PENDING_ROUTES: ReadonlySet<string> = new Set<string>([]);
 const segMatch = (p: string, s: string) => (p.startsWith(':') ? isDyn(s) : p === s);
 
 describe('lane list', () => {
