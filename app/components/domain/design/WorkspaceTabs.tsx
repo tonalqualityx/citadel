@@ -7,6 +7,9 @@ import { TasksTab } from './TasksTab';
 import { ChangesTab, type ChangeView } from './ChangesTab';
 import { VersionsTab } from './VersionsTab';
 import { ClientFilesTab } from './ClientFilesTab';
+import { BriefTab } from './brief/BriefTab';
+import { BoardTab } from './board/BoardTab';
+import { DirectionTab } from './direction/DirectionTab';
 import { designKeys, type DesignSessionResponse, type DesignFeedResponse } from '@/lib/hooks/use-design';
 import type { BridgeDraft } from '@/lib/hooks/use-design-bridge';
 import type { ClientFileRef } from '@/lib/hooks/use-design-tray';
@@ -25,7 +28,11 @@ export interface WorkspaceTabsProps {
   bridge: Pick<{ drafts: BridgeDraft[]; removeDraft: (id: string) => void }, 'drafts' | 'removeDraft'>;
 }
 
-export type WorkspaceTabSlots = { chat: React.ReactNode; tasks: React.ReactNode; changes: React.ReactNode; versions: React.ReactNode; 'client-files': React.ReactNode };
+export type WorkspaceTabSlots = {
+  chat: React.ReactNode; tasks: React.ReactNode; changes: React.ReactNode; versions: React.ReactNode; 'client-files': React.ReactNode;
+  /** v2: present only for a session on a design track. */
+  brief?: React.ReactNode; board?: React.ReactNode; direction?: React.ReactNode;
+};
 
 /**
  * Builds the tab bodies for Workspace's `slots` (chat, changes, versions, client-files). Holds the attached
@@ -55,8 +62,17 @@ export function useWorkspaceTabSlots({ sessionId, data, feed, events, bridge, vi
 
   const headSha = feed ? feed.head_sha : data.session.head_sha;
   const closed = (feed?.status ?? data.session.status) === 'closed' || (feed?.status ?? data.session.status) === 'abandoned';
+  const track = data.session.track ?? null;
+  const trackTabs = track
+    ? {
+        brief: <BriefTab sessionId={sessionId} track={track} feed={feed} />,
+        board: <BoardTab sessionId={sessionId} track={track} feed={feed} />,
+        direction: <DirectionTab sessionId={sessionId} track={track} feed={feed} />,
+      }
+    : {};
 
   return {
+    ...trackTabs,
     chat: (
       <ChatPanel
         sessionId={sessionId}
