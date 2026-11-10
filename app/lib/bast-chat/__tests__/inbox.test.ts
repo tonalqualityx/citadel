@@ -42,6 +42,15 @@ describe('expiry', () => {
     await expireStaleMessages(120, NOW, db);
     expect(db.conv.status).toBe('idle');
   });
+  it('a second expiry of the same message adds no second notice and counts nothing', async () => {
+    const db = makeChatDb({ conv: { status: 'queued' }, settings: SETTINGS });
+    seedMessage(db, 77, 200);
+    expect(await expireStaleMessages(120, NOW, db)).toBe(1);
+    expect(await expireStaleMessages(120, new Date(NOW.getTime() + 1000), db)).toBe(0);
+    expect(db.events.filter((e: FakeEvent) => e.role === 'system')).toHaveLength(1);
+    // Every expiry write is conditional on the row not being expired already.
+    for (const [arg] of db.bastChatEvent.updateMany.mock.calls) expect(arg.where).toMatchObject({ expired_at: null });
+  });
   it('leaves a delivered message alone', async () => {
     const db = makeChatDb({ conv: { status: 'idle' }, settings: SETTINGS });
     seedMessage(db, 1, 500, { delivered_at: ago(400) });

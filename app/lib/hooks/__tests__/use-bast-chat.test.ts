@@ -142,6 +142,7 @@ describe('helpers', () => {
     expect(workerNotice({ online: true, paused: false, auth_state: 'token' })).toBeNull();
     expect(workerNotice({ online: false, paused: false })).toBe(OFFLINE_TEXT);
     expect(workerNotice({ online: true, paused: true })).toMatch(/paused/);
+    expect(workerNotice({ online: false, paused: true })).toBe(OFFLINE_TEXT);
     expect(workerNotice({ online: true, paused: false, auth_state: 'failed' })).toMatch(/sign-in/);
   });
   it('undoOpen', () => {

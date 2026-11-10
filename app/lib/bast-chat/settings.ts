@@ -9,12 +9,20 @@ import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
+import { BAST_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 /** Never opus, fable, best or default. Same pattern as the daemon's allowlist. */
 export const ALLOWED_MODEL_RE = /^(sonnet|haiku|claude-(sonnet|haiku)-\d+(-\d+)*(-\d{8})?)$/;
 export const EFFORTS = ['low', 'medium', 'high'] as const;
 /** Tool round trips per turn, served to the daemon. */
 export const MAX_TURNS_PER_ANSWER = 10;
+
+/**
+ * The only people a handoff proposal may name, fixed on the server (never read from the worker's words).
+ * Bast is the repo's BAST_USER_ID (the same id the spawn gate and the project gate use). The repo holds no fixed
+ * id for Sabeen, so she is NOT listed: add her user id here once it is confirmed, in code review, not at runtime.
+ */
+export const HANDOFF_USER_IDS: readonly string[] = [BAST_USER_ID];
 
 export interface ChatSettings {
   enabled: boolean;
@@ -27,6 +35,8 @@ export interface ChatSettings {
   daily_cost_cap_usd: number;
   stale_after_minutes: number;
   idle_close_minutes: number;
+  /** Who a handoff may go to. Not a database column: the list above. */
+  handoff_user_ids: string[];
 }
 
 export const DEFAULT_SETTINGS: ChatSettings = {
@@ -40,6 +50,7 @@ export const DEFAULT_SETTINGS: ChatSettings = {
   daily_cost_cap_usd: 8,
   stale_after_minutes: 120,
   idle_close_minutes: 10,
+  handoff_user_ids: [...HANDOFF_USER_IDS],
 };
 
 const n = (d: { toString(): string } | number | null | undefined, fallback: number): number => {
@@ -62,6 +73,7 @@ export async function getSettings(db: Pick<PrismaClient, 'bastChatSettings'> = d
     daily_cost_cap_usd: n(r.daily_cost_cap_usd, DEFAULT_SETTINGS.daily_cost_cap_usd),
     stale_after_minutes: r.stale_after_minutes,
     idle_close_minutes: r.idle_close_minutes,
+    handoff_user_ids: [...HANDOFF_USER_IDS],
   };
 }
 

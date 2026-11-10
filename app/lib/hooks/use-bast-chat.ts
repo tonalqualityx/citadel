@@ -176,12 +176,12 @@ function idOf(data: unknown): string | null {
   return null;
 }
 
-/** Plain line for the machine's state, or null when it is fine. Order: signed out, paused, offline. */
+/** Plain line for the machine's state, or null when it is fine. Order: signed out, offline, paused (a stopped machine is not answering, whatever its last heartbeat said). */
 export function workerNotice(worker: ChatWorker | null | undefined): string | null {
   if (!worker) return null;
   if (worker.auth_state === 'failed') return SIGNED_OUT_TEXT;
-  if (worker.paused) return PAUSED_TEXT;
   if (!worker.online) return OFFLINE_TEXT;
+  if (worker.paused) return PAUSED_TEXT;
   return null;
 }
 

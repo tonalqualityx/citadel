@@ -46,6 +46,8 @@ describe('heartbeat', () => {
     const at = (s: number) => ({ bastChatWorkerState: { findUnique: vi.fn().mockResolvedValue({ last_heartbeat_at: new Date(now.getTime() - s * 1000), paused: false, pause_reason: null, auth_state: 'login', isolation_ok_at: now, live_conversations: 0 }) } }) as never;
     expect((await workerStatus(now, at(OFFLINE_AFTER_SECONDS))).online).toBe(true);
     expect((await workerStatus(now, at(60))).online).toBe(false);
+    const stopped = { bastChatWorkerState: { findUnique: vi.fn().mockResolvedValue({ last_heartbeat_at: new Date(now.getTime() - 3600_000), paused: true, pause_reason: 'shutdown', auth_state: 'token', isolation_ok_at: now, live_conversations: 0 }) } } as never;
+    expect(await workerStatus(now, stopped)).toMatchObject({ online: false, paused: false, pause_reason: null });
     expect((await workerStatus(now, { bastChatWorkerState: { findUnique: vi.fn().mockResolvedValue(null) } } as never)).online).toBe(false);
   });
 });

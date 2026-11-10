@@ -178,6 +178,21 @@ export async function requestStop(conversationId: string, ownerId: string, db: D
 // The daemon's events
 // ---------------------------------------------------------------------------
 
+/**
+ * House rule: no en or em dash in anything the reader sees. The model sometimes writes one anyway, so the server
+ * swaps each (with the space around it) for ", " and collapses doubled spaces. Written as escapes on purpose.
+ */
+export function stripDashes(text: string): string {
+  return text.replace(/\s*[\u2013\u2014]\s*/g, ', ').replace(/ {2,}/g, ' ');
+}
+
+function cleanAssistantPayload(e: { role: string; kind: string; payload: Prisma.InputJsonValue }): Prisma.InputJsonValue {
+  if (e.role !== 'assistant' || e.kind !== 'text') return e.payload;
+  const p = e.payload as { text?: unknown } | null;
+  if (!p || typeof p !== 'object' || typeof p.text !== 'string') return e.payload;
+  return { ...(p as Record<string, Prisma.InputJsonValue>), text: stripDashes(p.text) };
+}
+
 export interface WorkerEventInput {
   role: (typeof WORKER_EVENT_ROLES)[number];
   kind: (typeof WORKER_EVENT_KINDS)[number];
@@ -214,7 +229,7 @@ export async function appendWorkerEvents(
       first = alloc.first;
       last = alloc.first + events.length - 1;
       await tx.bastChatEvent.createMany({
-        data: events.map((e, i) => ({ conversation_id: conversationId, seq: alloc.first + i, role: e.role, kind: e.kind, payload: e.payload, turn: e.turn ?? null })),
+        data: events.map((e, i) => ({ conversation_id: conversationId, seq: alloc.first + i, role: e.role, kind: e.kind, payload: cleanAssistantPayload(e), turn: e.turn ?? null })),
       });
       const cost = events.reduce((sum, e) => {
         if (e.kind !== 'cost') return sum;
@@ -259,7 +274,7 @@ export async function patchWorkerConversation(conversationId: string, patch: Wor
     if (!['idle', 'queued', 'running'].includes(patch.status)) throw new ApiError('Bad status', 400, 'bad_status');
     data.status = patch.status;
   }
-  if (patch.live_text !== undefined) data.live_text = patch.live_text === null ? null : patch.live_text.slice(-MAX_LIVE_TEXT_CHARS);
+  if (patch.live_text !== undefined) data.live_text = patch.live_text === null ? null : stripDashes(patch.live_text).slice(-MAX_LIVE_TEXT_CHARS);
   if (patch.live_action !== undefined) data.live_action = patch.live_action === null ? null : cleanLine(patch.live_action, 200);
   if (patch.model !== undefined) {
     if (patch.model !== null && !/^(sonnet|haiku|claude-(sonnet|haiku)-\d+(-\d+)*(-\d{8})?)$/.test(patch.model)) throw new ApiError('That model is not allowed in the chat', 400, 'bad_model');

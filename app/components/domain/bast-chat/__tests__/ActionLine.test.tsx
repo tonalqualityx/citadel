@@ -18,10 +18,12 @@ describe('ActionLine', () => {
     render(<ActionLine action={{ ...base, undo_until: '2026-11-10T11:00:00Z' }} now={NOW} busy={false} error={null} {...handlers} />);
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
   });
-  it('offers Do it and No for a proposal', () => {
-    render(<ActionLine action={{ ...base, status: 'proposed', undo_until: null, summary: 'Hand "Send Gene the preview" to Bast?' }} now={NOW} busy={false} error={null} {...handlers} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Do it' }));
-    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+  it('names the person on a proposal: Hand to Bast and Keep it', () => {
+    render(<ActionLine action={{ ...base, status: 'proposed', undo_until: null, summary: 'Proposed: hand "Send Gene the preview" to Bast.', proposed_assignee: 'Bast' }} now={NOW} busy={false} error={null} {...handlers} />);
+    expect(screen.queryByRole('button', { name: 'Do it' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'No' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hand to Bast' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
     expect(handlers.onRelease).toHaveBeenCalledWith('a1');
     expect(handlers.onDecline).toHaveBeenCalledWith('a1');
   });

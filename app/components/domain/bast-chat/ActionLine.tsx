@@ -17,7 +17,7 @@ const BTN = 'home-btn';
 
 /**
  * One line for one thing Bast did or proposes. A change shows what changed and an Undo for as long as the server's
- * undo window is open. A handoff proposal needs Mike's tap: "Do it" or "No". Plain text only.
+ * undo window is open. A handoff proposal needs Mike's tap: "Hand to {first name}" or "Keep it". The name comes from the server. Plain text only.
  */
 export function ActionLine({ action, now, busy, error, onUndo, onRelease, onDecline }: ActionLineProps) {
   const open = undoOpen(action, now);
@@ -36,10 +36,10 @@ export function ActionLine({ action, now, busy, error, onUndo, onRelease, onDecl
       {action.status === 'proposed' ? (
         <div className="home-actions" role="group" aria-label="Proposal">
           <button type="button" className={BTN} data-filled="true" disabled={busy} onClick={() => onRelease(action.id)}>
-            Do it
+            {action.proposed_assignee ? `Hand to ${action.proposed_assignee}` : 'Hand it over'}
           </button>
           <button type="button" className={BTN} disabled={busy} onClick={() => onDecline(action.id)}>
-            No
+            Keep it
           </button>
         </div>
       ) : null}

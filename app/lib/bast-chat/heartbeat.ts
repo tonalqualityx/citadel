@@ -60,10 +60,12 @@ export async function workerStatus(now: Date = new Date(), db: Pick<PrismaClient
   const r = await db.bastChatWorkerState.findUnique({ where: { id: 1 } });
   const last = r?.last_heartbeat_at ?? null;
   const auth = r?.auth_state;
+  const online = !!last && now.getTime() - last.getTime() <= OFFLINE_AFTER_SECONDS * 1000;
   return {
-    online: !!last && now.getTime() - last.getTime() <= OFFLINE_AFTER_SECONDS * 1000,
-    paused: r?.paused ?? false,
-    pause_reason: r?.pause_reason ?? null,
+    online,
+    // A stopped machine is offline, not paused (its last heartbeat said paused on a clean stop).
+    paused: online && (r?.paused ?? false),
+    pause_reason: online ? (r?.pause_reason ?? null) : null,
     auth_state: auth === 'token' || auth === 'login' || auth === 'failed' ? auth : null,
     isolation_ok: !!r?.isolation_ok_at,
     live_conversations: r?.live_conversations ?? 0,

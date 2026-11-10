@@ -19,6 +19,10 @@ vi.mock('@/lib/bast-chat/settings', async (orig) => ({
   getSettings: vi.fn(async () => h.settings),
   updateSettings: vi.fn(async (patch: object) => ({ ...h.settings, ...patch })),
 }));
+vi.mock('@/lib/bast-chat/inbox', async (orig) => ({
+  ...(await orig<typeof import('@/lib/bast-chat/inbox')>()),
+  expireStaleMessages: vi.fn(async () => 0),
+}));
 vi.mock('@/lib/bast-chat/events', async (orig) => ({
   ...(await orig<typeof import('@/lib/bast-chat/events')>()),
   startConversation: vi.fn(async () => ({ id: CONV })),
@@ -205,6 +209,14 @@ describe('Mike routes: shapes the panel hook reads', () => {
     expect(b.waiting).toEqual([{ seq: 1, delivered: false, expired: false }]);
     expect(Object.keys(b.actions[0]).sort()).toEqual(['event_seq', 'id', 'proposed_assignee', 'status', 'summary', 'tool', 'undo_until']);
     expect(Object.keys(b.worker).sort()).toEqual(['auth_state', 'online', 'pause_reason', 'paused']);
+  });
+  it('feed and status lapse old waiting messages first, so a stopped machine still shows Not answered', async () => {
+    const { expireStaleMessages } = await import('@/lib/bast-chat/inbox');
+    vi.mocked(expireStaleMessages).mockClear();
+    await feed.GET(req('GET', `${P}/conversations/${CONV}/feed?after=0`) as never, ctx({ id: CONV }));
+    await status.GET();
+    expect(expireStaleMessages).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(expireStaleMessages).mock.calls[0][0]).toBe(h.settings.stale_after_minutes);
   });
   it('feed: a bad after is 400', async () => {
     const res = await feed.GET(req('GET', `${P}/conversations/${CONV}/feed?after=-1`) as never, ctx({ id: CONV }));

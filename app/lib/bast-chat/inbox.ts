@@ -48,15 +48,26 @@ export async function expireStaleMessages(staleAfterMinutes: number, now: Date =
   let total = 0;
   for (const conversationId of convIds) {
     total += await db.$transaction(async (tx) => {
-      // The row lock first, then read again: an ack that landed in between is not expired.
-      const rows = await tx.bastChatEvent.findMany({
+      // Mark first, conditional on `expired_at IS NULL`: a second caller (the heartbeat and the inbox at once) finds
+      // 0 rows changed and adds no second notice. The seqs of the rows THIS call changed carry the notices.
+      const candidates = await tx.bastChatEvent.findMany({
         where: { conversation_id: conversationId, role: 'mike', delivered_at: null, expired_at: null, created_at: { lt: cutoff } },
+        orderBy: { seq: 'asc' },
+        select: { seq: true },
+      });
+      if (candidates.length === 0) return 0;
+      const marked = await tx.bastChatEvent.updateMany({
+        where: { conversation_id: conversationId, role: 'mike', seq: { in: candidates.map((r) => r.seq) }, delivered_at: null, expired_at: null },
+        data: { expired_at: now },
+      });
+      if (marked.count === 0) return 0;
+      const rows = await tx.bastChatEvent.findMany({
+        where: { conversation_id: conversationId, role: 'mike', seq: { in: candidates.map((r) => r.seq) }, expired_at: now },
         orderBy: { seq: 'asc' },
         select: { seq: true },
       });
       if (rows.length === 0) return 0;
       const alloc = await allocateSeq(tx, conversationId, rows.length);
-      await tx.bastChatEvent.updateMany({ where: { conversation_id: conversationId, role: 'mike', seq: { in: rows.map((r) => r.seq) }, delivered_at: null }, data: { expired_at: now } });
       await tx.bastChatEvent.createMany({
         data: rows.map((r, i) => ({ conversation_id: conversationId, seq: alloc.first + i, role: 'system' as const, kind: 'status' as const, payload: { code: 'expired', for_seq: r.seq, text: EXPIRED_TEXT } })),
       });

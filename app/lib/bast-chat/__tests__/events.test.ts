@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
-import { appendMikeMessage, appendWorkerEvents, feed, patchWorkerConversation, requestStop, STOP_CODE } from '../events';
+import { appendMikeMessage, appendWorkerEvents, feed, patchWorkerConversation, requestStop, stripDashes, STOP_CODE } from '../events';
 import { DEFAULT_SETTINGS } from '../settings';
 import { makeChatDb, type FakeEvent } from './fake-db';
 
@@ -89,6 +89,29 @@ describe('appendWorkerEvents', () => {
     await expect(appendWorkerEvents(db.conv.id, null, { events: [{ role: 'assistant', kind: 'bogus' as never, payload: {} }] }, new Date(), db)).rejects.toMatchObject({ statusCode: 400 });
     await expect(appendWorkerEvents(db.conv.id, null, { events: [{ role: 'assistant', kind: 'text', payload: { text: 'x'.repeat(9000) } }] }, new Date(), db)).rejects.toMatchObject({ statusCode: 413 });
     await expect(appendWorkerEvents(db.conv.id, null, { events: Array.from({ length: 101 }, () => ({ role: 'assistant' as const, kind: 'text' as const, payload: {} })) }, new Date(), db)).rejects.toMatchObject({ statusCode: 413 });
+  });
+});
+
+describe('dashes in assistant text', () => {
+  const EM = String.fromCharCode(0x2014);
+  const EN = String.fromCharCode(0x2013);
+  it('stripDashes swaps an em or en dash for a comma and collapses doubled spaces', () => {
+    expect(stripDashes(`Can't do either ${EM} due dates are set by the system`)).toBe("Can't do either, due dates are set by the system");
+    expect(stripDashes(`Done${EM}marked it. Mon${EN}Fri  ok`)).toBe('Done, marked it. Mon, Fri ok');
+  });
+  it('assistant text is stored without a dash; other roles and kinds are untouched', async () => {
+    const db = makeChatDb();
+    await appendWorkerEvents(db.conv.id, null, { events: [
+      { role: 'assistant', kind: 'text', payload: { text: `Done ${EM} it is closed ${EN} for now` } },
+      { role: 'system', kind: 'status', payload: { code: 'x', text: `keep ${EM} this` } },
+    ] }, new Date(), db);
+    expect((db.events[0].payload as { text: string }).text).toBe('Done, it is closed, for now');
+    expect((db.events[1].payload as { text: string }).text).toBe(`keep ${EM} this`);
+  });
+  it('live text is cleaned too', async () => {
+    const db = makeChatDb();
+    await patchWorkerConversation(db.conv.id, { live_text: `half ${EM} way` }, db);
+    expect(db.conv.live_text).toBe('half, way');
   });
 });
 
