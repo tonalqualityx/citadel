@@ -41,6 +41,14 @@ function resolveDependencies(
   return Array.from(blocker.pageTaskMap?.values() || []);
 }
 
+// Portal design path (SPEC 7.1): only these SOP tags are copied onto the tasks a recipe creates.
+// Every other SOP tag stays on the SOP, as before.
+function designTagsFrom(sopTags: string[] | null | undefined): string[] {
+  return (sopTags ?? []).filter(
+    (tag) => tag.startsWith('design-job:') || tag.startsWith('design-stage:') || tag === 'design-runner'
+  );
+}
+
 const wizardSchema = z.object({
   recipe_id: z.string().uuid(),
   client_id: z.string().uuid(),
@@ -206,6 +214,7 @@ export async function POST(request: NextRequest) {
                   requirements: sop.template_requirements as Prisma.InputJsonValue | undefined,
                   // Reference back to SOP
                   sop_id: sop.id,
+                  tags: designTagsFrom(sop.tags),
                   // Assignment and metadata
                   assignee_id: assignment?.user_id || null,
                   sort_order: taskSortOrder++,
@@ -243,6 +252,7 @@ export async function POST(request: NextRequest) {
                 requirements: sop.template_requirements as Prisma.InputJsonValue | undefined,
                 // Reference back to SOP
                 sop_id: sop.id,
+                tags: designTagsFrom(sop.tags),
                 // Assignment and metadata
                 assignee_id: assignment?.user_id || null,
                 sort_order: taskSortOrder++,
@@ -258,6 +268,19 @@ export async function POST(request: NextRequest) {
             });
           }
         }
+      }
+
+      // Portal design path: a recipe with a design-job SOP puts the site on the portal path, once.
+      if (
+        data.site_id &&
+        recipe.phases.some((phase) =>
+          phase.tasks.some((task) => (task.sop?.tags ?? []).some((tag) => tag.startsWith('design-job:')))
+        )
+      ) {
+        await tx.site.updateMany({
+          where: { id: data.site_id, design_path: null },
+          data: { design_path: 'portal' },
+        });
       }
 
       // Set up task dependencies based on recipe_task.depends_on_ids
