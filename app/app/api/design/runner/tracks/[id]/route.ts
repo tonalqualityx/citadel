@@ -4,7 +4,7 @@ import { requireTrackRunner } from '@/lib/design/runner-kit';
 import { idParam } from '@/lib/design/worker-kit';
 import { parseIncludes, readTrack } from '@/lib/design/track-runner';
 
-// GET /api/design/runner/tracks/:id?include=brief,references,direction,client_statements,pages,imports,recipients
+// GET /api/design/runner/tracks/:id?include=brief,references,direction,client_statements,brand_profile,pages,imports,recipients
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireTrackRunner();

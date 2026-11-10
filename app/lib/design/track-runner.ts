@@ -10,6 +10,7 @@ import { ApiError } from '@/lib/api/errors';
 import { briefBodySchema, MAX_BRIEF_BYTES } from './brief-schema';
 import { loadTrack, lockTrack, queueJob, trackTx, type Tx } from './track-core';
 import { maybeEnterArtDirection } from './track-stage';
+import { statementView, type ClientStatement } from './track-board';
 
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
 /** 16 characters of lowercase base32 from a cryptographic source: 80 bits (SPEC 2.2). Lowercase only, `[a-z2-7]{16}`. */
@@ -118,7 +119,7 @@ export async function startTrack(taskId: string): Promise<{ track: DesignTrack; 
   });
 }
 
-export const TRACK_INCLUDES = ['brief', 'references', 'direction', 'client_statements', 'pages', 'imports', 'recipients'] as const;
+export const TRACK_INCLUDES = ['brief', 'references', 'direction', 'client_statements', 'brand_profile', 'pages', 'imports', 'recipients'] as const;
 export type TrackInclude = (typeof TRACK_INCLUDES)[number];
 
 export function parseIncludes(raw: string | null): TrackInclude[] {
@@ -169,6 +170,38 @@ export async function computeRecipients(projectId: string) {
   return out;
 }
 
+/** Runner view of a design note: the designer shape plus the three fields the research and brief jobs need. */
+export type RunnerStatement = ClientStatement & { superseded_by_id: string | null; reference_url: string | null; source_ref: string };
+
+/**
+ * Runner-only `client_statements` (SPEC 4.1, 6.2): the client's notes with status `active` or `superseded` (never
+ * `withdrawn` or anything else). Order: `source_date` ascending, then `created_at`, then `id`. A superseded note is
+ * placed under the note that replaced it by grouping on `superseded_by_id` (the replacing note's `id`); the order itself
+ * is chronological and stable. The designer-facing `clientStatementsFor` is separate and stays active-only.
+ */
+export async function runnerStatementsFor(projectId: string): Promise<RunnerStatement[]> {
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { client_id: true } });
+  if (!project?.client_id) return [];
+  const notes = await prisma.designNote.findMany({
+    where: { client_id: project.client_id, status: { in: ['active', 'superseded'] } },
+    orderBy: [{ source_date: 'asc' }, { created_at: 'asc' }, { id: 'asc' }],
+  });
+  return notes.map((n) => ({ ...statementView(n), superseded_by_id: n.superseded_by_id, reference_url: n.reference_url, source_ref: n.source_ref }));
+}
+
+/**
+ * The BrandProfile of the project's client, or null. Returned: the design-language fields only (`voice_profile`,
+ * `brand_tokens`, `figma_url`, `component_library_ref`). Left out: `id`, `client_id`, `site_id` (ids), `notes`
+ * (internal), `is_deleted` and the timestamps. A soft-deleted profile counts as none. Only the client-owned profile is
+ * read; a site-owned profile is not.
+ */
+export async function runnerBrandProfileFor(projectId: string) {
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { client_id: true } });
+  if (!project?.client_id) return null;
+  const b = await prisma.brandProfile.findFirst({ where: { client_id: project.client_id, is_deleted: false } });
+  return b ? { voice_profile: b.voice_profile, brand_tokens: b.brand_tokens, figma_url: b.figma_url, component_library_ref: b.component_library_ref } : null;
+}
+
 /** The track row plus any of the requested includes. */
 export async function readTrack(trackId: string, includes: TrackInclude[]) {
   const track = await loadTrack(prisma, trackId);
@@ -190,15 +223,12 @@ export async function readTrack(trackId: string, includes: TrackInclude[]) {
         out.direction = d ? { id: d.id, version: d.version, status: d.status, body: d.body, signed_at: d.signed_at } : null;
         break;
       }
-      case 'client_statements': {
-        const project = await prisma.project.findUnique({ where: { id: track.project_id }, select: { client_id: true } });
-        const notes = project?.client_id ? await prisma.designNote.findMany({ where: { client_id: project.client_id, status: 'active' }, orderBy: { source_date: 'asc' } }) : [];
-        out.client_statements = notes.map((n) => ({
-          id: n.id, quote: n.quote, speaker_name: n.speaker_name, speaker_role: n.speaker_role, source_date: n.source_date,
-          source_kind: n.source_kind, is_paraphrase: n.is_paraphrase, subject: n.subject, category: n.category, polarity: n.polarity, status: n.status,
-        }));
+      case 'client_statements':
+        out.client_statements = await runnerStatementsFor(track.project_id);
         break;
-      }
+      case 'brand_profile':
+        out.brand_profile = await runnerBrandProfileFor(track.project_id);
+        break;
       case 'pages':
         out.pages = await prisma.designPageReview.findMany({ where: { track_id: trackId }, orderBy: { page_path: 'asc' } });
         break;

@@ -644,12 +644,12 @@ describe.skipIf(!SCRATCH)('design track engine (real database)', () => {
       const w = await world('read');
       const t = await toArtDirection(w);
       asRunner();
-      const res = await track.GET(new NextRequest(`http://localhost:3000/api/design/runner/tracks/${t.id}?include=brief,references,direction,client_statements,pages,imports,recipients`), ctx({ id: t.id }));
+      const res = await track.GET(new NextRequest(`http://localhost:3000/api/design/runner/tracks/${t.id}?include=brief,references,direction,client_statements,brand_profile,pages,imports,recipients`), ctx({ id: t.id }));
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.track.stage).toBe('art_direction');
       expect(body.brief.status).toBe('published');
-      expect(Object.keys(body).sort()).toEqual(['brief', 'client_statements', 'direction', 'imports', 'pages', 'recipients', 'references', 'track']);
+      expect(Object.keys(body).sort()).toEqual(['brand_profile', 'brief', 'client_statements', 'direction', 'imports', 'pages', 'recipients', 'references', 'track']);
       expect((await track.GET(new NextRequest(`http://localhost:3000/api/design/runner/tracks/${t.id}?include=secrets`), ctx({ id: t.id }))).status).toBe(400);
       expect((await track.GET(new NextRequest('http://localhost:3000/api/design/runner/tracks/nope'), ctx({ id: 'nope' }))).status).toBe(404);
     });

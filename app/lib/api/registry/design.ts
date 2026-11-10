@@ -1437,10 +1437,10 @@ export const designEndpoints: ApiEndpoint[] = [
         roles: RUNNER,
         queryParams: [
           trackIdParam,
-          { name: 'include', type: 'string', required: false, description: 'Comma list of brief, references, direction, client_statements, pages, imports, recipients' },
+          { name: 'include', type: 'string', required: false, description: 'Comma list of brief, references, direction, client_statements, brand_profile, pages, imports, recipients. client_statements here includes active and superseded notes with superseded_by_id, reference_url and source_ref (runner only; designers get active notes without them). brand_profile is the client\'s {voice_profile, brand_tokens, figma_url, component_library_ref} or null' },
         ],
-        responseExample: { track: { id: 'uuid', stage: 'string', busy_job_id: 'uuid|null', head_sha: 'string|null', preview_url: 'string|null' }, recipients: [{ contact_id: 'uuid', name: 'string|null', email: 'string', basis: 'grant|client_fallback' }] },
-        responseNotes: 'Recipients are computed by Citadel (owner or member grants; client contacts who can initiate work when the project has no grants; other email domains only with a grant).',
+        responseExample: { track: { id: 'uuid', stage: 'string', busy_job_id: 'uuid|null', head_sha: 'string|null', preview_url: 'string|null' }, recipients: [{ contact_id: 'uuid', name: 'string|null', email: 'string', basis: 'grant|client_fallback' }], client_statements: [{ id: 'uuid', quote: 'string', speaker_name: 'string', speaker_role: 'string', source_date: 'ISO-8601', source_kind: 'string', is_paraphrase: 'boolean', subject: 'string', category: 'string', polarity: 'string', status: 'active|superseded', superseded_by_id: 'uuid|null', reference_url: 'string|null', source_ref: 'string' }], brand_profile: { voice_profile: 'json|null', brand_tokens: 'json|null', figma_url: 'string|null', component_library_ref: 'string|null' } },
+        responseNotes: 'Statements are ordered by source_date, created_at, id; group a superseded note under the note whose id is its superseded_by_id. Recipients are computed by Citadel (owner or member grants; client contacts who can initiate work when the project has no grants; other email domains only with a grant).',
       },
     ],
   },
