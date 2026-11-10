@@ -269,15 +269,16 @@ describe('AdminSettings', () => {
 });
 
 describe('SiteToggles', () => {
-  const site = { id: 'site1', name: 'VCDP', url: null, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, effective_designer_publish: true, main_role: 'client_preview' };
+  const site = { id: 'site1', name: 'VCDP', url: null, design_portal_enabled: true, designer_publish: true, design_auto_timer: true, design_path: null as string | null, effective_designer_publish: true, main_role: 'client_preview' };
 
   it('PATCHes one field per switch to the admin site route', async () => {
     get.mockResolvedValue({ sites: [site] });
     patch.mockResolvedValue({});
     wrap(<SiteToggles canWrite />);
     const sw = await screen.findAllByRole('switch');
-    expect(sw).toHaveLength(3);
-    expect(sw.every((s) => s.getAttribute('aria-checked') === 'true')).toBe(true);
+    expect(sw).toHaveLength(4);
+    expect(sw.slice(0, 3).every((s) => s.getAttribute('aria-checked') === 'true')).toBe(true);
+    expect(sw[3].getAttribute('aria-checked')).toBe('false');
     fireEvent.click(sw[0]);
     await waitFor(() => expect(patch).toHaveBeenCalledWith('/design/admin/sites/site1', { design_portal_enabled: false }));
     await waitFor(() => expect(screen.getAllByRole('switch')[1]).toBeEnabled());
@@ -286,6 +287,24 @@ describe('SiteToggles', () => {
     await waitFor(() => expect(screen.getAllByRole('switch')[2]).toBeEnabled());
     fireEvent.click(screen.getAllByRole('switch')[2]);
     await waitFor(() => expect(patch).toHaveBeenCalledWith('/design/admin/sites/site1', { design_auto_timer: false }));
+  });
+
+  it('sets the design path to portal and back to null', async () => {
+    get.mockResolvedValue({ sites: [site] });
+    patch.mockResolvedValue({});
+    wrap(<SiteToggles canWrite />);
+    fireEvent.click((await screen.findAllByRole('switch'))[3]);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/design/admin/sites/site1', { design_path: 'portal' }));
+  });
+
+  it('turning a portal site off sends null', async () => {
+    get.mockResolvedValue({ sites: [{ ...site, design_path: 'portal' }] });
+    patch.mockResolvedValue({});
+    wrap(<SiteToggles canWrite />);
+    const sw = (await screen.findAllByRole('switch'))[3];
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(sw);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('/design/admin/sites/site1', { design_path: null }));
   });
 
   it('is read-only for a pm', async () => {
