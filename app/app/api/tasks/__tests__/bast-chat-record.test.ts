@@ -16,7 +16,7 @@ vi.mock('@/lib/db/prisma', () => {
     bastChatSettings: { findUnique: vi.fn() },
     bastChatConversation: { findFirst: vi.fn(), findUnique: vi.fn() },
     bastChatAction: { create: vi.fn(), findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    bastChatUsage: { upsert: vi.fn(), findUnique: vi.fn() },
+    bastChatUsage: { upsert: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     task: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), updateMany: vi.fn() },
     project: { findUnique: vi.fn() },
     arc: { findUnique: vi.fn() },
@@ -56,10 +56,19 @@ const UPDATED = new Date('2026-11-10T12:00:00.000Z');
 
 const task = (o: Record<string, unknown> = {}) => ({ id: TASK, title: 'Update the invoice template', status: 'not_started', arc_id: null, assignee_id: OWNER, tags: [], is_deleted: false, project: null, started_at: null, completed_at: null, claim_token: null, due_date: null, updated_at: UPDATED, ...o });
 
+/** A stateful usage table. updateMany honors the `lt` condition in one synchronous step, like the database's conditional update. */
+let usageWrites = 0;
 beforeEach(() => {
   vi.resetAllMocks();
+  usageWrites = 0;
+  db.bastChatUsage.upsert.mockResolvedValue({});
+  db.bastChatUsage.updateMany.mockImplementation(async ({ where, data }: any) => {
+    if (!(usageWrites < where.writes.lt)) return { count: 0 };
+    usageWrites += data.writes.increment;
+    return { count: 1 };
+  });
   db.$transaction.mockImplementation(async (fn: any) => fn(db));
-  db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER });
+  db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, daily_write_cap: 25 });
   db.bastChatConversation.findFirst.mockResolvedValue({ id: CONV });
   db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
   db.bastChatUsage.findUnique.mockResolvedValue(null);
@@ -82,7 +91,7 @@ describe('PATCH by the chat key writes the record itself', () => {
     expect(db.bastChatAction.create).toHaveBeenCalledTimes(1);
     expect(rowOf()).toMatchObject({ conversation_id: CONV, tool: 'update_task', target_id: TASK, status: 'applied', summary: 'Marked "Update the invoice template" done.', before: { status: 'in_progress' }, after: { status: 'done' } });
     expect(rowOf().undo_until).toBeInstanceOf(Date);
-    expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(1); // F3: counted once, not twice
+    expect(usageWrites).toBe(1); // G1: one reservation, nothing counted again after the write
     expect(Object.keys(await res.json())).not.toContain('chat_action');
   });
 
@@ -121,8 +130,8 @@ describe('PATCH by the chat key writes the record itself', () => {
     expect(r2.status).toBe(200);
     expect(r2.headers.get('X-Bast-Chat-Action')).toBeNull();
     expect(db.bastChatAction.create).not.toHaveBeenCalled();
-    // F3: both writes still count once each against the daily cap.
-    expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(2);
+    // Both writes still count once each against the daily cap.
+    expect(usageWrites).toBe(2);
   });
 
   it('a status sent that is already the status is a no-op: no record, no cap used', async () => {
@@ -200,7 +209,7 @@ describe('any other caller: no record, no header, no chat reads', () => {
 describe('VERIFY-2 N1 to N3 replayed against the worker route: each is refused now', () => {
   const post = async (body: unknown) => {
     authMock.mockResolvedValue(chat);
-    db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true });
+    db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: 25 });
     db.bastChatConversation.findUnique.mockResolvedValue({ id: CONV, owner_id: OWNER });
     return workerActions(jreq('POST', 'http://localhost/api/bast-chat/worker/actions', body) as never);
   };
@@ -314,7 +323,7 @@ function liveRow(o: Record<string, unknown> = {}) {
 describe('F1: a handoff tap only goes through when the task is exactly as it was when proposed', () => {
   const propose = async () => {
     authMock.mockResolvedValue(chat);
-    db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true });
+    db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: 25 });
     db.bastChatConversation.findUnique.mockResolvedValue({ id: CONV, owner_id: OWNER });
     const res = await workerActions(jreq('POST', 'http://localhost/api/bast-chat/worker/actions', { conversation_id: CONV, tool: 'propose_handoff', target_id: TASK, status: 'proposed', proposed_assignee_id: BAST }) as never);
     expect(res.status).toBe(201);
@@ -382,7 +391,7 @@ describe('F1: a handoff tap only goes through when the task is exactly as it was
     db.bastChatAction.findUnique.mockResolvedValue(take);
     db.bastChatAction.findFirst.mockResolvedValue(null);
     db.bastChatAction.update.mockImplementation(async ({ data }: any) => ({ ...take, ...data }));
-    db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true });
+    db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: 25 });
     db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER });
     db.task.count.mockResolvedValue(1);
     await undoAction(ACTION_ID, OWNER);
@@ -417,7 +426,8 @@ describe('F2: the chat lane writes only the row it read; everyone else is unchan
     expect(row.assignee_id).toBe(BAST);
     expect(row.status).toBe('not_started'); // untouched value, nothing written
     expect(db.bastChatAction.create).not.toHaveBeenCalled();
-    expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+    // G1: the slot is reserved before the write, so a refused attempt keeps its slot.
+    expect(usageWrites).toBe(1);
   });
 
   it('the chat lane write names the assignee and updated_at it read, in both write paths', async () => {
@@ -447,11 +457,8 @@ describe('F2: the chat lane writes only the row it read; everyone else is unchan
 
 describe('F3 and F6: the daily write cap is enforced on the server and every write counts once', () => {
   const capOf = (cap: number) => {
-    let writes = 0;
     db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: cap });
-    db.bastChatUsage.findUnique.mockImplementation(async () => ({ turns: 0, writes, cost_usd: '0' }));
-    db.bastChatUsage.upsert.mockImplementation(async ({ update }: any) => { writes += update.writes.increment; return {}; });
-    return () => writes;
+    return () => usageWrites;
   };
   it('a seventh write on a cap of 6 is a 429 with the cap sentence and writes nothing; six succeed', async () => {
     authMock.mockResolvedValue(chat);
@@ -492,19 +499,21 @@ describe('F3 and F6: the daily write cap is enforced on the server and every wri
     await postTask(OK_POST);
     expect(writes()).toBe(2);
   });
-  it('a refused body (403) and a refused conversation (400) count nothing', async () => {
+  it('a refused body (403) counts nothing; a refused conversation (400) comes after the reservation and keeps its slot', async () => {
     authMock.mockResolvedValue(chat);
     const writes = capOf(6);
     liveRow({ assignee_id: SABEEN });
     expect((await patch({ status: 'done' })).status).toBe(403);
+    expect(writes()).toBe(0);
     liveRow();
     expect((await patch({ status: 'done' }, {})).status).toBe(400);
-    expect(writes()).toBe(0);
+    expect(writes()).toBe(1);
+    expect(db.task.update).not.toHaveBeenCalled();
   });
 });
 
 describe('F4: a chat write names its conversation', () => {
-  const noWrite = () => { expect(db.task.update).not.toHaveBeenCalled(); expect(db.task.create).not.toHaveBeenCalled(); expect(db.bastChatUsage.upsert).not.toHaveBeenCalled(); };
+  const noWrite = () => { expect(db.task.update).not.toHaveBeenCalled(); expect(db.task.create).not.toHaveBeenCalled(); };
   it('PATCH with no header, a foreign conversation, a malformed one and a missing one: 400, no write', async () => {
     authMock.mockResolvedValue(chat);
     liveRow();
@@ -532,7 +541,7 @@ describe('F4: a chat write names its conversation', () => {
     expect((await patch({ description: 'd', requirements: [], origin_url: 'https://example.com' }, {})).status).toBe(200);
     expect(db.task.update.mock.calls[0][0].where).toEqual({ id: TASK, assignee_id: OWNER, updated_at: UPDATED });
     expect(db.bastChatAction.create).not.toHaveBeenCalled();
-    expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(1);
+    expect(usageWrites).toBe(1);
     for (const body of [{ description: 'd', status: 'in_progress' }, { description: 'd', title: 'T' }, { description: 'd', due_date: null }, { arc_id: null }, { assignee_id: OWNER }]) {
       expect((await patch(body, {})).status).toBe(400);
     }
@@ -603,5 +612,140 @@ describe('F5: Undo of a status change also restores what the same PATCH cleared'
     await patch({ status: 'blocked' });
     expect(rowOf().before).toEqual({ status: 'not_started' });
     expect(rowOf().after).toEqual({ status: 'blocked' });
+  });
+});
+
+describe('G1: each chat change reserves its slot in one conditional update', () => {
+  const setCap = (cap: number) => db.bastChatSettings.findUnique.mockResolvedValue({ owner_user_id: OWNER, enabled: true, daily_write_cap: cap });
+  const propose = () => workerActions(jreq('POST', 'http://localhost/api/bast-chat/worker/actions', { conversation_id: CONV, tool: 'propose_handoff', target_id: TASK, status: 'proposed', proposed_assignee_id: BAST }) as never);
+  const proposeSetup = () => {
+    authMock.mockResolvedValue(chat);
+    db.bastChatConversation.findUnique.mockResolvedValue({ id: CONV, owner_id: OWNER });
+    db.task.findUnique.mockResolvedValue(task());
+    db.bastChatAction.create.mockResolvedValue({ id: 'p1', status: 'proposed', undo_until: null });
+  };
+
+  it('10 parallel chat writes on a cap of 3: exactly 3 succeed, 7 get the 429, and the stored count is 3', async () => {
+    authMock.mockResolvedValue(chat);
+    setCap(3);
+    db.task.findUnique.mockImplementation(async () => task({ status: 'in_progress' }));
+    db.task.update.mockImplementation(async () => task({ status: 'done' }));
+    const res = await Promise.all(Array.from({ length: 10 }, () => patch({ status: 'done' })));
+    const codes = res.map((r) => r.status);
+    expect(codes.filter((c) => c === 200)).toHaveLength(3);
+    expect(codes.filter((c) => c === 429)).toHaveLength(7);
+    expect(usageWrites).toBe(3);
+    expect(db.task.update).toHaveBeenCalledTimes(3);
+    for (const r of res.filter((x) => x.status === 429)) expect((await r.json()).error).toBe(WRITE_CAP_TEXT);
+  });
+
+  it('10 parallel proposals on a cap of 3: 3 are written, 7 get the 429, the count is 3', async () => {
+    proposeSetup();
+    setCap(3);
+    const res = await Promise.all(Array.from({ length: 10 }, propose));
+    const codes = res.map((r) => r.status);
+    expect(codes.filter((c) => c === 201)).toHaveLength(3);
+    expect(codes.filter((c) => c === 429)).toHaveLength(7);
+    expect(usageWrites).toBe(3);
+    expect(db.bastChatAction.create).toHaveBeenCalledTimes(3);
+  });
+
+  it('a proposal past the cap is a 429 and writes no row', async () => {
+    proposeSetup();
+    setCap(1);
+    expect((await propose()).status).toBe(201);
+    const res = await propose();
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toBe(WRITE_CAP_TEXT);
+    expect(db.bastChatAction.create).toHaveBeenCalledTimes(1);
+    expect(usageWrites).toBe(1);
+  });
+
+  it('nothing is counted twice: a record-writing PATCH, a record-less PATCH, a create and a proposal take one slot each', async () => {
+    authMock.mockResolvedValue(chat);
+    setCap(10);
+    db.task.findUnique.mockResolvedValue(task({ status: 'in_progress', tags: ['from-chat'] }));
+    db.task.update.mockResolvedValue(task({ status: 'done', tags: ['from-chat'] }));
+    expect((await patch({ status: 'done' })).status).toBe(200);
+    expect(usageWrites).toBe(1);
+    expect((await patch({ due_date: null })).status).toBe(200);
+    expect(usageWrites).toBe(2);
+    db.task.create.mockResolvedValue(task({ tags: ['from-chat'] }));
+    expect((await postTask(OK_POST)).status).toBe(201);
+    expect(usageWrites).toBe(3);
+    proposeSetup();
+    expect((await propose()).status).toBe(201);
+    expect(usageWrites).toBe(4);
+  });
+
+  it('a reserved write whose compare and set misses (409) stays counted', async () => {
+    authMock.mockResolvedValue(chat);
+    setCap(5);
+    db.task.findUnique.mockResolvedValue(task());
+    db.task.update.mockRejectedValue(Object.assign(new Error('gone'), { code: 'P2025' }));
+    expect((await patch({ title: 'New name' })).status).toBe(409);
+    expect(usageWrites).toBe(1);
+  });
+});
+
+describe('G4 and G3: a change that changes nothing, and a closed chat', () => {
+  it('G4: an empty PATCH, with or without the header, is a 400 with a plain sentence, nothing reserved or written', async () => {
+    authMock.mockResolvedValue(chat);
+    db.task.findUnique.mockResolvedValue(task());
+    for (const headers of [undefined, {}] as const) {
+      const res = await patch({}, headers);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('There is nothing to change in that request.');
+    }
+    expect(usageWrites).toBe(0);
+    expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+    expect(db.bastChatUsage.updateMany).not.toHaveBeenCalled();
+    expect(db.task.update).not.toHaveBeenCalled();
+  });
+
+  it('G4: a PATCH with no recognized field is refused before anything is reserved or written', async () => {
+    authMock.mockResolvedValue(chat);
+    db.task.findUnique.mockResolvedValue(task());
+    const res = await patch({ nonsense: 1 });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(db.bastChatUsage.updateMany).not.toHaveBeenCalled();
+    expect(db.task.update).not.toHaveBeenCalled();
+  });
+
+  it('G3: a PATCH naming a closed chat is a 409 with a plain sentence and writes nothing', async () => {
+    authMock.mockResolvedValue(chat);
+    liveRow();
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'closed' });
+    const res = await patch({ status: 'in_progress' }, { [HEADER]: CONV2 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('That chat is closed. Start a new one.');
+    expect(db.task.update).not.toHaveBeenCalled();
+    expect(db.bastChatAction.create).not.toHaveBeenCalled();
+  });
+
+  it('G3: an open chat still works', async () => {
+    authMock.mockResolvedValue(chat);
+    liveRow();
+    db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER, status: 'idle' });
+    expect((await patch({ status: 'in_progress' }, { [HEADER]: CONV2 })).status).toBe(200);
+  });
+});
+
+describe('every non-chat caller takes the untouched path: no usage read, no reservation', () => {
+  it('a session, an admin key and other lanes, on PATCH and POST', async () => {
+    const callers = [mike, as<AuthPayload>({ userId: OWNER, role: 'admin', via: 'api_key' }), as<AuthPayload>({ userId: BAST, role: 'pm', via: 'api_key', lane: 'bast', laneEnforced: true })];
+    for (const a of callers) {
+      authMock.mockResolvedValue(a);
+      db.task.findUnique.mockResolvedValue(task({ status: 'in_progress' }));
+      db.task.update.mockResolvedValue(task({ status: 'done' }));
+      expect((await patch({ status: 'done' }, {})).status).toBe(200);
+      db.task.create.mockResolvedValue(task());
+      expect((await postTask({ title: 't', assignee_id: OWNER })).status).toBe(201);
+    }
+    expect(db.bastChatUsage.findUnique).not.toHaveBeenCalled();
+    expect(db.bastChatUsage.upsert).not.toHaveBeenCalled();
+    expect(db.bastChatUsage.updateMany).not.toHaveBeenCalled();
+    expect(db.bastChatSettings.findUnique).not.toHaveBeenCalled();
   });
 });

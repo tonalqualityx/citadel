@@ -18,6 +18,7 @@ const ACTION = '44444444-4444-4444-8444-444444444444';
 const NOW = new Date('2026-11-10T12:00:00Z');
 
 function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number; claimCount?: number; assignee?: unknown; task?: Record<string, unknown> | null; later?: unknown; usage?: Record<string, unknown> | null } = {}) {
+  const used: Record<string, unknown> = { writes: (o.usage?.writes as number | undefined) ?? 0 };
   const state = { action: action ? { id: ACTION, conversation_id: CONV, event_seq: 1, tool: 'update_task', target_id: TASK, summary: 's', before: null, after: null, proposed_assignee_id: null, status: 'applied', undo_until: new Date(NOW.getTime() + 3600_000), created_at: NOW, ...action } : null } as { action: any };
   const db: any = {
     state,
@@ -37,7 +38,16 @@ function makeDb(action: Record<string, unknown> | null, o: { taskCount?: number;
     },
     user: { findUnique: vi.fn(async () => (o.assignee === undefined ? { id: BAST, name: 'Bast Fae', is_active: true } : o.assignee)) },
     bastChatSettings: { findUnique: vi.fn(async () => null) },
-    bastChatUsage: { upsert: vi.fn(async () => ({})), findUnique: vi.fn(async () => o.usage ?? null) },
+    bastChatUsage: {
+      upsert: vi.fn(async () => ({})),
+      findUnique: vi.fn(async () => o.usage ?? null),
+      // honors the `lt` condition like the database does; the stored count lives in `used`
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        if (!((used.writes as number) < where.writes.lt)) return { count: 0 };
+        used.writes = (used.writes as number) + data.writes.increment;
+        return { count: 1 };
+      }),
+    },
     $transaction: vi.fn(async (fn: any) => fn(db)),
   };
   return db;
@@ -89,7 +99,10 @@ describe('recordAction (the worker can only propose a handoff)', () => {
       expect(row(db).proposed_assignee_id).toBe(BAST);
       expect(row(db).before).toEqual({ updated_at: NOW.toISOString() });
       expect(row(db).after).toEqual({ status: 'done', title: 'Update the invoice template' });
-      expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(1);
+      expect(db.bastChatUsage.upsert).toHaveBeenCalledTimes(1); // the row is ensured once
+      expect(db.bastChatUsage.updateMany).toHaveBeenCalledTimes(1); // one reservation, nothing counted after
+      expect(db.bastChatUsage.updateMany.mock.calls[0][0].where).toMatchObject({ owner_id: OWNER, writes: { lt: 25 } });
+      expect(db.bastChatUsage.updateMany.mock.calls[0][0].data).toEqual({ writes: { increment: 1 } });
     });
     it('F1: the line says what happens for a not started task', async () => {
       const db = makeDb(null, { task: { status: 'not_started' } });
@@ -100,10 +113,10 @@ describe('recordAction (the worker can only propose a handoff)', () => {
       const used = makeDb(null, { usage: { turns: 0, writes: 25, cost_usd: '0' } });
       await expect(recordAction(prop, OWNER, NOW, used)).rejects.toMatchObject({ statusCode: 429, message: WRITE_CAP_TEXT });
       expect(used.bastChatAction.create).not.toHaveBeenCalled();
-      expect(used.bastChatUsage.upsert).not.toHaveBeenCalled();
       const last = makeDb(null, { usage: { turns: 0, writes: 24, cost_usd: '0' } });
       await recordAction(prop, OWNER, NOW, last);
-      expect(last.bastChatUsage.upsert).toHaveBeenCalledTimes(1);
+      expect(last.bastChatUsage.updateMany).toHaveBeenCalledTimes(1);
+      expect(last.bastChatAction.create).toHaveBeenCalledTimes(1);
     });
     it('is accepted with the status left out and ignores before and after the worker sent', async () => {
       const { status: _s, ...noStatus } = prop;

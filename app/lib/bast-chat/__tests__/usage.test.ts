@@ -4,7 +4,7 @@ vi.mock('@/lib/db/prisma', () => ({ prisma: {} }));
 
 import { ApiError } from '@/lib/api/errors';
 import { DEFAULT_SETTINGS } from '../settings';
-import { assertCanSend, assertWriteAllowed, bumpUsage, COST_CAP_TEXT, easternDay, getUsage, MESSAGE_CAP_TEXT, usageLeft, WRITE_CAP_TEXT } from '../usage';
+import { assertCanSend, assertWriteAllowed, bumpUsage, reserveWrite, COST_CAP_TEXT, easternDay, getUsage, MESSAGE_CAP_TEXT, usageLeft, WRITE_CAP_TEXT } from '../usage';
 
 const OWNER = '3ecfb7be-0000-4000-8000-000000000001';
 const row = (turns: number, writes: number, cost: number) => ({ turns, writes, cost_usd: { toString: () => String(cost) } });
@@ -58,5 +58,29 @@ describe('usage and caps', () => {
     await bumpUsage(OWNER, { turns: 1 }, new Date('2026-11-10T12:00:00Z'), d);
     const call = (d as unknown as { bastChatUsage: { upsert: { mock: { calls: unknown[][] } } } }).bastChatUsage.upsert.mock.calls[0][0] as { update: { turns: { increment: number } } };
     expect(call.update.turns).toEqual({ increment: 1 });
+  });
+  it('reserveWrite ensures the row, then takes one slot with one conditional update', async () => {
+    const upsert = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    await reserveWrite(OWNER, 3, new Date('2026-11-10T12:00:00Z'), { bastChatUsage: { upsert, updateMany } } as never);
+    expect(upsert.mock.calls[0][0].update).toEqual({});
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { owner_id: OWNER, day: new Date('2026-11-10T00:00:00Z'), writes: { lt: 3 } },
+      data: { writes: { increment: 1 } },
+    });
+  });
+  it('reserveWrite throws the cap sentence as a 429 when no slot was taken', async () => {
+    const d = { bastChatUsage: { upsert: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({ count: 0 }) } } as never;
+    const e = await refusal(reserveWrite(OWNER, 3, new Date(), d));
+    expect(e?.statusCode).toBe(429);
+    expect(e?.message).toBe(WRITE_CAP_TEXT);
+  });
+  it('reserveWrite carries on when a concurrent request created the row first, and rethrows other errors', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const dup = { bastChatUsage: { upsert: vi.fn().mockRejectedValue(Object.assign(new Error('dup'), { code: 'P2002' })), updateMany } } as never;
+    await expect(reserveWrite(OWNER, 3, new Date(), dup)).resolves.toBeUndefined();
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    const bad = { bastChatUsage: { upsert: vi.fn().mockRejectedValue(new Error('db down')), updateMany } } as never;
+    await expect(reserveWrite(OWNER, 3, new Date(), bad)).rejects.toThrow('db down');
   });
 });

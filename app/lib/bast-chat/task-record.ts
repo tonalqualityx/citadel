@@ -4,7 +4,6 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { CHAT_LANE } from './task-filter';
 import { UNDO_WINDOW_HOURS, TASK_FIELDS, RESTORE_EXTRA_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
 import { cleanLine } from './card-context';
-import { bumpUsage } from './usage';
 
 /**
  * Bast chat: the server writes the record of every change the chat key makes.
@@ -16,7 +15,7 @@ import { bumpUsage } from './usage';
  * really happened. Any other caller: nothing runs, nothing is read, no header.
  *
  * The task routes write with a plain `prisma.task.update`/`create` (no transaction), so the record is written
- * immediately after in its own transaction, and the write is counted once (record or not). A failure to write the record is logged
+ * immediately after in its own transaction, and the write was already reserved against the daily cap by `guardChatTaskBody`, before the write. A failure to write the record is logged
  * and the response goes out without the header: the change already happened and the route must not fail it.
  */
 export const CHAT_ACTION_HEADER = 'X-Bast-Chat-Action';
@@ -74,8 +73,6 @@ export async function recordChatPatch(
   try {
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
-    // Every successful chat-lane write counts once, whether or not it leaves a record.
-    await bumpUsage(ownerId, { writes: 1 }, now, db);
     const b: Record<string, unknown> = {};
     const a: Record<string, unknown> = {};
     for (const k of TASK_FIELDS) {
@@ -119,7 +116,6 @@ export async function recordChatCreate(
   try {
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
-    await bumpUsage(ownerId, { writes: 1 }, now, db);
     if (task.assignee_id !== ownerId) return null;
     return await writeRecord(
       db,

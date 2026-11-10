@@ -2,7 +2,7 @@ import type { AuthPayload } from '@/lib/auth/middleware';
 import { ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db/prisma';
 import { getSettings } from './settings';
-import { assertWriteAllowed } from './usage';
+import { reserveWrite } from './usage';
 import { isChatUuid } from './worker-kit';
 
 /**
@@ -115,6 +115,16 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   return { ok: true, body };
 }
 
+export const NOTHING_TO_CHANGE_TEXT = 'There is nothing to change in that request.';
+export const CLOSED_CHAT_TEXT = 'That chat is closed. Start a new one.';
+
+/** A PATCH body that names at least one field the chat may send. */
+function hasRecognizedPatchField(body: unknown): boolean {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const known: readonly string[] = [...CHAT_PATCH_ALLOWED, ...CHAT_PATCH_FROM_CHAT_ONLY];
+  return Object.keys(body as object).some((k) => known.includes(k));
+}
+
 /**
  * Route helper: returns the body untouched (no database read) for any non-chat caller; for the chat lane it
  * reads the owner from BastChatSettings, applies the filter, and throws a 403 ApiError on a refusal.
@@ -129,8 +139,11 @@ export async function guardChatTaskBody<T>(
   const settings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
   const r = filterChatTaskBody({ auth, method, body, ownerId: settings?.owner_user_id ?? null, existing });
   if (!r.ok) throw new ApiError(r.message, r.status, r.code);
-  // The daily write cap is enforced here, before any write: 429 with the plain cap sentence.
-  await assertWriteAllowed(settings!.owner_user_id!, await getSettings(prisma), new Date(), prisma);
+  if (method === 'PATCH' && !hasRecognizedPatchField(r.body)) throw new ApiError(NOTHING_TO_CHANGE_TEXT, 400, 'chat_nothing_to_change');
+  // The daily write cap is reserved here, atomically, before any write: 429 with the plain cap sentence.
+  // A reserved write whose task write then fails (409, validation error) stays counted: a refused attempt
+  // costing a slot is acceptable and simpler than a refund.
+  await reserveWrite(settings!.owner_user_id!, (await getSettings(prisma)).daily_write_cap, new Date(), prisma);
   return r.body as T;
 }
 
@@ -174,8 +187,9 @@ export async function chatConversationFor(
     throw new ApiError(NEEDS_CONVERSATION_TEXT, 400, 'chat_conversation_required');
   }
   if (!isChatUuid(header)) throw new ApiError(BAD_CONVERSATION_TEXT, 400, 'chat_conversation_invalid');
-  const conv = await prisma.bastChatConversation.findUnique({ where: { id: header }, select: { owner_id: true } });
+  const conv = await prisma.bastChatConversation.findUnique({ where: { id: header }, select: { owner_id: true, status: true } });
   if (!conv || conv.owner_id !== ownerId) throw new ApiError(BAD_CONVERSATION_TEXT, 400, 'chat_conversation_invalid');
+  if (method === 'PATCH' && conv.status === 'closed') throw new ApiError(CLOSED_CHAT_TEXT, 409, 'chat_conversation_closed');
   return header;
 }
 

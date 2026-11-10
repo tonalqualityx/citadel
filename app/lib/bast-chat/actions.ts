@@ -22,7 +22,7 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { ApiError } from '@/lib/api/errors';
 import { cleanLine } from './card-context';
 import { getSettings } from './settings';
-import { assertWriteAllowed, bumpUsage } from './usage';
+import { assertWriteAllowed, reserveWrite } from './usage';
 import { isChatUuid } from './worker-kit';
 
 const CHAT_TAG = 'from-chat';
@@ -178,9 +178,9 @@ export async function recordAction(
   const name = await firstNameOf(db, who);
   if (!name) throw bad('That person is not available.', 'bad_handoff_target');
 
-  // A proposal is one write on the daily cap, refused past it.
-  await assertWriteAllowed(ownerId, settings, now, db);
   return db.$transaction(async (tx) => {
+    // A proposal is one write on the daily cap, reserved atomically and refused past it.
+    await reserveWrite(ownerId, settings.daily_write_cap, now, tx);
     const r = await tx.bastChatAction.create({
       data: {
         conversation_id: input.conversation_id,
@@ -197,7 +197,6 @@ export async function recordAction(
       },
       select: { id: true, status: true, undo_until: true },
     });
-    await bumpUsage(ownerId, { writes: 1 }, now, tx);
     return r;
   });
 }

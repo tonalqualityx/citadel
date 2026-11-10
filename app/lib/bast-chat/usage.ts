@@ -2,7 +2,7 @@
  * Bast chat: daily usage and the caps. One BastChatUsage row per owner per Eastern day.
  *
  * Messages (`turns`) are counted when Citadel accepts a send, so the daemon must not count them again. Task
- * changes (`writes`) are counted by the server, once per successful chat-lane write on the task routes and once per handoff proposal. Cost is added from the daemon's
+ * changes (`writes`) are reserved by the server before each chat-lane write on the task routes and before each handoff proposal (`reserveWrite`). Cost is added from the daemon's
  * cost events. The refusals are one plain line each and a 429.
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -60,6 +60,32 @@ export async function assertCanSend(ownerId: string, settings: ChatSettings, now
 export async function assertWriteAllowed(ownerId: string, settings: ChatSettings, now: Date = new Date(), db: UsageDb = defaultDb): Promise<void> {
   const used = await getUsage(ownerId, now, db);
   if (used.writes >= settings.daily_write_cap) throw new ApiError(WRITE_CAP_TEXT, 429, 'daily_cap', 'daily_writes');
+}
+
+/**
+ * Reserve one task change against today's cap, atomically. Makes sure today's row exists (a concurrent create is
+ * fine), then takes a slot with one conditional update: `writes < cap` is re-checked by the database on the
+ * locked row, so parallel requests cannot all pass. A count other than 1 means the cap is used up: the 429.
+ * A reserved write whose task write then fails (a 409 from the compare and set, a validation error) stays
+ * counted. A refused attempt costing a slot is acceptable and simpler than a refund.
+ */
+export async function reserveWrite(ownerId: string, cap: number, now: Date = new Date(), db: UsageDb = defaultDb): Promise<void> {
+  const day = easternDay(now);
+  try {
+    await db.bastChatUsage.upsert({
+      where: { owner_id_day: { owner_id: ownerId, day } },
+      create: { owner_id: ownerId, day, turns: 0, writes: 0, cost_usd: 0 },
+      update: {},
+    });
+  } catch (e) {
+    // Another request created the row first: carry on to the conditional update.
+    if (!(typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'P2002')) throw e;
+  }
+  const r = await db.bastChatUsage.updateMany({
+    where: { owner_id: ownerId, day, writes: { lt: cap } },
+    data: { writes: { increment: 1 } },
+  });
+  if (r.count !== 1) throw new ApiError(WRITE_CAP_TEXT, 429, 'daily_cap', 'daily_writes');
 }
 
 /** Add to today's row (created on first use). */
