@@ -308,7 +308,7 @@ function groupOptions(
   const currentClient = current?.client?.id ?? null;
   const seen = new Map<string, GroupInfo>();
   for (const c of sel.candidates) {
-    if (c.parked || c.group.key === currentKey || !(c.inView || c.arcId !== null)) continue;
+    if (!c.inView || c.parked || c.group.key === currentKey) continue;
     seen.set(c.group.key, c.group);
   }
   const options: GroupOption[] = [];
