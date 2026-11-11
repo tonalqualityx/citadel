@@ -59,6 +59,7 @@ import {
 } from './site';
 import { emailDomain, isOwnAddress } from '../rules';
 import { loadNotEmergencyRules } from './read';
+import { claimLines, loadEmergencySlack, loadWatchItems, previewLines, trackWatch, type WireLine } from './slack-store';
 
 export { RULE_ACTION };
 const DAY_MS = 86_400_000;
@@ -340,6 +341,8 @@ export const watchBodySchema = z
       )
       .max(CHECKS_CAP)
       .default([]),
+    // Slice 6b: what this machine script can do. Lines are handed out only to a request that lists "slack".
+    caps: z.array(z.string().min(1).max(30)).max(10).optional(),
   })
   .strict();
 export type WatchBody = z.infer<typeof watchBodySchema>;
@@ -416,12 +419,14 @@ export interface WatchGet {
     last_check_up: boolean | null;
     ask_ids: string[];
   }>;
+  /** Slice 6b: the Slack lines a real run would hand out now (empty when the switch is off). Writes nothing. */
+  would_post: WireLine[];
 }
 
 /** What the machine should check now and what is open. Writes nothing. */
 export async function watchPlan(db: PrismaClient, ownerId: string, now: Date): Promise<WatchGet> {
-  const { ok } = await ownerOnHome(db, ownerId);
-  if (!ok) return { dry_run: true, skipped: 'home_off', checks: [], open: [] };
+  const { ok, timezone } = await ownerOnHome(db, ownerId);
+  if (!ok) return { dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] };
   const sites = await loadWatchSites(db);
   const open = await loadOpenIncidents(db, ownerId);
   const cands = await uncovered(db, ownerId, await loadCandidates(db, sites, now));
@@ -431,8 +436,10 @@ export async function watchPlan(db: PrismaClient, ownerId: string, now: Date): P
   for (const i of open) {
     if (i.source === 'uptime_mail' && !checks.has(i.site_id)) checks.set(i.site_id, { key: siteItemKey(i.site_id), site_id: i.site_id, domain: i.domain });
   }
+  const would_post = (await loadEmergencySlack(db, ownerId)) ? await previewLines(db, ownerId, await loadWatchItems(db, ownerId, now, timezone), now, timezone) : [];
   return {
     dry_run: true,
+    would_post,
     checks: Array.from(checks.values()),
     open: open.map((i) => ({
       key: siteItemKey(i.site_id),
@@ -448,7 +455,7 @@ export async function watchPlan(db: PrismaClient, ownerId: string, now: Date): P
 }
 
 export interface WatchPost {
-  lines: string[];
+  lines: WireLine[];
   skipped?: 'home_off';
   counts: { opened: number; updated: number; closed: number; ignored: number };
 }
@@ -472,7 +479,8 @@ export async function applyWatch(db: PrismaClient, ownerId: string, body: WatchB
   const sites = await loadWatchSites(db);
   const siteById = new Map(sites.map((s) => [s.id, s]));
 
-  return db.$transaction(
+  const wantsSlack = (body.caps ?? []).includes('slack');
+  const result = await db.$transaction(
     async (tx) => {
       // ---- Kuma ----
       if (body.kuma !== null) {
@@ -604,9 +612,21 @@ export async function applyWatch(db: PrismaClient, ownerId: string, body: WatchB
           }
         }
       }
-      return { lines: [], counts };
+      return { lines: [] as WireLine[], counts };
     },
     { timeout: 30_000 }
   );
+
+  // Slice 6b: track what is in Needs you now (always); hand out lines only with the switch on and the "slack" cap.
+  const items = await loadWatchItems(db, ownerId, now, timezone);
+  const slackOn = wantsSlack && (await loadEmergencySlack(db, ownerId));
+  const lines = await db.$transaction(
+    async (tx) => {
+      await trackWatch(tx, ownerId, items, now);
+      return slackOn ? claimLines(tx, ownerId, items, now, timezone) : [];
+    },
+    { timeout: 30_000 }
+  );
+  return { lines, counts: result.counts };
 }
 

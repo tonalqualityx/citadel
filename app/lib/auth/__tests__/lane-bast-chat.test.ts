@@ -54,6 +54,7 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/owed',
   'GET /api/bast-chat/worker/home-watch',
   'POST /api/bast-chat/worker/home-watch',
+  'POST /api/bast-chat/worker/home-watch/ack',
   'GET /api/tasks',
   'POST /api/tasks',
   'GET /api/tasks/:id',
@@ -149,6 +150,9 @@ const REFUSED = [
   'DELETE /api/bast-chat/worker/owed',
   'PATCH /api/bast-chat/worker/home-watch',
   'DELETE /api/bast-chat/worker/home-watch',
+  'GET /api/bast-chat/worker/home-watch/ack',
+  'PATCH /api/bast-chat/worker/home-watch/ack',
+  'DELETE /api/bast-chat/worker/home-watch/ack',
   // the design worker routes
   ...DESIGN_WORKER_ROUTES,
 ];
@@ -163,7 +167,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 37 entries of the plan, and nothing else', () => {
+  it('holds exactly the 38 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 

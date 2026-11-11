@@ -29,7 +29,7 @@ import { GET, POST } from '../route';
 
 const PATH = '/api/bast-chat/worker/home-watch';
 const SITE = '11111111-1111-4111-8111-111111111111';
-const plan = { dry_run: true as const, checks: [{ key: `site:${SITE}`, site_id: SITE, domain: 'jillscafe.com' }], open: [] };
+const plan = { dry_run: true as const, checks: [{ key: `site:${SITE}`, site_id: SITE, domain: 'jillscafe.com' }], open: [], would_post: [] };
 const done = { lines: [], counts: { opened: 1, updated: 0, closed: 0, ignored: 0 } };
 const goodBody = {
   kuma: [{ monitor: 'Jills', domain: 'jillscafe.com', client_id: null, started: '2026-11-11T14:00:00Z', escalated: true }],
@@ -86,8 +86,8 @@ describe('home-watch route: GET', () => {
     expect(applyWatch).not.toHaveBeenCalled();
   });
   it('answers skipped home_off as given', async () => {
-    vi.mocked(watchPlan).mockResolvedValue({ dry_run: true, skipped: 'home_off', checks: [], open: [] });
-    expect(await (await GET()).json()).toEqual({ dry_run: true, skipped: 'home_off', checks: [], open: [] });
+    vi.mocked(watchPlan).mockResolvedValue({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] });
+    expect(await (await GET()).json()).toEqual({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] });
   });
 });
 
@@ -132,6 +132,17 @@ describe('home-watch route: POST', () => {
     const big = { kuma: null, checks: [], pad: 'x'.repeat(70 * 1024) };
     expect((await POST(req('POST', PATH, big) as never)).status).toBe(413);
     expect(applyWatch).not.toHaveBeenCalled();
+  });
+  it('passes the optional caps through, and a body without caps leaves it undefined', async () => {
+    await POST(req('POST', PATH, { kuma: null, checks: [], caps: ['slack'] }) as never);
+    expect(vi.mocked(applyWatch).mock.calls[0][2].caps).toEqual(['slack']);
+    await POST(req('POST', PATH, { kuma: null, checks: [] }) as never);
+    expect(vi.mocked(applyWatch).mock.calls[1][2].caps).toBeUndefined();
+  });
+  it('400 for a bad caps value', async () => {
+    for (const caps of ['slack', [1], Array.from({ length: 11 }, () => 'slack')]) {
+      expect((await POST(req('POST', PATH, { caps }) as never)).status).toBe(400);
+    }
   });
   it('accepts an epoch-seconds start', async () => {
     await POST(req('POST', PATH, { kuma: [{ monitor: 'm', domain: 'a.com', started: 1794409200 }] }) as never);

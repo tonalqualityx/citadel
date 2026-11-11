@@ -90,6 +90,7 @@ model User {
   home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
   home_owed_threads    HomeOwedThread[]    @relation("HomeOwedThreadUser")
   home_site_incidents  HomeSiteIncident[]  @relation("HomeSiteIncidentUser")
+  home_emergency_watch HomeEmergencyWatch[] @relation("HomeEmergencyWatchUser")
   home_measures        HomeMeasure[]       @relation("HomeMeasureUser")
   home_score_weights   HomeScoreWeight[]   @relation("HomeScoreWeightUser")
 
@@ -4875,9 +4876,37 @@ model HomeKeeperSettings {
   learn_weights   Boolean  @default(true) // Slice 7b; a missing row also means on
   // Home Slice 4b: "Send the draft". Off until Mike says yes; no row is created by the slice, so a missing row means off.
   owed_send       Boolean  @default(false)
+  // Home Slice 6b: Slack lines to Mike for emergencies. Tracking is always on; the lines need this switch.
+  emergency_slack Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   @@map("home_keeper_settings")
+}
+
+// Home screen Slice 6b: one row per item that landed in Needs you now for that user, and where its Slack lines stand.
+// Never read by another screen. A claim is a line handed to the machine; an ack marks it posted.
+model HomeEmergencyWatch {
+  id                     String    @id @default(uuid()) @db.Uuid
+  user_id                String    @db.Uuid
+  user                   User      @relation("HomeEmergencyWatchUser", fields: [user_id], references: [id], onDelete: Cascade)
+  item_key               String    @db.VarChar(300)
+  first_seen_at          DateTime
+  cleared_at             DateTime?
+  acted_at               DateTime?
+  slack_first_claimed_at DateTime?
+  slack_first_claims     Int       @default(0)
+  slack_first_at         DateTime?
+  slack_again_claimed_at DateTime?
+  slack_again_claims     Int       @default(0)
+  slack_again_at         DateTime?
+  lifeline_line_on       DateTime? @db.Date
+  lifeline_claim_on      DateTime? @db.Date
+  lifeline_claimed_at    DateTime?
+  lifeline_claims        Int       @default(0)
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+  @@unique([user_id, item_key])
+  @@map("home_emergency_watch")
 }
 
 // Home screen Slice 4a: Bast's owed-reply work on one thread, for that user only. Never read by another screen.
