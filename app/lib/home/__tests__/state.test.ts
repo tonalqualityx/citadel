@@ -87,6 +87,12 @@ describe('home_item_state', () => {
     expect(db.homeItemState.findMany.mock.calls[0][0].where).toEqual({ user_id: U });
   });
 
+  it('Slice 7c: loadItemStates selects the guess columns', async () => {
+    await loadItemStates(asDb(db), U);
+    const sel = db.homeItemState.findMany.mock.calls[0][0].select;
+    for (const f of ['effort_minutes', 'effort_source', 'effort_basis_n', 'unknowns', 'drain']) expect(sel[f]).toBe(true);
+  });
+
   it('getItemState and findPinnedItemState filter by user_id', async () => {
     await getItemState(asDb(db), U, 'task:a');
     expect(db.homeItemState.findFirst.mock.calls[0][0].where).toEqual({ user_id: U, item_key: 'task:a' });

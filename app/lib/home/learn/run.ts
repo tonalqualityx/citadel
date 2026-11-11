@@ -13,7 +13,7 @@ import { RUN_STALE_MS, ownerOnHome } from '../keeper/run';
 import { appendHomeAction, dateOnly } from '../state';
 import { GUARD_ACTION, LEARN, LEARNED_ACTION, MEASURES_ACTION, guardLine, learnedDetails, learnedLine, weekLine } from './copy';
 import { guard, measuresWeek, type DailySnapshot, type GuardResult, type WeekMeasures } from './measures';
-import { buildDailySnapshot, loadWeekReads } from './store';
+import { buildDailySnapshot, loadWeekReads, writeGuesses, type GuessRun } from './store';
 import { buildSignals } from './signals';
 import { WEIGHT, planShifts, type Shift } from './weights';
 import { applyShifts, historyDays, learningOn, loadCurrentWeights, loadTaps, resolveEvidence } from './weights-store';
@@ -47,6 +47,8 @@ export interface LearnResult {
   /** Slice 7b: the weight shifts this run makes (dry run: would make). Evidence keys and labels, never a number the screen shows. */
   learned?: LearnedShift[];
   action_ids: string[];
+  /** Slice 7c: the nightly time guesses (written to his home_item_state rows only). `error` when that step failed; the other steps are unaffected. */
+  guesses?: GuessRun | { error: string };
 }
 
 export interface LearnedShift {
@@ -87,6 +89,7 @@ async function build(db: PrismaClient, ownerId: string, now: Date, tz: string) {
       first_action_day: reads.first_action_day,
       hard_dates: reads.hard_dates,
       today_days: reads.today_days,
+      guess_errors: reads.guess_errors,
     });
     const fired = guard(reads.guard_rows);
     week = { week_start: start, week_end: end, measures, guard: fired };
@@ -140,7 +143,7 @@ export async function runLearn(db: PrismaClient, ownerId: string, now: Date, opt
 
   const built = await build(db, ownerId, now, timezone);
 
-  return db.$transaction(
+  const result = await db.$transaction(
     async (tx): Promise<LearnResult> => {
       const row = await tx.homeKeeperRun.findUnique({ where: runKey });
       if (row) {
@@ -200,5 +203,14 @@ export async function runLearn(db: PrismaClient, ownerId: string, now: Date, opt
     },
     { timeout: TX_TIMEOUT_MS },
   );
-}
 
+  // Slice 7c: one more step. Display-only guesses for his open tasks. Its failure never fails the steps above.
+  if (!result.already_ran) {
+    try {
+      result.guesses = await writeGuesses(db, ownerId, now);
+    } catch (err) {
+      result.guesses = { error: err instanceof Error ? err.message.slice(0, 200) : 'guess step failed' };
+    }
+  }
+  return result;
+}

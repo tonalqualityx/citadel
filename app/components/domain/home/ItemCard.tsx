@@ -312,6 +312,7 @@ export function ItemCard({
         </div>
       ) : null}
       {item.reason ? <p className="home-foot">Why it&apos;s here: {plain(item.reason)}</p> : null}
+      {o.effort_basis ? <p className="home-foot">{plain(o.effort_basis)}</p> : null}
     </div>
   );
 }

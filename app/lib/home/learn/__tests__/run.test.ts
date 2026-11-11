@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 
-vi.mock('../store', () => ({ buildDailySnapshot: vi.fn(), loadWeekReads: vi.fn() }));
+vi.mock('../store', () => ({ buildDailySnapshot: vi.fn(), loadWeekReads: vi.fn(), writeGuesses: vi.fn() }));
 
-import { buildDailySnapshot, loadWeekReads } from '../store';
+import { buildDailySnapshot, loadWeekReads, writeGuesses } from '../store';
 import { runLearn } from '../run';
 
 const OWNER = '3ecfb7be-0000-4000-8000-000000000001';
@@ -74,6 +74,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(buildDailySnapshot).mockImplementation(async (_db, _o, _n, _tz, date) => ({ date, open_items: 20, past_day: 2, owed: [] }));
   vi.mocked(loadWeekReads).mockImplementation(async (_db, _o, _tz, start, end) => ({ week_start: start, week_end: end, ...week(5) }));
+  vi.mocked(writeGuesses).mockResolvedValue({ considered: 3, written: 3, history: 1, energy: 0, kind: 2 });
 });
 
 describe('runLearn', () => {
@@ -210,6 +211,33 @@ describe('runLearn', () => {
         expect(l.line).not.toMatch(/[–—]|priorit|overdue/i);
         for (const x of l.details) expect(x).not.toMatch(/[–—]|priorit|overdue/i);
       }
+    });
+  });
+
+  describe('Slice 7c: the guess step', () => {
+    it('runs after the others and reports its counts', async () => {
+      const { db } = fakeDb();
+      const res = await runLearn(db, OWNER, TUESDAY, { dryRun: false });
+      expect(writeGuesses).toHaveBeenCalledTimes(1);
+      expect(res.guesses).toEqual({ considered: 3, written: 3, history: 1, energy: 0, kind: 2 });
+    });
+
+    it('its failure does not fail the others', async () => {
+      vi.mocked(writeGuesses).mockRejectedValue(new Error('boom'));
+      const { db, calls } = fakeDb();
+      const res = await runLearn(db, OWNER, TUESDAY, { dryRun: false });
+      expect(res.guesses).toEqual({ error: 'boom' });
+      expect(calls).toContain('measure.daily');
+      expect(res.daily).toBeTruthy();
+    });
+
+    it('a dry run and an already-ran night write no guesses', async () => {
+      const a = fakeDb();
+      await runLearn(a.db, OWNER, TUESDAY, { dryRun: true });
+      const b = fakeDb({ prior: { finished_at: new Date('2026-11-24T05:00:00Z'), started_at: new Date('2026-11-24T05:00:00Z') } });
+      const res = await runLearn(b.db, OWNER, TUESDAY, { dryRun: false });
+      expect(res.already_ran).toBe(true);
+      expect(writeGuesses).not.toHaveBeenCalled();
     });
   });
 });

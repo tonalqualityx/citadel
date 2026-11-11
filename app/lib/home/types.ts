@@ -218,6 +218,8 @@ export interface HomeItemCard {
   suggested_answer?: string | null;
   /** Slice 4c, threads only: the two-line holding draft Bast wrote into his Gmail (shown under "The short one"), or null. */
   short_draft_text?: string | null;
+  /** Slice 7c, tasks only: where a guessed time came from ("Time guess: from 4 similar finished tasks."). Absent when a person set the time or there is no guess. */
+  effort_basis?: string | null;
 }
 
 /** The record behind an item, for the existing-endpoint calls in HomeActionId. */
@@ -991,6 +993,12 @@ export interface RawItemState {
   /** Slice 8b: when he tapped "I did this" on a project next step, and the step text then. */
   step_done_at?: Date | null;
   step_done_text?: string | null;
+  /** Slice 7c: display-only guesses the nightly learn step wrote for an open task. Never a Task field. */
+  effort_minutes?: number | null;
+  effort_source?: string | null;
+  effort_basis_n?: number | null;
+  unknowns?: string | null;
+  drain?: string | null;
 }
 
 /** Today's home_day row for U. */

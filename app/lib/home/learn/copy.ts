@@ -87,6 +87,7 @@ export function weekLine(week: WeekMeasures): { text: string; details: string[] 
   add(week.plate.ok, plateSentence(week.plate.value), week.plate.details);
   if (sentences.length === 0) return null;
   if (week.today.ok) details.push(...week.today.details);
+  if (week.time_guess?.ok) details.push(...week.time_guess.details);
   const text = `Last week: ${sentences.join(' ')}`;
   return { text, details: details.map((d) => displayText(d)) };
 }
@@ -161,4 +162,35 @@ export function learnedSettingsSentence(key: string, label: string, weightPct: n
   const verb = s.plural ? 'come' : 'comes';
   const tail = since ? `, since ${since}` : '';
   return `${cap1(s.text)} ${verb} up a little ${weightPct > 100 ? 'sooner' : 'later'}${tail}`;
+}
+
+// ============================================================================
+// Slice 7c: where a time guess came from, and the unknowns and drain words. Sentences only: no number from scoring.
+// ============================================================================
+
+/** "Time guess: from 4 similar finished tasks." for a history guess, "Time guess: from the kind of work." for a kind guess. */
+export function timeBasisSentence(source: string | null | undefined, n: number | null | undefined): string | null {
+  if (source === 'history' && typeof n === 'number' && n >= 1) {
+    return `Time guess: from ${n} similar finished ${n === 1 ? 'task' : 'tasks'}.`;
+  }
+  if (source === 'kind') return 'Time guess: from the kind of work.';
+  return null;
+}
+
+export function unknownsWord(u: string | null | undefined): string | null {
+  return u === 'many' ? 'many unknowns' : u === 'some' ? 'some unknowns' : null;
+}
+
+export function drainWord(d: string | null | undefined): string | null {
+  return d === 'call' ? 'a call' : d === 'high' ? 'draining' : null;
+}
+
+/** The words after the minutes: "some unknowns", "a call". Empty when there is nothing to say. */
+export function effortExtras(unknowns: string | null | undefined, drain: string | null | undefined): string[] {
+  return [unknownsWord(unknowns), drainWord(drain)].filter((w): w is string => !!w);
+}
+
+/** The Show line for the weekly measures: "Time guesses were off by about 20 minutes, from 6 finished tasks." */
+export function timeErrorSentence(minutes: number, tasks: number): string {
+  return `Time guesses were off by about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}, from ${tasks} finished tasks.`;
 }

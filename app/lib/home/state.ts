@@ -68,6 +68,11 @@ const ITEM_STATE_SELECT = {
   parked_at: true,
   step_done_at: true,
   step_done_text: true,
+  effort_minutes: true,
+  effort_source: true,
+  effort_basis_n: true,
+  unknowns: true,
+  drain: true,
 } as const;
 
 /** Every home_item_state row for the user. */

@@ -43,6 +43,7 @@ function fake(over: Record<string, unknown> = {}) {
     }),
     emailAsk: model('emailAsk', []),
     homeItemState: model('homeItemState', []),
+    timeEntry: model('timeEntry', []),
     homeSiteIncident: model('homeSiteIncident', [{ site_id: SITE, domain: 'x.com', started_at: d('2026-11-17T14:00:00Z'), closed_at: d('2026-11-17T14:30:00Z'), close_reason: 'watchdog_closed' }]),
     wait: model('wait', []),
     homeAction: model('homeAction', [

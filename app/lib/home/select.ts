@@ -94,7 +94,7 @@ import { mergeJoinedThreads, repliedElsewhere, type JoinRow } from './owed/join'
 import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
 import { cardSummary, truncateWords } from './plain-text';
 import { applyWeights, type WeightRow } from './learn/apply';
-import { learnedFooter } from './learn/copy';
+import { effortExtras, learnedFooter, timeBasisSentence } from './learn/copy';
 import { evidenceKeys, isLearnableKey } from './learn/evidence';
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { nextStepSource } from './projects/copy';
@@ -416,6 +416,33 @@ function taskMinutes(task: RawTask): number {
   return calculateEstimatedMinutes(task.energy_estimate, task.mystery_factor, task.battery_impact) ?? MINUTES.taskDefault;
 }
 
+/**
+ * Slice 7c: the time, the words after it and the basis line for a task, from the guesses the nightly learn step stored
+ * on his home_item_state row. Display only. A person's value always wins: a set estimated_minutes is used as it is
+ * (and gets no basis line), and a non-default mystery_factor or battery_impact is never shadowed (no guess for it).
+ * With no stored guess this is exactly taskMinutes and no extra words.
+ */
+function taskEffort(task: RawTask, st: RawItemState | undefined, botTask: boolean): { minutes: number; extras: string[]; basis: string | null } {
+  const base = taskMinutes(task);
+  if (botTask || !st) return { minutes: base, extras: [], basis: null };
+  const personMinutes = !!task.estimated_minutes && task.estimated_minutes > 0;
+  const mysteryDefault = task.mystery_factor === 'none';
+  const batteryDefault = task.battery_impact === 'average_drain';
+  let minutes = base;
+  let basis: string | null = null;
+  if (!personMinutes && mysteryDefault && batteryDefault) {
+    if (st.effort_source === 'history' && st.effort_minutes && st.effort_minutes > 0) {
+      minutes = st.effort_minutes;
+      basis = timeBasisSentence('history', st.effort_basis_n);
+      if (!basis) minutes = base;
+    } else if (st.effort_source === 'kind' && !task.energy_estimate) {
+      basis = timeBasisSentence('kind', null);
+    }
+  }
+  const extras = effortExtras(mysteryDefault ? st.unknowns : null, batteryDefault ? st.drain : null);
+  return { minutes, extras, basis };
+}
+
 function nameOfAsk(a: RawEmailAsk): string {
   return displayText(a.from_name) || a.from_email;
 }
@@ -505,7 +532,7 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
   const personWaiting = taskHasPersonWaiting(task);
   const since = score.waitingSince ?? task.created_at;
   const who = botTask ? BOT_WHO : displayText(task.requested_by_name) || client?.name || null;
-  const minutes = taskMinutes(task);
+  const { minutes, extras: effortExtraWords, basis: effortBasis } = taskEffort(task, st, botTask);
   const why = botTask
     ? WHY_BOT_STOPPED
     : rule
@@ -542,7 +569,7 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
     hard_date: score.hardDate
       ? hardDateChip(score.hardDate, score.hardKind === 'promised' ? task.promised_to : score.hardSource)
       : null,
-    effort: effortWords(minutes),
+    effort: effortWords(minutes, false, effortExtraWords),
     minutes,
     opened: {
       summary: bast ? displayText(bast.summary) : displayText(cardSummary(task.description)),
@@ -557,6 +584,7 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
       links,
       task_id: task.id,
       left_off_note: displayText(st?.left_off_note) || null,
+      ...(effortBasis ? { effort_basis: effortBasis } : {}),
     },
     source: { kind: 'task', id: task.id, ids: [task.id], task_status: task.status },
     client,

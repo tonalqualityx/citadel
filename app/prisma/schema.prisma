@@ -4817,6 +4817,14 @@ model HomeItemState {
   step_done_at         DateTime?                  // 8b: when he tapped "I did this" on a project next step
   step_done_text       String?   @db.Text         // 8b: the step text at that moment (a rewritten step shows again)
 
+  // 7c: display-only guesses written by the nightly learn step for his open tasks. Never copied to Task.
+  effort_minutes    Int?
+  effort_source     String?   @db.VarChar(10)  // history | energy | kind
+  effort_basis_n    Int?
+  unknowns          String?   @db.VarChar(10)  // none | some | many
+  drain             String?   @db.VarChar(10)  // call | high
+  guessed_at        DateTime?
+
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 

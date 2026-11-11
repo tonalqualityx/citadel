@@ -149,9 +149,10 @@ export function plainDuration(minutes: number): string {
 }
 
 /** "About 10 minutes". With a draft ready: "Draft ready, about 2 minutes". */
-export function effortWords(minutes: number, draftReady = false): string {
+export function effortWords(minutes: number, draftReady = false, extras: readonly string[] = []): string {
   if (draftReady) return `Draft ready, about ${plainDuration(minutes)}`;
-  return `About ${plainDuration(minutes)}`;
+  const base = `About ${plainDuration(minutes)}`;
+  return extras.length > 0 ? `${base}, ${extras.join(', ')}` : base;
 }
 
 /**

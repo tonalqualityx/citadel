@@ -11,6 +11,7 @@ import { crisisKey, reviewKey, siteKey, taskKey, threadKey, waitKey } from '../i
 import {
   CLIENT_WAIT_EMERGENCY_BUSINESS_DAYS,
   CLOSED_TASK_STATUSES,
+  EXCLUDED_PROJECT_STATUSES,
   businessDaysElapsed,
   hasClientBlockingTag,
   hasLifelineTag,
@@ -20,7 +21,8 @@ import {
 import { selectHome } from '../select';
 import { dateOnly, dateString, loadItemStates } from '../state';
 import { cleanLabel } from './copy';
-import type { DailySnapshot, EmergencyEvent, GuardRow, HardDateRow, OwedEntry, TaskChange, TodayDay } from './measures';
+import type { DailySnapshot, EmergencyEvent, GuardRow, GuessError, HardDateRow, OwedEntry, TaskChange, TodayDay } from './measures';
+import { EFFORT, countedMinutes, guessDrain, guessMinutes, guessUnknowns } from './effort';
 import { APPROVAL_DID } from './measures';
 import { addDaysYmd, isWeekdayYmd, parseYmd, ymdInZone } from './working-hours';
 
@@ -109,6 +111,8 @@ export interface WeekReads {
   hard_dates: HardDateRow[];
   today_days: TodayDay[];
   guard_rows: GuardRow[];
+  /** Slice 7c: finished tasks of the week that carried a time guess, with their counted minutes. */
+  guess_errors?: GuessError[];
 }
 
 function asSnapshot(date: Date, value: unknown): DailySnapshot | null {
@@ -362,5 +366,155 @@ export async function loadWeekReads(db: Db, ownerId: string, tz: string, start: 
     guard_rows.push({ item_key: t.item_key, did: t.action === 'not_now' ? 'not_now' : (t.did as string), gap_ms: prior ? t.at.getTime() - prior.getTime() : null });
   });
 
-  return { week_start: start, week_end: end, emergencies, snapshots, prev_snapshot, task_changes, first_action_day, hard_dates, today_days, guard_rows };
+  const guess_errors = await loadGuessErrors(db, ownerId, from, to);
+
+  return { week_start: start, week_end: end, emergencies, snapshots, prev_snapshot, task_changes, first_action_day, hard_dates, today_days, guard_rows, guess_errors };
+}
+
+// ============================================================================
+// Slice 7c: time guesses. Reads Task and TimeEntry, writes only the owner's home_item_state guess columns.
+// ============================================================================
+
+/** Each finished task's counted minutes for the given tasks (entries of the owner, 3 to 480 minutes, total at least 5). */
+async function countedByTask(db: Db, ownerId: string, taskIds: string[]): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (taskIds.length === 0) return out;
+  const rows = await db.timeEntry.findMany({
+    where: { user_id: ownerId, is_deleted: false, is_running: false, task_id: { in: taskIds } },
+    select: { task_id: true, duration: true },
+    take: ROW_TAKE * 10,
+  });
+  const by = new Map<string, number[]>();
+  for (const r of rows) {
+    if (!r.task_id) continue;
+    const list = by.get(r.task_id) ?? [];
+    list.push(r.duration);
+    by.set(r.task_id, list);
+  }
+  for (const id of taskIds) out.set(id, countedMinutes(by.get(id) ?? []));
+  return out;
+}
+
+/** His done tasks per SOP, as their counted minutes (null when a task does not qualify). Only the SOPs asked for. */
+export async function loadHistoryBySop(db: Db, ownerId: string, sopIds: string[]): Promise<Map<string, Array<number | null>>> {
+  const out = new Map<string, Array<number | null>>();
+  if (sopIds.length === 0) return out;
+  const done = await db.task.findMany({
+    where: { assignee_id: ownerId, is_deleted: false, status: 'done', sop_id: { in: sopIds } },
+    select: { id: true, sop_id: true },
+    take: ROW_TAKE * 4,
+  });
+  const totals = await countedByTask(db, ownerId, done.map((t) => t.id));
+  for (const t of done) {
+    if (!t.sop_id) continue;
+    const list = out.get(t.sop_id) ?? [];
+    list.push(totals.get(t.id) ?? null);
+    out.set(t.sop_id, list);
+  }
+  return out;
+}
+
+export interface GuessRun {
+  /** Open tasks looked at (at most EFFORT.nightlyCap). */
+  considered: number;
+  /** Rows written. */
+  written: number;
+  history: number;
+  energy: number;
+  kind: number;
+}
+
+/**
+ * The nightly guess step. For the owner's open tasks (not bot tasks, at most EFFORT.nightlyCap a night, never-guessed
+ * and longest-ago first) it writes effort, unknowns and drain into that task's home_item_state row. A value a person
+ * set is never guessed: a task with estimated_minutes gets no minutes, a non-default mystery_factor gets no unknowns,
+ * a non-default battery_impact gets no drain. No Task row is touched.
+ */
+export async function writeGuesses(db: Db, ownerId: string, now: Date): Promise<GuessRun> {
+  const tasks = await db.task.findMany({
+    where: {
+      assignee_id: ownerId,
+      is_deleted: false,
+      status: { notIn: [...CLOSED_TASK_STATUSES] as TaskStatus[] },
+      AND: [{ OR: [{ project_id: null }, { project: { status: { notIn: [...EXCLUDED_PROJECT_STATUSES] } } }] }],
+    },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      sop_id: true,
+      estimated_minutes: true,
+      energy_estimate: true,
+      mystery_factor: true,
+      battery_impact: true,
+      requirements: true,
+    },
+    orderBy: { created_at: 'asc' },
+    take: ROW_TAKE,
+  });
+  const states = await db.homeItemState.findMany({
+    where: { user_id: ownerId, item_key: { in: tasks.map((t) => taskKey(t.id)) } },
+    select: { item_key: true, guessed_at: true },
+  });
+  const guessedAt = new Map(states.map((s) => [s.item_key, s.guessed_at?.getTime() ?? 0]));
+  const batch = [...tasks]
+    .sort((a, b) => (guessedAt.get(taskKey(a.id)) ?? 0) - (guessedAt.get(taskKey(b.id)) ?? 0))
+    .slice(0, EFFORT.nightlyCap);
+
+  const sopIds = [...new Set(batch.filter((t) => t.estimated_minutes == null && t.sop_id).map((t) => t.sop_id as string))];
+  const history = await loadHistoryBySop(db, ownerId, sopIds);
+
+  const run: GuessRun = { considered: batch.length, written: 0, history: 0, energy: 0, kind: 0 };
+  for (const t of batch) {
+    const personMinutes = t.estimated_minutes != null && t.estimated_minutes > 0;
+    const effort = personMinutes
+      ? null
+      : guessMinutes({ history: t.sop_id ? history.get(t.sop_id) ?? [] : [], energy_estimate: t.energy_estimate });
+    const unknowns = t.mystery_factor === 'none'
+      ? guessUnknowns({ title: t.title, description: t.description, requirements: Array.isArray(t.requirements) ? t.requirements.length : 0, sop_id: t.sop_id })
+      : null;
+    const drain = t.battery_impact === 'average_drain' ? guessDrain({ title: t.title, description: t.description }) : null;
+    const data = {
+      effort_minutes: effort ? effort.minutes : null,
+      effort_source: effort ? effort.source : null,
+      effort_basis_n: effort ? effort.n : null,
+      unknowns,
+      drain,
+      guessed_at: now,
+    };
+    const key = taskKey(t.id);
+    await db.homeItemState.upsert({
+      where: { user_id_item_key: { user_id: ownerId, item_key: key } },
+      create: { user_id: ownerId, item_key: key, ...data },
+      update: data,
+    });
+    run.written += 1;
+    if (effort) run[effort.source] += 1;
+  }
+  return run;
+}
+
+/** Finished tasks of [from, to) that carried a minutes guess, with the minutes their time entries counted. */
+export async function loadGuessErrors(db: Db, ownerId: string, from: Date, to: Date): Promise<GuessError[]> {
+  const done = await db.task.findMany({
+    where: { assignee_id: ownerId, is_deleted: false, status: 'done', completed_at: { gte: from, lt: to } },
+    select: { id: true, completed_at: true },
+    take: ROW_TAKE,
+  });
+  if (done.length === 0) return [];
+  const states = await db.homeItemState.findMany({
+    where: { user_id: ownerId, item_key: { in: done.map((t) => taskKey(t.id)) }, effort_minutes: { not: null }, guessed_at: { not: null } },
+    select: { item_key: true, effort_minutes: true, guessed_at: true },
+  });
+  const byKey = new Map(states.map((s) => [s.item_key, s]));
+  const totals = await countedByTask(db, ownerId, done.map((t) => t.id));
+  const out: GuessError[] = [];
+  for (const t of done) {
+    const st = byKey.get(taskKey(t.id));
+    const actual = totals.get(t.id) ?? null;
+    if (!st || st.effort_minutes == null || actual === null) continue;
+    if (t.completed_at && st.guessed_at && st.guessed_at.getTime() > t.completed_at.getTime()) continue;
+    out.push({ guessed: st.effort_minutes, actual });
+  }
+  return out;
 }

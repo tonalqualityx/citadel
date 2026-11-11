@@ -6,7 +6,7 @@
  * of data. Logs count from the day of his first home action; snapshots count the weekday snapshots in the week.
  */
 
-import { LEARN, cleanLabel, hoursText } from './copy';
+import { LEARN, cleanLabel, hoursText, timeErrorSentence } from './copy';
 import { isWeekdayYmd, weekdaysInRange, workingHoursBetween } from './working-hours';
 
 // ============================================================================
@@ -78,6 +78,24 @@ export interface WeekInput {
   first_action_day: string | null;
   hard_dates: HardDateRow[];
   today_days: TodayDay[];
+  /** Slice 7c: finished tasks that carried a time guess, with their counted minutes. Omitted when not read. */
+  guess_errors?: GuessError[];
+}
+
+/** One finished task that had a time guess: the guess and the minutes its time entries counted (7c rules). */
+export interface GuessError {
+  guessed: number;
+  actual: number;
+}
+
+/** Fewest finished, guessed tasks with time entries before the Show line appears. */
+export const GUESS_ERROR_MIN_TASKS = 5;
+
+/** The average miss in minutes over the finished tasks, or null with fewer than GUESS_ERROR_MIN_TASKS of them. */
+export function minutesError(rows: readonly GuessError[]): { minutes: number; n: number } | null {
+  if (rows.length < GUESS_ERROR_MIN_TASKS) return null;
+  const total = rows.reduce((sum, r) => sum + Math.abs(r.guessed - r.actual), 0);
+  return { minutes: Math.round(total / rows.length), n: rows.length };
 }
 
 // ============================================================================
@@ -101,6 +119,8 @@ export interface WeekMeasures {
   where: Measure<{ total: number; here: number }>;
   plate: Measure<{ open: number; past_day: number; change: number | null; hard_met: number; hard_missed: number }>;
   today: Measure<{ days: number; days_kept: number; share_done: number | null }>;
+  /** Slice 7c, only when the guess errors were read. Details only. */
+  time_guess?: Measure<{ minutes: number; tasks: number } | null>;
 }
 
 const DETAIL_CAP = 40;
@@ -190,9 +210,21 @@ export function measuresWeek(input: WeekInput): WeekMeasures {
       ]
     : [];
 
+  const miss = input.guess_errors ? minutesError(input.guess_errors) : null;
+
   return {
     week_start: input.week_start,
     week_end: input.week_end,
+    ...(input.guess_errors
+      ? {
+          time_guess: {
+            ok: miss !== null,
+            business_days: 0,
+            value: miss ? { minutes: miss.minutes, tasks: miss.n } : null,
+            details: miss ? [timeErrorSentence(miss.minutes, miss.n)] : [],
+          },
+        }
+      : {}),
     emergencies: {
       ok: enough(logDays),
       business_days: logDays,

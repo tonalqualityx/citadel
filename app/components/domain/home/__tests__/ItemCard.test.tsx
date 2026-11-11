@@ -33,6 +33,18 @@ function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {
 
 const base = { emptyText: 'Nothing urgent.', onAction: () => {} };
 
+describe('ItemCard: Slice 7c time basis', () => {
+  it('shows where a guessed time came from in the footer', () => {
+    const item = mkItem('task:1', { opened: { ...mkItem('task:1').opened, effort_basis: 'Time guess: from 4 similar finished tasks.' } });
+    render(<ItemCard {...base} item={item} />);
+    expect(screen.getByText('Time guess: from 4 similar finished tasks.')).toBeInTheDocument();
+  });
+  it('shows no line when there is no basis', () => {
+    const { container } = render(<ItemCard {...base} item={mkItem('task:1')} />);
+    expect(container.textContent).not.toContain('Time guess');
+  });
+});
+
 describe('ItemCard', () => {
   it('shows the empty sentence with no item', () => {
     render(<ItemCard {...base} item={null} />);
