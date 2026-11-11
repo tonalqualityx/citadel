@@ -89,6 +89,24 @@ export const dashboardEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/home/projects/:id',
+    group: 'dashboard',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Get the Home screen project drawer for one project: the caller\'s own items in it (with their buttons), and the open waits others hold. Browser session only.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: {
+          project: { id: 'uuid', name: 'string', client: { id: 'uuid', name: 'string' } },
+          items: [{ item: 'HomeItem', where: 'string' }],
+          waits: [{ who: 'string', since: 'ISO-8601', title: 'string' }],
+        },
+        responseNotes: 'Answers 403 for an API key or the chat (a browser session only), for a non-admin, and when the caller\'s own home_view preference is not home; 404 for an unknown project. No user_id parameter: only the caller\'s own items appear, never another user\'s. Sends Cache-Control: no-store. Writes nothing. Items carry no score, class, priority or emergency field.',
+      },
+    ],
+  },
+  {
     path: '/api/home/rule',
     group: 'dashboard',
     methods: [

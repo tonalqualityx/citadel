@@ -36,8 +36,25 @@ vi.mock('@/lib/contexts/task-peek-context', () => ({
   TaskPeekProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useTaskPeek: () => ({ openTaskPeek: vi.fn() }),
 }));
-vi.mock('@/components/domain/oracle/modes/projects/ProjectDrawer', () => ({
-  ProjectDrawer: ({ project }: { project: { id: string } | null }) => <div data-testid="drawer">{project ? `open:${project.id}` : 'closed'}</div>,
+const drawerProps = vi.hoisted(() => ({ last: null as null | { projectId: string | null; userId: string; timeZone: string; card: { id?: string } | null } }));
+vi.mock('../HomeProjectDrawer', () => ({
+  HomeProjectDrawer: (props: {
+    projectId: string | null;
+    userId: string;
+    timeZone: string;
+    card: { id?: string } | null;
+    renderItem: (item: HomeItem) => React.ReactNode;
+    onClose: () => void;
+  }) => {
+    drawerProps.last = props;
+    return (
+      <div data-testid="drawer">
+        {props.projectId ? `open:${props.projectId}` : 'closed'}
+        {props.projectId ? <div data-testid="drawer-item">{props.renderItem(mkItem('task:d1', { project: { id: 'p1', name: 'Grok rebuild' } }))}</div> : null}
+        <button type="button" onClick={props.onClose}>close drawer</button>
+      </div>
+    );
+  },
 }));
 vi.mock('../TodayList', () => ({
   TodayList: (props: { today: { arc_name: string } | null; selectedKey: string | null; onSelect: (i: HomeItem) => void; emptyText: string }) => (
@@ -147,6 +164,21 @@ describe('HomeScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /^1\s*project$/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Open the project' }));
     expect(screen.getByTestId('drawer')).toHaveTextContent('open:p1');
+  });
+  it('Slice 8a: the project drawer is the home drawer, gets his zone and id, and its item buttons run the same action wiring', () => {
+    render(<HomeScreen />);
+    expect(screen.getByTestId('drawer')).toHaveTextContent('closed');
+    fireEvent.click(screen.getByRole('button', { name: /^1\s*project$/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open the project' }));
+    expect(drawerProps.last).toMatchObject({ projectId: 'p1', userId: 'u1', timeZone: 'America/New_York' });
+    const inDrawer = within(screen.getByTestId('drawer-item'));
+    // No link back into the drawer from inside the drawer.
+    expect(inDrawer.queryByRole('button', { name: 'Grok rebuild' })).toBeNull();
+    fireEvent.click(inDrawer.getByRole('button', { name: 'Done' }));
+    expect(h.run).toHaveBeenCalledTimes(1);
+    expect(h.run.mock.calls[0][1]).toMatchObject({ key: 'task:d1' });
+    fireEvent.click(screen.getByRole('button', { name: 'close drawer' }));
+    expect(screen.getByTestId('drawer')).toHaveTextContent('closed');
   });
   it('everything else opens a group card with rows, and Bring it forward posts the right body', async () => {
     h.act.mockResolvedValue({});

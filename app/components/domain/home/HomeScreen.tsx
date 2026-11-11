@@ -5,7 +5,7 @@ import './home-tokens.css';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { TaskPeekProvider, useTaskPeek } from '@/lib/contexts/task-peek-context';
-import { ProjectDrawer } from '@/components/domain/oracle/modes/projects/ProjectDrawer';
+import { HomeProjectDrawer } from './HomeProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 import { useHome, useHomeAct, useHomeItemAction, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
 import type { HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
@@ -191,7 +191,7 @@ function HomeBody(p: BodyProps) {
   };
 
   const selectedItem = itemTile ? findItem(res, selectedKey) : null;
-  const card = (item: HomeItem | null, empty: string, hideActions = false) =>
+  const card = (item: HomeItem | null, empty: string, hideActions = false, inDrawer = false) =>
     item?.hands ? (
       <HandsCard item={item} onAction={onAction} pendingFor={itemActions.pendingFor} />
     ) : (
@@ -202,7 +202,7 @@ function HomeBody(p: BodyProps) {
       pendingAction={itemActions.pendingFor(item)}
       statusText={itemActions.statusFor(item)}
       prompt={itemActions.promptFor(item)}
-      onOpenProject={(id) => p.setOpenProjectId(id)}
+      onOpenProject={inDrawer ? undefined : (id) => p.setOpenProjectId(id)}
       onSaveRule={p.saveRule}
       hideActions={hideActions}
     />
@@ -292,12 +292,13 @@ function HomeBody(p: BodyProps) {
         lists
       )}
       <BastChatDock card={chatCard} />
-      <ProjectDrawer
-        project={openProject}
-        open={openProject !== null}
-        onOpenChange={(o) => {
-          if (!o) p.setOpenProjectId(null);
-        }}
+      <HomeProjectDrawer
+        projectId={p.openProjectId}
+        card={openProject}
+        userId={res.user_id}
+        timeZone={res.timezone}
+        renderItem={(item) => card(item, '', false, true)}
+        onClose={() => p.setOpenProjectId(null)}
       />
     </div>
   );
