@@ -117,7 +117,7 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   const a = input.action;
   if (a === 'arc_reorder' || a === 'lighter' || a === 'not_this_week') return opSummary({ op: 'home_act', action: a }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
-  if (a === 'draft_now' || a === 'needs_thought' || a === 'go_with_that' || a === 'keep_lead' || a === 'treat_as_reply') {
+  if (a === 'draft_now' || a === 'needs_thought' || a === 'go_with_that' || a === 'keep_lead' || a === 'treat_as_reply' || a === 'book_block') {
     return opSummary({ op: 'home_act', action: a, who: await threadWho(db, input.item_key) }, now);
   }
   const d = await describeItem(db, input.item_key);

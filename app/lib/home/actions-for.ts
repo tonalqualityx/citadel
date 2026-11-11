@@ -59,6 +59,8 @@ export interface ActionsInput {
     short?: boolean;
     /** Slice 4b: the Send buttons, present only while the owner's owed_send switch is on and the draft qualifies. */
     send?: { full: boolean; short: boolean };
+    /** Slice 4d: Book 30 minutes (under More on a needs-thought row), present only while the owner's book_blocks switch is on. */
+    book?: boolean;
   };
   /** Slice 6a, a site down row: the mail behind it (deep link) and the site itself. */
   mailUrl?: string | null;
@@ -111,7 +113,7 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
         break;
       }
       if (input.owedThread && !input.owedThread.state?.startsWith('his_draft')) {
-        const { state, suggestion, lead, short, send } = input.owedThread;
+        const { state, suggestion, lead, short, send, book } = input.owedThread;
         if (short && input.threadUrl) {
           // A short holding draft is in his Gmail (in the same thread): open it first. Nothing here sends it, except his own press on Send (4b).
           if (send?.full) primary.push(button('send_draft'));
@@ -125,6 +127,7 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
           if (state === 'draft_ready' || state === 'stale_draft') extras.push(button('needs_thought'));
           if (send?.full && input.draftUrl) extras.push(button('open_draft', input.draftUrl));
           if (state === 'needs_thought') extras.push(button('open_thread', input.threadUrl), button('draft_now'));
+          if (state === 'needs_thought' && book) extras.push(button('book_block'));
           extras.push(button('no_reply_needed'));
           if (lead) extras.push(button('not_lead'));
           break;
@@ -141,7 +144,9 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
         } else if (state === 'needs_thought') {
           if (suggestion) primary.push(button('go_with_that'));
           if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
-          extras.push(button('draft_now'), button('no_reply_needed'));
+          extras.push(button('draft_now'));
+          if (book) extras.push(button('book_block'));
+          extras.push(button('no_reply_needed'));
           if (lead) extras.push(button('not_lead'));
         } else {
           // No draft yet (or one was asked for): the first button asks for it, unless the ask is already waiting.

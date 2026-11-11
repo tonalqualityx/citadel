@@ -558,6 +558,10 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'go_with_that':
           await act({ action: 'go_with_that', item_key: item.key });
           return true;
+        // Slice 4d: a private 30 minute block on his own calendar; the server picks the slot and the toast says when.
+        case 'book_block':
+          await act({ action: 'book_block', item_key: item.key });
+          return true;
         // Slice 4b: Send the draft, from his own press, through its own session-only route (never a home act). The draft id comes from the item.
         case 'send_draft':
         case 'send_short': {
@@ -603,7 +607,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'send_draft', 'send_short'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'book_block', 'send_draft', 'send_short'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

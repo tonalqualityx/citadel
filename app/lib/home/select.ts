@@ -87,6 +87,7 @@ import { HANDS_ITEM_KEY, HANDS_REST_GROUP, handsRow, isHandsTask, type HandsTask
 import { matchesNotEmergencyRule, ruleScopesFor } from './emergency/rule';
 import { siteDownItems, siteHostOf, type IncidentRow, type SiteDownItem } from './emergency/site';
 import { AUTO_DRAFT_LINE, LEAD_ASK, NEW_MESSAGE_AFTER_DRAFT, SHORT_READY_LINE, WOKE_LINE, IF_IGNORED_4C, leadDueLine, waitingLine } from './owed/copy';
+import { bookLine, bookedLine } from './owed/book-copy';
 import { notSentLine, sendFailureReason, sentLine, sendingLine } from './owed/send-copy';
 import { isLeadNow, leadResurfacedPastPark, owedClock, weekdayIn, wokeByNewMessage } from './owed/clock';
 import { mergeJoinedThreads, repliedElsewhere, type JoinRow } from './owed/join';
@@ -457,6 +458,7 @@ interface Draft {
     owedLeadAsk?: boolean;
     owedShort?: boolean;
     owedSend?: { full: boolean; short: boolean };
+    owedBook?: boolean;
     /** Slice 6a: a site down row's mail link, site link and "If you do nothing" line. */
     mailUrl?: string | null;
     siteUrl?: string | null;
@@ -763,6 +765,7 @@ function buildThread(
   drafterFreshAt: Date | null,
   timezone: string,
   sendOn = false,
+  bookOn = false,
 ): Draft {
   const score = scoreThread(th, now);
   const newest = th.asks[0];
@@ -785,6 +788,9 @@ function buildThread(
   // Slice 4b: the Send buttons exist only while the owner's switch is on and the draft is Bast's current, untouched one with no blank left in it.
   const sendFull = sendOn && status === 'show' && owedState === 'draft_ready' && owed?.state === 'drafted' && !!owed.draft_id && !!owed.draft_text && !owed.draft_text.includes('[[');
   const sendShort = sendOn && status === 'show' && showShort && (owedState === 'draft_ready' || owedState === 'needs_thought') && !!owed?.short_draft_id && !(owed.short_draft_text ?? '').includes('[[');
+  // Slice 4d: Book 30 minutes exists only while his switch is on, on a needs-thought row with no request or block already.
+  const bookBtn = bookOn && status === 'show' && owedState === 'needs_thought' && !owed?.book_requested_at && !owed?.booked_event_id && !owed?.book_undo_requested_at;
+  const bookedWords = owed?.booked_event_id && owed.booked_start && !owed.book_undo_requested_at ? bookedLine(owed.booked_start, timezone) : null;
   const minutes = draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
   const said = stripEndPeriod(displayText(newest.gist) || displayText(newest.subject)) || 'a message';
   const links: { label: string; href: string }[] = [];
@@ -800,7 +806,7 @@ function buildThread(
   const dueLine = lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
   const waitLine = status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
   const owedLine =
-    [woke || cameBack ? WOKE_LINE : null, dueLine, waitLine, stateLine, showShort ? SHORT_READY_LINE : null].filter(Boolean).join(' · ') || null;
+    [woke || cameBack ? WOKE_LINE : null, dueLine, waitLine, stateLine, showShort ? SHORT_READY_LINE : null, bookedWords].filter(Boolean).join(' · ') || null;
   const item: HomeItem = {
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
@@ -832,6 +838,7 @@ function buildThread(
     project,
     owed_state: owedState,
     owed_line: owedLine,
+    ...(bookedWords ? { owed_booked: bookedWords } : {}),
     ...(sendFull || sendShort ? { owed_send: { draft_id: sendFull ? owed!.draft_id : null, short_draft_id: sendShort ? owed!.short_draft_id! : null } } : {}),
   };
   return {
@@ -862,6 +869,7 @@ function buildThread(
       owedLeadAsk: leadAsk,
       owedShort: showShort,
       owedSend: sendFull || sendShort ? { full: sendFull, short: sendShort } : undefined,
+      owedBook: bookBtn || undefined,
       owedIfIgnored:
         status !== 'show'
           ? null
@@ -1151,7 +1159,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     botTask: c.botTask,
     owedThread:
       c.kind === 'thread' && ctx.thread?.status === 'show'
-        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend }
+        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook }
         : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
@@ -1269,6 +1277,7 @@ export function selectHome(input: SelectInput): SelectResult {
   // Slice 4b: a thread whose reply is waiting out the hold, or already went, leaves People. A send that did not go brings it back.
   const sendingKeys = new Set((raw.owed_sends ?? []).filter((x) => x.status !== 'failed').map((x) => x.item_key));
   const sendOn = raw.owed_send === true;
+  const bookOn = raw.book_blocks === true;
   for (const th of joinedThreads.threads) {
     const key = threadKey(th.account, th.thread_id);
     const owedRow = owedByKey.get(key);
@@ -1281,7 +1290,7 @@ export function selectHome(input: SelectInput): SelectResult {
     if (status === 'show' || status === 'older') {
       if (repliedElsewhere(key, joinedThreads.members.get(key) ?? [], owedByKey as ReadonlyMap<string, JoinRow>, newestAsk.received_at)) continue;
       if (sendingKeys.has(key)) continue;
-      push(buildThread(th, status, now, refs, states.get(key), owedRow, raw.drafter_fresh_at, raw.timezone, sendOn));
+      push(buildThread(th, status, now, refs, states.get(key), owedRow, raw.drafter_fresh_at, raw.timezone, sendOn, bookOn));
     }
   }
   // Slice 6a: site down rows, and the mails an uptime check already covers.
@@ -1734,7 +1743,23 @@ export function selectHome(input: SelectInput): SelectResult {
     undo_action_id: x.status === 'pending' && x.send_after.getTime() > now.getTime() ? x.action_id : null,
     details: [],
   }));
-  const handledAll = [...closed, ...kept, ...sends].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
+  // Slice 4d: Handled for you shows each tap on Book 30 minutes while its request or block still stands (Undo for 24 hours).
+  const booksByKey = new Map(owedByKey as ReadonlyMap<string, OwedRow>);
+  const books: HomeQuietLine[] = (raw.owed_books ?? []).flatMap((x) => {
+    const row = booksByKey.get(x.item_key);
+    if (!row || row.book_undo_requested_at || !(row.book_requested_at || row.booked_event_id)) return [];
+    return [
+      {
+        id: x.action_id,
+        text: bookLine(displayText(x.who), row.booked_start ?? x.start, raw.timezone),
+        href: null,
+        at: x.pressed_at.toISOString(),
+        undo_action_id: x.undo_until && x.undo_until.getTime() > now.getTime() ? x.action_id : null,
+        details: [],
+      },
+    ];
+  });
+  const handledAll = [...closed, ...kept, ...sends, ...books].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
   const handled = handledAll.slice(0, CAPS.handled);
   const moreCount = Math.max(0, handledAll.length - CAPS.handled);
 

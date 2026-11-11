@@ -202,6 +202,7 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   step_done: 'I did this',
   send_draft: 'Send the draft',
   send_short: 'Send the short one',
+  book_block: 'Book 30 minutes',
 };
 
 /** "Approve all 39". */

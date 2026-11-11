@@ -40,6 +40,11 @@ export const OWED_ROW_SELECT = {
   short_draft_id: true,
   short_draft_hash: true,
   short_draft_text: true,
+  book_requested_at: true,
+  booked_event_id: true,
+  booked_start: true,
+  booked_end: true,
+  book_undo_requested_at: true,
 } satisfies Prisma.HomeOwedThreadSelect;
 
 /** The owner's owed rows (all of them; the user id is in the where clause). */

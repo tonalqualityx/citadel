@@ -414,6 +414,7 @@ describe('contract guards', () => {
       go_with_that: { action: 'go_with_that', item_key: 'thread:a:b' },
       not_this_week: { action: 'not_this_week', item_key: 'hands:week' },
       step_done: { action: 'step_done', item_key: 'step:7aa4a01a-1111-4222-8333-944445555666' },
+      book_block: { action: 'book_block', item_key: 'thread:a:b' },
     };
     for (const [name, req] of Object.entries(every)) expect(req.action).toBe(name);
   });

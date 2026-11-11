@@ -548,6 +548,53 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/owed/bookings',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the private 30 minute blocks the machine should create or delete on the owner\'s own calendar (dry run)',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          create: [
+            {
+              thread_key: 'string (thread:<account>:<thread_id>)',
+              title: 'string ("Answer {name}", the name one plain line, at most 80 characters)',
+              description: 'string (the thread\'s Gmail link only)',
+              start: 'ISO-8601 instant',
+              end: 'ISO-8601 instant (30 minutes after start)',
+              calendar: '"primary"',
+              account: '"mike@becomeindelible.com"',
+            },
+          ],
+          delete: [{ thread_key: 'string', event_id: 'string (the one event Bast made for that thread)' }],
+          window: '{from, to} ISO-8601 (now to 5 days on: read calendar events over it before creating)',
+          skipped: '"home_off" | "book_off" (then create and delete are [])',
+        },
+        responseNotes: 'Owner only; takes no user id. Writes nothing. A request keeps its stored slot while it is at least 15 minutes away, otherwise the slot is picked again in memory. No attendees, no Meet link, no notification: the block is private to the owner.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: save what the machine did with the owner\'s booking requests',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'created', type: 'object', required: false, description: 'At most 10 of {thread_key, event_id, start, end}. The event must be 30 minutes long.' },
+          { name: 'conflicts', type: 'object', required: false, description: 'At most 10 of {thread_key}. Clears the picked slot so the next GET picks again.' },
+          { name: 'deleted', type: 'object', required: false, description: 'At most 10 of {thread_key, event_id}. Confirms the one event Mike\'s Undo asked to remove.' },
+          { name: 'failed', type: 'object', required: false, description: 'At most 10 of {thread_key, error}. Three failed creates drop the request.' },
+        ],
+        responseExample: {
+          saved: [{ thread_key: 'string', outcome: '"created"|"conflict"|"deleted"|"failed"' }],
+          refused: [{ thread_key: 'string', reason: '"no_request"|"bad_slot"|"duplicate"|"no_such_event"|"not_requested"', event_id: 'string (only on a refused create, so the machine can remove an event nobody is waiting for)' }],
+          skipped: '"home_off"',
+        },
+        responseNotes: 'Owner only. Strict body, 64 KB cap. A result for a thread with no pending request is refused. Writes only the owner\'s home_owed_thread booking columns; never an email ask, task, outbox or calendar event row, and nothing is sent.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/home-watch',
     group: 'bast-chat',
     methods: [

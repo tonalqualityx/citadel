@@ -52,6 +52,8 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/home-keeper/learn',
   'GET /api/bast-chat/worker/owed',
   'POST /api/bast-chat/worker/owed',
+  'GET /api/bast-chat/worker/owed/bookings',
+  'POST /api/bast-chat/worker/owed/bookings',
   'GET /api/bast-chat/worker/home-watch',
   'POST /api/bast-chat/worker/home-watch',
   'POST /api/bast-chat/worker/home-watch/ack',
@@ -171,7 +173,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 39 entries of the plan, and nothing else', () => {
+  it('holds exactly the 41 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 

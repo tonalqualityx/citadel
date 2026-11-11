@@ -33,6 +33,9 @@ import { HANDS_ITEM_KEY, nextHandsMonday } from './emergency/hands';
 import { clearOwedRequest, markOwed, OWED_ACTION, requestOwed, undoOwedMark, type OwedMarkValues } from './owed/rows';
 import { KEEP_LEAD_MESSAGE, TREAT_AS_REPLY_MESSAGE } from './owed/copy';
 import type { OwedRequestKind } from './owed/state';
+import { requestBook, undoBook } from './owed/book';
+import { BOOK_COPY, bookLine } from './owed/book-copy';
+import { NO_FREE_SLOT } from './owed/slot';
 import { selectHome } from './select';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
@@ -133,6 +136,8 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   // Slice 6a: park the Monday hands row. There is deliberately no action here that saves a "Not an emergency" rule: that is
   // POST /api/home/rule (browser session only), so the chat can never reach it.
   z.object({ action: z.literal('not_this_week'), item_key: itemKeySchema }).strict(),
+  // Slice 4d: a private 30 minute block on his own calendar. The slot is picked here; the machine makes the event.
+  z.object({ action: z.literal('book_block'), item_key: itemKeySchema }).strict(),
   // Slice 8b: I did this on a project next step. Writes only his home_item_state row; the project's refresh is the browser's own call.
   z.object({ action: z.literal('step_done'), item_key: itemKeySchema }).strict(),
 ]);
@@ -157,6 +162,10 @@ const ERROR_TEXT: Record<HomeActErrorCode, string> = {
   not_found: 'That action was not found.',
   no_suggestion: 'Bast has no suggested answer for this one yet.',
   already_drafted: 'The draft is already in your Gmail. It stays there.',
+  book_off: BOOK_COPY.off,
+  book_not_ready: BOOK_COPY.notReady,
+  already_booked: BOOK_COPY.alreadyBooked,
+  no_free_slot: NO_FREE_SLOT,
 };
 
 /** What a tap on a thread asks of Bast, and the line Mike reads back. */
@@ -357,6 +366,8 @@ interface UndoSide {
   day?: DayRecord;
   arcs?: ArcRecord[];
   owed?: OwedRecord;
+  /** Slice 4d: a booking request, so Undo can clear it (before the event exists) or ask for that one event to be deleted. */
+  book?: { item_key: string; who?: string; start?: string; end?: string };
 }
 
 function toJsonValue(v: unknown): FieldValue {
@@ -418,6 +429,8 @@ export interface ActPlan {
   owed?: { kind: OwedRequestKind };
   /** Slice 4c: lead marks written on his own home_owed_thread row (Keep it, Treat as a reply). */
   leadMark?: Partial<Record<'lead_clock_from' | 'keep_lead_at' | 'not_lead_at', Date | null>>;
+  /** Slice 4d: Book 30 minutes (the slot is picked inside the transaction). */
+  book?: true;
   message: string | null;
 }
 
@@ -732,6 +745,11 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       };
     }
 
+    case 'book_block': {
+      if (parseItemKey(req.item_key)?.kind !== 'thread') throw new HomeActError('not_found', 'That is not an email thread.');
+      return { ...base, action: req.action, item_key: req.item_key, stateWrites: [], book: true, message: null };
+    }
+
     case 'record':
       return {
         action: req.action,
@@ -892,6 +910,26 @@ export async function runHomeAct(
       markRecord = { item_key: plan.item_key, before: res.before, after: res.after };
     }
 
+    // Slice 4d: Book 30 minutes. Only his own owed row changes (the request and the picked slot); nothing is sent or created here.
+    let bookRecord: { item_key: string; who: string; start: string; end: string } | undefined;
+    let bookMessage: string | null = null;
+    if (plan.book && plan.item_key) {
+      const parsed = parseItemKey(plan.item_key);
+      if (parsed?.kind === 'thread') {
+        const open = await tx.emailAsk.findFirst({
+          where: { account: parsed.account, state: 'open', OR: [{ thread_id: parsed.thread_id }, { thread_id: null, message_id: parsed.thread_id }] },
+          orderBy: { received_at: 'desc' },
+          select: { from_name: true, from_email: true },
+        });
+        if (!open) throw new HomeActError('not_found', BOOK_COPY.noThread);
+        const res = await requestBook(tx, userId, plan.item_key, opts.now, opts.timezone);
+        if (!res.ok) throw new HomeActError(res.reason);
+        const who = (open.from_name ?? '').replace(/["<>]/g, '').trim() || open.from_email.split('@')[0] || 'them';
+        bookRecord = { item_key: plan.item_key, who, start: res.slot.start.toISOString(), end: res.slot.end.toISOString() };
+        bookMessage = bookLine(who, res.slot.start, opts.timezone);
+      }
+    }
+
     // Slice 2c: with his switch on, an add or remove on today's real arc is copied onto his own task's arc_id.
     const arcLinks = await copyArcEditToTask(tx, userId, req, day);
 
@@ -912,6 +950,7 @@ export async function runHomeAct(
         ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
         ...(owedRecord ? { owed: owedRecord } : {}),
         ...(markRecord ? { owedMark: markRecord } : {}),
+        ...(bookRecord ? { book: bookRecord } : {}),
       };
       after = {
         states: plan.stateWrites.map((w) => ({ item_key: w.item_key, fields: fieldsOf(w.patch, w.from, 'after') })),
@@ -919,6 +958,7 @@ export async function runHomeAct(
         ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
         ...(owedRecord ? { owed: owedRecord } : {}),
         ...(markRecord ? { owedMark: markRecord } : {}),
+        ...(bookRecord ? { book: bookRecord } : {}),
       };
     }
 
@@ -936,7 +976,7 @@ export async function runHomeAct(
       action_id: row.id,
       undo_until: undoUntil ? undoUntil.toISOString() : null,
       item_key: plan.item_key,
-      message: plan.message,
+      message: plan.message ?? bookMessage,
     };
   });
 }
@@ -1180,6 +1220,9 @@ export async function runHomeUndo(
       const cleared = await clearOwedRequest(tx, userId, before.owed.item_key, before.owed.kind, before.owed.before);
       if (!cleared) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
     }
+
+    // Slice 4d: before the event exists Undo clears the request; after, it asks the machine to delete that one event.
+    if (before.book) await undoBook(tx, userId, before.book.item_key, now);
 
     if (before.owedMark) await undoOwedMark(tx, userId, before.owedMark.item_key, before.owedMark.before, before.owedMark.after);
 

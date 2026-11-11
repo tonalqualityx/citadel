@@ -51,6 +51,12 @@ export interface OwedRow {
   short_draft_id?: string | null;
   short_draft_hash?: string | null;
   short_draft_text?: string | null;
+  /** Slice 4d: the booking request and block on his own calendar. */
+  book_requested_at?: Date | null;
+  booked_event_id?: string | null;
+  booked_start?: Date | null;
+  booked_end?: Date | null;
+  book_undo_requested_at?: Date | null;
 }
 
 const HOUR_MS = 3_600_000;

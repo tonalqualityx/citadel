@@ -128,6 +128,8 @@ export type HomeActionId =
   | 'open_short'
   | 'open_project'
   | 'step_done'
+  // Slice 4d: Book 30 minutes (a home act: a request on his own owed row; the machine makes the private calendar block).
+  | 'book_block'
   // Slice 4b: Send the draft. Never a home act: these post to /api/home/send (a session-only route); homeActSchema refuses them.
   | 'send_draft'
   | 'send_short';
@@ -295,6 +297,8 @@ export interface HomeItem {
    * switch is on and the draft qualifies; absent (or null) otherwise, and then no Send button exists.
    */
   owed_send?: { draft_id: string | null; short_draft_id: string | null } | null;
+  /** Slice 4d, threads only: "Booked Thursday at 2:00" once the machine made the private block (also part of owed_line). */
+  owed_booked?: string | null;
   /**
    * Slice 6a: the choices "Not an emergency" offers as a rule (crisis mail and site down rows only), else absent or [].
    * Each is a scope the rule route accepts. The card asks "Why? This becomes a rule." before saving.
@@ -562,7 +566,8 @@ export type HomeActName =
   | 'needs_thought'
   | 'go_with_that'
   | 'not_this_week'
-  | 'step_done';
+  | 'step_done'
+  | 'book_block';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -655,7 +660,14 @@ export type HomeActRequest =
    * the step text now on the project, read here and never taken from the request). Writes no Project field and calls no refresh:
    * the browser queues the existing project refresh first. Undoable for 24 hours.
    */
-  | { action: 'step_done'; item_key: string };
+  | { action: 'step_done'; item_key: string }
+  /**
+   * Slice 4d, a needs-thought thread: Book 30 minutes. Picks his next free half hour (today or the next business day, 10:00 to 17:00
+   * his time, clear of meetings) and writes only the request and slot on his own home_owed_thread row; the machine makes a private
+   * block on his own calendar with no attendees. 409 book_off, book_not_ready, already_booked, or no_free_slot (nothing written).
+   * Undo within 24 hours: before the event exists it clears the request; after, it asks the machine to delete that one event.
+   */
+  | { action: 'book_block'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' }>;
@@ -685,6 +697,10 @@ export type HomeActErrorCode =
   | 'not_undoable' // 409: a record row, or an action with no stored before-state
   | 'no_suggestion' // 409: go_with_that on a thread with no suggested answer
   | 'already_drafted' // 409: draft_now on a thread whose Bast draft already covers the newest message
+  | 'book_off' // 409: book_block while the switch is off
+  | 'book_not_ready' // 409: book_block on a thread that is not a needs-thought row
+  | 'already_booked' // 409: book_block on a thread that already has a request or a block
+  | 'no_free_slot' // 409: book_block when no free half hour exists in the next two business days (nothing written)
   | 'not_found'; // 404: no such home_actions row for this user
 
 /** Error body (handleApiError's shape: { error, code }). 400 bodies carry Zod `details` instead of `code`. */
@@ -1057,6 +1073,10 @@ export interface RawHomeInputs {
   owed_send?: boolean;
   /** Slice 4b: U's presses on Send the draft in the last 24 hours that were not undone. Absent or [] when none. */
   owed_sends?: RawOwedSend[];
+  /** Slice 4d: HomeKeeperSettings.book_blocks for U. Absent or false = off (no settings row is off). */
+  book_blocks?: boolean;
+  /** Slice 4d: U's taps on Book 30 minutes in the last 24 hours that were not undone. Absent or [] when none. */
+  owed_books?: RawOwedBook[];
   /** Slice 6c: U's stored outside scan results that still belong on a row (item_key, plain summary, when it ran). Absent or [] when none. */
   outside_checks?: RawOutsideCheck[];
 }
@@ -1087,6 +1107,16 @@ export interface RawProjectStep {
   step_at: Date | null;
   /** The newest updated_at among the project's tasks, else the project's own updated_at. */
   last_activity_at: Date;
+}
+
+/** Slice 4d: one tap on "Book 30 minutes" (the slot as it was picked; the row's own columns say where the block stands now). */
+export interface RawOwedBook {
+  action_id: string;
+  item_key: string;
+  who: string;
+  start: Date;
+  pressed_at: Date;
+  undo_until: Date | null;
 }
 
 /** Slice 4b: one press on "Send the draft", with where its held outbox row stands. */

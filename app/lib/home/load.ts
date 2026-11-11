@@ -39,6 +39,7 @@ import { loadOutsideChecks } from './emergency/scan-store';
 import { loadProjectSteps } from './projects/load';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
 import { SEND_ACTION } from './owed/send-copy';
+import { BOOK_ACTION } from './owed/book-copy';
 import type {
   KeeperActionKind,
   RawArcRef,
@@ -50,6 +51,7 @@ import type {
   RawHeldProject,
   RawHomeInputs,
   RawKeeperLine,
+  RawOwedBook,
   RawOwedSend,
   RawProjectRef,
   RawRequirement,
@@ -548,6 +550,38 @@ async function loadOwedSend(db: PrismaClient, userId: string, now: Date): Promis
 }
 
 // ============================================================================
+// Slice 4d: Book 30 minutes
+// ============================================================================
+
+/** U's own switch (HomeKeeperSettings.book_blocks; no settings row is off) and U's taps on Book 30 minutes in the last 24 hours that were not undone. Reads only. */
+async function loadOwedBooks(db: PrismaClient, userId: string, now: Date): Promise<{ on: boolean; books: RawOwedBook[] }> {
+  const settings = await db.homeKeeperSettings.findUnique({ where: { user_id: userId }, select: { book_blocks: true } });
+  const on = settings?.book_blocks === true;
+  const actions = await db.homeAction.findMany({
+    where: { user_id: userId, action: BOOK_ACTION, undone_at: null, created_at: { gte: new Date(now.getTime() - SEND_LINE_MS) } },
+    select: { id: true, item_key: true, after: true, created_at: true, undo_until: true },
+    orderBy: { created_at: 'desc' },
+    take: 50,
+  });
+  const books: RawOwedBook[] = [];
+  for (const a of actions) {
+    const after = a.after && typeof a.after === 'object' && !Array.isArray(a.after) ? (a.after as Record<string, unknown>) : {};
+    const rec = after.book && typeof after.book === 'object' && !Array.isArray(after.book) ? (after.book as Record<string, unknown>) : {};
+    const start = typeof rec.start === 'string' ? new Date(rec.start) : null;
+    if (!a.item_key || !start || Number.isNaN(start.getTime())) continue;
+    books.push({
+      action_id: a.id,
+      item_key: a.item_key,
+      who: typeof rec.who === 'string' && rec.who ? rec.who : 'them',
+      start,
+      pressed_at: a.created_at,
+      undo_until: a.undo_until,
+    });
+  }
+  return { on, books };
+}
+
+// ============================================================================
 // Review sign-offs
 // ============================================================================
 
@@ -909,6 +943,7 @@ export async function loadHomeInputs(
 
   // After the parallel reads, so the earlier home_actions reads keep their order.
   const owedSend = await loadOwedSend(db, userId, now);
+  const owedBooks = await loadOwedBooks(db, userId, now);
   const outsideChecks = await loadOutsideChecks(db, userId);
 
   return {
@@ -934,6 +969,8 @@ export async function loadHomeInputs(
     weights,
     owed_send: owedSend.on,
     owed_sends: owedSend.sends,
+    book_blocks: owedBooks.on,
+    owed_books: owedBooks.books,
     outside_checks: outsideChecks,
   };
 }

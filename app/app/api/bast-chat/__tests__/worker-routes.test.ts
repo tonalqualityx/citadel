@@ -99,8 +99,8 @@ beforeEach(() => {
 
 describe('the eight worker routes', () => {
   it('are exactly the lane list (method and path)', () => {
-    // The keeper route has its own test file (worker/home-keeper/__tests__/route.test.ts and worker/home-keeper/summaries/__tests__/route.test.ts); the owed route has its own too (worker/owed/__tests__/route.test.ts), and so has home-watch with its ack and its scan result (worker/home-watch/__tests__/route.test.ts, worker/home-watch/ack/__tests__/route.test.ts and worker/home-watch/scan/__tests__/route.test.ts).
-    const lane = LANE_ROUTES['bast-chat'].filter((r) => r.pattern.startsWith('/api/bast-chat/worker/') && !r.pattern.startsWith('/api/bast-chat/worker/home-keeper') && r.pattern !== '/api/bast-chat/worker/owed' && !r.pattern.startsWith('/api/bast-chat/worker/home-watch')).map((r) => `${r.method} ${r.pattern}`).sort();
+    // The keeper route has its own test file (worker/home-keeper/__tests__/route.test.ts and worker/home-keeper/summaries/__tests__/route.test.ts); the owed route has its own too (worker/owed/__tests__/route.test.ts, and worker/owed/bookings/__tests__/route.test.ts for 4d), and so has home-watch with its ack and its scan result (worker/home-watch/__tests__/route.test.ts, worker/home-watch/ack/__tests__/route.test.ts and worker/home-watch/scan/__tests__/route.test.ts).
+    const lane = LANE_ROUTES['bast-chat'].filter((r) => r.pattern.startsWith('/api/bast-chat/worker/') && !r.pattern.startsWith('/api/bast-chat/worker/home-keeper') && !r.pattern.startsWith('/api/bast-chat/worker/owed') && !r.pattern.startsWith('/api/bast-chat/worker/home-watch')).map((r) => `${r.method} ${r.pattern}`).sort();
     expect(rows.map((r) => r.lane).sort()).toEqual(lane);
     expect(lane).toHaveLength(8);
   });

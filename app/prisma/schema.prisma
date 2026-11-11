@@ -4880,6 +4880,8 @@ model HomeKeeperSettings {
   emergency_slack Boolean  @default(false)
   // Home Slice 6c: the automatic read-only outside scan of a client site that went down or carries a security flag. Off until Mike says yes.
   outside_scan    Boolean  @default(false)
+  // Home Slice 4d: "Book 30 minutes", a private block on the owner's own calendar from a needs-thought row. Off until Mike says yes.
+  book_blocks     Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   @@map("home_keeper_settings")
@@ -4954,6 +4956,17 @@ model HomeOwedThread {
   short_draft_id        String?   @db.VarChar(64)
   short_draft_hash      String?   @db.VarChar(64)
   short_draft_text      String?   @db.Text
+  // Slice 4d: a private 30 minute block on his own calendar. book_requested_at is the pending request (booked_start and booked_end
+  // are the picked slot, cleared by a conflict so the next run picks again); booked_event_id is the Google event once the machine
+  // made it; book_undo_requested_at asks the machine to delete that one event. book_attempts and book_error are the machine's failures.
+  book_requested_at      DateTime?
+  booked_event_id        String?   @db.VarChar(255)
+  booked_start           DateTime?
+  booked_end             DateTime?
+  booked_at              DateTime?
+  book_undo_requested_at DateTime?
+  book_attempts          Int       @default(0)
+  book_error             String?   @db.VarChar(300)
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
   @@unique([user_id, thread_key])
