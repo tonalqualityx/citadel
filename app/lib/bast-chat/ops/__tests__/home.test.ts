@@ -157,3 +157,18 @@ describe('home op: Slice 6a', () => {
     await expect(op.undo(ctx() as any, { after: { home_action_id: 'abc' } } as any, {})).rejects.toThrow('A saved rule is removed');
   });
 });
+
+describe('home op: Slice 8b', () => {
+  const P = '99999999-9999-4999-8999-999999999999';
+  it('step_done marks only: it says so, reads the project name from the record, and the op never touches the refresh route', async () => {
+    h.db.project = { findUnique: vi.fn(async () => ({ name: 'Jack Gaughan Artist Site' })) };
+    const input = op.validate({ action: 'step_done', item_key: `step:${P}` });
+    expect(input).toEqual({ action: 'step_done', item_key: `step:${P}` });
+    expect(() => op.validate({ action: 'step_done', item_key: `step:${P}`, step_done_text: 'x' })).toThrow();
+    h.run.mockResolvedValue({ ok: true, action_id: '77777777-7777-4777-8777-777777777777', undo_until: null, item_key: `step:${P}`, message: 'Bast will read the project again in a few minutes.' });
+    const r = await op.run(ctx() as any, input, {});
+    expect(r.summary).toBe('Marked the Jack Gaughan Artist Site step as done.');
+    expect(r.summary).not.toMatch(/[\u2013\u2014]|priorit|overdue/i);
+    expect(h.db.project.findUnique).toHaveBeenCalledWith({ where: { id: P }, select: { name: true } });
+  });
+});

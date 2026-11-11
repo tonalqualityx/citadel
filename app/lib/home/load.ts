@@ -33,6 +33,7 @@ import {
 import { isItemKey } from './item-key';
 import { RULE_ACTION } from './emergency/copy';
 import { loadNotEmergencyRules } from './emergency/read';
+import { loadProjectSteps } from './projects/load';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
 import type {
   KeeperActionKind,
@@ -801,7 +802,7 @@ export async function loadHomeInputs(
   now: Date,
   opts: LoadHomeOptions = {}
 ): Promise<RawHomeInputs> {
-  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt, siteIncidents, notEmergencyRules, timezone] =
+  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt, siteIncidents, notEmergencyRules, projectSteps, timezone] =
     await Promise.all([
       loadTasks(db, userId),
       loadReviewFolds(db, userId),
@@ -817,6 +818,7 @@ export async function loadHomeInputs(
       loadDrafterFreshAt(db, userId),
       loadSiteIncidents(db, userId, now),
       loadNotEmergencyRules(db, userId),
+      loadProjectSteps(db, userId),
       resolveZone(db, userId, opts.timezone),
     ]);
 
@@ -839,5 +841,6 @@ export async function loadHomeInputs(
     timezone,
     site_incidents: siteIncidents,
     not_emergency_rules: notEmergencyRules,
+    project_steps: projectSteps,
   };
 }

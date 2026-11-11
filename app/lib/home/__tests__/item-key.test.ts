@@ -202,3 +202,15 @@ describe('Slice 6a keys: site and hands', () => {
     expect(itemKeySchema.safeParse('hands:week').success).toBe(true);
   });
 });
+
+describe('Slice 8b key: step', () => {
+  const P = '7aa4a01a-1111-4222-8333-944445555666';
+  it('step:<project uuid> round-trips and nothing else parses under that prefix', () => {
+    expect(parseItemKey(`step:${P}`)).toEqual({ kind: 'step', project_id: P });
+    expect(buildItemKey({ kind: 'step', project_id: P.toUpperCase() })).toBe(`step:${P}`);
+    expect(itemKeyKind(`step:${P}`)).toBe('step');
+    for (const bad of ['step:', 'step:none', 'step:not-a-uuid', `step:${P}:x`, `step: ${P}`]) expect(isItemKey(bad)).toBe(false);
+    expect(itemKeySchema.safeParse(`step:${P}`).success).toBe(true);
+    expect(() => buildItemKey({ kind: 'step', project_id: 'nope' })).toThrow();
+  });
+});

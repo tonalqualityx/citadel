@@ -66,6 +66,8 @@ const ITEM_STATE_SELECT = {
   card_summary_hash: true,
   card_summary_at: true,
   parked_at: true,
+  step_done_at: true,
+  step_done_text: true,
 } as const;
 
 /** Every home_item_state row for the user. */
@@ -122,6 +124,9 @@ export interface HomeItemStatePatch {
   card_summary_at?: Date | null;
   /** Slice 4c: written by Not now. */
   parked_at?: Date | null;
+  /** Slice 8b: "I did this" on a project next step. */
+  step_done_at?: Date | null;
+  step_done_text?: string | null;
 }
 
 /** A patch as Prisma wants it: a null card_checklist becomes a database NULL. */
@@ -182,6 +187,8 @@ export async function restoreItemState(
     read_hard_due_at: before.read_hard_due_at ?? null,
     read_hard_due_source: before.read_hard_due_source ?? null,
     dates_read_at: before.dates_read_at ?? null,
+    step_done_at: before.step_done_at ?? null,
+    step_done_text: before.step_done_text ?? null,
   };
   await upsertItemState(db, userId, itemKey, fields);
 }

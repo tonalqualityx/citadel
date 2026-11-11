@@ -4809,6 +4809,8 @@ model HomeItemState {
   card_summary_hash    String?   @db.VarChar(64)  // 2b, sha256 of the description it summarizes
   card_summary_at      DateTime?                  // 2b
   parked_at            DateTime?                  // 4c: when his Not now was tapped; a newer message from them wakes the row
+  step_done_at         DateTime?                  // 8b: when he tapped "I did this" on a project next step
+  step_done_text       String?   @db.Text         // 8b: the step text at that moment (a rewritten step shows again)
 
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt

@@ -48,7 +48,7 @@ import type {
 // ============================================================================
 
 /** The record kind behind an item; the prefix of its item key (see item-key.ts). */
-export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands';
+export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step';
 
 /**
  * How a row reads, set by select.ts (H4). One value per item.
@@ -63,7 +63,7 @@ export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' |
  * Clients use it for small presentation choices only (for example the gold rule on
  * emergencies). Section membership comes from HomeSections, never from this field.
  */
-export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands';
+export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step';
 
 /**
  * Every button id a row or card can carry. actions-for.ts (H4) decides which an item gets
@@ -125,7 +125,9 @@ export type HomeActionId =
   | 'not_lead'
   | 'treat_as_reply'
   | 'close_lead'
-  | 'open_short';
+  | 'open_short'
+  | 'open_project'
+  | 'step_done';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -430,7 +432,8 @@ export type HomeRestGroupKey =
   | 'older_threads' // qualifying threads whose newest open ask is over 21 days old
   | 'ventures' // other ventures
   | 'bast_stopped' // Slice 3: tasks Bast stopped on beyond the one that holds a Next slot
-  | 'hands'; // Slice 6a: tasks tagged hands or credential-rotation (they come as one weekly row, never one by one)
+  | 'hands' // Slice 6a: tasks tagged hands or credential-rotation (they come as one weekly row, never one by one)
+  | 'project_steps'; // Slice 8b: project next steps that are his and did not make Next
 
 /** Slice 2: one row inside an Everything else group. Every row has an owner and a check text. */
 export interface HomeRestItem {
@@ -545,7 +548,8 @@ export type HomeActName =
   | 'draft_now'
   | 'needs_thought'
   | 'go_with_that'
-  | 'not_this_week';
+  | 'not_this_week'
+  | 'step_done';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -632,7 +636,13 @@ export type HomeActRequest =
   /** Slice 4c, a lead: Keep it. Restarts the lead clock from now. Undoable. Writes only his home_owed_thread row. */
   | { action: 'keep_lead'; item_key: string }
   /** Slice 4c, a lead: Not a lead, then "Treat as a reply". The thread stops being a lead. Undoable. */
-  | { action: 'treat_as_reply'; item_key: string };
+  | { action: 'treat_as_reply'; item_key: string }
+  /**
+   * Slice 8b, a project next step row: I did this. Writes only his home_item_state row for the step (step_done_at, step_done_text =
+   * the step text now on the project, read here and never taken from the request). Writes no Project field and calls no refresh:
+   * the browser queues the existing project refresh first. Undoable for 24 hours.
+   */
+  | { action: 'step_done'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' }>;
@@ -949,6 +959,9 @@ export interface RawItemState {
   card_summary_at: Date | null;
   /** Slice 4c: when his Not now was tapped (null for a park from before 4c). A newer message from them wakes the row. */
   parked_at?: Date | null;
+  /** Slice 8b: when he tapped "I did this" on a project next step, and the step text then. */
+  step_done_at?: Date | null;
+  step_done_text?: string | null;
 }
 
 /** Today's home_day row for U. */
@@ -1020,6 +1033,22 @@ export interface RawHomeInputs {
   site_incidents: RawSiteIncident[];
   /** Slice 6a: U's confirmed "Not an emergency" rules (Decision lane home-emergency). */
   not_emergency_rules: NotEmergencyRule[];
+  /** Slice 8b: in-progress projects whose next step is his, written by Bast or by him. Read only. */
+  project_steps: RawProjectStep[];
+}
+
+/** Slice 8b: one project's next step, as the loader read it. */
+export interface RawProjectStep {
+  project_id: string;
+  project_name: string;
+  client: RawClientRef;
+  /** Project.next_step_text, unchanged (it starts with "Mike, " when Bast wrote it). */
+  text: string;
+  source: 'bast' | 'mike';
+  /** Project.next_step_at, or null. */
+  step_at: Date | null;
+  /** The newest updated_at among the project's tasks, else the project's own updated_at. */
+  last_activity_at: Date;
 }
 
 /** Slice 6a: a home_site_incident row plus what the screen needs from its site, client and mails. */

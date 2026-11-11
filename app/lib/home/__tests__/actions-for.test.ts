@@ -174,3 +174,16 @@ describe('actionsFor: Slice 6a', () => {
     expect(actionsFor({ ...base, kind: 'hands', filledFirst: true }).actions[0].filled).toBe(true);
   });
 });
+
+describe('Slice 8b: a project next step', () => {
+  it('Open the project, I did this, Not now; This matters more under More; no arc, no Done, no I\'ll do it now', () => {
+    const r = actionsFor({ ...base, kind: 'step' });
+    expect(ids(r.actions)).toEqual(['open_project', 'step_done', 'not_now']);
+    expect(r.actions.map((a) => a.label)).toEqual(['Open the project', 'I did this', 'Not now']);
+    expect(ids(r.more_actions)).toEqual(['matters_more']);
+  });
+  it('the top Next row fills the first button, and a third Not now withdraws Not now without a Let it go', () => {
+    expect(actionsFor({ ...base, kind: 'step', filledFirst: true }).actions[0]).toMatchObject({ id: 'open_project', filled: true });
+    expect(ids(actionsFor({ ...base, kind: 'step', parkCount: 3 }).actions)).toEqual(['open_project', 'step_done']);
+  });
+});

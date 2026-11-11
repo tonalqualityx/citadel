@@ -11,6 +11,7 @@
  * and stay that way: this is the worker-side door. No reach check can hit (the worker never reads these rows).
  *
  * Record: target_id is the home_actions row id. before and after hold that row's own before and after.
+ * Slice 8b: `step_done` only marks the step (home_item_state); the chat never queues the project refresh. That call is the screen's own.
  * Undo: `runHomeUndo`, with its own refusals ("Today's list changed since, so this can't be undone.").
  */
 import type { BastChatAction } from '@prisma/client';
@@ -78,6 +79,10 @@ async function describeItem(db: OpDb, key: string): Promise<Described> {
     }
     case 'hands':
       return { title: "this week's hands", security: false };
+    case 'step': {
+      const pr = await db.project.findUnique({ where: { id: p.project_id }, select: { name: true } });
+      return { title: pr?.name ?? 'that project', security: false };
+    }
   }
 }
 
@@ -121,6 +126,7 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   let line: OpLine;
   if (a === 'not_now') line = { op: 'home_act', action: 'not_now', title: d.title, until };
   else if (a === 'not_emergency') line = { op: 'home_act', action: 'not_emergency', title: d.title, security: d.security };
+  else if (a === 'step_done') line = { op: 'home_act', action: 'step_done', title: d.title };
   else line = { op: 'home_act', action: a, title: d.title };
   return opSummary(line, now);
 }

@@ -301,6 +301,8 @@ export function useHomeArcActions(): HomeArcActions {
 export interface HomeItemActionOptions {
   /** Opens the task peek drawer (TaskPeekProvider) for open_task and a link-less open_wait. */
   openTask?: (taskId: string) => void;
+  /** Slice 8b: opens the project drawer on his screen for open_project. Without it the full project page opens. */
+  openProject?: (projectId: string) => void;
 }
 
 export interface HomeRunOptions {
@@ -329,6 +331,9 @@ export interface HomeItemActionApi {
   busy: boolean;
 }
 
+/** The project refresh was refused, so nothing was marked. The failure toast is already shown. */
+class StepRefreshFailed extends Error {}
+
 type ItemState = { key: string; action: HomeActionId } | null;
 
 export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItemActionApi {
@@ -337,6 +342,8 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
   const act = useHomeAct();
   const openTaskRef = useRef(options.openTask);
   openTaskRef.current = options.openTask;
+  const openProjectRef = useRef(options.openProject);
+  openProjectRef.current = options.openProject;
 
   const [pending, setPending] = useState<ItemState>(null);
   const [status, setStatus] = useState<{ key: string; text: string } | null>(null);
@@ -465,6 +472,23 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           void recordQuietly(item, action.id);
           return true;
         }
+        // Slice 8b: a project next step. Open the drawer; or queue the existing project refresh (the Seeing Stone's Refresh call),
+        // then mark the step. If the refresh is refused nothing is marked.
+        case 'open_project': {
+          if (openProjectRef.current) openProjectRef.current(src.id);
+          else router.push(`/projects/${src.id}`);
+          return true;
+        }
+        case 'step_done': {
+          try {
+            await apiClient.post(`/oracle/projects/${src.id}/refresh`);
+          } catch {
+            showToast.error(HOME_FAILURE_TEXT);
+            throw new StepRefreshFailed();
+          }
+          await act({ action: 'step_done', item_key: item.key });
+          return true;
+        }
         case 'not_now':
           await act({ action: 'not_now', item_key: item.key });
           return true;
@@ -526,7 +550,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

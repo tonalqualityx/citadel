@@ -52,7 +52,8 @@ function HomeScreenInner() {
   const { data, isLoading, isError, refetch } = useHome();
   const projectsQuery = useOracleProjects();
   const { openTaskPeek } = useTaskPeek();
-  const itemActions = useHomeItemAction({ openTask: openTaskPeek });
+  const [openProjectId, setOpenProjectId] = React.useState<string | null>(null);
+  const itemActions = useHomeItemAction({ openTask: openTaskPeek, openProject: setOpenProjectId });
   const act = useHomeAct();
   const saveRule = useHomeRule();
   // Only the keeper's Handled lines undo from here, so the toast says what happened to them.
@@ -62,7 +63,6 @@ function HomeScreenInner() {
   // undefined = nothing chosen yet (open the tile's first row); null = nothing to open.
   // `index` is where it sat, so a removed row hands the card to the row now in its place.
   const [chosen, setChosen] = React.useState<Chosen | undefined>(undefined);
-  const [openProjectId, setOpenProjectId] = React.useState<string | null>(null);
   const [showLists, setShowLists] = React.useState(false);
 
   const projects = projectsQuery.data?.projects ?? [];

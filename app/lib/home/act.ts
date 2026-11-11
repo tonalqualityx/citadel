@@ -33,6 +33,7 @@ import { clearOwedRequest, markOwed, OWED_ACTION, requestOwed, undoOwedMark, typ
 import { KEEP_LEAD_MESSAGE, TREAT_AS_REPLY_MESSAGE } from './owed/copy';
 import type { OwedRequestKind } from './owed/state';
 import { selectHome } from './select';
+import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
 import {
   appendHomeAction,
@@ -131,6 +132,8 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   // Slice 6a: park the Monday hands row. There is deliberately no action here that saves a "Not an emergency" rule: that is
   // POST /api/home/rule (browser session only), so the chat can never reach it.
   z.object({ action: z.literal('not_this_week'), item_key: itemKeySchema }).strict(),
+  // Slice 8b: I did this on a project next step. Writes only his home_item_state row; the project's refresh is the browser's own call.
+  z.object({ action: z.literal('step_done'), item_key: itemKeySchema }).strict(),
 ]);
 
 export const homeUndoSchema = z.object({ action_id: z.string().uuid() }).strict();
@@ -264,6 +267,7 @@ const DATE_FIELDS: ReadonlySet<StateFieldName> = new Set<StateFieldName>([
   'dates_read_at',
   'card_summary_at',
   'parked_at',
+  'step_done_at',
 ]);
 
 /** Every field an action may change, with its default on a row that does not exist. */
@@ -288,6 +292,8 @@ const STATE_DEFAULTS: Record<string, number | string | null> = {
   card_summary_hash: null,
   card_summary_at: null,
   parked_at: null,
+  step_done_at: null,
+  step_done_text: null,
 };
 
 /** A stored field value: a number, a string, null, or (card_checklist only) plain JSON. */
@@ -387,6 +393,8 @@ export interface ActContext {
   day: RawHomeDay | null;
   /** For swap and lighter: the rewritten day from today.ts dayForGroup (null = unknown group). */
   targetDay?: ProposedDay | null;
+  /** For step_done: Project.next_step_text now, read inside the transaction (never taken from the request). */
+  stepText?: string | null;
 }
 
 interface StateWrite {
@@ -558,6 +566,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       };
 
     case 'arc_add': {
+      if (parseItemKey(req.item_key)?.kind === 'step') throw new ApiError('A project next step is not added to the arc.', 400);
       const day = requireDay(ctx, req.group_key);
       if (day.step_item_keys.includes(req.item_key) || day.quick_item_keys.includes(req.item_key)) {
         throw new HomeActError('already_in_arc');
@@ -696,6 +705,18 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       };
     }
 
+    case 'step_done': {
+      if (parseItemKey(req.item_key)?.kind !== 'step') throw new HomeActError('not_found', 'That is not a project next step.');
+      if (ctx.stepText == null) throw new HomeActError('not_found', 'That project step is not yours any more.');
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { step_done_at: now, step_done_text: stepTextToStore(ctx.stepText) } }],
+        message: STEP_DONE_MESSAGE,
+      };
+    }
+
     case 'keep_lead':
     case 'treat_as_reply': {
       if (parseItemKey(req.item_key)?.kind !== 'thread') throw new HomeActError('not_found', 'That is not an email thread.');
@@ -811,7 +832,20 @@ export async function runHomeAct(
         : Promise.resolve(null),
     ]);
 
-    const plan = planAct(req, { now: opts.now, timezone: opts.timezone, state, pinned, day, targetDay });
+    // Slice 8b: the step text is read here, as the project holds it now, and only for a step that is his.
+    let stepText: string | null = null;
+    if (req.action === 'step_done') {
+      const parsed = parseItemKey(req.item_key);
+      if (parsed?.kind === 'step') {
+        const project = await tx.project.findFirst({
+          where: { id: parsed.project_id, status: 'in_progress', next_step_owner_id: userId, next_step_source: { in: ['bast', 'mike'] } },
+          select: { next_step_text: true },
+        });
+        stepText = project?.next_step_text ?? null;
+      }
+    }
+
+    const plan = planAct(req, { now: opts.now, timezone: opts.timezone, state, pinned, day, targetDay, stepText });
 
     for (const w of plan.stateWrites) {
       await upsertItemState(tx, userId, w.item_key, w.patch);
@@ -1013,7 +1047,9 @@ function isRestMark(row: RawItemState): boolean {
     (row.read_hard_due_at ?? null) === null &&
     (row.dates_read_at ?? null) === null &&
     (row.card_summary ?? null) === null &&
-    (row.parked_at ?? null) === null
+    (row.parked_at ?? null) === null &&
+    (row.step_done_at ?? null) === null &&
+    (row.step_done_text ?? null) === null
   );
 }
 
@@ -1056,6 +1092,8 @@ async function undoStateRecord(db: HomeDb, userId: string, rec: StateRecord): Pr
         dates_read_at: null,
         card_summary: null,
         parked_at: null,
+        step_done_at: null,
+        step_done_text: null,
       },
     });
   }

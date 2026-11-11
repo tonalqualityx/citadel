@@ -232,7 +232,7 @@ describe('loadHomeInputs: tasks', () => {
     expect(arg.by).toEqual(['project_id']);
     expect(arg.where.assignee_id).toBe(U);
     expect(arg.where.project).toEqual({ status: { in: ['quote', 'queue', 'suspended'] } });
-    expect(db.project.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['p1', 'p2'] } });
+    expect(db.project.findMany.mock.calls.map((c) => c[0].where)).toContainEqual({ id: { in: ['p1', 'p2'] } });
     expect(r.held_projects).toEqual([
       { project: { id: 'p2', name: 'Grok' }, count: 3 },
       { project: { id: 'p1', name: 'Alpha' }, count: 1 },
@@ -242,7 +242,8 @@ describe('loadHomeInputs: tasks', () => {
 
   it('skips the project read and returns zero when nothing is held', async () => {
     const r = await loadHomeInputs(asDb(db), U, NOW);
-    expect(db.project.findMany).not.toHaveBeenCalled();
+    // Only Slice 8b's own next-step read touches projects; the held-project name read is skipped.
+    expect(db.project.findMany.mock.calls.map((c) => c[0].where)).not.toContainEqual(expect.objectContaining({ id: expect.anything() }));
     expect(r.held_projects).toEqual([]);
     expect(r.held_project_task_count).toBe(0);
   });

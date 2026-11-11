@@ -370,3 +370,26 @@ export function scoreSite(site: { client: { status: string } | null; started_at:
 export function scoreHands(now: Date): Score {
   return finish({ clientTrust: 0, money: 0, unblocks: 0, hardDate: null, waitingSince: null, freshAt: null, venture: false }, now);
 }
+
+/**
+ * Slice 8b: a project's next step that is his. Client trust comes from the project's client; the person-waiting clock is the
+ * project's last task activity (the step itself is rewritten nightly). No money, no unblocks, no hard date: it enters Next only by
+ * the normal class and urgency bands.
+ */
+export function scoreStep(
+  step: { client: { status: string; name?: string | null }; project_name?: string | null; last_activity_at: Date },
+  now: Date,
+): Score {
+  return finish(
+    {
+      clientTrust: step.client.status === 'active' ? IMPORTANCE.clientTrust.activeClient : 0,
+      money: 0,
+      unblocks: 0,
+      hardDate: null,
+      waitingSince: step.last_activity_at,
+      freshAt: null,
+      venture: isVenture({ client_name: step.client.name, project_name: step.project_name }),
+    },
+    now,
+  );
+}

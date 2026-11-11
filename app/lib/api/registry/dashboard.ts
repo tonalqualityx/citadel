@@ -72,7 +72,7 @@ export const dashboardEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['admin'],
         bodySchema: [
-          { name: 'action', type: 'string', required: true, description: 'One of: not_now, matters_more, not_emergency, not_this_week, pin, stop, done_pin, arc_add, arc_remove, arc_reorder, swap, lighter, record' },
+          { name: 'action', type: 'string', required: true, description: 'One of: not_now, matters_more, not_emergency, not_this_week, step_done, pin, stop, done_pin, arc_add, arc_remove, arc_reorder, swap, lighter, record' },
           { name: 'item_key', type: 'string', required: false, description: 'Item key such as task:<uuid>, review:<uuid>, session:<id>, wait:<uuid>, thread:<account>:<thread id>, crisis:<uuid>. Required for every action except swap, lighter and arc_reorder.' },
           { name: 'switch', type: 'boolean', required: false, description: 'pin only: true moves the pin from another item. Without it a second pin answers 409 pin_conflict.' },
           { name: 'note', type: 'string', required: false, description: 'stop only: where the work was left off. Trimmed; null or empty clears it.' },

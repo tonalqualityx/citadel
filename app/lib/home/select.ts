@@ -66,6 +66,7 @@ import {
   reviewKey,
   sessionKey,
   siteKey,
+  stepKey,
   taskKey,
   threadKey,
   waitKey,
@@ -89,6 +90,8 @@ import { isLeadNow, leadResurfacedPastPark, owedClock, weekdayIn, wokeByNewMessa
 import { mergeJoinedThreads, repliedElsewhere, type JoinRow } from './owed/join';
 import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
 import { cardSummary, truncateWords } from './plain-text';
+import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
+import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
 import {
   CAPS,
@@ -119,6 +122,7 @@ import {
   scoreReview,
   scoreSite,
   scoreSession,
+  scoreStep,
   scoreTask,
   scoreThread,
   scoreWait,
@@ -145,6 +149,7 @@ import type {
   RawHomeInputs,
   RawItemState,
   RawProjectRef,
+  RawProjectStep,
   RawReviewFold,
   RawSessionAsk,
   RawSiteIncident,
@@ -1003,12 +1008,67 @@ function buildHandsRow(count: number, minutes: number, title: string, taskIds: s
   };
 }
 
+/** Slice 8b: one project's next step as a row. The text is Bast's (or his own); a leading "Mike, " is dropped. */
+function buildStep(step: RawProjectStep, now: Date, timeZone: string, still: boolean): Draft {
+  const score = scoreStep({ client: step.client, project_name: step.project_name, last_activity_at: step.last_activity_at }, now);
+  const client: HomeRef = { id: step.client.id, name: displayText(step.client.name) || step.client.name };
+  const project: HomeRef = { id: step.project_id, name: displayText(step.project_name) || step.project_name };
+  const minutes = MINUTES.taskDefault;
+  const title = stepTitle(step.text);
+  const links: { label: string; href: string }[] = [
+    { label: `Project: ${project.name}`, href: `/projects/${project.id}` },
+    { label: `Client: ${client.name}`, href: `/clients/${client.id}` },
+  ];
+  const wrote = nextStepSource({ source: step.source, at: step.step_at ? step.step_at.toISOString() : null }, now, timeZone);
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: stepKey(step.project_id),
+    type: 'step',
+    title,
+    who: null,
+    age: waitedFor(step.last_activity_at, now),
+    why_now: stepWhyNow(project.name, step.last_activity_at, now, timeZone, still),
+    hard_date: null,
+    effort: effortWords(minutes),
+    minutes,
+    opened: {
+      summary: wrote ? `${title} ${wrote}` : title,
+      summary_by: null,
+      done_when: [],
+      how: null,
+      links,
+      task_id: null,
+      left_off_note: null,
+    },
+    source: { kind: 'step', id: step.project_id, ids: [step.project_id], task_status: null },
+    client,
+    project,
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'step',
+      item,
+      rule: null,
+      score,
+      since: step.last_activity_at,
+      personWaiting: true,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, project, null, { clients: new Map([[client.id, client]]), projects: new Map([[project.id, project]]) }),
+      arcId: null,
+    },
+    ctx: {},
+  };
+}
+
 // ============================================================================
 // Footer lines and buttons (need the final placement)
 // ============================================================================
 
 function ifIgnored(c: Candidate): string {
   if (c.botTask) return IF_IGNORED.botStopped;
+  if (c.kind === 'step') return STEP_IF_IGNORED;
   if (c.kind === 'hands') return HANDS_IF_IGNORED;
   if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
   switch (c.kind) {
@@ -1029,6 +1089,7 @@ function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.pinned) return REASON.working;
   if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.kind === 'hands') return HANDS_REASON;
+  if (c.kind === 'step') return stepReason(c.item.project?.name ?? '');
   if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
   if (c.boosted) return REASON.boosted;
   switch (c.section) {
@@ -1119,7 +1180,7 @@ export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived'
   return false;
 }
 
-const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread'];
+const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step'];
 
 /** One Everything else row for an item (check text per the plan's table). */
 function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date): HomeRestItem {
@@ -1135,6 +1196,8 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
     text = REST_CHECK.venture;
   } else if (group === 'hands') {
     text = REST_CHECK.handsRow;
+  } else if (group === 'project_steps') {
+    text = meetsNextRule(c) ? REST_CHECK.joinsNext : REST_CHECK.stepHeld;
   } else if (c.kind === 'site') {
     text = SITE_RULED_CHECK;
   } else if (c.kind === 'crisis') {
@@ -1338,6 +1401,53 @@ export function selectHome(input: SelectInput): SelectResult {
     }
   }
 
+  // Slice 8b: a project's next step is a row only while the project has nothing else of his in view (one row per project). Steps
+  // are placed after everyone else, so they never take a slot a real item qualified for and never change another item's place.
+  const projectsInView = new Set<string>();
+  for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) if (c.item.project) projectsInView.add(c.item.project.id);
+  const stepStill = new Set<string>();
+  const stepRows = raw.project_steps.filter((s) => {
+    const v = stepVisibility(s, states.get(stepKey(s.project_id)), now);
+    if (v === 'still') stepStill.add(s.project_id);
+    return v !== 'hidden';
+  });
+  for (const s of dedupeSteps(stepRows, projectsInView)) {
+    const d = buildStep(s, now, raw.timezone, stepStill.has(s.project_id));
+    const st = states.get(d.cand.key);
+    const c: Candidate = {
+      ...d.cand,
+      rule: null,
+      boosted: !!st?.boosted_at,
+      fresh: false,
+      arrived: false,
+      botTask: false,
+      clockDue: false,
+      unpark: false,
+      parkedBy: null,
+      parked: false,
+      pinned: false,
+      shown: false,
+      inView: false,
+      section: 'rest',
+      restGroup: 'project_steps',
+      state: st,
+    };
+    const vw = st?.view_at;
+    c.parked = !!vw && vw.getTime() > now.getTime();
+    c.parkedBy = c.parked ? (st?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
+    candidates.push(c);
+    ctxByKey.set(c.key, d.ctx);
+    if (c.parked) {
+      c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
+    } else if (c.score.venture && !c.boosted) {
+      c.restGroup = 'ventures';
+    } else if (meetsNextRule(c)) {
+      c.section = 'next';
+      c.restGroup = null;
+      nextAll.push(c);
+    }
+  }
+
   for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) c.inView = true;
 
   needs.sort(emergencyCompare);
@@ -1391,7 +1501,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const next = nextAll.slice(0, nextSlots);
   for (const c of nextAll.slice(nextSlots)) {
     c.section = 'rest';
-    c.restGroup = 'waiting_turn';
+    c.restGroup = c.kind === 'step' ? 'project_steps' : 'waiting_turn';
   }
   if (handsCand) next.unshift(handsCand);
   for (const c of [...needs, ...working, ...leads, ...mail, ...next]) c.shown = true;
@@ -1428,6 +1538,7 @@ export function selectHome(input: SelectInput): SelectResult {
     ventures: 0,
     bast_stopped: 0,
     hands: 0,
+    project_steps: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
 
@@ -1442,6 +1553,7 @@ export function selectHome(input: SelectInput): SelectResult {
     ventures: [],
     bast_stopped: [],
     hands: [],
+    project_steps: [],
   };
   const restCands = candidates.filter((c) => c.section === 'rest' && c.restGroup !== null);
   const byDay = (a: Candidate, b: Candidate) =>
@@ -1498,6 +1610,7 @@ export function selectHome(input: SelectInput): SelectResult {
     'older_threads',
     'ventures',
     'bast_stopped',
+    'project_steps',
     'hands',
   ];
   const groups: HomeEverythingElseGroup[] = order

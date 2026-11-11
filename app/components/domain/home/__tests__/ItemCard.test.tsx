@@ -286,3 +286,34 @@ describe('ItemCard: Slice 4c leads and short drafts', () => {
     fireEvent.click(screen.getByText('More'));
   });
 });
+
+describe('ItemCard: a project next step (Slice 8b)', () => {
+  it('shows the step with its two lines, its three buttons, This matters more under More, and the plan footer', () => {
+    const item = mkItem('step:p1', {
+      type: 'step',
+      title: 'Email Jack to accept the seven pages on the review site.',
+      who: null,
+      age: '21 days',
+      why_now: 'Jack Gaughan Artist Site · quiet 21 days',
+      actions: [
+        { id: 'open_project', label: 'Open the project', filled: true, href: null },
+        { id: 'step_done', label: 'I did this', filled: false, href: null },
+        { id: 'not_now', label: 'Not now', filled: false, href: null },
+      ],
+      more_actions: [{ id: 'matters_more', label: 'This matters more', filled: false, href: null }],
+      default_if_ignored: 'Stays here. Bast reads the project again tonight and rewrites this step.',
+      reason: 'The next step on Jack Gaughan Artist Site is yours.',
+      project: { id: 'p1', name: 'Jack Gaughan Artist Site' },
+      source: { kind: 'step', id: 'p1', ids: ['p1'], task_status: null },
+    });
+    const onAction = vi.fn();
+    const { container } = render(<ItemCard {...base} item={item} onAction={onAction} />);
+    expect(screen.getByText('Jack Gaughan Artist Site · quiet 21 days')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'I did this' }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ id: 'step_done' }), item);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(screen.getByRole('button', { name: 'This matters more' })).toBeInTheDocument();
+    expect(container.textContent).toContain("Why it's here: The next step on Jack Gaughan Artist Site is yours.");
+    expect(container.textContent).toContain('Stays here. Bast reads the project again tonight and rewrites this step.');
+  });
+});

@@ -198,6 +198,8 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   treat_as_reply: 'Treat as a reply',
   close_lead: 'Close it',
   open_short: 'Open the short one',
+  open_project: 'Open the project',
+  step_done: 'I did this',
 };
 
 /** "Approve all 39". */
@@ -394,6 +396,7 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   ventures: { label: 'Other ventures', owner: 'You, other hat' },
   bast_stopped: { label: 'Stopped with Bast, waiting on you', owner: 'Bast' },
   hands: { label: "This week's hands", owner: 'You' },
+  project_steps: { label: 'Project next steps', owner: 'You' },
 };
 
 /**
@@ -437,6 +440,8 @@ export const REST_CHECK = {
   crisisCleared: 'Marked not an emergency. Open it to close it.',
   /** Slice 6a: a hands task, listed in Everything else; it is done from the Monday row. */
   handsRow: 'Comes up in the Monday hands row',
+  /** Slice 8b: a project next step that does not meet the Next bands (its client is not active); only his word brings it forward. */
+  stepHeld: 'Stays here until you bring it forward',
 } as const;
 
 export function whenProjectStarts(project: string): string {

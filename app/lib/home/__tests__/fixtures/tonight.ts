@@ -203,6 +203,8 @@ export function makeState(item_key: string, over: Partial<RawItemState> = {}): R
     card_summary_hash: null,
     card_summary_at: null,
     parked_at: null,
+    step_done_at: null,
+    step_done_text: null,
     ...over,
   };
 }
@@ -227,6 +229,7 @@ export function makeInputs(over: Partial<RawHomeInputs> = {}): RawHomeInputs {
     timezone: 'America/New_York',
     site_incidents: [],
     not_emergency_rules: [],
+    project_steps: [],
     ...over,
   };
 }

@@ -163,6 +163,10 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
     case 'hands':
       primary.push(button('not_this_week'));
       break;
+    case 'step':
+      // Open the drawer, or say it is done (the browser queues the project refresh first). Not now and This matters more come from below.
+      primary.push(button('open_project'), button('step_done'));
+      break;
   }
   return { primary, extras };
 }
@@ -188,7 +192,7 @@ export function actionsFor(input: ActionsInput): ActionsOutput {
   }
 
   if (!input.emergency && !input.pinned) more.push(button('matters_more'));
-  if (!input.pinned && !input.botTask) more.push(button('add_to_arc'));
+  if (!input.pinned && !input.botTask && input.kind !== 'step') more.push(button('add_to_arc'));
 
   // Over the cap: the overflow goes under More, keeping order.
   while (visible.length > CAPS.visibleActions) more.unshift(visible.pop() as HomeItemAction);

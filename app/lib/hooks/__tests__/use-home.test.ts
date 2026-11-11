@@ -444,3 +444,49 @@ describe('Slice 6a: rules, the hands row and open_site', () => {
     open.mockRestore();
   });
 });
+
+describe('Slice 8b: a project next step', () => {
+  const P = '99999999-9999-4999-8999-999999999999';
+  const row = () => item({ key: `step:${P}`, type: 'step', project: { id: P, name: 'Jack' } }, { kind: 'step', id: P, ids: [P], task_status: null });
+
+  it('I did this queues the existing project refresh first, then posts step_done, in that order', async () => {
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'step_done' }, row())).toBe(true);
+    });
+    const paths = api.post.mock.calls.map((c) => c[0]);
+    expect(paths.indexOf(`/oracle/projects/${P}/refresh`)).toBe(0);
+    expect(paths[1]).toBe('/home/act');
+    expect(api.post.mock.calls[1][1]).toEqual({ action: 'step_done', item_key: `step:${P}` });
+    expect(toasts.success).toHaveBeenCalledWith('Back tomorrow at 9:00.', expect.anything());
+  });
+
+  it('a refused refresh marks nothing and says so once', async () => {
+    api.post.mockImplementation(async (path: string) => {
+      if (path.includes('/refresh')) throw new Error('nope');
+      return okAct;
+    });
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'step_done' }, row())).toBe(false);
+    });
+    expect(postsOf('step_done')).toHaveLength(0);
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenCalledWith(HOME_FAILURE_TEXT);
+  });
+
+  it('Open the project opens the drawer through the callback, or the project page without one; it calls no refresh', async () => {
+    const open = vi.fn();
+    const { result } = renderHook(() => useHomeItemAction({ openProject: open }), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'open_project' }, row())).toBe(true);
+    });
+    expect(open).toHaveBeenCalledWith(P);
+    const bare = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      await bare.result.current.run({ id: 'open_project' }, row());
+    });
+    expect(router.push).toHaveBeenCalledWith(`/projects/${P}`);
+    expect(api.post.mock.calls.some((c) => String(c[0]).includes('/refresh'))).toBe(false);
+  });
+});

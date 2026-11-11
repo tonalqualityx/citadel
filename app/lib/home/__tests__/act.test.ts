@@ -45,6 +45,7 @@ function makeDb() {
   const days: Row[] = [];
   const actions: Row[] = [];
   const owed: Row[] = [];
+  const projects: Row[] = [];
   let seq = 0;
   const stateDefaults = {
     park_count: 0,
@@ -67,6 +68,8 @@ function makeDb() {
     card_summary_hash: null,
     card_summary_at: null,
     parked_at: null,
+    step_done_at: null,
+    step_done_text: null,
     first_seen_at: new Date('2026-11-01T00:00:00Z'),
     last_shown_at: null,
   };
@@ -114,6 +117,25 @@ function makeDb() {
         found.forEach((r) => Object.assign(r, data));
         return { count: found.length };
       }),
+    },
+    projects,
+    project: {
+      findFirst: vi.fn(async ({ where }: { where: Row }) => {
+        const r = projects.find(
+          (p) =>
+            p.id === where.id &&
+            p.status === where.status &&
+            p.next_step_owner_id === where.next_step_owner_id &&
+            ((where.next_step_source as { in: string[] }).in as string[]).includes(p.next_step_source as string),
+        );
+        return r ? { next_step_text: r.next_step_text } : null;
+      }),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      upsert: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     task: shared(),
     arc: shared(),
@@ -233,6 +255,8 @@ function addState(db: Db, key: string, over: Row = {}) {
     card_summary_hash: null,
     card_summary_at: null,
     parked_at: null,
+    step_done_at: null,
+    step_done_text: null,
     first_seen_at: new Date('2026-11-01T00:00:00Z'),
     last_shown_at: null,
     ...over,
@@ -1116,5 +1140,71 @@ describe('Slice 6a: not_this_week, and no action saves a rule', () => {
     });
     await expect(runHomeUndo(db as unknown as PrismaClient, U, 'r1', NOW)).rejects.toMatchObject({ code: 'not_undoable', statusCode: 409 });
     expect(db.actions[0].undone_at).toBeNull();
+  });
+});
+
+describe('Slice 8b: step_done', () => {
+  const P = '99999999-9999-4999-8999-999999999999';
+  const STEP = `step:${P}`;
+  const later = new Date(NOW.getTime() + 3600 * 1000);
+  const mine = { id: P, status: 'in_progress', next_step_owner_id: U, next_step_source: 'bast', next_step_text: 'Mike, email Jack to accept the pages.' };
+
+  it('writes only step_done_at and step_done_text on his own state row, reading the text from the project', async () => {
+    const db = makeDb();
+    db.projects.push({ ...mine });
+    const res = await runHomeAct(asPrisma(db), U, { action: 'step_done', item_key: STEP }, OPTS);
+    expect(res.message).toBe('Bast will read the project again in a few minutes.');
+    expect(res.undo_until).not.toBeNull();
+    expect(db.states).toHaveLength(1);
+    expect(db.states[0]).toMatchObject({ user_id: U, item_key: STEP, step_done_at: NOW, step_done_text: 'Mike, email Jack to accept the pages.' });
+    // No project field changed and no other shared record was touched.
+    for (const m of [db.project, db.task, db.arc, db.wait, db.emailAsk]) {
+      for (const [name, fn] of Object.entries(m)) if (name !== 'findFirst') expect(fn).not.toHaveBeenCalled();
+    }
+    expect(db.actions).toHaveLength(1);
+    expect(db.actions[0]).toMatchObject({ action: 'step_done', item_key: STEP });
+  });
+
+  it('refuses a step that is not his, a project that is not in progress, and a key that is not a step', async () => {
+    const db = makeDb();
+    db.projects.push({ ...mine, next_step_owner_id: OTHER });
+    await expect(runHomeAct(asPrisma(db), U, { action: 'step_done', item_key: STEP }, OPTS)).rejects.toMatchObject({ code: 'not_found' });
+    db.projects[0] = { ...mine, status: 'review' };
+    await expect(runHomeAct(asPrisma(db), U, { action: 'step_done', item_key: STEP }, OPTS)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(runHomeAct(asPrisma(db), U, { action: 'step_done', item_key: T1 }, OPTS)).rejects.toMatchObject({ code: 'not_found' });
+    expect(db.states).toHaveLength(0);
+    expect(db.actions).toHaveLength(0);
+  });
+
+  it('takes no text from the request: an extra field is a 400', () => {
+    expect(homeActSchema.safeParse({ action: 'step_done', item_key: STEP }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'step_done', item_key: STEP, step_done_text: 'x' }).success).toBe(false);
+    expect(homeActSchema.safeParse({ action: 'step_done', item_key: STEP, project_id: P }).success).toBe(false);
+  });
+
+  it('Undo within 24 hours removes the row it created, and the window closes after', async () => {
+    const db = makeDb();
+    db.projects.push({ ...mine });
+    const res = await runHomeAct(asPrisma(db), U, { action: 'step_done', item_key: STEP }, OPTS);
+    await runHomeUndo(asPrisma(db), U, res.action_id, later);
+    expect(db.states).toHaveLength(0);
+    const db2 = makeDb();
+    db2.projects.push({ ...mine });
+    const r2 = await runHomeAct(asPrisma(db2), U, { action: 'step_done', item_key: STEP }, OPTS);
+    await expect(runHomeUndo(asPrisma(db2), U, r2.action_id, new Date(NOW.getTime() + 25 * 3600 * 1000))).rejects.toMatchObject({ code: 'undo_expired' });
+  });
+
+  it('Undo puts back an earlier step_done on a row that already existed', async () => {
+    const db = makeDb();
+    db.projects.push({ ...mine });
+    addState(db, STEP, { boosted_at: NOW, step_done_at: new Date('2026-11-01T00:00:00Z'), step_done_text: 'old' });
+    const res = await runHomeAct(asPrisma(db), U, { action: 'step_done', item_key: STEP }, OPTS);
+    expect(db.states[0].step_done_text).toBe('Mike, email Jack to accept the pages.');
+    await runHomeUndo(asPrisma(db), U, res.action_id, later);
+    expect(db.states[0]).toMatchObject({ step_done_text: 'old', step_done_at: new Date('2026-11-01T00:00:00Z'), boosted_at: NOW });
+  });
+
+  it('a step is never added to the arc', () => {
+    expect(() => planAct({ action: 'arc_add', item_key: STEP, group_key: G, origin: 'in_view' }, { now: NOW, timezone: TZ, state: null, pinned: null, day: null })).toThrow();
   });
 });
