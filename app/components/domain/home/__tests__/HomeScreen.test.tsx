@@ -36,6 +36,17 @@ vi.mock('@/lib/contexts/task-peek-context', () => ({
   TaskPeekProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useTaskPeek: () => ({ openTaskPeek: vi.fn() }),
 }));
+const cal = vi.hoisted(() => ({ data: undefined as unknown }));
+vi.mock('@/lib/hooks/use-home-calendar', () => ({ useHomeCalendar: () => ({ data: cal.data }) }));
+vi.mock('../CalendarDrawer', () => ({
+  CalendarDrawer: (props: { eventId: string | null; renderItem: (item: HomeItem) => React.ReactNode; onOpenProject: (id: string) => void; onClose: () => void }) => (
+    <div data-testid="cal-drawer">
+      {props.eventId ? `meeting:${props.eventId}` : 'meeting closed'}
+      {props.eventId ? <div data-testid="cal-drawer-item">{props.renderItem(mkItem('task:c1'))}</div> : null}
+      <button type="button" onClick={() => props.onOpenProject('p1')}>meeting project</button>
+    </div>
+  ),
+}));
 const drawerProps = vi.hoisted(() => ({ last: null as null | { projectId: string | null; userId: string; timeZone: string; card: { id?: string } | null } }));
 vi.mock('../HomeProjectDrawer', () => ({
   HomeProjectDrawer: (props: {
@@ -94,6 +105,7 @@ function mkRes(): HomeResponse {
 
 beforeEach(() => {
   h.run.mockClear();
+  cal.data = undefined;
   h.home = { data: mkRes(), isLoading: false, isError: false, refetch: vi.fn() };
 });
 
@@ -218,6 +230,49 @@ describe('HomeScreen', () => {
     fireEvent.change(screen.getByLabelText('Where did you leave it?'), { target: { value: 'At step 2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Stop for now' }));
     expect(h.stop).toHaveBeenCalledWith(res.sections.working_on[0], 'At step 2');
+  });
+  it('Slice 10a: the calendar strip sits above the Today list, only on Today, and a row opens the meeting drawer', () => {
+    const row = { id: 'ev1', time: '2:00', who: 'Erick, Bootleggers (lead)', muted: false, openable: true };
+    cal.data = { upcoming: [row], later: [], earlier: [], all_day: null, tomorrow: null, soon: null };
+    render(<HomeScreen />);
+    const strip = screen.getByTestId('home-calendar-strip');
+    const list = screen.getByTestId('today-list');
+    expect(strip.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('cal-drawer')).toHaveTextContent('meeting closed');
+    fireEvent.click(screen.getByTestId('calendar-row'));
+    expect(screen.getByTestId('cal-drawer')).toHaveTextContent('meeting:ev1');
+    fireEvent.click(screen.getByRole('button', { name: /need you now|needs you now/ }));
+    expect(screen.queryByTestId('home-calendar-strip')).toBeNull();
+  });
+  it('Slice 10a: no strip when the calendar has nothing or has not loaded', () => {
+    render(<HomeScreen />);
+    expect(screen.queryByTestId('home-calendar-strip')).toBeNull();
+  });
+  it('Slice 10a: the meeting drawer\'s item cards use the same action wiring, and its project link closes it and opens the project drawer', () => {
+    cal.data = { upcoming: [{ id: 'ev1', time: '2:00', who: 'A', muted: false, openable: true }], later: [], earlier: [], all_day: null, tomorrow: null, soon: null };
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByTestId('calendar-row'));
+    const card = within(screen.getByTestId('cal-drawer-item'));
+    fireEvent.click(card.getByRole('button', { name: 'Done' }));
+    expect(h.run).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'meeting project' }));
+    expect(screen.getByTestId('cal-drawer')).toHaveTextContent('meeting closed');
+    expect(screen.getByTestId('drawer')).toHaveTextContent('open:p1');
+  });
+  it('Slice 10a: the pinned line shows only with soon set, above the working bar', () => {
+    const res = mkRes();
+    res.sections.working_on = [mkItem('task:p', { pinned: true })];
+    h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
+    const { unmount } = render(<HomeScreen />);
+    expect(screen.queryByTestId('calendar-soon')).toBeNull();
+    unmount();
+    cal.data = { upcoming: [], later: [], earlier: [], all_day: null, tomorrow: null, soon: { id: 'ev9', time: '2:00', who: 'Erick, Bootleggers', muted: false, openable: true } };
+    render(<HomeScreen />);
+    const soon = screen.getByTestId('calendar-soon');
+    expect(soon).toHaveTextContent('2:00Erick, Bootleggers');
+    expect(soon.compareDocumentPosition(screen.getByRole('region', { name: 'Working on' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(soon);
+    expect(screen.getByTestId('cal-drawer')).toHaveTextContent('meeting:ev9');
   });
   it('loading and error states', () => {
     h.home = { data: undefined, isLoading: true, isError: false, refetch: vi.fn() };

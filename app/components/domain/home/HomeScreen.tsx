@@ -15,6 +15,9 @@ import { ItemCard } from './ItemCard';
 import { HandsCard } from './HandsCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
+import { CalendarStrip, CalendarSoonLine } from './CalendarStrip';
+import { CalendarDrawer } from './CalendarDrawer';
+import { useHomeCalendar } from '@/lib/hooks/use-home-calendar';
 import { RestGroupCard } from './RestGroupCard';
 import { BastChatDock } from '@/components/domain/bast-chat/BastChatDock';
 import {
@@ -183,6 +186,9 @@ function HomeBody(p: BodyProps) {
   const onTodayAct = (request: HomeTodayActRequest): Promise<HomeActResponse> => p.act(request);
 
   const [movingKey, setMovingKey] = React.useState<string | null>(null);
+  // Slice 10a: today's calendar (a time and who per row) and the meeting drawer that loads on open.
+  const calendar = useHomeCalendar();
+  const [openEventId, setOpenEventId] = React.useState<string | null>(null);
   const bringForward = (itemKey: string) => {
     setMovingKey(itemKey);
     p.act({ action: 'bring_forward', item_key: itemKey })
@@ -214,6 +220,8 @@ function HomeBody(p: BodyProps) {
       <div className="home-work">
         <div className="home-pane">
           {tile === 'today' ? (
+            <>
+            <CalendarStrip strip={calendar.data} selectedId={openEventId} onOpen={setOpenEventId} />
             <TodayList
               today={res.today}
               emptyText={res.empty.today}
@@ -224,6 +232,7 @@ function HomeBody(p: BodyProps) {
               onAct={onTodayAct}
               busy={itemActions.busy}
             />
+            </>
           ) : (
             <ItemList rows={rows} selectedKey={selectedKey} onSelect={selectItemKey} emptyText={res.empty[tile]} />
           )}
@@ -269,6 +278,7 @@ function HomeBody(p: BodyProps) {
       </div>
       {pinned ? (
         <>
+          <CalendarSoonLine row={calendar.data?.soon} onOpen={setOpenEventId} />
           <WorkingOnBar
             item={pinned}
             collapsedLine={collapsedLine(res, pinned.key)}
@@ -292,6 +302,15 @@ function HomeBody(p: BodyProps) {
         lists
       )}
       <BastChatDock card={chatCard} />
+      <CalendarDrawer
+        eventId={openEventId}
+        renderItem={(item) => card(item, '', false, true)}
+        onOpenProject={(id) => {
+          setOpenEventId(null);
+          p.setOpenProjectId(id);
+        }}
+        onClose={() => setOpenEventId(null)}
+      />
       <HomeProjectDrawer
         projectId={p.openProjectId}
         card={openProject}
