@@ -12,10 +12,12 @@
  */
 
 import type { RawThread } from '../types';
-import { IF_IGNORED, OWED, OWED_SECOND_LINE } from './copy';
+import { IF_IGNORED, IF_IGNORED_4C, OWED, OWED_SECOND_LINE } from './copy';
 
 export type OwedRowState = 'queued' | 'drafted' | 'needs_thought' | 'failed';
 export type OwedRequestKind = 'draft' | 'read' | 'go_with_that';
+/** Slice 4c: what the GET may ask of the machine. 'short' and 'auto' are never stored as a tap and only go to a drafter that sent caps. */
+export type OwedWorkRequest = OwedRequestKind | 'short' | 'auto';
 export type OwedState = 'drafting' | 'draft_ready' | 'stale_draft' | 'his_draft' | 'his_draft_older' | 'needs_thought';
 
 /** The columns of home_owed_thread the pure code reads. */
@@ -34,6 +36,21 @@ export interface OwedRow {
   bast_read: string | null;
   suggested_answer: string | null;
   draft_text: string | null;
+  /** Slice 4c. Optional so a row built before 4c (a test fixture) still fits; the loader always sets them. */
+  needs_commitment?: boolean;
+  thought_since?: Date | null;
+  lead_clock_from?: Date | null;
+  resurfaced_at?: Date | null;
+  resurface_count?: number;
+  not_lead_at?: Date | null;
+  keep_lead_at?: Date | null;
+  joined_to_key?: string | null;
+  replied_elsewhere_at?: Date | null;
+  replied_elsewhere_from?: string | null;
+  auto_drafted_at?: Date | null;
+  short_draft_id?: string | null;
+  short_draft_hash?: string | null;
+  short_draft_text?: string | null;
 }
 
 const HOUR_MS = 3_600_000;
@@ -94,12 +111,22 @@ export function owedSecondLine(state: OwedState | null): string | null {
 }
 
 /** "If you do nothing". "Within the hour" appears only when a drafter run finished in the last 2 hours. */
-export function ifIgnoredLine(state: OwedState | null, drafterFreshAt: Date | null | undefined, now: Date): string {
+export function ifIgnoredLine(
+  state: OwedState | null,
+  drafterFreshAt: Date | null | undefined,
+  now: Date,
+  extra: { leadPast?: boolean; shortReady?: boolean; autoPending?: boolean } = {},
+): string {
   const fresh = drafterFresh(drafterFreshAt, now);
   switch (state) {
     case 'draft_ready':
+      if (extra.shortReady) return IF_IGNORED_4C.short_ready;
+      if (extra.leadPast) return fresh ? IF_IGNORED_4C.lead_past : IF_IGNORED_4C.lead_past_stale;
       return IF_IGNORED.draft_ready;
     case 'needs_thought':
+      if (extra.shortReady) return IF_IGNORED_4C.short_ready;
+      // Only said while a drafter run finished in the last 2 hours: otherwise nothing would act on it.
+      if (extra.autoPending && fresh) return IF_IGNORED_4C.auto_draft;
       return IF_IGNORED.needs_thought;
     case 'his_draft':
     case 'his_draft_older':

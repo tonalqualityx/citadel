@@ -65,6 +65,7 @@ const ITEM_STATE_SELECT = {
   card_checklist: true,
   card_summary_hash: true,
   card_summary_at: true,
+  parked_at: true,
 } as const;
 
 /** Every home_item_state row for the user. */
@@ -119,6 +120,8 @@ export interface HomeItemStatePatch {
   card_checklist?: Prisma.InputJsonValue | null;
   card_summary_hash?: string | null;
   card_summary_at?: Date | null;
+  /** Slice 4c: written by Not now. */
+  parked_at?: Date | null;
 }
 
 /** A patch as Prisma wants it: a null card_checklist becomes a database NULL. */
@@ -175,6 +178,7 @@ export async function restoreItemState(
     arc_removed_group: before.arc_removed_group,
     // Slice 2: a before-state stored by Slice 1 has none of these, which reads as null.
     view_set_by: before.view_set_by ?? null,
+    parked_at: before.parked_at ?? null,
     read_hard_due_at: before.read_hard_due_at ?? null,
     read_hard_due_source: before.read_hard_due_source ?? null,
     dates_read_at: before.dates_read_at ?? null,

@@ -57,6 +57,13 @@ export function makeFakeDb(opts: FakeOptions = {}) {
         return hit ? { id: hit.id, from_name: hit.from_name, from_email: hit.from_email } : null;
       },
     },
+    // Slice 4c: his item states (read for the wake rule); the fake has none.
+    homeItemState: {
+      findMany: async () => {
+        rd('homeItemState.findMany');
+        return [];
+      },
+    },
     homeOwedThread: {
       findMany: async (args: { where: { user_id: string } }) => {
         rd('homeOwedThread.findMany');

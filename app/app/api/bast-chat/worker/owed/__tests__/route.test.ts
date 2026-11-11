@@ -128,6 +128,31 @@ describe('owed route: GET', () => {
   });
 });
 
+describe('owed route: ?caps (Slice 4c)', () => {
+  it('with caps the items carry full_draft_text and joined; without them the 4a keys only', async () => {
+    const client = makeClient('Active Co');
+    const t = makeThread({ account: ACCOUNT, thread_id: THREAD_ID, id: ASK, message_id: 'm1', client, received_at: d('2026-11-02T15:00:00Z') });
+    h.raw = { threads: [t], crises: [] };
+    const capped = await (await GET(req('GET', `${PATH}?caps=short,auto,joins`) as never)).json();
+    expect(capped.items[0]).toMatchObject({ full_draft_text: null, joined: [] });
+    const some = await (await GET(req('GET', `${PATH}?caps=auto`) as never)).json();
+    expect(some.items[0]).not.toHaveProperty('full_draft_text');
+    expect(some.items[0]).not.toHaveProperty('joined');
+    const plain = await (await GET(req('GET', PATH) as never)).json();
+    expect(plain.items[0]).not.toHaveProperty('full_draft_text');
+    expect(plain.items[0]).not.toHaveProperty('joined');
+    expect(fake.writes).toEqual([]);
+  });
+  it('POST accepts the new outcomes and joins, and refuses a stray field', async () => {
+    const short = { thread_key: KEY, newest_ask_id: ASK, outcome: 'short_drafted', short_draft_id: 's', short_draft_text: 'Thanks. Got it.', model: 'haiku', joins: [{ account: 'bast@becomeindelible.com', thread_id: 'x' }] };
+    expect((await POST(req('POST', PATH, { items: [short] }) as never)).status).toBe(200);
+    const replied = { thread_key: KEY, newest_ask_id: ASK, outcome: 'replied_elsewhere', replied_from: 'support@becomeindelible.com', replied_at: '2026-11-06T15:00:00Z' };
+    expect((await POST(req('POST', PATH, { items: [replied] }) as never)).status).toBe(200);
+    expect((await POST(req('POST', PATH, { items: [{ ...replied, extra: 1 }] }) as never)).status).toBe(400);
+    expect((await POST(req('POST', PATH, { items: [{ ...replied, replied_at: 'yesterday' }] }) as never)).status).toBe(400);
+  });
+});
+
 describe('owed route: POST', () => {
   it('saves a clean draft for the owner, no-store, and writes only home tables', async () => {
     const res = await POST(req('POST', PATH, { items: [drafted()] }) as never);

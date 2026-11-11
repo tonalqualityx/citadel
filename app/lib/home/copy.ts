@@ -192,6 +192,12 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   go_with_that: 'Go with that',
   not_this_week: 'Not this week',
   open_site: 'Open the site',
+  keep_lead: 'Keep it',
+  let_lead_go: 'Let it go',
+  not_lead: 'Not a lead',
+  treat_as_reply: 'Treat as a reply',
+  close_lead: 'Close it',
+  open_short: 'Open the short one',
 };
 
 /** "Approve all 39". */

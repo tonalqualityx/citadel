@@ -66,6 +66,7 @@ function makeDb() {
     card_checklist: null,
     card_summary_hash: null,
     card_summary_at: null,
+    parked_at: null,
     first_seen_at: new Date('2026-11-01T00:00:00Z'),
     last_shown_at: null,
   };
@@ -231,6 +232,7 @@ function addState(db: Db, key: string, over: Row = {}) {
     card_checklist: null,
     card_summary_hash: null,
     card_summary_at: null,
+    parked_at: null,
     first_seen_at: new Date('2026-11-01T00:00:00Z'),
     last_shown_at: null,
     ...over,

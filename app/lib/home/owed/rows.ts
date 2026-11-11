@@ -26,6 +26,20 @@ export const OWED_ROW_SELECT = {
   bast_read: true,
   suggested_answer: true,
   draft_text: true,
+  needs_commitment: true,
+  thought_since: true,
+  lead_clock_from: true,
+  resurfaced_at: true,
+  resurface_count: true,
+  not_lead_at: true,
+  keep_lead_at: true,
+  joined_to_key: true,
+  replied_elsewhere_at: true,
+  replied_elsewhere_from: true,
+  auto_drafted_at: true,
+  short_draft_id: true,
+  short_draft_hash: true,
+  short_draft_text: true,
 } satisfies Prisma.HomeOwedThreadSelect;
 
 /** The owner's owed rows (all of them; the user id is in the where clause). */
@@ -79,4 +93,44 @@ export async function clearOwedRequest(
     data: { request_kind: before.request_kind, requested_at: before.requested_at ? new Date(before.requested_at) : null },
   });
   return r.count === 1;
+}
+
+// ============================================================================
+// Slice 4c: lead marks (Keep it, Treat as a reply)
+// ============================================================================
+
+export const OWED_MARK_FIELDS = ['lead_clock_from', 'keep_lead_at', 'not_lead_at'] as const;
+export type OwedMarkField = (typeof OWED_MARK_FIELDS)[number];
+/** The marks a tap writes, as ISO strings (or null), so Undo can compare and put back. */
+export type OwedMarkValues = Partial<Record<OwedMarkField, string | null>>;
+
+export type MarkOwedResult = { ok: true; before: OwedMarkValues; after: OwedMarkValues } | { ok: false; reason: 'not_lead' };
+
+/** Write lead marks on the owner's own row. Only these columns change; nothing is sent. */
+export async function markOwed(db: HomeDb, userId: string, key: string, patch: Partial<Record<OwedMarkField, Date | null>>): Promise<MarkOwedResult> {
+  const where = { user_id_thread_key: { user_id: userId, thread_key: key } };
+  const row = await db.homeOwedThread.findUnique({ where, select: { lead_clock_from: true, keep_lead_at: true, not_lead_at: true } });
+  const before: OwedMarkValues = {};
+  const after: OwedMarkValues = {};
+  for (const f of Object.keys(patch) as OwedMarkField[]) {
+    before[f] = row?.[f] ? row[f]!.toISOString() : null;
+    after[f] = patch[f] ? patch[f]!.toISOString() : null;
+  }
+  await db.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: key, ...patch }, update: patch });
+  return { ok: true, before, after };
+}
+
+/** Undo of a lead mark: a field goes back only while it still holds what the tap wrote. */
+export async function undoOwedMark(db: HomeDb, userId: string, key: string, before: OwedMarkValues, after: OwedMarkValues): Promise<void> {
+  const row = await db.homeOwedThread.findUnique({
+    where: { user_id_thread_key: { user_id: userId, thread_key: key } },
+    select: { lead_clock_from: true, keep_lead_at: true, not_lead_at: true },
+  });
+  if (!row) return;
+  const patch: Partial<Record<OwedMarkField, Date | null>> = {};
+  for (const f of Object.keys(before) as OwedMarkField[]) {
+    const now = row[f] ? row[f]!.toISOString() : null;
+    if (now === (after[f] ?? null)) patch[f] = before[f] ? new Date(before[f] as string) : null;
+  }
+  if (Object.keys(patch).length > 0) await db.homeOwedThread.update({ where: { user_id_thread_key: { user_id: userId, thread_key: key } }, data: patch });
 }

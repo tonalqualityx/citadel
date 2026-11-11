@@ -49,7 +49,10 @@ describe('owedQueue qualifying', () => {
       makeRow({ thread_key: keyOf(b), state: 'drafted', draft_id: 'r2', draft_for_ask_id: 'older', mike_edited_at: d('2026-11-08T00:00:00Z') }),
       makeRow({ thread_key: keyOf(c), state: 'needs_thought' }),
     ];
-    expect(owedQueue({}, [a, b, c], rows, NOW, 6)).toEqual([]);
+    // Slice 4c: these threads are old, so a's unsent draft is at its fifth business day and gets Bast's read (the clock). b and c stay out.
+    const q = owedQueue({}, [a, b, c], rows, NOW, 6);
+    expect(q.map((e) => e.thread_key)).toEqual([keyOf(a)]);
+    expect(q[0]).toMatchObject({ reason: 'clock', request: 'read' });
   });
   it('needs_thought comes back when a tap is waiting', () => {
     const c = clientThread();

@@ -15,7 +15,7 @@ function strings(): string[] {
 
 describe('owed copy', () => {
   it('constants are the plan\'s', () => {
-    expect(OWED).toEqual({ perRun: 6, perDay: 40, maxWords: 180, maxChars: 1200, readWords: 40, suggestedWords: 30, freshHours: 2, failCap: 3 });
+    expect(OWED).toEqual({ perRun: 6, perDay: 40, maxWords: 180, maxChars: 1200, readWords: 40, suggestedWords: 30, freshHours: 2, failCap: 3, shortWords: 40, shortSentences: 2 });
   });
   it('no dash and none of the banned words in any string', () => {
     for (const s of strings()) {

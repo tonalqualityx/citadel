@@ -454,7 +454,16 @@ export const bastChatEndpoints: ApiEndpoint[] = [
         summary: 'Chat lane: the owner\'s owed-reply drafting queue (the machine\'s work list and dry run)',
         auth: 'required',
         roles: WORKER,
-        queryParams: [{ name: 'limit', type: 'number', required: false, description: 'At most this many items (1 to 6; default and cap 6)' }],
+        queryParams: [
+          { name: 'limit', type: 'number', required: false, description: 'At most this many items (1 to 6; default and cap 6)' },
+          {
+            name: 'caps',
+            type: 'string',
+            required: false,
+            description:
+              'Slice 4c: what the caller\'s drafter can serve, comma separated from short, auto, joins. Without it the items have the 4a shape and the request is never "short" or "auto". "short" allows request "short" and adds full_draft_text; "auto" allows request "auto"; "joins" adds joined.',
+          },
+        ],
         responseExample: {
           items: [
             {
@@ -465,14 +474,16 @@ export const bastChatEndpoints: ApiEndpoint[] = [
               newest: { ask_id: 'string (uuid)', gmail_id: 'string', from_email: 'string', from_name: 'string|null', subject: 'string', received_at: 'ISO-8601', intent: 'string|null' },
               client_name: 'string|null',
               lead: 'boolean',
-              request: '"draft"|"read"|"go_with_that"|null (a tap waiting)',
+              request: '"draft"|"read"|"go_with_that"|null (a tap, or a clock waiting); also "short" (a two-line holding draft from full_draft_text) and "auto" (draft once along suggested_answer; never when it needs a commitment) only with caps=short / caps=auto',
               suggested_answer: 'string|null',
               bast_draft: '{draft_id, draft_hash, for_ask_id}|null (Bast\'s own Gmail draft on this thread)',
+              full_draft_text: 'string|null (only with caps=short: Bast\'s current full draft, sent with a "short" request)',
+              joined: '[{account, thread_id}] (only with caps=joins: other threads Citadel already knows are joined to this one; may be empty)',
             },
           ],
           skipped: '"home_off" (only when the owner is not an active admin on the home view; then items is [])',
         },
-        responseNotes: 'Owner only; takes no user id. In order: taps, redrafts, leads, the oldest thread. Writes nothing.',
+        responseNotes: 'Owner only; takes no user id. In order: taps, redrafts, clocks (day-5 read, lead refresh), leads, the oldest thread, then auto and short requests last. Joined threads show as one item (the thread whose newest message is newest). Writes nothing.',
       },
       {
         method: 'POST',
@@ -480,16 +491,16 @@ export const bastChatEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: WORKER,
         bodySchema: [
-          { name: 'items', type: 'object', required: true, description: 'At most 10 of {thread_key, newest_ask_id, outcome: "drafted", draft_id, draft_message_id, draft_text, model, cost_usd?} | {..., outcome: "needs_thought", read, suggested_answer|null, needs_commitment, model, cost_usd?} | {..., outcome: "mike_edited"} | {..., outcome: "failed", error}. Strict: any other field is 400. Body at most 64 KB.' },
+          { name: 'items', type: 'object', required: true, description: 'At most 10 of {thread_key, newest_ask_id, outcome: "drafted", draft_id, draft_message_id, draft_text, model, cost_usd?} | {..., outcome: "needs_thought", read, suggested_answer|null, needs_commitment, model, cost_usd?} | {..., outcome: "mike_edited"} | {..., outcome: "failed", error} | {..., outcome: "short_drafted", short_draft_id, short_draft_text, model, cost_usd?} | {..., outcome: "replied_elsewhere", replied_from, replied_at}. Any item may carry joins: [{account, thread_id}] (threads the mirror shows share an RFC Message-ID with this one). Strict: any other field is 400. Body at most 64 KB.' },
         ],
         responseExample: {
-          saved: [{ thread_key: 'string', outcome: '"drafted"|"needs_thought"|"mike_edited"|"failed"' }],
-          refused: [{ thread_key: 'string', reason: '"draft_money"|"draft_time"|"draft_scope"|"draft_shape"|"read_shape"|"suggested_money"|"suggested_time"|"suggested_scope"|"suggested_shape"|"stale"|"duplicate"|"no_draft"|"bad_key"', status: '409 (only on "stale")' }],
+          saved: [{ thread_key: 'string', outcome: '"drafted"|"needs_thought"|"mike_edited"|"failed"|"short_drafted"|"replied_elsewhere"' }],
+          refused: [{ thread_key: 'string', reason: '"draft_money"|"draft_time"|"draft_scope"|"draft_shape"|"read_shape"|"suggested_money"|"suggested_time"|"suggested_scope"|"suggested_shape"|"short_money"|"short_time"|"short_scope"|"short_shape"|"stale"|"stale_draft"|"duplicate"|"no_draft"|"bad_replied_at"|"bad_key"', status: '409 (only on "stale")' }],
           action_id: 'string (uuid)|null (one keeper home_actions row when something was drafted)',
           line: 'string|null (the quiet line Mike sees)',
           skipped: '"home_off" (the owner is not on the home view; nothing written)',
         },
-        responseNotes: 'Owner only. The commitment checks run again here; a body, read or suggested answer that fails is refused and listed. A newest_ask_id that is no longer the newest open ask on the thread is refused 409 stale and nothing is written for it. Writes only the owner\'s home_owed_thread rows, one home_keeper_runs row per day (kind owed_reply) and one home_actions row (source keeper); never an email ask, task or outbox row, and nothing is sent.',
+        responseNotes: 'Owner only. The commitment checks run again here; a body, read or suggested answer that fails is refused and listed. A short draft is checked the same way with the tighter cap (at most 2 sentences and 40 words) and needs Bast\'s full draft on the row. A newest_ask_id that is no longer the newest open ask on the thread is refused 409 stale and nothing is written for it. joins store joined_to_key on the non-primary rows (the primary is the thread whose newest inbound message is newest); a replied_elsewhere item hides the conversation until a newer message from them and writes one keeper line. Writes only the owner\'s home_owed_thread rows, one home_keeper_runs row per day (kind owed_reply) and one home_actions row (source keeper); never an email ask, task or outbox row, and nothing is sent.',
       },
     ],
   },

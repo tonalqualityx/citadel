@@ -327,7 +327,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'not_now'; title: string; until: Date | null }
   | { op: 'home_act'; action: 'not_emergency'; title: string; security?: boolean }
   | { op: 'home_act'; action: 'bring_forward' | 'matters_more' | 'pin' | 'stop' | 'done_pin' | 'arc_add' | 'arc_remove'; title: string }
-  | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that'; who: string }
+  | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
@@ -380,6 +380,12 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'go_with_that':
           s = `Bast will redraft ${o.who}'s reply along its suggestion.`;
+          break;
+        case 'keep_lead':
+          s = `Kept ${o.who}'s lead. The reply clock starts again.`;
+          break;
+        case 'treat_as_reply':
+          s = `${o.who}'s lead is now a plain reply.`;
           break;
         case 'not_this_week':
           s = "This week's hands row is parked until next Monday.";

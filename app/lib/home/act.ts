@@ -29,7 +29,8 @@ import { ARC_STEP_KEYS_MAX, CLOSED_TASK_STATUSES, LEFT_OFF_NOTE_MAX, NOT_NOW, UN
 import { loadHomeInputs } from './load';
 import { HANDS_PARKED_MESSAGE, RULE_ACTION } from './emergency/copy';
 import { HANDS_ITEM_KEY, nextHandsMonday } from './emergency/hands';
-import { clearOwedRequest, OWED_ACTION, requestOwed } from './owed/rows';
+import { clearOwedRequest, markOwed, OWED_ACTION, requestOwed, undoOwedMark, type OwedMarkValues } from './owed/rows';
+import { KEEP_LEAD_MESSAGE, TREAT_AS_REPLY_MESSAGE } from './owed/copy';
 import type { OwedRequestKind } from './owed/state';
 import { selectHome } from './select';
 import { dayForGroup, type ProposedDay } from './today';
@@ -74,6 +75,7 @@ const RECORDED_IDS = [
   'open_draft',
   'open_thread',
   'open_site',
+  'open_short',
   'no_reply_needed',
   'handled',
 ] as const;
@@ -123,6 +125,9 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('draft_now'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('needs_thought'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('go_with_that'), item_key: itemKeySchema }).strict(),
+  // Slice 4c: a lead's clock. Letting a lead go is the screen's existing "No reply needed" on its asks, not an action here.
+  z.object({ action: z.literal('keep_lead'), item_key: itemKeySchema }).strict(),
+  z.object({ action: z.literal('treat_as_reply'), item_key: itemKeySchema }).strict(),
   // Slice 6a: park the Monday hands row. There is deliberately no action here that saves a "Not an emergency" rule: that is
   // POST /api/home/rule (browser session only), so the chat can never reach it.
   z.object({ action: z.literal('not_this_week'), item_key: itemKeySchema }).strict(),
@@ -258,6 +263,7 @@ const DATE_FIELDS: ReadonlySet<StateFieldName> = new Set<StateFieldName>([
   'read_hard_due_at',
   'dates_read_at',
   'card_summary_at',
+  'parked_at',
 ]);
 
 /** Every field an action may change, with its default on a row that does not exist. */
@@ -281,6 +287,7 @@ const STATE_DEFAULTS: Record<string, number | string | null> = {
   card_checklist: null,
   card_summary_hash: null,
   card_summary_at: null,
+  parked_at: null,
 };
 
 /** A stored field value: a number, a string, null, or (card_checklist only) plain JSON. */
@@ -330,8 +337,16 @@ interface OwedRecord {
   before: { request_kind: string | null; requested_at: string | null };
 }
 
+/** Slice 4c: the lead marks a tap wrote, so Undo can put them back while they still hold what the tap wrote. */
+interface OwedMarkRecord {
+  item_key: string;
+  before: OwedMarkValues;
+  after: OwedMarkValues;
+}
+
 interface UndoSide {
   states: StateRecord[];
+  owedMark?: OwedMarkRecord;
   day?: DayRecord;
   arcs?: ArcRecord[];
   owed?: OwedRecord;
@@ -392,6 +407,8 @@ export interface ActPlan {
   recorded?: { did: string; undo: boolean };
   /** Slice 4a: the request this action makes of Bast on the thread (home_owed_thread request fields only). */
   owed?: { kind: OwedRequestKind };
+  /** Slice 4c: lead marks written on his own home_owed_thread row (Keep it, Treat as a reply). */
+  leadMark?: Partial<Record<'lead_clock_from' | 'keep_lead_at' | 'not_lead_at', Date | null>>;
   message: string | null;
 }
 
@@ -446,7 +463,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           ...base,
           action: req.action,
           item_key: req.item_key,
-          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 1, view_at: next.at, view_set_by: 'user' } }],
+          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 1, view_at: next.at, view_set_by: 'user', parked_at: now } }],
           message: next.daysAhead === 1 ? 'Back tomorrow at 9:00.' : `Back ${next.weekday} at 9:00.`,
         };
       }
@@ -456,7 +473,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           ...base,
           action: req.action,
           item_key: req.item_key,
-          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 2, view_at: back, view_set_by: 'user' } }],
+          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 2, view_at: back, view_set_by: 'user', parked_at: now } }],
           message: `Back in ${NOT_NOW.secondReturnDays} days.`,
         };
       }
@@ -679,6 +696,20 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       };
     }
 
+    case 'keep_lead':
+    case 'treat_as_reply': {
+      if (parseItemKey(req.item_key)?.kind !== 'thread') throw new HomeActError('not_found', 'That is not an email thread.');
+      const keep = req.action === 'keep_lead';
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [],
+        leadMark: keep ? { lead_clock_from: now, keep_lead_at: now } : { not_lead_at: now },
+        message: keep ? KEEP_LEAD_MESSAGE : TREAT_AS_REPLY_MESSAGE,
+      };
+    }
+
     case 'record':
       return {
         action: req.action,
@@ -810,6 +841,22 @@ export async function runHomeAct(
       owedRecord = { item_key: plan.item_key, kind: plan.owed.kind, before: res.before };
     }
 
+    // Slice 4c: a lead mark. Only his own owed row changes; nothing is sent.
+    let markRecord: OwedMarkRecord | undefined;
+    if (plan.leadMark && plan.item_key) {
+      const parsed = parseItemKey(plan.item_key);
+      if (parsed?.kind === 'thread') {
+        const open = await tx.emailAsk.findFirst({
+          where: { account: parsed.account, state: 'open', OR: [{ thread_id: parsed.thread_id }, { thread_id: null, message_id: parsed.thread_id }] },
+          select: { id: true },
+        });
+        if (!open) throw new HomeActError('not_found', 'That thread is not waiting on a reply any more.');
+      }
+      const res = await markOwed(tx, userId, plan.item_key, plan.leadMark);
+      if (!res.ok) throw new HomeActError('not_found');
+      markRecord = { item_key: plan.item_key, before: res.before, after: res.after };
+    }
+
     // Slice 2c: with his switch on, an add or remove on today's real arc is copied onto his own task's arc_id.
     const arcLinks = await copyArcEditToTask(tx, userId, req, day);
 
@@ -829,12 +876,14 @@ export async function runHomeAct(
         ...(plan.dayWrite ? { day: plan.dayWrite.before } : {}),
         ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
         ...(owedRecord ? { owed: owedRecord } : {}),
+        ...(markRecord ? { owedMark: markRecord } : {}),
       };
       after = {
         states: plan.stateWrites.map((w) => ({ item_key: w.item_key, fields: fieldsOf(w.patch, w.from, 'after') })),
         ...(plan.dayWrite ? { day: plan.dayWrite.after } : {}),
         ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
         ...(owedRecord ? { owed: owedRecord } : {}),
+        ...(markRecord ? { owedMark: markRecord } : {}),
       };
     }
 
@@ -963,7 +1012,8 @@ function isRestMark(row: RawItemState): boolean {
     (row.keeper_hold_until ?? null) === null &&
     (row.read_hard_due_at ?? null) === null &&
     (row.dates_read_at ?? null) === null &&
-    (row.card_summary ?? null) === null
+    (row.card_summary ?? null) === null &&
+    (row.parked_at ?? null) === null
   );
 }
 
@@ -1005,6 +1055,7 @@ async function undoStateRecord(db: HomeDb, userId: string, rec: StateRecord): Pr
         read_hard_due_at: null,
         dates_read_at: null,
         card_summary: null,
+        parked_at: null,
       },
     });
   }
@@ -1087,6 +1138,8 @@ export async function runHomeUndo(
       const cleared = await clearOwedRequest(tx, userId, before.owed.item_key, before.owed.kind, before.owed.before);
       if (!cleared) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
     }
+
+    if (before.owedMark) await undoOwedMark(tx, userId, before.owedMark.item_key, before.owedMark.before, before.owedMark.after);
 
     if (row.source === 'keeper') {
       for (const rec of before.states) {

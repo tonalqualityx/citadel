@@ -84,7 +84,9 @@ import {
 import { HANDS_ITEM_KEY, HANDS_REST_GROUP, handsRow, isHandsTask, type HandsTask } from './emergency/hands';
 import { matchesNotEmergencyRule, ruleScopesFor } from './emergency/rule';
 import { siteDownItems, siteHostOf, type IncidentRow, type SiteDownItem } from './emergency/site';
-import { NEW_MESSAGE_AFTER_DRAFT } from './owed/copy';
+import { AUTO_DRAFT_LINE, LEAD_ASK, NEW_MESSAGE_AFTER_DRAFT, SHORT_READY_LINE, WOKE_LINE, IF_IGNORED_4C, leadDueLine, waitingLine } from './owed/copy';
+import { isLeadNow, leadResurfacedPastPark, owedClock, weekdayIn, wokeByNewMessage } from './owed/clock';
+import { mergeJoinedThreads, repliedElsewhere, type JoinRow } from './owed/join';
 import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
 import { cardSummary, truncateWords } from './plain-text';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
@@ -185,6 +187,10 @@ export interface Candidate {
   fresh: boolean;
   /** A task the nightly sort gave a day to, and that day has come (view_set_by keeper, view_at passed). */
   arrived: boolean;
+  /** Slice 4c: a client reply on its third business day, or a lead past its clock. It goes to the top of its People tile (after a boosted row). */
+  clockDue?: boolean;
+  /** Slice 4c: a thread whose Not now ended early (a new message from them, or a lead that came back at its repeat time). */
+  unpark?: boolean;
   /** Slice 3: Bast's task, stopped and tagged needs-mike (RawTask.bot_task). Never a Today step, never in the keeper's pool. */
   botTask: boolean;
   pinned: boolean;
@@ -278,6 +284,7 @@ export function nextCompare(a: Candidate, b: Candidate): number {
 /** People lists: boosted first, then the oldest thread first. */
 function peopleCompare(a: Candidate, b: Candidate): number {
   if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
+  if (!!a.clockDue !== !!b.clockDue) return a.clockDue ? -1 : 1;
   if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
   return compareKey(a, b);
 }
@@ -292,7 +299,7 @@ function peopleCompare(a: Candidate, b: Candidate): number {
  * 'older' qualifies except that its newest open ask is over 21 days old (counted in Everything
  * else); 'no' is not a known person, or is automated, noise or a calendar reply.
  */
-export function threadStatus(thread: RawThread, now: Date): 'show' | 'young' | 'older' | 'no' {
+export function threadStatus(thread: RawThread, now: Date, opts: { notLead?: boolean; woke?: boolean } = {}): 'show' | 'young' | 'older' | 'no' {
   const newest = thread.asks[0];
   if (!newest) return 'no';
   const client = threadClient(thread);
@@ -305,8 +312,9 @@ export function threadStatus(thread: RawThread, now: Date): 'show' | 'young' | '
     thread.asks.some((a) => a.intent === 'sales');
   if (!known) return 'no';
   if (daysSince(newest.received_at, now) > THREAD_MAX_AGE_DAYS) return 'older';
-  const lead = newest.intent === 'sales';
-  if (!lead && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) return 'young';
+  const lead = newest.intent === 'sales' && !opts.notLead;
+  // A thread whose Not now just ended because they wrote again comes back at once; it does not wait out the first business day.
+  if (!lead && !opts.woke && businessDaysElapsed(newest.received_at, now) < THREAD_MIN_AGE_BUSINESS_DAYS) return 'young';
   return 'show';
 }
 
@@ -431,6 +439,10 @@ interface Draft {
     owedState?: OwedState | null;
     owedSuggestion?: boolean;
     owedIfIgnored?: string | null;
+    /** Slice 4c: lead clock and short draft facts for the buttons. */
+    owedLead?: boolean;
+    owedLeadAsk?: boolean;
+    owedShort?: boolean;
     /** Slice 6a: a site down row's mail link, site link and "If you do nothing" line. */
     mailUrl?: string | null;
     siteUrl?: string | null;
@@ -735,6 +747,7 @@ function buildThread(
   st: RawItemState | undefined,
   owed: OwedRow | undefined,
   drafterFreshAt: Date | null,
+  timezone: string,
 ): Draft {
   const score = scoreThread(th, now);
   const newest = th.asks[0];
@@ -747,7 +760,13 @@ function buildThread(
   // Slice 4a: Bast's own draft sits in the same Gmail thread, so its link is the thread's link.
   const draftUrl = hisDraftUrl ?? (hasBastDraft(owed) && newest.deep_link ? newest.deep_link : null);
   const owedState = owedStatus(th, owed, now, drafterFreshAt);
-  const lead = newest.intent === 'sales';
+  const lead = isLeadNow(newest.intent, newest.received_at, owed);
+  const clock = owedClock(newest.received_at, lead, owed, now);
+  const leadAsk = lead && status === 'show' && !!clock.lead?.ask;
+  const woke = status === 'show' && wokeByNewMessage(st, newest.received_at, now);
+  const cameBack = status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
+  // His short holding draft is shown only while the full draft it came from still covers the newest message.
+  const showShort = !!owed?.short_draft_id && !!owed.short_draft_text && owedState !== 'stale_draft' && owedState !== 'his_draft' && owedState !== 'his_draft_older';
   const minutes = draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
   const said = stripEndPeriod(displayText(newest.gist) || displayText(newest.subject)) || 'a message';
   const links: { label: string; href: string }[] = [];
@@ -758,7 +777,12 @@ function buildThread(
   // His edited copy may differ from what Bast wrote, so only a draft he has not touched is shown.
   const showDraftText = owedState === 'draft_ready' || owedState === 'stale_draft';
   const thought = owedState === 'needs_thought' && owed;
-  const owedLine = owedState === 'his_draft_older' ? NEW_MESSAGE_AFTER_DRAFT : owedSecondLine(owedState);
+  const autoDrafted = owedState === 'draft_ready' && !!owed?.auto_drafted_at;
+  const stateLine = owedState === 'his_draft_older' ? NEW_MESSAGE_AFTER_DRAFT : autoDrafted ? AUTO_DRAFT_LINE : owedSecondLine(owedState);
+  const dueLine = lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
+  const waitLine = status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
+  const owedLine =
+    [woke || cameBack ? WOKE_LINE : null, dueLine, waitLine, stateLine, showShort ? SHORT_READY_LINE : null].filter(Boolean).join(' · ') || null;
   const item: HomeItem = {
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
@@ -766,7 +790,7 @@ function buildThread(
     title: `${person}${client && !sameName(client.name, person) ? ` (${client.name})` : ''}: ${said}`,
     who: client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
     age: ageWords(newest.received_at, now, 'arrived'),
-    why_now: whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
+    why_now: leadAsk ? LEAD_ASK : whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
     hard_date: null,
     effort: effortWords(minutes, !!draftUrl),
     minutes,
@@ -783,6 +807,7 @@ function buildThread(
       draft_text: showDraftText && hasBastDraft(owed) && owed?.draft_text ? owed.draft_text : null,
       bast_read: thought && owed.bast_read ? displayText(owed.bast_read) : null,
       suggested_answer: thought && owed.suggested_answer ? displayText(owed.suggested_answer) : null,
+      short_draft_text: showShort && owed?.short_draft_text ? owed.short_draft_text : null,
     },
     source: { kind: 'thread', id: newest.id, ids: th.asks.map((a) => a.id), task_status: null },
     client,
@@ -803,6 +828,8 @@ function buildThread(
       minutes,
       group: groupFor(client, project, null, refs),
       arcId: null,
+      clockDue: status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
+      unpark: woke || cameBack,
     },
     ctx: {
       draftUrl,
@@ -812,7 +839,19 @@ function buildThread(
       owedState,
       owedSuggestion: !!(thought && owed.suggested_answer),
       // Older threads (Everything else) keep the old line; the drafter does not work them.
-      owedIfIgnored: status === 'show' ? ifIgnoredLine(owedState, drafterFreshAt, now) : null,
+      owedLead: lead,
+      owedLeadAsk: leadAsk,
+      owedShort: showShort,
+      owedIfIgnored:
+        status !== 'show'
+          ? null
+          : leadAsk
+            ? IF_IGNORED_4C.lead_ask
+            : ifIgnoredLine(owedState, drafterFreshAt, now, {
+                leadPast: !!clock.lead?.past && !!owed?.drafted_at && owed.drafted_at.getTime() < clock.lead.due.getTime(),
+                shortReady: showShort,
+                autoPending: !!owed && !owed.needs_commitment && !!owed.suggested_answer && !owed.auto_drafted_at,
+              }),
     },
   };
 }
@@ -1034,7 +1073,10 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     waitHref: ctx.waitHref,
     hasTaskId: ctx.hasTaskId,
     botTask: c.botTask,
-    owedThread: c.kind === 'thread' && ctx.thread?.status === 'show' ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion } : undefined,
+    owedThread:
+      c.kind === 'thread' && ctx.thread?.status === 'show'
+        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort }
+        : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
   });
@@ -1135,12 +1177,20 @@ export function selectHome(input: SelectInput): SelectResult {
     push(buildWait(w, now, refs, states.get(waitKey(w.id))));
   }
   let youngThreads = 0;
-  for (const th of raw.threads) {
-    const status = threadStatus(th, now);
+  // Slice 4c: threads joined across inboxes are one conversation, and one that someone on our side already answered leaves.
+  const joinedThreads = mergeJoinedThreads(raw.threads, raw.owed_rows);
+  for (const th of joinedThreads.threads) {
+    const key = threadKey(th.account, th.thread_id);
+    const owedRow = owedByKey.get(key);
+    const newestAsk = th.asks[0];
+    const status = threadStatus(th, now, {
+      notLead: newestAsk.intent === 'sales' && !isLeadNow(newestAsk.intent, newestAsk.received_at, owedRow),
+      woke: wokeByNewMessage(states.get(key), newestAsk.received_at, now),
+    });
     if (status === 'young') youngThreads += 1;
     if (status === 'show' || status === 'older') {
-      const key = threadKey(th.account, th.thread_id);
-      push(buildThread(th, status, now, refs, states.get(key), owedByKey.get(key), raw.drafter_fresh_at));
+      if (repliedElsewhere(key, joinedThreads.members.get(key) ?? [], owedByKey as ReadonlyMap<string, JoinRow>, newestAsk.received_at)) continue;
+      push(buildThread(th, status, now, refs, states.get(key), owedRow, raw.drafter_fresh_at, raw.timezone));
     }
   }
   // Slice 6a: site down rows, and the mails an uptime check already covers.
@@ -1194,6 +1244,8 @@ export function selectHome(input: SelectInput): SelectResult {
       fresh: draft.cand.fresh ?? false,
       arrived: draft.cand.arrived ?? false,
       botTask: draft.cand.botTask ?? false,
+      clockDue: draft.cand.clockDue ?? false,
+      unpark: draft.cand.unpark ?? false,
       parkedBy: null,
       parked: false,
       pinned: false,
@@ -1227,7 +1279,7 @@ export function selectHome(input: SelectInput): SelectResult {
 
   for (const c of candidates) {
     const vw = c.state?.view_at;
-    c.parked = !c.pinned && c.rule === null && !!vw && vw.getTime() > now.getTime();
+    c.parked = !c.pinned && c.rule === null && !c.unpark && !!vw && vw.getTime() > now.getTime();
     c.parkedBy = c.parked ? (c.state?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
   }
 

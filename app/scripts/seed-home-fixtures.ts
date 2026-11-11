@@ -454,6 +454,40 @@ async function main() {
   bump('email asks: Slice 4a redraft thread (2) and needs-thought thread (1)', 3);
   bump('home_owed_thread rows (admin only)', 2);
 
+  // ---- Slice 4c: a lead past its clock, a lead at ten business days, a joined pair, a thread answered from our side ----
+  const clockLeadThread = `${MID}owed-lead-clock`;
+  const clockLead = await owedAsk(`${MID}owed-lead-clock-1`, clockLeadThread, { from_name: 'Nina Brandt', from_email: 'nina@prospect.example', subject: 'Looking for a new site', gist: 'Nina asks about a new site.', ageMs: 4 * DAY });
+  await prisma.emailAsk.update({ where: { id: clockLead.id }, data: { intent: 'sales', client_id: null } });
+  await prisma.homeOwedThread.create({
+    data: {
+      user_id: admin.id,
+      thread_key: threadKey(MINE, clockLeadThread),
+      state: 'drafted',
+      draft_id: 'fixture-draft-lead',
+      draft_message_id: 'fixture-draft-msg-lead',
+      draft_hash: 'fixture-hash-lead',
+      draft_text: 'Hi Nina,\n\nThanks for reaching out. I have your note.\n\nMike',
+      draft_for_ask_id: clockLead.id,
+      drafted_at: new Date(now.getTime() - 4 * DAY),
+    },
+  });
+  const oldLeadThread = `${MID}owed-lead-ten`;
+  const oldLead = await owedAsk(`${MID}owed-lead-ten-1`, oldLeadThread, { from_name: 'Ravi Patel', from_email: 'ravi@prospect.example', subject: 'Quote for a rebuild?', gist: 'Ravi asked about a rebuild.', ageMs: 16 * DAY });
+  await prisma.emailAsk.update({ where: { id: oldLead.id }, data: { intent: 'sales', client_id: null } });
+  const joinA = `${MID}owed-join-a`;
+  const joinB = `${MID}owed-join-b`;
+  const joinFirst = await owedAsk(`${MID}owed-join-a-1`, joinA, { from_name: 'Kim Osei', from_email: 'kim@mitchell.example', subject: 'Menu changes', gist: 'Kim sent menu changes.', ageMs: 3 * DAY });
+  await owedAsk(`${MID}owed-join-b-1`, joinB, { from_name: 'Kim Osei', from_email: 'kim@mitchell.example', subject: 'Re: Menu changes', gist: 'Kim sent them again to the other inbox.', ageMs: 2 * DAY });
+  await prisma.homeOwedThread.create({ data: { user_id: admin.id, thread_key: threadKey(MINE, joinA), joined_to_key: threadKey(MINE, joinB) } });
+  void joinFirst;
+  const answeredThread = `${MID}owed-answered`;
+  await owedAsk(`${MID}owed-answered-1`, answeredThread, { from_name: 'Lee Moran', from_email: 'lee@mitchell.example', subject: 'Invoice question', gist: 'Lee asked about the invoice.', ageMs: 3 * DAY });
+  await prisma.homeOwedThread.create({
+    data: { user_id: admin.id, thread_key: threadKey(MINE, answeredThread), replied_elsewhere_at: new Date(now.getTime() - DAY), replied_elsewhere_from: 'support@becomeindelible.com' },
+  });
+  bump('email asks: Slice 4c lead clock (1), ten-day lead (1), joined pair (2), answered thread (1)', 5);
+  bump('home_owed_thread rows, Slice 4c (admin only)', 3);
+
   // Classifier auto-closes in the last 24 hours (Handled for you).
   const handled = [
     { key: 'auto-1', from_name: 'Google Workspace', from_email: 'no-reply@accounts.google.example', subject: 'Security alert (already reviewed)' },

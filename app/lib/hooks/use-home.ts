@@ -36,6 +36,7 @@ import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api/client';
 import { taskKeys } from '@/lib/api/query-keys';
 import { showToast } from '@/lib/hooks/use-toast';
+import { LET_LEAD_GO_MESSAGE } from '@/lib/home/owed/copy';
 import type {
   HomeActRequest,
   HomeActResponse,
@@ -418,7 +419,10 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           await finish(item, action.id, undefined, action.id === 'approve_wait' ? 'Approved.' : 'Marked done.');
           return true;
         }
-        case 'no_reply_needed': {
+        case 'no_reply_needed':
+        case 'let_lead_go':
+        case 'close_lead': {
+          // Slice 4c: Let it go (and Close it) on a lead is the same "No reply needed" on every ask of the conversation, joined threads included.
           const ids = src.ids.length ? src.ids : [src.id];
           for (const id of ids) await apiClient.patch(`/email-asks/${id}`, { state: 'dismissed' });
           await finish(
@@ -427,7 +431,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
             async () => {
               for (const id of ids) await apiClient.patch(`/email-asks/${id}`, { state: 'open' });
             },
-            'Marked no reply needed.',
+            action.id === 'no_reply_needed' ? 'Marked no reply needed.' : LET_LEAD_GO_MESSAGE,
           );
           return true;
         }
@@ -447,6 +451,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'open_wait':
         case 'open_session':
         case 'open_draft':
+        case 'open_short':
         case 'open_site':
         case 'open_thread': {
           const href = action.href ?? null;
@@ -483,6 +488,13 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'go_with_that':
           await act({ action: 'go_with_that', item_key: item.key });
           return true;
+        // Slice 4c: a lead's clock.
+        case 'keep_lead':
+          await act({ action: 'keep_lead', item_key: item.key });
+          return true;
+        case 'treat_as_reply':
+          await act({ action: 'treat_as_reply', item_key: item.key });
+          return true;
         case 'stop':
           await act({ action: 'stop', item_key: item.key, note: opts.note ?? '' });
           return true;
@@ -514,7 +526,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

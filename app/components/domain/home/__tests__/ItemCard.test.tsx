@@ -256,3 +256,33 @@ describe('ItemCard: Slice 6a rule picker', () => {
     expect(screen.queryByText('Why? This becomes a rule.')).toBeNull();
   });
 });
+
+describe('ItemCard: Slice 4c leads and short drafts', () => {
+  it('shows the short draft under "The short one" and has no Send button', () => {
+    const item = mkItem('thread:a:b', {
+      type: 'lead',
+      actions: [{ id: 'open_short', label: 'Open the short one', filled: false, href: 'https://mail.example/t' }],
+      more_actions: [],
+      opened: { summary: 'S.', summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null, short_draft_text: 'Got this. Back to you soon.' },
+    });
+    const { container } = render(<ItemCard {...base} item={item} />);
+    expect(screen.getByText('The short one')).toBeInTheDocument();
+    expect(screen.getByText('Got this. Back to you soon.')).toBeInTheDocument();
+    expect(container.textContent ?? '').not.toMatch(/send/i);
+  });
+  it('Not a lead asks Treat as a reply or Close it, then passes that choice on', () => {
+    const onAction = vi.fn();
+    const item = mkItem('thread:a:b', {
+      type: 'lead',
+      actions: [{ id: 'not_now', label: 'Not now', filled: false, href: null }],
+      more_actions: [{ id: 'not_lead', label: 'Not a lead', filled: false, href: null }],
+    });
+    render(<ItemCard {...base} item={item} onAction={onAction} />);
+    fireEvent.click(screen.getByText('More'));
+    fireEvent.click(screen.getByText('Not a lead'));
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Treat as a reply'));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ id: 'treat_as_reply' }), item);
+    fireEvent.click(screen.getByText('More'));
+  });
+});

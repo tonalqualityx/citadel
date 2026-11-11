@@ -4807,6 +4807,7 @@ model HomeItemState {
   card_checklist       Json?                      // 2b
   card_summary_hash    String?   @db.VarChar(64)  // 2b, sha256 of the description it summarizes
   card_summary_at      DateTime?                  // 2b
+  parked_at            DateTime?                  // 4c: when his Not now was tapped; a newer message from them wakes the row
 
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
@@ -4892,6 +4893,19 @@ model HomeOwedThread {
   attempts          Int       @default(0)
   last_error        String?   @db.VarChar(300)
   last_model        String?   @db.VarChar(20)
+  // Slice 4c: clock marks, joining, replied-elsewhere, the auto draft and the short holding draft.
+  lead_clock_from       DateTime?                    // Keep it restarts the lead clock from here
+  resurfaced_at         DateTime?                    // the last time a short draft was written for a lead coming back
+  resurface_count       Int       @default(0)
+  not_lead_at           DateTime?                    // Not a lead, Treat as a reply
+  keep_lead_at          DateTime?                    // Keep it
+  joined_to_key         String?   @db.VarChar(300)   // a non-primary thread of a joined conversation points at the primary
+  replied_elsewhere_at  DateTime?                    // when someone on our side replied in a joined thread
+  replied_elsewhere_from String?  @db.VarChar(320)
+  auto_drafted_at       DateTime?                    // Bast drafted along its suggestion after 3 business days
+  short_draft_id        String?   @db.VarChar(64)
+  short_draft_hash      String?   @db.VarChar(64)
+  short_draft_text      String?   @db.Text
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
   @@unique([user_id, thread_key])

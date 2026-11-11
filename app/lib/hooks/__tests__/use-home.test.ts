@@ -310,6 +310,19 @@ describe('useHomeItemAction', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/email-asks/e2', { state: 'open' }));
   });
 
+  it('Slice 4c: Let it go on a lead is No reply needed on every ask; Keep it posts keep_lead', async () => {
+    const { result } = setup();
+    await act(async () => {
+      await result.current.run({ id: 'let_lead_go' }, item({ key: 'thread:a:b' }, { kind: 'thread', id: 'e1', ids: ['e1', 'e2'], task_status: null }));
+    });
+    expect(api.patch).toHaveBeenCalledWith('/email-asks/e1', { state: 'dismissed' });
+    expect(api.patch).toHaveBeenCalledWith('/email-asks/e2', { state: 'dismissed' });
+    await act(async () => {
+      await result.current.run({ id: 'keep_lead' }, item({ key: 'thread:a:b' }, { kind: 'thread', id: 'e1', ids: ['e1'], task_status: null }));
+    });
+    expect(api.post).toHaveBeenCalledWith('/home/act', { action: 'keep_lead', item_key: 'thread:a:b' });
+  });
+
   it('open buttons navigate: in-app push, outside new tab, drawer when no href', async () => {
     const openTask = vi.fn();
     const win = vi.spyOn(window, 'open').mockImplementation(() => null);

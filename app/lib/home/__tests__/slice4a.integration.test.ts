@@ -168,7 +168,7 @@ describe.skipIf(!SCRATCH)('Slice 4a: owed replies (real database)', () => {
 
     const thought = await rowFor('lead');
     expect(thought?.owed_state).toBe('needs_thought');
-    expect(thought?.owed_line).toBe('Needs thought');
+    expect(thought?.owed_line).toBe('reply due Friday · Needs thought');
     expect(thought?.opened.bast_read).toBe('The reply needs a price from you.');
     expect(thought?.opened.suggested_answer).toBeNull();
     expect(thought?.actions.map((a) => a.id)).not.toContain('go_with_that');

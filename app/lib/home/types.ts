@@ -119,7 +119,13 @@ export type HomeActionId =
   | 'needs_thought'
   | 'go_with_that'
   | 'not_this_week'
-  | 'open_site';
+  | 'open_site'
+  | 'keep_lead'
+  | 'let_lead_go'
+  | 'not_lead'
+  | 'treat_as_reply'
+  | 'close_lead'
+  | 'open_short';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -137,6 +143,7 @@ export type HomeRecordedActionId = Extract<
   | 'open_thread'
   | 'open_site'
   | 'no_reply_needed'
+  | 'open_short'
   | 'handled'
 >;
 
@@ -202,6 +209,8 @@ export interface HomeItemCard {
   bast_read?: string | null;
   /** Slice 4a, threads only: Bast's suggested answer, or null. */
   suggested_answer?: string | null;
+  /** Slice 4c, threads only: the two-line holding draft Bast wrote into his Gmail (shown under "The short one"), or null. */
+  short_draft_text?: string | null;
 }
 
 /** The record behind an item, for the existing-endpoint calls in HomeActionId. */
@@ -619,7 +628,11 @@ export type HomeActRequest =
    * Slice 6a, the hands row only: Not this week. Parks the row to next Monday 00:05 (view_at, view_set_by user). Undoable. There is
    * deliberately no action here that saves a "Not an emergency" rule: that is POST /api/home/rule (browser session only).
    */
-  | { action: 'not_this_week'; item_key: string };
+  | { action: 'not_this_week'; item_key: string }
+  /** Slice 4c, a lead: Keep it. Restarts the lead clock from now. Undoable. Writes only his home_owed_thread row. */
+  | { action: 'keep_lead'; item_key: string }
+  /** Slice 4c, a lead: Not a lead, then "Treat as a reply". The thread stops being a lead. Undoable. */
+  | { action: 'treat_as_reply'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' }>;
@@ -934,6 +947,8 @@ export interface RawItemState {
   card_checklist: unknown;
   card_summary_hash: string | null;
   card_summary_at: Date | null;
+  /** Slice 4c: when his Not now was tapped (null for a park from before 4c). A newer message from them wakes the row. */
+  parked_at?: Date | null;
 }
 
 /** Today's home_day row for U. */

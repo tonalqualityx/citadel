@@ -202,6 +202,7 @@ export function makeState(item_key: string, over: Partial<RawItemState> = {}): R
     card_checklist: null,
     card_summary_hash: null,
     card_summary_at: null,
+    parked_at: null,
     ...over,
   };
 }

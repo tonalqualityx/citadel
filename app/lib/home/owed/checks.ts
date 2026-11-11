@@ -99,6 +99,27 @@ export function checkDraftBody(text: string): CheckResult {
   return shape(text, OWED.maxWords, OWED.maxChars);
 }
 
+/** The number of sentences in a text (runs ending in . ! or ?, plus a trailing run without one). */
+export function sentenceCount(text: string): number {
+  return text
+    .split(/[.!?]+(?:\s+|$)/)
+    .map((x) => x.trim())
+    .filter(Boolean).length;
+}
+
+/**
+ * Slice 4c: the short holding draft. The same commitment and shape checks as a full draft, with the tighter cap: at most
+ * 2 sentences and 40 words.
+ */
+export function checkShortDraft(text: string): CheckResult {
+  const c = commitments(text);
+  if (!c.ok) return c;
+  const s = shape(text, OWED.shortWords, OWED.maxChars);
+  if (!s.ok) return s;
+  if (sentenceCount(text) > OWED.shortSentences) return { ok: false, category: 'shape', match: 'too many sentences' };
+  return { ok: true };
+}
+
 /**
  * Bast's read of the decision being avoided. It may name what is missing ("a price"), so no commitment words are
  * checked; it must be plain, at most 40 words and 400 characters (the column).
