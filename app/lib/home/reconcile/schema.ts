@@ -119,6 +119,11 @@ const messageSchema = z
     filter: modelInfo,
     match: modelInfo.nullable(),
     outcome: z.enum(['nothing', 'actions']),
+    // Facts from the mail mirror, optional (same shapes as the candidates route): when present the server recomputes the candidate set and the
+    // match basis from them exactly as the candidates route does; when absent it falls back to to_label, EmailAsk rows and message_key.
+    to: z.array(addr).max(20).optional(),
+    cc: z.array(addr).max(20).optional(),
+    thread_rfc_ids: z.array(z.string().min(1).max(300)).max(60).optional(),
     // Each action is parsed on its own (parseAction), so one bad action is a bad_shape refusal and not a 400.
     actions: z.array(z.unknown()).max(6),
   })

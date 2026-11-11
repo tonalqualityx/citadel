@@ -108,3 +108,14 @@ describe('the machine job and this server agree on the field names', () => {
     }
   });
 });
+
+describe('optional mirror facts on a real or dry message', () => {
+  it('accepts to, cc and at most 60 thread_rfc_ids of at most 300 characters, and stays strict', () => {
+    const ok = { to: [{ email: 'a@b.co', name: '' }], cc: [], thread_rfc_ids: ['x'.repeat(300)] };
+    expect(reconcileBodySchema.safeParse({ dry: true, messages: [msg(ok)] }).success).toBe(true);
+    expect(reconcileBodySchema.safeParse({ dry: true, messages: [msg()] }).success).toBe(true);
+    expect(reconcileBodySchema.safeParse({ dry: true, messages: [msg({ thread_rfc_ids: Array.from({ length: 61 }, () => 'a') })] }).success).toBe(false);
+    expect(reconcileBodySchema.safeParse({ dry: true, messages: [msg({ thread_rfc_ids: ['x'.repeat(301)] })] }).success).toBe(false);
+    expect(reconcileBodySchema.safeParse({ dry: true, messages: [msg({ cc: [{ email: 'a@b.co', name: '', x: 1 }] })] }).success).toBe(false);
+  });
+});

@@ -184,10 +184,11 @@ async function evaluateOne(db: PrismaClient, ownerId: string, m: ReconcileMessag
   }
   if (m.actions.length === 0) return finish('nothing');
 
-  const recipients = emailsIn(m.to_label);
+  const given = [...(m.to ?? []), ...(m.cc ?? [])].map((a) => a.email.toLowerCase());
+  const recipients = given.length > 0 ? [...new Set(given)] : emailsIn(m.to_label);
   const { clients, names } = await resolveRecipients(db, recipients);
   const who = whoLabel(displayWho(recipients, names)) || 'someone';
-  const thread = await loadThread(db, [m.thread_id, m.thread_root], [m.message_key]);
+  const thread = await loadThread(db, [m.thread_id, m.thread_root], [m.message_key, ...(m.thread_rfc_ids ?? [])]);
   const bastWords = m.bast_words || sh.hashes.has(sha256(normalizeBody(m.new_part)));
   const parsed = m.actions.map((a) => parseAction(a));
   const taskIds = parsed.flatMap((a) => (a && 'task_id' in a ? [a.task_id] : []));

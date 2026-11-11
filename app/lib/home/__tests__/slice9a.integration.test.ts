@@ -166,6 +166,7 @@ describe.skipIf(!SCRATCH)('Slice 9a: the sent-mail reconciler (real database)', 
     await task('late', { title: `Created after the email ${tag}`, created_at: at(10, 9, 0) });
     await task('hasTime', { title: `Task with time ${tag}` });
     await task('cap', { title: `Cap task ${tag}` });
+    await task('rfc', { title: `Zebra quarterly ledger ${tag}`, client_id: null, source_ref: `<rfc-${tag}@mail.test>` });
     await task('neverMine', { title: `Not tied to anything ${tag}`, client_id: null });
     for (const k of ['kue', 'own', 'own2', 'own3', 'wrong', 'sab', 'late', 'cap']) await ask(k, ids[k]);
     await ask('wrongAgain', ids.wrong, 'wrong');
@@ -301,6 +302,45 @@ describe.skipIf(!SCRATCH)('Slice 9a: the sent-mail reconciler (real database)', 
       expect(real.messages[0]).toMatchObject({ outcome: 'already', decisions: [] });
       expect(await counts()).toEqual(before);
       expect(((await loadContext(prisma, adminId, NOW)) as { processed: string[] }).processed).toContain(mkey('own'));
+    });
+  });
+
+  // ------------------------------------------------------------------------------------------------------------------
+  describe('facts from the mail mirror on the POST (to, cc, thread_rfc_ids)', () => {
+    const q = 'I sent the ledger over.';
+    const rfcMsg = (k: string, extra: Record<string, unknown> = {}) =>
+      message(k, [note('rfc', q)], { new_part: `Hi.\n${q}\nThanks`, subject: 'Lunch', ...extra });
+    const withIds = { to: [{ email: kue, name: '' }], cc: [], thread_rfc_ids: [`rfc-${tag}@mail.test`] };
+
+    it('a task linked only by source_ref matching thread_rfc_ids is a candidate on both routes and gets its note on the POST', async () => {
+      const req = candidatesBodySchema.parse({
+        messages: [{ message_key: mkey('rfc1'), account: acct, thread_id: th('rfc1'), thread_rfc_ids: withIds.thread_rfc_ids, to: withIds.to, cc: [], subject: 'Lunch', sent_at: SENT.toISOString() }],
+      });
+      const cands = await candidatesFor(prisma, adminId, req.messages[0], NOW);
+      expect(cands.tasks.find((t) => t.id === ids.rfc)).toMatchObject({ mine: true, basis: ['thread'] });
+      const m = rfcMsg('rfc1', withIds);
+      const dry = await saveReconcile(prisma, adminId, body([m], true), NOW);
+      const real = await saveReconcile(prisma, adminId, body([m], false), NOW);
+      expect(dry.messages[0].decisions).toEqual([{ i: 0, result: 'noted' }]);
+      expect(real.messages[0].decisions).toEqual(dry.messages[0].decisions);
+      expect((await commentsOn('rfc')).length).toBe(1);
+    });
+
+    it('without the ids the same task is not_candidate, dry and real agree, and nothing is written', async () => {
+      const m = rfcMsg('rfc2');
+      const before = await prisma.comment.count();
+      const dry = await saveReconcile(prisma, adminId, body([m], true), NOW);
+      const real = await saveReconcile(prisma, adminId, body([m], false), NOW);
+      expect(dry.messages[0].decisions).toEqual([{ i: 0, result: 'refused', reason: 'not_candidate' }]);
+      expect(real.messages[0].decisions).toEqual(dry.messages[0].decisions);
+      expect(await prisma.comment.count()).toBe(before);
+    });
+
+    it('the new fields are strict', () => {
+      expect(reconcileBodySchema.safeParse({ dry: true, messages: [rfcMsg('x1', { thread_rfc_ids: Array.from({ length: 61 }, (_, i) => `a${i}`) })] }).success).toBe(false);
+      expect(reconcileBodySchema.safeParse({ dry: true, messages: [rfcMsg('x2', { thread_rfc_ids: ['y'.repeat(301)] })] }).success).toBe(false);
+      expect(reconcileBodySchema.safeParse({ dry: true, messages: [rfcMsg('x3', { to: [{ email: 'a@b.co', name: '', extra: 1 }] })] }).success).toBe(false);
+      expect(reconcileBodySchema.safeParse({ dry: true, messages: [rfcMsg('x4', withIds)] }).success).toBe(true);
     });
   });
 

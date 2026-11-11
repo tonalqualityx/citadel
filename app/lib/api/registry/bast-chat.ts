@@ -629,7 +629,7 @@ export const bastChatEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'dry', type: 'boolean', required: true, description: 'true runs every validation and answers the decisions with no write; false runs the same validation, then writes.' },
           { name: 'lookback_end', type: 'boolean', required: false, description: 'true (with messages: []) marks the look-back used up, once.' },
-          { name: 'messages', type: 'object', required: true, description: 'At most 10 of {message_key, account, gmail_id, thread_id, thread_root, sent_at, to_label, subject, lookback, bast_words, new_part (at most 6,000 characters, never stored), quoted_part_hash, filter: {model, cost_usd}, match: {model, cost_usd}|null, outcome: "nothing"|"actions", actions: []}. Each action is a note, done, waiting, session, wait or track object.' },
+          { name: 'messages', type: 'object', required: true, description: 'At most 10 of {message_key, account, gmail_id, thread_id, thread_root, sent_at, to_label, subject, lookback, bast_words, new_part (at most 6,000 characters, never stored), quoted_part_hash, filter: {model, cost_usd}, match: {model, cost_usd}|null, outcome: "nothing"|"actions", actions: [], and optionally to: [{email, name}], cc: [{email, name}], thread_rfc_ids: [at most 60, each at most 300 characters] (mail mirror facts: when present the server recomputes the candidate set and match basis from them as the candidates route does; when absent it falls back to to_label, EmailAsk rows and message_key)}. Each action is a note, done, waiting, session, wait or track object.' },
         ],
         responseExample: {
           messages: [

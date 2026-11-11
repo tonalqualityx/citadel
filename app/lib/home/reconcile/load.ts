@@ -432,7 +432,8 @@ export async function candidatesFor(db: PrismaClient, ownerId: string, m: Candid
 
   // The pool: tasks tied to the thread, then open tasks of the clients named.
   const pool = new Set<string>(thread.ask_task_ids);
-  const refs = thread.rfc_ids;
+  // A task's source_ref may hold the id with or without its angle brackets.
+  const refs = thread.rfc_ids.flatMap((r) => [r, `<${r}>`]);
   const [byRef, byOrigin, byClient] = await Promise.all([
     refs.length ? db.task.findMany({ where: { source_ref: { in: refs }, is_deleted: false, status: { in: [...OPEN_TASK_STATUSES] } }, select: { id: true }, take: POOL_TAKE }) : Promise.resolve([]),
     m.thread_id.length >= 8 ? db.task.findMany({ where: { origin_url: { contains: m.thread_id }, is_deleted: false, status: { in: [...OPEN_TASK_STATUSES] } }, select: { id: true }, take: POOL_TAKE }) : Promise.resolve([]),
