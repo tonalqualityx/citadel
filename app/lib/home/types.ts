@@ -313,7 +313,7 @@ export interface HomeToday {
 
 /** A quiet line in Handled for you. */
 export interface HomeQuietLine {
-  /** Stable id for React keys (the EmailAsk id for a classifier auto-close). */
+  /** Stable id for React keys (the EmailAsk id for a classifier auto-close, the home_actions id for a keeper line). */
   id: string;
   /** One sentence. */
   text: string;
@@ -321,6 +321,13 @@ export interface HomeQuietLine {
   href: string | null;
   /** When it was handled (ISO). Lines are newest first. */
   at: string;
+  /**
+   * Slice 2: the home_actions id to send to /api/home/undo for a keeper line (open for 72
+   * hours), or null for a classifier auto-close, which has no undo.
+   */
+  undo_action_id: string | null;
+  /** Slice 2: extra muted lines on the detail card (for a keeper line, the items it touched). [] when none. */
+  details: string[];
 }
 
 /** The roll-up line after the visible quiet lines, for example "4 more handled". */
@@ -353,11 +360,29 @@ export interface HomeSections {
 export type HomeRestGroupKey =
   | 'waiting_turn' // in view or queued but not shown above
   | 'parked' // Not now, until their view_at
+  | 'scheduled' // Slice 2: given a day to come back by the nightly sort, until that day
   | 'held_projects' // tasks on quote, queue or suspended projects
   | 'review_pieces' // done tasks folded under a project sign-off
   | 'new_mail' // threads from a known person too young to show yet (not a business day old)
   | 'older_threads' // qualifying threads whose newest open ask is over 21 days old
   | 'ventures'; // other ventures
+
+/** Slice 2: one row inside an Everything else group. Every row has an owner and a check text. */
+export interface HomeRestItem {
+  /** The item key (item-key.ts) when the row is one item, or null for a group row (for example a held project). */
+  key: string | null;
+  title: string;
+  /** Who holds it, for example "You", "The Grok project", "The Grok sign-off". */
+  owner: string;
+  /** When or how it comes back, for example "Back Thursday, November 12". Never empty. */
+  check_text: string;
+  /** The day it comes back (ISO), or null when it has no set day. */
+  check_at: string | null;
+  /** True when check_at has passed and the item is still in Everything else. */
+  past_check: boolean;
+  /** True when "Bring it forward" works on this row (task, session, wait and thread rows; not crisis or group rows). */
+  can_bring_forward: boolean;
+}
 
 export interface HomeEverythingElseGroup {
   key: HomeRestGroupKey;
@@ -366,6 +391,8 @@ export interface HomeEverythingElseGroup {
   count: number;
   /** Who holds them, for example "You", "Each project's sign-off". */
   owner: string;
+  /** Slice 2: one row per item (or per project or fold where the group is counted that way). */
+  items: HomeRestItem[];
 }
 
 /** Everything else (plan 1.2): one count sentence and the groups behind it. Groups with count 0 are left out. */
@@ -375,6 +402,12 @@ export interface HomeEverythingElse {
   /** One sentence, for example "52 other items are on your plate and counted here." */
   line: string;
   groups: HomeEverythingElseGroup[];
+  /** Slice 2: how many of the items have a day to come back. */
+  with_day: number;
+  /** Slice 2: how many of those are past their day and still here. */
+  past_day: number;
+  /** Slice 2: "{S} tasks on unsigned or paused projects are kept as scope, not work.", or null when there are none. */
+  scope_line: string | null;
 }
 
 /** The tiles, in the preview's order. */
@@ -431,6 +464,7 @@ export interface HomeResponse {
 
 /** The `action` values of HomeActRequest; also the home_actions.action column value. */
 export type HomeActName =
+  | 'bring_forward'
   | 'not_now'
   | 'matters_more'
   | 'not_emergency'
@@ -457,6 +491,11 @@ export type HomeArcAddOrigin =
  * home_day and home_actions for the caller, never a shared record.
  */
 export type HomeActRequest =
+  /**
+   * Slice 2, Bring it forward: boosted_at = now, view_at = null, view_set_by = null. The item
+   * goes to the front of Next. Undoable. Message "Moved to the front of Next."
+   */
+  | { action: 'bring_forward'; item_key: string }
   /**
    * Not now: park_count + 1. First: view_at = next business day 9:00 in his zone. Second:
    * view_at = now + 7 days. From park_count 3 (rules.ts NOT_NOW.choicesOnlyAtParkCount) the
@@ -606,6 +645,12 @@ export interface RawTask {
   tags: string[];
   /** Task.promised_to, or null. Non-null makes due_date a hard date. */
   promised_to: string | null;
+  /** Slice 2: Task.hard_due_at, a real outside date filed with a source, or null. */
+  hard_due_at: Date | null;
+  /** Slice 2: Task.hard_due_source ("domain renews"), or null. */
+  hard_due_source: string | null;
+  /** Slice 2: Task.created_by_id, or null. With the from-chat tag it makes a task fresh (rules.ts isFreshNew). */
+  created_by_id: string | null;
   /** Task.due_date, or null. Only rules.ts hardDateOf may turn it into anything shown. */
   due_date: Date | null;
   created_at: Date;
@@ -793,6 +838,20 @@ export interface RawItemState {
   arc_removed_group: string | null;
   first_seen_at: Date;
   last_shown_at: Date | null;
+  /** Slice 2: null or 'user' is his Not now; 'keeper' is the nightly sort. */
+  view_set_by: string | null;
+  /** Slice 2: after an Undo of a keeper action, the keeper leaves the item alone until this time. */
+  keeper_hold_until: Date | null;
+  /** Slice 2: the keeper's reading of an existing due_date, or null. */
+  read_hard_due_at: Date | null;
+  read_hard_due_source: string | null;
+  /** Slice 2: set once the keeper has read this task's date. */
+  dates_read_at: Date | null;
+  /** Slice 2b: Bast's card summary, its checklist (JSON), the sha256 of the description it summarizes, and when. */
+  card_summary: string | null;
+  card_checklist: unknown;
+  card_summary_hash: string | null;
+  card_summary_at: Date | null;
 }
 
 /** Today's home_day row for U. */
@@ -812,6 +871,29 @@ export interface RawHomeDay {
   lighter_at: Date | null;
 }
 
+/** Slice 2: tasks held on one unsigned or paused project, for the Everything else rows. */
+export interface RawHeldProject {
+  project: { id: string; name: string };
+  /** U's open tasks on that project. */
+  count: number;
+}
+
+/** Slice 2: one keeper home_actions row as Handled for you reads it (source keeper, last 72 hours, not undone). */
+export interface RawKeeperLine {
+  /** home_actions.id; it is the undo id. */
+  id: string;
+  /** home_actions.action. */
+  action: KeeperActionKind;
+  /** after.line, the sentence the keeper wrote. */
+  text: string;
+  /** after.details, the items it touched. [] when none. */
+  details: string[];
+  /** home_actions.created_at. */
+  at: Date;
+  /** home_actions.undo_until. */
+  undo_until: Date;
+}
+
 /** Everything loadHomeInputs(prisma, userId, now) returns. */
 export interface RawHomeInputs {
   user_id: string;
@@ -827,6 +909,75 @@ export interface RawHomeInputs {
   calendar_events: RawCalendarEvent[];
   /** U's open tasks on quote, queue or suspended projects (Everything else, "on paused or unsigned projects"). */
   held_project_task_count: number;
+  /** Slice 2: the held tasks by project (the sum of their counts is held_project_task_count). */
+  held_projects: RawHeldProject[];
+  /** Slice 2: the keeper's own Handled lines, newest first. */
+  keeper_lines: RawKeeperLine[];
+}
+
+// ============================================================================
+// C2. The keeper (Slice 2; server only)
+// ============================================================================
+
+/** The home_actions.action values the keeper writes (source 'keeper'). 2b adds summaries, 2c the arc ones. */
+export type KeeperActionKind =
+  | 'keeper_stagger'
+  | 'keeper_dates'
+  | 'keeper_summaries'
+  | 'keeper_arc_create'
+  | 'keeper_arc_close'
+  | 'keeper_arc_link';
+
+/** One task given a day to come back. */
+export interface KeeperStaggerChange {
+  item_key: string;
+  title: string;
+  /** The day it comes back, YYYY-MM-DD in Eastern. */
+  day: string;
+  /** The view_at to write (00:05 Eastern that day), ISO. */
+  view_at: string;
+}
+
+/** One task whose existing due_date the keeper read. */
+export interface KeeperDateChange {
+  item_key: string;
+  title: string;
+  /** 'read' shows as a chip; 'set_aside' is an invented default or a dead date. */
+  outcome: 'read' | 'set_aside';
+  due_date: string;
+  /** True when the task belongs to a client (set-aside ones on client work are listed for Mike). */
+  client_facing: boolean;
+}
+
+/** One line the keeper will write into Handled for you. */
+export interface KeeperPlanLine {
+  action: KeeperActionKind;
+  text: string;
+  details: string[];
+}
+
+/** What a keeper run would do (the GET dry run) or did. JSON only: dates are ISO strings. */
+export interface KeeperPlan {
+  owner_id: string;
+  /** The run's date in Eastern, YYYY-MM-DD. */
+  date: string;
+  stagger: KeeperStaggerChange[];
+  dates: KeeperDateChange[];
+  lines: KeeperPlanLine[];
+  counts: { stagger: number; dates_read: number; dates_set_aside: number };
+}
+
+/** What the keeper route answers. Exactly one of skipped, already_ran or plan is set. */
+export interface KeeperResult {
+  /** True for GET, and for a POST that was asked to write nothing. */
+  dry_run: boolean;
+  /** The owner is not an active admin on the home view; nothing was written. */
+  skipped?: 'home_off';
+  /** This user and date already have a finished nightly row; nothing was written. */
+  already_ran?: true;
+  plan?: KeeperPlan;
+  /** home_actions ids written (empty on a dry run or a skip). */
+  action_ids: string[];
 }
 
 // ============================================================================

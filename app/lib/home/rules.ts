@@ -15,7 +15,7 @@
  */
 
 import type { AskSeverity, EmailAskState } from '@prisma/client';
-import { DUE_HOUR, zonedParts } from '@/lib/waits/business-days';
+import { DUE_HOUR, addBusinessDays, zonedParts } from '@/lib/waits/business-days';
 
 // ============================================================================
 // Sources (plan 1.1)
@@ -309,6 +309,61 @@ export const NOT_NOW = {
 
 /** Home-only actions undo through /api/home/undo for this long. */
 export const UNDO_WINDOW_HOURS = 24;
+
+// ============================================================================
+// Slice 2: fresh tasks, the keeper, date reading, summaries, arcs. Internal only.
+// ============================================================================
+
+/**
+ * A task assigned to him that carries `chatTag`, or that he created himself, shows in Next
+ * for this many business days from creation (see isFreshNew).
+ */
+export const FRESH_NEW = { chatTag: 'from-chat', businessDays: 2 } as const;
+
+/**
+ * The nightly sort. `perDay` tasks come back on any business day (his own Not now returns
+ * count toward it). `slotHour` and `slotMinute` are the Eastern time of day written into
+ * view_at. `lineHours` is how long a keeper line stays in Handled for you, `undoHours` how
+ * long its Undo stays open, `holdDays` how long an undone item is left alone.
+ */
+export const KEEPER = { perDay: 3, slotHour: 0, slotMinute: 5, lineHours: 72, undoHours: 72, holdDays: 30 } as const;
+
+/**
+ * Reading existing due dates, once per task. A due date 4 to 6 days after creation is an
+ * invented default (set aside). A due date more than `deadPastDays` days in the past is set
+ * aside. Anything else is read, with `unclearSource` as its source.
+ */
+export const DATE_READ = {
+  inventedMinDays: 4,
+  inventedMaxDays: 6,
+  deadPastDays: 14,
+  unclearSource: 'date from the task, source unclear',
+} as const;
+
+/** Slice 2b, card summaries written by Bast. */
+export const SUMMARY = { minWords: 120, maxWords: 60, perRun: 40, maxInputChars: 6000 } as const;
+
+/** Slice 2c, arc housekeeping. */
+export const ARC_KEEPER = { staleDays: 21, maxCreatePerNight: 1, maxClosePerNight: 5, linkCap: 4 } as const;
+
+/** What isFreshNew reads from a task. */
+export interface FreshNewFields {
+  tags: readonly string[];
+  created_by_id: string | null;
+  created_at: Date;
+}
+
+/**
+ * True when the task (already known to be his and open) is tagged `from-chat` or was created
+ * by him, and `now` is before the end of the second business day counted from creation
+ * (addBusinessDays, 17:00 Eastern on that day). A blank userId is never the creator.
+ */
+export function isFreshNew(task: FreshNewFields, userId: string, now: Date): boolean {
+  const chat = (task.tags ?? []).some((t) => t.trim().toLowerCase() === FRESH_NEW.chatTag);
+  const mine = !!userId && !!task.created_by_id && task.created_by_id === userId;
+  if (!chat && !mine) return false;
+  return now.getTime() < addBusinessDays(task.created_at, FRESH_NEW.businessDays).getTime();
+}
 
 // ============================================================================
 // Address and name predicates

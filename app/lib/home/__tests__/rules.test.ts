@@ -3,19 +3,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { addBusinessDays } from '@/lib/waits/business-days';
 import {
+  ARC_KEEPER,
   AUTOMATED_SENDER_PATTERNS,
   CALENDAR_SUBJECT_PREFIXES,
   CAPS,
   CLOSED_TASK_STATUSES,
+  DATE_READ,
   EXCLUDED_PROJECT_STATUSES,
   EXCLUDED_SESSION_STATUSES,
+  FRESH_NEW,
   HELD_PROJECT_STATUSES,
   IMPORTANCE,
+  KEEPER,
   NOISE_CLIENT_NAMES,
   NOISE_SENDER_DOMAINS,
   NOT_NOW,
   OPEN_WAIT_STATES,
   OWN_ADDRESSES,
+  SUMMARY,
   THREAD_MAX_AGE_DAYS,
   URGENCY,
   VENTURE_NAMES,
@@ -30,6 +35,7 @@ import {
   hasSecurityTag,
   isAutomatedSender,
   isCalendarSubject,
+  isFreshNew,
   isNoise,
   isNoiseClientName,
   isNoiseSender,
@@ -311,6 +317,57 @@ describe('emergency predicates (plan 1.3 rules 1 to 7)', () => {
   });
 });
 
+describe('Slice 2 constants', () => {
+  it('match the plan', () => {
+    expect(FRESH_NEW).toEqual({ chatTag: 'from-chat', businessDays: 2 });
+    expect(KEEPER).toEqual({ perDay: 3, slotHour: 0, slotMinute: 5, lineHours: 72, undoHours: 72, holdDays: 30 });
+    expect(DATE_READ).toEqual({
+      inventedMinDays: 4,
+      inventedMaxDays: 6,
+      deadPastDays: 14,
+      unclearSource: 'date from the task, source unclear',
+    });
+    expect(SUMMARY).toEqual({ minWords: 120, maxWords: 60, perRun: 40, maxInputChars: 6000 });
+    expect(ARC_KEEPER).toEqual({ staleDays: 21, maxCreatePerNight: 1, maxClosePerNight: 5, linkCap: 4 });
+  });
+});
+
+describe('isFreshNew', () => {
+  const ME = '7aa4a01a-1111-4222-8333-944445555666';
+  const OTHER = 'bbbbbbbb-1111-4222-8333-944445555666';
+  const mk = (over: Partial<{ tags: string[]; created_by_id: string | null; created_at: Date }> = {}) => ({
+    tags: [] as string[],
+    created_by_id: null as string | null,
+    created_at: et('2026-11-10T09:00:00'), // Tuesday
+    ...over,
+  });
+
+  it('is false for a task that is neither tagged from-chat nor made by him', () => {
+    expect(isFreshNew(mk(), ME, NOW)).toBe(false);
+    expect(isFreshNew(mk({ created_by_id: OTHER, tags: ['kickoff'] }), ME, NOW)).toBe(false);
+    expect(isFreshNew(mk({ created_by_id: null }), '', NOW)).toBe(false);
+  });
+
+  it('is true for from-chat (any case) or self-made tasks created today', () => {
+    expect(isFreshNew(mk({ tags: ['from-chat'] }), ME, NOW)).toBe(true);
+    expect(isFreshNew(mk({ tags: ['kickoff', 'From-Chat'] }), ME, NOW)).toBe(true);
+    expect(isFreshNew(mk({ created_by_id: ME }), ME, NOW)).toBe(true);
+  });
+
+  it('lasts through the second business day, ending at 17:00 Eastern', () => {
+    const t = mk({ tags: ['from-chat'] }); // created Tue 09:00, counts from Tuesday
+    expect(isFreshNew(t, ME, et('2026-11-12T16:59:00'))).toBe(true); // Thursday before 17:00
+    expect(isFreshNew(t, ME, et('2026-11-12T17:00:00'))).toBe(false);
+    expect(isFreshNew(t, ME, et('2026-11-13T09:00:00'))).toBe(false);
+  });
+
+  it('skips the weekend when counting', () => {
+    const t = mk({ tags: ['from-chat'], created_at: et('2026-11-13T10:00:00') }); // Friday
+    expect(isFreshNew(t, ME, et('2026-11-17T16:00:00'))).toBe(true); // Tuesday
+    expect(isFreshNew(t, ME, et('2026-11-17T17:00:00'))).toBe(false);
+  });
+});
+
 describe('contract guards', () => {
   const dir = path.resolve(__dirname, '..');
   const read = (f: string) => fs.readFileSync(path.join(dir, f), 'utf8');
@@ -339,6 +396,7 @@ describe('contract guards', () => {
     const t = 'task:7aa4a01a-1111-4222-8333-944445555666';
     const g = 'arc:7aa4a01a-1111-4222-8333-944445555666';
     const every: { [K in HomeActName]: Extract<HomeActRequest, { action: K }> } = {
+      bring_forward: { action: 'bring_forward', item_key: t },
       not_now: { action: 'not_now', item_key: t },
       matters_more: { action: 'matters_more', item_key: t },
       not_emergency: { action: 'not_emergency', item_key: t },

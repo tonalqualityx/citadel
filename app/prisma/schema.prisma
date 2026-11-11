@@ -86,6 +86,9 @@ model User {
   home_days        HomeDay[]       @relation("HomeDayUser")
   home_actions     HomeAction[]    @relation("HomeActionUser")
 
+  home_keeper_runs     HomeKeeperRun[]     @relation("HomeKeeperRunUser")
+  home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
+
   @@map("users")
 }
 
@@ -1251,6 +1254,10 @@ model Task {
   // email->task, completion nudge) must stay one gesture; the two real task FORMS require
   // an explicit choice client-side.
   promised_to String? @db.VarChar(200)
+
+  // Home screen Slice 2: a real outside date and who or what set it. Read only by the home screen.
+  hard_due_at     DateTime?
+  hard_due_source String?   @db.VarChar(200)
 
   // Classification & source (Bast triage). tags carry triage states (bast-doable,
   // needs-info, awaiting-client-approval, ...) AND classification namespaces (stack:eleventy,
@@ -4788,12 +4795,51 @@ model HomeItemState {
   arc_removed_group String?   @db.VarChar(120)
   first_seen_at     DateTime  @default(now())
   last_shown_at     DateTime?
+
+  view_set_by          String?   @db.VarChar(10)  // null or 'user': his Not now; 'keeper': the nightly sort
+  keeper_hold_until    DateTime?                  // after an Undo of a keeper action, the keeper leaves the item alone
+  read_hard_due_at     DateTime?                  // the keeper's reading of an existing due_date (2A.6)
+  read_hard_due_source String?   @db.VarChar(200)
+  dates_read_at        DateTime?
+  card_summary         String?   @db.Text         // 2b
+  card_checklist       Json?                      // 2b
+  card_summary_hash    String?   @db.VarChar(64)  // 2b, sha256 of the description it summarizes
+  card_summary_at      DateTime?                  // 2b
+
   created_at        DateTime  @default(now())
   updated_at        DateTime  @updatedAt
 
   @@unique([user_id, item_key])
   @@index([user_id, view_at])
   @@map("home_item_state")
+}
+
+// Home screen Slice 2: one row per nightly keeper run for that user. Never read by any other screen.
+model HomeKeeperRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  user_id     String    @db.Uuid
+  user        User      @relation("HomeKeeperRunUser", fields: [user_id], references: [id], onDelete: Cascade)
+  date        DateTime  @db.Date
+  kind        String    @default("nightly") @db.VarChar(30)
+  started_at  DateTime  @default(now())
+  finished_at DateTime?
+  counts      Json?
+  error       String?   @db.Text
+  @@unique([user_id, date, kind])
+  @@map("home_keeper_runs")
+}
+
+// Home screen Slice 2c: keeper actions outside the home screen's own rows. No row = everything off.
+model HomeKeeperSettings {
+  id              String   @id @default(uuid()) @db.Uuid
+  user_id         String   @unique @db.Uuid
+  user            User     @relation("HomeKeeperSettingsUser", fields: [user_id], references: [id], onDelete: Cascade)
+  arcs_create     Boolean  @default(false)
+  arcs_close      Boolean  @default(false)
+  arcs_link_tasks Boolean  @default(false)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  @@map("home_keeper_settings")
 }
 
 // Home screen Slice 1: the day's proposal, written once per zoned day and changed only by
