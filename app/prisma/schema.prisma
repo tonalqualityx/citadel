@@ -89,6 +89,7 @@ model User {
   home_keeper_runs     HomeKeeperRun[]     @relation("HomeKeeperRunUser")
   home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
   home_owed_threads    HomeOwedThread[]    @relation("HomeOwedThreadUser")
+  home_site_incidents  HomeSiteIncident[]  @relation("HomeSiteIncidentUser")
 
   @@map("users")
 }
@@ -4813,6 +4814,31 @@ model HomeItemState {
   @@unique([user_id, item_key])
   @@index([user_id, view_at])
   @@map("home_item_state")
+}
+
+// Home screen Slice 6a: a site down signal for that user, from the watchdog or an uptime mail plus Bast's check.
+model HomeSiteIncident {
+  id                 String    @id @default(uuid()) @db.Uuid
+  user_id            String    @db.Uuid
+  user               User      @relation("HomeSiteIncidentUser", fields: [user_id], references: [id], onDelete: Cascade)
+  site_id            String    @db.Uuid
+  domain             String    @db.VarChar(255)
+  client_id          String?   @db.Uuid
+  source             String    @db.VarChar(20) // kuma | uptime_mail
+  monitor            String?   @db.VarChar(255)
+  ask_ids            String[]  @default([]) @db.Uuid
+  started_at         DateTime
+  last_checked_at    DateTime?
+  last_check_up      Boolean?
+  check_summary      String?   @db.VarChar(500)
+  watchdog_escalated Boolean   @default(false)
+  closed_at          DateTime?
+  close_reason       String?   @db.VarChar(30) // answered | watchdog_closed | mail_handled
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  @@index([user_id, site_id, closed_at])
+  @@map("home_site_incident")
 }
 
 // Home screen Slice 2: one row per nightly keeper run for that user. Never read by any other screen.
