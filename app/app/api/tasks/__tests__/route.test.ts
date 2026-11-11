@@ -8,9 +8,13 @@ vi.mock('@/lib/auth/middleware', () => ({
   requireRole: vi.fn(),
 }));
 
+// Work stage A: the link and the closure have their own tests (lib/work); here they are stubs so the route's calls to them can be asserted.
+vi.mock('@/lib/work/link-asks', () => ({ linkAsksForNewTask: vi.fn(async () => ({ linked: [], closed: [], left_open: [] })), normalizeRfc: (v: string | null) => v }));
+vi.mock('@/lib/work/ask-closure', () => ({ closeAsksForTask: vi.fn(async () => ({ closed: [], action_ids: [], held: { security: [], undone: [] } })) }));
+
 // Mock Prisma
-vi.mock('@/lib/db/prisma', () => ({
-  prisma: {
+vi.mock('@/lib/db/prisma', () => {
+  const prisma: Record<string, unknown> = {
     task: {
       create: vi.fn(),
       findMany: vi.fn(),
@@ -38,8 +42,11 @@ vi.mock('@/lib/db/prisma', () => ({
     projectTeamAssignment: {
       findFirst: vi.fn(),
     },
-  },
-}));
+  };
+  // A transaction runs its callback against the same mock (task.create is the one write the route makes inside it).
+  prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));
+  return { prisma };
+});
 
 // Mock formatters
 vi.mock('@/lib/api/formatters', () => ({
@@ -1296,5 +1303,44 @@ describe('POST /api/tasks — dependency wiring (blocked_by_ids)', () => {
     expect(response.status).toBe(404);
     expect(body.error).toBe('One or more blocker tasks not found');
     expect(mockTaskCreate).not.toHaveBeenCalled();
+  });
+});
+
+// Work stage A: a task filed from mail links the emails behind it, in the same transaction as the create.
+describe('POST /api/tasks: source_rfc and linking', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ userId: 'user-123', role: 'admin', email: 'a@x.test' } as never);
+    mockRequireRole.mockImplementation(() => {});
+    mockTaskCreate.mockResolvedValue({ ...mockCreatedTask, tags: ['x'] });
+    mockUserFindUnique.mockResolvedValue(null);
+  });
+
+  it('links the asks for source email with source_ref and source_rfc, inside one transaction', async () => {
+    const { linkAsksForNewTask } = await import('@/lib/work/link-asks');
+    const res = await POST(createPostRequest({ title: 'T', source: 'email', source_ref: 'gmail-1', source_rfc: '<R@x.test>' }));
+    expect(res.status).toBe(201);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(linkAsksForNewTask)).toHaveBeenCalledWith(expect.anything(), { id: 'task-123', tags: ['x'] }, { source_ref: 'gmail-1', source_rfc: '<R@x.test>' });
+  });
+
+  it('a task that is not from mail takes the plain path with no link and no transaction', async () => {
+    const { linkAsksForNewTask } = await import('@/lib/work/link-asks');
+    const res = await POST(createPostRequest({ title: 'T', source: 'internal', source_ref: 'gmail-1' }));
+    expect(res.status).toBe(201);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(vi.mocked(linkAsksForNewTask)).not.toHaveBeenCalled();
+  });
+
+  it('refuses a source_rfc over 255 characters', async () => {
+    const res = await POST(createPostRequest({ title: 'T', source: 'email', source_rfc: 'x'.repeat(256) }));
+    expect(res.status).toBe(400);
+  });
+
+  it('a task created already done runs the closure', async () => {
+    const { closeAsksForTask } = await import('@/lib/work/ask-closure');
+    mockTaskCreate.mockResolvedValue({ ...mockCreatedTask, status: 'done', tags: [] });
+    await POST(createPostRequest({ title: 'T', status: 'done' }));
+    expect(vi.mocked(closeAsksForTask)).toHaveBeenCalledWith(expect.anything(), 'task-123', 'done');
   });
 });

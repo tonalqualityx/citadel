@@ -210,11 +210,11 @@ describe('lane bast-chat: the list', () => {
 
 describe('lane bast-chat: no other lane gained anything', () => {
   it('every other lane route list is byte for byte the one on main before this build', () => {
-    // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef.
+    // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A adds one porter line).
     const rows = LANES.filter((l) => l !== 'bast-chat').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(155);
+    expect(rows).toHaveLength(156); // 155 on main plus porter POST /api/work/backfill-links (work stage A)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      '20f126530c6b00132a88b13d0d96add4218757f0d2a35d325e1190c440bf28d8',
+      '57e4a18af75ebfe5a856865e6f5c9d1faa1ef4da25c00e93f225e3abced4d854', // main's 20f12653... plus the one porter line of work stage A
     );
   });
 

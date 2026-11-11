@@ -11,10 +11,12 @@ import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
 import { areBlockersSatisfied, wouldCreateCycle } from '@/lib/services/dependencies';
-import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
+import { MysteryFactor, BatteryImpact, TaskStatus, type Prisma } from '@prisma/client';
 import { BAST_USER_ID, MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { guardChatTaskBody, chatConversationFor, refuseChatCreateThatReaches, CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { recordChatCreate, withChatAction } from '@/lib/bast-chat/task-record';
+import { closeAsksForTask } from '@/lib/work/ask-closure';
+import { linkAsksForNewTask } from '@/lib/work/link-asks';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -81,6 +83,9 @@ const createTaskSchema = z.object({
   tags: z.array(z.string().max(50)).optional(),
   source: z.enum(['portal', 'email', 'internal']).optional(),
   source_ref: z.string().max(255).optional().nullable(),
+  // Work stage A: the RFC Message-ID of the email behind an email-sourced task. Not stored on the task; it only finds the
+  // email asks (any mailbox) to link to it, beside source_ref.
+  source_rfc: z.string().max(255).optional().nullable(),
   requested_by_contact_id: z.string().uuid().optional().nullable(),
   // Client staging approval
   staging_preview_url: z.string().max(500).optional().nullable(),
@@ -511,7 +516,7 @@ export async function POST(request: NextRequest) {
       throw new ApiError('Adding this dependency would create a cycle', 422);
     }
 
-    const task = await prisma.task.create({
+    const taskCreateArgs = {
       data: {
         id: taskId,
         title: data.title,
@@ -602,7 +607,21 @@ export async function POST(request: NextRequest) {
         sop: { select: { id: true, title: true, estimated_minutes: true, content: true } },
         created_by: { select: { id: true, name: true } },
       },
-    });
+    } satisfies Prisma.TaskCreateArgs;
+
+    // Work stage A: a task filed from mail links the emails behind it (same transaction as the create).
+    const linkFromMail = data.source === 'email' && !!((data.source_ref ?? '').trim() || (data.source_rfc ?? '').trim());
+    const task = linkFromMail
+      ? await prisma.$transaction(async (tx) => {
+          const created = await tx.task.create(taskCreateArgs);
+          await linkAsksForNewTask(tx, { id: created.id, tags: created.tags }, { source_ref: data.source_ref, source_rfc: data.source_rfc });
+          return created;
+        })
+      : await prisma.task.create(taskCreateArgs);
+    // A task created already finished runs the same closure as one that finishes later (it closes nothing it should not).
+    if (task.status === 'done' || task.status === 'abandoned') {
+      await closeAsksForTask(prisma, task.id, task.status).catch((e) => console.error('closeAsksForTask failed', task.id, e));
+    }
 
     // Log activity
     await logCreate(auth.userId, 'task', task.id, task.title);

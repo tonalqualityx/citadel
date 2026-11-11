@@ -6,6 +6,7 @@
 
 import { prisma } from '@/lib/db/prisma';
 import { MaintenanceFrequency, TaskStatus } from '@prisma/client';
+import { closeAsksForTasks } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 
 export interface GenerationResult {
   siteId: string;
@@ -182,6 +183,7 @@ export async function generateMaintenanceTasksForSite(siteId: string): Promise<G
         },
       });
       tasksAbandoned = updateResult.count;
+      await closeAsksForTasks(tx, previousPeriodTasks.map((t) => t.id), 'abandoned'); // Work stage A
     }
 
     // Create new tasks from plan's SOPs

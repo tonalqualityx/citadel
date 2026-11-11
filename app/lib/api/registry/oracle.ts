@@ -113,7 +113,7 @@ export const oracleEndpoints: ApiEndpoint[] = [
             type: 'object',
             required: true,
             description:
-              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at, intent? (general|meeting|sales|admin — Clarity Phase 6/6b, absent=untouched; admin = business-critical non-client mail: accountant/bookkeeper/banking/tax), proposed_event_at? (ISO-8601, absent=untouched — HIGH-CONFIDENCE parsed meeting time only, never guessed), proposed_event_title? (absent=untouched), proposed_event_minutes? (positive int, absent=untouched) }',
+              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at, intent? (general|meeting|sales|admin — Clarity Phase 6/6b, absent=untouched; admin = business-critical non-client mail: accountant/bookkeeper/banking/tax), proposed_event_at? (ISO-8601, absent=untouched — HIGH-CONFIDENCE parsed meeting time only, never guessed), proposed_event_title? (absent=untouched), proposed_event_minutes? (positive int, absent=untouched), rfc_message_id? (RFC Message-ID, stored lowercased with no brackets, max 255, absent=untouched; work stage A), conversation_key? (RFC id of the conversation root, same rules; work stage A) }',
           },
         ],
         responseExample: {

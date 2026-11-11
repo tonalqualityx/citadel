@@ -14,6 +14,7 @@ import { BAST_USER_ID } from '../gate-mirror';
 import { chatChecklist, plainParagraphs, plainString } from '../plain';
 import { checkTaskCreate, checkUndo, type ReachOrigin, type ReachResult } from '../worker-reach';
 import type { OpDb } from './index';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 
 export const CHAT_TAG = 'from-chat';
 export const START_CREATED_BY = BAST_USER_ID;
@@ -122,6 +123,7 @@ export async function checkStartTaskUndo(ctx: OpContext, taskId: string, changed
 /** Task to `abandoned` by compare-and-set; false when it moved on. */
 export async function abandonStartTask(db: OpDb, taskId: string, ownerId: string): Promise<boolean> {
   const r = await db.task.updateMany({ where: { id: taskId, assignee_id: ownerId, status: 'not_started', is_deleted: false }, data: { status: 'abandoned' } });
+  if (r.count === 1) await closeAsksForTask(db as unknown as Parameters<typeof closeAsksForTask>[0], taskId, 'abandoned'); // Work stage A
   return r.count === 1;
 }
 

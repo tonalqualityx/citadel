@@ -53,6 +53,9 @@ vi.mock('@/lib/calculations/energy', () => ({
   calculateEstimatedMinutes: vi.fn((energy: number) => energy * 30),
 }));
 
+// Work stage A: the closure of a finished task's emails has its own tests (lib/work); here it is a stub so the nudge lookups stay countable.
+vi.mock('@/lib/work/ask-closure', () => ({ closeAsksForTask: vi.fn(async () => ({ closed: [], action_ids: [], held: { security: [], undone: [] } })) }));
+
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { logStatusChange } from '@/lib/services/activity';

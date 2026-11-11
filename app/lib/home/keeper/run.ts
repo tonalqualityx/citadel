@@ -4,6 +4,10 @@
  * sends anything. The one exception is Slice 2c (keeper/arcs.ts): Arc rows and Task.arc_id on his own tasks, each write
  * behind its own switch in home_keeper_settings (all off with no row, and then nothing of 2c runs).
  *
+ * Work stage A adds one more write, the catch-up: any open email ask whose task is done or abandoned closes (closed_by
+ * 'catchup', one Handled line with Undo), by lib/work/ask-closure.ts catchUpClosures. It is the net under the places that
+ * finish a task; it never closes a security task's ask, an urgent ask, or one that arrived after the task finished.
+ *
  * Dry run: plan only, nothing written. Real run: one transaction (30 s): take the day's run row, write each change
  * guarded on the value the plan saw (a row that changed meanwhile is skipped), append one home_actions row per kind
  * with before, after, line and details in the shape runHomeUndo reads, write counts, mark the run finished.
@@ -21,6 +25,7 @@ import { DATE_READ } from '../rules';
 import { keeperLines } from './lines';
 import { planKeeper } from './plan';
 import { applyArcs, loadArcSwitches, planArcs, type ArcPlan } from './arcs';
+import { catchUpClosures } from '@/lib/work/ask-closure';
 
 const HOUR_MS = 3_600_000;
 /** A run row left unfinished this long may be taken over. */
@@ -101,9 +106,11 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
       loadArcSwitches(db, ownerId),
       planArcs(db, ownerId, raw, states, now, zonedDateString(now, timezone)),
     ]);
+    const catchup = await catchUpClosures(db, now, { dry: true, owner: { id: ownerId, timezone } });
     return {
       dry_run: true,
       plan,
+      work_catchup: { would_close: catchup.would_close, closed: 0 },
       arcs: { switches, would_make: arcPlan.make ? [arcPlan.make] : [], would_close: arcPlan.close.map((c) => ({ arc_id: c.arc_id, name: c.name, reason: c.reason, open_tasks: c.open_tasks, line: c.line })) },
       action_ids: [],
     };
@@ -256,6 +263,10 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
       const arcs = arcPlan ? await applyArcs(tx, ownerId, arcPlan, now, date) : null;
       if (arcs) actionIds.push(...arcs.action_ids);
 
+      // 4c. Work stage A: the catch-up of emails whose task finished.
+      const catchup = await catchUpClosures(tx, now, { owner: { id: ownerId, timezone } });
+      actionIds.push(...catchup.action_ids);
+
       // 5. Counts, finished.
       await tx.homeKeeperRun.update({
         where: runKey,
@@ -265,12 +276,14 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
             ...done.counts,
             skipped_changed: plan.stagger.length + plan.dates.length - appliedStagger.length - appliedDates.length,
             ...(arcs ? { arcs_made: arcs.made.length, arcs_closed: arcs.closed.length } : {}),
+            ...(catchup.closed.length > 0 ? { work_catchup_closed: catchup.closed.length } : {}),
           },
         },
       });
       return {
         dry_run: false,
         plan: done,
+        work_catchup: { would_close: catchup.would_close, closed: catchup.closed.length },
         ...(arcs ? { arcs_written: { switches: arcs.switches, made: arcs.made, closed: arcs.closed } } : {}),
         action_ids: actionIds,
       };

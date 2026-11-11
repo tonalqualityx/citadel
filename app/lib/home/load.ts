@@ -60,10 +60,12 @@ import type {
   RawReviewFold,
   RawSessionAsk,
   RawTask,
+  RawTaskEmail,
   RawThread,
   RawWait,
 } from './types';
 import { loadReconcile } from './reconcile/screen';
+import { askIsMine, linkedTaskFacts } from '@/lib/work/owed';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a keeper line stays in Handled for you (and open for Undo). */
@@ -84,6 +86,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   // Slice 7a: the Monday measures line and the approval-speed guard line (no Undo)
   'keeper_measures',
   'keeper_guard',
+  // Work stage A: emails closed with their task (Undo for 72 hours)
+  'work_close',
 ] satisfies KeeperActionKind[];
 /** How long an answered uptime-mail check keeps its mails out of Needs you now. */
 const ANSWERED_KEEP_MS = 3 * DAY_MS;
@@ -287,6 +291,21 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
     if (!lastHuman.has(c.task_id)) lastHuman.set(c.task_id, c.created_at);
   }
 
+  // Work stage A: the emails linked to each task, newest first, at most 3 a task, for its card's Email lines.
+  const linkedAsks = await db.emailAsk.findMany({
+    where: { task_id: { in: rows.map((t) => t.id) } },
+    select: { id: true, task_id: true, from_name: true, from_email: true, subject: true, received_at: true, deep_link: true },
+    orderBy: { received_at: 'desc' },
+    take: 500,
+  });
+  const emailsByTask = new Map<string, RawTaskEmail[]>();
+  for (const a of linkedAsks) {
+    if (!a.task_id) continue;
+    const list = emailsByTask.get(a.task_id) ?? [];
+    if (list.length < 3) list.push({ ask_id: a.id, from_name: a.from_name, from_email: a.from_email, subject: a.subject, received_at: a.received_at, deep_link: a.deep_link });
+    emailsByTask.set(a.task_id, list);
+  }
+
   return rows.map((t): RawTask => {
     const human = lastHuman.get(t.id) ?? null;
     const clock = human && human.getTime() > t.created_at.getTime() ? human : t.created_at;
@@ -318,6 +337,7 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
       client_visible: t.client_visible,
       open_blocking_count: t.blocking.length,
       has_open_email_ask: t.email_asks.length > 0,
+      emails: emailsByTask.get(t.id) ?? [],
       arc: arcRef(t.arc),
       requirements: readRequirements(t.requirements),
       sop: t.sop ? { id: t.sop.id, title: t.sop.title } : null,
@@ -384,6 +404,7 @@ async function loadKeeperLines(db: PrismaClient, userId: string, now: Date): Pro
       details: stringList(after?.details),
       at: r.created_at,
       undo_until: r.undo_until ?? new Date(r.created_at.getTime() + KEEPER_LINE_MS),
+      ...(typeof after?.href === 'string' && after.href.trim() ? { href: after.href } : {}),
     });
   }
   // Slice 6a: a rule he saved stays as a line while its Undo is open (seven days). Not a keeper action: his own press.
@@ -847,10 +868,15 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
     orderBy: { received_at: 'desc' },
   });
 
+  // Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
+  // row, so it is never owed, never drafted and never an arc step. The drafter's queue reads these same threads.
+  const taskFacts = await linkedTaskFacts(db, rows);
+
   // Group by (account, thread_id, or message_id when the ask has no thread). Rows arrive
   // newest first, so each group's asks are newest first and groups run newest thread first.
   const groups = new Map<string, RawThread>();
   for (const r of rows) {
+    if (!askIsMine(r, taskFacts)) continue;
     const threadId = r.thread_id ?? r.message_id;
     if (r.account.includes(':') || !isItemKey(`thread:${r.account}:${threadId}`)) continue; // cannot be keyed
     const k = `${r.account}\u0000${threadId}`;

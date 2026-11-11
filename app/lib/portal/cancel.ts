@@ -31,6 +31,7 @@ import { notifyClientCancelled } from '@/lib/portal/staff-notify';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
 import { OPEN_STATES, resolveWait } from '@/lib/waits/sweeper';
 import { actorLaneField } from '@/lib/auth/actor-lane';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 
 export interface CancelResult {
   /** True when this call did the cancelling; false for a repeat. */
@@ -72,6 +73,8 @@ export async function cancelRequest(access: PortalAccess, taskId: string, now: D
        WHERE id = ${taskId}::uuid
          AND status NOT IN ('abandoned', 'done')`;
     if (n !== 1) return false;
+    // Work stage A: the client cancelling ends the task, so the emails linked to it close (same transaction).
+    await closeAsksForTask(tx, taskId, 'abandoned', { now });
 
     // chat_meta marks the line as already shown, so the chat sweep never emails it.
     await tx.comment.create({

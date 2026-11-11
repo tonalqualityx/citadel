@@ -432,6 +432,12 @@ export const clarityEndpoints: ApiEndpoint[] = [
               calendar_event_id: 'string|null',
               draft_started_at: 'ISO-8601|null',
               draft_url: 'string|null',
+              task_id: 'uuid|null',
+              rfc_message_id: 'string|null',
+              conversation_key: 'string|null',
+              closed_at: 'ISO-8601|null',
+              closed_reason: 'string|null',
+              closed_by: 'string|null',
               received_at: 'ISO-8601',
             },
           ],
@@ -458,12 +464,57 @@ export const clarityEndpoints: ApiEndpoint[] = [
         bodySchema: [
           { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested — archive_requested drops the ask out of the intake drawer immediately; the classifier executes the real Gmail archive machine-side' },
           { name: 'task_id', type: 'uuid', required: false, description: '404-checked against tasks if given' },
+          { name: 'closed_reason', type: 'string', required: false, description: 'Work stage A: with_task | task_done | task_abandoned | no_action | waiting_them | answered_by_mike | answered_by_bast | meeting_booked | archived | mike | backfill | catchup. Only together with a state that leaves open (400 otherwise). Returning the state to open clears closed_at, closed_reason and closed_by.' },
+          { name: 'closed_by', type: 'string', required: false, description: 'Work stage A: classifier | intake | task | mike | bast | backfill | catchup. Same rule as closed_reason. A porter write that would close an ask whose task is security-tagged keeps it open and lists state in ignored_fields.' },
+          { name: 'conversation_key', type: 'string', required: false, description: 'Work stage A: RFC id of the conversation root (lowercased, no brackets, max 255). Written only over null; an existing key stays and conversation_key is listed in ignored_fields.' },
           { name: 'training_note', type: 'string', required: false, description: 'Clarity Phase 4b — Mike\'s own correction/calibration note (max 2000 chars); the classifier consumes recent notes as calibration examples machine-side' },
           { name: 'calendar_requested', type: 'boolean', required: false, description: 'Clarity Phase 6 — the meeting-lane card\'s "Add to calendar" button; flips the button to "queued for calendar ⏳" immediately' },
           { name: 'calendar_event_id', type: 'string', required: false, description: 'Clarity Phase 6 addendum — the machine-side calendar executor\'s completion write (max 255 chars, nullable). Setting it (including explicitly to null) ATOMICALLY flips calendar_requested back to false in the same update, regardless of what else the request body sent — the only transition out of "requested". Renders as "added ✓" once set.' },
           { name: 'draft_started_at', type: 'ISO-8601', required: false, description: 'Draft-started marker (2026-10-15) — machine-set by the classifier when Mike has a draft (not a reply) in the thread. Must be set or cleared together with draft_url (400 otherwise). Cleared automatically when state leaves open.' },
           { name: 'draft_url', type: 'string', required: false, description: 'Gmail link to the draft thread (max 1000, must start with https://mail.google.com/). Paired with draft_started_at; null clears both.' },
         ],
+      },
+    ],
+  },
+  {
+    path: '/api/work/backfill-links',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary:
+          'Work stage A: the one-time tidy of email asks. Links open asks to the tasks they belong to and closes those whose task finished before they arrived. Admin, or the Porter lane (work-links/backfill.py).',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Strict body, at most 500 pairs and 1000 keys. Citadel recomputes every decision from its own data and trusts none of the claims: ' +
+          'the ask must still be open and not linked to another task, the task must exist, and the basis must hold (source_ref: the task is email-sourced and its source_ref is the ask message id; ' +
+          'cross_mailbox: the task source ask is another copy of the message or sits in its conversation; mint_ledger and registry: the ask shares a conversation with the task source or an ask linked to it, or the task origin_url is the ask deep link). ' +
+          'An ask closes only when its task is done or abandoned AND the ask was received at or before the task finished (completed_at, else last update); later asks are listed, not closed. ' +
+          'Asks of a security-tagged task and urgent asks are linked, never closed. A task held after an Undo closes nothing. Keys are written only over null. ' +
+          'dry:true writes nothing and returns the counts; the dry run and the real run decide identically. The real run writes one Handled line with Undo for 72 hours. Nothing is sent, drafted or changed in any mailbox.',
+        bodySchema: [
+          { name: 'dry', type: 'boolean', required: true, description: 'true plans only and writes nothing' },
+          { name: 'pairs', type: 'object', required: false, description: 'Array (max 500): { ask_id | message_id (one of), task_id, basis: mint_ledger | registry | source_ref | cross_mailbox }' },
+          { name: 'keys', type: 'object', required: false, description: 'Array (max 1000): { ask_id, rfc_message_id?, conversation_key? } written only over null (lowercased, no brackets)' },
+        ],
+        responseExample: {
+          dry: 'boolean',
+          counts: {
+            open_total: 'number',
+            linkable_by_basis: { mint_ledger: 'number', registry: 'number', source_ref: 'number', cross_mailbox: 'number' },
+            with_open_task: 'number',
+            would_close: 'number',
+            left_open_after_done: 'number',
+            keys_set: 'number',
+            unmatched: 'number',
+            held_security: 'number',
+            held_urgent: 'number',
+            held_undone: 'number',
+          },
+          lists: { would_close: [{ ask_id: 'uuid', task_id: 'uuid', task_title: 'string', ask_subject: 'string', received_at: 'ISO-8601' }], left_open_after_done: ['same shape'], held_security: ['same shape'], unmatched: [{ ref: 'string', task_id: 'uuid', reason: 'string' }] },
+          applied: { keys_set: 'number', linked: 'number', closed: 'number', action_id: 'uuid|null' },
+        },
       },
     ],
   },

@@ -20,6 +20,7 @@ import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
 import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 import { voidApprovalIfRestaged, stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts'; // Fleet item 5
 
 /**
@@ -199,6 +200,12 @@ async function afterStatusChange(
   // Propagate blocking status to dependent tasks
   await propagateBlockingStatus(task.id, newStatus, existingTask.status);
   await resolvePortalFirstResponse(task);
+
+  // Work stage A: a task that ends closes the emails linked to it (one Handled line, Undo for 72 hours). Best effort here:
+  // the status write is already saved, and the nightly catch-up closes anything this misses.
+  if (newStatus === 'done' || newStatus === 'abandoned') {
+    await closeAsksForTask(prisma, task.id, newStatus).catch((e) => console.error('closeAsksForTask failed', task.id, e));
+  }
 
   // Clarity Phase 7 — the completion-nudge hook: closing a task that has an
   // attached email (directly, or via its arc) prompts the follow-through — Bast

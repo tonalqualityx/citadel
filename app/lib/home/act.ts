@@ -41,6 +41,7 @@ import { NO_FREE_SLOT } from './owed/slot';
 import { selectHome } from './select';
 import { proposalNo, proposalYes } from './reconcile/apply';
 import { afterUndo, undoReconcileRecord } from './reconcile/undo';
+import { readWorkCloseRecord, undoWorkClose, WORK_CLOSE_ACTION } from '@/lib/work/ask-closure';
 import { readRecord } from './reconcile/records';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
@@ -1393,6 +1394,13 @@ export async function runHomeUndo(
       const out = await undoReconcileRecord(tx as unknown as PrismaClient, userId, rec, now);
       reconcileMessage = out.message;
       await afterUndo(tx as unknown as PrismaClient, userId, rec, now, opts.wrong === true);
+    }
+
+    // Work stage A: emails closed with their task (or by the one-time tidy). Reopens only asks still handled with the reason the
+    // close wrote, then holds the task 30 days so nothing closes them again.
+    if (row.action === WORK_CLOSE_ACTION) {
+      const closeRec = readWorkCloseRecord(row.before);
+      if (closeRec) await undoWorkClose(tx as unknown as PrismaClient, userId, closeRec, now);
     }
 
     // Slice 4a: a tap Undo clears only while no run has served it; after that the draft exists and stays.

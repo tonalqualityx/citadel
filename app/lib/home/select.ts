@@ -101,6 +101,7 @@ import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, st
 import { buildProposalDraft, proposalOrder, type ProposalDraft } from './reconcile/card';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
+import { emailLinkLabel } from '@/lib/work/copy';
 import {
   CAPS,
   FRESH_NEW,
@@ -568,6 +569,8 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
       });
   const links: { label: string; href: string }[] = [];
   if (task.origin_url) links.push({ label: 'The email it came from', href: task.origin_url });
+  // Work stage A: the emails that belong to this task, under Email ("Email: Jeffrey Knisely, Nov 2: Website update").
+  for (const e of task.emails ?? []) links.push({ label: emailLinkLabel(e), href: e.deep_link });
   if (task.staging_preview_url) links.push({ label: 'The preview', href: task.staging_preview_url });
   if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
   if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
@@ -1861,7 +1864,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const kept: HomeQuietLine[] = raw.keeper_lines.map((k) => ({
     id: k.id,
     text: displayText(k.text),
-    href: null,
+    href: k.href ?? null,
     at: k.at.toISOString(),
     undo_action_id: NO_UNDO_LINES.includes(k.action) ? null : k.id,
     details: k.details.map((x) => displayText(x)).filter((x) => x !== ''),

@@ -36,6 +36,7 @@ function makeDb() {
     user: { findUnique: vi.fn(async () => ({ is_active: true, role: 'admin', email: 'm@x.test', name: 'Mike' })) },
     userPreference: { findUnique: vi.fn(async () => ({ home_view: 'home' })) },
     task: { findUnique: vi.fn(async () => ({ title: 'Grok rescan', tags: [] })) },
+    emailAsk: { findFirst: vi.fn(async () => null) }, // Work stage A: the closure's cheap look for open linked emails
     project: {
       findFirst: vi.fn(async () => (project ? { ...project } : null)),
       updateMany: vi.fn(async ({ where, data }: any) => { if (project.status !== where.status) return { count: 0 }; Object.assign(project, data); return { count: 1 }; }),

@@ -3294,6 +3294,15 @@ model EmailAsk {
   deep_link   String   @db.VarChar(1000)
   received_at DateTime
 
+  // Work stage A (link and close). The RFC Message-ID (lowercased, no brackets) and the RFC id of the conversation
+  // root let mike@ and bast@ copies of one email meet. The closing record says why and by whom an ask left `open`
+  // (state is a Postgres enum, so reasons live here, not in a new state). All nullable: old rows behave as before.
+  rfc_message_id   String?   @db.VarChar(255)
+  conversation_key String?   @db.VarChar(255)
+  closed_at        DateTime?
+  closed_reason    String?   @db.VarChar(40) // with_task | task_done | task_abandoned | no_action | waiting_them | answered_by_mike | answered_by_bast | meeting_booked | archived | mike | backfill | catchup
+  closed_by        String?   @db.VarChar(20) // classifier | intake | task | mike | bast | backfill | catchup
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -3303,6 +3312,9 @@ model EmailAsk {
   @@index([arc_id])
   @@index([client_id])
   @@index([project_id])
+  @@index([rfc_message_id])
+  @@index([conversation_key])
+  @@index([task_id])
   @@map("email_asks")
 }
 

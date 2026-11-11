@@ -108,6 +108,7 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'tags', type: 'string[]', required: false, description: 'Triage-state + stack:/kind: classification tags (each ≤50 chars)' },
           { name: 'source', type: 'string', required: false, description: 'Provenance: portal | email | internal (default internal)' },
           { name: 'source_ref', type: 'string', required: false, description: 'Origin reference (message-id / portal-id)' },
+          { name: 'source_rfc', type: 'string', required: false, description: 'Work stage A: RFC Message-ID of the email behind a source=email task (max 255, not stored on the task). With source_ref it finds the email asks (any mailbox) to link to the new task, plus the earlier open asks of the same conversation; each open ask goes to handled with closed_reason with_task in the same transaction. Urgent asks and the asks of a security-tagged task are linked but stay open.' },
           { name: 'requested_by_contact_id', type: 'uuid', required: false, description: 'ClientContact who requested it (and who approves staging)' },
           { name: 'staging_preview_url', type: 'string', required: false, description: 'Staging preview URL set when Bast stages a build' },
           { name: 'staging_deployed_at', type: 'ISO-8601', required: false, description: 'When the staging build was deployed' },

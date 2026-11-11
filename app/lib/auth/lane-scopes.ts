@@ -118,7 +118,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/clients/:id/invoices/sync'),
   ],
   // Porter (intake). oracle/clarity/email-classifier.py, inbound/ib_lookups.py,
-  // citadel-tasks/create-task.py + content-record.py + hooks/citadel-done-guard.sh,
+  // citadel-tasks/create-task.py + content-record.py + work-links/backfill.py + hooks/citadel-done-guard.sh,
   // pipeline/router/citadel_client.py (meetings, infer), the meeting-sync session
   porter: [
     r('GET', '/api/docs'),
@@ -147,6 +147,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/arcs'),
     r('POST', '/api/arcs'),
     r('POST', '/api/oracle/email-sync'),
+    // Work stage A: the one-time tidy (work-links/backfill.py). Dry run by default on the machine; Citadel decides everything.
+    r('POST', '/api/work/backfill-links'),
   ],
   // Wright. project_record, review_citadel, review_watch, steward collectors, enroll_site,
   // steward_citadel; assayer orchestrate

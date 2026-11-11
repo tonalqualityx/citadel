@@ -21,6 +21,7 @@ import { ownerActor } from './actor';
 import { CHANGED_SINCE } from './copy';
 import { ReconcileError } from './errors';
 import { hideNote } from './note';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 import { readRecord, recordTaskId, type ReconcileRecord } from './records';
 
 export const HOLD_DAYS_UNDO = 30;
@@ -78,10 +79,12 @@ export async function undoReconcileRecord(db: PrismaClient, userId: string, rec:
       if (doneId) {
         const r = await db.task.updateMany({ where: { id: doneId, assignee_id: userId, status: 'done', is_deleted: false }, data: { status: 'abandoned' } });
         if (r.count !== 1) left += 1;
+        else await closeAsksForTask(db, doneId, 'abandoned'); // Work stage A
       }
       for (const id of rest) {
         const r = await db.task.updateMany({ where: { id, assignee_id: userId, status: { in: ['not_started', 'blocked'] }, is_deleted: false }, data: { status: 'abandoned' } });
         if (r.count !== 1) left += 1;
+        else await closeAsksForTask(db, id, 'abandoned'); // Work stage A
       }
       if (rec.project_made && rec.project_id) {
         // Cancelled only when nothing in it is still alive: a task he started since (left alone above) keeps the project.

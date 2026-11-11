@@ -1198,6 +1198,12 @@ export function formatEmailAskResponse(ask: any) {
     draft_started_at: ask.draft_started_at ?? null,
     draft_url: ask.draft_url ?? null,
     task_id: ask.task_id ?? null,
+    // Work stage A: the RFC keys and the closing record (all null on a row the stage never touched).
+    rfc_message_id: ask.rfc_message_id ?? null,
+    conversation_key: ask.conversation_key ?? null,
+    closed_at: ask.closed_at ?? null,
+    closed_reason: ask.closed_reason ?? null,
+    closed_by: ask.closed_by ?? null,
     // Clarity Phase 7 — email-arc attachment: the ask leaves the intake drawer and
     // attaches directly to the arc it belongs to (as well as, or instead of, a task).
     arc_id: ask.arc_id ?? null,

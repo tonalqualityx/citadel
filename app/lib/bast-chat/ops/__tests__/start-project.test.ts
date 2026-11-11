@@ -44,6 +44,7 @@ function makeDb() {
       updateMany: vi.fn(async ({ where, data }: any) => { const t = tasks.find((x) => x.id === where.id && (!where.status || x.status === where.status) && (!where.assignee_id || x.assignee_id === where.assignee_id) && !x.is_deleted); if (!t) return { count: 0 }; Object.assign(t, data); return { count: 1 }; }),
     },
     comment: { findFirst: vi.fn(async () => null) },
+    emailAsk: { findFirst: vi.fn(async () => null) }, // Work stage A: the closure's cheap look for open linked emails
   };
   // A transaction that rolls the tables back when it throws.
   db.$transaction = async (fn: any) => {

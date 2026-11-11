@@ -19,6 +19,7 @@ import { loadOpenCard, UNDO_HOURS, type TapOpts } from './apply';
 import { hasMoreSteps, isLive } from './placement';
 import type { ReconcileRecord } from './records';
 import { createEstimatedEntry } from './time';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 import type { HomeActResponse } from '../types';
 
 export type TrackPlacement = 'project' | 'new_project' | 'none';
@@ -133,6 +134,7 @@ export async function trackIt(db: PrismaClient, userId: string, itemKey: string,
         },
         select: { id: true },
       });
+      await closeAsksForTask(tx, done.id, 'done'); // Work stage A: a task created finished closes any email linked to it (none yet; the one rule stays in one place)
       const taskIds = [done.id];
       let next: { id: string } | null = null;
       if (plan.next_step.trim() !== '') {

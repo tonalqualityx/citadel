@@ -25,6 +25,7 @@ import { readSlots, type SummarySnap } from '@/lib/portal/chat/slots';
 import { accessForJob } from '@/lib/engine/reads';
 import { postInternalNote } from '@/lib/portal/chat/assistant-comment';
 import { handOff } from '@/lib/portal/chat/handoff';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 
 export interface Confirmed {
   already: boolean;
@@ -230,6 +231,7 @@ export async function closeUnconfirmed(conversationId: string, opts: { now?: Dat
       const tags = new Set(convo.task.tags.filter((t) => !['chat-clarifying', 'awaiting-clarification'].includes(t)));
       tags.add('chat-question');
       await tx.task.update({ where: { id: convo.task_id }, data: { tags: [...tags], status: 'done' } });
+      await closeAsksForTask(tx, convo.task_id, 'done'); // Work stage A: same transaction as the status write
       await tx.chatConversation.update({ where: { id: convo.id }, data: { state: 'closed', open_ask: Prisma.DbNull } });
       await postInternalNote(tx, convo.task_id, 'Question chat closed after a day with no new message. Nothing was filed.', { unconfirmed: 'closed_question' });
       return { outcome: 'closed_question' as UnconfirmedOutcome };

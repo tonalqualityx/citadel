@@ -7,6 +7,7 @@
 
 import { prisma } from '@/lib/db/prisma';
 import { TaskStatus } from '@prisma/client';
+import { closeAsksForTasks } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 
 export interface CharterGenerationResult {
   charterId: string;
@@ -181,6 +182,7 @@ export async function generateCharterTasks(charterId: string): Promise<CharterGe
           data: { status: TaskStatus.abandoned, updated_at: new Date() },
         });
         abandoned = updateResult.count;
+        await closeAsksForTasks(tx, previousTasks.map((t) => t.id), 'abandoned'); // Work stage A
       }
 
       const sop = scheduledTask.sop;

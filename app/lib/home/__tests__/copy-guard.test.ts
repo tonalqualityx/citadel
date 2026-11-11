@@ -11,7 +11,7 @@ import * as path from 'path';
 
 // __dirname is <app>/lib/home/__tests__; three levels up is the app root.
 const APP_ROOT = path.resolve(__dirname, '../../../');
-const SCAN_DIRS = [path.join(APP_ROOT, 'lib', 'home'), path.join(APP_ROOT, 'components', 'domain', 'home')];
+const SCAN_DIRS = [path.join(APP_ROOT, 'lib', 'home'), path.join(APP_ROOT, 'lib', 'work'), path.join(APP_ROOT, 'components', 'domain', 'home')];
 
 function listSourceFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];

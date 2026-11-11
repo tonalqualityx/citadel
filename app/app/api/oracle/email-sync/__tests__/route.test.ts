@@ -415,3 +415,31 @@ describe('POST /api/oracle/email-sync', () => {
     });
   });
 });
+
+// Work stage A: the RFC keys ride on the sync, normalized, and absent means untouched.
+describe('POST /api/oracle/email-sync: rfc_message_id and conversation_key', () => {
+  it('stores both lowercased with no brackets', async () => {
+    mockUpsert.mockResolvedValue({ id: 'ask-1', is_urgent: false, client_id: null, project_id: null, match_source: null });
+    mockClientContactFindMany.mockResolvedValue([]);
+    const res = await POST(postRequest({ asks: [baseAsk({ rfc_message_id: '<ABC@Mail.test>', conversation_key: ' <Root@Mail.test> ' })] }));
+    expect(res.status).toBe(200);
+    const arg = mockUpsert.mock.calls[0][0];
+    expect(arg.create).toMatchObject({ rfc_message_id: 'abc@mail.test', conversation_key: 'root@mail.test' });
+    expect(arg.update).toMatchObject({ rfc_message_id: 'abc@mail.test', conversation_key: 'root@mail.test' });
+  });
+
+  it('absent keys are not sent to the update at all', async () => {
+    mockUpsert.mockResolvedValue({ id: 'ask-1', is_urgent: false, client_id: null, project_id: null, match_source: null });
+    mockClientContactFindMany.mockResolvedValue([]);
+    await POST(postRequest({ asks: [baseAsk()] }));
+    const arg = mockUpsert.mock.calls[0][0];
+    expect('rfc_message_id' in arg.update).toBe(false);
+    expect('conversation_key' in arg.update).toBe(false);
+    expect('rfc_message_id' in arg.create).toBe(false);
+  });
+
+  it('refuses a key over 255 characters', async () => {
+    const res = await POST(postRequest({ asks: [baseAsk({ conversation_key: 'x'.repeat(256) })] }));
+    expect(res.status).toBe(400);
+  });
+});

@@ -5,6 +5,7 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 import { notifyUrgentEmail } from '@/lib/services/notifications';
 import { AskQueue, AskSeverity, EmailAskIntent, EmailMatchSource } from '@prisma/client';
+import { normalizeRfc } from '@/lib/work/link-asks';
 
 // Clarity Phase 4a — email on the Seeing Stone. The staged, not-cron-wired classifier
 // (~/.claude/tools/oracle/clarity/email-classifier.py) POSTs here for both mailboxes
@@ -38,6 +39,10 @@ const emailAskSchema = z.object({
   proposed_event_at: z.coerce.date().optional().nullable(),
   proposed_event_title: z.string().max(500).optional().nullable(),
   proposed_event_minutes: z.number().int().positive().optional().nullable(),
+  // Work stage A: the RFC Message-ID of this message and the RFC id of its conversation root (the classifier works both
+  // out from the mail mirror). Optional; absent means untouched. Stored lowercased with no brackets.
+  rfc_message_id: z.string().max(255).optional().nullable(),
+  conversation_key: z.string().max(255).optional().nullable(),
 });
 
 const emailSyncSchema = z.object({
@@ -167,6 +172,9 @@ export async function POST(request: NextRequest) {
         ...(ask.proposed_event_at !== undefined && { proposed_event_at: ask.proposed_event_at }),
         ...(ask.proposed_event_title !== undefined && { proposed_event_title: ask.proposed_event_title }),
         ...(ask.proposed_event_minutes !== undefined && { proposed_event_minutes: ask.proposed_event_minutes }),
+        // Work stage A: the keys, same rule (absent = untouched).
+        ...(ask.rfc_message_id !== undefined && { rfc_message_id: normalizeRfc(ask.rfc_message_id) }),
+        ...(ask.conversation_key !== undefined && { conversation_key: normalizeRfc(ask.conversation_key) }),
       };
 
       const row = await prisma.emailAsk.upsert({

@@ -521,3 +521,66 @@ describe('PATCH /api/email-asks/[id]', () => {
     });
   });
 });
+
+// Work stage A: the closing record and the conversation key.
+describe('PATCH /api/email-asks/[id]: work stage A closing record', () => {
+  const porter = { userId: 'bast', role: 'pm', email: 'bast@example.com', via: 'api_key', apiKeyId: 'k', lane: 'porter' };
+  const TASK = '5a5a5a5a-5a5a-4a5a-8a5a-5a5a5a5a5a5a';
+
+  it('a close that names its reason stamps closed_at and writes the reason and by with the state', async () => {
+    mockRequireAuth.mockResolvedValue(porter as never);
+    mockFindUnique.mockResolvedValue(ask({ is_urgent: false }));
+    mockTaskFindUnique.mockResolvedValue({ id: TASK, tags: [] });
+    mockUpdate.mockResolvedValue(ask({ state: 'handled', task_id: TASK }));
+    const res = await PATCH(req({ task_id: TASK, state: 'handled', closed_reason: 'with_task', closed_by: 'classifier' }), ctx());
+    expect(res.status).toBe(200);
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data).toMatchObject({ state: 'handled', task_id: TASK, closed_reason: 'with_task', closed_by: 'classifier', draft_url: null });
+    expect(data.closed_at).toBeInstanceOf(Date);
+  });
+
+  it('refuses closed_reason or closed_by without a state that leaves open', async () => {
+    mockRequireAuth.mockResolvedValue(porter as never);
+    mockFindUnique.mockResolvedValue(ask());
+    expect((await PATCH(req({ closed_reason: 'with_task' }), ctx())).status).toBe(400);
+    expect((await PATCH(req({ state: 'open', closed_by: 'mike' }), ctx())).status).toBe(400);
+    expect((await PATCH(req({ state: 'handled', closed_reason: 'because' }), ctx())).status).toBe(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('returning an ask to open clears the record it holds', async () => {
+    mockRequireAuth.mockResolvedValue(porter as never);
+    mockFindUnique.mockResolvedValue(ask({ state: 'handled', closed_at: new Date(), closed_reason: 'task_done', closed_by: 'task' }));
+    mockUpdate.mockResolvedValue(ask());
+    await PATCH(req({ state: 'open' }), ctx());
+    expect(mockUpdate.mock.calls[0][0].data).toMatchObject({ state: 'open', closed_at: null, closed_reason: null, closed_by: null });
+  });
+
+  it('a porter write that would close the ask of a security-tagged task keeps it open; the link still lands', async () => {
+    mockRequireAuth.mockResolvedValue(porter as never);
+    mockFindUnique.mockResolvedValue(ask());
+    mockTaskFindUnique.mockResolvedValue({ id: TASK, tags: ['security'] });
+    mockUpdate.mockResolvedValue(ask({ task_id: TASK }));
+    const res = await PATCH(req({ task_id: TASK, state: 'handled', closed_reason: 'with_task', closed_by: 'classifier' }), ctx());
+    const body = await res.json();
+    expect(body.ignored_fields).toContain('state');
+    const data = mockUpdate.mock.calls[0][0].data;
+    expect(data.task_id).toBe(TASK);
+    expect(data.state).toBeUndefined();
+    expect(data.closed_reason).toBeUndefined();
+  });
+
+  it('conversation_key is written only over null, lowercased with no brackets', async () => {
+    mockRequireAuth.mockResolvedValue(porter as never);
+    mockFindUnique.mockResolvedValue(ask({ conversation_key: null }));
+    mockUpdate.mockResolvedValue(ask());
+    await PATCH(req({ conversation_key: '<ROOT@Mail.test>' }), ctx());
+    expect(mockUpdate.mock.calls[0][0].data).toEqual({ conversation_key: 'root@mail.test' });
+
+    mockUpdate.mockClear();
+    mockFindUnique.mockResolvedValue(ask({ conversation_key: 'old@mail.test' }));
+    const res = await PATCH(req({ conversation_key: 'new@mail.test' }), ctx());
+    expect((await res.json()).ignored_fields).toContain('conversation_key');
+    expect(mockUpdate.mock.calls[0][0].data).toEqual({});
+  });
+});

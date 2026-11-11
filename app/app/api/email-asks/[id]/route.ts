@@ -5,6 +5,12 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError, AuthError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { EmailAskState } from '@prisma/client';
+import { isSecurityTagged } from '@/lib/work/ask-closure';
+import { normalizeRfc } from '@/lib/work/link-asks';
+
+/** Work stage A: why and by whom an ask left open (EmailAsk.closed_reason and closed_by, varchar columns, not enum values). */
+const CLOSED_REASONS = ['with_task', 'task_done', 'task_abandoned', 'no_action', 'waiting_them', 'answered_by_mike', 'answered_by_bast', 'meeting_booked', 'archived', 'mike', 'backfill', 'catchup'] as const;
+const CLOSED_BYS = ['classifier', 'intake', 'task', 'mike', 'bast', 'backfill', 'catchup'] as const;
 
 /** The email classifier marks the notes it writes with this prefix (email-classifier.py AUTO_NOTE_PREFIX). */
 const AUTO_NOTE_PREFIX = '[auto] ';
@@ -15,6 +21,11 @@ const AUTO_NOTE_PREFIX = '[auto] ';
 const patchSchema = z.object({
   state: z.nativeEnum(EmailAskState).optional(),
   task_id: z.string().uuid().optional().nullable(),
+  // Work stage A: the closing record, written together with a state that leaves open (400 otherwise), and the
+  // conversation key, which a porter may only write over null.
+  closed_reason: z.enum(CLOSED_REASONS).optional(),
+  closed_by: z.enum(CLOSED_BYS).optional(),
+  conversation_key: z.string().max(255).optional().nullable(),
   // Clarity Phase 4b — Mike's own correction/calibration note on a classification, entered
   // from the intake drawer's "note for Bast" input.
   training_note: z.string().max(2000).optional().nullable(),
@@ -47,6 +58,9 @@ const patchSchema = z.object({
     (d.draft_started_at === undefined) === (d.draft_url === undefined) &&
     (d.draft_started_at == null) === (d.draft_url == null),
   { message: 'draft_started_at and draft_url are set or cleared together' },
+).refine(
+  (d) => (d.closed_reason === undefined && d.closed_by === undefined) || (d.state !== undefined && d.state !== 'open'),
+  { message: 'closed_reason and closed_by are written together with a state that leaves open' },
 );
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -84,6 +98,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
     }
 
+    // The task the ask will be linked to after this write (the new link, else the one it already has).
+    const linkedTaskId = data.task_id !== undefined ? data.task_id : existing.task_id;
     if (data.task_id) {
       const task = await prisma.task.findUnique({ where: { id: data.task_id, is_deleted: false } });
       if (!task) {
@@ -91,11 +107,37 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
     }
 
+    // Work stage A: a security-tagged task's ask is linked but never closed by inference. A machine write (anything but the
+    // admin's own tap) that would close it keeps it open; the link still lands. Reported back in ignored_fields.
+    const closing = data.state !== undefined && data.state !== 'open' && data.state !== 'archive_requested';
+    if (porter && closing && linkedTaskId) {
+      const linked = await prisma.task.findUnique({ where: { id: linkedTaskId, is_deleted: false }, select: { tags: true } });
+      if (linked && isSecurityTagged(linked.tags)) {
+        ignored_fields.push('state');
+        delete data.state;
+        delete data.closed_reason;
+        delete data.closed_by;
+      }
+    }
+    // conversation_key is written over null only (a porter never rewrites an existing key).
+    const conversationKey = data.conversation_key !== undefined ? normalizeRfc(data.conversation_key) : undefined;
+    if (conversationKey !== undefined && existing.conversation_key) {
+      ignored_fields.push('conversation_key');
+    }
+    // The closing record: a close that names its reason stamps closed_at too; returning to open clears whatever record the ask holds.
+    const leaving = data.closed_reason !== undefined && data.state !== undefined && data.state !== 'open';
+    const reopening = data.state === 'open' && (!!existing.closed_at || !!existing.closed_reason || !!existing.closed_by);
+
     const updated = await prisma.emailAsk.update({
       where: { id },
       data: {
         ...(data.state !== undefined && { state: data.state }),
         ...(data.task_id !== undefined && { task_id: data.task_id }),
+        ...(conversationKey !== undefined && !existing.conversation_key && { conversation_key: conversationKey }),
+        ...(leaving && { closed_at: new Date() }),
+        ...(data.closed_reason !== undefined && { closed_reason: data.closed_reason }),
+        ...(data.closed_by !== undefined && { closed_by: data.closed_by }),
+        ...(reopening && { closed_at: null, closed_reason: null, closed_by: null }),
         ...(data.training_note !== undefined && { training_note: data.training_note }),
         ...(data.calendar_requested !== undefined && { calendar_requested: data.calendar_requested }),
         // calendar_event_id's spread comes LAST and always pins calendar_requested: false

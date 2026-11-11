@@ -863,6 +863,16 @@ export interface RawRequirement {
  * An open task of U (plan 1.1): assignee_id = U, not deleted, status not done or abandoned,
  * project null or its status not in EXCLUDED_PROJECT_STATUSES.
  */
+/** Work stage A: one email linked to a task, for the card's Email line. */
+export interface RawTaskEmail {
+  ask_id: string;
+  from_name: string | null;
+  from_email: string;
+  subject: string;
+  received_at: Date;
+  deep_link: string;
+}
+
 export interface RawTask {
   id: string;
   title: string;
@@ -907,6 +917,8 @@ export interface RawTask {
   open_blocking_count: number;
   /** True when an open EmailAsk has task_id = this task. */
   has_open_email_ask: boolean;
+  /** Work stage A: the emails linked to this task (newest first, at most 3), shown on its card under Email. [] when none. */
+  emails?: RawTaskEmail[];
   /** The task's arc, or null. */
   arc: RawArcRef | null;
   /** Task.requirements read as deliverables, in sort order. [] when none or unreadable. */
@@ -1145,6 +1157,8 @@ export interface RawKeeperLine {
   at: Date;
   /** home_actions.undo_until. */
   undo_until: Date;
+  /** after.href, the one link on the line (work_close with a single email), or null. */
+  href?: string | null;
 }
 
 
@@ -1322,6 +1336,8 @@ export type KeeperActionKind =
   // Slice 7a: the Monday measures line and the approval-speed guard line (source keeper, a report: no Undo)
   | 'keeper_measures'
   | 'keeper_guard'
+  // Work stage A: the emails closed with their task (source keeper, Undo for 72 hours)
+  | 'work_close'
   // Slice 7b: a learned weight (source keeper, Undo for 7 days)
   | 'keeper_learned'
   | 'not_emergency_rule';
@@ -1424,6 +1440,8 @@ export interface KeeperResult {
   arcs?: KeeperArcsPreview;
   /** Slice 2c, real run only, only when a switch is on: the arcs it made and closed. */
   arcs_written?: KeeperArcsWritten;
+  /** Work stage A: the nightly catch-up of emails whose task finished (a dry run says how many it would close). */
+  work_catchup?: { would_close: number; closed: number };
   /** home_actions ids written (empty on a dry run or a skip). */
   action_ids: string[];
 }

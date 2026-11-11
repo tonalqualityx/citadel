@@ -24,6 +24,7 @@
  * requester and to contacts who wrote in the thread (`noticeRecipients`), never the client roster.
  */
 import { prisma } from '@/lib/db/prisma';
+import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A
 import { ApiError } from '@/lib/api/errors';
 import { bastWordError } from '@/lib/portal/thread';
 import { noticeRecipients, workPageUrl } from '@/lib/portal/notices';
@@ -296,6 +297,9 @@ export async function markLive(input: {
     },
   });
   await claimCheck.logOverride();
+  // Work stage A: going live finishes the task, so the emails linked to it close (one Handled line with Undo). Best effort:
+  // the nightly catch-up closes anything this misses.
+  await closeAsksForTask(prisma, task.id, 'done').catch((e: unknown) => console.error('closeAsksForTask failed', task.id, e));
   if (task.status !== 'done') {
     await writeReceipt({
       task_id: task.id, step: 'live', commit_sha: input.commitSha, deploy_id: input.deployId, live_url: input.liveUrl, checks: input.checks,
