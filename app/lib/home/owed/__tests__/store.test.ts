@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { clearOwedRequest, itemRefusal, loadOwedRows, requestOwed, saveOwedResults, sha256, OWED_ACTION, type OwedResultItem } from '../store';
+import { clearOwedRequest, isContentRefusal, itemRefusal, loadOwedRows, requestOwed, saveOwedResults, sha256, OWED_ACTION, type OwedResultItem } from '../store';
 import { makeFakeDb, type FakeAsk } from './fixtures/fake-db';
 import { threadKey } from '../../item-key';
+import { owedQueue } from '../queue';
+import { NOW as QNOW, d, makeClient, makeThread } from '../../__tests__/fixtures/tonight';
 
 const USER = '3ecfb7be-0000-4000-8000-000000000001';
 const NOW = new Date('2026-11-11T15:00:00Z');
@@ -56,7 +58,11 @@ describe('saveOwedResults', () => {
       { thread_key: key('t2'), reason: 'draft_money' },
     ]);
     expect(r.saved).toEqual([{ thread_key: key('t3'), outcome: 'drafted' }]);
-    expect(f.rows.size).toBe(1);
+    // The two refused texts each record one failed attempt (and nothing else); only t3 holds a draft.
+    expect(f.rows.size).toBe(3);
+    expect(f.rows.get(`${USER}|${key('t1')}`)).toMatchObject({ state: 'failed', attempts: 1, last_error: 'refused: draft_shape', draft_id: null });
+    expect(f.rows.get(`${USER}|${key('t2')}`)).toMatchObject({ state: 'failed', attempts: 1, last_error: 'refused: draft_money' });
+    expect(f.rows.get(`${USER}|${key('t3')}`)).toMatchObject({ state: 'drafted', draft_id: 'r1' });
   });
 
   it('a stale newest ask is refused 409 and nothing is written for it', async () => {
@@ -203,5 +209,127 @@ describe('loadOwedRows', () => {
     expect(await loadOwedRows(f.db, USER)).toHaveLength(1);
     expect(await loadOwedRows(f.db, 'someone-else')).toHaveLength(0);
     expect(f.writes.length).toBe(before);
+  });
+});
+
+const SHORT_BAD = 'Got it. Looking now. Replying later.\n\nMike';
+const shortItem = (thread: string, text: string, over: Record<string, unknown> = {}): OwedResultItem =>
+  ({ thread_key: key(thread), newest_ask_id: ASK1, outcome: 'short_drafted', short_draft_id: 's1', short_draft_text: text, model: 'haiku', ...over }) as OwedResultItem;
+
+/** A thread at day 5 with Bast's full draft unsent and the row Needs thought: the queue asks for a short draft. */
+async function needsShortSetup() {
+  const received = d('2026-11-02T15:00:00Z');
+  const f = makeFakeDb({ asks: [ask(ASK1, 't1', { received_at: received })] });
+  await saveOwedResults(f.db, USER, [drafted('t1')], NOW);
+  const row = f.rows.get(`${USER}|${key('t1')}`)!;
+  Object.assign(row, { state: 'needs_thought', thought_since: d('2026-11-09T10:00:00Z'), updated_at: d('2026-11-09T10:00:00Z') });
+  const thread = makeThread({ id: ASK1, account: ACCOUNT, thread_id: 't1', client: makeClient('Active Co'), received_at: received });
+  const queue = async (now: Date = QNOW) => owedQueue({}, [thread], await loadOwedRows(f.db, USER), now, 6, { short: true, auto: true });
+  return { f, row, queue };
+}
+
+describe('saveOwedResults: dry', () => {
+  it('answers what would happen for every outcome and writes nothing at all', async () => {
+    const f = makeFakeDb({ asks: [ask(ASK1, 't1'), ask(ASK2, 't2'), ask(ASK1.replace(/1$/, '3'), 't3')] });
+    await saveOwedResults(f.db, USER, [drafted('t1')], NOW);
+    const before = { rows: structuredClone([...f.rows.entries()]), runs: structuredClone([...f.runs.entries()]), actions: f.actions.length, writes: f.writes.length };
+    const items: OwedResultItem[] = [
+      drafted('t2', { newest_ask_id: ASK2 }),
+      drafted('t3', { newest_ask_id: ASK1.replace(/1$/, '3'), draft_text: 'That would be $500.' }),
+      shortItem('t1', 'Thanks for sending this over. I am looking at it.\n\nMike'),
+      { thread_key: key('t2'), newest_ask_id: ASK2, outcome: 'failed', error: 'x' },
+      { thread_key: key('t1'), newest_ask_id: ASK1, outcome: 'mike_edited' },
+      { thread_key: key('t2'), newest_ask_id: ASK2, outcome: 'replied_elsewhere', replied_from: 'support@x.test', replied_at: '2026-11-06T15:00:00Z' },
+      { thread_key: key('t2'), newest_ask_id: ASK2, outcome: 'needs_thought', read: 'The reply needs a price from you.', suggested_answer: null, needs_commitment: true, model: 'sonnet', joins: [{ account: ACCOUNT, thread_id: 't1' }] },
+      drafted('t2', { newest_ask_id: ASK1 }),
+    ];
+    const results = [];
+    for (const item of items) results.push(await saveOwedResults(f.db, USER, [item], NOW, { dry: true }));
+    expect(results.map((r) => r.saved.map((x) => x.outcome))).toEqual([['drafted'], [], ['short_drafted'], ['failed'], ['mike_edited'], ['replied_elsewhere'], ['needs_thought'], []]);
+    expect(results.map((r) => r.refused)).toEqual([[], [{ thread_key: key('t3'), reason: 'draft_money' }], [], [], [], [], [], [{ thread_key: key('t2'), reason: 'stale', status: 409 }]]);
+    const r = results[0];
+    expect(r.action_id).toBeNull();
+    expect(r.line).toBeNull();
+    // No writes: not one write method called, rows, run rows and keeper lines exactly as before.
+    expect(f.writes.length).toBe(before.writes);
+    expect([...f.rows.entries()]).toEqual(before.rows);
+    expect([...f.runs.entries()]).toEqual(before.runs);
+    expect(f.actions.length).toBe(before.actions);
+  });
+
+  it('gives the same saved and refused as the real save would', async () => {
+    const mk = () => makeFakeDb({ asks: [ask(ASK1, 't1'), ask(ASK2, 't2')] });
+    const items: OwedResultItem[] = [drafted('t1'), drafted('t2', { newest_ask_id: ASK2, draft_text: 'Thanks \u2014 yes.' }), shortItem('t1', SHORT_BAD)];
+    const dry = await saveOwedResults(mk().db, USER, items, NOW, { dry: true });
+    const real = await saveOwedResults(mk().db, USER, items, NOW);
+    expect({ saved: dry.saved, refused: dry.refused }).toEqual({ saved: real.saved, refused: real.refused });
+  });
+
+  it('a refused content result writes no failed attempt when dry', async () => {
+    const f = makeFakeDb({ asks: [ask(ASK1, 't1')] });
+    await saveOwedResults(f.db, USER, [drafted('t1', { draft_text: 'That would be $500.' })], NOW, { dry: true });
+    expect(f.writes).toEqual([]);
+    expect(f.rows.size).toBe(0);
+  });
+
+  it('a short result needs the full draft on the row, dry or not', async () => {
+    const f = makeFakeDb({ asks: [ask(ASK1, 't1')] });
+    const r = await saveOwedResults(f.db, USER, [shortItem('t1', 'Thanks.\n\nMike')], NOW, { dry: true });
+    expect(r.refused).toEqual([{ thread_key: key('t1'), reason: 'no_draft' }]);
+  });
+
+  it('an owner who is not on the home view answers skipped and writes nothing', async () => {
+    const f = makeFakeDb({ owner: { is_active: true, role: 'admin', home_view: 'classic' }, asks: [ask(ASK1, 't1')] });
+    expect(await saveOwedResults(f.db, USER, [drafted('t1')], NOW, { dry: true })).toEqual({ skipped: 'home_off', saved: [], refused: [], action_id: null, line: null });
+    expect(f.writes).toEqual([]);
+  });
+});
+
+describe('saveOwedResults: a refused result is a failed attempt', () => {
+  it('isContentRefusal names the content reasons only', () => {
+    for (const r of ['draft_money', 'draft_shape', 'short_shape', 'short_time', 'read_shape', 'suggested_scope']) expect(isContentRefusal(r)).toBe(true);
+    for (const r of ['stale', 'stale_draft', 'duplicate', 'no_draft', 'bad_key', 'bad_replied_at']) expect(isContentRefusal(r)).toBe(false);
+  });
+
+  it('three refused shorts and the thread is no longer in the queue', async () => {
+    const { f, row, queue } = await needsShortSetup();
+    expect((await queue())[0]).toMatchObject({ reason: 'short', request: 'short' });
+    for (let i = 1; i <= 3; i++) {
+      const r = await saveOwedResults(f.db, USER, [shortItem('t1', SHORT_BAD)], NOW);
+      expect(r.refused).toEqual([{ thread_key: key('t1'), reason: 'short_shape' }]);
+      expect(r.saved).toEqual([]);
+      expect(row).toMatchObject({ attempts: i, last_error: 'refused: short_shape', state: 'needs_thought', draft_id: 'r1', short_draft_id: null });
+      expect((await queue()).length).toBe(i < 3 ? 1 : 0);
+    }
+    // 24 hours later the rule lets it back in, once.
+    row.updated_at = new Date(QNOW.getTime() - 25 * 3_600_000);
+    expect((await queue()).length).toBe(1);
+  });
+
+  it('a pending short or auto tap is cleared, and a stale ask or a non-content refusal records nothing', async () => {
+    const { f, row } = await needsShortSetup();
+    Object.assign(row, { request_kind: 'short', requested_at: NOW });
+    await saveOwedResults(f.db, USER, [shortItem('t1', SHORT_BAD)], NOW);
+    expect(row).toMatchObject({ request_kind: null, requested_at: null, attempts: 1 });
+    Object.assign(row, { request_kind: 'auto', requested_at: NOW, attempts: 0 });
+    await saveOwedResults(f.db, USER, [{ thread_key: key('t1'), newest_ask_id: ASK1, outcome: 'needs_thought', read: 'He wants a answer \u2014 now.', suggested_answer: null, needs_commitment: false, model: 'sonnet' }], NOW);
+    expect(row).toMatchObject({ request_kind: null, requested_at: null, attempts: 1, last_error: 'refused: read_shape' });
+    const writes = f.writes.length;
+    const stale = await saveOwedResults(f.db, USER, [shortItem('t1', SHORT_BAD, { newest_ask_id: ASK2 })], NOW);
+    expect(stale.refused).toEqual([{ thread_key: key('t1'), reason: 'short_shape' }]);
+    expect(row.attempts).toBe(1);
+    // the run row is the only write (no failed attempt for an ask that is not the live newest one)
+    expect(f.writes.slice(writes)).toEqual(['homeKeeperRun.upsert']);
+    const noDraft = makeFakeDb({ asks: [ask(ASK1, 'x')] });
+    await saveOwedResults(noDraft.db, USER, [shortItem('x', 'Thanks.\n\nMike')], NOW);
+    expect(noDraft.rows.size).toBe(0);
+  });
+
+  it('a later real draft resets the count, so a new message that gets drafted starts clean', async () => {
+    const { f, row } = await needsShortSetup();
+    for (let i = 0; i < 3; i++) await saveOwedResults(f.db, USER, [shortItem('t1', SHORT_BAD)], NOW);
+    expect(row.attempts).toBe(3);
+    await saveOwedResults(f.db, USER, [drafted('t1', { draft_id: 'r2' })], NOW);
+    expect(f.rows.get(`${USER}|${key('t1')}`)).toMatchObject({ state: 'drafted', attempts: 0, last_error: null, draft_id: 'r2' });
   });
 });

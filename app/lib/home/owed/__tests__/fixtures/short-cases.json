@@ -1,0 +1,260 @@
+[
+ {
+  "text": "Thanks for sending this over. I am looking at it and will get back to you.\n\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks for sending this over. I am looking at it and will get back to you.",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks for sending this over. I am looking at it and will get back to you.\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks for sending this over. I am looking at it and will get back to you.\r\n\r\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks for sending this over. I am looking at it and will get back to you.\n\n\n  Mike  \n\n",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks for sending this over.\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Got your note. Looking at it now.\n\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Got it, thank you.",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks, got this",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Is this the right link? Please confirm.\n\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Wow! Great news!\n\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks... I will look.",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Version 3.5 looks right to me, thank you.",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\n\nMike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Hi there. Thanks for the note.\n\nMike\n",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Mike",
+  "ok": true,
+  "category": null,
+  "match": null
+ },
+ {
+  "text": "Thanks for sending this over. I am looking at it. Will reply soon.\n\nMike",
+  "ok": false,
+  "category": "time",
+  "match": "soon"
+ },
+ {
+  "text": "Got it. Looking now. Replying later.\n\nMike",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "Got it. Looking now. Mike",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "Got it. Looking now. Thank you.",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "Got it! Looking now? Thanks.\n\nMike",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "Got it. Looking now.\n\nMike Dion",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "Got it. Looking now.\n\nMike.",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "Got it. Looking now.\n\nThanks,\nMike",
+  "ok": false,
+  "category": "shape",
+  "match": "too many sentences"
+ },
+ {
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "ok": false,
+  "category": "shape",
+  "match": "too many words"
+ },
+ {
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\n\nMike",
+  "ok": false,
+  "category": "shape",
+  "match": "too many words"
+ },
+ {
+  "text": "Mike word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+  "ok": false,
+  "category": "shape",
+  "match": "too many words"
+ },
+ {
+  "text": "",
+  "ok": false,
+  "category": "shape",
+  "match": "empty"
+ },
+ {
+  "text": "   \n\n  ",
+  "ok": false,
+  "category": "shape",
+  "match": "empty"
+ },
+ {
+  "text": "Thanks for the note. That would be $500.",
+  "ok": false,
+  "category": "money",
+  "match": "$"
+ },
+ {
+  "text": "I can do it by Friday.",
+  "ok": false,
+  "category": "time",
+  "match": "Friday"
+ },
+ {
+  "text": "We'll include the blog.",
+  "ok": false,
+  "category": "scope",
+  "match": "We'll include"
+ },
+ {
+  "text": "Thanks — got it.",
+  "ok": false,
+  "category": "shape",
+  "match": "—"
+ },
+ {
+  "text": "Thanks, **got** it.",
+  "ok": false,
+  "category": "shape",
+  "match": "*"
+ },
+ {
+  "text": "Thanks [[name]].",
+  "ok": false,
+  "category": "shape",
+  "match": "[["
+ },
+ {
+  "text": "Bast will look at it.",
+  "ok": false,
+  "category": "shape",
+  "match": "Bast"
+ },
+ {
+  "text": "Thanks, got it. We will review it soon.\n\nMike",
+  "ok": false,
+  "category": "time",
+  "match": "soon"
+ },
+ {
+  "text": "Got it. Looking now. Replying shortly. Mike",
+  "ok": false,
+  "category": "time",
+  "match": "shortly"
+ },
+ {
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word $5",
+  "ok": false,
+  "category": "money",
+  "match": "$"
+ },
+ {
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word –",
+  "ok": false,
+  "category": "shape",
+  "match": "too many words"
+ },
+ {
+  "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ok": false,
+  "category": "shape",
+  "match": "too many characters"
+ },
+ {
+  "text": "Got it. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\nMike",
+  "ok": false,
+  "category": "shape",
+  "match": "too many characters"
+ }
+]

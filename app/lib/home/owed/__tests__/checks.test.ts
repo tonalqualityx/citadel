@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { checkDraftBody, checkRead, checkSuggested, OWED_CHECK } from '../checks';
+import { checkDraftBody, checkRead, checkShortDraft, checkSuggested, sentenceCount, stripSignoff, OWED_CHECK } from '../checks';
 
 interface Case {
   text: string;
@@ -77,5 +77,46 @@ describe('checkRead and checkSuggested', () => {
     expect(checkSuggested('Say we will build it.')).toMatchObject({ ok: false, category: 'scope' });
     expect(checkSuggested('word '.repeat(31))).toMatchObject({ ok: false, category: 'shape' });
     expect(checkSuggested('Fine – go').ok).toBe(false);
+  });
+});
+
+interface ShortCase {
+  text: string;
+  ok: boolean;
+  category: 'money' | 'time' | 'scope' | 'shape' | null;
+  match: string | null;
+}
+const SHORT_CASES: ShortCase[] = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'short-cases.json'), 'utf-8'));
+
+describe('short-cases.json (shared with the machine, checks.py)', () => {
+  it('holds at least 25 cases, passes and refusals, with the sign-off cases', () => {
+    expect(SHORT_CASES.length).toBeGreaterThanOrEqual(25);
+    expect(SHORT_CASES.filter((c) => c.ok).length).toBeGreaterThanOrEqual(10);
+    expect(SHORT_CASES.filter((c) => !c.ok).length).toBeGreaterThanOrEqual(10);
+    expect(SHORT_CASES.map((c) => c.text)).toContain('Thanks for sending this over. I am looking at it and will get back to you.\n\nMike');
+    for (const c of SHORT_CASES) expect(c.ok ? c.category === null && c.match === null : c.category !== null && c.match !== null).toBe(true);
+    for (const m of ['too many sentences', 'too many words', 'too many characters', 'empty']) expect(SHORT_CASES.some((c) => c.match === m)).toBe(true);
+  });
+  for (const [i, c] of SHORT_CASES.entries()) {
+    it(`case ${i}: ${JSON.stringify(c.text.slice(0, 50))} is ${c.ok ? 'ok' : `refused as ${c.category} (${c.match})`}`, () => {
+      const r = checkShortDraft(c.text);
+      expect(r.ok).toBe(c.ok);
+      if (!r.ok) expect({ category: r.category, match: r.match }).toEqual({ category: c.category, match: c.match });
+    });
+  }
+});
+
+describe('the sign-off line', () => {
+  it('strips only a last line that is exactly Mike, with something before it', () => {
+    expect(stripSignoff('Got it.\n\nMike')).toBe('Got it.');
+    expect(stripSignoff('Got it.\r\n  Mike  \n\n')).toBe('Got it.');
+    expect(stripSignoff('Got it. Mike')).toBe('Got it. Mike');
+    expect(stripSignoff('Mike')).toBe('Mike');
+    expect(stripSignoff('Got it.\nMike.')).toBe('Got it.\nMike.');
+    expect(stripSignoff('Got it.\nMike Dion')).toBe('Got it.\nMike Dion');
+  });
+  it('the sentence count of the whole text is unchanged (the sign-off is dropped by checkShortDraft)', () => {
+    expect(sentenceCount('Thanks. I am looking.\n\nMike')).toBe(3);
+    expect(checkShortDraft('Thanks. I am looking.\n\nMike').ok).toBe(true);
   });
 });

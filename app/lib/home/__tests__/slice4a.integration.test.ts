@@ -147,7 +147,13 @@ describe.skipIf(!SCRATCH)('Slice 4a: owed replies (real database)', () => {
     const r = await saveOwedResults(prisma, adminId, [{ thread_key: key('client'), newest_ask_id: askIds.client, outcome: 'drafted', draft_id: 'd-p', draft_message_id: 'm-p', draft_text: 'That would be $1,500.', model: 'sonnet' }], NOW);
     expect(r.saved).toEqual([]);
     expect(r.refused[0]).toMatchObject({ thread_key: key('client'), reason: 'draft_money' });
-    expect(await prisma.homeOwedThread.count({ where: { user_id: adminId, thread_key: key('client') } })).toBe(0);
+    // Nothing is saved, but the refusal counts as one failed attempt (the queue stops offering it after three in a day).
+    const row = await prisma.homeOwedThread.findUnique({ where: { user_id_thread_key: { user_id: adminId, thread_key: key('client') } } });
+    expect(row).toMatchObject({ state: 'failed', attempts: 1, last_error: 'refused: draft_money', draft_id: null, draft_text: null });
+    // A dry run answers the same and writes nothing: the attempt count stays at 1.
+    const dry = await saveOwedResults(prisma, adminId, [{ thread_key: key('client'), newest_ask_id: askIds.client, outcome: 'drafted', draft_id: 'd-p', draft_message_id: 'm-p', draft_text: 'That would be $1,500.', model: 'sonnet' }], NOW, { dry: true });
+    expect(dry.refused[0]).toMatchObject({ reason: 'draft_money' });
+    expect((await prisma.homeOwedThread.findUnique({ where: { user_id_thread_key: { user_id: adminId, thread_key: key('client') } } }))?.attempts).toBe(1);
   });
 
   it('POSTed results render Draft ready with the text and Needs thought with the read, and write one keeper line with no Undo', async () => {

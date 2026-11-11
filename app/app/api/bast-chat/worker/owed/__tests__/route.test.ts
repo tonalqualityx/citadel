@@ -183,7 +183,35 @@ describe('owed route: POST', () => {
     const body = await res.json();
     expect(body.refused.map((r: { reason: string }) => r.reason)).toEqual(['draft_shape', 'draft_money']);
     expect(body.saved).toEqual([{ thread_key: threadKey(ACCOUNT, 'thr-3'), outcome: 'drafted' }]);
+    // the two refused texts are counted as failed attempts
+    expect(fake.rows.size).toBe(3);
+    expect(fake.rows.get(`${OWNER_ID}|${KEY}`)).toMatchObject({ state: 'failed', attempts: 1, last_error: 'refused: draft_shape' });
+  });
+  it('dry: true answers saved and refused and writes nothing; dry absent or false is the real save', async () => {
+    const dry = await POST(req('POST', PATH, { items: [drafted()], dry: true }) as never);
+    expect(dry.status).toBe(200);
+    const body = await dry.json();
+    expect(body.saved).toEqual([{ thread_key: KEY, outcome: 'drafted' }]);
+    expect(body.refused).toEqual([]);
+    expect((await (await POST(req('POST', PATH, { items: [drafted({ draft_text: 'Thanks \u2014 yes.' })], dry: true }) as never)).json()).refused).toEqual([{ thread_key: KEY, reason: 'draft_shape' }]);
+    expect(body.action_id).toBeNull();
+    expect(body.line).toBeNull();
+    expect(fake.writes).toEqual([]);
+    expect(fake.rows.size).toBe(0);
+    expect(fake.runs.size).toBe(0);
+    expect(fake.actions).toHaveLength(0);
+    const short = { thread_key: KEY, newest_ask_id: ASK, outcome: 'short_drafted', short_draft_id: 's', short_draft_text: 'Thanks. Got it.', model: 'haiku' };
+    expect((await (await POST(req('POST', PATH, { items: [short], dry: true }) as never)).json()).refused).toEqual([{ thread_key: KEY, reason: 'no_draft' }]);
+    expect(fake.writes).toEqual([]);
+    const real = await (await POST(req('POST', PATH, { items: [drafted()], dry: false }) as never)).json();
+    expect(real.saved).toHaveLength(1);
     expect(fake.rows.size).toBe(1);
+  });
+  it('dry must be a boolean, and a dry body is still strict', async () => {
+    for (const b of [{ items: [drafted()], dry: 'yes' }, { items: [drafted()], dry: 1 }, { items: [drafted()], dry: null }, { items: [drafted()], dry: true, extra: 1 }]) {
+      expect((await POST(req('POST', PATH, b as never) as never)).status).toBe(400);
+    }
+    expect(fake.writes).toEqual([]);
   });
   it('a stale ask gives a per-item 409 and nothing is written for it', async () => {
     setDb({ asks: [fakeAsk(), fakeAsk({ id: 'aaaaaaaa-0000-4000-8000-000000000009', message_id: 'm9', received_at: new Date('2026-11-06T15:00:00Z') })] });

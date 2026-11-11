@@ -273,12 +273,59 @@ async function applyJoins(tx: JoinTx, userId: string, thisKey: string, joins: re
   }
 }
 
+async function findNewestAsk(tx: JoinTx, parsed: { account: string; thread_id: string }) {
+  return tx.emailAsk.findFirst({
+    where: {
+      account: parsed.account,
+      state: 'open',
+      is_urgent: false,
+      OR: [{ thread_id: parsed.thread_id }, { thread_id: null, message_id: parsed.thread_id }],
+    },
+    orderBy: { received_at: 'desc' },
+    select: { id: true, from_name: true, from_email: true, intent: true, received_at: true },
+  });
+}
+
+/** A refusal about the text itself (draft_*, short_*, read_*, suggested_*): the same text will be refused again. */
+export function isContentRefusal(reason: string): boolean {
+  return /^(?:draft|short|read|suggested)_/.test(reason);
+}
+
+type OwedRowForFailure = { draft_id: string | null; attempts: number } | null;
+
+/**
+ * Record one failed attempt on a thread: attempts + 1, the error kept, and any pending tap (short, auto, draft, read)
+ * cleared so the clock does not ask again. A row that holds a draft keeps its state. Used by a `failed` outcome and by a
+ * result refused for its content, so the queue's "fewer than 3 failed attempts in 24 hours" rule applies to both.
+ */
+async function recordFailedAttempt(tx: JoinTx, userId: string, threadKeyValue: string, row: OwedRowForFailure, error: string): Promise<void> {
+  const failure = { attempts: (row?.attempts ?? 0) + 1, last_error: error.slice(0, 300), request_kind: null, requested_at: null };
+  await tx.homeOwedThread.upsert({
+    where: { user_id_thread_key: { user_id: userId, thread_key: threadKeyValue } },
+    create: { user_id: userId, thread_key: threadKeyValue, state: 'failed', ...failure },
+    update: row?.draft_id ? failure : { state: 'failed', ...failure },
+  });
+}
+
 /**
  * Save the machine's results for the owner, in one transaction. Each item is checked again here (the same TS checks),
  * and an item whose newest_ask_id is no longer the live newest open ask on that thread is refused 409 stale and
- * writes nothing. Valid items are saved even when others are refused.
+ * writes nothing for it. Valid items are saved even when others are refused.
+ *
+ * A result refused for its content (draft_*, short_*, read_*, suggested_*) on a live newest ask records one failed
+ * attempt on the thread, exactly as a `failed` outcome does, so a refused text is not offered again after 3 in 24 hours.
+ *
+ * `dry` (the POST's top-level `"dry": true`): every validation runs and the same `{saved, refused}` comes back, saying what
+ * WOULD happen, and nothing at all is written: no thread row, no failed attempt, no run row, no keeper line.
  */
-export async function saveOwedResults(db: PrismaClient, userId: string, items: readonly OwedResultItem[], now: Date): Promise<OwedSaveResult> {
+export async function saveOwedResults(
+  db: PrismaClient,
+  userId: string,
+  items: readonly OwedResultItem[],
+  now: Date,
+  opts: { dry?: boolean } = {},
+): Promise<OwedSaveResult> {
+  const dry = opts.dry === true;
   const empty: OwedSaveResult = { saved: [], refused: [], action_id: null, line: null };
   const { ok, timezone } = await ownerOnHome(db, userId);
   if (!ok) return { ...empty, skipped: 'home_off' };
@@ -315,19 +362,20 @@ export async function saveOwedResults(db: PrismaClient, userId: string, items: r
         const why = itemRefusal(item);
         if (why) {
           refuse(why);
+          if (!dry && isContentRefusal(why)) {
+            const live = await findNewestAsk(tx, parsed);
+            if (live && live.id === item.newest_ask_id) {
+              const prior = await tx.homeOwedThread.findUnique({
+                where: { user_id_thread_key: { user_id: userId, thread_key: item.thread_key } },
+                select: { draft_id: true, attempts: true },
+              });
+              await recordFailedAttempt(tx, userId, item.thread_key, prior, `refused: ${why}`);
+            }
+          }
           continue;
         }
 
-        const newest = await tx.emailAsk.findFirst({
-          where: {
-            account: parsed.account,
-            state: 'open',
-            is_urgent: false,
-            OR: [{ thread_id: parsed.thread_id }, { thread_id: null, message_id: parsed.thread_id }],
-          },
-          orderBy: { received_at: 'desc' },
-          select: { id: true, from_name: true, from_email: true, intent: true, received_at: true },
-        });
+        const newest = await findNewestAsk(tx, parsed);
         if (!newest || newest.id !== item.newest_ask_id) {
           refuse('stale', 409);
           counts.stale += 1;
@@ -345,15 +393,10 @@ export async function saveOwedResults(db: PrismaClient, userId: string, items: r
             refuse('no_draft');
             continue;
           }
-          await tx.homeOwedThread.update({ where, data: { mike_edited_at: now, request_kind: null, requested_at: null } });
+          if (!dry) await tx.homeOwedThread.update({ where, data: { mike_edited_at: now, request_kind: null, requested_at: null } });
           counts.mike_edited += 1;
         } else if (item.outcome === 'failed') {
-          const failure = { attempts: (row?.attempts ?? 0) + 1, last_error: item.error.slice(0, 300), request_kind: null, requested_at: null };
-          await tx.homeOwedThread.upsert({
-            where,
-            create: { user_id: userId, thread_key: item.thread_key, state: 'failed', ...failure },
-            update: row?.draft_id ? failure : { state: 'failed', ...failure },
-          });
+          if (!dry) await recordFailedAttempt(tx, userId, item.thread_key, row, item.error);
           counts.failed += 1;
         } else if (item.outcome === 'drafted') {
           const data = {
@@ -380,7 +423,7 @@ export async function saveOwedResults(db: PrismaClient, userId: string, items: r
             short_draft_text: null,
             auto_drafted_at: row?.state === 'needs_thought' && !row.request_kind ? now : null,
           };
-          await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
+          if (!dry) await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
           counts.drafted += 1;
           draftedNames.push(personName(newest));
           draftedKeys.push(item.thread_key);
@@ -394,17 +437,18 @@ export async function saveOwedResults(db: PrismaClient, userId: string, items: r
             continue;
           }
           const lead = newest.intent === 'sales' && !(row.not_lead_at && row.not_lead_at.getTime() >= newest.received_at.getTime());
-          await tx.homeOwedThread.update({
-            where,
-            data: {
-              short_draft_id: item.short_draft_id,
-              short_draft_hash: sha256(item.short_draft_text),
-              short_draft_text: item.short_draft_text,
-              attempts: 0,
-              last_error: null,
-              ...(lead ? { resurfaced_at: now, resurface_count: { increment: 1 } } : {}),
-            },
-          });
+          if (!dry)
+            await tx.homeOwedThread.update({
+              where,
+              data: {
+                short_draft_id: item.short_draft_id,
+                short_draft_hash: sha256(item.short_draft_text),
+                short_draft_text: item.short_draft_text,
+                attempts: 0,
+                last_error: null,
+                ...(lead ? { resurfaced_at: now, resurface_count: { increment: 1 } } : {}),
+              },
+            });
           counts.short_drafted += 1;
           shortNames.push(personName(newest));
           shortKeys.push(item.thread_key);
@@ -416,9 +460,9 @@ export async function saveOwedResults(db: PrismaClient, userId: string, items: r
           }
           const same = row?.replied_elsewhere_at?.getTime() === at.getTime();
           const data = { replied_elsewhere_at: at, replied_elsewhere_from: item.replied_from.slice(0, 320), request_kind: null, requested_at: null };
-          await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
+          if (!dry) await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
           counts.replied_elsewhere += 1;
-          if (!same) {
+          if (!same && !dry) {
             const name = personName(newest);
             const line = repliedElsewhereLine(name, item.replied_from, weekdayIn(at, zone));
             await appendHomeAction(tx, userId, {
@@ -443,12 +487,15 @@ export async function saveOwedResults(db: PrismaClient, userId: string, items: r
             last_error: null,
             last_model: item.model.slice(0, 20),
           };
-          await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
+          if (!dry) await tx.homeOwedThread.upsert({ where, create: { user_id: userId, thread_key: item.thread_key, ...data }, update: data });
           counts.needs_thought += 1;
         }
-        if (item.joins && item.joins.length > 0) await applyJoins(tx, userId, item.thread_key, item.joins);
+        if (!dry && item.joins && item.joins.length > 0) await applyJoins(tx, userId, item.thread_key, item.joins);
         saved.push({ thread_key: item.thread_key, outcome: item.outcome });
       }
+
+      // A dry run answers with what would happen and writes nothing at all.
+      if (dry) return { saved, refused, action_id: null, line: null };
 
       // The run itself: finished_at is what lets the screen say "within the hour".
       const runKey = { user_id_date_kind: { user_id: userId, date, kind: OWED_RUN_KIND } };

@@ -108,15 +108,30 @@ export function sentenceCount(text: string): number {
 }
 
 /**
+ * The sign-off rule, shared with the machine (checks.py, tests/short-cases.json): when the LAST line of a text is only the
+ * name "Mike" (any blank lines before it, spaces around it allowed) and something else comes before it, that line is a
+ * sign-off: it is not a sentence and not one of the 40 words. "Mike" at the end of a sentence line is an ordinary word.
+ * Returns the text without the sign-off line, or the text unchanged.
+ */
+export function stripSignoff(text: string): string {
+  const lines = text.trimEnd().split(/\r\n|\r|\n/);
+  if (lines.length < 2 || lines[lines.length - 1].trim() !== 'Mike') return text;
+  const body = lines.slice(0, -1).join('\n').trimEnd();
+  return body.trim().length === 0 ? text : body;
+}
+
+/**
  * Slice 4c: the short holding draft. The same commitment and shape checks as a full draft, with the tighter cap: at most
- * 2 sentences and 40 words.
+ * 2 sentences and 40 words, counted without a sign-off line that is only "Mike". The checks run in this order, the same as
+ * the machine: commitments (whole text), then shape and the 40 word cap (sign-off removed), then sentences.
  */
 export function checkShortDraft(text: string): CheckResult {
   const c = commitments(text);
   if (!c.ok) return c;
-  const s = shape(text, OWED.shortWords, OWED.maxChars);
+  const body = stripSignoff(text);
+  const s = shape(body, OWED.shortWords, OWED.maxChars);
   if (!s.ok) return s;
-  if (sentenceCount(text) > OWED.shortSentences) return { ok: false, category: 'shape', match: 'too many sentences' };
+  if (sentenceCount(body) > OWED.shortSentences) return { ok: false, category: 'shape', match: 'too many sentences' };
   return { ok: true };
 }
 

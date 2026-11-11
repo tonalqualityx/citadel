@@ -38,7 +38,7 @@ const item = z.discriminatedUnion('outcome', [
   z.object({ ...base, outcome: z.literal('replied_elsewhere'), replied_from: z.string().min(1).max(320), replied_at: z.string().datetime({ offset: true }) }).strict(),
 ]);
 
-const postBody = z.object({ items: z.array(item).max(OWED_POST_MAX_ITEMS) }).strict();
+const postBody = z.object({ items: z.array(item).max(OWED_POST_MAX_ITEMS), dry: z.boolean().optional() }).strict();
 
 /**
  * GET /api/bast-chat/worker/owed?limit=6: the owner's drafting queue, in order (taps first, then redrafts, leads, the
@@ -69,7 +69,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * `{..., outcome: "needs_thought", read, suggested_answer | null, needs_commitment, model, cost_usd?}`,
  * `{..., outcome: "mike_edited"}`, `{..., outcome: "failed", error}`, `{..., outcome: "short_drafted", short_draft_id, short_draft_text, model, cost_usd?}`
  * or `{..., outcome: "replied_elsewhere", replied_from, replied_at}`; any item may carry `joins: [{account, thread_id}]`. The commitment
- * checks run again here (a short draft: at most 2 sentences and 40 words).
+ * checks run again here (a short draft: at most 2 sentences and 40 words, a last line that is only "Mike" not counted).
+ * `"dry": true` (top level, beside `items`): every validation runs and the same `{saved, refused}` says what WOULD happen; nothing is written
+ * (no row, no failed attempt, no run row, no keeper line). A real result refused for its content (draft_*, short_*, read_*, suggested_*) on a
+ * live newest ask records one failed attempt, as a `failed` outcome does.
  * 200 `{saved: [{thread_key, outcome}], refused: [{thread_key, reason, status?}], action_id, line}` (a stale newest ask is
  * refused with status 409, reason "stale", and nothing is written for it), or `{skipped: "home_off", saved: [], refused: []}`.
  * Writes only the owner's home_owed_thread, home_keeper_runs (kind owed_reply) and home_actions (source keeper) rows.
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await requireChatWorker();
     const body = await chatWorkerBody(request, postBody, OWED_POST_MAX_BYTES);
     const ownerId = await workerOwnerId();
-    return chatJson(await saveOwedResults(prisma, ownerId, body.items as OwedResultItem[], new Date()));
+    return chatJson(await saveOwedResults(prisma, ownerId, body.items as OwedResultItem[], new Date(), { dry: body.dry === true }));
   } catch (error) {
     return chatError(error);
   }
