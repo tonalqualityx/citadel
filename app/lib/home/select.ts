@@ -910,6 +910,8 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
     text = backOnText(vw);
   } else if (group === 'older_threads') {
     text = REST_CHECK.olderThread;
+  } else if (group === 'bast_stopped') {
+    text = REST_CHECK.botStopped;
   } else if (group === 'ventures') {
     text = REST_CHECK.venture;
   } else if (c.kind === 'crisis') {
@@ -1012,6 +1014,14 @@ export function selectHome(input: SelectInput): SelectResult {
   const nextAll: Candidate[] = [];
   const working: Candidate[] = [];
 
+  // Slice 3: of Bast's stopped tasks that are not boosted, the oldest holds a Next slot (one at a time); the rest wait in
+  // their own drawer group. A boosted one (This matters more, Bring it forward) takes a Next slot like any boosted item,
+  // beside the holder.
+  const botHolder =
+    candidates
+      .filter((c) => c.botTask && !c.parked && !c.pinned && !c.boosted)
+      .sort((a, b) => a.since.getTime() - b.since.getTime() || compareKey(a, b))[0] ?? null;
+
   for (const c of candidates) {
     const ctx = ctxByKey.get(c.key) ?? {};
     if (c.pinned) {
@@ -1026,6 +1036,8 @@ export function selectHome(input: SelectInput): SelectResult {
       c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
     } else if (c.kind === 'crisis') {
       c.restGroup = 'waiting_turn'; // marked "Not an emergency": counted, not listed
+    } else if (c.botTask && !c.boosted && c !== botHolder) {
+      c.restGroup = 'bast_stopped';
     } else if (c.kind === 'thread' && ctx.thread?.status === 'older' && !c.boosted) {
       c.restGroup = 'older_threads';
     } else if (c.score.venture && !c.boosted && !c.fresh && !c.botTask) {
@@ -1078,6 +1090,7 @@ export function selectHome(input: SelectInput): SelectResult {
     new_mail: youngThreads,
     older_threads: 0,
     ventures: 0,
+    bast_stopped: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
 
@@ -1090,6 +1103,7 @@ export function selectHome(input: SelectInput): SelectResult {
     new_mail: [],
     older_threads: [],
     ventures: [],
+    bast_stopped: [],
   };
   const restCands = candidates.filter((c) => c.section === 'rest' && c.restGroup !== null);
   const byDay = (a: Candidate, b: Candidate) =>
@@ -1145,6 +1159,7 @@ export function selectHome(input: SelectInput): SelectResult {
     'new_mail',
     'older_threads',
     'ventures',
+    'bast_stopped',
   ];
   const groups: HomeEverythingElseGroup[] = order
     .filter((k) => counts[k] > 0)

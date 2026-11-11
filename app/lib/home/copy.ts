@@ -377,6 +377,7 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   new_mail: { label: 'New mail, shown after one business day', owner: 'You' },
   older_threads: { label: 'Older open threads', owner: 'You' },
   ventures: { label: 'Other ventures', owner: 'You, other hat' },
+  bast_stopped: { label: 'Stopped with Bast, waiting on you', owner: 'Bast' },
 };
 
 /**
@@ -413,6 +414,7 @@ export const REST_CHECK = {
   newMail: 'Shows after one business day',
   olderThread: 'No set day. Open the thread to answer or close it.',
   venture: 'No set day. Other hat.',
+  botStopped: 'Shows here one at a time. Open it to answer.',
   /** Not in the plan's table: a people row beyond its cap, a wait not yet due, a crisis mail marked not an emergency. */
   peopleOverflow: 'Shows when a row frees up',
   waitNotDue: 'Comes up when the wait is due',

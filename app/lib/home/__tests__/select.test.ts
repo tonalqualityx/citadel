@@ -639,3 +639,69 @@ describe('Slice 3: Bast-stopped tasks are not buried by class 1 work', () => {
     expect(r.sections.next.map((i) => i.key).slice(0, 2)).toEqual([taskKey(boosted.id), taskKey(bast.id)]);
   });
 });
+
+describe('Slice 3: one Bast-stopped task holds a Next slot at a time', () => {
+  const bots = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      makeTask({
+        title: `Stopped ${i + 1}`,
+        bot_task: true,
+        tags: ['needs-mike'],
+        created_at: d(`2026-10-${String(1 + i).padStart(2, '0')}T14:00:00Z`),
+        clock_started_at: d(`2026-10-${String(1 + i).padStart(2, '0')}T14:00:00Z`),
+      }),
+    );
+  const run = (tasks: ReturnType<typeof bots>, states: RawItemState[] = [], extra: ReturnType<typeof makeTask>[] = []) =>
+    selectHome({ raw: makeInputs({ tasks: [...tasks, ...extra] }), states, now: NOW });
+  const group = (r: ReturnType<typeof run>) => r.everything_else.groups.find((g) => g.key === 'bast_stopped');
+
+  it('13 stopped tasks: exactly the oldest in Next, 12 in the drawer group, counts add up', () => {
+    const t = bots(13);
+    const r = run(t);
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t[0].id)]);
+    const g = group(r)!;
+    expect(g).toMatchObject({ label: 'Stopped with Bast, waiting on you', owner: 'Bast', count: 12 });
+    expect(g.items).toHaveLength(12);
+    expect(g.items.map((i) => i.key)).not.toContain(taskKey(t[0].id));
+    expect(g.items[0]).toMatchObject({ owner: 'Bast', check_text: 'Shows here one at a time. Open it to answer.', can_bring_forward: true });
+    expect(r.everything_else.count).toBe(r.everything_else.groups.reduce((n, x) => n + x.count, 0));
+    expect(r.everything_else.count).toBe(12);
+  });
+
+  it('does not crowd real work: Mike\'s own Next rows still fit beside the one holder', () => {
+    const client = makeClient('Grok');
+    const own = [1, 2].map((i) => makeTask({ client, requested_by_contact_id: 'c', title: `Own ${i}`, created_at: d('2026-10-01T14:00:00Z'), clock_started_at: d('2026-10-01T14:00:00Z') }));
+    const r = run(bots(13), [], own);
+    expect(r.sections.next).toHaveLength(3);
+    expect(r.sections.next.filter((i) => i.who === 'Bast')).toHaveLength(1);
+  });
+
+  it('boosting a second one puts both in Next (the boosted one first)', () => {
+    const t = bots(13);
+    const r = run(t, [makeState(taskKey(t[1].id), { boosted_at: NOW })]);
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t[1].id), taskKey(t[0].id)]);
+    expect(group(r)?.count).toBe(11);
+  });
+
+  it('a boosted one comes first, the oldest unboosted one still holds its slot', () => {
+    const t = bots(3);
+    const r = run(t, [makeState(taskKey(t[2].id), { boosted_at: NOW })]);
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t[2].id), taskKey(t[0].id)]);
+    expect(group(r)?.count).toBe(1);
+  });
+
+  it('parking the first (Not now) lets the next one in; it sits in Parked by you', () => {
+    const t = bots(13);
+    const r = run(t, [makeState(taskKey(t[0].id), { view_at: d('2026-11-12T14:00:00Z'), park_count: 1 })]);
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t[1].id)]);
+    expect(group(r)?.count).toBe(11);
+    expect(r.everything_else.groups.find((g) => g.key === 'parked')?.count).toBe(1);
+  });
+
+  it('answering the first (it leaves the load) lets the next one in', () => {
+    const t = bots(13);
+    const r = run(t.slice(1));
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t[1].id)]);
+    expect(group(r)?.count).toBe(11);
+  });
+});

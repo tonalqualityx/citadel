@@ -365,7 +365,8 @@ export type HomeRestGroupKey =
   | 'review_pieces' // done tasks folded under a project sign-off
   | 'new_mail' // threads from a known person too young to show yet (not a business day old)
   | 'older_threads' // qualifying threads whose newest open ask is over 21 days old
-  | 'ventures'; // other ventures
+  | 'ventures' // other ventures
+  | 'bast_stopped'; // Slice 3: tasks Bast stopped on beyond the one that holds a Next slot
 
 /** Slice 2: one row inside an Everything else group. Every row has an owner and a check text. */
 export interface HomeRestItem {
