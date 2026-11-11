@@ -45,6 +45,8 @@ import {
   scopeLine,
   whenProjectStarts,
   whyFresh,
+  BOT_WHO,
+  WHY_BOT_STOPPED,
   withSignOff,
   REST_CHECK,
   WHY_ARRIVED,
@@ -163,6 +165,8 @@ export interface Candidate {
   fresh: boolean;
   /** A task the nightly sort gave a day to, and that day has come (view_set_by keeper, view_at passed). */
   arrived: boolean;
+  /** Slice 3: Bast's task, stopped and tagged needs-mike (RawTask.bot_task). Never a Today step, never in the keeper's pool. */
+  botTask: boolean;
   pinned: boolean;
   /** In Needs you now, Things in progress, a People list, or the visible Next rows. */
   shown: boolean;
@@ -238,10 +242,13 @@ export function emergencyCompare(a: Candidate, b: Candidate): number {
   return compareKey(a, b);
 }
 
-/** Next: boosted first, then fresh (just made), then class, then urgency, then oldest. */
+/** Next: boosted first, then fresh (just made) or Bast-stopped, then class, then urgency, then oldest. */
 export function nextCompare(a: Candidate, b: Candidate): number {
   if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
-  if (a.fresh !== b.fresh) return a.fresh ? -1 : 1;
+  // Just made, or Bast stopped on it: both come ahead of the class bands (Bast's is muted elsewhere, so it must not sink).
+  const aFirst = a.fresh || a.botTask;
+  const bFirst = b.fresh || b.botTask;
+  if (aFirst !== bFirst) return aFirst ? -1 : 1;
   if (a.score.klass !== b.score.klass) return a.score.klass - b.score.klass;
   if (a.score.urgency !== b.score.urgency) return b.score.urgency - a.score.urgency;
   if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
@@ -377,9 +384,10 @@ function stripEndPeriod(s: string): string {
 
 /** What a build step returns before placement. */
 interface Draft {
-  cand: Omit<Candidate, 'shown' | 'inView' | 'section' | 'restGroup' | 'parked' | 'parkedBy' | 'pinned' | 'boosted' | 'rule' | 'state' | 'fresh' | 'arrived'> & {
+  cand: Omit<Candidate, 'shown' | 'inView' | 'section' | 'restGroup' | 'parked' | 'parkedBy' | 'pinned' | 'boosted' | 'rule' | 'state' | 'fresh' | 'arrived' | 'botTask'> & {
     fresh?: boolean;
     arrived?: boolean;
+    botTask?: boolean;
     rule: EmergencyRule | null;
   };
   /** Extra inputs for actionsFor and the footer lines. */
@@ -409,7 +417,8 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
   const client = refOf(task.client);
   const project = refOf(task.project);
   const arc = arcIsOpen(task.arc, now) ? task.arc : null;
-  let rule = taskEmergencyRule(
+  const botTask = task.bot_task;
+  let rule = botTask ? null : taskEmergencyRule(
     {
       due_date: task.due_date ? normalizeDueDate(task.due_date) : null,
       promised_to: task.promised_to,
@@ -420,19 +429,21 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
     now,
   );
   // Rule 7 also covers a real outside date filed on the task (never the keeper's "source unclear" reading).
-  if (!rule && task.hard_due_at && businessDaysUntil(normalizeDueDate(task.hard_due_at), now) <= PROMISED_DATE_EMERGENCY_BUSINESS_DAYS) {
+  if (!botTask && !rule && task.hard_due_at && businessDaysUntil(normalizeDueDate(task.hard_due_at), now) <= PROMISED_DATE_EMERGENCY_BUSINESS_DAYS) {
     rule = 'promised_date';
   }
   const promisedNamed = !!task.promised_to && task.promised_to.trim() !== '';
   const outsideDate = rule === 'promised_date' && !promisedNamed;
-  const fresh = isFreshNew(task, userId, now);
+  const fresh = !botTask && isFreshNew(task, userId, now);
   const arrived =
-    st?.view_set_by === 'keeper' && !!st.view_at && st.view_at.getTime() <= now.getTime();
+    !botTask && st?.view_set_by === 'keeper' && !!st.view_at && st.view_at.getTime() <= now.getTime();
   const personWaiting = taskHasPersonWaiting(task);
   const since = score.waitingSince ?? task.created_at;
-  const who = displayText(task.requested_by_name) || client?.name || null;
+  const who = botTask ? BOT_WHO : displayText(task.requested_by_name) || client?.name || null;
   const minutes = taskMinutes(task);
-  const why = rule
+  const why = botTask
+    ? WHY_BOT_STOPPED
+    : rule
     ? whyEmergency(rule, { client: client?.name, outsideDate })
     : fresh
     ? whyFresh(isChatTagged(task.tags))
@@ -490,10 +501,11 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
       personWaiting,
       hardDate: score.hardDate,
       minutes,
-      group: groupFor(client, project, arc, refs),
-      arcId: arc ? arc.id : null,
+      group: groupFor(client, project, botTask ? null : arc, refs),
+      arcId: !botTask && arc ? arc.id : null,
       fresh,
       arrived,
+      botTask,
     },
     ctx: { hasTaskId: true, outsideDate },
   };
@@ -794,6 +806,7 @@ function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs,
 // ============================================================================
 
 function ifIgnored(c: Candidate): string {
+  if (c.botTask) return IF_IGNORED.botStopped;
   if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
   switch (c.kind) {
     case 'thread':
@@ -811,6 +824,7 @@ function ifIgnored(c: Candidate): string {
 
 function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.pinned) return REASON.working;
+  if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
   if (c.boosted) return REASON.boosted;
   switch (c.section) {
@@ -854,6 +868,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     waitApprovable: ctx.waitApprovable,
     waitHref: ctx.waitHref,
     hasTaskId: ctx.hasTaskId,
+    botTask: c.botTask,
   });
   c.item = {
     ...c.item,
@@ -875,8 +890,8 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
  * (its day from the nightly sort has come), or the class and urgency bands. Sessions, review
  * folds and waits always qualify (a wait's in-view check is the caller's).
  */
-export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived' | 'kind' | 'score'>): boolean {
-  if (c.boosted || c.fresh || c.arrived) return true;
+export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived' | 'kind' | 'score'> & { botTask?: boolean }): boolean {
+  if (c.boosted || c.fresh || c.arrived || c.botTask) return true;
   if (c.kind === 'session' || c.kind === 'review') return true;
   if (c.kind === 'wait') return true; // in view is checked by the caller
   const { klass, urgency } = c.score;
@@ -911,7 +926,7 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
   return {
     key: c.key,
     title: c.item.title,
-    owner: group === 'ventures' ? REST_GROUP_COPY.ventures.owner : 'You',
+    owner: c.botTask ? BOT_WHO : group === 'ventures' ? REST_GROUP_COPY.ventures.owner : 'You',
     check_text: text,
     check_at: vw ? vw.toISOString() : null,
     past_check: !!vw && vw.getTime() <= now.getTime(),
@@ -961,6 +976,7 @@ export function selectHome(input: SelectInput): SelectResult {
       boosted: !!st?.boosted_at,
       fresh: draft.cand.fresh ?? false,
       arrived: draft.cand.arrived ?? false,
+      botTask: draft.cand.botTask ?? false,
       parkedBy: null,
       parked: false,
       pinned: false,
@@ -1012,7 +1028,7 @@ export function selectHome(input: SelectInput): SelectResult {
       c.restGroup = 'waiting_turn'; // marked "Not an emergency": counted, not listed
     } else if (c.kind === 'thread' && ctx.thread?.status === 'older' && !c.boosted) {
       c.restGroup = 'older_threads';
-    } else if (c.score.venture && !c.boosted && !c.fresh) {
+    } else if (c.score.venture && !c.boosted && !c.fresh && !c.botTask) {
       c.restGroup = 'ventures';
     } else if (c.kind === 'thread') {
       c.section = ctx.lead ? 'leads' : 'mail';

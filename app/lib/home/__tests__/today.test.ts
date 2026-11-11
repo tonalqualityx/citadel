@@ -480,3 +480,18 @@ describe('assembleHomeResponse', () => {
     expect(day?.step_item_keys).toEqual([taskKey(t.id)]);
   });
 });
+
+describe('Slice 3: a task Bast stopped on is never a Today step', () => {
+  it('stays out of the proposed day even as the top ranked item', () => {
+    const bast = makeTask({ bot_task: true, tags: ['needs-mike'], client: makeClient('Grok'), created_at: d('2026-10-01T14:00:00Z'), clock_started_at: d('2026-10-01T14:00:00Z') });
+    const mine = makeTask({ title: 'Mine' });
+    const { sel, day } = build({ tasks: [bast, mine] });
+    expect(sel.sections.next.map((i) => i.key)).toContain(taskKey(bast.id));
+    const keys = [...(day?.step_item_keys ?? []), ...(day?.quick_item_keys ?? [])];
+    expect(keys).not.toContain(taskKey(bast.id));
+  });
+  it('alone, it makes no day', () => {
+    const bast = makeTask({ bot_task: true, tags: ['needs-mike'] });
+    expect(build({ tasks: [bast] }).day).toBeNull();
+  });
+});

@@ -29,6 +29,7 @@ import {
   AskQueue,
 } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { BAST_USER_ID } from '../lib/oracle/projects/gate-constants';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 if (!DATABASE_URL.includes('localhost:55433')) {
@@ -446,6 +447,39 @@ async function main() {
     },
   });
   bump('oracle sessions (ask)');
+
+  // ---- Slice 3 fixtures: a task Bast stopped on, and a bot comment mentioning the home admin and the tech ----
+  const bast = await prisma.user.upsert({
+    where: { id: BAST_USER_ID },
+    update: { is_active: true },
+    create: { id: BAST_USER_ID, email: 'bast-home-fixture@indelible.test', name: 'Bast (home fixture)', role: UserRole.tech, password_hash: passwordHash },
+  });
+  const bastTask = await prisma.task.create({
+    data: {
+      title: 'Grok: confirm which hosting account the old backups live in',
+      status: 'not_started',
+      tags: ['needs-mike', FIXTURE_TAG],
+      assignee_id: bast.id,
+      created_by_id: bast.id,
+      needs_review: false,
+      client_id: grok.id,
+      estimated_minutes: 10,
+      created_at: ago(2),
+    },
+  });
+  s2['bast_needs_mike'] = bastTask.id;
+  const bastComment = await prisma.comment.create({
+    data: {
+      task_id: bastTask.id,
+      user_id: bast.id,
+      content: 'Stopped here. I cannot tell which account holds the backups. Need an answer before I go on.',
+      mentioned_user_ids: [admin.id, tech.id],
+      is_internal: true,
+    },
+  });
+  s2['bast_comment'] = bastComment.id;
+  bump('tasks: Bast needs-mike');
+  bump('comments: bot mention of admin and tech');
 
   // ---- One calendar event today ----
   const EVENT_ID = `${MID}meeting`;

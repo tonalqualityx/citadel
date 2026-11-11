@@ -41,6 +41,8 @@ export interface ActionsInput {
   waitApprovable?: boolean;
   waitHref?: string | null;
   hasTaskId?: boolean;
+  /** Slice 3: a task Bast stopped on. Open only (no Done, no I'll do it now, no Let it go, no arc), plus Not now and This matters more. */
+  botTask?: boolean;
 }
 
 export interface ActionsOutput {
@@ -58,6 +60,10 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
   const extras: HomeItemAction[] = [];
   switch (input.kind) {
     case 'task':
+      if (input.botTask) {
+        primary.push(button('open_task'));
+        break;
+      }
       if (!input.pinned) primary.push(button('do_now'));
       primary.push(button('done'));
       extras.push(button('open_task'));
@@ -103,13 +109,13 @@ export function actionsFor(input: ActionsInput): ActionsOutput {
   } else if (input.emergency) {
     visible.push(button('not_emergency'));
   } else if (input.parkCount >= NOT_NOW.choicesOnlyAtParkCount) {
-    if (input.kind === 'task') visible.push(button('let_it_go'));
+    if (input.kind === 'task' && !input.botTask) visible.push(button('let_it_go'));
   } else {
     visible.push(button('not_now'));
   }
 
   if (!input.emergency && !input.pinned) more.push(button('matters_more'));
-  if (!input.pinned) more.push(button('add_to_arc'));
+  if (!input.pinned && !input.botTask) more.push(button('add_to_arc'));
 
   // Over the cap: the overflow goes under More, keeping order.
   while (visible.length > CAPS.visibleActions) more.unshift(visible.pop() as HomeItemAction);

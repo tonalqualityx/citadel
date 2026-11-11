@@ -209,7 +209,9 @@ describe('laws on every string', () => {
     for (const s of strings) expect(s, s).not.toMatch(/[–—]/);
   });
   it('"If you do nothing" lines promise nothing a later slice builds', () => {
-    for (const s of Object.values(copy.IF_IGNORED)) {
+    // botStopped names Bast on purpose: the task is Bast's and stays with it (Slice 3, plan text).
+    for (const [k, s] of Object.entries(copy.IF_IGNORED)) {
+      if (k === 'botStopped') continue;
       expect(s, s).not.toMatch(/bast|slack|sabeen|scan|tomorrow|tonight|wednesday|thursday|draft|rewrite|swap|send(s)? (a|the)|rule/i);
     }
   });
@@ -218,5 +220,13 @@ describe('laws on every string', () => {
   });
   it('no raw numbers of scores: no "score", "class" or "quadrant"', () => {
     for (const s of strings) expect(s, s).not.toMatch(/score|quadrant|consequence class/i);
+  });
+});
+
+describe('Slice 3 copy', () => {
+  it('the Bast lines are exactly the planned words', () => {
+    expect(copy.BOT_WHO).toBe('Bast');
+    expect(copy.WHY_BOT_STOPPED).toBe('Bast stopped on this and needs you.');
+    expect(copy.IF_IGNORED.botStopped).toBe('Stays with Bast, stopped, until you answer on the task.');
   });
 });

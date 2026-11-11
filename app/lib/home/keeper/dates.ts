@@ -20,6 +20,7 @@ export function dueYmd(due: Date): string {
 
 /** The class of one task's date, or null when it is not for the keeper to read. */
 export function classifyDate(task: RawTask, state: RawItemState | undefined, now: Date): 'read' | 'set_aside' | null {
+  if (task.bot_task) return null; // Bast's task: not the owner's to date
   if (!task.due_date) return null;
   if (task.hard_due_at) return null;
   if (hardDateInfo(task, null)) return null;

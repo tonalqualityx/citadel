@@ -110,3 +110,14 @@ describe('planKeeper', () => {
     expect(p.lines.map((l) => l.action)).toEqual(['keeper_stagger', 'keeper_dates']);
   });
 });
+
+describe('Slice 3: a task Bast stopped on gets no day and no date reading', () => {
+  it('is not in the keeper plan, whatever its date', () => {
+    const bast = makeTask({ bot_task: true, tags: ['needs-mike'], due_date: d('2026-11-30T05:00:00Z'), created_at: d('2026-10-01T14:00:00Z'), clock_started_at: d('2026-10-01T14:00:00Z') });
+    const raw = makeInputs({ tasks: [bast, ...chores(2)] });
+    const p = planKeeper(raw, [], NOW, TZ);
+    expect(p.stagger.map((s) => s.item_key)).not.toContain(taskKey(bast.id));
+    expect(p.stagger).toHaveLength(2);
+    expect(p.dates.map((x) => x.item_key)).not.toContain(taskKey(bast.id));
+  });
+});

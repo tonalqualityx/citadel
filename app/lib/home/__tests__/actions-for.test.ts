@@ -106,3 +106,14 @@ describe('actionsFor', () => {
     expect(ids(withoutAddToArc(more))).toEqual(['open_task', 'matters_more']);
   });
 });
+
+describe('actionsFor: a task Bast stopped on', () => {
+  it('Open, Not now, This matters more; no Done, no I\'ll do it now, no arc', () => {
+    const r = actionsFor({ ...base, botTask: true });
+    expect(ids(r.actions)).toEqual(['open_task', 'not_now']);
+    expect(ids(r.more_actions)).toEqual(['matters_more']);
+  });
+  it('after three Not nows there is no Let it go (it is Bast\'s task)', () => {
+    expect(ids(actionsFor({ ...base, botTask: true, parkCount: 3 }).actions)).toEqual(['open_task']);
+  });
+});

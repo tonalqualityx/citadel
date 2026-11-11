@@ -228,6 +228,10 @@ export function whyFresh(chat: boolean): string {
   return chat ? 'New from the chat.' : 'New, made by you.';
 }
 
+/** Slice 3: who a task Bast stopped on shows as, and why it is listed. */
+export const BOT_WHO = 'Bast';
+export const WHY_BOT_STOPPED = 'Bast stopped on this and needs you.';
+
 /** Slice 2: a task the nightly sort gave a day to, on that day. */
 export const WHY_ARRIVED = 'Back today, after waiting its turn.';
 
@@ -302,6 +306,7 @@ export const REASON = {
   class3: 'It holds up other work.',
   fresh: 'You made it in the last two business days, so it shows here first.',
   arrived: 'The nightly sort gave it today as its day to come back.',
+  botStopped: 'It is Bast\'s task, and Bast tagged it as needing you.',
   working: 'You are doing this now.',
   rest: 'It is on your plate and not due to come forward yet.',
 } as const;
@@ -323,6 +328,7 @@ export const IF_IGNORED = {
   signOff: 'Stays here. Nothing is approved until you approve it.',
   session: 'Stays here. The session keeps waiting for you.',
   wait: 'Stays here. The wait keeps its own clock.',
+  botStopped: 'Stays with Bast, stopped, until you answer on the task.',
 } as const;
 
 // ============================================================================

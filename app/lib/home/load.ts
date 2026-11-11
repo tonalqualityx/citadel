@@ -188,6 +188,8 @@ function arcRef(a: RawArcRef | null | undefined): RawArcRef | null {
 // ============================================================================
 
 const CLOSED = [...CLOSED_TASK_STATUSES];
+/** The tag a worker puts on a task it assigned to a bot and stopped on. */
+const NEEDS_MIKE_TAG = 'needs-mike';
 
 const TASK_SELECT = {
   id: true,
@@ -221,15 +223,23 @@ const TASK_SELECT = {
   requested_by_contact: { select: { name: true } },
   blocking: { where: { is_deleted: false, status: { notIn: CLOSED } }, select: { id: true } },
   email_asks: { where: { state: 'open' }, select: { id: true }, take: 1 },
+  assignee_id: true,
 } satisfies Prisma.TaskSelect;
 
+/**
+ * The owner's open tasks, plus (Slice 3) open tasks assigned to a bot and tagged needs-mike, marked bot_task: Bast
+ * stopped on those and needs the owner. Same project filter for both.
+ */
 async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
   const rows = await db.task.findMany({
     where: {
-      assignee_id: userId,
       is_deleted: false,
       status: { notIn: CLOSED },
-      OR: [{ project_id: null }, { project: { status: { notIn: [...EXCLUDED_PROJECT_STATUSES] } } }],
+      OR: [
+        { assignee_id: userId },
+        { assignee_id: { in: [...BOT_USER_IDS] }, tags: { has: NEEDS_MIKE_TAG } },
+      ],
+      AND: [{ OR: [{ project_id: null }, { project: { status: { notIn: [...EXCLUDED_PROJECT_STATUSES] } } }] }],
     },
     select: TASK_SELECT,
     orderBy: { created_at: 'asc' },
@@ -288,6 +298,7 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
       sop: t.sop ? { id: t.sop.id, title: t.sop.title } : null,
       origin_url: t.origin_url,
       staging_preview_url: t.staging_preview_url,
+      bot_task: t.assignee_id !== userId && !!t.assignee_id && (BOT_USER_IDS as readonly string[]).includes(t.assignee_id),
     };
   });
 }

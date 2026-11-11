@@ -116,13 +116,32 @@ describe('loadHomeInputs: tasks', () => {
   it('scopes the task read to the one user and the plan 1.1 rule', async () => {
     await loadHomeInputs(asDb(db), U, NOW);
     const arg = taskCall(db, false);
-    expect(arg.where.assignee_id).toBe(U);
     expect(arg.where.is_deleted).toBe(false);
     expect(arg.where.status).toEqual({ notIn: ['done', 'abandoned'] });
-    expect(arg.where.OR).toEqual([
-      { project_id: null },
-      { project: { status: { notIn: ['quote', 'queue', 'suspended', 'cancelled', 'done'] } } },
+    expect(arg.where.OR[0]).toEqual({ assignee_id: U });
+    expect(arg.where.AND).toEqual([
+      {
+        OR: [
+          { project_id: null },
+          { project: { status: { notIn: ['quote', 'queue', 'suspended', 'cancelled', 'done'] } } },
+        ],
+      },
     ]);
+  });
+
+  it('Slice 3: also reads open tasks assigned to a bot and tagged needs-mike, and marks only those bot_task', async () => {
+    const BOT = BOT_USER_IDS[0];
+    db.task.findMany.mockImplementation(async (a: { where: { status?: unknown } }) =>
+      a.where.status === 'done'
+        ? []
+        : [taskRow({ id: 'mine', assignee_id: U }), taskRow({ id: 'bast', assignee_id: BOT, tags: ['needs-mike'] })]
+    );
+    const { tasks } = await loadHomeInputs(asDb(db), U, NOW);
+    const arg = taskCall(db, false);
+    expect(arg.where.OR[1]).toEqual({ assignee_id: { in: [...BOT_USER_IDS] }, tags: { has: 'needs-mike' } });
+    expect(arg.where.is_deleted).toBe(false);
+    expect(arg.select.assignee_id).toBe(true);
+    expect(Object.fromEntries(tasks.map((t) => [t.id, t.bot_task]))).toEqual({ mine: false, bast: true });
   });
 
   it('never selects priority or is_focus', async () => {

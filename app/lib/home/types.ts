@@ -685,6 +685,11 @@ export interface RawTask {
   requirements: RawRequirement[];
   /** The SOP, or null. */
   sop: { id: string; title: string } | null;
+  /**
+   * Slice 3: true for a task assigned to a bot (BOT_USER_IDS) and tagged needs-mike: Bast stopped on it and needs the home
+   * owner. It is Bast's task: listed in Next, never a Today step, never given a day by the keeper, no date reading.
+   */
+  bot_task: boolean;
   /** Task.origin_url (an email deep link), or null. */
   origin_url: string | null;
   /** Task.staging_preview_url, or null. */

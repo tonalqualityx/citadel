@@ -104,6 +104,11 @@ export function freeMinutes(events: readonly RawCalendarEvent[], now: Date): num
 
 const DAY_MS = 86_400_000;
 
+/** Today's candidates: a task Bast stopped on is listed in Decisions ready, but is never a step, a group or Quick. */
+function todayPool(sel: SelectResult): Candidate[] {
+  return sel.candidates.filter((c) => !c.botTask);
+}
+
 function addedHere(c: Candidate, groupKey: string): boolean {
   const s = c.state;
   return !!s && !!s.arc_added_at && s.arc_added_group === groupKey;
@@ -132,7 +137,7 @@ function proposedMembers(
   exclude?: ReadonlySet<string>,
 ): Candidate[] {
   const clientKey = group.client ? `client:${group.client.id}` : null;
-  return sel.candidates
+  return todayPool(sel)
     .filter((c) => {
       if (c.parked || addedHere(c, group.key) || removedHere(c, group.key, now)) return false;
       if (exclude && exclude.has(c.key)) return false;
@@ -144,7 +149,7 @@ function proposedMembers(
 
 /** Steps Mike added to this group that are still open, in the order he added them. */
 function addedMembers(sel: SelectResult, group: GroupInfo): Candidate[] {
-  return sel.candidates
+  return todayPool(sel)
     .filter((c) => !c.parked && addedHere(c, group.key))
     .sort((a, b) => (a.state?.arc_added_at?.getTime() ?? 0) - (b.state?.arc_added_at?.getTime() ?? 0));
 }
@@ -154,7 +159,7 @@ function sumMinutes(cs: readonly Candidate[]): number {
 }
 
 function groupInfoFor(sel: SelectResult, key: string, label: string): GroupInfo {
-  const found = sel.candidates.find((c) => c.group.key === key);
+  const found = todayPool(sel).find((c) => c.group.key === key);
   if (found) return found.group;
   return { key, name: label, client: null, project: null, arc: null };
 }
@@ -164,7 +169,7 @@ function groupInfoFor(sel: SelectResult, key: string, label: string): GroupInfo 
 // ============================================================================
 
 function chooseQuick(sel: SelectResult, excludeKeys: ReadonlySet<string>): Candidate[] {
-  const pool = sel.candidates.filter((c) => c.inView && !excludeKeys.has(c.key));
+  const pool = todayPool(sel).filter((c) => c.inView && !excludeKeys.has(c.key));
   const emergencies = pool.filter((c) => c.rule !== null).sort(emergencyCompare);
   const short = pool
     .filter((c) => c.rule === null && c.minutes <= QUICK_MAX_MINUTES && (c.personWaiting || c.hardDate !== null))
@@ -213,7 +218,7 @@ export function proposeDay(
   calendar: readonly RawCalendarEvent[],
   now: Date,
 ): ProposedDay | null {
-  const top = sel.candidates.filter((c) => c.inView && !c.parked).sort(rankCompare)[0];
+  const top = todayPool(sel).filter((c) => c.inView && !c.parked).sort(rankCompare)[0];
   if (!top) return null;
   const group = top.group;
   const free = freeMinutes(calendar, now);
@@ -248,7 +253,7 @@ export function dayForGroup(
   calendar: readonly RawCalendarEvent[],
   now: Date,
 ): ProposedDay | null {
-  const group = sel.candidates.find((c) => !c.parked && c.group.key === toGroupKey)?.group;
+  const group = todayPool(sel).find((c) => !c.parked && c.group.key === toGroupKey)?.group;
   if (!group) return null;
   const quickKeys = current.quick_item_keys.filter((k) => sel.byKey.has(k));
   const quickSet = new Set(quickKeys);
@@ -304,10 +309,10 @@ function groupOptions(
   now: Date,
   quickKeys: ReadonlySet<string>,
 ): GroupOption[] {
-  const current = sel.candidates.find((c) => c.group.key === currentKey)?.group;
+  const current = todayPool(sel).find((c) => c.group.key === currentKey)?.group;
   const currentClient = current?.client?.id ?? null;
   const seen = new Map<string, GroupInfo>();
-  for (const c of sel.candidates) {
+  for (const c of todayPool(sel)) {
     if (!c.inView || c.parked || c.group.key === currentKey) continue;
     seen.set(c.group.key, c.group);
   }
@@ -375,7 +380,7 @@ export function buildToday(
     .map((k) => sel.byKey.get(k))
     .filter((c): c is Candidate => !!c && !c.parked);
   const stepKeySet = new Set(stepCands.map((c) => c.key));
-  const quickKeys = applyEmergencyInsert(day.quick_item_keys, day.step_item_keys, sel.candidates, day.group_key, now);
+  const quickKeys = applyEmergencyInsert(day.quick_item_keys, day.step_item_keys, todayPool(sel), day.group_key, now);
   const quickCands = quickKeys
     .map((k) => sel.byKey.get(k))
     .filter((c): c is Candidate => !!c && !c.parked && !stepKeySet.has(c.key));

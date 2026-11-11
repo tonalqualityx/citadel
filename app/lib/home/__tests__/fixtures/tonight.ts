@@ -86,6 +86,7 @@ export function makeTask(over: Partial<RawTask> = {}): RawTask {
     sop: null,
     origin_url: null,
     staging_preview_url: null,
+    bot_task: false,
     ...over,
   };
 }

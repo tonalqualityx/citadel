@@ -587,3 +587,55 @@ describe('Slice 2: Handled for you merges keeper lines', () => {
     expect(r.sections.handled_more).toEqual({ count: 2, text: '2 more handled' });
   });
 });
+
+describe('Slice 3: a task Bast stopped on (needs-mike)', () => {
+  const bast = (over = {}) =>
+    makeTask({ bot_task: true, tags: ['needs-mike'], created_at: d('2026-10-01T14:00:00Z'), clock_started_at: d('2026-10-01T14:00:00Z'), ...over });
+
+  it('is listed in Next with Bast as who and the plain why, footer and buttons', () => {
+    const t = bast();
+    const r = selectHome({ raw: makeInputs({ tasks: [t] }), states: [], now: NOW });
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t.id)]);
+    const item = r.sections.next[0];
+    expect(item.who).toBe('Bast');
+    expect(item.why_now).toBe('Bast stopped on this and needs you.');
+    expect(item.default_if_ignored).toBe('Stays with Bast, stopped, until you answer on the task.');
+    expect([...item.actions, ...item.more_actions].map((a) => a.id)).toEqual(['open_task', 'not_now', 'matters_more']);
+    expect(r.candidates[0].botTask).toBe(true);
+  });
+
+  it('is never an emergency, even with an emergency tag, and never a venture row', () => {
+    const t = bast({ tags: ['needs-mike', 'security'], client: makeClient('Saiph Grants'), due_date: d('2026-11-09T05:00:00Z'), promised_to: 'Jess' });
+    const r = selectHome({ raw: makeInputs({ tasks: [t] }), states: [], now: NOW });
+    expect(r.candidates[0].rule).toBeNull();
+    expect(r.sections.needs_you_now).toEqual([]);
+    expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t.id)]);
+  });
+
+  it('Not now parks it once into the drawer, and it is not listed twice', () => {
+    const t = bast();
+    const st = makeState(taskKey(t.id), { view_at: d('2026-11-12T14:00:00Z'), park_count: 1 });
+    const r = selectHome({ raw: makeInputs({ tasks: [t] }), states: [st], now: NOW });
+    expect(r.sections.next).toEqual([]);
+    const listed = r.everything_else.groups.flatMap((g) => g.items.filter((i) => i.key === taskKey(t.id)));
+    expect(listed).toHaveLength(1);
+    expect(listed[0].owner).toBe('Bast');
+  });
+
+  it('a shown one is absent from the drawer', () => {
+    const t = bast();
+    const r = selectHome({ raw: makeInputs({ tasks: [t] }), states: [], now: NOW });
+    expect(r.everything_else.groups.flatMap((g) => g.items).some((i) => i.key === taskKey(t.id))).toBe(false);
+  });
+});
+
+describe('Slice 3: Bast-stopped tasks are not buried by class 1 work', () => {
+  it('sorts ahead of client tasks in Next, behind a boosted one', () => {
+    const client = makeClient('Grok');
+    const waiting = [1, 2, 3].map((i) => makeTask({ client, requested_by_contact_id: 'c', created_at: d('2026-10-01T14:00:00Z'), clock_started_at: d('2026-10-01T14:00:00Z'), title: `W${i}` }));
+    const bast = makeTask({ bot_task: true, tags: ['needs-mike'], created_at: d('2026-11-08T14:00:00Z'), clock_started_at: d('2026-11-08T14:00:00Z') });
+    const boosted = makeTask({ title: 'Boosted' });
+    const r = selectHome({ raw: makeInputs({ tasks: [...waiting, bast, boosted] }), states: [makeState(taskKey(boosted.id), { boosted_at: NOW })], now: NOW });
+    expect(r.sections.next.map((i) => i.key).slice(0, 2)).toEqual([taskKey(boosted.id), taskKey(bast.id)]);
+  });
+});

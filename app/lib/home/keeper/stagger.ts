@@ -46,7 +46,7 @@ export function longDay(ymd: string): string {
 
 /** Whether a candidate is in the keeper's pool. */
 export function inKeeperPool(c: Candidate, now: Date): boolean {
-  if (c.kind !== 'task') return false;
+  if (c.kind !== 'task' || c.botTask) return false;
   if (c.section !== 'rest' || c.restGroup !== 'waiting_turn') return false;
   if (c.rule !== null || c.boosted || c.pinned || c.parked) return false;
   if (meetsNextRule(c)) return false;
