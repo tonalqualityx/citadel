@@ -286,6 +286,11 @@ export interface HomeItem {
   /** Slice 4a, threads only: the words after the age on the row ("Draft ready", "Their new message came after your draft."), or null. */
   owed_line?: string | null;
   /**
+   * Slice 6c: the outside scan's result line, "Outside check 10:42: nothing new found from outside.", on a Needs you now row
+   * (a security task with a site) while the scan came after the row landed. Absent when there is none.
+   */
+  outside_check?: string | null;
+  /**
    * Slice 4b, threads only: the Gmail draft ids the Send buttons post to /api/home/send. Present only while the owner's owed_send
    * switch is on and the draft qualifies; absent (or null) otherwise, and then no Send button exists.
    */
@@ -1052,6 +1057,15 @@ export interface RawHomeInputs {
   owed_send?: boolean;
   /** Slice 4b: U's presses on Send the draft in the last 24 hours that were not undone. Absent or [] when none. */
   owed_sends?: RawOwedSend[];
+  /** Slice 6c: U's stored outside scan results that still belong on a row (item_key, plain summary, when it ran). Absent or [] when none. */
+  outside_checks?: RawOutsideCheck[];
+}
+
+/** Slice 6c: one stored outside scan result (home_emergency_watch.scan_*). */
+export interface RawOutsideCheck {
+  item_key: string;
+  summary: string;
+  at: Date;
 }
 
 /** Slice 7b: one learned weight on a piece of evidence (client:, project:, sop:, type:, sender:). */
@@ -1121,6 +1135,8 @@ export type KeeperActionKind =
   // Slice 6a: the site-down check's lines (source keeper, no Undo) and the saved-rule line (his own press, Undo for 7 days)
   | 'watch_site_cleared'
   | 'watch_site_down'
+  // Slice 6c: the outside scan result for a site that answered again (source keeper, no Undo)
+  | 'watch_site_scan'
   // Slice 7a: the Monday measures line and the approval-speed guard line (source keeper, a report: no Undo)
   | 'keeper_measures'
   | 'keeper_guard'

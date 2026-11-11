@@ -4878,6 +4878,8 @@ model HomeKeeperSettings {
   owed_send       Boolean  @default(false)
   // Home Slice 6b: Slack lines to Mike for emergencies. Tracking is always on; the lines need this switch.
   emergency_slack Boolean  @default(false)
+  // Home Slice 6c: the automatic read-only outside scan of a client site that went down or carries a security flag. Off until Mike says yes.
+  outside_scan    Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   @@map("home_keeper_settings")
@@ -4903,9 +4905,16 @@ model HomeEmergencyWatch {
   lifeline_claim_on      DateTime? @db.Date
   lifeline_claimed_at    DateTime?
   lifeline_claims        Int       @default(0)
+  // Home Slice 6c: the outside scan. A request is pending while scan_requested_at is later than scan_at.
+  scan_site_id           String?   @db.Uuid
+  scan_requested_at      DateTime?
+  scan_at                DateTime?
+  scan_summary           String?   @db.VarChar(500)
+  scan_json              Json?
   created_at             DateTime  @default(now())
   updated_at             DateTime  @updatedAt
   @@unique([user_id, item_key])
+  @@index([user_id, scan_site_id, scan_requested_at])
   @@map("home_emergency_watch")
 }
 

@@ -132,3 +132,21 @@ export function handsTitle(count: number, minutes: number): string {
   const jobs = count === 1 ? '1 job' : `${count} jobs`;
   return `This week's hands: ${jobs}, about ${minutes} minutes in all.`;
 }
+
+// ---- Outside scan (Slice 6c) ----
+
+export const SCAN_ACTION = 'watch_site_scan';
+
+function hhmmIn(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', hour12: false }).format(at).replace(/^24:/, '00:');
+}
+
+/** "Outside check 10:42: nothing new found from outside." on his wall clock. */
+export function outsideCheckLine(summary: string, at: Date, timeZone: string): string {
+  return `Outside check ${hhmmIn(at, timeZone)}: ${summary.trim()}`;
+}
+
+/** The same line for Handled for you, naming the site (its row is gone by then). */
+export function outsideCheckHandledLine(host: string, summary: string, at: Date, timeZone: string): string {
+  return `Outside check of ${displayText(host)} ${hhmmIn(at, timeZone)}: ${summary.trim()}`;
+}

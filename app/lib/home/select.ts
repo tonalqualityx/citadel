@@ -80,6 +80,7 @@ import {
   SECURITY_NEVER_RULE,
   SITE_RULED_CHECK,
   minutesWord,
+  outsideCheckLine,
   siteSummary,
 } from './emergency/copy';
 import { HANDS_ITEM_KEY, HANDS_REST_GROUP, handsRow, isHandsTask, type HandsTask } from './emergency/hands';
@@ -1237,7 +1238,7 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
 }
 
 /** Keeper lines that are reports or checks, not changes: they carry no Undo. */
-const NO_UNDO_LINES: readonly string[] = ['keeper_owed_drafts', 'watch_site_cleared', 'watch_site_down', 'keeper_measures', 'keeper_guard'];
+const NO_UNDO_LINES: readonly string[] = ['keeper_owed_drafts', 'watch_site_cleared', 'watch_site_down', 'watch_site_scan', 'keeper_measures', 'keeper_guard'];
 
 export function selectHome(input: SelectInput): SelectResult {
   const { raw, now } = input;
@@ -1247,7 +1248,13 @@ export function selectHome(input: SelectInput): SelectResult {
 
   // ---- 1. Drafts ---------------------------------------------------------
   const drafts: Draft[] = [];
-  const push = (d: Draft) => drafts.push(d);
+  // Slice 6c: the outside scan's result line goes on the row and card of the item it ran for.
+  const outsideByKey = new Map((raw.outside_checks ?? []).map((o) => [o.item_key, outsideCheckLine(o.summary, o.at, raw.timezone)]));
+  const push = (d: Draft) => {
+    const line = outsideByKey.get(d.cand.key);
+    if (line) d.cand.item.outside_check = line;
+    drafts.push(d);
+  };
 
   for (const task of raw.tasks) push(buildTask(task, now, refs, states.get(taskKey(task.id)), raw.user_id));
   for (const fold of raw.review_folds) push(buildReview(fold, now, refs, states.get(reviewKey(fold.project?.id ?? null))));

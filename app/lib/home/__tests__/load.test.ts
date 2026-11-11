@@ -96,6 +96,8 @@ function makeDb() {
     homeKeeperSettings: { findUnique: vi.fn().mockResolvedValue(null) },
     emailOutbox: { findMany: vi.fn().mockResolvedValue([]) },
     homeSiteIncident: { findMany: vi.fn().mockResolvedValue([]) },
+    // Slice 6c: the outside scan results on a row.
+    homeEmergencyWatch: { findMany: vi.fn().mockResolvedValue([]) },
     homeScoreWeight: { findMany: vi.fn().mockResolvedValue([]) },
     decision: { findMany: vi.fn().mockResolvedValue([]) },
     client: { findMany: vi.fn().mockResolvedValue([]) },
@@ -586,6 +588,18 @@ describe('loadHomeInputs: Slice 6a site incidents, rules and lines', () => {
     expect(r.site_incidents).toHaveLength(1);
     expect(r.site_incidents[0]).toMatchObject({ site_id: 's1', domain: 'jillscafe.com', client_name: 'Jill', source: 'uptime_mail', last_check_up: false });
     expect(r.site_incidents[0].mail_links).toEqual([{ label: 'The email thread', href: 'https://mail/e1' }]);
+  });
+
+  it('Slice 6c: reads this user\'s stored outside scan results that came after the item landed, and no others', async () => {
+    db.homeEmergencyWatch.findMany.mockResolvedValue([
+      { item_key: 'task:t1', first_seen_at: T('2026-11-10T10:00:00Z'), scan_at: T('2026-11-10T10:30:00Z'), scan_summary: 'nothing new found from outside.' },
+      { item_key: 'task:t2', first_seen_at: T('2026-11-10T11:00:00Z'), scan_at: T('2026-11-10T10:30:00Z'), scan_summary: 'older than the landing' },
+      { item_key: 'task:t3', first_seen_at: T('2026-11-10T11:00:00Z'), scan_at: null, scan_summary: null },
+    ]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    const arg = db.homeEmergencyWatch.findMany.mock.calls[0][0];
+    expect(arg.where).toMatchObject({ user_id: U, cleared_at: null });
+    expect(r.outside_checks).toEqual([{ item_key: 'task:t1', summary: 'nothing new found from outside.', at: T('2026-11-10T10:30:00Z') }]);
   });
 
   it('no incidents means [] and no extra reads', async () => {

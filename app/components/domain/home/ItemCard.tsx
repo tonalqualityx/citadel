@@ -110,6 +110,7 @@ export function ItemCard({
         ) : null}
       </div>
       {item.why_now ? <p className="home-why">{plain(item.why_now)}</p> : null}
+      {item.outside_check ? <p className="home-why" data-testid="outside-check">{plain(item.outside_check)}</p> : null}
 
       {prompt ? (
         <div className="home-prompt" role="group" aria-label={prompt.text}>

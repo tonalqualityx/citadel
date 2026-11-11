@@ -231,7 +231,7 @@ describe.skipIf(!SCRATCH)('Slice 6a: rules and home-watch (real database)', () =
 
     it('home_off: a user not on the home view is skipped on GET and POST', async () => {
       for (const id of [otherId, offId]) {
-        expect(await watchPlan(prisma, id, NOW)).toEqual({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] });
+        expect(await watchPlan(prisma, id, NOW)).toEqual({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [], would_scan: [] });
         const before = await cnt();
         const r = await applyWatch(prisma, id, body({ kuma: [{ monitor: 'm', domain: hostK, started: min(30).toISOString() }], checks: [] }), NOW);
         expect(r.skipped).toBe('home_off');

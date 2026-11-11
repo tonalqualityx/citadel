@@ -35,6 +35,7 @@ import { RULE_ACTION } from './emergency/copy';
 import { LEARNED_ACTION } from './learn/copy';
 import { loadWeights } from './learn/weights-store';
 import { loadNotEmergencyRules } from './emergency/read';
+import { loadOutsideChecks } from './emergency/scan-store';
 import { loadProjectSteps } from './projects/load';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
 import { SEND_ACTION } from './owed/send-copy';
@@ -74,6 +75,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   // Slice 6a: the site check's own lines (no Undo)
   'watch_site_cleared',
   'watch_site_down',
+  // Slice 6c: the outside scan's result for a site that answered again (no Undo)
+  'watch_site_scan',
   // Slice 7a: the Monday measures line and the approval-speed guard line (no Undo)
   'keeper_measures',
   'keeper_guard',
@@ -906,6 +909,7 @@ export async function loadHomeInputs(
 
   // After the parallel reads, so the earlier home_actions reads keep their order.
   const owedSend = await loadOwedSend(db, userId, now);
+  const outsideChecks = await loadOutsideChecks(db, userId);
 
   return {
     user_id: userId,
@@ -930,5 +934,6 @@ export async function loadHomeInputs(
     weights,
     owed_send: owedSend.on,
     owed_sends: owedSend.sends,
+    outside_checks: outsideChecks,
   };
 }

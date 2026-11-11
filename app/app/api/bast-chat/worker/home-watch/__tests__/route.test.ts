@@ -29,7 +29,7 @@ import { GET, POST } from '../route';
 
 const PATH = '/api/bast-chat/worker/home-watch';
 const SITE = '11111111-1111-4111-8111-111111111111';
-const plan = { dry_run: true as const, checks: [{ key: `site:${SITE}`, site_id: SITE, domain: 'jillscafe.com' }], open: [], would_post: [] };
+const plan = { dry_run: true as const, checks: [{ key: `site:${SITE}`, site_id: SITE, domain: 'jillscafe.com' }], open: [], would_post: [], would_scan: [] };
 const done = { lines: [], counts: { opened: 1, updated: 0, closed: 0, ignored: 0 } };
 const goodBody = {
   kuma: [{ monitor: 'Jills', domain: 'jillscafe.com', client_id: null, started: '2026-11-11T14:00:00Z', escalated: true }],
@@ -86,8 +86,8 @@ describe('home-watch route: GET', () => {
     expect(applyWatch).not.toHaveBeenCalled();
   });
   it('answers skipped home_off as given', async () => {
-    vi.mocked(watchPlan).mockResolvedValue({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] });
-    expect(await (await GET()).json()).toEqual({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] });
+    vi.mocked(watchPlan).mockResolvedValue({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [], would_scan: [] });
+    expect(await (await GET()).json()).toEqual({ dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [], would_scan: [] });
   });
 });
 
@@ -102,6 +102,13 @@ describe('home-watch route: POST', () => {
     expect(body.kuma).toHaveLength(1);
     expect(body.checks[0].up).toBe(false);
     expect(body.checks[0].checked_at).toBeInstanceOf(Date);
+  });
+  it('passes the scan cap through, and hands back the scans the store returns', async () => {
+    const scans = [{ key: `site:${SITE}`, host: 'jillscafe.com', previous: null }];
+    vi.mocked(applyWatch).mockResolvedValue({ ...done, scans });
+    const res = await POST(req('POST', PATH, { ...goodBody, caps: ['slack', 'scan'] }) as never);
+    expect((await res.json()).scans).toEqual(scans);
+    expect(vi.mocked(applyWatch).mock.calls[0][2].caps).toEqual(['slack', 'scan']);
   });
   it('kuma null passes through as null (the store closes nothing then)', async () => {
     await POST(req('POST', PATH, { kuma: null, checks: [] }) as never);

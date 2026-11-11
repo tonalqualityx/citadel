@@ -60,6 +60,7 @@ import {
 import { emailDomain, isOwnAddress } from '../rules';
 import { loadNotEmergencyRules } from './read';
 import { claimLines, loadEmergencySlack, loadWatchItems, previewLines, trackWatch, type WireLine } from './slack-store';
+import { claimScans, loadOutsideScan, previewScans, type WireScan } from './scan-store';
 
 export { RULE_ACTION };
 const DAY_MS = 86_400_000;
@@ -341,7 +342,7 @@ export const watchBodySchema = z
       )
       .max(CHECKS_CAP)
       .default([]),
-    // Slice 6b: what this machine script can do. Lines are handed out only to a request that lists "slack".
+    // What this machine script can do. Lines are handed out only to a request that lists "slack", scans only to one that lists "scan".
     caps: z.array(z.string().min(1).max(30)).max(10).optional(),
   })
   .strict();
@@ -350,7 +351,7 @@ export type WatchBody = z.infer<typeof watchBodySchema>;
 type WatchSite = SiteHost;
 
 /** Sites of active clients with a usable host (the only domains the machine may ever be asked to check). */
-async function loadWatchSites(db: HomeDb): Promise<WatchSite[]> {
+export async function loadWatchSites(db: HomeDb): Promise<WatchSite[]> {
   const rows = await db.site.findMany({
     where: { url: { not: null }, client: { is: { status: 'active' } } },
     select: { id: true, url: true, client_id: true, client: { select: { name: true } } },
@@ -421,12 +422,14 @@ export interface WatchGet {
   }>;
   /** Slice 6b: the Slack lines a real run would hand out now (empty when the switch is off). Writes nothing. */
   would_post: WireLine[];
+  /** Slice 6c: the outside scans a real run would hand out now (empty when the switch is off). Writes nothing. */
+  would_scan: Array<{ key: string; host: string }>;
 }
 
 /** What the machine should check now and what is open. Writes nothing. */
 export async function watchPlan(db: PrismaClient, ownerId: string, now: Date): Promise<WatchGet> {
   const { ok, timezone } = await ownerOnHome(db, ownerId);
-  if (!ok) return { dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [] };
+  if (!ok) return { dry_run: true, skipped: 'home_off', checks: [], open: [], would_post: [], would_scan: [] };
   const sites = await loadWatchSites(db);
   const open = await loadOpenIncidents(db, ownerId);
   const cands = await uncovered(db, ownerId, await loadCandidates(db, sites, now));
@@ -436,10 +439,14 @@ export async function watchPlan(db: PrismaClient, ownerId: string, now: Date): P
   for (const i of open) {
     if (i.source === 'uptime_mail' && !checks.has(i.site_id)) checks.set(i.site_id, { key: siteItemKey(i.site_id), site_id: i.site_id, domain: i.domain });
   }
-  const would_post = (await loadEmergencySlack(db, ownerId)) ? await previewLines(db, ownerId, await loadWatchItems(db, ownerId, now, timezone), now, timezone) : [];
+  const [slackOn, scanOn] = await Promise.all([loadEmergencySlack(db, ownerId), loadOutsideScan(db, ownerId)]);
+  const watchItems = slackOn || scanOn ? await loadWatchItems(db, ownerId, now, timezone) : [];
+  const would_post = slackOn ? await previewLines(db, ownerId, watchItems, now, timezone) : [];
+  const would_scan = scanOn ? (await previewScans(db, ownerId, watchItems.map((i) => i.key), sites, now)).map((p) => ({ key: p.key, host: p.host })) : [];
   return {
     dry_run: true,
     would_post,
+    would_scan,
     checks: Array.from(checks.values()),
     open: open.map((i) => ({
       key: siteItemKey(i.site_id),
@@ -456,6 +463,8 @@ export async function watchPlan(db: PrismaClient, ownerId: string, now: Date): P
 
 export interface WatchPost {
   lines: WireLine[];
+  /** Slice 6c: present only when the body carried caps ["scan"]. At most 2, each marked requested now; [] when the switch is off. */
+  scans?: Array<WireScan>;
   skipped?: 'home_off';
   counts: { opened: number; updated: number; closed: number; ignored: number };
 }
@@ -480,6 +489,7 @@ export async function applyWatch(db: PrismaClient, ownerId: string, body: WatchB
   const siteById = new Map(sites.map((s) => [s.id, s]));
 
   const wantsSlack = (body.caps ?? []).includes('slack');
+  const wantsScan = (body.caps ?? []).includes('scan');
   const result = await db.$transaction(
     async (tx) => {
       // ---- Kuma ----
@@ -627,6 +637,12 @@ export async function applyWatch(db: PrismaClient, ownerId: string, body: WatchB
     },
     { timeout: 30_000 }
   );
-  return { lines, counts: result.counts };
+  if (!wantsScan) return { lines, counts: result.counts };
+  // Slice 6c: scans only for a script that says it can run them, and only with the switch on.
+  const scans = await db.$transaction(
+    async (tx) => ((await loadOutsideScan(tx, ownerId)) ? claimScans(tx, ownerId, items.map((i) => i.key), sites, now) : []),
+    { timeout: 30_000 }
+  );
+  return { lines, scans, counts: result.counts };
 }
 

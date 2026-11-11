@@ -52,6 +52,12 @@ describe('ItemCard', () => {
     expect(order.every((n) => n >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
+  it('shows the outside check line under the reason when there is one, and nothing when there is not', () => {
+    const { rerender } = render(<ItemCard {...base} item={mkItem('task:1', { outside_check: 'Outside check 10:42: nothing new found from outside.' })} />);
+    expect(screen.getByTestId('outside-check').textContent).toBe('Outside check 10:42: nothing new found from outside.');
+    rerender(<ItemCard {...base} item={mkItem('task:1')} />);
+    expect(screen.queryByTestId('outside-check')).toBeNull();
+  });
   it('only the filled action is filled; one filled button', () => {
     const item = mkItem('task:1', {
       actions: [

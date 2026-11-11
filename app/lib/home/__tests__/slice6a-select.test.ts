@@ -233,3 +233,21 @@ describe('Slice 6a: the nightly keeper never gives a hands task a day', () => {
     expect(given.sort()).toEqual(chores.map((t) => taskKey(t.id)).sort());
   });
 });
+
+describe('Slice 6c: the outside check line on the row', () => {
+  it('a security task with a stored scan carries the line on its row; one without it does not, and a result for another key is not shown', () => {
+    const t = makeTask({ tags: ['security'], client: makeClient('Active Co'), title: 'Patch the site' });
+    const other = makeTask({ tags: ['security'], client: makeClient('Other Co'), title: 'Patch the other site' });
+    const at = d('2026-11-10T15:42:00Z');
+    const r = sel({ tasks: [t, other], outside_checks: [{ item_key: taskKey(t.id), summary: 'nothing new found from outside.', at }, { item_key: 'task:no-such', summary: 'x', at }] });
+    expect(r.byKey.get(taskKey(t.id))!.item.outside_check).toBe('Outside check 10:42: nothing new found from outside.');
+    expect(r.byKey.get(taskKey(other.id))!.item.outside_check).toBeUndefined();
+  });
+
+  it('nothing changes when there are no results', () => {
+    const t = makeTask({ tags: ['security'], client: makeClient('Active Co'), title: 'Patch the site' });
+    const a = sel({ tasks: [t] });
+    const b = sel({ tasks: [t], outside_checks: [] });
+    expect(JSON.stringify(b.sections)).toBe(JSON.stringify(a.sections));
+  });
+});
