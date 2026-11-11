@@ -700,6 +700,42 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/sends',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: what the courier sent or has queued to send, newest first, so the chat can say whether a message went',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [
+          { name: 'to', type: 'string', required: false, description: 'Contains match on the recipient address (case-insensitive, up to 100 characters); the address itself is never returned' },
+          { name: 'subject', type: 'string', required: false, description: 'Contains match on the subject (case-insensitive, up to 100 characters)' },
+          { name: 'since', type: 'ISO-8601', required: false, description: 'Only rows queued at or after this date or time' },
+          { name: 'kind', type: 'string', required: false, description: 'The outbox kind, lowercase letters, digits and underscores' },
+          { name: 'limit', type: 'number', required: false, description: 'At most this many rows (1 to 25; default 10)' },
+        ],
+        responseExample: {
+          items: [
+            {
+              kind: 'string (the outbox kind)',
+              to: '{name: string|null (display name, else the part before the @), domain: string|null}',
+              subject: 'string',
+              queued_at: 'ISO-8601',
+              send_after: 'ISO-8601|null (a hold: not sent before this)',
+              sent_at: 'ISO-8601|null',
+              superseded_reason: 'string|null (set when the send was dropped on purpose)',
+              failed_reason: 'string|null (the last courier error, cleaned and cut to 200 characters; null once sent or dropped)',
+              from_account: 'string (the sending mailbox)',
+              client: 'string|null (the client on the row\'s task)',
+            },
+          ],
+        },
+        responseNotes: 'Read only. No body, no cc, no recipient address, no message id. Citadel has one organisation, so this is the whole outbox. An unknown query field is 400. Sends Cache-Control: no-store.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/home-watch',
     group: 'bast-chat',
     methods: [

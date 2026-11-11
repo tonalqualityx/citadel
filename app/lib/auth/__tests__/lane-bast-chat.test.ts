@@ -62,6 +62,7 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/reconcile',
   'POST /api/bast-chat/worker/reconcile/candidates',
   'GET /api/bast-chat/worker/session-asks/:id',
+  'GET /api/bast-chat/worker/sends',
   'GET /api/tasks',
   'POST /api/tasks',
   'GET /api/tasks/:id',
@@ -183,7 +184,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 44 entries of the plan, and nothing else', () => {
+  it('holds exactly the 45 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
