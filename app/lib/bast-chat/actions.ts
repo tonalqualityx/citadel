@@ -39,7 +39,8 @@ import type { AuthPayload } from '@/lib/auth/middleware';
 import { serializeRichText } from '@/lib/api/blocknote';
 import { canTransitionTaskStatus } from '@/lib/calculations/status';
 import { patchTask, type PatchTaskExpect } from '@/lib/services/task-patch';
-import { cleanLine } from './card-context';
+import { cleanLine, cutLine, quoted } from './card-context';
+import { recordDiff, recordShapeOf, recordValueOf, sameRecordValue, type TaskShape } from './task-record';
 import { getSettings } from './settings';
 import { assertWriteAllowed, reserveWrite } from './usage';
 import { isChatUuid } from './worker-kit';
@@ -59,7 +60,7 @@ import {
   type TaskChange,
 } from './worker-reach';
 import { CHAT_COMMENT_PREFIX, isChatComment, scopeOfReads, tapFingerprint, type ReadTaskRow, type WorkerReadSet } from './worker-reads';
-import { UNDO_FORMATTING_TEXT, chatChecklist, chatRichText, everyWord, isPlainChecklist, isPlainRichText, plainFormOf, plainLines, plainString, stripInvisible } from './plain';
+import { UNDO_FORMATTING_TEXT, chatChecklist, chatRichText, everyWord, hiddenIn, isPlainChecklist, isPlainRichText, plainFormOf, plainLines, plainString, stripInvisible } from './plain';
 import { EMPTY_SCOPE, mergeScopes, scopeCovers, scopeFor, withLocks, type LockScope } from './task-locks';
 
 type Db = PrismaClient;
@@ -167,13 +168,8 @@ const conflict = (message: string, code: string) => new ApiError(message, 409, c
 
 /** A title for a line: cut at a word boundary with three full stops when over 60 characters. */
 export function shortTitle(title: string | null | undefined, max = 60): string {
-  const t = cleanLine(title ?? 'Untitled', 500);
-  if (t.length <= max) return t;
-  const room = t.slice(0, max - 3);
-  const sp = room.lastIndexOf(' ');
-  return `${(sp >= 15 ? room.slice(0, sp) : room).replace(/[\s.,;:]+$/, '')}...`;
+  return cutLine(title ?? 'Untitled', max);
 }
-const quoted = (title: string | null | undefined) => `"${shortTitle(title)}"`;
 const capFirst = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 /** Text cut at a word with three full stops past `max` characters. */
@@ -228,7 +224,7 @@ async function nameOf(db: NameDb, kind: 'project' | 'client' | 'site', id: strin
   const delegate = db[kind] as unknown as { findUnique?: (a: unknown) => Promise<{ name?: string } | null> } | undefined;
   if (!delegate?.findUnique) return null;
   const r = await delegate.findUnique({ where: { id }, select: { name: true } });
-  return r?.name ? cleanLine(r.name, 80) : null;
+  return r?.name ? quoted(r.name, 80) : null;
 }
 async function titlesOf(db: NameDb, ids: string[]): Promise<string[]> {
   if (ids.length === 0) return [];
@@ -292,8 +288,8 @@ export async function appliedSummary(
   if ('tags' in after) {
     const was = before.tags ?? [];
     const now2 = after.tags ?? [];
-    const added = now2.filter((x) => !was.includes(x)).map((x) => cleanLine(x, 50));
-    const removed = was.filter((x) => !now2.includes(x)).map((x) => cleanLine(x, 50));
+    const added = now2.filter((x) => !was.includes(x)).map((x) => quoted(x, 50));
+    const removed = was.filter((x) => !now2.includes(x)).map((x) => quoted(x, 50));
     if (added.length) parts.push(`Added the tag${added.length > 1 ? 's' : ''} ${andList(added)} to ${t}.`);
     if (removed.length) parts.push(`Took the tag${removed.length > 1 ? 's' : ''} ${andList(removed)} off ${t}.`);
   }
@@ -301,11 +297,11 @@ export async function appliedSummary(
   if ('due_date' in after) {
     if (after.due_date) {
       const promised = 'promised_to' in after ? after.promised_to : undefined;
-      parts.push(`Due ${whenWords(new Date(after.due_date), now)} for ${t}${promised ? `, promised to ${cleanLine(promised, 60)}` : ''}.`);
+      parts.push(`Due ${whenWords(new Date(after.due_date), now)} for ${t}${promised ? `, promised to ${quoted(promised)}` : ''}.`);
     } else parts.push(`Took the date off ${t}.`);
   }
   if ('promised_to' in after && !(after.due_date && 'due_date' in after)) {
-    parts.push(after.promised_to ? `${t} is promised to ${cleanLine(after.promised_to, 60)} now.` : `${t} is not promised to anyone now.`);
+    parts.push(after.promised_to ? `${t} is promised to ${quoted(after.promised_to)} now.` : `${t} is not promised to anyone now.`);
   }
   if ('priority' in after && typeof after.priority === 'number') {
     const up = typeof before.priority === 'number' ? after.priority < before.priority : after.priority <= 2;
@@ -412,7 +408,7 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
       }
       break;
     case 'project_status':
-      s = `Moved the ${cleanLine(o.name, 80)} project to ${PROJECT_STATUS_WORDS[o.status] ?? 'a new status'}.`;
+      s = `Moved the ${quoted(o.name, 80)} project to ${PROJECT_STATUS_WORDS[o.status] ?? 'a new status'}.`;
       break;
   }
   return cleanLine(s, 300);
@@ -936,6 +932,16 @@ export async function taskChangeFromBody(db: Db, body: TaskPlanBody, row: { proj
   return c;
 }
 
+/**
+ * A card that hands a task to someone other than Bast names who gets it on its button (VERIFY-6 A5): "Hand to Sabeen".
+ * Handing to Bast keeps the card's own "Hand to Bast".
+ */
+async function handButtons(db: Db, assigneeId: string | null | undefined): Promise<{ buttons?: { yes: string; no: string } }> {
+  if (typeof assigneeId !== 'string' || assigneeId === BAST_USER_ID) return {};
+  const first = await firstNameOf(db, assigneeId);
+  return first ? { buttons: { yes: `Hand to ${first}`, no: 'Keep it' } } : {};
+}
+
 /** The plain clause of a planned task change: "hand "Menu proof" to Bast". */
 async function taskClause(db: Db, title: string, body: TaskPlanBody): Promise<string> {
   const t = quoted(title);
@@ -1130,7 +1136,7 @@ export const taskOperation: ChatOperation<TaskInput> = {
     return {
       reach,
       expect: { updated_at: r.updated_at.toISOString(), assignee_id: r.assignee_id, status: r.status, title: r.title },
-      copy: { clause: await taskClause(ctx.db, r.title, input.body) },
+      copy: { clause: await taskClause(ctx.db, r.title, input.body), ...(await handButtons(ctx.db, input.body.assignee_id)) },
     };
   },
   async apply(ctx, input, expect) {
@@ -1143,7 +1149,8 @@ export const taskOperation: ChatOperation<TaskInput> = {
     const loaded = await loadReachTask(ctx.db, record.target_id);
     if (!loaded) throw conflict(CHANGED_SINCE_TEXT, 'changed_since');
     const row = loaded.row;
-    const restore = taskRestoreFor(record, await chatWrittenBefore(ctx.db, record, row.tags ?? []));
+    // What a tap wrote goes back exactly as it was stored before the tap (VERIFY-6 over-count c).
+    const restore = taskRestoreFor(record, record.tool === TAP_TOOL ? new Set() : await chatWrittenBefore(ctx.db, record, row.tags ?? []));
     for (const [k, v] of Object.entries(restore.compare)) {
       if (!holds(row, k as keyof TaskFields, v)) throw conflict(CHANGED_SINCE_TEXT, 'changed_since');
     }
@@ -1301,37 +1308,114 @@ export interface CardPayload {
 const WHOLE_TASK_FIELDS = ['status', 'title', 'description', 'requirements', 'notes', 'tags', 'promised_to', 'assignee_id', 'project_id', 'client_id', 'site_id', 'sop_id', 'arc_id', 'energy_estimate', 'priority', 'is_focus', 'needs_review'];
 const FIELD_ORDER = ['the whole task', ...new Set(Object.values(CARD_FIELDS).map((f) => f.word))];
 
+/** The tool of the records a tap writes for what it changed on task rows (VERIFY-6 over-count): Undo puts them back exactly. */
+export const TAP_TOOL = 'owner_tap';
+
+/** Who wrote a chat-flagged text field, as far as the records tell (VERIFY-6 over-count, a). */
+export type TextOrigin = 'chat' | 'person_then_chat' | 'unknown' | 'person';
+const CARD_TEXT_KEYS = ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags'] as const;
+type CardTextKey = (typeof CARD_TEXT_KEYS)[number];
+const UNKNOWN = Symbol('unknown');
+const msOf = (d: Date | string | null | undefined) => (d ? new Date(d).getTime() || 0 : 0);
+
 /**
- * What the chat lane last wrote on each task (VERIFY-4 R3, provenance, not conversation): any record of a chat change
- * in any conversation, on any day, by either chat version: applied, released by a tap, or undone (an Undo writes too:
- * the text it put back came through the chat lane, and an undone create leaves the task and its text as filed). A task
- * carrying the `from-chat` tag was filed by the chat (version one too, or a create whose record failed) and counts as a
- * whole. Over-counting is safe: it only shows more. No row limit, newest first (VERIFY-2 N3).
- * Returns the record field names changed per task (`*` for a filed task).
+ * What the chat lane wrote on each task (VERIFY-4 R3, provenance, not conversation): any record of a chat change in any
+ * conversation, on any day, by either chat version: applied, released by a tap, or undone (an Undo writes too), and the
+ * records a tap writes (TAP_TOOL). A task carrying the `from-chat` tag, or with a create record, was filed by the chat.
+ * No row limit, newest first (VERIFY-2 N3).
+ *
+ * VERIFY-6 over-count (b): a TEXT field (title, description, checklist, notes, promise, tags) counts as the chat's only
+ * while the chat lane's write is the LAST write of it: the stored value must still equal the value of the newest chat
+ * write of that field (an applied record's `after`, an undone record's `before` at its Undo), compared in the record's
+ * form. A person's write since then makes it the person's text: not flagged, not rewritten. When the newest chat write's
+ * value is not known (a task the chat filed, a tap stored before VERIFY-6, a row the read did not carry) it counts as
+ * the chat's: the safe side, shown and flagged. Typed fields count whenever the chat changed them.
+ * Returns the record field names per task (`*` for a filed task) and, for each text field, who wrote it.
  */
-async function chatChangesOf(db: Db, ids: string[], set: WorkerReadSet): Promise<Map<string, string[]>> {
+async function chatChangesOf(db: Db, ids: string[], set: WorkerReadSet): Promise<{ keys: Map<string, string[]>; origin: Map<string, Map<string, TextOrigin>> }> {
   const out = new Map<string, string[]>();
-  if (ids.length === 0) return out;
-  for (const id of ids) if ((set.tasks.get(id)?.tags ?? []).includes(CHAT_TAG)) out.set(id, ['*']);
+  const origin = new Map<string, Map<string, TextOrigin>>();
+  if (ids.length === 0) return { keys: out, origin };
+  const filed = new Set<string>();
+  for (const id of ids) if ((set.tasks.get(id)?.tags ?? []).includes(CHAT_TAG)) filed.add(id);
   const rows = await db.bastChatAction.findMany({
     where: { target_type: 'task', target_id: { in: ids }, status: { in: ['applied', 'released', 'undone'] } },
     orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
-    select: { target_id: true, tool: true, after: true, plan: true, status: true },
+    select: { id: true, target_id: true, tool: true, before: true, after: true, plan: true, status: true, created_at: true, resolved_at: true },
   });
   const add = (id: string, k: string) => out.set(id, [...new Set([...(out.get(id) ?? []), k])]);
+  /** Every chat write of a text field: when, and the value it left (UNKNOWN when the record does not say). */
+  const writes = new Map<string, { at: number; value: unknown; before: unknown }[]>();
+  const wrote = (id: string, k: string, at: number, value: unknown, before: unknown = UNKNOWN) => {
+    const key = `${id}|${k}`;
+    writes.set(key, [...(writes.get(key) ?? []), { at, value, before }]);
+  };
+  const tapped = new Set(rows.filter((r) => r.tool === TAP_TOOL).map((r) => (r.plan as { tap_of?: unknown } | null)?.tap_of).filter((x): x is string => typeof x === 'string'));
+  const objOf = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
   for (const r of rows) {
     if (!ids.includes(r.target_id)) continue;
-    if (r.tool === 'create_task') add(r.target_id, '*');
+    const at = msOf(r.created_at);
+    // An Undo writes after the record it undoes, even when its time is not known or the same.
+    const undoneAt = Math.max(msOf(r.resolved_at), at) + 0.5;
+    if (r.tool === 'create_task') {
+      add(r.target_id, '*');
+      filed.add(r.target_id);
+    }
     let keys: string[] = [];
     if (r.status === 'released') {
       const plan = r.plan as { kind?: unknown; input?: { body?: unknown } } | null;
       const body = plan?.kind === 'apply' ? plan.input?.body : null;
       keys = body && typeof body === 'object' ? Object.keys(body as object) : [];
-    } else keys = r.after && typeof r.after === 'object' && !Array.isArray(r.after) ? Object.keys(r.after as object) : [];
+      // A tap stored since VERIFY-6 wrote its own record (TAP_TOOL) with the exact values; an older one did not.
+      if (!tapped.has(r.id)) for (const k of keys) wrote(r.target_id, k, Math.max(msOf(r.resolved_at), at), UNKNOWN);
+    } else {
+      const after = objOf(r.after);
+      const before = objOf(r.before);
+      keys = after ? Object.keys(after) : [];
+      for (const k of keys) wrote(r.target_id, k, at, after![k], before && k in before ? before[k] : UNKNOWN);
+      // An Undo writes the record's `before` back, through the chat lane, when it is undone.
+      if (r.status === 'undone' && before) for (const k of Object.keys(before)) wrote(r.target_id, k, undoneAt, before[k], UNKNOWN);
+    }
     // Any key the card does not know still flags the task, as "details".
     for (const k of keys) add(r.target_id, k === 'completed_at' ? 'status' : k);
   }
-  return out;
+  for (const id of filed) add(id, '*');
+  for (const id of ids) {
+    const row = set.tasks.get(id);
+    const has = out.get(id);
+    if (!has) continue;
+    const per = new Map<string, TextOrigin>();
+    const whole = has.includes('*');
+    const kept: string[] = [];
+    for (const k of has) {
+      if (!(CARD_TEXT_KEYS as readonly string[]).includes(k)) {
+        kept.push(k);
+        continue;
+      }
+      const list = (writes.get(`${id}|${k}`) ?? []).sort((x, y) => y.at - x.at);
+      const newest = list[0];
+      if (!newest || newest.value === UNKNOWN || !row || !(k in row)) {
+        kept.push(k);
+        per.set(k, 'unknown');
+        continue;
+      }
+      const current = recordValueOf(row as unknown as TaskShape, k as CardTextKey);
+      if (!sameRecordValue(k as CardTextKey, current, newest.value)) {
+        // Someone else wrote it since the chat's last write: a person's text now (VERIFY-6 over-count b).
+        per.set(k, 'person');
+        continue;
+      }
+      kept.push(k);
+      const first = list[list.length - 1];
+      const priorEmpty = first.before === null || first.before === '' || (Array.isArray(first.before) && first.before.length === 0);
+      per.set(k, first.before === UNKNOWN ? 'unknown' : priorEmpty ? 'chat' : 'person_then_chat');
+    }
+    // A filed task's text fields with no chat write of their own: the chat wrote them when it filed the task.
+    if (whole) for (const k of CARD_TEXT_KEYS) if (!per.has(k)) per.set(k, 'unknown');
+    out.set(id, kept);
+    origin.set(id, per);
+  }
+  return { keys: out, origin };
 }
 
 /** The projects whose status the chat lane changed (the project op, or its Undo), at any time. */
@@ -1361,6 +1445,33 @@ async function namesById(db: Db, kind: 'site' | 'client' | 'sop' | 'arc' | 'user
   if (!delegate?.findMany) return new Map();
   const rows = await delegate.findMany({ where: { id: { in: want } }, select: { id: true, name: true } });
   return new Map(rows.map((r) => [r.id, cleanLine(r.name, 200)]));
+}
+
+/**
+ * The card's line about invisible characters (VERIFY-5 Z2, VERIFY-6 A3): those taken out of the chat's text the card
+ * shows (the title among them), and those in the task's own description, checklist and notes, whoever wrote them, which the card does
+ * not show and Bast reads as they are stored.
+ */
+export function hiddenLine(chat: number, task: number): string | null {
+  const parts: string[] = [];
+  if (chat) parts.push(`Invisible characters were taken out of this text before it was shown: ${chat}.`);
+  if (task) parts.push(`The task's own text holds invisible characters, not shown here: ${task}. Bast reads them as they are stored.`);
+  return parts.length ? parts.join(' ') : null;
+}
+
+/**
+ * The card line for a field the tap stores plain (VERIFY-5 Z4), saying truthfully who wrote it (VERIFY-6 over-count a)
+ * and that Undo of the tap puts the old form back (VERIFY-6 over-count c: the tap's record keeps it, TAP_TOOL).
+ */
+export function rewriteNotice(word: string, on: string | null, origin: TextOrigin): string {
+  const of = on ? ` of ${on}` : '';
+  const who =
+    origin === 'chat'
+      ? `The chat wrote the ${word}${of}.`
+      : origin === 'person_then_chat'
+        ? `A person wrote the ${word}${of}, and the chat edited it since.`
+        : `The chat wrote the ${word}${of}, and a person may have edited it since.`;
+  return `${who} It holds more than plain text. Your tap stores it as the plain text shown, and Undo puts the old form back.`;
 }
 
 /**
@@ -1407,7 +1518,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
     ...rowsOf.map((r) => r[k] as string | null),
     typeof planned[k] === 'string' ? (planned[k] as string) : null,
   ];
-  const [sites, clients, sops, arcs, users, changed] = await Promise.all([
+  const [sites, clients, sops, arcs, users, chatChanges] = await Promise.all([
     namesById(db, 'site', col('site_id')),
     namesById(db, 'client', col('client_id')),
     namesById(db, 'sop', col('sop_id')),
@@ -1415,6 +1526,8 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
     namesById(db, 'user', col('assignee_id')),
     chatChangesOf(db, allIds, set),
   ]);
+  const changed = chatChanges.keys;
+  const originOf = (taskId: string, k: string): TextOrigin => chatChanges.origin.get(taskId)?.get(k) ?? 'unknown';
   const projectChanged = await chatProjectChangesOf(db, projectIds);
   const plannedProject = typeof planned.project_id === 'string' && db.project ? await db.project.findUnique({ where: { id: planned.project_id }, select: { name: true } }) : null;
   const names: CardNames = { users, sites, clients, sops, arcs, now };
@@ -1479,8 +1592,9 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       const ownKeys = keys.filter((k) => k !== '*').sort((x, y) => rank(x) - rank(y));
       // VERIFY-5 Z4: chat text stored earlier with more than plain words is shown plain and stored plain by the tap.
       if (row) {
-        for (const k of ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags'] as const) {
+        for (const k of CARD_TEXT_KEYS) {
           if (!keys.includes(k) && !(keys.includes('*') && WHOLE_TASK_FIELDS.includes(k))) continue;
+          if (originOf(taskId, k) === 'person') continue; // a person wrote it last: theirs, left as it is (VERIFY-6 b)
           if (payload && payload.task_id === taskId && k in planned) continue; // the plan writes it anyway
           if (rewrites.some((w) => w.task_id === taskId && w.field === k)) continue;
           let form: ReturnType<typeof plainFormOf>;
@@ -1493,11 +1607,12 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
           if (!form) continue;
           rewrites.push({ task_id: taskId, field: k, value: form.value as never });
           const f = CARD_FIELDS[k];
-          notice(r.task_id, `The ${f.word}${on ? ` of ${on}` : ''} the chat wrote earlier holds more than plain text. Your tap stores it as the plain text shown.`);
+          notice(r.task_id, rewriteNotice(f.word, on, originOf(taskId, k)));
           texts.push({ label: on ? `${f.label} of ${on} after your tap` : `${f.label} after your tap`, text: take(form.display, CARD_TEXT_MAX) || '(empty)' });
         }
       }
       for (const k of [...(keys.includes('*') ? WHOLE_TASK_FIELDS : []), ...ownKeys]) {
+        if (originOf(taskId, k) === 'person') continue; // a person wrote it last (VERIFY-6 b)
         const f = CARD_FIELDS[k];
         if (!keys.includes('*') || !WHOLE_TASK_FIELDS.includes(k)) flags.push(f ? (on ? `the ${f.word} of ${on}` : f.word) : on ? `details of ${on}` : 'details');
         // The task's own title is the heading of its block, in full; a task it waits on gets a line.
@@ -1521,6 +1636,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
     for (const d of dependentsOf(r.task_id)) {
       const keys = changed.get(d.id) ?? [];
       if (!keys.includes('title') && !keys.includes('*')) continue;
+      if (originOf(d.id, 'title') === 'person') continue;
       const on = quoted(d.title);
       flags.push(`the title of ${on}, a task that waits on it`);
       texts.push({ label: 'Title of a task that waits on it now', text: take(d.title, CARD_TITLE_MAX) || '(empty now)' });
@@ -1550,7 +1666,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
       chat_notes: notes,
       chat_notes_more_line: null,
       chat_text: texts,
-      hidden_line: hidden ? `Invisible characters were taken out of this text before it was shown: ${hidden}.` : null,
+      hidden_line: hiddenLine(hidden, own ? hiddenIn(own.description) + hiddenIn(own.requirements) + hiddenIn(own.notes) : 0),
     };
   });
   const otherIds = [...new Set([...reach.starts.map((h) => h.task_id), ...reach.shows_client.map((c) => c.task_id ?? null)])].filter(
@@ -1559,7 +1675,7 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
   const others = otherIds.length ? await db.task.findMany({ where: { id: { in: otherIds } }, select: { id: true, title: true } }) : [];
   const titleOf = (id: string | null) => {
     const r = cardReads.find((x) => x.task_id === id) ?? others.find((x) => x.id === id);
-    return r ? `"${shortTitle(r.title)}"` : 'a task';
+    return r ? quoted(r.title) : 'a task';
   };
   const lines: string[] = [];
   const push = (l: string) => {
@@ -1588,10 +1704,18 @@ async function buildCard(db: Db, reach: ReachResult, copy: OpCopy, now: Date, se
         push('Bast reads the thread on its next pass.');
         break;
       case 'changes_blocker_text':
-        push(`Bast's waiting task ${titleOf(h.task_id)} reads this text.`);
+        push(
+          h.holder === 'delegate'
+            ? `Sabeen's task ${titleOf(h.task_id)} waits on this one. Bast's worker reads this text when it reads her task.`
+            : `Bast's waiting task ${titleOf(h.task_id)} reads this text.`,
+        );
         break;
       case 'changes_dependent_title':
-        push(`Bast's task ${titleOf(h.task_id)} lists this title as a task that waits on it.`);
+        push(
+          h.holder === 'delegate'
+            ? `Sabeen's task ${titleOf(h.task_id)} lists this title as a task that waits on it, and Bast's worker reads that list.`
+            : `Bast's task ${titleOf(h.task_id)} lists this title as a task that waits on it.`,
+        );
         break;
       case 'edits_delegate_text':
       case 'hands_chat_text_to_delegate':
@@ -1650,7 +1774,7 @@ function storedReach(reach: ReachResult, card: ProposalCard, fingerprint: string
  * The version of a stored plan and of the fingerprint beside it (VERIFY-5 Z6). A proposal stored by any other version
  * fails closed at the tap: its fingerprint was made by other rules, so a match proves nothing.
  */
-export const PLAN_VERSION = 6;
+export const PLAN_VERSION = 7;
 /** A rewrite the tap makes in the same transaction (VERIFY-5 Z4): older chat text stored with more than plain words. */
 const rewriteSchema = z
   .object({ task_id: z.string().uuid(), field: z.enum(['title', 'description', 'notes', 'requirements', 'promised_to', 'tags']), value: z.unknown() })
@@ -1816,9 +1940,9 @@ async function storeProposalRow(
   const why = card.lines[0] ?? card.client[0] ?? '';
   const line = cleanLine(`Proposed: ${card.clause}.${why ? ` ${why}` : ''}`, 300);
   const kind: 'bast_start' | 'client_show' = reach.proposal_kind ?? 'bast_start';
-  const settings = p.reserve ? await getSettings(db) : null;
+  // VERIFY-6 A1: today's write is reserved in its own statement, never inside a transaction that takes another lock.
+  if (p.reserve) await reserveWrite(p.ownerId, (await getSettings(db)).daily_write_cap, now, db);
   return db.$transaction(async (tx) => {
-    if (settings) await reserveWrite(p.ownerId, settings.daily_write_cap, now, tx);
     const row = await tx.bastChatAction.create({
       data: {
         conversation_id: p.conversationId,
@@ -2010,9 +2134,19 @@ export async function releaseAction(actionId: string, actorId: string, now: Date
     const refusal = e.refusal ?? changedSinceFor(a.target_type);
     const marked = await db.bastChatAction.updateMany({ where: { id: a.id, status: 'proposed' }, data: { status: 'failed', error: refusal, resolved_at: now, resolved_by_id: actorId } });
     if (marked.count === 1) {
-      await db.$transaction((tx) => appendChatNote(tx, a.conversation_id, { code: 'action_failed', text: `Mike's tap did not go through, nothing changed: ${clauseOf(a)}. ${e.refusal ? 'It was too long to show on the card.' : 'It changed since.'}`, action_id: a.id }));
+      // The chat's note is best effort: a busy pool must not turn a true 409 into a 500 (VERIFY-6 A1).
+      await bestEffortNote(db, a.conversation_id, { code: 'action_failed', text: `Mike's tap did not go through, nothing changed: ${clauseOf(a)}. ${e.refusal ? 'It was too long to show on the card.' : 'It changed since.'}`, action_id: a.id });
     }
     throw conflict(refusal, e.refusal ? 'card_incomplete' : 'changed_since');
+  }
+}
+
+/** A note to the chat written after the decision already committed: a failure is logged, never the request's. */
+async function bestEffortNote(db: Db, conversationId: string, note: { code: ChatNoteCode; text: string; action_id: string }): Promise<void> {
+  try {
+    await db.$transaction((tx) => appendChatNote(tx, conversationId, note));
+  } catch (err) {
+    console.error('bast-chat: could not write the chat note', note.code, err instanceof Error ? err.message : 'error');
   }
 }
 
@@ -2068,6 +2202,14 @@ async function releaseLocked(
   };
   let outcome: OpOutcome;
   let undone: BastChatAction | null = null;
+  // VERIFY-6 over-count c: what the tap writes on task rows is recorded (TAP_TOOL), so Undo of the tap puts every
+  // field back exactly, a flattened one included. The task a task plan writes is read before the write.
+  const planTask = plan.kind === 'apply' && plan.op === 'task' ? ((plan.input as { task_id?: unknown } | null)?.task_id as string | undefined) : undefined;
+  const shapes = new Map<string, TaskShape>();
+  if (typeof planTask === 'string') {
+    const t = await recordShapeOf(db, planTask);
+    if (t) shapes.set(planTask, t);
+  }
   try {
     if (plan.kind === 'apply') {
       let input: unknown;
@@ -2097,13 +2239,56 @@ async function releaseLocked(
   // VERIFY-5 Z4: older chat text the card showed plain is stored plain, in this same transaction.
   for (const w of plan.rewrites ?? []) {
     if (!scope.tasks.includes(w.task_id)) return dead();
+    if (!shapes.has(w.task_id)) {
+      const t = await recordShapeOf(db, w.task_id);
+      if (t) shapes.set(w.task_id, t);
+    }
     await db.task.update({ where: { id: w.task_id }, data: { [w.field]: w.value as never } });
   }
+  await recordTap(db, a, plan, shapes, actorId, now);
   if (undone) {
     await db.bastChatAction.updateMany({ where: { id: undone.id, status: 'applied' }, data: { status: 'undone', resolved_at: now, resolved_by_id: actorId } });
   }
   const row = await noteAndSet(db, a, { status: 'released', error: null }, { code: 'action_released', text: `Mike tapped yes, done: ${clauseOf(a)}.` });
   return actionView(row, now);
+}
+
+/**
+ * The records of what a tap wrote on task rows (VERIFY-6 over-count c): one applied record per task (the task a task
+ * plan writes, and each task whose older chat text the tap stored plain), with the exact before and after of every
+ * field that changed, in the same transaction as the write. Undo of such a record puts the old values back byte for
+ * byte (`TAP_TOOL`, never normalised), and Undo of the tap undoes them all (`undoAction`).
+ */
+async function recordTap(db: Db, a: BastChatAction, plan: StoredPlan, shapes: Map<string, TaskShape>, ownerId: string, now: Date): Promise<void> {
+  for (const [taskId, before] of shapes) {
+    const after = await recordShapeOf(db, taskId);
+    if (!after) continue;
+    const diff = recordDiff(before, after);
+    if (!diff) continue;
+    const flattened = (plan.rewrites ?? []).filter((w) => w.task_id === taskId).map((w) => CARD_FIELDS[w.field]?.word ?? w.field);
+    const plainLine = flattened.length ? `Your tap stored the ${andList([...new Set(flattened)])} of ${quoted(after.title)} as plain text.` : '';
+    // The summary says what the plan did, then what was stored plain (a rewritten field is not "rewrote the description").
+    const rewritten = new Set((plan.rewrites ?? []).filter((w) => w.task_id === taskId).map((w) => w.field));
+    const ownKeys = Object.keys(diff.after).filter((k) => !rewritten.has(k as never));
+    const pick = (o: TaskFields) => Object.fromEntries(Object.entries(o).filter(([k]) => ownKeys.includes(k))) as TaskFields;
+    const ownLine = ownKeys.length ? await appliedSummary(db, { title: after.title }, pick(diff.before), pick(diff.after), ownerId, now) : '';
+    const summary = [ownLine, plainLine].filter(Boolean).join(' ');
+    await db.bastChatAction.create({
+      data: {
+        conversation_id: a.conversation_id,
+        tool: TAP_TOOL,
+        target_type: 'task',
+        target_id: taskId,
+        summary: cleanLine(summary || `Your tap changed ${quoted(after.title)}.`, 300),
+        before: diff.before as Json,
+        after: diff.after as Json,
+        plan: { tap_of: a.id } as Json,
+        status: 'applied',
+        undo_until: new Date(now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000),
+      },
+      select: { id: true },
+    });
+  }
 }
 
 /** "Keep it": the proposal is declined and nothing else changes. */
@@ -2112,11 +2297,9 @@ export async function declineAction(actionId: string, actorId: string, now: Date
   if (!isOpenProposal(a, now)) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
   const claim = await db.bastChatAction.updateMany({ where: openProposalWhere(a.id, now), data: { status: 'declined', resolved_at: now, resolved_by_id: actorId } });
   if (claim.count !== 1) throw conflict(NOT_WAITING_TEXT, 'not_proposed');
-  const row = await db.$transaction(async (tx) => {
-    await appendChatNote(tx, a.conversation_id, { code: 'action_declined', text: `Mike said no, nothing changed: ${clauseOf(a)}.`, action_id: a.id });
-    return tx.bastChatAction.findUniqueOrThrow({ where: { id: a.id } });
-  });
-  return actionView(row, now);
+  // The decline already committed with the claim; the chat's note is best effort (VERIFY-6 A1).
+  await bestEffortNote(db, a.conversation_id, { code: 'action_declined', text: `Mike said no, nothing changed: ${clauseOf(a)}.`, action_id: a.id });
+  return actionView(await db.bastChatAction.findUniqueOrThrow({ where: { id: a.id } }), now);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2135,6 +2318,7 @@ export type UndoView = ActionView & { proposal?: ProposalResult };
  */
 export async function undoAction(actionId: string, actorId: string, now: Date = new Date(), db: Db = defaultDb): Promise<UndoView> {
   const a = await loadOwned(actionId, actorId, db);
+  if (a.status === 'released') return undoTap(a, actorId, now, db);
   if (a.status === 'undone') throw conflict('That was already undone.', 'undo_used');
   if (a.status !== 'applied') throw conflict(CANNOT_UNDO_TEXT, 'not_undoable');
   // A record written with no undo window (a finished wait) could never be undone; one whose window ran out could.
@@ -2146,6 +2330,26 @@ export async function undoAction(actionId: string, actorId: string, now: Date = 
   // chat comment or edit cannot land between the reach check of the restore and the restore itself (VERIFY-2 N1).
   const scope = await lockScopeFor(db, recordSeeds(a), []);
   return withLocks(db, scope, () => undoLocked(a, op, actorId, now, db));
+}
+
+/**
+ * Undo of a tap (VERIFY-6 over-count c): each record the tap wrote (`recordTap`), newest first, through `undoAction` with
+ * all its checks. A tap that wrote no task row (or one stored before VERIFY-6) cannot be undone.
+ */
+async function undoTap(a: BastChatAction, actorId: string, now: Date, db: Db): Promise<UndoView> {
+  const recs = await db.bastChatAction.findMany({
+    where: { conversation_id: a.conversation_id, tool: TAP_TOOL, plan: { path: ['tap_of'], equals: a.id } },
+    orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+  });
+  if (recs.length === 0) throw conflict(CANNOT_UNDO_TEXT, 'not_undoable');
+  const open = recs.filter((r) => r.status === 'applied');
+  if (open.length === 0) throw conflict('That was already undone.', 'undo_used');
+  let proposal: ProposalResult | undefined;
+  for (const r of open) {
+    const v = await undoAction(r.id, actorId, now, db);
+    if (v.proposal && !proposal) proposal = v.proposal;
+  }
+  return { ...actionView(a, now), ...(proposal ? { proposal } : {}) };
 }
 
 async function undoLocked(first: BastChatAction, op: ChatOperation<unknown>, actorId: string, now: Date, db: Db): Promise<UndoView> {

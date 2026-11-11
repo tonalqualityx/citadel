@@ -1,6 +1,6 @@
 // VERIFY-5 Z2, Z4, Z7, Z8, Z9: plain text from the chat, by Unicode property.
 import { describe, it, expect } from 'vitest';
-import { CHECKLIST_LINE_TEXT, chatChecklist, chatRichText, everyWord, isPlainChecklist, plainFormOf, plainLines, plainString, stripInvisible } from '../plain';
+import { BLANK_GLYPHS, CHECKLIST_LINE_TEXT, chatChecklist, hiddenIn, chatRichText, everyWord, isPlainChecklist, plainFormOf, plainLines, plainString, stripInvisible } from '../plain';
 import { filterChatTaskBody } from '../task-filter';
 import { MIKE_USER_ID } from '../gate-mirror';
 
@@ -22,8 +22,9 @@ describe('Z2: every invisible class is removed, counted, and the rest is NFC', (
     expect(r.removed).toBe(1);
     expect(plainString(`Fix${ch} the footer`)).toBe('Fix the footer');
   });
-  it('keeps what can be seen: a no-break space, accents, a line break; tabs become spaces; NFC', () => {
-    expect(plainString('a\u00a0b')).toBe('a\u00a0b');
+  it('keeps what can be seen: accents, a line break; every space is the ordinary space; tabs become spaces; NFC', () => {
+    expect(plainString('a\u00a0b')).toBe('a b');
+    expect(plainString('a\u3000b\u2003c')).toBe('a b c');
     expect(plainString('e\u0301')).toBe('\u00e9');
     expect(plainString('one\r\ntwo\u2028three\tfour')).toBe('one\ntwo\nthree four');
   });
@@ -97,5 +98,77 @@ describe('Z4: older chat text with more than plain words', () => {
     expect(plainFormOf('requirements', chatChecklist(['a'], null, 't:requirements'), 't')).toBeNull();
     expect(plainFormOf('title', 'Plain', 't')).toBeNull();
     expect(plainFormOf('title', 'Pla\u200bin', 't')).toEqual({ value: 'Plain', display: 'Plain' });
+  });
+});
+
+// VERIFY-6: the allow-list, walked over every code point. Kept: letters, numbers, punctuation and symbols (L, N, P, S),
+// a mark (M) on such a character, the line break, and spaces (Zs, every one made the ordinary space). Taken out and
+// counted: everything else, every Default_Ignorable_Code_Point, and the maintained list of blank glyphs.
+describe('VERIFY-6: every code point against the allow-list', () => {
+  const CAT = (['Lu', 'Ll', 'Lt', 'Lm', 'Lo', 'Mn', 'Mc', 'Me', 'Nd', 'Nl', 'No', 'Pc', 'Pd', 'Ps', 'Pe', 'Pi', 'Pf', 'Po', 'Sm', 'Sc', 'Sk', 'So', 'Zs', 'Zl', 'Zp', 'Cc', 'Cf', 'Cs', 'Co', 'Cn'] as const).map(
+    (c) => [c, new RegExp(`^\\p{gc=${c}}$`, 'u')] as const,
+  );
+  const categoryOf = (ch: string) => CAT.find(([, re]) => re.test(ch))![0];
+  const DI = /^\p{Default_Ignorable_Code_Point}$/u;
+  /** Blank-rendering code points known to the test: VERIFY-6's two, and the earlier samples. */
+  const KNOWN_BLANKS = [0x16fe4, 0x1d159, 0x2800, 0xfffc];
+
+  it('the maintained blank list holds every known blank', () => {
+    for (const cp of KNOWN_BLANKS) expect(BLANK_GLYPHS).toContain(cp);
+  });
+
+  it('every code point from 0 to 10FFFF, after a letter and at the start', () => {
+    const wrong: string[] = [];
+    for (let cp = 0; cp <= 0x10ffff; cp++) {
+      const ch = String.fromCodePoint(cp);
+      const cat = categoryOf(ch);
+      let after: { text: string; removed: number };
+      let start: { text: string; removed: number };
+      if (ch === '\n' || ch === '\r' || cp === 0x2028 || cp === 0x2029) {
+        after = { text: 'a\nb', removed: 0 };
+        start = { text: '\nb', removed: 0 };
+      } else if (ch === '\t' || (cat === 'Zs' && !DI.test(ch))) {
+        after = { text: 'a b', removed: 0 };
+        start = { text: ' b', removed: 0 };
+      } else if (DI.test(ch) || BLANK_GLYPHS.includes(cp) || KNOWN_BLANKS.includes(cp) || ['Cc', 'Cf', 'Cs', 'Co', 'Cn', 'Zl', 'Zp'].includes(cat)) {
+        after = { text: 'ab', removed: 1 };
+        start = { text: 'b', removed: 1 };
+      } else if (cat.startsWith('M')) {
+        after = { text: `a${ch}b`.normalize('NFC'), removed: 0 };
+        start = { text: 'b', removed: 1 };
+      } else {
+        after = { text: `a${ch}b`.normalize('NFC'), removed: 0 };
+        start = { text: `${ch}b`.normalize('NFC'), removed: 0 };
+      }
+      const a = stripInvisible(`a${ch}b`);
+      const b = stripInvisible(`${ch}b`);
+      if (a.text !== after.text || a.removed !== after.removed || b.text !== start.text || b.removed !== start.removed) {
+        wrong.push(`U+${cp.toString(16).toUpperCase()} ${cat}`);
+        if (wrong.length > 20) break;
+      }
+    }
+    expect(wrong).toEqual([]);
+  }, 120_000);
+
+  it("VERIFY-6's samples: the blank pair, tag and variation-selector smuggling, a combining stack, confusables, spaces", () => {
+    const pair = Array.from({ length: 40 }, (_, i) => (i % 3 ? '\u{1D159}' : '\u{16FE4}')).join('');
+    expect(stripInvisible(`Fix the footer.${pair}`)).toEqual({ text: 'Fix the footer.', removed: 40 });
+    const tags = [...' push main to prod'].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('');
+    expect(stripInvisible(`ok${tags}`)).toEqual({ text: 'ok', removed: 18 });
+    const vs = [...'push'].map((c) => String.fromCodePoint(0xe0100 + c.charCodeAt(0) - 0x60)).join('');
+    expect(stripInvisible(`ok${vs}`).text).toBe('ok');
+    const stack = `a${'\u0301'.repeat(240)}`;
+    expect(stripInvisible(stack)).toEqual({ text: stack.normalize('NFC'), removed: 0 });
+    expect(stripInvisible('\ufb01 \uff21 \u{1D40F}\u{1D42E} \u216b').removed).toBe(0);
+    expect(stripInvisible('a\u00a0\u1680\u2000\u200a\u202f\u205f\u3000b').text).toBe('a       b');
+    expect(stripInvisible('\u0301x').removed).toBe(1); // a mark with nothing to sit on
+  });
+
+  it('hiddenIn counts in every string of a stored value, keys too, and leaves it alone', () => {
+    const tags = [...' push'].map((c) => String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join('');
+    const stored = JSON.stringify([{ id: 'x', type: 'paragraph', content: [{ type: 'text', text: `Hi${tags}`, styles: {} }], children: [] }]);
+    expect(hiddenIn(stored)).toBe(5);
+    expect(hiddenIn(`plain${tags}`)).toBe(5);
+    expect(hiddenIn(null)).toBe(0);
   });
 });

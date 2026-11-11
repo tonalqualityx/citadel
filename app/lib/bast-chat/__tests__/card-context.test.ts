@@ -31,9 +31,9 @@ describe('parseCardContext', () => {
     expect(() => parseCardContext(input)).toThrow(ZodError);
   });
   it('cuts and cleans the title: length, tags, control characters, dashes', () => {
-    const c = parseCardContext({ kind: 'project', id: ID, title: `<img src=x onerror=alert(1)>\u0000 Plan — now\n${'x'.repeat(500)}` });
+    const c = parseCardContext({ kind: 'project', id: ID, title: `<img src=x onerror=alert(1)>\u0000 Plan \u2014 now\n${'x'.repeat(500)}` });
     expect(c.title!.length).toBeLessThanOrEqual(120);
-    expect(c.title).not.toMatch(/[<>–—\u0000\n]/);
+    expect(c.title).not.toMatch(/[<>\u2013\u2014\u0000\n]/);
   });
   it('drops id and title when the kind is none', () => {
     expect(parseCardContext({ kind: 'none', title: 'x', id: ID })).toEqual({ kind: 'none' });
@@ -66,7 +66,7 @@ describe('contextForWorker and cleanLine', () => {
     expect(contextForWorker(null)).toEqual({ kind: 'none' });
   });
   it('cleanLine removes dashes and cuts', () => {
-    expect(cleanLine('a – b — c', 50)).toBe('a, b, c');
+    expect(cleanLine('a \u2013 b \u2014 c', 50)).toBe('a, b, c');
     expect(cleanLine('abcdef', 3)).toBe('abc');
   });
 });

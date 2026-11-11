@@ -146,7 +146,7 @@ describe('a write that needs no tap', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
     const j = await res.json();
     expect(Object.keys(j).sort()).toEqual(['action_id', 'can_undo', 'line', 'result', 'status', 'undo_until']);
-    expect(j).toMatchObject({ status: 'applied', line: 'Moved the VCDP site project to review.', can_undo: true, result: { project_id: PROJ, status: 'review' } });
+    expect(j).toMatchObject({ status: 'applied', line: 'Moved the "VCDP site" project to review.', can_undo: true, result: { project_id: PROJ, status: 'review' } });
     expect(project.status).toBe('review');
     expect(writes).toBe(1);
     expect(actions).toHaveLength(1);

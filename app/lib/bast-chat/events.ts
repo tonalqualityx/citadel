@@ -5,6 +5,9 @@
  * then UPDATE last_seq = last_seq + n RETURNING), so a later seq is never visible before an earlier one and `feed`
  * never skips an event. A repeat `client_ref` returns the first seq and stores nothing.
  *
+ * Where this row sits in the one lock order of the chat lane (task advisory locks, then task-side rows, then this
+ * conversation row, then the day's usage row): see the table in task-locks.ts (VERIFY-6 A1).
+ *
  * FOR NO KEY UPDATE, not FOR UPDATE (VERIFY-5 Z1): writers of this row only change non-key columns (last_seq, status,
  * cost), so they serialize with each other exactly as before, while a transaction that holds FOR KEY SHARE on the row
  * (Postgres takes it for the foreign key whenever a transaction inserts or updates a bast_chat_actions or
@@ -214,6 +217,15 @@ export interface WorkerEventInput {
   turn?: number | null;
 }
 
+/** The dollars a batch's cost events add (each 0 to 100). */
+function costOfBatch(events: WorkerEventInput[]): number {
+  return events.reduce((sum, e) => {
+    if (e.kind !== 'cost') return sum;
+    const v = Number((e.payload as { turn_usd?: unknown } | null)?.turn_usd);
+    return Number.isFinite(v) && v > 0 && v < 100 ? sum + v : sum;
+  }, 0);
+}
+
 /**
  * The daemon's batch: up to 100 assistant, tool or system events get seqs, and in the same transaction `acks`
  * set `delivered_at` once on Mike's messages. A `cost` event adds `turn_usd` to the conversation and to today's
@@ -238,6 +250,7 @@ export async function appendWorkerEvents(
   return db.$transaction(async (tx) => {
     let first: number | null = null;
     let last: number;
+    let costOwner: string | null = null;
     if (events.length > 0) {
       const alloc = await allocateSeq(tx, conversationId, events.length);
       first = alloc.first;
@@ -245,14 +258,10 @@ export async function appendWorkerEvents(
       await tx.bastChatEvent.createMany({
         data: events.map((e, i) => ({ conversation_id: conversationId, seq: alloc.first + i, role: e.role, kind: e.kind, payload: cleanAssistantPayload(e), turn: e.turn ?? null })),
       });
-      const cost = events.reduce((sum, e) => {
-        if (e.kind !== 'cost') return sum;
-        const v = Number((e.payload as { turn_usd?: unknown } | null)?.turn_usd);
-        return Number.isFinite(v) && v > 0 && v < 100 ? sum + v : sum;
-      }, 0);
+      const cost = costOfBatch(events);
       if (cost > 0) {
         const conv = await tx.bastChatConversation.update({ where: { id: conversationId }, data: { cost_usd: { increment: cost } }, select: { owner_id: true } });
-        await bumpUsage(ownerId ?? conv.owner_id, { cost_usd: cost }, now, tx);
+        costOwner = ownerId ?? conv.owner_id;
       }
     } else {
       const c = await tx.bastChatConversation.findUnique({ where: { id: conversationId }, select: { last_seq: true } });
@@ -264,6 +273,8 @@ export async function appendWorkerEvents(
       const r = await tx.bastChatEvent.updateMany({ where: { conversation_id: conversationId, role: 'mike', seq: { in: acks }, delivered_at: null }, data: { delivered_at: now } });
       acked = r.count;
     }
+    // The day's usage row last, so it is held only for the commit (VERIFY-6 A1, the lock order in task-locks.ts).
+    if (costOwner) await bumpUsage(costOwner, { cost_usd: costOfBatch(events) }, now, tx);
     return { last_seq: last, first_seq: first, acked };
   });
 }

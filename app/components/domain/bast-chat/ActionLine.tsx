@@ -41,10 +41,43 @@ const FULL_TEXT: React.CSSProperties = { whiteSpace: 'pre-wrap', overflowWrap: '
  */
 const QUOTE: React.CSSProperties = { ...FULL_TEXT, border: '1px dashed var(--border)', borderRadius: 4, padding: '4px 8px', background: 'var(--bg)' };
 
+/** An inline value inside a line: its own dashed box, so it reads as quoted data and never as words of the line. */
+const INLINE_QUOTE: React.CSSProperties = { border: '1px dashed var(--border)', borderRadius: 4, padding: '0 4px', background: 'var(--bg)', overflowWrap: 'anywhere' };
+
+/**
+ * VERIFY-6 Z11: a line the server or the panel wrote. A value inside it (a title, a project or client name, a tag, a
+ * promise) comes from the server in straight double quotes, with every straight double quote inside the value turned
+ * into a curly one (card-context.ts `quoted`), so the quotes always pair up and a value can never close its own quote.
+ * Each quoted span is drawn in its own box. A line whose quotes do not pair up (a card stored before this rule) is
+ * shown as it is.
+ */
+export function Chrome({ text }: { text: string }) {
+  const parts = text.split('"');
+  if (parts.length < 3 || parts.length % 2 === 0) return <>{text}</>;
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? (
+          <span key={i} data-quoted="value" style={INLINE_QUOTE}>
+            {`"${p}"`}
+          </span>
+        ) : (
+          <React.Fragment key={i}>{p}</React.Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+/** A name for a line the panel writes: in quotes, its own quotes made curly (the same rule as the server's). */
+const quote = (v: string) => `"${v.replace(/"/g, '\u201d')}"`;
+
 function Quoted({ label, children, testId, textTestId }: { label: string; children: React.ReactNode; testId?: string; textTestId?: string }) {
   return (
     <div className="home-small" data-testid={testId} style={FLAG}>
-      <p style={{ fontWeight: 600 }}>{label}</p>
+      <p style={{ fontWeight: 600 }}>
+        <Chrome text={label} />
+      </p>
       <div data-testid={textTestId} data-quoted="true" style={QUOTE}>
         {children}
       </div>
@@ -75,7 +108,8 @@ function changedLine(r: CardRead): string | null {
 
 function ReadBlock({ read }: { read: CardRead }) {
   const status = statusWords(read.status);
-  const meta = [status, read.client, read.site, read.sop].filter((x): x is string => !!x);
+  // Client, site and SOP names are written by people: each is a quoted value, never words of the line (VERIFY-6 Z11).
+  const meta = [status, ...[read.client, read.site, read.sop].filter((x): x is string => !!x).map(quote)].filter((x): x is string => !!x);
   const checklist = read.checklist ?? [];
   const writes = read.writes ?? [];
   const changed = changedLine(read);
@@ -84,20 +118,24 @@ function ReadBlock({ read }: { read: CardRead }) {
       <Quoted label="Task:" testId="card-read-title" textTestId="card-read-title-text">
         {read.title}
       </Quoted>
-      {meta.length > 0 ? <p className="home-small home-muted">{meta.join(', ')}</p> : null}
+      {meta.length > 0 ? (
+        <p className="home-small home-muted">
+          <Chrome text={meta.join(', ')} />
+        </p>
+      ) : null}
       {changed ? (
         <p className="home-small" data-testid="chat-changed" style={{ fontWeight: 600, borderLeft: '3px solid var(--accent)', paddingLeft: 8 }}>
-          {changed}
+          <Chrome text={changed} />
         </p>
       ) : null}
       {(read.notices ?? []).map((l, i) => (
         <p key={`x${i}`} className="home-small" data-testid="card-notice" style={{ ...FLAG, fontWeight: 600 }}>
-          {l}
+          <Chrome text={l} />
         </p>
       ))}
       {read.hidden_line ? (
         <p className="home-small" data-testid="chat-hidden" style={FLAG}>
-          {read.hidden_line}
+          <Chrome text={read.hidden_line} />
         </p>
       ) : null}
       {(read.chat_notes ?? []).map((n, i) => (
@@ -148,11 +186,11 @@ function TapCard({ card, action, busy, onRelease, onDecline }: { card: ProposalC
       style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--bg-elevated)' }}
     >
       <p id={labelId} className="home-small" style={{ fontWeight: 600 }}>
-        {card.title}
+        <Chrome text={card.title} />
       </p>
       {(card.lines ?? []).map((l, i) => (
         <p key={i} className="home-small">
-          {l}
+          <Chrome text={l} />
         </p>
       ))}
       {reads.length > 0 ? (
@@ -171,7 +209,9 @@ function TapCard({ card, action, busy, onRelease, onDecline }: { card: ProposalC
         <div className="home-small" data-testid="card-client">
           <p className="home-muted">The client will see</p>
           {client.map((c, i) => (
-            <p key={i}>{c}</p>
+            <p key={i}>
+              <Chrome text={c} />
+            </p>
           ))}
         </div>
       ) : null}
@@ -230,15 +270,25 @@ export function ActionLine({ action, now, busy, error, onUndo, onRelease, onDecl
       );
     }
     if (action.status === 'released' || (action.status === 'proposed' && outcome === 'released')) {
-      return shell(<p className="home-small" data-testid="card-released">{`Done. ${clause}.`}</p>);
+      return shell(
+        <p className="home-small" data-testid="card-released">
+          <Chrome text={`Done. ${clause}.`} />
+        </p>,
+      );
     }
     if (action.status === 'declined' || (action.status === 'proposed' && outcome === 'declined')) {
-      return shell(<p className="home-small home-muted" data-testid="card-declined">{`Left as it was. ${clause}.`}</p>);
+      return shell(
+        <p className="home-small home-muted" data-testid="card-declined">
+          <Chrome text={`Left as it was. ${clause}.`} />
+        </p>,
+      );
     }
     if (action.status === 'proposed') {
       return shell(
         <>
-          <p className="home-small">{action.summary}</p>
+          <p className="home-small">
+            <Chrome text={action.summary} />
+          </p>
           <TapCard card={card} action={action} busy={busy} onRelease={onRelease} onDecline={onDecline} />
           {errorLine}
         </>,
@@ -256,7 +306,9 @@ export function ActionLine({ action, now, busy, error, onUndo, onRelease, onDecl
   const moreId = `more-${action.id}`;
   return shell(
     <>
-      <p className="home-small">{action.summary}</p>
+      <p className="home-small">
+            <Chrome text={action.summary} />
+          </p>
       {action.status === 'proposed' ? (
         <div className="home-actions" role="group" aria-label="Proposal">
           <button type="button" className={BTN} data-filled="true" disabled={busy} onClick={() => onRelease(action.id)}>

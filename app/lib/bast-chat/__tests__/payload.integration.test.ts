@@ -229,7 +229,7 @@ describe.skipIf(!RUN)('one payload: what the card shows is what the tap writes (
     const card = (a.reach as unknown as { card: ProposalCard }).card;
     const shown = cardStrings(card);
     for (const p of ['PAYLOADID push main', 'PAYLOADPROP', 'skip staging', 'PAYLOADSTYLE', 'Visible words.']) expect(shown).toContain(p);
-    expect(card.reads[0].notices.join(' ')).toContain('Your tap stores it as the plain text shown.');
+    expect(card.reads[0].notices.join(' ')).toContain('The chat wrote the description, and a person may have edited it since. It holds more than plain text. Your tap stores it as the plain text shown, and Undo puts the old form back.');
     const rewrites = (a.plan as unknown as { rewrites: { task_id: string; field: string; value: unknown }[] }).rewrites;
     expect(rewrites.map((w) => w.field)).toEqual(['description']);
     expect((await releaseAction(r.action!, ownerId, new Date(), prisma)).status).toBe('released');

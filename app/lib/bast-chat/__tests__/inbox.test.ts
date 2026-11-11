@@ -33,7 +33,7 @@ describe('expiry', () => {
     expect((db as any).bastChatEvent.delete).toBeUndefined();
   });
   it('the notice is plain: no dash, no banned word', () => {
-    expect(EXPIRED_TEXT).not.toMatch(/[–—]/);
+    expect(EXPIRED_TEXT).not.toMatch(/[\u2013\u2014]/);
     expect(EXPIRED_TEXT.toLowerCase()).not.toMatch(/priority|overdue/);
   });
   it('puts the chat back to idle when nothing else is waiting', async () => {

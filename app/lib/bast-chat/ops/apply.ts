@@ -2,16 +2,18 @@
  * Bast chat v2: one chat operation from POST /api/bast-chat/worker/ops, after the route's checks (the key, the body,
  * the conversation is the owner's and running, the op is known, the owner is an active admin).
  *
- * The reach check runs first. A hit stores a proposal for Mike's tap and writes nothing else. Otherwise the write runs
- * in one transaction with today's reservation and the server-written record. Ops that change what Bast's worker reads
- * (comment, project) take their advisory locks inside that transaction and judge again under them (task-locks.ts), so
- * the transaction runs with LOCKED_TX_OPTIONS. `home` opens its own transaction (`ownTransaction`), so it reserves
- * first and records after; a failed record undoes the write.
+ * The reach check runs first. A hit stores a proposal for Mike's tap and writes nothing else. Otherwise today's write is
+ * reserved in its own statement, BEFORE any lock is taken (VERIFY-6 A1: the day's usage row is shared by every chat
+ * write and every message of the day, so it is never held while waiting on a task lock; see the lock order in
+ * task-locks.ts), and then the write runs in one transaction with the server-written record. Ops that change what
+ * Bast's worker reads (comment, project) take their advisory locks inside that transaction and judge again under them
+ * (task-locks.ts), so the transaction runs with LOCKED_TX_OPTIONS. `home` opens its own transaction (`ownTransaction`),
+ * so it records after; a failed record undoes the write. A refused or failed write keeps its reserved slot (usage.ts).
  */
-import type { Prisma, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { prepareOperation, storeProposal, UNDO_WINDOW_HOURS, type ProposalResult } from '../actions';
 import { reserveWrite } from '../usage';
-import { inLockedTransaction } from '../task-locks';
+import { EMPTY_SCOPE, inLockedTransaction, scopeFor, throughGate } from '../task-locks';
 import type { OpRun, RunnableOp } from './index';
 
 export type ChatOpResult =
@@ -51,9 +53,10 @@ export async function applyChatOp(a: {
       select: { id: true, undo_until: true },
     });
 
+  // Autocommit, before any lock: the usage row is held for this one statement only.
+  await reserveWrite(ownerId, a.dailyWriteCap, now, db);
   let done: { run: OpRun; row: { id: string; undo_until: Date | null } };
   if (op.ownTransaction) {
-    await reserveWrite(ownerId, a.dailyWriteCap, now, db);
     const run = await op.run({ db, ownerId, now }, input as never, prepared.expect);
     try {
       done = { run, row: await record(db, run) };
@@ -66,15 +69,25 @@ export async function applyChatOp(a: {
     // Every query of the write, the op's helpers included, runs on this transaction's connection, and its best-effort
     // work waits for the commit (task-locks.ts inLockedTransaction, lib/db/scope.ts). An op that takes locks in `run`
     // holds them on this one connection (VERIFY-3 X3).
-    done = await inLockedTransaction(
-      db,
-      async () => undefined,
-      async (tx) => {
-        const tdb = tx as unknown as PrismaClient;
-        await reserveWrite(ownerId, a.dailyWriteCap, now, tx as Prisma.TransactionClient);
-        const run = await op.run({ db: tdb, ownerId, now }, input as never, prepared.expect);
-        return { run, row: await record(tdb, run) };
-      },
+    // The ops whose `run` takes advisory locks (comment: the task scope; project: the project) first pass this process's
+    // gate for the same keys, holding no connection while they wait (task-locks.ts throughGate, VERIFY-6 A1).
+    const input0 = input as { task_id?: unknown; project_id?: unknown };
+    const gate =
+      op.name === 'comment' && typeof input0.task_id === 'string'
+        ? await scopeFor(db, [input0.task_id])
+        : op.name === 'project' && typeof input0.project_id === 'string'
+          ? { tasks: [], projects: [input0.project_id] }
+          : EMPTY_SCOPE;
+    done = await throughGate(gate, () =>
+      inLockedTransaction(
+        db,
+        async () => undefined,
+        async (tx) => {
+          const tdb = tx as unknown as PrismaClient;
+          const run = await op.run({ db: tdb, ownerId, now }, input as never, prepared.expect);
+          return { run, row: await record(tdb, run) };
+        },
+      ),
     );
   }
   if (done.run.afterCommit) {

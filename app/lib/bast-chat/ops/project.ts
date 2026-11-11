@@ -11,7 +11,8 @@
  */
 import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
-import { opSummary, shortTitle, type OpContext, type PreparedOp } from '../actions';
+import { opSummary, type OpContext, type PreparedOp } from '../actions';
+import { quoted } from '../card-context';
 import { checkOp, PROJECT_STATUSES, type ReachOrigin } from '../worker-reach';
 import { lockScope } from '../task-locks';
 import type { OpDef, OpDb, OpRun } from './index';
@@ -36,7 +37,7 @@ async function prepare(ctx: OpContext, input: ProjectInput, origin: ReachOrigin)
   return {
     reach: checkOp({ op: { op: 'project_status', project_id: p.id, status_before: p.status, status_after: input.status }, now: ctx.now, origin }),
     expect: { status: p.status },
-    copy: { clause: `move the "${shortTitle(p.name)}" project to ${input.status.replace('_', ' ')}`, client_lines: [`The "${shortTitle(p.name)}" project will show in the client's portal.`] },
+    copy: { clause: `move the ${quoted(p.name)} project to ${input.status.replace('_', ' ')}`, client_lines: [`The ${quoted(p.name)} project will show in the client's portal.`] },
   };
 }
 
@@ -87,7 +88,7 @@ export const projectOp: OpDef<ProjectInput> = {
     return {
       reach: checkOp({ op: { op: 'project_status', project_id: p.id, status_before: p.status, status_after: before.data.status }, now: ctx.now, origin: 'undo' }),
       expect: { status: p.status },
-      copy: { clause: `put the "${shortTitle(p.name)}" project back to ${before.data.status.replace('_', ' ')}`, client_lines: [`The "${shortTitle(p.name)}" project will show in the client's portal.`] },
+      copy: { clause: `put the ${quoted(p.name)} project back to ${before.data.status.replace('_', ' ')}`, client_lines: [`The ${quoted(p.name)} project will show in the client's portal.`] },
     };
   },
   async undo(ctx, record, expect) {

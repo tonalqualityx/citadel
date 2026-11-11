@@ -4,8 +4,8 @@ import { prisma as defaultDb } from '@/lib/db/prisma';
 import { scopedTransaction, withSavepoint } from '@/lib/db/scope';
 import { ApiError } from '@/lib/api/errors';
 import { CHAT_LANE } from './task-filter';
-import { UNDO_WINDOW_HOURS, TASK_RECORD_FIELDS, appliedSummary, shortTitle, type TaskFields } from './actions';
-import { cleanLine } from './card-context';
+import { UNDO_WINDOW_HOURS, TASK_RECORD_FIELDS, appliedSummary, type TaskFields } from './actions';
+import { cleanLine, quoted } from './card-context';
 
 /**
  * Bast chat: the server writes the record of every change the chat key makes.
@@ -22,7 +22,7 @@ import { cleanLine } from './card-context';
  */
 export const CHAT_ACTION_HEADER = 'X-Bast-Chat-Action';
 
-type TaskShape = {
+export type TaskShape = {
   id: string; title: string; status: string; arc_id: string | null; assignee_id: string | null;
   due_date?: Date | null; completed_at?: Date | null;
   /** The rest of `TASK_RECORD_FIELDS`, as the database holds them. `blocked_by` is `{id}` rows. */
@@ -132,24 +132,50 @@ export async function recordChatPatch(
 const RECORD_TEXT_KEYS = ['title', 'description', 'requirements', 'notes', 'promised_to', 'tags'] as const;
 export const RECORD_FAILED_TEXT = "That didn't go through. Try again.";
 
+/**
+ * The record of one task write: exactly the fields of `TASK_RECORD_FIELDS` that differ between the two reads, each with
+ * its true before and after in the record's form. Null when nothing changed. `blocked_by_ids` only when `before` carries
+ * the blockers.
+ */
+export function recordDiff(before: TaskShape, after: TaskShape): { before: TaskFields; after: TaskFields } | null {
+  const b: Record<string, unknown> = {};
+  const a: Record<string, unknown> = {};
+  for (const k of TASK_RECORD_FIELDS) {
+    if (k === 'blocked_by_ids' && blockerIds(before) === null) continue;
+    const bv = valueOf(before, k);
+    const av = valueOf(after, k);
+    if (changed(k, bv, av)) {
+      b[k] = bv;
+      a[k] = av;
+    }
+  }
+  if (Object.keys(a).length === 0) return null;
+  return { before: b as TaskFields, after: a as TaskFields };
+}
+
+/** A task as `recordDiff` reads it: the row with its blockers. Null when it is gone. */
+export async function recordShapeOf(db: Pick<PrismaClient, 'task'>, id: string): Promise<TaskShape | null> {
+  return (await db.task.findUnique({ where: { id }, include: { blocked_by: { select: { id: true } } } })) as unknown as TaskShape | null;
+}
+
+/** A field's value in the record's form, from a task row (for comparing a stored value with a record's). */
+export function recordValueOf(t: TaskShape, k: (typeof TASK_RECORD_FIELDS)[number]): unknown {
+  return valueOf(t, k);
+}
+
+/** Two record values of one field are the same (tags and blockers as sets, the checklist by its JSON). */
+export function sameRecordValue(k: (typeof TASK_RECORD_FIELDS)[number], x: unknown, y: unknown): boolean {
+  return !changed(k, x ?? null, y ?? null);
+}
+
 async function patchRecord(before: TaskShape, after: TaskShape, conversationId: string | null, now: Date, db: Db): Promise<string | null> {
   {
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
-    const b: Record<string, unknown> = {};
-    const a: Record<string, unknown> = {};
-    for (const k of TASK_RECORD_FIELDS) {
-      if (k === 'blocked_by_ids' && blockerIds(before) === null) continue;
-      const bv = valueOf(before, k);
-      const av = valueOf(after, k);
-      if (changed(k, bv, av)) {
-        b[k] = bv;
-        a[k] = av;
-      }
-    }
-    if (Object.keys(a).length === 0) return null;
-    const bf = b as TaskFields;
-    const af = a as TaskFields;
+    const diff = recordDiff(before, after);
+    if (!diff) return null;
+    const bf = diff.before;
+    const af = diff.after;
     const summary = await appliedSummary(db, { title: after.title }, bf, af, ownerId, now);
     if (!summary) return null;
     return await writeRecord(db, ownerId, conversationId, { tool: 'change_task', target_id: after.id, summary, before: bf, after: af }, now);
@@ -178,11 +204,11 @@ async function createRecord(task: TaskShape, conversationId: string | null, now:
     const ownerId = await ownerOf(db);
     if (!ownerId) return null;
     // The chat may file a task for any active person now; the record names whoever it is on.
-    let summary = `Filed "${shortTitle(task.title)}".`;
+    let summary = `Filed ${quoted(task.title)}.`;
     if (task.assignee_id && task.assignee_id !== ownerId) {
       const u = await db.user.findUnique({ where: { id: task.assignee_id }, select: { name: true } });
       const first = (u?.name ?? '').trim().split(/\s+/)[0];
-      if (first) summary = `Filed "${shortTitle(task.title)}" for ${cleanLine(first, 40)}.`;
+      if (first) summary = `Filed ${quoted(task.title)} for ${cleanLine(first, 40)}.`;
     }
     return await writeRecord(
       db,

@@ -27,22 +27,65 @@ export const CHECKLIST_LINE_TEXT = `A checklist line can be up to ${CHECKLIST_LI
 export const UNDO_FORMATTING_TEXT = "That can't be put back as plain text. Open the task.";
 
 /**
- * Characters nobody can see (VERIFY-5 Z2), by Unicode property rather than by list: every format character (Cf),
- * control (Cc, except the line break, which is the text's own), private-use (Co), unassigned (Cn) and lone surrogate
- * (Cs) code point, and every Default_Ignorable_Code_Point (variation selectors, Hangul fillers, the tag block, the
- * combining grapheme joiner, the Mongolian selectors), plus the two visible-as-nothing characters that are none of
- * these: the braille blank and the object replacement character.
+ * VERIFY-6: the code points whose category says "visible" (a letter, mark or symbol) but that draw nothing, kept up to
+ * date by hand: the braille blank, the object replacement character, KHITAN SMALL SCRIPT FILLER and MUSICAL SYMBOL NULL
+ * NOTEHEAD (the two VERIFY-6 found by walking every code point). Two of them spell any sentence in binary, so each one
+ * found is added here and to the test that walks every code point (plain.test.ts).
  */
-export const INVISIBLE = /(?!\n)[\p{Cf}\p{Cc}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800\uFFFC]/gu;
+export const BLANK_GLYPHS: readonly number[] = [0x2800, 0xfffc, 0x16fe4, 0x1d159];
+
+const IS_DROPPED = /^[\p{Cf}\p{Cc}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]$/u;
+const IS_BASE = /^[\p{L}\p{N}\p{P}\p{S}]$/u;
+const IS_MARK = /^\p{M}$/u;
+const IS_SPACE = /^\p{Zs}$/u;
 
 /** Line breaks made plain and tabs made spaces: the step before the invisible characters go. */
 const plainBreaks = (v: string) => v.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(/\t/g, ' ');
 
-/** Text without its invisible characters, in NFC, and how many were taken out (the card says how many). */
+/**
+ * Text with only what can be seen (VERIFY-6, an allow-list), in NFC, and how many code points were taken out (the card
+ * says how many). After line breaks are made plain, each code point is kept only when it is
+ * - a letter, number, punctuation or symbol (L, N, P, S) that is not default-ignorable and not in BLANK_GLYPHS,
+ * - a mark (M) that sits on such a character (directly or after other kept marks), not default-ignorable,
+ * - the line break, or
+ * - a space (Zs): the ordinary space is kept, and every other space (no-break, em, ideographic and the rest) becomes
+ *   the ordinary space, so a run of different spaces cannot carry a hidden message and words stay apart.
+ * Everything else (controls, format and private-use characters, unassigned and lone surrogate code points, line and
+ * paragraph separators left over, marks with nothing to sit on, the blank glyphs) is taken out and counted.
+ */
 export function stripInvisible(v: string): { text: string; removed: number } {
   const b = plainBreaks(v);
-  const removed = (b.match(INVISIBLE) ?? []).length;
-  return { text: b.replace(INVISIBLE, '').normalize('NFC'), removed };
+  let out = '';
+  let removed = 0;
+  let onBase = false;
+  for (const ch of b) {
+    if (ch === '\n') {
+      out += ch;
+      onBase = false;
+      continue;
+    }
+    const cp = ch.codePointAt(0)!;
+    if (IS_DROPPED.test(ch) || BLANK_GLYPHS.includes(cp)) {
+      removed++;
+      continue;
+    }
+    if (IS_SPACE.test(ch)) {
+      out += ' ';
+      onBase = false;
+      continue;
+    }
+    if (IS_BASE.test(ch)) {
+      out += ch;
+      onBase = true;
+      continue;
+    }
+    if (IS_MARK.test(ch) && onBase) {
+      out += ch;
+      continue;
+    }
+    removed++;
+  }
+  return { text: out.normalize('NFC'), removed };
 }
 
 /** Invisible characters out, line breaks plain, NFC (a single-line field's own rule then refuses a line break). */
@@ -345,6 +388,36 @@ const QUIET_VALUES = ['default', 'left', 'center', 'right', 'justify'];
  * and beside them every other string leaf, except ids and times (a uuid or an ISO time cannot carry words) and the
  * fixed values of formatting. Used by the card for text it did not write itself, so nothing is left unseen.
  */
+/**
+ * How many code points `stripInvisible` would take out of every string a stored value holds (its JSON keys and values
+ * too), for a card that shows a person's text without them (VERIFY-6 A3). The stored value itself is never changed.
+ */
+export function hiddenIn(stored: unknown): number {
+  let v: unknown = stored;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t.startsWith('[') && !t.startsWith('{')) return stripInvisible(v).removed;
+    try {
+      v = JSON.parse(t);
+    } catch {
+      return stripInvisible(v as string).removed;
+    }
+  }
+  let n = 0;
+  const walk = (x: unknown): void => {
+    if (typeof x === 'string') n += stripInvisible(x).removed;
+    else if (Array.isArray(x)) x.forEach(walk);
+    else if (x && typeof x === 'object') {
+      for (const [k, y] of Object.entries(x as Record<string, unknown>)) {
+        n += stripInvisible(k).removed;
+        walk(y);
+      }
+    }
+  };
+  walk(v);
+  return n;
+}
+
 export function everyWord(stored: unknown): string[] {
   let v: unknown = stored;
   if (typeof v === 'string') {

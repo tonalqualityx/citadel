@@ -1,11 +1,11 @@
 /**
  * Bast chat v2: the reach check (plan section 4.2, rules R1 to R7).
  *
- * The one path from the chat to a shell on Mike's machine is the citadel worker: every 10 minutes
+ * The path this gate covers from the chat to a shell on Mike's machine is the citadel worker: every 10 minutes
  * ~/.local/bin/citadel-worker.sh runs the unblock sweep, asks spawn-gate.py whether there is work,
- * and if so runs a full agent session (with a shell) that reads Bast's tasks. Task text can come from
- * client mail. So a chat change that would START such a session, or CHANGE what a queued one reads,
- * must become a proposal Mike confirms with one tap. This module decides that, as pure functions:
+ * and if so runs a full agent session (with a shell) that reads Bast's tasks and the tasks in a delegate's queue.
+ * Task text can come from client mail. So a chat change that would START such a session, or CHANGE what a queued one
+ * reads, must become a proposal Mike confirms with one tap. This module decides that, as pure functions:
  * no database, no clock (the caller passes `now`), no prose (the tap card's words are composed
  * elsewhere from the data returned here).
  *
@@ -22,6 +22,13 @@
  * Separately it reports what would newly show to a client (R5). Undo uses the same functions on the
  * state it would restore (R6). Unknown statuses, unknown fields, unknown operations and any input the
  * decision needs but was not given all reach, with a reason.
+ *
+ * NOT the only path (VERIFY-6 A4): other scheduled Bast sessions also run with a shell and read task text of any
+ * assignee, mostly titles and lists: the email check (every minute; its `[bast-plan]` branch reads a task and flips it
+ * to Bast through plan_approval.py), the gardener and the portfolio review (weekly), Sabeen's briefing (nightly) and the
+ * meeting sync (hourly). They are outside this gate's scope and tracked separately. Writers other than the chat lane (a
+ * person moving a Sabeen task back from review, an admin key or plan approval handing a task to Bast) are not gated
+ * here either: out of scope by ruling.
  *
  * Sources mirrored (read 2026-11-10): spawn-gate.py `classify` 367 to 381, `has_open_blocker` 330 to 341,
  * `lease_is_live` 351 to 364, `wake_if_human_last_comment` 417 to 448, `wake_client_approved` 454 to 470,
@@ -219,6 +226,26 @@ export const BAST_HELD_VIEWS: readonly WorkerView[] = [
   'review_pending',
 ];
 
+/**
+ * VERIFY-6 G1: the ONE rule for "a task a Bast session may read" around a changed task. A task Bast holds (any view in
+ * BAST_HELD_VIEWS) and a task in a delegate's queue (quiet or woken: the delegate pass reads it and may hand it to Bast)
+ * are judged alike as the blocker or dependent of the task a chat change writes, so the two cannot drift apart.
+ */
+export const SESSION_READ_VIEWS: readonly WorkerView[] = [...BAST_HELD_VIEWS, 'delegate_quiet', 'wake_delegate_comment'];
+
+export function sessionMayRead(v: WorkerView): boolean {
+  return SESSION_READ_VIEWS.includes(v);
+}
+
+/** Whose tasks a Bast session reads at all: Bast's own and each delegate's (spawn-gate.py `delegate_user_ids`). */
+export function isSessionHolder(assigneeId: string | null | undefined): boolean {
+  return assigneeId === BAST_USER_ID || (typeof assigneeId === 'string' && DELEGATE_USER_IDS.includes(assigneeId));
+}
+
+/** Who holds a task a hit names: Bast, or a delegate (the card names her queue). */
+export type SessionHolder = 'bast' | 'delegate';
+const holderOf = (assigneeId: string | null | undefined): SessionHolder => (assigneeId === BAST_USER_ID ? 'bast' : 'delegate');
+
 export type ReachRule =
   | 'hand_to_bast' // R1: the change gives the task to Bast, and the worker will hold it
   | 'create_for_bast' // R7 and 1.3: a new task the worker will hold
@@ -252,6 +279,8 @@ export interface ReachHit {
   view_after?: WorkerView;
   /** True when the check ran on an Undo's restore (R6). */
   via_undo: boolean;
+  /** For a blocker or dependent rule: whose task it is (VERIFY-6 G1). */
+  holder?: SessionHolder;
 }
 
 /** The exact text the worker would read from one task after the change, for the tap card. */
@@ -791,7 +820,10 @@ function withBlocker(d: ReachTask, ref: BlockerRef): ReachTask {
   return { ...d, blocked_by: [...d.blocked_by.filter((b) => b.id !== ref.id), ref] };
 }
 
-/** R2 on the tasks that wait on the changed task. */
+/**
+ * R2 on the tasks that wait on the changed task: each one a Bast session may read (Bast's, or one in a delegate's queue:
+ * `sessionMayRead`, VERIFY-6 G1).
+ */
 function evaluateDependents(acc: Acc, before: ReachTaskWithDependents, after: ReachTask, changed: string[], now: Date): void {
   const relevant = changed.filter((f) => DEPENDENT_RELEVANT.includes(f));
   if (relevant.length === 0) return;
@@ -808,7 +840,8 @@ function evaluateDependents(acc: Acc, before: ReachTaskWithDependents, after: Re
       acc.hit('missing_data', d.id, 'missing: assignee_id of a dependent', relevant);
       continue;
     }
-    if (d.assignee_id !== BAST_USER_ID) continue;
+    if (!isSessionHolder(d.assignee_id)) continue;
+    const holder = holderOf(d.assignee_id);
     const db = withBlocker(d, refBefore);
     const da = withBlocker(d, refAfter);
     const vb = workerView(db, now);
@@ -819,6 +852,7 @@ function evaluateDependents(acc: Acc, before: ReachTaskWithDependents, after: Re
       acc.hit('missing_data', d.id, `dependent of ${before.id}, missing: ${missing.join(', ')}`, relevant, {
         view_before: vb.view,
         view_after: va.view,
+        holder,
       });
       acc.read(readsOf(da, va.view, readChanged));
       continue;
@@ -828,12 +862,14 @@ function evaluateDependents(acc: Acc, before: ReachTaskWithDependents, after: Re
       acc.hit('releases_dependent', d.id, `waits on ${before.id}; view ${vb.view} to ${va.view}`, releaseFields, {
         view_before: vb.view,
         view_after: va.view,
+        holder,
       });
       acc.read(readsOf(da, va.view, readChanged));
-    } else if (isBastHeldView(va.view) && textChanged.length > 0) {
+    } else if (sessionMayRead(va.view) && textChanged.length > 0) {
       acc.hit('changes_blocker_text', d.id, `waits on ${before.id}, whose ${textChanged.join(', ')} its session reads`, textChanged, {
         view_before: vb.view,
         view_after: va.view,
+        holder,
       });
       acc.read(readsOf(da, va.view, readChanged));
     }
@@ -919,8 +955,9 @@ export function checkTaskChange(input: TaskChangeInput): ReachResult {
 
 /**
  * The reverse of R2 (VERIFY-3 field table): a session on a Bast task reads, in GET /api/tasks/:id, the titles of the
- * tasks that wait on it (`blocking`). So retitling a task that waits on a Bast task re-steers that Bast task. Any Bast
- * blocker counts, closed ones too (a done task in review can wake).
+ * tasks that wait on it (`blocking`); so does the delegate pass on a task in a delegate's queue (VERIFY-6 G1). So
+ * retitling a task that waits on such a task re-steers it. The same rule for both holders (`isSessionHolder`): any of
+ * their blockers counts, closed ones too (a done task in review can wake, a delegate's task can be reopened).
  */
 function evaluateDependentTitle(acc: Acc, current: ReachTask, changed: string[]): void {
   if (!changed.includes('title')) return;
@@ -933,7 +970,7 @@ function evaluateDependentTitle(acc: Acc, current: ReachTask, changed: string[])
       acc.hit('missing_data', b.id, 'missing: assignee_id of a task this one waits on', ['title']);
       continue;
     }
-    if (b.assignee_id === BAST_USER_ID) acc.hit('changes_dependent_title', b.id, `waits on Bast's ${b.id}, whose session lists this title`, ['title']);
+    if (isSessionHolder(b.assignee_id)) acc.hit('changes_dependent_title', b.id, `waits on ${b.id}, whose session lists this title`, ['title'], { holder: holderOf(b.assignee_id) });
   }
 }
 

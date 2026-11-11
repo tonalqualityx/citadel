@@ -51,6 +51,9 @@ export async function expireStaleMessages(staleAfterMinutes: number, now: Date =
   let total = 0;
   for (const conversationId of convIds) {
     total += await db.$transaction(async (tx) => {
+      // The conversation row before its event rows, as every other writer of this conversation takes them (the lock
+      // order in task-locks.ts): the daemon's acks hold this row and then update the same Mike rows (VERIFY-6 A1).
+      await tx.$queryRaw`SELECT 1 FROM bast_chat_conversations WHERE id = ${conversationId}::uuid FOR NO KEY UPDATE`;
       // Mark first, conditional on `expired_at IS NULL`: a second caller (the heartbeat and the inbox at once) finds
       // 0 rows changed and adds no second notice. The seqs of the rows THIS call changed carry the notices.
       const candidates = await tx.bastChatEvent.findMany({

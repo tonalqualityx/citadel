@@ -171,6 +171,58 @@ describe('the reach check on a task Bast holds agrees with the table', () => {
   });
 });
 
+// VERIFY-6 G1: the ONE rule for "a task a Bast session may read". Every row of the table, written on the blocker of such
+// a task (or on a task that waits on one), gives the same answer whoever holds that task: Bast (parked, quiet) or
+// Sabeen (her queue, quiet or woken). So the two can never drift apart.
+describe('G1: a blocker or dependent of a task Bast holds and of one in Sabeen\'s queue are judged alike', () => {
+  const READERS: Record<string, Partial<ReachTaskWithDependents>> = {
+    'Bast, parked': { assignee_id: BAST_USER_ID, status: 'blocked', tags: ['needs-mike'], last_comment_author: 'bot' },
+    'Sabeen, quiet': { assignee_id: SABEEN_USER_ID, status: 'not_started', tags: [], last_comment_author: 'bot' },
+    'Sabeen, woken': { assignee_id: SABEEN_USER_ID, status: 'blocked', tags: [], last_comment_author: 'human' },
+  };
+  const ROWS = Object.entries(FIELD_POLICY).filter(([k, p]) => (p.chat === 'patch' || p.chat === 'patch+create') && k !== 'blocking' && k !== 'assignee_id');
+  /** The changed task (the owner's) with one dependent: the reader, waiting on it. */
+  const withReader = (reader: Partial<ReachTaskWithDependents>): ReachTaskWithDependents =>
+    held({ id: 'blocker', assignee_id: MIKE_USER_ID, status: 'not_started', tags: [], dependents: [held({ id: 'reader', ...reader, blocked_by: [{ id: 'blocker', status: 'not_started', approved: false, ordering_only: null, assignee_id: MIKE_USER_ID }] })] });
+  it.each(ROWS)('%s on the blocker of each reader', (k, p) => {
+    const answers = Object.entries(READERS).map(([name, reader]) => {
+      const r = checkTaskChange({ current: withReader(reader), change: CHANGES[k], now: NOW });
+      return { name, tap: r.needs_tap, text: r.starts.some((h) => h.rule === 'changes_blocker_text' && h.task_id === 'reader') };
+    });
+    expect(new Set(answers.map((a) => a.tap)).size, `${k}: ${JSON.stringify(answers)}`).toBe(1);
+    expect(new Set(answers.map((a) => a.text)).size, `${k}: ${JSON.stringify(answers)}`).toBe(1);
+    if (['title', 'description', 'requirements', 'notes'].includes(k)) expect(answers[0].tap, k).toBe(true);
+    if (p.tap === 'typed') expect(answers[0].tap, k).toBe(false);
+  });
+  it('a chat comment on the blocker of each reader taps alike', () => {
+    for (const reader of Object.values(READERS)) {
+      const r = checkComment({ task: withReader(reader), action: 'add', now: NOW });
+      expect(r.needs_tap).toBe(true);
+      expect(r.starts.map((h) => h.rule)).toContain('changes_blocker_text');
+    }
+  });
+  it.each(ROWS)('%s on a task that waits on each reader', (k) => {
+    const answers = Object.entries(READERS).map(([name, reader]) => {
+      const current = held({ id: 'waiter', assignee_id: MIKE_USER_ID, status: 'not_started', tags: [], blocked_by: [{ id: 'reader', status: reader.status, approved: false, ordering_only: null, assignee_id: reader.assignee_id }] });
+      const r = checkTaskChange({ current, change: CHANGES[k], now: NOW });
+      return { name, tap: r.needs_tap, title: r.starts.some((h) => h.rule === 'changes_dependent_title') };
+    });
+    expect(new Set(answers.map((a) => a.tap)).size, `${k}: ${JSON.stringify(answers)}`).toBe(1);
+    expect(new Set(answers.map((a) => a.title)).size, `${k}: ${JSON.stringify(answers)}`).toBe(1);
+    if (k === 'title') expect(answers[0].title).toBe(true);
+  });
+  it('the hits name whose task it is, for the card', () => {
+    const sab = checkTaskChange({ current: withReader(READERS['Sabeen, quiet']), change: { title: 'x' }, now: NOW });
+    expect(sab.starts.find((h) => h.rule === 'changes_blocker_text')?.holder).toBe('delegate');
+    const bast = checkTaskChange({ current: withReader(READERS['Bast, parked']), change: { title: 'x' }, now: NOW });
+    expect(bast.starts.find((h) => h.rule === 'changes_blocker_text')?.holder).toBe('bast');
+  });
+  it('a task nobody\'s session reads (the owner\'s) as the dependent: no tap', () => {
+    const r = checkTaskChange({ current: withReader({ assignee_id: MIKE_USER_ID, status: 'not_started', tags: [] }), change: { title: 'x' }, now: NOW });
+    expect(r.needs_tap).toBe(false);
+  });
+});
+
 describe('the chat filter on the text fields of the table', () => {
   const auth = { lane: 'bast-chat', laneEnforced: true } as any;
   const patch = (body: Record<string, unknown>, tags: string[] = []) => filterChatTaskBody({ auth, method: 'PATCH', body, ownerId: MIKE_USER_ID, existing: { id: 't', assignee_id: MIKE_USER_ID, tags } });

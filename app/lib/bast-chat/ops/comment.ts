@@ -26,7 +26,8 @@ import type { BastChatAction } from '@prisma/client';
 import { ApiError } from '@/lib/api/errors';
 import { actorLaneField } from '@/lib/auth/actor-lane';
 import { createNotification } from '@/lib/services/notifications';
-import { loadReachTask, opSummary, shortTitle, type OpContext, type PreparedOp } from '../actions';
+import { loadReachTask, opSummary, type OpContext, type PreparedOp } from '../actions';
+import { quoted } from '../card-context';
 import { BAST_USER_ID, BOT_USER_IDS } from '../gate-mirror';
 import { checkComment, type CommentAuthorKind, type ReachOrigin } from '../worker-reach';
 import { isChatUuid } from '../worker-kit';
@@ -71,7 +72,7 @@ async function prepare(ctx: OpContext, input: CommentInput, origin: ReachOrigin)
   return {
     reach,
     expect: { task_updated_at: loaded.row.updated_at.toISOString(), last_comment_id: last?.id ?? null },
-    copy: { clause: `add a note to "${shortTitle(loaded.row.title)}"` },
+    copy: { clause: `add a note to ${quoted(loaded.row.title)}` },
   };
 }
 
@@ -154,7 +155,7 @@ export const commentOp: OpDef<CommentInput> = {
     if (!loaded) throw new ApiError('Changed since. Open the task.', 409, 'changed_since');
     const after = await latestComment(db, task_id, comment_id);
     const reach = checkComment({ task: loaded.reach, action: 'hide', last_comment_author_after: kindOf(after), last_comment_id_after: after?.id ?? null, now: ctx.now, origin: 'undo' });
-    return { reach, expect: { comment_id }, copy: { clause: `hide the note on "${shortTitle(loaded.row.title)}"` } };
+    return { reach, expect: { comment_id }, copy: { clause: `hide the note on ${quoted(loaded.row.title)}` } };
   },
   async undo(ctx, record) {
     const { comment_id, task_id } = ids(record);

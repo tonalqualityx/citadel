@@ -43,7 +43,7 @@ describe('project op', () => {
     expect(p.status).toBe('suspended');
     expect(r.before).toEqual({ project_id: PROJ, status: 'in_progress', completed_date: null });
     expect(r.after).toEqual({ project_id: PROJ, status: 'suspended', completed_date: null });
-    expect(r.summary).toBe('Moved the VCDP site project to suspended.');
+    expect(r.summary).toBe('Moved the "VCDP site" project to suspended.');
     const rec = { before: r.before, after: r.after } as any;
     const u = await op.prepareUndo(ctx() as any, rec);
     expect(u.reach.needs_tap).toBe(true); // putting it back makes it visible to the client again

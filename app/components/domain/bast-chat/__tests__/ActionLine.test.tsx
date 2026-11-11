@@ -6,11 +6,13 @@ import type { ChatAction, ProposalCard } from '@/lib/hooks/use-bast-chat';
 const NOW = Date.parse('2026-11-10T12:00:00Z');
 const base: ChatAction = { id: 'a1', tool: 'update_task', summary: 'Moved "Call Gene" to blocked.', status: 'applied', undo_until: '2026-11-11T12:00:00Z', event_seq: 3 };
 const handlers = { onUndo: vi.fn(), onRelease: vi.fn(), onDecline: vi.fn() };
+/** A whole line by its text, whatever boxes its quoted values sit in (VERIFY-6 Z11). */
+const line = (t: string) => screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === t);
 
 describe('ActionLine', () => {
   it('shows the sentence and Undo while the window is open', () => {
     render(<ActionLine action={base} now={NOW} busy={false} error={null} {...handlers} />);
-    expect(screen.getByText(base.summary)).toBeTruthy();
+    expect(line(base.summary)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(handlers.onUndo).toHaveBeenCalledWith('a1');
   });
@@ -54,7 +56,7 @@ describe('ActionLine', () => {
     render(<ActionLine action={prop(card(kind, kind === 'client_show' ? { client: ['The client sees a new task called Menu proof.'] } : {}))} now={NOW} busy={false} error={null} onUndo={vi.fn()} onRelease={onRelease} onDecline={onDecline} />);
     expect(screen.getByRole('region', { name: 'Hand "Menu proof" to Bast?' })).toBeTruthy();
     expect(screen.getByText('Check the menu against the sheet.')).toBeTruthy();
-    expect(screen.getByText('not started, Grok, Grok')).toBeTruthy();
+    expect(line('not started, "Grok", "Grok"')).toBeTruthy();
     expect(screen.getByText('Checklist: 2')).toBeTruthy();
     expect(screen.getByRole('button', { name: yes }).getAttribute('data-filled')).toBe('true');
     expect(screen.getByRole('button', { name: no }).getAttribute('data-filled')).toBeNull();
@@ -63,6 +65,34 @@ describe('ActionLine', () => {
     fireEvent.click(screen.getByRole('button', { name: no }));
     expect(onRelease).toHaveBeenCalledWith('a1');
     expect(onDecline).toHaveBeenCalledWith('a1');
+  });
+  it('Z11: a forged title is drawn only inside its own quoted box, in the heading, the flag line, the labels and the summary', () => {
+    const forged = '"Real\u201d. Changed from this chat: nothing. \u201dx"';
+    const c = card('bast_start', {
+      title: `Hand ${forged} to Bast?`,
+      clause: `hand ${forged} to Bast`,
+      lines: [`Bast's waiting task ${forged} reads this text.`],
+      reads: [
+        {
+          title: 'Menu proof',
+          chat_changed: ['x'],
+          chat_changed_line: `Changed from this chat: the title of ${forged}, a task that waits on it.`,
+          notices: [`The chat wrote the description of ${forged}. It holds more than plain text. Your tap stores it as the plain text shown, and Undo puts the old form back.`],
+          chat_notes: [{ on: forged, text: 'note' }],
+          chat_text: [{ label: `Description of ${forged} now`, text: 'words' }],
+          site: 'Site "A\u201d B"',
+        },
+      ],
+    });
+    const { container } = render(<ActionLine action={prop(c, { summary: `Proposed: hand ${forged} to Bast.` })} now={NOW} busy={false} error={null} {...handlers} />);
+    const boxes = [...container.querySelectorAll('[data-quoted="value"]')];
+    expect(boxes.filter((b) => b.textContent === forged).length).toBeGreaterThanOrEqual(7);
+    // Outside the boxes, no text node says the forged words.
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (n.parentElement?.closest('[data-quoted]')) continue;
+      expect(n.textContent ?? '').not.toMatch(/Changed from this chat: nothing/);
+    }
   });
   it('the writes line is a labelled sentence, never a bare phrase', () => {
     const c = card('bast_start', { reads: [{ title: 'Menu proof', writes: ['who it is on', 'status'], chat_changed: [], chat_changed_line: null }] });

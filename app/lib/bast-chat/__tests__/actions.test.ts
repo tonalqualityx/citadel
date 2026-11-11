@@ -1472,17 +1472,17 @@ describe('appliedSummary: one line per field (plan 1.2)', () => {
       [{ description: 'x' }, { description: null }, 'Cleared the description on "Menu proof".'],
       [{ requirements: null }, { requirements: [{ id: 'a', text: 'b', sort_order: 0 }] }, 'Rewrote the checklist on "Menu proof".'],
       [{ notes: null }, { notes: 'n' }, 'Changed the notes on "Menu proof".'],
-      [{ project_id: null }, { project_id: '9a111111-1111-4111-8111-111111111111' }, 'Moved "Menu proof" to the VCDP project.'],
+      [{ project_id: null }, { project_id: '9a111111-1111-4111-8111-111111111111' }, 'Moved "Menu proof" to the "VCDP" project.'],
       [{ project_id: '9a111111-1111-4111-8111-111111111111' }, { project_id: null }, 'Took "Menu proof" out of its project.'],
       [{ client_id: randomUUID() }, { client_id: null }, 'Took the client off "Menu proof".'],
-      [{ site_id: null }, { site_id: SITE }, 'Set the site on "Menu proof" to jillscafe.com.'],
+      [{ site_id: null }, { site_id: SITE }, 'Set the site on "Menu proof" to "jillscafe.com".'],
       [{ site_id: SITE }, { site_id: null }, 'Took the site off "Menu proof".'],
-      [{ tags: ['a'] }, { tags: ['a', 'b', 'c'] }, 'Added the tags b and c to "Menu proof".'],
-      [{ tags: ['a', 'b'] }, { tags: ['b'] }, 'Took the tag a off "Menu proof".'],
+      [{ tags: ['a'] }, { tags: ['a', 'b', 'c'] }, 'Added the tags "b" and "c" to "Menu proof".'],
+      [{ tags: ['a', 'b'] }, { tags: ['b'] }, 'Took the tag "a" off "Menu proof".'],
       [{ energy_estimate: 2 }, { energy_estimate: 4 }, 'Changed the time estimate on "Menu proof".'],
-      [{ due_date: null, promised_to: null }, { due_date: '2026-11-13T22:00:00.000Z', promised_to: 'Jill' }, 'Due Friday at 5:00 PM for "Menu proof", promised to Jill.'],
+      [{ due_date: null, promised_to: null }, { due_date: '2026-11-13T22:00:00.000Z', promised_to: 'Jill' }, 'Due Friday at 5:00 PM for "Menu proof", promised to "Jill".'],
       [{ due_date: '2026-11-13T22:00:00.000Z' }, { due_date: null }, 'Took the date off "Menu proof".'],
-      [{ promised_to: null }, { promised_to: 'Jill' }, '"Menu proof" is promised to Jill now.'],
+      [{ promised_to: null }, { promised_to: 'Jill' }, '"Menu proof" is promised to "Jill" now.'],
       [{ priority: 3 }, { priority: 1 }, 'Moved "Menu proof" up in the team\'s lists.'],
       [{ priority: 2 }, { priority: 4 }, 'Moved "Menu proof" down in the team\'s lists.'],
       [{ is_focus: false }, { is_focus: true }, 'Marked "Menu proof" as a focus.'],
@@ -1559,7 +1559,7 @@ describe('opSummary: one line per operation (plan 2)', () => {
       'Marked "Jill reply" done.',
       '"Jill reply" is no longer needed.',
       '"Jill reply" is on Sabeen now.',
-      'Moved the VCDP project to suspended.',
+      'Moved the "VCDP" project to suspended.',
     ]);
     for (const l of lines) expect(l).not.toMatch(/[\u2013\u2014]|priority|overdue/i);
   });
@@ -1627,6 +1627,6 @@ describe('card copy (V5)', () => {
     const t = addTask({ title: 'Menu proof' });
     const p = await propose(t, { assignee_id: BAST });
     expect(p.card.reads[0].writes).toEqual(['who it is on']);
-    expect(JSON.stringify(p.card)).not.toMatch(/—|–|priorit|overdue/i);
+    expect(JSON.stringify(p.card)).not.toMatch(/\u2014|\u2013|priorit|overdue/i);
   });
 });

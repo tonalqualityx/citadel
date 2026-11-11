@@ -38,7 +38,7 @@ import { prismaOwnerLookups } from '@/lib/waits/owner';
 import { buildNextStepData } from '@/lib/waits/templates';
 import { resolveWaitOwner, type SweepStore, type WaitRow } from '@/lib/waits/sweeper';
 import { extendWait, pauseWait, redateWait, reassignWait, resolveByPerson, resumeWait } from '@/lib/waits/actions';
-import { cleanLine } from '../card-context';
+import { cleanLine, quoted } from '../card-context';
 import { opSummary, type OpContext, type PreparedOp } from '../actions';
 import { BAST_USER_ID } from '../gate-mirror';
 import { checkOp, type ReachOp, type ReachOrigin } from '../worker-reach';
@@ -155,19 +155,19 @@ async function prepare(ctx: OpContext, input: WaitInput, origin: ReachOrigin): P
   if (input.action === 'extend' && input.business_days && input.until) throw new ApiError('Give business_days or until, not both.', 400, 'bad_extend');
   if (input.action === 'reassign') await activeUser(db, input.owner_user_id);
   const reach = checkOp({ op: await reachOpFor(db, w, input, ctx.now), now: ctx.now, origin });
-  const t = cleanLine(w.title, 60);
+  const t = quoted(w.title);
   return {
     reach,
     expect: { updated_at: w.updated_at.toISOString(), state: w.state },
     copy: {
       clause:
         input.action === 'reassign'
-          ? `give the wait "${t}" to someone`
+          ? `give the wait ${t} to someone`
           : input.action === 'resume'
-            ? `resume the wait "${t}"`
+            ? `resume the wait ${t}`
             : input.action === 'complete'
-              ? `finish the wait "${t}"`
-              : `change the date of the wait "${t}"`,
+              ? `finish the wait ${t}`
+              : `change the date of the wait ${t}`,
       why: input.action === 'complete' ? [] : ['The wait makes a task for Bast when it comes due.'],
       // Finishing a wait hands nothing over by itself: the button says what the tap does (VERIFY-2 N7).
       ...(input.action === 'complete' ? { buttons: { yes: 'Finish it', no: 'Keep it open' } } : {}),
@@ -311,7 +311,7 @@ export const waitOp: OpDef<WaitInput> = {
     return {
       reach: checkOp({ op, now: ctx.now, origin: 'undo' }),
       expect: { updated_at: w.updated_at.toISOString(), state: w.state },
-      copy: { clause: `put the wait "${cleanLine(w.title, 60)}" back as it was`, why: ['The wait makes a task for Bast when it comes due.'] },
+      copy: { clause: `put the wait ${quoted(w.title)} back as it was`, why: ['The wait makes a task for Bast when it comes due.'] },
     };
   },
   async undo(ctx, record, expect) {

@@ -22,8 +22,8 @@ import { getHomeAction, getItemState } from '@/lib/home/state';
 import { resolveUserTimezone } from '@/lib/services/user-timezone';
 import type { HomeActRequest } from '@/lib/home/types';
 import type { OpContext, PreparedOp } from '../actions';
-import { opSummary, shortTitle, type OpLine } from '../actions';
-import { cleanLine } from '../card-context';
+import { opSummary, type OpLine } from '../actions';
+import { cleanLine, quoted } from '../card-context';
 import { checkOp, type ReachOrigin } from '../worker-reach';
 import type { OpDef, OpJson, OpRun, OpDb } from './index';
 
@@ -95,7 +95,7 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
   const d = await describeItem(db, input.item_key);
   // A third Not now leaves no return date: the item stays in view (the opSummary line would say it stays out).
-  if (a === 'not_now' && until === null) return cleanLine(`"${shortTitle(d.title)}" stays in view. Pick what to do with it.`, 300);
+  if (a === 'not_now' && until === null) return cleanLine(`${quoted(d.title)} stays in view. Pick what to do with it.`, 300);
   let line: OpLine;
   if (a === 'not_now') line = { op: 'home_act', action: 'not_now', title: d.title, until };
   else if (a === 'not_emergency') line = { op: 'home_act', action: 'not_emergency', title: d.title, security: d.security };

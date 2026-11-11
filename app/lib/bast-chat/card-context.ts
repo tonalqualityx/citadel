@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { prisma as defaultDb } from '@/lib/db/prisma';
+import { stripInvisible } from './plain';
 
 export const CARD_KINDS = ['task', 'email_ask', 'wait', 'project', 'arc', 'session_ask', 'none'] as const;
 export const CARD_SCREENS = ['home', 'overlook'] as const;
@@ -32,18 +33,36 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,120}$/;
 
 /**
- * Plain one-line text: no control characters, no invisible or direction-control characters (Unicode Cf: zero-width,
- * bidi embeddings and overrides, the byte order mark), no angle brackets, no em or en dash, single spaces, cut to `max`.
+ * Plain one-line text: only what can be seen (the same allow-list as every chat text, `stripInvisible` in plain.ts,
+ * VERIFY-6), no line breaks, no angle brackets, no em or en dash, single spaces, cut to `max`.
  */
 export function cleanLine(input: string, max: number): string {
-  return input
-    .replace(/(?!\n)[\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u2800\uFFFC]/gu, '')
-    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029<>]/g, ' ')
-    .replace(/\s*[–—]\s*/g, ', ')
+  return stripInvisible(String(input ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')).text
+    .replace(/[<>]/g, ' ')
+    .replace(/\s*[\u2013\u2014]\s*/g, ', ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max)
     .trim();
+}
+
+/**
+ * A value a person or the chat wrote (a task, project or wait title, a name, a subject), for a line the server writes
+ * (VERIFY-6 Z11): cleaned to one line of at most `max` characters and set in straight double quotes, with every
+ * straight double quote inside it turned into a closing curly one, so the value can never close its own quote and
+ * pass for words of the line. The panel shows each quoted span in its own box (ActionLine.tsx `Chrome`).
+ */
+export function quoted(value: string | null | undefined, max = 60): string {
+  return `"${cutLine(value ?? 'Untitled', max).replace(/"/g, '\u201d')}"`;
+}
+
+/** One clean line cut at a word boundary with three full stops when over `max` characters. */
+export function cutLine(value: string, max = 60): string {
+  const t = cleanLine(value, 500);
+  if (t.length <= max) return t;
+  const room = t.slice(0, max - 3);
+  const sp = room.lastIndexOf(' ');
+  return `${(sp >= 15 ? room.slice(0, sp) : room).replace(/[\s.,;:]+$/, '')}...`;
 }
 
 const schema = z
