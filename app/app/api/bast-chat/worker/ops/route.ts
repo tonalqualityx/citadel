@@ -13,8 +13,8 @@ const bodySchema = z.object({ conversation_id: z.string().uuid(), op: z.string()
 
 /**
  * POST /api/bast-chat/worker/ops: one named operation on the owner's home screen, a task comment, an email ask, a
- * wait or a project (lib/bast-chat/ops). Body `{conversation_id, op, input}`, op one of home, comment, email_ask,
- * wait, project. The owner is always the configured owner, never a user id from the request.
+ * wait or a project (lib/bast-chat/ops), or the start of a project or a quote. Body `{conversation_id, op, input}`, op one of
+ * home, comment, email_ask, wait, project, start_project, start_quote. The owner is always the configured owner, never a user id from the request.
  *
  * 200 `{action_id, status: 'applied', line, undo_until, can_undo, result}`: written, recorded with its true before and
  * after, one write counted. 202 `{action_id, status: 'proposed', proposal_kind, line}` with `X-Bast-Chat-Action`:

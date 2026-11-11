@@ -211,4 +211,57 @@ describe('a change that needs a tap', () => {
   });
 });
 
+describe('start_project and start_quote through the route', () => {
+  const CLIENT = 'c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1';
+  let made: { projects: any[]; tasks: any[]; accords: any[] };
+  beforeEach(() => {
+    made = { projects: [], tasks: [], accords: [] };
+    const base = { is_deleted: false, notes: null, sop_id: null, arc_id: null, needs_review: false, approved: false, client_approved_at: null, lease_until: null, client_visible: false, requested_by_contact_id: null, staging_preview_url: null, updated_at: new Date(), priority: 3, is_focus: false, due_date: null, promised_to: null, energy_estimate: null, mystery_factor: 'none', battery_impact: 'average_drain', project: null, blocked_by: [], blocking: [] };
+    h.db.client = { findFirst: vi.fn(async () => ({ id: CLIENT, name: "Jill's Cafe", sites: [] })) };
+    h.db.project.create = vi.fn(async ({ data }: any) => { const r = { id: 'd0d0d0d0-0000-4000-8000-000000000001', is_deleted: false, ...data }; made.projects.push(r); return r; });
+    h.db.project.findFirst = vi.fn(async ({ where }: any) => made.projects.find((x) => x.id === where.id) ?? (project ? { ...project } : null));
+    h.db.project.updateMany = vi.fn(async ({ where, data }: any) => { const r = made.projects.find((x) => x.id === where.id && x.status === where.status); if (!r) return { count: 0 }; Object.assign(r, data); return { count: 1 }; });
+    h.db.task.create = vi.fn(async ({ data }: any) => { const r = { ...base, ...data }; made.tasks.push(r); return r; });
+    h.db.task.findUnique = vi.fn(async ({ where }: any) => made.tasks.find((x) => x.id === where.id) ?? null);
+    h.db.task.updateMany = vi.fn(async ({ where, data }: any) => { const r = made.tasks.find((x) => x.id === where.id && x.status === where.status && x.assignee_id === where.assignee_id); if (!r) return { count: 0 }; Object.assign(r, data); return { count: 1 }; });
+    h.db.comment = { findFirst: vi.fn(async () => null) };
+    h.db.accord = {
+      create: vi.fn(async ({ data }: any) => { const r = { id: 'a0a0a0a0-0000-4000-8000-000000000002', is_deleted: false, ...data }; made.accords.push(r); return r; }),
+      findFirst: vi.fn(async ({ where }: any) => made.accords.find((x) => x.id === where.id) ?? null),
+      updateMany: vi.fn(async ({ where, data }: any) => { const r = made.accords.find((x) => x.id === where.id && x.status === where.status); if (!r) return { count: 0 }; Object.assign(r, data); return { count: 1 }; }),
+    };
+  });
+
+  it('start_project: 200 applied with the line, the result and a project_start record; Undo cancels it', async () => {
+    const res = await call(body('start_project', { client_id: CLIENT, what: 'Rebuild the menu pages', message: 'Start a project for Jill\'s Cafe to rebuild the menu pages.' }));
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j).toMatchObject({ status: 'applied', can_undo: true, line: 'Started "Rebuild the menu pages" for Jill\'s Cafe. It is hidden from the client until you say it is live.' });
+    expect(Object.keys(j.result).sort()).toEqual(['client_created', 'client_id', 'project_id', 'site_id', 'task_id']);
+    expect(writes).toBe(1);
+    expect(actions[0]).toMatchObject({ tool: 'start_project', target_type: 'project_start', target_id: j.result.project_id, status: 'applied', before: {}, after: j.result });
+    h.db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER_ID });
+    const v = await undoAction(j.action_id, OWNER_ID, new Date(), h.db);
+    expect(v.status).toBe('undone');
+    expect(made.projects[0].status).toBe('cancelled');
+    expect(made.tasks[0].status).toBe('abandoned');
+  });
+  it('start_quote: 200 applied with the line and a quote_start record; a price field is 400', async () => {
+    const res = await call(body('start_quote', { client_id: CLIENT, what: 'second location page', message: 'quote this' }));
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j).toMatchObject({ status: 'applied', line: "Started a quote for Jill's Cafe: second location page. Nothing is priced or sent.", result: { client_id: CLIENT } });
+    expect(actions[0]).toMatchObject({ tool: 'start_quote', target_type: 'quote_start', target_id: j.result.deal_id, status: 'applied' });
+    expect(made.accords[0]).toMatchObject({ status: 'lead' });
+    expect(made.accords[0]).not.toHaveProperty('total_value');
+    h.db.bastChatConversation.findUnique.mockResolvedValue({ owner_id: OWNER_ID });
+    const v = await undoAction(j.action_id, OWNER_ID, new Date(), h.db);
+    expect(v.status).toBe('undone');
+    expect(made.accords[0]).toMatchObject({ status: 'lost', rejection_reason: 'Started by mistake from the chat' });
+    h.db.bastChatConversation.findUnique.mockResolvedValue(conv);
+    const bad = await call(body('start_quote', { client_id: CLIENT, what: 'x', message: 'y', total_value: 100 }));
+    expect(bad.status).toBe(400);
+  });
+});
+
 void ACTION;

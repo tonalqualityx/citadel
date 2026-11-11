@@ -1,7 +1,7 @@
 /**
  * Bast chat v2: the operations behind POST /api/bast-chat/worker/ops (plan 2.1 and 2.2).
  *
- * Five operations, each a `ChatOperation` registered once with `registerChatOperation` when this module loads
+ * Seven operations, each a `ChatOperation` registered once with `registerChatOperation` when this module loads
  * (so the undo, release, decline and undo-since routes import it for its side effect):
  *
  *   name         target_type  tool (stored)        what it changes
@@ -10,6 +10,8 @@
  *   email_ask    email_ask    close_email_ask      an email ask's state (handled, dismissed, open)
  *   wait         wait         change_wait          a wait's owner, due date, pause or end
  *   project      project      change_project       a project's status
+ *   start_project project_start start_project      a new project (hidden, status queue) and a kickoff task for the owner; a new client only when asked
+ *   start_quote  quote_start  start_quote          a deal record (status lead) and a pricing task for the owner; no value, no Proposal, nothing sent
  *
  * Besides the registry's `prepare`, `apply`, `prepareUndo` and `undo`, each op has `run`: the write that returns the
  * TRUE before and after for the chat's record (`OpRun`). `apply` (the owner's tap) is `run` with the outcome mapped.
@@ -27,6 +29,8 @@ import { commentOp } from './comment';
 import { emailAskOp } from './email-ask';
 import { waitOp } from './wait';
 import { projectOp } from './project';
+import { startProjectOp } from './start-project';
+import { startQuoteOp } from './start-quote';
 
 export type OpJson = Prisma.InputJsonValue;
 export type OpDb = PrismaClient;
@@ -90,9 +94,11 @@ export const OPS: readonly RunnableOp<never>[] = [
   define(emailAskOp),
   define(waitOp),
   define(projectOp),
+  define(startProjectOp),
+  define(startQuoteOp),
 ] as unknown as readonly RunnableOp<never>[];
 
-/** The operation of the ops route: only the five above (the task kind is not reachable through it). */
+/** The operation of the ops route: only the seven above (the task kind is not reachable through it). */
 export function getRunnableOp(name: string): RunnableOp | null {
   const op = getChatOperation(name);
   if (!op) return null;

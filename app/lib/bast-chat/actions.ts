@@ -334,7 +334,9 @@ export type OpLine =
   | { op: 'wait_change'; action: 'redate' | 'extend'; title: string; due: Date }
   | { op: 'wait_change'; action: 'pause' | 'resume' | 'complete' | 'cancel'; title: string }
   | { op: 'wait_change'; action: 'reassign'; title: string; to_name: string }
-  | { op: 'project_status'; name: string; status: string };
+  | { op: 'project_status'; name: string; status: string }
+  | { op: 'start_project'; name: string; client_name: string; client_created: boolean }
+  | { op: 'start_quote'; who: string; what: string };
 
 /** The line for an applied operation (plan 2.1 and section 6). */
 export function opSummary(o: OpLine, now: Date = new Date()): string {
@@ -409,6 +411,12 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
       break;
     case 'project_status':
       s = `Moved the ${quoted(o.name, 80)} project to ${PROJECT_STATUS_WORDS[o.status] ?? 'a new status'}.`;
+      break;
+    case 'start_project':
+      s = `Started ${quoted(o.name, 80)} for ${cutLine(o.client_name, 40)}. It is hidden from the client until you say it is live.${o.client_created ? ` Added ${cutLine(o.client_name, 40)} as a new client.` : ''}`;
+      break;
+    case 'start_quote':
+      s = `Started a quote for ${cutLine(o.who, 60)}: ${cutLine(o.what, 80)}. Nothing is priced or sent.`;
       break;
   }
   return cleanLine(s, 300);
