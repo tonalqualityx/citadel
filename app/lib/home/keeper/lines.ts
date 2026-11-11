@@ -3,7 +3,7 @@
  * No dashes, and none of the words the screen never uses (copy-guard covers lib/home).
  */
 
-import { KEEPER } from '../rules';
+import { ARC_KEEPER, KEEPER } from '../rules';
 import { displayText } from '../copy';
 import type { KeeperPlan, KeeperPlanLine } from '../types';
 import { longDay, weekdayName } from './stagger';
@@ -48,4 +48,18 @@ export function keeperLines(plan: Pick<KeeperPlan, 'date' | 'stagger' | 'dates'>
   }
 
   return lines;
+}
+
+/** Slice 2c: the sentence for an arc the keeper made, n of his tasks linked. */
+export function arcMadeLine(name: string, n: number): string {
+  return `Made the arc ${displayText(name)} with ${n} of your tasks.`;
+}
+
+/** Slice 2c: the sentence for an arc the keeper closed. */
+export function arcClosedLine(name: string, reason: 'all_done' | 'stale', openTasks: number): string {
+  const n = displayText(name);
+  if (reason === 'all_done') return `Closed the arc ${n}: every step is done.`;
+  if (openTasks === 0) return `Closed the arc ${n}: nothing had touched it for ${ARC_KEEPER.staleDays} days.`;
+  if (openTasks === 1) return `Closed the arc ${n}: the 1 task left is still tracked.`;
+  return `Closed the arc ${n}: the ${openTasks} tasks left are still tracked.`;
 }

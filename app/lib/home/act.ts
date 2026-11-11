@@ -23,8 +23,9 @@
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { ApiError } from '@/lib/api/errors';
-import { groupKeySchema, itemKeySchema } from './item-key';
-import { ARC_STEP_KEYS_MAX, LEFT_OFF_NOTE_MAX, NOT_NOW, UNDO_WINDOW_HOURS } from './rules';
+import { groupKeySchema, itemKeySchema, parseItemKey } from './item-key';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
+import { ARC_STEP_KEYS_MAX, CLOSED_TASK_STATUSES, LEFT_OFF_NOTE_MAX, NOT_NOW, UNDO_WINDOW_HOURS } from './rules';
 import { loadHomeInputs } from './load';
 import { selectHome } from './select';
 import { dayForGroup, type ProposedDay } from './today';
@@ -288,9 +289,22 @@ interface DaySnapshot {
   lighter_at: string | null;
 }
 
+/**
+ * Slice 2c: a change outside the home screen's own rows, stored in the before and after sides of an action row
+ * (the same record sits on both, so Undo can compare what the row holds now with what the action wrote).
+ * - create: the keeper made an arc and linked these tasks to it.
+ * - close: the keeper closed an arc; closed_at is the value it wrote.
+ * - link: his add or remove on today's arc was copied onto one task's arc_id (to_arc_id null on a remove).
+ */
+export type ArcRecord =
+  | { kind: 'create'; arc_id: string; client_id: string | null; project_id: string | null; task_ids: string[] }
+  | { kind: 'close'; arc_id: string; closed_at: string }
+  | { kind: 'link'; task_id: string; from_arc_id: string | null; to_arc_id: string | null };
+
 interface UndoSide {
   states: StateRecord[];
   day?: DayRecord;
+  arcs?: ArcRecord[];
 }
 
 function toJsonValue(v: unknown): FieldValue {
@@ -654,6 +668,41 @@ async function resolveTargetDay(
   return dayForGroup(sel, req.to_group_key, day, raw.calendar_events, opts.now);
 }
 
+const CLOSED_STATUSES = [...CLOSED_TASK_STATUSES];
+
+/**
+ * Slice 2c, arcs_link_tasks. Only for arc_add and arc_remove on a day whose group is a real arc. The switch is read
+ * here, inside the transaction. Writes only a task assigned to `userId` (never another person's, never a bot's):
+ * add sets arc_id when it is null, remove clears it only when it still equals the day's arc. Returns the records Undo needs.
+ */
+async function copyArcEditToTask(
+  tx: HomeDb,
+  userId: string,
+  req: HomeActRequest,
+  day: RawHomeDay | null
+): Promise<ArcRecord[]> {
+  if (req.action !== 'arc_add' && req.action !== 'arc_remove') return [];
+  if (!day || !day.arc_id) return [];
+  const parsed = parseItemKey(req.item_key);
+  if (!parsed || parsed.kind !== 'task') return [];
+  const settings = await tx.homeKeeperSettings.findUnique({ where: { user_id: userId }, select: { arcs_link_tasks: true } });
+  if (settings?.arcs_link_tasks !== true) return [];
+  if (req.action === 'arc_add') {
+    const open = await tx.arc.findFirst({ where: { id: day.arc_id, closed_at: null }, select: { id: true } });
+    if (!open) return [];
+    const r = await tx.task.updateMany({
+      where: { id: parsed.id, assignee_id: userId, arc_id: null, is_deleted: false, status: { notIn: CLOSED_STATUSES } },
+      data: { arc_id: day.arc_id },
+    });
+    return r.count === 1 ? [{ kind: 'link', task_id: parsed.id, from_arc_id: null, to_arc_id: day.arc_id }] : [];
+  }
+  const r = await tx.task.updateMany({
+    where: { id: parsed.id, assignee_id: userId, arc_id: day.arc_id, is_deleted: false },
+    data: { arc_id: null },
+  });
+  return r.count === 1 ? [{ kind: 'link', task_id: parsed.id, from_arc_id: day.arc_id, to_arc_id: null }] : [];
+}
+
 /** Do one home-only action for `userId`. Throws HomeActError for a refused request. */
 export async function runHomeAct(
   db: PrismaClient,
@@ -688,6 +737,9 @@ export async function runHomeAct(
       if (changed === 0) throw new HomeActError('stale_day');
     }
 
+    // Slice 2c: with his switch on, an add or remove on today's real arc is copied onto his own task's arc_id.
+    const arcLinks = await copyArcEditToTask(tx, userId, req, day);
+
     const undoUntil = plan.undoable ? new Date(opts.now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000) : null;
     let before: UndoSide | { recorded: { did: string; undo: boolean } };
     let after: UndoSide | { recorded: { did: string; undo: boolean } };
@@ -702,10 +754,12 @@ export async function runHomeAct(
           fields: fieldsOf(w.patch, w.from, 'before'),
         })),
         ...(plan.dayWrite ? { day: plan.dayWrite.before } : {}),
+        ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
       };
       after = {
         states: plan.stateWrites.map((w) => ({ item_key: w.item_key, fields: fieldsOf(w.patch, w.from, 'after') })),
         ...(plan.dayWrite ? { day: plan.dayWrite.after } : {}),
+        ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
       };
     }
 
@@ -779,6 +833,42 @@ async function undoKeeperRecord(
     }
   }
   await upsertItemState(db, userId, rec.item_key, patch as HomeItemStatePatch);
+}
+
+/**
+ * Undo of the arc records on one action. Compare-and-set throughout; nothing is ever deleted.
+ * - create: closes the arc if it is still open (and no other human's open task sits on it), and unlinks only the
+ *   recorded tasks that are still his and still point at it.
+ * - close: reopens the arc only if closed_at still holds the value the keeper wrote.
+ * - link: puts the task's arc_id back only if it still holds what the edit wrote and the task is still his.
+ */
+async function undoArcRecord(db: HomeDb, userId: string, rec: ArcRecord, now: Date): Promise<void> {
+  if (rec.kind === 'create') {
+    if (rec.task_ids.length > 0) {
+      await db.task.updateMany({
+        where: { id: { in: rec.task_ids }, arc_id: rec.arc_id, assignee_id: userId },
+        data: { arc_id: null },
+      });
+    }
+    const others = await db.task.count({
+      where: {
+        arc_id: rec.arc_id,
+        is_deleted: false,
+        status: { notIn: CLOSED_STATUSES },
+        assignee_id: { notIn: [userId, ...BOT_USER_IDS] },
+      },
+    });
+    if (others === 0) await db.arc.updateMany({ where: { id: rec.arc_id, closed_at: null }, data: { closed_at: now } });
+    return;
+  }
+  if (rec.kind === 'close') {
+    await db.arc.updateMany({ where: { id: rec.arc_id, closed_at: new Date(rec.closed_at) }, data: { closed_at: null } });
+    return;
+  }
+  await db.task.updateMany({
+    where: { id: rec.task_id, arc_id: rec.to_arc_id, assignee_id: userId },
+    data: { arc_id: rec.from_arc_id },
+  });
 }
 
 function isRestMark(row: RawItemState): boolean {
@@ -922,6 +1012,7 @@ export async function runHomeUndo(
       for (const rec of before.states) await undoStateRecord(tx, userId, rec);
     }
     if (before.day) await undoDayRecord(tx, userId, before.day, after?.day);
+    for (const rec of before.arcs ?? []) await undoArcRecord(tx, userId, rec, now);
 
     return { ok: true as const, action_id: actionId, item_key: row.item_key };
   });

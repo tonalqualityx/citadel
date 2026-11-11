@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DETAIL_CAP, keeperLines } from '../lines';
+import { arcClosedLine, arcMadeLine, DETAIL_CAP, keeperLines } from '../lines';
 import type { KeeperDateChange, KeeperStaggerChange } from '../../types';
 
 const stag = (n: number, day = '2026-11-11'): KeeperStaggerChange[] =>
@@ -44,6 +44,21 @@ describe('keeperLines', () => {
       dates: [{ item_key: 'task:a', title: 'A', outcome: 'read', due_date: '2026-11-15', client_facing: false }],
     });
     const text = JSON.stringify(all);
+    expect(text).not.toMatch(/[–—]/);
+    expect(text).not.toMatch(/priorit|overdue/i);
+  });
+});
+
+describe('arc lines (Slice 2c)', () => {
+  it('writes the three sentences Mike reads', () => {
+    expect(arcMadeLine('Rowan Pottery', 4)).toBe('Made the arc Rowan Pottery with 4 of your tasks.');
+    expect(arcClosedLine('Grok', 'all_done', 0)).toBe('Closed the arc Grok: every step is done.');
+    expect(arcClosedLine('Grok', 'stale', 3)).toBe('Closed the arc Grok: the 3 tasks left are still tracked.');
+    expect(arcClosedLine('Grok', 'stale', 1)).toBe('Closed the arc Grok: the 1 task left is still tracked.');
+  });
+
+  it('swaps a dash in a name for a comma and uses no banned word', () => {
+    const text = [arcMadeLine('A — B', 2), arcClosedLine('A – B', 'stale', 0), arcClosedLine('x', 'stale', 2)].join(' ');
     expect(text).not.toMatch(/[–—]/);
     expect(text).not.toMatch(/priorit|overdue/i);
   });

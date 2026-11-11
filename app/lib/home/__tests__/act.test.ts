@@ -850,3 +850,84 @@ describe('reader-facing sentences', () => {
     }
   });
 });
+
+describe('Slice 2c: arc records (arcs_link_tasks and the keeper arc undo kinds)', () => {
+  const ARC = '11111111-1111-4111-8111-111111111111';
+  const TASK_ID = '22222222-2222-4222-8222-222222222222';
+  const TASK_KEY = `task:${TASK_ID}`;
+  const GA = `arc:${ARC}`;
+
+  function withSettings(db: Db, arcsLinkTasks: boolean | null) {
+    const d = db as unknown as Record<string, unknown>;
+    d.homeKeeperSettings = { findUnique: vi.fn(async () => (arcsLinkTasks === null ? null : { arcs_link_tasks: arcsLinkTasks })) };
+    return d.homeKeeperSettings as { findUnique: ReturnType<typeof vi.fn> };
+  }
+
+  it('with no settings row or the switch false, an arc edit writes no Task row', async () => {
+    for (const setting of [null, false]) {
+      const db = makeDb();
+      addDay(db, { group_key: GA, arc_id: ARC });
+      withSettings(db, setting);
+      await act(db, { action: 'arc_add', item_key: TASK_KEY, group_key: GA, origin: 'in_view' });
+      expect(db.task.updateMany).not.toHaveBeenCalled();
+      expect(db.arc.updateMany).not.toHaveBeenCalled();
+      expect((db.actions[0].before as Row).arcs).toBeUndefined();
+    }
+  });
+
+  it('with the switch on, an add sets arc_id only on his own task with no arc, and Undo is compare-and-set', async () => {
+    const db = makeDb();
+    addDay(db, { group_key: GA, arc_id: ARC });
+    withSettings(db, true);
+    db.arc.findFirst.mockResolvedValue({ id: ARC });
+    db.task.updateMany.mockResolvedValue({ count: 1 });
+    const res = await act(db, { action: 'arc_add', item_key: TASK_KEY, group_key: GA, origin: 'in_view' });
+    expect(db.task.updateMany).toHaveBeenCalledWith({
+      where: { id: TASK_ID, assignee_id: U, arc_id: null, is_deleted: false, status: { notIn: ['done', 'abandoned'] } },
+      data: { arc_id: ARC },
+    });
+    expect((db.actions[0].before as Row).arcs).toEqual([{ kind: 'link', task_id: TASK_ID, from_arc_id: null, to_arc_id: ARC }]);
+    db.task.updateMany.mockClear();
+    await undo(db, res.action_id);
+    expect(db.task.updateMany).toHaveBeenCalledWith({ where: { id: TASK_ID, arc_id: ARC, assignee_id: U }, data: { arc_id: null } });
+  });
+
+  it('with the switch on, a remove clears arc_id only while it still equals the day arc', async () => {
+    const db = makeDb();
+    addDay(db, { group_key: GA, arc_id: ARC, step_item_keys: [TASK_KEY] });
+    withSettings(db, true);
+    db.task.updateMany.mockResolvedValue({ count: 1 });
+    await act(db, { action: 'arc_remove', item_key: TASK_KEY, group_key: GA });
+    expect(db.task.updateMany).toHaveBeenCalledWith({
+      where: { id: TASK_ID, assignee_id: U, arc_id: ARC, is_deleted: false },
+      data: { arc_id: null },
+    });
+    expect((db.actions[0].before as Row).arcs).toEqual([{ kind: 'link', task_id: TASK_ID, from_arc_id: ARC, to_arc_id: null }]);
+  });
+
+  it('a keeper arc close is undone only while closed_at holds the value it wrote; a create closes the arc and unlinks the recorded tasks', async () => {
+    const db = makeDb();
+    const closedAt = '2026-11-11T07:35:00.000Z';
+    db.actions.push({
+      id: 'a-close', user_id: U, item_key: null, action: 'keeper_arc_close', source: 'keeper', undone_at: null,
+      undo_until: new Date(NOW.getTime() + 3600_000), created_at: NOW,
+      before: { states: [], arcs: [{ kind: 'close', arc_id: ARC, closed_at: closedAt }] },
+      after: { states: [], arcs: [{ kind: 'close', arc_id: ARC, closed_at: closedAt }], line: 'x', details: [] },
+    });
+    db.actions.push({
+      id: 'a-create', user_id: U, item_key: null, action: 'keeper_arc_create', source: 'keeper', undone_at: null,
+      undo_until: new Date(NOW.getTime() + 3600_000), created_at: NOW,
+      before: { states: [], arcs: [{ kind: 'create', arc_id: ARC, client_id: null, project_id: null, task_ids: [TASK_ID] }] },
+      after: { states: [], arcs: [], line: 'x', details: [] },
+    });
+    db.arc.updateMany.mockResolvedValue({ count: 1 });
+    db.task.updateMany.mockResolvedValue({ count: 1 });
+    (db.task as unknown as Row).count = vi.fn(async () => 0);
+    await undo(db, 'a-close');
+    expect(db.arc.updateMany).toHaveBeenCalledWith({ where: { id: ARC, closed_at: new Date(closedAt) }, data: { closed_at: null } });
+    db.arc.updateMany.mockClear();
+    await undo(db, 'a-create');
+    expect(db.task.updateMany).toHaveBeenCalledWith({ where: { id: { in: [TASK_ID] }, arc_id: ARC, assignee_id: U }, data: { arc_id: null } });
+    expect(db.arc.updateMany).toHaveBeenCalledWith({ where: { id: ARC, closed_at: null }, data: { closed_at: NOW } });
+  });
+});

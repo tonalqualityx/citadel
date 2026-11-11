@@ -1,7 +1,8 @@
 /**
  * Slice 2a keeper: run it for the owner. The only writes are the owner's home_item_state rows, home_actions rows with
- * source 'keeper' and one home_keeper_runs row. It never touches a Task, Arc, EmailAsk, Wait, Comment or Notification
- * and never sends anything.
+ * source 'keeper' and one home_keeper_runs row. It never touches an EmailAsk, Wait, Comment or Notification and never
+ * sends anything. The one exception is Slice 2c (keeper/arcs.ts): Arc rows and Task.arc_id on his own tasks, each write
+ * behind its own switch in home_keeper_settings (all off with no row, and then nothing of 2c runs).
  *
  * Dry run: plan only, nothing written. Real run: one transaction (30 s): take the day's run row, write each change
  * guarded on the value the plan saw (a row that changed meanwhile is skipped), append one home_actions row per kind
@@ -19,6 +20,7 @@ import type { KeeperActionKind, KeeperDateChange, KeeperPlan, KeeperResult, Keep
 import { DATE_READ } from '../rules';
 import { keeperLines } from './lines';
 import { planKeeper } from './plan';
+import { applyArcs, loadArcSwitches, planArcs, type ArcPlan } from './arcs';
 
 const HOUR_MS = 3_600_000;
 /** A run row left unfinished this long may be taken over. */
@@ -93,8 +95,18 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
   if (!ok) return { dry_run: opts.dryRun, skipped: 'home_off', action_ids: [] };
 
   if (opts.dryRun) {
-    const { plan } = await buildPlan(db, ownerId, now, timezone);
-    return { dry_run: true, plan, action_ids: [] };
+    const { plan, states, raw } = await buildPlan(db, ownerId, now, timezone);
+    // Slice 2c: what the arc rules would do, shown whatever the switches say, written never.
+    const [switches, arcPlan] = await Promise.all([
+      loadArcSwitches(db, ownerId),
+      planArcs(db, ownerId, raw, states, now, zonedDateString(now, timezone)),
+    ]);
+    return {
+      dry_run: true,
+      plan,
+      arcs: { switches, would_make: arcPlan.make ? [arcPlan.make] : [], would_close: arcPlan.close.map((c) => ({ arc_id: c.arc_id, name: c.name, reason: c.reason, open_tasks: c.open_tasks, line: c.line })) },
+      action_ids: [],
+    };
   }
 
   const date = zonedDateString(now, timezone);
@@ -110,6 +122,13 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
   const { plan: wanted, states, raw } = await buildPlan(db, ownerId, now, timezone);
   const stateByKey = new Map(states.map((s) => [s.item_key, s]));
   const dueByKey = new Map(raw.tasks.map((t) => [`task:${t.id}`, t.due_date]));
+
+  // Slice 2c: with every switch off nothing below runs, so the run is exactly what it was before 2c.
+  const wanted2c = await loadArcSwitches(db, ownerId);
+  const arcsOn = wanted2c.arcs_create || wanted2c.arcs_close;
+  const arcPlan: ArcPlan | null = arcsOn
+    ? await planArcs(db, ownerId, raw, states, now, date, { make: wanted2c.arcs_create, close: wanted2c.arcs_close })
+    : null;
 
   return db.$transaction(
     async (tx): Promise<KeeperResult> => {
@@ -233,12 +252,28 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
         actionIds.push(action.id);
       }
 
+      // 4b. Slice 2c: arcs, each write behind its own switch read again here.
+      const arcs = arcPlan ? await applyArcs(tx, ownerId, arcPlan, now, date) : null;
+      if (arcs) actionIds.push(...arcs.action_ids);
+
       // 5. Counts, finished.
       await tx.homeKeeperRun.update({
         where: runKey,
-        data: { finished_at: now, counts: { ...done.counts, skipped_changed: plan.stagger.length + plan.dates.length - appliedStagger.length - appliedDates.length } },
+        data: {
+          finished_at: now,
+          counts: {
+            ...done.counts,
+            skipped_changed: plan.stagger.length + plan.dates.length - appliedStagger.length - appliedDates.length,
+            ...(arcs ? { arcs_made: arcs.made.length, arcs_closed: arcs.closed.length } : {}),
+          },
+        },
       });
-      return { dry_run: false, plan: done, action_ids: actionIds };
+      return {
+        dry_run: false,
+        plan: done,
+        ...(arcs ? { arcs_written: { switches: arcs.switches, made: arcs.made, closed: arcs.closed } } : {}),
+        action_ids: actionIds,
+      };
     },
     { timeout: TX_TIMEOUT_MS },
   );

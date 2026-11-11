@@ -975,6 +975,52 @@ export interface KeeperPlan {
   counts: { stagger: number; dates_read: number; dates_set_aside: number };
 }
 
+/** Slice 2c: one arc the keeper would make (or made) from the group Today would propose. */
+export interface KeeperArcMake {
+  /** The group Today would propose: "client:<uuid>" or "project:<uuid>". */
+  group_key: string;
+  name: string;
+  client_id: string | null;
+  project_id: string | null;
+  /** His open tasks with no arc that it links (2 to 4), as task ids and titles in the same order. */
+  task_ids: string[];
+  task_titles: string[];
+  /** The sentence Handled for you would show. */
+  line: string;
+}
+
+/** Slice 2c: one arc the keeper would close (or closed). */
+export interface KeeperArcClose {
+  arc_id: string;
+  name: string;
+  /** all_done: every step is done. stale: nothing touched for 21 days. */
+  reason: 'all_done' | 'stale';
+  /** Open tasks still on the arc (0 for all_done). */
+  open_tasks: number;
+  line: string;
+}
+
+/** Slice 2c: the three switches in the owner's home_keeper_settings row (all false with no row). */
+export interface KeeperArcSwitches {
+  arcs_create: boolean;
+  arcs_close: boolean;
+  arcs_link_tasks: boolean;
+}
+
+/** Slice 2c: the dry run's `arcs` key. What the arc rules would do, shown whatever the switches say. Nothing is written. */
+export interface KeeperArcsPreview {
+  switches: KeeperArcSwitches;
+  would_make: KeeperArcMake[];
+  would_close: KeeperArcClose[];
+}
+
+/** Slice 2c: a real run's `arcs_written` key, present only when a switch is on. */
+export interface KeeperArcsWritten {
+  switches: KeeperArcSwitches;
+  made: KeeperArcMake[];
+  closed: KeeperArcClose[];
+}
+
 /** What the keeper route answers. Exactly one of skipped, already_ran or plan is set. */
 export interface KeeperResult {
   /** True for GET, and for a POST that was asked to write nothing. */
@@ -984,6 +1030,10 @@ export interface KeeperResult {
   /** This user and date already have a finished nightly row; nothing was written. */
   already_ran?: true;
   plan?: KeeperPlan;
+  /** Slice 2c, dry run only: the arcs it would make and close, under their own key. */
+  arcs?: KeeperArcsPreview;
+  /** Slice 2c, real run only, only when a switch is on: the arcs it made and closed. */
+  arcs_written?: KeeperArcsWritten;
   /** home_actions ids written (empty on a dry run or a skip). */
   action_ids: string[];
 }

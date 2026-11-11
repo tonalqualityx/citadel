@@ -481,6 +481,38 @@ async function main() {
   bump('tasks: Bast needs-mike');
   bump('comments: bot mention of admin and tech');
 
+  // ---- Slice 2c fixtures: a stale arc, an all-done arc, an arc holding Sabeen's task, a client group with no arc ----
+  const sabeen = await prisma.user.upsert({
+    where: { email: 'sabeen-home-fixture@indelible.test' },
+    update: { is_active: true },
+    create: { email: 'sabeen-home-fixture@indelible.test', name: 'Sabeen (home fixture)', role: UserRole.tech, password_hash: passwordHash },
+  });
+  const arcFor = async (name: string, clientId: string | null) => {
+    const found = await prisma.arc.findFirst({ where: { name } });
+    const a = found ?? (await prisma.arc.create({ data: { name, client_id: clientId } }));
+    await prisma.arc.update({ where: { id: a.id }, data: { closed_at: null, snoozed_until: null } });
+    return a;
+  };
+  const old = (days: number) => new Date(now.getTime() - days * DAY);
+  const backdate = async (arcId: string, taskIds: string[], days: number) => {
+    await prisma.$executeRaw`UPDATE arcs SET updated_at = ${old(days)} WHERE id = ${arcId}::uuid`;
+    for (const id of taskIds) await prisma.$executeRaw`UPDATE tasks SET updated_at = ${old(days)} WHERE id = ${id}::uuid`;
+  };
+  const rowan = await findOrCreateClient('Rowan Pottery (home fixture)');
+  const staleArc = await arcFor('Stale arc (home fixture)', null);
+  const staleTask = await mk('stale_arc_task', { title: 'Old thread: look at the stale thing again', arc_id: staleArc.id, tags: [FIXTURE_TAG], created_at: old(60) });
+  await backdate(staleArc.id, [staleTask.id], 40);
+  const doneArc = await arcFor('All done arc (home fixture)', null);
+  const doneA = await mk('done_arc_a', { title: 'Finished step one (home fixture)', status: 'done', arc_id: doneArc.id, completed_at: old(3) });
+  const doneB = await mk('done_arc_b', { title: 'Finished step two (home fixture)', status: 'done', arc_id: doneArc.id, completed_at: old(2) });
+  await backdate(doneArc.id, [doneA.id, doneB.id], 2);
+  const sabeenArc = await arcFor('Held by Sabeen arc (home fixture)', null);
+  const sabeenTask = await mk('sabeen_task', { title: 'Sabeen: her own step on a shared arc', assignee_id: sabeen.id, created_by_id: sabeen.id, arc_id: sabeenArc.id, created_at: old(60) });
+  const sabeenMine = await mk('sabeen_arc_mine', { title: 'Mine on the shared arc (home fixture)', arc_id: sabeenArc.id, created_at: old(60) });
+  await backdate(sabeenArc.id, [sabeenTask.id, sabeenMine.id], 40);
+  for (let i = 1; i <= 3; i++) await mk(`rowan_${i}`, { title: `Rowan Pottery: open task ${i}`, client_id: rowan.id, created_at: ago(2) });
+  bump('arcs: stale / all done / Sabeen / client group with none', 3);
+
   // ---- One calendar event today ----
   const EVENT_ID = `${MID}meeting`;
   await prisma.calendarEvent.deleteMany({ where: { event_id: EVENT_ID } });
