@@ -17,6 +17,11 @@
  * clients, sites and projects are found-or-upserted by fixed keys. The two seeded users'
  * home_* rows are reset so each run starts from a fresh screen.
  *
+ * Slice 4a adds: a client thread with a Bast draft written for an older message (the redraft case) and a client thread
+ * with a needs-thought row and a suggested answer, both with home_owed_thread rows for the admin only. The existing
+ * lead, the client thread with no draft (Mark) and the two threads with his own drafts (Jessica, Andy) are the other
+ * cases; the Jill's Cafe mail is the crisis. Nothing in the seed sends mail or touches an outbox.
+ *
  * Run with:
  *   DATABASE_URL=postgresql://citadel:citadel@localhost:55433/home_s2a \
  *     npx ts-node -r tsconfig-paths/register --compiler-options '{"module":"CommonJS"}' scripts/seed-home-fixtures.ts
@@ -30,6 +35,7 @@ import {
 } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { BAST_USER_ID } from '../lib/oracle/projects/gate-constants';
+import { threadKey } from '../lib/home/item-key';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 if (!DATABASE_URL.includes('localhost:55433')) {
@@ -118,6 +124,8 @@ async function main() {
   await prisma.homeAction.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
   await prisma.homeDay.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
   await prisma.homeItemState.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
+  await prisma.homeOwedThread.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
+  await prisma.homeKeeperRun.deleteMany({ where: { user_id: { in: [admin.id, tech.id] }, kind: 'owed_reply' } });
 
   // ---- Clients, sites, projects ----
   const grok = await findOrCreateClient('Grok Wellness');
@@ -379,6 +387,63 @@ async function main() {
     });
   }
   bump('email asks: open (threads, lead, crisis)', asks.length);
+
+  // ---- Slice 4a: owed replies (Bast's drafts and reads, for the admin only) ----
+  const owedAsk = async (messageId: string, threadId: string, fields: { from_name: string; from_email: string; subject: string; gist: string; ageMs: number }) => {
+    const data = {
+      thread_id: threadId,
+      account: MINE,
+      from_name: fields.from_name,
+      from_email: fields.from_email,
+      subject: fields.subject,
+      gist: fields.gist,
+      queue: 'answer' as const,
+      severity: 'internal' as const,
+      is_urgent: false,
+      state: 'open' as const,
+      intent: null,
+      client_id: markClient.id,
+      task_id: null,
+      draft_started_at: null,
+      draft_url: null,
+      deep_link: `https://mail.google.com/mail/u/0/#inbox/${threadId}`,
+      received_at: new Date(now.getTime() - fields.ageMs),
+    };
+    return prisma.emailAsk.upsert({ where: { message_id: messageId }, create: { message_id: messageId, ...data }, update: data });
+  };
+  // A thread Bast drafted for the first message; a second message has come since (the redraft case).
+  const redraftThread = `${MID}owed-redraft`;
+  const redraftFirst = await owedAsk(`${MID}owed-redraft-1`, redraftThread, { from_name: 'Dana Whitfield', from_email: 'dana@mitchell.example', subject: 'Photos for the hours page', gist: 'Dana sent the photos for the hours page.', ageMs: 4 * DAY });
+  await owedAsk(`${MID}owed-redraft-2`, redraftThread, { from_name: 'Dana Whitfield', from_email: 'dana@mitchell.example', subject: 'Re: Photos for the hours page', gist: 'Dana adds one more photo.', ageMs: 2 * DAY });
+  await prisma.homeOwedThread.create({
+    data: {
+      user_id: admin.id,
+      thread_key: threadKey(MINE, redraftThread),
+      state: 'drafted',
+      draft_id: 'fixture-draft-1',
+      draft_message_id: 'fixture-draft-msg-1',
+      draft_hash: 'fixture-hash-1',
+      draft_text: 'Hi Dana,\n\nThanks for the photos. I have them and will take a look.\n\nMike',
+      draft_for_ask_id: redraftFirst.id,
+      drafted_at: new Date(now.getTime() - 3 * DAY),
+    },
+  });
+  // A thread where the reply needs thought: Bast's read and a suggested answer.
+  const thoughtThread = `${MID}owed-thought`;
+  await owedAsk(`${MID}owed-thought-1`, thoughtThread, { from_name: 'Omar Faizi', from_email: 'omar@mitchell.example', subject: 'Can you add a shop page?', gist: 'Omar wants a shop page added.', ageMs: 3 * DAY });
+  await prisma.homeOwedThread.create({
+    data: {
+      user_id: admin.id,
+      thread_key: threadKey(MINE, thoughtThread),
+      state: 'needs_thought',
+      bast_read: 'Omar is asking for new work, and the reply decides whether to take it.',
+      suggested_answer: 'Thank him and ask what the shop would sell.',
+      needs_commitment: false,
+      thought_since: new Date(now.getTime() - HOUR),
+    },
+  });
+  bump('email asks: Slice 4a redraft thread (2) and needs-thought thread (1)', 3);
+  bump('home_owed_thread rows (admin only)', 2);
 
   // Classifier auto-closes in the last 24 hours (Handled for you).
   const handled = [

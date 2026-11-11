@@ -90,6 +90,8 @@ function makeDb() {
     },
     project: { findMany: vi.fn().mockResolvedValue([]) },
     homeAction: { findMany: vi.fn().mockResolvedValue([]) },
+    homeOwedThread: { findMany: vi.fn().mockResolvedValue([]) },
+    homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
     comment: { findMany: vi.fn().mockResolvedValue([]) },
     oracleSession: { findMany: vi.fn().mockResolvedValue([]) },
     wait: { findMany: vi.fn().mockResolvedValue([]) },
@@ -513,5 +515,30 @@ describe('loadHomeInputs: read-only', () => {
     const src = readFileSync(join(__dirname, '..', 'load.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
     expect(src).not.toMatch(/rolloverTodayPicksIfNeeded|today-rollover|\/api\/today/);
     expect(src).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany|\$transaction)\(/);
+  });
+});
+
+describe('loadHomeInputs: Slice 4a owed rows', () => {
+  it('reads the owner\'s own home_owed_thread rows and the drafter\'s last finished run', async () => {
+    const rows = [{ thread_key: 'thread:a:b', state: 'drafted', draft_id: 'd1' }];
+    db.homeOwedThread.findMany.mockResolvedValue(rows);
+    db.homeKeeperRun.findFirst.mockResolvedValue({ finished_at: T('2026-11-10T14:30:00Z') });
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.owed_rows).toEqual(rows);
+    expect(r.drafter_fresh_at).toEqual(T('2026-11-10T14:30:00Z'));
+    expect(db.homeOwedThread.findMany.mock.calls[0][0].where).toEqual({ user_id: U });
+    expect(db.homeKeeperRun.findFirst.mock.calls[0][0].where).toMatchObject({ user_id: U, kind: 'owed_reply' });
+  });
+  it('no rows and no run give [] and null', async () => {
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.owed_rows).toEqual([]);
+    expect(r.drafter_fresh_at).toBeNull();
+  });
+  it('keeps a keeper_owed_drafts line', async () => {
+    db.homeAction.findMany.mockResolvedValue([
+      { id: 'o1', action: 'keeper_owed_drafts', after: { line: 'Drafted a reply to Pat. It is in your Gmail drafts.' }, created_at: T('2026-11-10T12:00:00Z'), undo_until: T('2026-11-10T12:00:00Z') },
+    ]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.keeper_lines.map((l) => l.action)).toEqual(['keeper_owed_drafts']);
   });
 });

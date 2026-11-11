@@ -70,6 +70,8 @@ import {
   waitKey,
   OWN_GROUP_KEY,
 } from './item-key';
+import { NEW_MESSAGE_AFTER_DRAFT } from './owed/copy';
+import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
 import { cardSummary, truncateWords } from './plain-text';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
 import {
@@ -406,6 +408,10 @@ interface Draft {
     outsideDate?: boolean;
     lead?: boolean;
     thread?: { status: 'show' | 'older' };
+    /** Slice 4a: where Bast's reply work stands, whether it holds a suggested answer, and the "If you do nothing" line. */
+    owedState?: OwedState | null;
+    owedSuggestion?: boolean;
+    owedIfIgnored?: string | null;
   };
 }
 
@@ -704,6 +710,8 @@ function buildThread(
   now: Date,
   refs: Refs,
   st: RawItemState | undefined,
+  owed: OwedRow | undefined,
+  drafterFreshAt: Date | null,
 ): Draft {
   const score = scoreThread(th, now);
   const newest = th.asks[0];
@@ -712,15 +720,22 @@ function buildThread(
   const client = refOf(clientRaw);
   const project = refOf(projectRaw);
   const person = nameOfAsk(newest);
-  const draftUrl = th.asks.find((a) => !!a.draft_url)?.draft_url ?? null;
+  const hisDraftUrl = th.asks.find((a) => !!a.draft_url)?.draft_url ?? null;
+  // Slice 4a: Bast's own draft sits in the same Gmail thread, so its link is the thread's link.
+  const draftUrl = hisDraftUrl ?? (hasBastDraft(owed) && newest.deep_link ? newest.deep_link : null);
+  const owedState = owedStatus(th, owed, now, drafterFreshAt);
   const lead = newest.intent === 'sales';
   const minutes = draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
   const said = stripEndPeriod(displayText(newest.gist) || displayText(newest.subject)) || 'a message';
   const links: { label: string; href: string }[] = [];
-  if (draftUrl) links.push({ label: 'Your draft in Gmail', href: draftUrl });
+  if (draftUrl) links.push({ label: hisDraftUrl ? 'Your draft in Gmail' : 'The draft in Gmail', href: draftUrl });
   if (newest.deep_link) links.push({ label: 'The email thread', href: newest.deep_link });
   if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
   if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  // His edited copy may differ from what Bast wrote, so only a draft he has not touched is shown.
+  const showDraftText = owedState === 'draft_ready' || owedState === 'stale_draft';
+  const thought = owedState === 'needs_thought' && owed;
+  const owedLine = owedState === 'his_draft_older' ? NEW_MESSAGE_AFTER_DRAFT : owedSecondLine(owedState);
   const item: HomeItem = {
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
@@ -742,10 +757,15 @@ function buildThread(
       links,
       task_id: null,
       left_off_note: displayText(st?.left_off_note) || null,
+      draft_text: showDraftText && hasBastDraft(owed) && owed?.draft_text ? owed.draft_text : null,
+      bast_read: thought && owed.bast_read ? displayText(owed.bast_read) : null,
+      suggested_answer: thought && owed.suggested_answer ? displayText(owed.suggested_answer) : null,
     },
     source: { kind: 'thread', id: newest.id, ids: th.asks.map((a) => a.id), task_status: null },
     client,
     project,
+    owed_state: owedState,
+    owed_line: owedLine,
   };
   return {
     cand: {
@@ -761,7 +781,16 @@ function buildThread(
       group: groupFor(client, project, null, refs),
       arcId: null,
     },
-    ctx: { draftUrl, threadUrl: newest.deep_link || null, lead, thread: { status } },
+    ctx: {
+      draftUrl,
+      threadUrl: newest.deep_link || null,
+      lead,
+      thread: { status },
+      owedState,
+      owedSuggestion: !!(thought && owed.suggested_answer),
+      // Older threads (Everything else) keep the old line; the drafter does not work them.
+      owedIfIgnored: status === 'show' ? ifIgnoredLine(owedState, drafterFreshAt, now) : null,
+    },
   };
 }
 
@@ -889,13 +918,14 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     waitHref: ctx.waitHref,
     hasTaskId: ctx.hasTaskId,
     botTask: c.botTask,
+    owedThread: c.kind === 'thread' && ctx.thread?.status === 'show' ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion } : undefined,
   });
   c.item = {
     ...c.item,
     type: itemType(c),
     pinned: c.pinned,
     reason: reasonFor(c, ctx),
-    default_if_ignored: ifIgnored(c),
+    default_if_ignored: c.kind === 'thread' && !c.rule && ctx.owedIfIgnored ? ctx.owedIfIgnored : ifIgnored(c),
     actions: out.actions,
     more_actions: out.more_actions,
   };
@@ -960,6 +990,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const { raw, now } = input;
   const states = new Map(input.states.map((s) => [s.item_key, s]));
   const refs = collectRefs(raw);
+  const owedByKey = new Map(raw.owed_rows.map((r) => [r.thread_key, r]));
 
   // ---- 1. Drafts ---------------------------------------------------------
   const drafts: Draft[] = [];
@@ -977,7 +1008,8 @@ export function selectHome(input: SelectInput): SelectResult {
     const status = threadStatus(th, now);
     if (status === 'young') youngThreads += 1;
     if (status === 'show' || status === 'older') {
-      push(buildThread(th, status, now, refs, states.get(threadKey(th.account, th.thread_id))));
+      const key = threadKey(th.account, th.thread_id);
+      push(buildThread(th, status, now, refs, states.get(key), owedByKey.get(key), raw.drafter_fresh_at));
     }
   }
   for (const a of raw.crises) {
@@ -1209,7 +1241,7 @@ export function selectHome(input: SelectInput): SelectResult {
     text: displayText(k.text),
     href: null,
     at: k.at.toISOString(),
-    undo_action_id: k.id,
+    undo_action_id: k.action === 'keeper_owed_drafts' ? null : k.id,
     details: k.details.map((x) => displayText(x)).filter((x) => x !== ''),
   }));
   const handledAll = [...closed, ...kept].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));

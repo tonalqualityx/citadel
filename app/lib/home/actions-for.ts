@@ -17,6 +17,7 @@
 
 import { ACTION_LABELS, approveAllLabel } from './copy';
 import { CAPS, NOT_NOW } from './rules';
+import type { OwedState } from './owed/state';
 import type { HomeActionId, HomeItemAction, HomeSourceKind } from './types';
 
 export interface ActionsInput {
@@ -43,6 +44,11 @@ export interface ActionsInput {
   hasTaskId?: boolean;
   /** Slice 3: a task Bast stopped on. Open only (no Done, no I'll do it now, no Let it go, no arc), plus Not now and This matters more. */
   botTask?: boolean;
+  /**
+   * Slice 4a: a thread the drafter works (status show). state is where Bast's reply work stands, suggestion is true when
+   * a needs-thought row holds a suggested answer. Absent = the Slice 1 buttons.
+   */
+  owedThread?: { state: OwedState | null; suggestion: boolean };
 }
 
 export interface ActionsOutput {
@@ -83,6 +89,26 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
       }
       break;
     case 'thread':
+      if (input.owedThread && !input.owedThread.state?.startsWith('his_draft')) {
+        const { state, suggestion } = input.owedThread;
+        if (state === 'draft_ready' || state === 'stale_draft') {
+          // Bast's draft is in his Gmail: open it, or ask for Bast's read instead.
+          if (input.draftUrl) primary.push(button('open_draft', input.draftUrl));
+          else if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
+          primary.push(button('needs_thought'));
+          extras.push(button('no_reply_needed'));
+        } else if (state === 'needs_thought') {
+          if (suggestion) primary.push(button('go_with_that'));
+          if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
+          extras.push(button('draft_now'), button('no_reply_needed'));
+        } else {
+          // No draft yet (or one was asked for): the first button asks for it, unless the ask is already waiting.
+          if (state !== 'drafting') primary.push(button('draft_now'));
+          if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
+          extras.push(button('no_reply_needed'));
+        }
+        break;
+      }
       if (input.draftUrl) {
         primary.push(button('open_draft', input.draftUrl));
         if (input.threadUrl) extras.push(button('open_thread', input.threadUrl));

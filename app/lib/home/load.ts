@@ -31,6 +31,7 @@ import {
   OPEN_WAIT_STATES,
 } from './rules';
 import { isItemKey } from './item-key';
+import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
 import type {
   KeeperActionKind,
   RawArcRef,
@@ -61,6 +62,7 @@ const KEEPER_ACTIONS: readonly string[] = [
   'keeper_arc_create',
   'keeper_arc_close',
   'keeper_arc_link',
+  'keeper_owed_drafts',
 ] satisfies KeeperActionKind[];
 /** Cap on classifier auto-closes read; the screen shows 5 and a count. */
 const AUTO_HANDLED_TAKE = 200;
@@ -362,6 +364,25 @@ async function loadKeeperLines(db: PrismaClient, userId: string, now: Date): Pro
     });
   }
   return lines;
+}
+
+// ============================================================================
+// Slice 4a: Bast's owed-reply work
+// ============================================================================
+
+/** U's own home_owed_thread rows (the user id is in the where clause). */
+async function loadOwedRows(db: PrismaClient, userId: string): Promise<RawHomeInputs['owed_rows']> {
+  return db.homeOwedThread.findMany({ where: { user_id: userId }, select: OWED_ROW_SELECT });
+}
+
+/** When the drafter last finished a run for U (the "within the hour" stamp), or null. */
+async function loadDrafterFreshAt(db: PrismaClient, userId: string): Promise<Date | null> {
+  const run = await db.homeKeeperRun.findFirst({
+    where: { user_id: userId, kind: OWED_RUN_KIND, finished_at: { not: null } },
+    orderBy: { finished_at: 'desc' },
+    select: { finished_at: true },
+  });
+  return run?.finished_at ?? null;
 }
 
 // ============================================================================
@@ -703,7 +724,7 @@ export async function loadHomeInputs(
   now: Date,
   opts: LoadHomeOptions = {}
 ): Promise<RawHomeInputs> {
-  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines] =
+  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt] =
     await Promise.all([
       loadTasks(db, userId),
       loadReviewFolds(db, userId),
@@ -715,6 +736,8 @@ export async function loadHomeInputs(
       loadCalendarEvents(db, userId, now, opts.timezone),
       loadHeldProjects(db, userId),
       loadKeeperLines(db, userId, now),
+      loadOwedRows(db, userId),
+      loadDrafterFreshAt(db, userId),
     ]);
 
   return {
@@ -731,5 +754,7 @@ export async function loadHomeInputs(
     held_project_task_count: heldProjects.reduce((n, h) => n + h.count, 0),
     held_projects: heldProjects,
     keeper_lines: keeperLines,
+    owed_rows: owedRows,
+    drafter_fresh_at: drafterFreshAt,
   };
 }

@@ -758,3 +758,122 @@ describe('Slice 2b: Bast card summaries', () => {
     for (const c of r.candidates) expect(c.item.opened.summary_by).toBeNull();
   });
 });
+
+describe('Slice 4a: owed replies on thread rows', () => {
+  const longAgo = d('2026-11-02T15:00:00Z');
+  const FRESH = d('2026-11-09T22:00:00Z'); // within 2 hours of NOW
+  const row = (th: ReturnType<typeof makeThread>, over: Partial<import('../owed/state').OwedRow> = {}) => ({
+    thread_key: threadKey(th.account, th.thread_id),
+    state: 'drafted',
+    request_kind: null,
+    requested_at: null,
+    draft_id: 'draft-1',
+    draft_hash: 'h',
+    draft_for_ask_id: th.asks[0].id,
+    drafted_at: d('2026-11-09T21:00:00Z'),
+    mike_edited_at: null,
+    attempts: 0,
+    updated_at: d('2026-11-09T21:00:00Z'),
+    bast_read: null,
+    suggested_answer: null,
+    draft_text: 'Thanks for writing. I will get back to you.',
+    ...over,
+  });
+  const one = (th: ReturnType<typeof makeThread>, r?: ReturnType<typeof row>, fresh: Date | null = null) =>
+    sel({ threads: [th], owed_rows: r ? [r] : [], drafter_fresh_at: fresh }).sections.mail[0];
+
+  it('a Bast draft shows Draft ready, the text, the thread link as the draft link, and the 2 minute effort', () => {
+    const th = makeThread({ client: active, received_at: longAgo });
+    const item = one(th, row(th));
+    expect(item.owed_state).toBe('draft_ready');
+    expect(item.owed_line).toBe('Draft ready');
+    expect(item.opened.draft_text).toBe('Thanks for writing. I will get back to you.');
+    expect(item.effort).toBe('Draft ready, about 2 minutes');
+    expect(item.minutes).toBe(2);
+    expect(item.actions.map((a) => a.id)).toEqual(['open_draft', 'needs_thought', 'not_now']);
+    expect(item.actions[0].href).toBe(th.asks[0].deep_link);
+    expect(item.default_if_ignored).toBe('The draft waits in your Gmail. Nothing is sent until you send it.');
+  });
+
+  it('no draft: Draft it now first, and the within-the-hour line only when a run finished in the last 2 hours', () => {
+    const th = makeThread({ client: active, received_at: longAgo });
+    const cold = one(th);
+    expect(cold.owed_state).toBeNull();
+    expect(cold.actions.map((a) => a.id)).toEqual(['draft_now', 'open_thread', 'not_now']);
+    expect(cold.default_if_ignored).toBe('Stays here. Nothing is sent.');
+    expect(one(th, undefined, FRESH).default_if_ignored).toBe('Bast drafts a reply into your Gmail within the hour. Nothing is sent.');
+    expect(one(th, undefined, d('2026-11-09T10:00:00Z')).default_if_ignored).toBe('Stays here. Nothing is sent.');
+  });
+
+  it('a waiting tap reads Bast is drafting', () => {
+    const th = makeThread({ client: active, received_at: longAgo });
+    const item = one(th, row(th, { state: 'queued', request_kind: 'draft', requested_at: NOW, draft_id: null, draft_text: null }));
+    expect(item.owed_state).toBe('drafting');
+    expect(item.owed_line).toBe('Bast is drafting');
+    expect(item.actions.map((a) => a.id)).toEqual(['open_thread', 'not_now']);
+  });
+
+  it('needs thought shows the read and the suggested answer, Go with that only with a suggestion', () => {
+    const th = makeThread({ client: active, received_at: longAgo });
+    const r = row(th, { state: 'needs_thought', draft_id: null, draft_text: null, bast_read: 'They want a price.', suggested_answer: 'Ask which pages first.' });
+    const item = one(th, r);
+    expect(item.owed_line).toBe('Needs thought');
+    expect(item.opened.bast_read).toBe('They want a price.');
+    expect(item.opened.suggested_answer).toBe('Ask which pages first.');
+    expect(item.opened.draft_text).toBeNull();
+    expect(item.actions.map((a) => a.id)).toEqual(['go_with_that', 'open_thread', 'not_now']);
+    const none = one(th, row(th, { state: 'needs_thought', draft_id: null, draft_text: null, bast_read: 'The reply needs a price from you.', suggested_answer: null }));
+    expect(none.actions.map((a) => a.id)).toEqual(['open_thread', 'not_now']);
+    expect(none.default_if_ignored).toBe("Stays here with Bast's read. Nothing is sent.");
+  });
+
+  it('his own draft is never touched: Slice 1 buttons, and the new-message line when theirs came after it', () => {
+    const th = makeThread({ client: active, received_at: longAgo, draft_url: 'https://mail.google.com/draft/9', draft_started_at: d('2026-11-01T10:00:00Z') });
+    const item = one(th);
+    expect(item.owed_state).toBe('his_draft_older');
+    expect(item.owed_line).toBe('Their new message came after your draft.');
+    expect(item.actions.map((a) => a.id)).toEqual(['open_draft', 'no_reply_needed', 'not_now']);
+    expect(item.default_if_ignored).toBe('Your draft waits in Gmail. Nothing is sent.');
+    const edited = makeThread({ client: active, received_at: longAgo });
+    const e = one(edited, row(edited, { mike_edited_at: d('2026-11-09T12:00:00Z') }));
+    expect(e.owed_state).toBe('his_draft');
+    expect(e.owed_line).toBe('You started a draft');
+    expect(e.opened.draft_text).toBeNull();
+  });
+
+  it('a draft for an older ask is stale: Bast is updating it, and the text still shows', () => {
+    const th = makeThread({ client: active, received_at: longAgo });
+    const item = one(th, row(th, { draft_for_ask_id: 'older-ask' }));
+    expect(item.owed_state).toBe('stale_draft');
+    expect(item.owed_line).toBe('Bast is drafting');
+  });
+
+  it('the row meta carries the owed words after the age', async () => {
+    const { rowsFromItems } = await import('@/components/domain/home/home-screen-logic');
+    const th = makeThread({ client: active, received_at: longAgo });
+    const meta = rowsFromItems([one(th, row(th))])[0].meta;
+    expect(meta).toMatch(/ago|day/);
+    expect(meta.endsWith('Draft ready')).toBe(true);
+  });
+
+  it('the keeper line for drafted replies has no Undo button; other keeper lines still do', () => {
+    const keeper = (id: string, action: 'keeper_owed_drafts' | 'keeper_stagger') => ({
+      id,
+      action,
+      text: 'A line.',
+      details: [],
+      at: d('2026-11-09T10:00:00Z'),
+      undo_until: d('2026-11-10T10:00:00Z'),
+    });
+    const r = sel({ keeper_lines: [keeper('o1', 'keeper_owed_drafts'), keeper('s1', 'keeper_stagger')] });
+    expect(r.sections.handled.find((h) => h.id === 'o1')?.undo_action_id).toBeNull();
+    expect(r.sections.handled.find((h) => h.id === 's1')?.undo_action_id).toBe('s1');
+  });
+
+  it('an older thread keeps the Slice 1 buttons and line', () => {
+    const th = makeThread({ client: active, received_at: d('2026-10-01T15:00:00Z') });
+    const r = sel({ threads: [th] });
+    expect(r.everything_else.groups[0].key).toBe('older_threads');
+  });
+});
+

@@ -409,6 +409,9 @@ describe('contract guards', () => {
       swap: { action: 'swap', to_group_key: 'own' },
       lighter: { action: 'lighter', to_group_key: 'own' },
       record: { action: 'record', item_key: t, did: 'done' },
+      draft_now: { action: 'draft_now', item_key: 'thread:a:b' },
+      needs_thought: { action: 'needs_thought', item_key: 'thread:a:b' },
+      go_with_that: { action: 'go_with_that', item_key: 'thread:a:b' },
     };
     for (const [name, req] of Object.entries(every)) expect(req.action).toBe(name);
   });

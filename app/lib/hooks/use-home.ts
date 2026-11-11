@@ -420,6 +420,16 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'not_emergency':
           await act({ action: 'not_emergency', item_key: item.key });
           return true;
+        // Slice 4a: asks for a draft or a read. The server's line is the toast; nothing is sent from here or anywhere.
+        case 'draft_now':
+          await act({ action: 'draft_now', item_key: item.key });
+          return true;
+        case 'needs_thought':
+          await act({ action: 'needs_thought', item_key: item.key });
+          return true;
+        case 'go_with_that':
+          await act({ action: 'go_with_that', item_key: item.key });
+          return true;
         case 'stop':
           await act({ action: 'stop', item_key: item.key, note: opts.note ?? '' });
           return true;
@@ -451,7 +461,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

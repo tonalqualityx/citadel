@@ -44,6 +44,7 @@ function makeDb() {
   const states: Row[] = [];
   const days: Row[] = [];
   const actions: Row[] = [];
+  const owed: Row[] = [];
   let seq = 0;
   const stateDefaults = {
     park_count: 0,
@@ -89,6 +90,30 @@ function makeDb() {
     states,
     days,
     actions,
+    owed,
+    homeOwedThread: {
+      findUnique: vi.fn(async ({ where }: { where: { user_id_thread_key: Row } }) => {
+        const k = where.user_id_thread_key;
+        const r = owed.find((x) => x.user_id === k.user_id && x.thread_key === k.thread_key);
+        return r ? { ...r } : null;
+      }),
+      upsert: vi.fn(async ({ where, create, update }: { where: { user_id_thread_key: Row }; create: Row; update: Row }) => {
+        const k = where.user_id_thread_key;
+        const found = owed.find((x) => x.user_id === k.user_id && x.thread_key === k.thread_key);
+        if (found) {
+          Object.assign(found, update);
+          return { ...found };
+        }
+        const row = { state: 'queued', request_kind: null, requested_at: null, draft_id: null, mike_edited_at: null, suggested_answer: null, ...create };
+        owed.push(row);
+        return { ...row };
+      }),
+      updateMany: vi.fn(async ({ where, data }: { where: Row; data: Row }) => {
+        const found = owed.filter((x) => x.user_id === where.user_id && x.thread_key === where.thread_key && x.request_kind === where.request_kind);
+        found.forEach((r) => Object.assign(r, data));
+        return { count: found.length };
+      }),
+    },
     task: shared(),
     arc: shared(),
     wait: shared(),
@@ -929,5 +954,110 @@ describe('Slice 2c: arc records (arcs_link_tasks and the keeper arc undo kinds)'
     await undo(db, 'a-create');
     expect(db.task.updateMany).toHaveBeenCalledWith({ where: { id: { in: [TASK_ID] }, arc_id: ARC, assignee_id: U }, data: { arc_id: null } });
     expect(db.arc.updateMany).toHaveBeenCalledWith({ where: { id: ARC, closed_at: null }, data: { closed_at: NOW } });
+  });
+});
+
+describe('Slice 4a: draft_now, needs_thought, go_with_that', () => {
+  const TH = 'thread:mike@becomeindelible.com:th-1';
+  const later = new Date(NOW.getTime() + 3600 * 1000);
+  const openThread = (db: Db) => db.emailAsk.findFirst.mockResolvedValue({ id: 'ask-1' });
+
+  it('there is no send action: send_draft is not in the schema', () => {
+    expect(homeActSchema.safeParse({ action: 'send_draft', item_key: 'thread:a:b' }).success).toBe(false);
+    expect(homeActSchema.safeParse({ action: 'send', item_key: 'thread:a:b' }).success).toBe(false);
+    expect(homeActSchema.safeParse({ action: 'draft_now', item_key: 'thread:a:b' }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'needs_thought', item_key: 'thread:a:b' }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'go_with_that', item_key: 'thread:a:b' }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'draft_now', item_key: 'thread:a:b', user_id: 'x' }).success).toBe(false);
+  });
+
+  it('draft_now writes only the request fields and a home action, and reads (never writes) the email ask', async () => {
+    const db = makeDb();
+    openThread(db);
+    const res = await act(db, { action: 'draft_now', item_key: TH });
+    expect(res.message).toBe('Bast will draft this in the next few minutes.');
+    expect(res.undo_until).not.toBeNull();
+    expect(db.owed).toHaveLength(1);
+    expect(db.owed[0]).toMatchObject({ user_id: U, thread_key: TH, request_kind: 'draft', requested_at: NOW });
+    expect(db.actions).toHaveLength(1);
+    expect(db.actions[0]).toMatchObject({ action: 'draft_now', item_key: TH });
+    for (const m of [db.task, db.arc, db.wait]) for (const fn of Object.values(m)) expect(fn).not.toHaveBeenCalled();
+    for (const name of ['create', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany'] as const) expect(db.emailAsk[name]).not.toHaveBeenCalled();
+  });
+
+  it('needs_thought and go_with_that say what Bast will do', async () => {
+    const db = makeDb();
+    openThread(db);
+    expect((await act(db, { action: 'needs_thought', item_key: TH })).message).toBe('Bast will write its read on this thread in the next few minutes.');
+    db.owed[0].state = 'needs_thought';
+    db.owed[0].suggested_answer = 'Thank them and ask which page.';
+    expect((await act(db, { action: 'go_with_that', item_key: TH })).message).toBe('Bast will redraft it along that line.');
+    expect(db.owed[0].request_kind).toBe('go_with_that');
+  });
+
+  it('go_with_that without a suggested answer is a 409 no_suggestion and writes nothing', async () => {
+    const db = makeDb();
+    openThread(db);
+    await expect(act(db, { action: 'go_with_that', item_key: TH })).rejects.toMatchObject({ code: 'no_suggestion', statusCode: 409 });
+    expect(db.owed).toHaveLength(0);
+    expect(db.actions).toHaveLength(0);
+  });
+
+  it('draft_now on a thread whose Bast draft is already in place is a 409 already_drafted', async () => {
+    const db = makeDb();
+    openThread(db);
+    db.owed.push({ user_id: U, thread_key: TH, state: 'drafted', draft_id: 'd1', mike_edited_at: null, request_kind: null });
+    await expect(act(db, { action: 'draft_now', item_key: TH })).rejects.toMatchObject({ code: 'already_drafted', statusCode: 409 });
+    expect(db.actions).toHaveLength(0);
+  });
+
+  it('refuses a key that is not a thread, and a thread with no open message', async () => {
+    const db = makeDb();
+    openThread(db);
+    await expect(act(db, { action: 'draft_now', item_key: T1 })).rejects.toMatchObject({ code: 'not_found' });
+    const db2 = makeDb();
+    db2.emailAsk.findFirst.mockResolvedValue(null);
+    await expect(act(db2, { action: 'draft_now', item_key: TH })).rejects.toMatchObject({ code: 'not_found' });
+    expect(db2.owed).toHaveLength(0);
+  });
+
+  it('Undo clears an unserved request and puts the old fields back', async () => {
+    const db = makeDb();
+    openThread(db);
+    const res = await act(db, { action: 'draft_now', item_key: TH });
+    await undo(db, res.action_id, later);
+    expect(db.owed[0]).toMatchObject({ request_kind: null, requested_at: null });
+  });
+
+  it('Undo after the next run served the request answers 409 and the draft stays', async () => {
+    const db = makeDb();
+    openThread(db);
+    const res = await act(db, { action: 'draft_now', item_key: TH });
+    // The drafter ran: it cleared the request and saved a draft.
+    Object.assign(db.owed[0], { request_kind: null, requested_at: null, state: 'drafted', draft_id: 'd1' });
+    await expect(undo(db, res.action_id, later)).rejects.toMatchObject({
+      code: 'not_undoable',
+      statusCode: 409,
+      message: 'The draft is already in your Gmail. It stays there.',
+    });
+    expect(db.owed[0]).toMatchObject({ state: 'drafted', draft_id: 'd1' });
+  });
+
+  it('the keeper line for drafted replies has no Undo: the undo path refuses it cleanly', async () => {
+    const db = makeDb();
+    db.actions.push({
+      id: 'k-owed',
+      user_id: U,
+      item_key: null,
+      action: 'keeper_owed_drafts',
+      source: 'keeper',
+      before: {},
+      after: { line: 'Drafted a reply to Pat. It is in your Gmail drafts.' },
+      undo_until: new Date(NOW.getTime() + 3600 * 1000),
+      undone_at: null,
+      created_at: NOW,
+    });
+    await expect(undo(db, 'k-owed')).rejects.toMatchObject({ code: 'not_undoable', statusCode: 409 });
+    expect(db.actions[0].undone_at).toBeNull();
   });
 });

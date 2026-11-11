@@ -27,6 +27,8 @@ import { groupKeySchema, itemKeySchema, parseItemKey } from './item-key';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { ARC_STEP_KEYS_MAX, CLOSED_TASK_STATUSES, LEFT_OFF_NOTE_MAX, NOT_NOW, UNDO_WINDOW_HOURS } from './rules';
 import { loadHomeInputs } from './load';
+import { clearOwedRequest, OWED_ACTION, requestOwed } from './owed/rows';
+import type { OwedRequestKind } from './owed/state';
 import { selectHome } from './select';
 import { dayForGroup, type ProposedDay } from './today';
 import {
@@ -114,6 +116,10 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
       undo: z.boolean().optional(),
     })
     .strict(),
+  // Slice 4a: ask Bast to draft into Gmail. There is deliberately no send action: nothing here can send mail.
+  z.object({ action: z.literal('draft_now'), item_key: itemKeySchema }).strict(),
+  z.object({ action: z.literal('needs_thought'), item_key: itemKeySchema }).strict(),
+  z.object({ action: z.literal('go_with_that'), item_key: itemKeySchema }).strict(),
 ]);
 
 export const homeUndoSchema = z.object({ action_id: z.string().uuid() }).strict();
@@ -134,7 +140,17 @@ const ERROR_TEXT: Record<HomeActErrorCode, string> = {
   undo_used: 'That was already undone.',
   not_undoable: "That can't be undone.",
   not_found: 'That action was not found.',
+  no_suggestion: 'Bast has no suggested answer for this one yet.',
+  already_drafted: 'The draft is already in your Gmail. It stays there.',
 };
+
+/** What a tap on a thread asks of Bast, and the line Mike reads back. */
+const OWED_TAPS = {
+  draft_now: { kind: 'draft', message: 'Bast will draft this in the next few minutes.' },
+  needs_thought: { kind: 'read', message: "Bast will write its read on this thread in the next few minutes." },
+  go_with_that: { kind: 'go_with_that', message: 'Bast will redraft it along that line.' },
+} as const satisfies Record<string, { kind: OwedRequestKind; message: string }>;
+const UNDONE_DRAFT_TEXT = 'The draft is already in your Gmail. It stays there.';
 
 /** An ApiError with one of the contract's codes (409, or 404 for not_found). */
 export class HomeActError extends ApiError {
@@ -301,10 +317,18 @@ export type ArcRecord =
   | { kind: 'close'; arc_id: string; closed_at: string }
   | { kind: 'link'; task_id: string; from_arc_id: string | null; to_arc_id: string | null };
 
+/** Slice 4a: the request fields a tap on a thread replaced, so Undo can put them back while no run has served it. */
+interface OwedRecord {
+  item_key: string;
+  kind: OwedRequestKind;
+  before: { request_kind: string | null; requested_at: string | null };
+}
+
 interface UndoSide {
   states: StateRecord[];
   day?: DayRecord;
   arcs?: ArcRecord[];
+  owed?: OwedRecord;
 }
 
 function toJsonValue(v: unknown): FieldValue {
@@ -360,6 +384,8 @@ export interface ActPlan {
   undoable: boolean;
   /** For record: what was logged. */
   recorded?: { did: string; undo: boolean };
+  /** Slice 4a: the request this action makes of Bast on the thread (home_owed_thread request fields only). */
+  owed?: { kind: OwedRequestKind };
   message: string | null;
 }
 
@@ -626,6 +652,14 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       };
     }
 
+    case 'draft_now':
+    case 'needs_thought':
+    case 'go_with_that': {
+      if (parseItemKey(req.item_key)?.kind !== 'thread') throw new HomeActError('not_found', 'That is not an email thread.');
+      const tap = OWED_TAPS[req.action];
+      return { ...base, action: req.action, item_key: req.item_key, stateWrites: [], owed: { kind: tap.kind }, message: tap.message };
+    }
+
     case 'record':
       return {
         action: req.action,
@@ -737,6 +771,26 @@ export async function runHomeAct(
       if (changed === 0) throw new HomeActError('stale_day');
     }
 
+    // Slice 4a: a tap on a thread. Only the request fields of his own owed row change; nothing is sent.
+    let owedRecord: OwedRecord | undefined;
+    if (plan.owed && plan.item_key) {
+      const parsed = parseItemKey(plan.item_key);
+      if (parsed?.kind === 'thread') {
+        const open = await tx.emailAsk.findFirst({
+          where: {
+            account: parsed.account,
+            state: 'open',
+            OR: [{ thread_id: parsed.thread_id }, { thread_id: null, message_id: parsed.thread_id }],
+          },
+          select: { id: true },
+        });
+        if (!open) throw new HomeActError('not_found', 'That thread is not waiting on a reply any more.');
+      }
+      const res = await requestOwed(tx, userId, plan.item_key, plan.owed.kind, opts.now);
+      if (!res.ok) throw new HomeActError(res.reason);
+      owedRecord = { item_key: plan.item_key, kind: plan.owed.kind, before: res.before };
+    }
+
     // Slice 2c: with his switch on, an add or remove on today's real arc is copied onto his own task's arc_id.
     const arcLinks = await copyArcEditToTask(tx, userId, req, day);
 
@@ -755,11 +809,13 @@ export async function runHomeAct(
         })),
         ...(plan.dayWrite ? { day: plan.dayWrite.before } : {}),
         ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
+        ...(owedRecord ? { owed: owedRecord } : {}),
       };
       after = {
         states: plan.stateWrites.map((w) => ({ item_key: w.item_key, fields: fieldsOf(w.patch, w.from, 'after') })),
         ...(plan.dayWrite ? { day: plan.dayWrite.after } : {}),
         ...(arcLinks.length > 0 ? { arcs: arcLinks } : {}),
+        ...(owedRecord ? { owed: owedRecord } : {}),
       };
     }
 
@@ -986,6 +1042,8 @@ export async function runHomeUndo(
     const row = await getHomeAction(tx, userId, actionId);
     if (!row) throw new HomeActError('not_found');
     if (row.undone_at) throw new HomeActError('undo_used');
+    // Slice 4a: the keeper's "Drafted replies" line has no Undo; the drafts are his to keep or discard in Gmail.
+    if (row.action === OWED_ACTION) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
     const before = asSide(row.before);
     const after = asSide(row.after);
     if (row.action === 'record' || !row.undo_until || !before) throw new HomeActError('not_undoable');
@@ -1002,6 +1060,12 @@ export async function runHomeUndo(
 
     const marked = await markHomeActionUndone(tx, userId, actionId, now);
     if (!marked) throw new HomeActError('undo_used');
+
+    // Slice 4a: a tap Undo clears only while no run has served it; after that the draft exists and stays.
+    if (before.owed) {
+      const cleared = await clearOwedRequest(tx, userId, before.owed.item_key, before.owed.kind, before.owed.before);
+      if (!cleared) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
+    }
 
     if (row.source === 'keeper') {
       for (const rec of before.states) {

@@ -26,6 +26,7 @@
  * fields that may be absent say "or null".
  */
 
+import type { OwedRow, OwedState } from './owed/state';
 import type {
   AskQueue,
   AskSeverity,
@@ -112,7 +113,10 @@ export type HomeActionId =
   | 'not_emergency'
   | 'stop'
   | 'add_to_arc'
-  | 'remove_from_arc';
+  | 'remove_from_arc'
+  | 'draft_now'
+  | 'needs_thought'
+  | 'go_with_that';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -188,6 +192,12 @@ export interface HomeItemCard {
   task_id: string | null;
   /** Mike's own "Where did you leave it?" note (home_item_state.left_off_note), or null. */
   left_off_note: string | null;
+  /** Slice 4a, threads only: what Bast wrote into his Gmail draft (shown under "The draft"), or null. */
+  draft_text?: string | null;
+  /** Slice 4a, threads only: Bast's one-line read when the reply needs thought, or null. */
+  bast_read?: string | null;
+  /** Slice 4a, threads only: Bast's suggested answer, or null. */
+  suggested_answer?: string | null;
 }
 
 /** The record behind an item, for the existing-endpoint calls in HomeActionId. */
@@ -253,6 +263,10 @@ export interface HomeItem {
   client: HomeRef | null;
   /** The project it belongs to, or null. A row shows the name as a link to ProjectDrawer. */
   project: HomeRef | null;
+  /** Slice 4a, threads only: where Bast's reply work stands (owed/state.ts), or null. */
+  owed_state?: OwedState | null;
+  /** Slice 4a, threads only: the words after the age on the row ("Draft ready", "Their new message came after your draft."), or null. */
+  owed_line?: string | null;
 }
 
 /** A Swap or Lighter choice: another group Today could be. */
@@ -479,7 +493,10 @@ export type HomeActName =
   | 'arc_reorder'
   | 'swap'
   | 'lighter'
-  | 'record';
+  | 'record'
+  | 'draft_now'
+  | 'needs_thought'
+  | 'go_with_that';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -547,7 +564,17 @@ export type HomeActRequest =
    * Log an existing-endpoint action into home_actions (source 'home', no undo) so the
    * "where he acts" measure has data. `undo: true` logs the existing-endpoint undo instead.
    */
-  | { action: 'record'; item_key: string; did: HomeRecordedActionId; undo?: boolean };
+  | { action: 'record'; item_key: string; did: HomeRecordedActionId; undo?: boolean }
+  /**
+   * Slice 4a, threads only: Draft it now. Sets the request fields of his home_owed_thread row (the next drafter run,
+   * within 10 minutes, serves it). Writes nothing else and sends nothing. Undo within 24 hours clears the request
+   * while it is unserved; after the draft exists it answers 409 not_undoable.
+   */
+  | { action: 'draft_now'; item_key: string }
+  /** Slice 4a: Needs thought. Asks Bast for its read and a suggested answer on a drafted thread. Same rules as draft_now. */
+  | { action: 'needs_thought'; item_key: string }
+  /** Slice 4a: Go with that. Asks Bast to redraft along its suggested answer. 409 no_suggestion without one. */
+  | { action: 'go_with_that'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' }>;
@@ -575,6 +602,8 @@ export type HomeActErrorCode =
   | 'undo_expired' // 409: undo_until has passed
   | 'undo_used' // 409: undone_at is already set
   | 'not_undoable' // 409: a record row, or an action with no stored before-state
+  | 'no_suggestion' // 409: go_with_that on a thread with no suggested answer
+  | 'already_drafted' // 409: draft_now on a thread whose Bast draft already covers the newest message
   | 'not_found'; // 404: no such home_actions row for this user
 
 /** Error body (handleApiError's shape: { error, code }). 400 bodies carry Zod `details` instead of `code`. */
@@ -921,6 +950,10 @@ export interface RawHomeInputs {
   held_projects: RawHeldProject[];
   /** Slice 2: the keeper's own Handled lines, newest first. */
   keeper_lines: RawKeeperLine[];
+  /** Slice 4a: U's home_owed_thread rows (Bast's drafts and reads). */
+  owed_rows: OwedRow[];
+  /** Slice 4a: finished_at of the owner's owed_reply keeper run row for today (the freshness stamp), or null. */
+  drafter_fresh_at: Date | null;
 }
 
 // ============================================================================
@@ -934,7 +967,8 @@ export type KeeperActionKind =
   | 'keeper_summaries'
   | 'keeper_arc_create'
   | 'keeper_arc_close'
-  | 'keeper_arc_link';
+  | 'keeper_arc_link'
+  | 'keeper_owed_drafts';
 
 /** One task given a day to come back. */
 export interface KeeperStaggerChange {

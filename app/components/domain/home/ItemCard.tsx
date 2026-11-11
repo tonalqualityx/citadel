@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import type { HomeItemAction, HomeLink, ItemCardProps } from '@/lib/home/types';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
+import { bastReadLine, suggestedAnswerLine } from '@/lib/home/owed/copy';
 import { plain } from './home-screen-logic';
 
 export interface ItemCardExtraProps extends ItemCardProps {
@@ -48,7 +49,7 @@ export function ItemCard({
   const busy = pendingAction != null;
   const o = item.opened;
   const doneWhen = o.done_when.length >= 2 ? o.done_when : [];
-  const hasLeft = Boolean(o.summary) || doneWhen.length > 0 || Boolean(o.left_off_note);
+  const hasLeft = Boolean(o.summary) || doneWhen.length > 0 || Boolean(o.left_off_note) || Boolean(o.draft_text) || Boolean(o.bast_read) || Boolean(o.suggested_answer);
   const hasRight = Boolean(o.how) || o.links.length > 0 || Boolean(o.task_id) || Boolean(item.default_if_ignored);
 
   const button = (a: HomeItemAction) => (
@@ -72,6 +73,7 @@ export function ItemCard({
         {item.hard_date ? <span className="home-pill">{plain(item.hard_date)}</span> : null}
         {item.who ? <span>{plain(item.who)}</span> : null}
         {item.age ? <span>{plain(item.age)}</span> : null}
+        {item.owed_line ? <span>{plain(item.owed_line)}</span> : null}
         {item.effort ? <span>{plain(item.effort)}</span> : null}
         {item.project && onOpenProject ? (
           <button type="button" className="home-linkbtn" onClick={() => onOpenProject(item.project!.id)}>
@@ -121,6 +123,14 @@ export function ItemCard({
             <div className="home-blk">
               {o.summary ? <p>{plain(o.summary)}</p> : null}
               {o.summary && o.summary_by === 'bast' ? <p className="home-muted home-small">Short version by Bast.</p> : null}
+              {o.bast_read ? <p>{plain(bastReadLine(o.bast_read))}</p> : null}
+              {o.suggested_answer ? <p>{plain(suggestedAnswerLine(o.suggested_answer))}</p> : null}
+              {o.draft_text ? (
+                <div>
+                  <h3>The draft</h3>
+                  <p className="home-draft">{o.draft_text}</p>
+                </div>
+              ) : null}
               {o.left_off_note ? (
                 <div>
                   <h3>Where you left off</h3>

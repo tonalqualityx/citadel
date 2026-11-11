@@ -230,3 +230,14 @@ describe('Slice 3 copy', () => {
     expect(copy.IF_IGNORED.botStopped).toBe('Stays with Bast, stopped, until you answer on the task.');
   });
 });
+
+describe('Slice 4a copy', () => {
+  it('the three new buttons read as planned', () => {
+    expect(copy.ACTION_LABELS.draft_now).toBe('Draft it now');
+    expect(copy.ACTION_LABELS.needs_thought).toBe('Needs thought');
+    expect(copy.ACTION_LABELS.go_with_that).toBe('Go with that');
+  });
+  it('no label says send', () => {
+    for (const label of Object.values(copy.ACTION_LABELS)) expect(label).not.toMatch(/\bsend\b/i);
+  });
+});

@@ -115,3 +115,29 @@ describe('home op', () => {
     await expect(op.undo(ctx() as any, rec, {})).rejects.toThrow("Today's list changed");
   });
 });
+
+describe('home op: Slice 4a owed reply taps', () => {
+  const THREAD = 'thread:mike@becomeindelible.com:th-1';
+  beforeEach(() => {
+    h.db.emailAsk = { findFirst: vi.fn(async () => ({ from_name: 'Jessica Everlith', from_email: 'jess@x.example' })) };
+  });
+  it('validates the three actions with the strict schema and refuses a send action', () => {
+    for (const action of ['draft_now', 'needs_thought', 'go_with_that']) expect(op.validate({ action, item_key: THREAD })).toEqual({ action, item_key: THREAD });
+    expect(() => op.validate({ action: 'send_draft', item_key: THREAD })).toThrow();
+    expect(() => op.validate({ action: 'draft_now', item_key: THREAD, user_id: 'x' })).toThrow();
+  });
+  it('says what Bast will do, naming the person from the record', async () => {
+    const lines: Record<string, string> = {
+      draft_now: 'Bast will draft a reply to Jessica Everlith.',
+      needs_thought: "Bast will write its read on Jessica Everlith's thread.",
+      go_with_that: "Bast will redraft Jessica Everlith's reply along its suggestion.",
+    };
+    for (const [action, line] of Object.entries(lines)) {
+      h.run.mockResolvedValue({ ok: true, action_id: '77777777-7777-4777-8777-777777777777', undo_until: null, item_key: THREAD, message: 'x' });
+      const r = await op.run(ctx() as any, op.validate({ action, item_key: THREAD }), {});
+      expect(h.run.mock.calls.at(-1)![2]).toEqual({ action, item_key: THREAD });
+      expect(r.summary).toBe(line);
+      expect(r.summary).not.toMatch(/[\u2013\u2014]|priorit|overdue|send/i);
+    }
+  });
+});

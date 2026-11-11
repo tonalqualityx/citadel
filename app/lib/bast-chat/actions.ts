@@ -327,6 +327,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'not_now'; title: string; until: Date | null }
   | { op: 'home_act'; action: 'not_emergency'; title: string; security?: boolean }
   | { op: 'home_act'; action: 'bring_forward' | 'matters_more' | 'pin' | 'stop' | 'done_pin' | 'arc_add' | 'arc_remove'; title: string }
+  | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
@@ -370,6 +371,15 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'arc_remove':
           s = `Took ${quoted(o.title)} off today.`;
+          break;
+        case 'draft_now':
+          s = `Bast will draft a reply to ${o.who}.`;
+          break;
+        case 'needs_thought':
+          s = `Bast will write its read on ${o.who}'s thread.`;
+          break;
+        case 'go_with_that':
+          s = `Bast will redraft ${o.who}'s reply along its suggestion.`;
           break;
         case 'arc_reorder':
           s = "Reordered today's steps.";

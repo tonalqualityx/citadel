@@ -138,6 +138,8 @@
 [data-home] .home-box[data-done="true"] { background: var(--success); border-color: var(--success); }
 [data-home] .home-foot { border-top: 1px solid var(--border); padding-top: 10px; font-size: 0.85rem; color: var(--text-secondary); }
 [data-home] .home-note { border-left: 3px solid var(--border); padding: 6px 12px; font-size: 0.9rem; }
+/* Slice 4a: Bast's draft text, shown as written (pre-wrapped), muted border, nothing red. */
+[data-home] .home-draft { white-space: pre-wrap; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; margin: 0; }
 
 /* ------------------------------------------------------------ working on */
 

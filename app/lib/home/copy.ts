@@ -187,6 +187,9 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   stop: 'Stop for now',
   add_to_arc: "Add to today's arc",
   remove_from_arc: 'Remove from arc',
+  draft_now: 'Draft it now',
+  needs_thought: 'Needs thought',
+  go_with_that: 'Go with that',
 };
 
 /** "Approve all 39". */

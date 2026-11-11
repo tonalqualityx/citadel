@@ -89,10 +89,26 @@ async function groupName(db: OpDb, key: string): Promise<string> {
   return row?.name ?? 'another group';
 }
 
+/** The name of the person on the newest open message of a thread, read from the record. Never from the request. */
+async function threadWho(db: OpDb, key: string): Promise<string> {
+  const p = parseItemKey(key);
+  if (!p || p.kind !== 'thread') return 'that person';
+  const a = await db.emailAsk.findFirst({
+    where: { account: p.account, OR: [{ thread_id: p.thread_id }, { thread_id: null, message_id: p.thread_id }] },
+    orderBy: { received_at: 'desc' },
+    select: { from_name: true, from_email: true },
+  });
+  const name = (a?.from_name ?? '').replace(/["<>]/g, '').trim();
+  return name || a?.from_email.split('@')[0] || 'that person';
+}
+
 async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date): Promise<string> {
   const a = input.action;
   if (a === 'arc_reorder' || a === 'lighter') return opSummary({ op: 'home_act', action: a }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
+  if (a === 'draft_now' || a === 'needs_thought' || a === 'go_with_that') {
+    return opSummary({ op: 'home_act', action: a, who: await threadWho(db, input.item_key) }, now);
+  }
   const d = await describeItem(db, input.item_key);
   // A third Not now leaves no return date: the item stays in view (the opSummary line would say it stays out).
   if (a === 'not_now' && until === null) return cleanLine(`${quoted(d.title)} stays in view. Pick what to do with it.`, 300);

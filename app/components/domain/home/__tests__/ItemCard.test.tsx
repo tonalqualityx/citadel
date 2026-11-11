@@ -156,3 +156,50 @@ describe('ItemCard', () => {
     expect(screen.queryByText('Done when')).toBeNull();
   });
 });
+
+describe('ItemCard: Slice 4a owed replies', () => {
+  const thread = (over: Partial<HomeItem> = {}, opened: Partial<HomeItem['opened']> = {}) =>
+    mkItem('thread:a:b', {
+      type: 'owed_reply',
+      source: { kind: 'thread', id: 'x', ids: ['x'], task_status: null },
+      actions: [
+        { id: 'open_draft', label: 'Open the draft', filled: false, href: 'https://mail.example/x' },
+        { id: 'needs_thought', label: 'Needs thought', filled: false, href: null },
+        { id: 'not_now', label: 'Not now', filled: false, href: null },
+      ],
+      opened: { ...mkItem('a').opened, ...opened },
+      ...over,
+    });
+
+  it('shows The draft block, pre-wrapped, with the text as written and no red', () => {
+    const text = 'Hi Pat,\n\nThanks for writing. I will get back to you.\n\nMike';
+    const { container } = render(<ItemCard {...base} item={thread({ owed_line: 'Draft ready' }, { draft_text: text })} />);
+    expect(screen.getByText('The draft')).toBeInTheDocument();
+    const block = container.querySelector('.home-draft') as HTMLElement;
+    expect(block.textContent).toBe(text);
+    expect(block.style.color).toBe('');
+    expect(screen.getByText('Draft ready')).toBeInTheDocument();
+  });
+  it('shows Bast\'s read and the suggested answer lines', () => {
+    render(<ItemCard {...base} item={thread({}, { bast_read: 'They want a price.', suggested_answer: 'Ask which pages first.' })} />);
+    expect(screen.getByText("Bast's read: They want a price.")).toBeInTheDocument();
+    expect(screen.getByText('Suggested answer: Ask which pages first.')).toBeInTheDocument();
+    expect(screen.queryByText('The draft')).toBeNull();
+  });
+  it('shows the new-message line for his older draft', () => {
+    render(<ItemCard {...base} item={thread({ owed_line: 'Their new message came after your draft.' })} />);
+    expect(screen.getByText('Their new message came after your draft.')).toBeInTheDocument();
+  });
+  it('shows no draft block without draft text', () => {
+    render(<ItemCard {...base} item={thread()} />);
+    expect(screen.queryByText('The draft')).toBeNull();
+  });
+  it('the buttons pass their action to onAction, and no button on a draft card says Send', () => {
+    const onAction = vi.fn();
+    const item = thread();
+    render(<ItemCard {...base} item={item} onAction={onAction} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Needs thought' }));
+    expect(onAction).toHaveBeenCalledWith(item.actions[1], item);
+    for (const b of screen.getAllByRole('button')) expect(b.textContent).not.toMatch(/send/i);
+  });
+});

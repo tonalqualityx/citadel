@@ -168,7 +168,7 @@ export function rowsFromItems(items: HomeItem[]): ListRow[] {
   return items.map((i) => ({
     key: i.key,
     title: plain(i.title),
-    meta: [i.who, i.age, i.hard_date].filter(Boolean).map((s) => plain(s)).join('  ·  '),
+    meta: [i.who, i.age, i.owed_line, i.hard_date].filter(Boolean).map((s) => plain(s)).join('  ·  '),
     rule: i.type === 'emergency',
   }));
 }

@@ -338,3 +338,32 @@ describe('useHomeItemAction', () => {
     });
   });
 });
+
+describe('useHomeItemAction: Slice 4a owed taps', () => {
+  const threadItem = () => item({ key: 'thread:a:b', type: 'owed_reply' }, { kind: 'thread', id: 'x', ids: ['x'] });
+  it('draft_now, needs_thought and go_with_that post their own request and toast the server line', async () => {
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    for (const [id, line] of [
+      ['draft_now', 'Bast will draft this in the next few minutes.'],
+      ['needs_thought', 'Bast will write its read on this thread in the next few minutes.'],
+      ['go_with_that', 'Bast will redraft it along that line.'],
+    ] as const) {
+      api.post.mockResolvedValueOnce({ ...okAct, item_key: 'thread:a:b', message: line });
+      await act(async () => {
+        expect(await result.current.run({ id }, threadItem())).toBe(true);
+      });
+      expect(api.post).toHaveBeenLastCalledWith('/home/act', { action: id, item_key: 'thread:a:b' });
+      expect(toasts.success).toHaveBeenLastCalledWith(line, expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }));
+    }
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(api.post.mock.calls.some((c) => String(c[0]).includes('send') || String(c[0]).includes('outbox'))).toBe(false);
+  });
+  it('a failure shows one sentence, not two', async () => {
+    api.post.mockRejectedValueOnce(new Error('The draft is already in your Gmail. It stays there.'));
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'draft_now' }, threadItem())).toBe(false);
+    });
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+  });
+});

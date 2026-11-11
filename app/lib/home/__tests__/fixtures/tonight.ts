@@ -221,6 +221,8 @@ export function makeInputs(over: Partial<RawHomeInputs> = {}): RawHomeInputs {
     held_project_task_count: 0,
     held_projects: [],
     keeper_lines: [],
+    owed_rows: [],
+    drafter_fresh_at: null,
     ...over,
   };
 }

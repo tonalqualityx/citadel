@@ -117,3 +117,44 @@ describe('actionsFor: a task Bast stopped on', () => {
     expect(ids(actionsFor({ ...base, botTask: true, parkCount: 3 }).actions)).toEqual(['open_task']);
   });
 });
+
+describe('Slice 4a: owed thread buttons', () => {
+  const t = { ...base, kind: 'thread' as const, threadUrl: 'https://thread' };
+  it('no draft: Draft it now, Open the thread, Not now; No reply needed under More', () => {
+    const r = actionsFor({ ...t, owedThread: { state: null, suggestion: false } });
+    expect(ids(r.actions)).toEqual(['draft_now', 'open_thread', 'not_now']);
+    expect(ids(r.more_actions)).toContain('no_reply_needed');
+  });
+  it('a request already waiting does not offer Draft it now again', () => {
+    const r = actionsFor({ ...t, owedThread: { state: 'drafting', suggestion: false } });
+    expect(ids(r.actions)).toEqual(['open_thread', 'not_now']);
+  });
+  it('draft ready: Open the draft, Needs thought, Not now', () => {
+    const r = actionsFor({ ...t, draftUrl: 'https://thread', owedThread: { state: 'draft_ready', suggestion: false } });
+    expect(ids(r.actions)).toEqual(['open_draft', 'needs_thought', 'not_now']);
+    expect(r.actions[0].href).toBe('https://thread');
+  });
+  it('needs thought with a suggestion: Go with that, Open the thread, Not now; More has Draft it now and No reply needed', () => {
+    const r = actionsFor({ ...t, owedThread: { state: 'needs_thought', suggestion: true } });
+    expect(ids(r.actions)).toEqual(['go_with_that', 'open_thread', 'not_now']);
+    expect(ids(r.more_actions).slice(0, 2)).toEqual(['draft_now', 'no_reply_needed']);
+  });
+  it('needs thought without a suggestion has no Go with that', () => {
+    const r = actionsFor({ ...t, owedThread: { state: 'needs_thought', suggestion: false } });
+    expect(ids(r.actions)).toEqual(['open_thread', 'not_now']);
+    expect(ids([...r.actions, ...r.more_actions])).not.toContain('go_with_that');
+  });
+  it('his own draft keeps the Slice 1 buttons', () => {
+    const r = actionsFor({ ...t, draftUrl: 'https://draft', owedThread: { state: 'his_draft', suggestion: false } });
+    expect(ids(r.actions)).toEqual(['open_draft', 'no_reply_needed', 'not_now']);
+    const older = actionsFor({ ...t, draftUrl: 'https://draft', owedThread: { state: 'his_draft_older', suggestion: false } });
+    expect(ids(older.actions)).toEqual(['open_draft', 'no_reply_needed', 'not_now']);
+  });
+  it('no button can send: no id or label says send', () => {
+    for (const state of [null, 'drafting', 'draft_ready', 'stale_draft', 'needs_thought', 'his_draft'] as const) {
+      const r = actionsFor({ ...t, draftUrl: 'https://d', owedThread: { state, suggestion: true } });
+      for (const a of [...r.actions, ...r.more_actions]) expect(`${a.id} ${a.label}`).not.toMatch(/send/i);
+    }
+  });
+});
+
