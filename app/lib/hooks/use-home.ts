@@ -121,8 +121,12 @@ async function recordQuietly(item: HomeItem, did: HomeRecordedActionId, undo = f
 // useHomeUndo
 // ---------------------------------------------------------------------------
 
-/** `(actionId) => Promise<boolean>`: undo a home-only action (within 24 hours), toast, refetch. */
-export function useHomeUndo() {
+/**
+ * `(actionId) => Promise<boolean>`: undo a home-only action, toast, refetch. The toast reads "Undone." for his own
+ * actions; the keeper's lines pass `{ doneText: 'Put back.' }`.
+ */
+export function useHomeUndo(opts: { doneText?: string } = {}) {
+  const doneText = opts.doneText ?? 'Undone.';
   const queryClient = useQueryClient();
   return useCallback(
     async (actionId: string): Promise<boolean> => {
@@ -132,11 +136,11 @@ export function useHomeUndo() {
         showToast.error(UNDO_FAILURE_TEXT);
         return false;
       }
-      showToast.success('Undone.');
+      showToast.success(doneText);
       await refetchHome(queryClient);
       return true;
     },
-    [queryClient],
+    [queryClient, doneText],
   );
 }
 

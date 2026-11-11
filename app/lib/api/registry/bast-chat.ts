@@ -363,6 +363,46 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/home-keeper',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the nightly home sort as a dry run for the owner',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: 'true',
+          skipped: '"home_off" (only when the owner is not an active admin on the home view; then there is no plan)',
+          plan: {
+            owner_id: 'string (uuid)',
+            date: 'string (YYYY-MM-DD, the owner\'s zone)',
+            stagger: [{ item_key: 'string', title: 'string', day: 'string (YYYY-MM-DD)', view_at: 'ISO-8601' }],
+            dates: [{ item_key: 'string', title: 'string', outcome: '"read"|"set_aside"', due_date: 'string (YYYY-MM-DD)', client_facing: 'boolean' }],
+            lines: [{ action: 'string', text: 'string', details: ['string'] }],
+            counts: { stagger: 'number', dates_read: 'number', dates_set_aside: 'number' },
+          },
+          action_ids: '[] (always empty here)',
+        },
+        responseNotes: 'Owner only: always the configured chat owner, never a user id. Skipped unless the owner\'s home_view is home. GET writes nothing. The lists show the first 50 changes; counts and lines cover all of them.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: the nightly home sort, the real run (the crontab wrapper)',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: 'false',
+          already_ran: 'true (this zoned day already has a nightly run; nothing written; then there is no plan)',
+          skipped: '"home_off" (the owner is not on the home view; nothing written)',
+          plan: 'what was written, same shape as the GET plan',
+          action_ids: ['string (uuid, one home_actions row per kind with changes)'],
+        },
+        responseNotes: 'Strict empty body {}. Owner only. Skipped unless the owner\'s home_view is home. Runs once per zoned day: a second POST the same day answers already_ran and writes nothing. Writes only the owner\'s home_item_state, home_actions (source keeper, undo open 72 hours) and home_keeper_runs rows; never a task, arc, email ask, wait, comment or notification, and sends nothing.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/ops',
     group: 'bast-chat',
     methods: [

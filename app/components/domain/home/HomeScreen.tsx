@@ -53,7 +53,8 @@ function HomeScreenInner() {
   const { openTaskPeek } = useTaskPeek();
   const itemActions = useHomeItemAction({ openTask: openTaskPeek });
   const act = useHomeAct();
-  const undo = useHomeUndo();
+  // Only the keeper's Handled lines undo from here, so the toast says what happened to them.
+  const undo = useHomeUndo({ doneText: 'Put back.' });
 
   const [tile, setTile] = React.useState<HomeTileId>('today');
   // undefined = nothing chosen yet (open the tile's first row); null = nothing to open.

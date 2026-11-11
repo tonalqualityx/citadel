@@ -185,7 +185,7 @@ function wallAsUtcMs(date: Date, timeZone: string): number {
 }
 
 /** The UTC instant of y-m-d h:mi on the wall clock of the zone. */
-function zonedToUtc(y: number, m: number, d: number, h: number, mi: number, timeZone: string): Date {
+export function zonedToUtc(y: number, m: number, d: number, h: number, mi: number, timeZone: string): Date {
   const nominal = Date.UTC(y, m - 1, d, h, mi);
   let guess = nominal;
   for (let i = 0; i < 3; i++) {

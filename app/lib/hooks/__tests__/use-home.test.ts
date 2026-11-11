@@ -15,6 +15,7 @@ import {
   useHomeAct,
   useHomeArcActions,
   useHomeItemAction,
+  useHomeUndo,
   isPinConflict,
   HOME_FAILURE_TEXT,
   HOME_PIN_SWITCH_TEXT,
@@ -110,6 +111,19 @@ describe('useHomeAct', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
     await act(async () => opts.action.onClick());
     expect(api.post).toHaveBeenCalledWith('/home/undo', { action_id: 'a1' });
+    // His own action's Undo toasts "Undone."
+    expect(toasts.success).toHaveBeenLastCalledWith('Undone.');
+  });
+
+  it('a keeper line Undo toasts "Put back."', async () => {
+    const { result } = renderHook(() => useHomeUndo({ doneText: 'Put back.' }), { wrapper: wrapperFor(makeClient()) });
+    let ok = false;
+    await act(async () => {
+      ok = await result.current('k1');
+    });
+    expect(ok).toBe(true);
+    expect(api.post).toHaveBeenCalledWith('/home/undo', { action_id: 'k1' });
+    expect(toasts.success).toHaveBeenLastCalledWith('Put back.');
   });
 
   it('on failure shows one plain sentence, rejects, and does not refetch', async () => {
