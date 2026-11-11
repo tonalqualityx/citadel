@@ -35,14 +35,14 @@ const REST_WORDS: Record<string, string> = {
   hands: 'In the Monday hands row',
 };
 
-function whereOf(c: Candidate, timeZone: string): string {
+export function whereOf(c: Candidate, timeZone: string): string {
   if (c.section !== 'rest') return SECTION_WORDS[c.section];
   if (c.parked && c.state?.view_at) return backOnText(c.state.view_at, timeZone);
   return REST_WORDS[c.restGroup ?? 'waiting_turn'] ?? 'Waiting its turn';
 }
 
 /** Parked ones sit last, soonest return first; every other order is the main list's own. */
-function compare(a: Candidate, b: Candidate): number {
+export function drawerCompare(a: Candidate, b: Candidate): number {
   const ar = a.section === 'rest' && a.parked ? 6 : SECTION_RANK[a.section];
   const br = b.section === 'rest' && b.parked ? 6 : SECTION_RANK[b.section];
   if (ar !== br) return ar - br;
@@ -61,6 +61,6 @@ export function projectDrawerItems(candidates: Candidate[], projectId: string, t
     // The project's own next step row is the drawer's "Next step" line, not one of his items.
     .filter((c) => c.kind !== 'step')
     .filter((c) => c.restGroup !== 'review_pieces' && !(c.section === 'rest' && (c.kind === 'crisis' || c.kind === 'site')))
-    .sort(compare)
+    .sort(drawerCompare)
     .map((c) => ({ item: c.item, where: whereOf(c, timeZone) }));
 }

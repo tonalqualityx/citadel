@@ -357,8 +357,12 @@ export const bastChatEndpoints: ApiEndpoint[] = [
           emergencies: [{ key: 'string', title: 'string', emergency: 'true (Needs you now; never a rule, class or score)' }],
           parked: [{ key: 'string', title: 'string', until: 'ISO-8601|null (null: it stays in view)' }],
           counts: { needs_you_now: 'number', working_on: 'number', leads: 'number', mail: 'number', next: 'number', handled: 'number', everything_else: 'number' },
+          calendar: {
+            rows: [{ start: 'ISO-8601', end: 'ISO-8601', all_day: 'boolean', who: 'string (names, never an email address)', title: 'string', kind: 'meeting|block|answer', join_url: 'string|null (an https address)', client: 'string|null', lead: 'boolean' }],
+            tomorrow_first: 'row|null (the first meeting tomorrow, whatever the hour)',
+          },
         },
-        responseNotes: 'Always the owner from the settings; takes no user id. Read only: it stores nothing. Never a score, class or button. The v2 fields let the chat see what a home change touches: a step key, a group key or a pinned key is what the home op takes.',
+        responseNotes: 'Always the owner from the settings; takes no user id. Read only: it stores nothing. Never a score, class or button. calendar lists today\'s events (declined ones left out, at most 12) by names only: no email address and no invite text; it is empty when the owner is not the calendar\'s owner. The v2 fields let the chat see what a home change touches: a step key, a group key or a pinned key is what the home op takes.',
       },
     ],
   },

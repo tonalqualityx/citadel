@@ -22,6 +22,8 @@ import { getHomeDay, loadItemStates } from '@/lib/home/state';
 import { selectHome } from '@/lib/home/select';
 import { assembleHomeResponse, proposeDay } from '@/lib/home/today';
 import type { HomeItem } from '@/lib/home/types';
+import { ownerCalendar } from '@/lib/home/calendar/chat';
+import type { ChatCalendar } from '@/lib/home/calendar/types';
 import { cleanLine } from './card-context';
 import { feed, type FeedEvent } from './events';
 import { listActions, type ProposalCard } from './actions';
@@ -209,6 +211,8 @@ export interface OwnerToday {
   parked: { key: string; title: string; until: string | null }[];
   /** v2: how many items each tile holds. */
   counts: { needs_you_now: number; working_on: number; leads: number; mail: number; next: number; handled: number; everything_else: number };
+  /** Slice 10a: today's calendar by names only (no address, no invite text). Empty unless the owner is the calendar's owner. */
+  calendar: ChatCalendar;
 }
 
 const line = (i: HomeItem): TodayLine => ({ key: i.key, title: i.title, who: i.who, age: i.age, effort: i.effort });
@@ -237,7 +241,9 @@ export async function ownerToday(ownerId: string, now: Date = new Date(), db: Pr
     .sort((a, b) => (a.state?.view_at?.getTime() ?? Infinity) - (b.state?.view_at?.getTime() ?? Infinity))
     .slice(0, PARKED_MAX)
     .map((c) => ({ key: c.key, title: c.item.title, until: c.state?.view_at ? c.state.view_at.toISOString() : null }));
+  const calendar = await ownerCalendar(db, ownerId, now, timezone);
   const extra = {
+    calendar,
     group_key: t ? t.group_key : null,
     swap: t ? t.swap.map(choice) : [],
     lighter: t?.lighter ? choice(t.lighter) : null,

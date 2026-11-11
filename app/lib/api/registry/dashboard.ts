@@ -108,6 +108,52 @@ export const dashboardEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/home/calendar',
+    group: 'dashboard',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Get today\'s calendar strip for the Home screen: one row per event with only a time and who it is with. Browser session only, and only the calendar\'s owner.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: {
+          upcoming: [{ id: 'uuid', time: 'string (2:00, 6:30 am or Now)', who: 'string (names, never an email address)', muted: 'boolean', openable: 'boolean' }],
+          later: [{ id: 'uuid', time: 'string', who: 'string', muted: 'boolean', openable: 'boolean' }],
+          earlier: [{ id: 'uuid', time: 'string', who: 'string', muted: 'boolean', openable: 'boolean' }],
+          all_day: 'string|null',
+          tomorrow: '{id, time, who, muted, openable}|null (after 3:00 pm his time)',
+          soon: '{id, time, who, muted, openable}|null (a meeting under way or starting within 30 minutes)',
+        },
+        responseNotes: 'Answers 403 for an API key or the chat (a browser session only), for a non-admin, when the caller\'s own home_view preference is not home, and when the caller\'s email is not the calendar owner\'s. No user_id parameter. Sends Cache-Control: no-store. Writes nothing and builds no Home list. Declined events never appear.',
+      },
+    ],
+  },
+  {
+    path: '/api/home/calendar/:id',
+    group: 'dashboard',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Get the Home screen meeting drawer for one calendar event on today or tomorrow: who it is with, how that matched, the join link, hints, the caller\'s own items and links. Browser session only, and only the calendar\'s owner.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: {
+          event: { id: 'uuid', title: 'string', when: 'string', location: 'string|null', join: '{href, label}|null (https only)', invite_text: 'string|null (plain text, cut to 600 characters)', invite_links: [{ href: 'string', label: 'string' }] },
+          client: '{id, name}|null',
+          also_with: ['string'],
+          people: [{ name: 'string', detail: 'string|null', reply: 'string|null' }],
+          matched_by: 'string',
+          hints: [{ text: 'string', muted: 'boolean' }],
+          items: [{ item: 'HomeItem', where: 'string' }],
+          more_items: 'number',
+          more_project_id: 'uuid|null',
+          links: [{ label: 'string', href: 'string|null', project_id: 'uuid|null' }],
+        },
+        responseNotes: 'Same gate as the strip (403 for an API key, a non-admin, a home_view other than home, or another email). 404 for a bad id, an event outside today and tomorrow in the caller\'s zone, or a declined event. Sends Cache-Control: no-store. Writes nothing. Event titles and descriptions are untrusted: plain text only, and links only for known meeting hosts over https. Items carry no score, class, priority or emergency field.',
+      },
+    ],
+  },
+  {
     path: '/api/home/learned',
     group: 'dashboard',
     methods: [
