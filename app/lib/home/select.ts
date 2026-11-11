@@ -1197,7 +1197,7 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
   } else if (group === 'hands') {
     text = REST_CHECK.handsRow;
   } else if (group === 'project_steps') {
-    text = meetsNextRule(c) ? REST_CHECK.joinsNext : REST_CHECK.stepHeld;
+    text = c.boosted ? REST_CHECK.joinsNext : meetsNextRule(c) ? REST_CHECK.stepOneAtATime : REST_CHECK.stepHeld;
   } else if (c.kind === 'site') {
     text = SITE_RULED_CHECK;
   } else if (c.kind === 'crisis') {
@@ -1406,6 +1406,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const projectsInView = new Set<string>();
   for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) if (c.item.project) projectsInView.add(c.item.project.id);
   const stepStill = new Set<string>();
+  const unboostedSteps: Candidate[] = [];
   const stepRows = raw.project_steps.filter((s) => {
     const v = stepVisibility(s, states.get(stepKey(s.project_id)), now);
     if (v === 'still') stepStill.add(s.project_id);
@@ -1441,12 +1442,25 @@ export function selectHome(input: SelectInput): SelectResult {
       c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
     } else if (c.score.venture && !c.boosted) {
       c.restGroup = 'ventures';
+    } else if (c.boosted) {
+      // Brought forward or "This matters more": a boosted step takes a Next slot in the boosted tier, as any boosted item does.
+      c.section = 'next';
+      c.restGroup = null;
+      nextAll.push(c);
     } else if (meetsNextRule(c)) {
+      unboostedSteps.push(c);
+    }
+  }
+  // Like the bot-task rule: at most ONE unboosted step holds a Next slot at a time (the best by the normal rank among those that
+  // qualify). The others wait in the Project next steps group. When the holder is done or parked, the next one takes the slot.
+  unboostedSteps.sort(nextCompare);
+  unboostedSteps.forEach((c, i) => {
+    if (i === 0) {
       c.section = 'next';
       c.restGroup = null;
       nextAll.push(c);
     }
-  }
+  });
 
   for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) c.inView = true;
 

@@ -441,6 +441,8 @@ export const REST_CHECK = {
   /** Slice 6a: a hands task, listed in Everything else; it is done from the Monday row. */
   handsRow: 'Comes up in the Monday hands row',
   /** Slice 8b: a project next step that does not meet the Next bands (its client is not active); only his word brings it forward. */
+  /** Slice 8b: a qualifying step behind the one that holds the Next slot. */
+  stepOneAtATime: 'Shows here one at a time. Bring it forward to see it now.',
   stepHeld: 'Stays here until you bring it forward',
 } as const;
 

@@ -380,7 +380,7 @@ export function scoreStep(
   step: { client: { status: string; name?: string | null }; project_name?: string | null; last_activity_at: Date },
   now: Date,
 ): Score {
-  return finish(
+  const s = finish(
     {
       clientTrust: step.client.status === 'active' ? IMPORTANCE.clientTrust.activeClient : 0,
       money: 0,
@@ -392,4 +392,9 @@ export function scoreStep(
     },
     now,
   );
+  // A quiet project reads as a long wait; the cap keeps its one step in Next sorting among his class 1 tasks, not always above them.
+  return { ...s, urgency: Math.min(STEP_URGENCY_CAP, s.urgency) };
 }
+
+/** Slice 8b: the most urgency a project next step can read. */
+export const STEP_URGENCY_CAP = 60;

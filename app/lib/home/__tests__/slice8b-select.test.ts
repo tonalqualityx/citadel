@@ -135,42 +135,81 @@ describe('Slice 8b: a project next step as a row', () => {
 
 describe('Slice 8b: how step rows rank against his tasks', () => {
   const quietSteps = (n: number, quietDays: number) =>
-    Array.from({ length: n }, (_, i) => step({ project_id: nextId(), project_name: `Project ${i + 1}`, last_activity_at: new Date(NOW.getTime() - quietDays * 86_400_000) }));
+    Array.from({ length: n }, (_, i) =>
+      step({ project_id: nextId(), project_name: `Project ${i + 1}`, last_activity_at: new Date(NOW.getTime() - (quietDays - i) * 86_400_000) }),
+    );
+  // Urgency 65, 65 and 50 (waiting 9, 6 and 3 business days).
+  const threeTasks = () => [clientTask('Task A', 14), clientTask('Task B', 9), clientTask('Task C', 5)];
+  const stepsInNext = (r: ReturnType<typeof sel>) => r.sections.next.filter((i) => i.type === 'step');
+  const group = (r: ReturnType<typeof sel>) => r.everything_else.groups.find((g) => g.key === 'project_steps');
 
-  it('5 step rows and 3 class 1 tasks: the tasks keep all 3 slots when the steps are not ahead of them by the normal rules', () => {
-    const tasks = [clientTask('Task A', 20), clientTask('Task B', 18), clientTask('Task C', 16)];
-    // Projects quiet 6 days: class 1, the same band as the tasks, but a younger clock (urgency 65, tasks 80 or 90).
-    const steps = quietSteps(5, 6);
-    const r = sel({ tasks, project_steps: steps });
-    expect(titles(r.sections.next)).toEqual(['Task A', 'Task B', 'Task C']);
-    const group = r.everything_else.groups.find((g) => g.key === 'project_steps')!;
-    expect(group.label).toBe('Project next steps');
-    expect(group.count).toBe(5);
-    for (const row of group.items) {
-      expect(row.check_text).toBe('Joins Next when a row frees up');
+  it('5 qualifying steps and 3 class 1 tasks: exactly one step is a Next candidate and at least two tasks are visible in the top three', () => {
+    const r = sel({ tasks: threeTasks(), project_steps: quietSteps(5, 45) });
+    expect(r.candidates.filter((c) => c.kind === 'step' && c.section === 'next')).toHaveLength(1);
+    expect(stepsInNext(r)).toHaveLength(1);
+    expect(r.sections.next).toHaveLength(3);
+    expect(r.sections.next.filter((i) => i.type === 'task').length).toBeGreaterThanOrEqual(2);
+    const g = group(r)!;
+    expect(g.label).toBe('Project next steps');
+    expect(g.count).toBe(4);
+    for (const row of g.items) {
+      expect(row.check_text).toBe('Shows here one at a time. Bring it forward to see it now.');
       expect(row.can_bring_forward).toBe(true);
-      expect(row.owner).toBe('You');
     }
-    // The steps are in view (they qualify) but not shown.
-    expect(r.candidates.filter((c) => c.kind === 'step' && c.inView && !c.shown)).toHaveLength(5);
   });
 
-  it('a step outranks a task only by the normal rules: same class, higher urgency', () => {
-    const tasks = [clientTask('Task A', 20), clientTask('Task B', 18), clientTask('Task C', 16)];
-    const quiet = step({ project_name: 'Very quiet', last_activity_at: new Date(NOW.getTime() - 45 * 86_400_000) });
-    const r = sel({ tasks, project_steps: [quiet, ...quietSteps(4, 6)] });
-    // The long quiet project reads like a 45 day wait; it ties with the oldest task on urgency and the older clock wins.
-    expect(r.sections.next).toHaveLength(3);
-    expect(r.sections.next.map((i) => i.key)).toContain(stepKey(quiet.project_id));
-    const taskCount = r.sections.next.filter((i) => i.type !== 'step').length;
-    expect(taskCount).toBe(2);
+  it("a step's urgency is capped, so the one step in Next sorts among his class 1 tasks rather than above them", () => {
+    const r = sel({ tasks: threeTasks(), project_steps: quietSteps(5, 60) });
+    // Tasks at urgency 65 come ahead of a step capped at 60; the 50 task sits behind it.
+    expect(r.sections.next.map((i) => i.type)).toEqual(['task', 'task', 'step']);
+  });
+
+  it('the holder is the best step by the normal rank: the one with the oldest clock among equals', () => {
+    const steps = quietSteps(3, 60);
+    const r = sel({ project_steps: steps });
+    expect(stepsInNext(r).map((i) => i.key)).toEqual([stepKey(steps[0].project_id)]);
+  });
+
+  it('boosting a second step puts both in Next, in the boosted tier', () => {
+    const steps = quietSteps(5, 45);
+    const r = sel({ tasks: threeTasks(), project_steps: steps }, [makeState(stepKey(steps[3].project_id), { boosted_at: NOW })]);
+    // Both the holder and the boosted step are Next candidates (in view); the boosted one leads, and the cap of 3 cuts the lowest.
+    expect(r.candidates.filter((c) => c.kind === 'step' && c.inView)).toHaveLength(2);
+    expect(r.sections.next[0].key).toBe(stepKey(steps[3].project_id));
+    expect(stepsInNext(r).length).toBeGreaterThanOrEqual(1);
+    expect(group(r)!.count + stepsInNext(r).length).toBe(5);
+    const free = sel({ project_steps: steps }, [makeState(stepKey(steps[3].project_id), { boosted_at: NOW })]);
+    expect(stepsInNext(free)).toHaveLength(2);
+    expect(group(free)!.count).toBe(3);
+  });
+
+  it('marking the first done lets the next step in; parking it does too', () => {
+    const steps = quietSteps(5, 45);
+    const first = stepKey(steps[0].project_id);
+    const second = stepKey(steps[1].project_id);
+    expect(stepsInNext(sel({ project_steps: steps })).map((i) => i.key)).toEqual([first]);
+    const done = makeState(first, { step_done_at: NOW, step_done_text: steps[0].text });
+    expect(stepsInNext(sel({ project_steps: steps }, [done])).map((i) => i.key)).toEqual([second]);
+    const parked = makeState(first, { view_at: d('2026-11-11T14:00:00Z'), view_set_by: 'user', park_count: 1 });
+    expect(stepsInNext(sel({ project_steps: steps }, [parked])).map((i) => i.key)).toEqual([second]);
+  });
+
+  it('the drawer counts add up: shown steps plus the group are every qualifying step, and Everything else counts them once', () => {
+    const steps = quietSteps(5, 45);
+    const r = sel({ tasks: threeTasks(), project_steps: steps }, [makeState(stepKey(steps[2].project_id), { boosted_at: NOW })]);
+    const shown = stepsInNext(r).length;
+    const inGroup = group(r)?.count ?? 0;
+    expect(shown + inGroup).toBe(5);
+    expect(group(r)!.items).toHaveLength(inGroup);
+    const total = r.everything_else.groups.reduce((n, g) => n + g.count, 0);
+    expect(r.everything_else.count).toBe(total);
   });
 
   it('a step for a client that is not active never enters Next by itself and says so', () => {
     const s = step({ client: makeClient('Dormant Co', { status: 'inactive' }) });
     const r = sel({ project_steps: [s] });
     expect(r.sections.next).toEqual([]);
-    const row = r.everything_else.groups.find((g) => g.key === 'project_steps')!.items[0];
+    const row = group(r)!.items[0];
     expect(row.check_text).toBe(REST_CHECK.stepHeld);
     expect(row.can_bring_forward).toBe(true);
   });
@@ -178,14 +217,8 @@ describe('Slice 8b: how step rows rank against his tasks', () => {
   it('does not change the order or the slots of tasks when the steps are all behind them', () => {
     const tasks = [clientTask('Task A', 20), clientTask('Task B', 18), clientTask('Task C', 16)];
     const without = sel({ tasks });
-    const withSteps = sel({ tasks, project_steps: quietSteps(5, 6) });
+    const withSteps = sel({ tasks, project_steps: quietSteps(5, 45) });
     expect(withSteps.sections.next.map((i) => i.key)).toEqual(without.sections.next.map((i) => i.key));
-  });
-
-  it('five quiet projects fill the 3 slots and the other 2 wait in their own drawer group', () => {
-    const r = sel({ project_steps: quietSteps(5, 30) });
-    expect(r.sections.next).toHaveLength(3);
-    expect(r.everything_else.groups.find((g) => g.key === 'project_steps')!.count).toBe(2);
   });
 });
 
