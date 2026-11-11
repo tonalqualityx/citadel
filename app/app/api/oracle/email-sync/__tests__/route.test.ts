@@ -17,6 +17,10 @@ vi.mock('@/lib/db/prisma', () => ({
     user: {
       findUnique: vi.fn(),
     },
+    // Work stage B: the home owner check (no owner = nothing about intake decisions is stored).
+    bastChatSettings: {
+      findUnique: vi.fn(),
+    },
     // Oracle Projects Tab Phase 2 — the client/project auto-matcher's own queries.
     clientContact: {
       findMany: vi.fn(),
@@ -26,6 +30,9 @@ vi.mock('@/lib/db/prisma', () => ({
     },
   },
 }));
+
+const waitStore = vi.hoisted(() => ({ insertIdempotent: vi.fn(), addEvent: vi.fn() }));
+vi.mock('@/lib/waits/prisma-store', () => ({ prismaSweepStore: () => waitStore }));
 
 vi.mock('@/lib/services/notifications', () => ({
   notifyUrgentEmail: vi.fn(),
@@ -43,6 +50,7 @@ const mockUserFindUnique = prisma.user.findUnique as Mock;
 const mockClientContactFindMany = prisma.clientContact.findMany as Mock;
 const mockProjectFindMany = prisma.project.findMany as Mock;
 const mockNotifyUrgentEmail = vi.mocked(notifyUrgentEmail);
+const mockSettings = prisma.bastChatSettings.findUnique as Mock;
 
 function postRequest(body: unknown): NextRequest {
   return new NextRequest('http://localhost:3000/api/oracle/email-sync', {
@@ -72,6 +80,7 @@ beforeEach(() => {
     Promise.resolve({ id: 'ask-1', ...create })
   );
   mockUserFindUnique.mockResolvedValue({ id: 'operator-1', email: 'mike@becomeindelible.com' });
+  mockSettings.mockResolvedValue(null);
   // Oracle Projects Tab Phase 2 — default: no contact resolves for the sender, so the
   // auto-matcher is a no-op for every pre-existing test above (it returns immediately
   // once clientContact.findMany comes back empty, never reaching project.findMany or
@@ -441,5 +450,125 @@ describe('POST /api/oracle/email-sync: rfc_message_id and conversation_key', () 
   it('refuses a key over 255 characters', async () => {
     const res = await POST(postRequest({ asks: [baseAsk({ conversation_key: 'x'.repeat(256) })] }));
     expect(res.status).toBe(400);
+  });
+});
+
+
+// Work stage B: one intake decision per message.
+describe('POST /api/oracle/email-sync: the intake decision (work stage B)', () => {
+  const homeOn = () => {
+    mockSettings.mockResolvedValue({ owner_user_id: 'owner-1' });
+    mockUserFindUnique.mockResolvedValue({ id: 'owner-1', email: 'mike@becomeindelible.com', is_active: true, role: 'admin', preferences: { home_view: 'home', timezone: 'America/New_York' } });
+  };
+  const row = (extra: Record<string, unknown> = {}) => ({ id: 'ask-1', is_urgent: false, client_id: null, project_id: null, match_source: null, disposition: null, ...extra });
+  const created = () => mockUpsert.mock.calls[0][0].create as Record<string, unknown>;
+
+  it('no_action on a new row is created handled with the intake close record, a reason and owner nobody', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row({ disposition: 'no_action' }));
+    const res = await POST(postRequest({ asks: [baseAsk({ disposition: 'no_action', disposition_reason: 'A thank-you, nothing asked \u2014 no reply' })] }));
+    const body = await res.json();
+    expect(created()).toMatchObject({ state: 'handled', closed_reason: 'no_action', closed_by: 'intake', disposition: 'no_action', owner: 'nobody', decided_by: 'intake' });
+    expect(created().disposition_reason).toBe('A thank-you, nothing asked , no reply');
+    expect(body.items[0]).toMatchObject({ message_id: 'msg-1', id: 'ask-1', disposition: 'no_action' });
+    expect(waitStore.insertIdempotent).not.toHaveBeenCalled();
+  });
+
+  it('an urgent ask sent as no_action is stored as reply_mike, open, and reported in adjusted', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row({ is_urgent: true, disposition: 'reply_mike' }));
+    const res = await POST(postRequest({ asks: [baseAsk({ is_urgent: true, disposition: 'no_action' })] }));
+    const body = await res.json();
+    expect(created()).toMatchObject({ disposition: 'reply_mike', owner: 'mike' });
+    expect('state' in created()).toBe(false);
+    expect(body.items[0].adjusted).toBe('no_action_refused_urgent');
+    expect(body.adjusted).toHaveLength(1);
+  });
+
+  it.each(['admin', 'sales'])('intent %s can never be no_action or waiting_them', async (intent) => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row({ disposition: 'reply_mike' }));
+    for (const d of ['no_action', 'waiting_them']) {
+      mockUpsert.mockClear();
+      await POST(postRequest({ asks: [baseAsk({ intent, disposition: d })] }));
+      expect(created()).toMatchObject({ disposition: 'reply_mike' });
+      expect('state' in created()).toBe(false);
+    }
+    expect(waitStore.insertIdempotent).not.toHaveBeenCalled();
+  });
+
+  it('waiting_them on a new row is created handled and opens exactly one wait keyed by the conversation', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row({ disposition: 'waiting_them' }));
+    waitStore.insertIdempotent.mockResolvedValue({ wait: { id: 'w1', due_at: new Date() }, created: true });
+    await POST(postRequest({ asks: [baseAsk({ disposition: 'waiting_them', conversation_key: '<Root@Mail.test>' })] }));
+    expect(created()).toMatchObject({ state: 'handled', closed_reason: 'waiting_them', closed_by: 'intake' });
+    expect(waitStore.insertIdempotent).toHaveBeenCalledTimes(1);
+    expect(waitStore.insertIdempotent.mock.calls[0][0]).toMatchObject({ template_key: 'mail.awaiting_reply', idempotency_key: 'conv:root@mail.test' });
+    expect(waitStore.addEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('without the owner on the home view nothing about the decision is stored and nothing closes', async () => {
+    mockUpsert.mockResolvedValue(row());
+    const res = await POST(postRequest({ asks: [baseAsk({ disposition: 'no_action' })] }));
+    const body = await res.json();
+    expect('disposition' in created()).toBe(false);
+    expect('state' in created()).toBe(false);
+    expect(body.skipped).toBe('home_off');
+  });
+
+  it('an existing undecided row is never closed by a later sync, and reports prior', async () => {
+    homeOn();
+    mockFindUnique.mockResolvedValue({ id: 'ask-1', is_urgent: false, disposition: null, decided_by: null, intent: null, task_id: null, state: 'open', closed_by: null, task: null });
+    mockUpsert.mockResolvedValue(row());
+    const res = await POST(postRequest({ asks: [baseAsk({ disposition: 'no_action' })] }));
+    const body = await res.json();
+    const arg = mockUpsert.mock.calls[0][0];
+    expect('disposition' in arg.update).toBe(false);
+    expect('state' in arg.update).toBe(false);
+    expect(body.items[0].prior).toEqual({ disposition: null, task_id: null });
+    expect(body.items[0].adjusted).toBe('close_only_at_birth');
+  });
+
+  it('an existing undecided row takes reply_mike', async () => {
+    homeOn();
+    mockFindUnique.mockResolvedValue({ id: 'ask-1', is_urgent: false, disposition: null, decided_by: null, intent: null, task_id: null, state: 'open', closed_by: null, task: null });
+    mockUpsert.mockResolvedValue(row({ disposition: 'reply_mike' }));
+    await POST(postRequest({ asks: [baseAsk({ disposition: 'reply_mike' })] }));
+    expect(mockUpsert.mock.calls[0][0].update).toMatchObject({ disposition: 'reply_mike', decided_by: 'intake' });
+  });
+
+  it('a row he reopened (decided_by mike) is never touched by a later decision', async () => {
+    homeOn();
+    mockFindUnique.mockResolvedValue({ id: 'ask-1', is_urgent: false, disposition: 'reply_mike', decided_by: 'mike', intent: null, task_id: null, state: 'open', closed_by: null, task: null });
+    mockUpsert.mockResolvedValue(row({ disposition: 'reply_mike' }));
+    await POST(postRequest({ asks: [baseAsk({ disposition: 'no_action' })] }));
+    const arg = mockUpsert.mock.calls[0][0];
+    expect('disposition' in arg.update).toBe(false);
+    expect('decided_by' in arg.update).toBe(false);
+  });
+
+  it('an intake close that turns urgent reopens as an emergency', async () => {
+    homeOn();
+    mockFindUnique.mockResolvedValue({ id: 'ask-1', is_urgent: false, disposition: 'no_action', decided_by: 'intake', intent: null, task_id: null, state: 'handled', closed_by: 'intake', task: null });
+    mockUpsert.mockResolvedValue(row({ is_urgent: true, disposition: 'emergency' }));
+    await POST(postRequest({ asks: [baseAsk({ is_urgent: true, disposition: 'emergency' })] }));
+    expect(mockUpsert.mock.calls[0][0].update).toMatchObject({ state: 'open', disposition: 'emergency', closed_reason: null, closed_by: null, closed_at: null });
+  });
+
+  it('refuses a disposition outside the list and a decided_by of mike', async () => {
+    expect((await POST(postRequest({ asks: [baseAsk({ disposition: 'ignore' })] }))).status).toBe(400);
+    expect((await POST(postRequest({ asks: [baseAsk({ decided_by: 'mike' })] }))).status).toBe(400);
+  });
+
+  it('absent decision fields leave the payload byte-compatible with the old classifier', async () => {
+    homeOn();
+    mockUpsert.mockResolvedValue(row());
+    await POST(postRequest({ asks: [baseAsk()] }));
+    const arg = mockUpsert.mock.calls[0][0];
+    for (const k of ['disposition', 'disposition_reason', 'owner', 'decided_by', 'state']) {
+      expect(k in arg.create).toBe(false);
+      expect(k in arg.update).toBe(false);
+    }
   });
 });

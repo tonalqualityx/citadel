@@ -1,4 +1,5 @@
 import type { HomeEverythingElseGroup, HomeItem, HomeResponse, HomeTile, HomeTileId } from '@/lib/home/types';
+import { HANDLED_MAIL } from '@/lib/work/copy';
 import type { OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 
 /** Any em dash or en dash in text shown on this screen becomes ", " (display only). */
@@ -184,11 +185,20 @@ export interface DetailInfo {
   wrongActionId?: string;
   /** Slice 9a: "Log time? 30 min" on a task marked done from a card with no time on it. */
   timePrompt?: { task_id: string; minutes: number; day: string };
+  /** Work stage B: `ask:<id>` of a mail recorded as handled: shows "Undo", which is the home act reopen_ask. */
+  reopenKey?: string;
+  /** Work stage B: the 30-day list "Mail recorded as handled": each row with Bast's reason and its own Undo. */
+  mailList?: { key: string; title: string; reason: string; href: string | null; at: string }[];
 }
+
+/** The row key of the "Mail recorded as handled" list in the Handled tile. */
+export const HANDLED_MAIL_KEY = 'handled-mail';
 
 export function rowsFromHandled(res: HomeResponse): ListRow[] {
   const rows: ListRow[] = res.sections.handled.map((q) => ({ key: q.id, title: plain(q.text), meta: '', rule: false }));
   if (res.sections.handled_more) rows.push({ key: 'handled-more', title: plain(res.sections.handled_more.text), meta: '', rule: false });
+  const mail = res.handled_mail ?? [];
+  if (mail.length > 0) rows.push({ key: HANDLED_MAIL_KEY, title: `${HANDLED_MAIL.title} (${mail.length}). ${HANDLED_MAIL.showAll}`, meta: '', rule: false });
   return rows;
 }
 
@@ -197,8 +207,24 @@ export function detailForHandled(res: HomeResponse, key: string | null): DetailI
   if (key === 'handled-more' && res.sections.handled_more) {
     return { title: plain(res.sections.handled_more.text), lines: ['The system closed these itself. Nothing needs you.'] };
   }
+  if (key === HANDLED_MAIL_KEY && (res.handled_mail ?? []).length > 0) {
+    return {
+      title: HANDLED_MAIL.title,
+      lines: [HANDLED_MAIL.intro],
+      mailList: (res.handled_mail ?? []).map((m) => ({ key: m.key, title: plain(m.title), reason: plain(m.reason), href: m.href, at: m.at })),
+    };
+  }
   const q = res.sections.handled.find((l) => l.id === key);
   if (!q) return null;
+  // Work stage B: a mail recorded as handled at birth: one quiet line, Undo puts it back as a reply he owes.
+  if (q.reopen_item_key) {
+    return {
+      title: plain(q.text),
+      lines: ['Bast read this and decided no reply from you is needed. Undo puts it back as a reply you owe.', ...(q.details ?? []).map((d) => plain(d)).filter(Boolean)],
+      link: q.href ? { label: 'Open the email', href: q.href } : undefined,
+      reopenKey: q.reopen_item_key,
+    };
+  }
   const keeper = q.undo_action_id !== null && q.undo_action_id !== undefined;
   const details = (q.details ?? []).map((d) => plain(d)).filter(Boolean);
   // Slice 9a: a line from his sent mail (a note, or a card marked done).

@@ -45,6 +45,7 @@ import type {
   KeeperActionKind,
   RawArcRef,
   RawAutoHandled,
+  RawIntakeHandled,
   RawCalendarEvent,
   RawClientRef,
   RawCrisis,
@@ -65,7 +66,8 @@ import type {
   RawWait,
 } from './types';
 import { loadReconcile } from './reconcile/screen';
-import { askIsMine, linkedTaskFacts } from '@/lib/work/owed';
+import { askIsOwed, askShowsAsMeeting, linkedTaskFacts } from '@/lib/work/owed';
+import { INTAKE_CLOSE_REASONS, loadHandledMail } from '@/lib/work/intake';
 import { loadFinishedCard } from '@/lib/work/finished-store';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -89,6 +91,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   'keeper_guard',
   // Work stage A: emails closed with their task (Undo for 72 hours)
   'work_close',
+  // Work stage B: a batch of mail recorded as handled, or a meeting booked (Undo for 72 hours)
+  'intake_close',
   // Work stage G: tasks closed from the looks-finished card (Undo for 72 hours)
   'finished_close',
 ] satisfies KeeperActionKind[];
@@ -834,6 +838,7 @@ const ASK_SELECT = {
   draft_started_at: true,
   deep_link: true,
   received_at: true,
+  disposition: true,
   client: { select: CLIENT_SELECT },
   project: { select: PROJECT_SELECT },
 } satisfies Prisma.EmailAskSelect;
@@ -861,6 +866,7 @@ function toRawAsk(a: AskRow): RawEmailAsk {
     draft_started_at: a.draft_started_at,
     deep_link: a.deep_link,
     received_at: a.received_at,
+    disposition: a.disposition,
   };
 }
 
@@ -871,7 +877,7 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
     orderBy: { received_at: 'desc' },
   });
 
-  // Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
+  // Work stage B: only a reply_mike ask (or an undecided old one) is owed; a meeting request shows as a row that wants a time. Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
   // row, so it is never owed, never drafted and never an arc step. The drafter's queue reads these same threads.
   const taskFacts = await linkedTaskFacts(db, rows);
 
@@ -879,7 +885,7 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
   // newest first, so each group's asks are newest first and groups run newest thread first.
   const groups = new Map<string, RawThread>();
   for (const r of rows) {
-    if (!askIsMine(r, taskFacts)) continue;
+    if (!askIsOwed(r, taskFacts) && !askShowsAsMeeting(r, taskFacts)) continue;
     const threadId = r.thread_id ?? r.message_id;
     if (r.account.includes(':') || !isItemKey(`thread:${r.account}:${threadId}`)) continue; // cannot be keyed
     const k = `${r.account}\u0000${threadId}`;
@@ -891,6 +897,19 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
     g.asks.push(toRawAsk(r));
   }
   return [...groups.values()];
+}
+
+/** Work stage B: mail recorded as handled at birth in the last day, for the quiet lines. */
+async function loadIntakeHandled(db: PrismaClient, now: Date): Promise<RawIntakeHandled[]> {
+  const rows = await db.emailAsk.findMany({
+    where: { state: 'handled', closed_by: 'intake', closed_reason: { in: [...INTAKE_CLOSE_REASONS] }, closed_at: { gte: new Date(now.getTime() - DAY_MS) } },
+    select: { id: true, from_name: true, from_email: true, subject: true, closed_reason: true, deep_link: true, closed_at: true },
+    orderBy: { closed_at: 'desc' },
+    take: AUTO_HANDLED_TAKE,
+  });
+  return rows.flatMap((r) =>
+    r.closed_at && r.closed_reason ? [{ id: r.id, from_name: r.from_name, from_email: r.from_email, subject: r.subject, kind: r.closed_reason, deep_link: r.deep_link, handled_at: r.closed_at }] : [],
+  );
 }
 
 async function loadCrises(db: PrismaClient): Promise<RawCrisis[]> {
@@ -995,6 +1014,11 @@ export async function loadHomeInputs(
   const outsideChecks = await loadOutsideChecks(db, userId);
   const reconcile = await loadReconcile(db, userId, now);
   const finished = await loadFinishedCard(db, userId);
+  // Work stage B: the intake lines and the 30-day list belong to the home owner's screen only.
+  const settings = await db.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
+  const isOwner = settings?.owner_user_id === userId;
+  const intakeHandled = isOwner ? await loadIntakeHandled(db, now) : [];
+  const handledMail = (isOwner ? await loadHandledMail(db, now) : []).map((h) => ({ id: h.id, from_name: h.from_name, from_email: h.from_email, subject: h.subject, client_name: h.client_name, reason: h.reason, deep_link: h.deep_link, handled_at: h.closed_at, kind: h.kind }));
 
   return {
     user_id: userId,
@@ -1013,6 +1037,8 @@ export async function loadHomeInputs(
     reconcile_cards: reconcile.cards,
     reconcile_lines: reconcile.lines,
     finished,
+    intake_handled: intakeHandled,
+    handled_mail: handledMail,
     owed_rows: owedRows,
     drafter_fresh_at: drafterFreshAt,
     timezone,

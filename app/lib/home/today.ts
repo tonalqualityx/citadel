@@ -112,6 +112,14 @@ function todayPool(sel: SelectResult): Candidate[] {
   return sel.candidates.filter((c) => !c.botTask && c.kind !== 'hands' && c.kind !== 'step' && c.kind !== 'proposal');
 }
 
+/**
+ * Work stage B: a thread is never the day's arc and never an arc step (an email is a reply or a task, not a project of the day).
+ * The arc, its group and its steps are chosen from this pool; Quick still reads todayPool (a short reply may sit in Quick).
+ */
+function arcPool(sel: SelectResult): Candidate[] {
+  return todayPool(sel).filter((c) => c.kind !== 'thread');
+}
+
 function addedHere(c: Candidate, groupKey: string): boolean {
   const s = c.state;
   return !!s && !!s.arc_added_at && s.arc_added_group === groupKey;
@@ -140,7 +148,7 @@ function proposedMembers(
   exclude?: ReadonlySet<string>,
 ): Candidate[] {
   const clientKey = group.client ? `client:${group.client.id}` : null;
-  return todayPool(sel)
+  return arcPool(sel)
     .filter((c) => {
       if (c.parked || addedHere(c, group.key) || removedHere(c, group.key, now)) return false;
       if (exclude && exclude.has(c.key)) return false;
@@ -162,7 +170,7 @@ function sumMinutes(cs: readonly Candidate[]): number {
 }
 
 function groupInfoFor(sel: SelectResult, key: string, label: string): GroupInfo {
-  const found = todayPool(sel).find((c) => c.group.key === key);
+  const found = arcPool(sel).find((c) => c.group.key === key);
   if (found) return found.group;
   return { key, name: label, client: null, project: null, arc: null };
 }
@@ -221,7 +229,7 @@ export function proposeDay(
   calendar: readonly RawCalendarEvent[],
   now: Date,
 ): ProposedDay | null {
-  const top = todayPool(sel).filter((c) => c.inView && !c.parked).sort(rankCompare)[0];
+  const top = arcPool(sel).filter((c) => c.inView && !c.parked).sort(rankCompare)[0];
   if (!top) return null;
   const group = top.group;
   const free = freeMinutes(calendar, now);
@@ -256,7 +264,7 @@ export function dayForGroup(
   calendar: readonly RawCalendarEvent[],
   now: Date,
 ): ProposedDay | null {
-  const group = todayPool(sel).find((c) => !c.parked && c.group.key === toGroupKey)?.group;
+  const group = arcPool(sel).find((c) => !c.parked && c.group.key === toGroupKey)?.group;
   if (!group) return null;
   const quickKeys = current.quick_item_keys.filter((k) => sel.byKey.has(k));
   const quickSet = new Set(quickKeys);
@@ -312,10 +320,10 @@ function groupOptions(
   now: Date,
   quickKeys: ReadonlySet<string>,
 ): GroupOption[] {
-  const current = todayPool(sel).find((c) => c.group.key === currentKey)?.group;
+  const current = arcPool(sel).find((c) => c.group.key === currentKey)?.group;
   const currentClient = current?.client?.id ?? null;
   const seen = new Map<string, GroupInfo>();
-  for (const c of todayPool(sel)) {
+  for (const c of arcPool(sel)) {
     if (!c.inView || c.parked || c.group.key === currentKey) continue;
     seen.set(c.group.key, c.group);
   }
@@ -463,6 +471,7 @@ export function assembleHomeResponse(input: AssembleInput): HomeResponse {
     today,
     sections: applyArcMembership(sel.sections, today),
     everything_else: sel.everything_else,
+    handled_mail: sel.handled_mail,
     empty: emptySentences(),
   };
 }

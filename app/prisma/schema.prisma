@@ -3304,6 +3304,14 @@ model EmailAsk {
   closed_reason    String?   @db.VarChar(40) // with_task | task_done | task_abandoned | no_action | waiting_them | answered_by_mike | answered_by_bast | meeting_booked | archived | mike | backfill | catchup
   closed_by        String?   @db.VarChar(20) // classifier | intake | task | mike | bast | backfill | catchup
 
+  // Work stage B (one intake decision per message). One disposition per message, decided once at birth, nullable so old rows
+  // behave as before until the replay sets one. Only reply_mike is ever owed (lib/work/owed.ts). decided_by 'mike' is the hold:
+  // nothing closes an ask he reopened.
+  disposition        String? @db.VarChar(20) // no_action | reply_mike | work | meeting | waiting_them | emergency
+  disposition_reason String? @db.VarChar(200)
+  owner              String? @db.VarChar(10) // mike | bast | sabeen | nobody
+  decided_by         String? @db.VarChar(20) // intake | mike | bast | other_copy
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -3316,6 +3324,7 @@ model EmailAsk {
   @@index([rfc_message_id])
   @@index([conversation_key])
   @@index([task_id])
+  @@index([disposition])
   @@map("email_asks")
 }
 

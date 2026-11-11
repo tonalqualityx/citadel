@@ -832,6 +832,24 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/decision-replay',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Chat lane: what replayed intake decisions would change (writes nothing)',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [{ name: 'items', type: 'object', required: true, description: 'Array (1-500): { ask_id (uuid), disposition (no_action|reply_mike|work|meeting|waiting_them|emergency), reason? (max 200) }. Strict. Body at most 256 KB.' }],
+        responseExample: {
+          counts: { total: 'number', would_close: 'number', would_set: 'number', left: 'number', refused: 'number', by_disposition: { no_action: 'number' } },
+          rows: [{ ask_id: 'uuid', verdict: 'close|set|leave|refused', disposition: 'string|null', why: 'string|null', now: { state: 'string', disposition: 'string|null' }, subject: 'string|null' }],
+        },
+        responseNotes: 'Writes nothing, ever. The same function as POST /api/work/apply-decisions, so the answer is what the real run would do: only an open, undecided ask he has not reopened is touched, only no_action would close, and an urgent, admin, sales or security-task ask never closes.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/ops',
     group: 'bast-chat',
     methods: [

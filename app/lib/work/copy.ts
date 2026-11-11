@@ -58,3 +58,49 @@ export function emailLinkLabel(ask: { from_name: string | null; from_email: stri
   const subject = displayText(ask.subject) || 'No subject';
   return `Email: ${who}, ${shortDate(ask.received_at, zone)}: ${subject}`;
 }
+
+// ----------------------------------------------------------------------------
+// Work stage B: the one intake decision
+// ----------------------------------------------------------------------------
+
+/** The quiet line for one mail recorded as handled at birth: `Recorded as handled: Ken Duffy, "Appreciate it Mike". No reply needed.` */
+export function recordedLine(ask: { from_name: string | null; from_email: string; subject: string; kind: string }): string {
+  const who = displayText(ask.from_name) || ask.from_email;
+  const subject = displayText(ask.subject) || 'No subject';
+  const tail = ask.kind === 'waiting_them' ? 'Waiting on them.' : 'No reply needed.';
+  return `Recorded as handled: ${who}, "${subject}". ${tail}`;
+}
+
+/** The one line for a replay batch. */
+export function intakeBatchLine(count: number): string {
+  return `Recorded ${emails(count)} as handled: no reply needed.`;
+}
+
+/** The line when a booked meeting closes a request for a time. */
+export function meetingBookedLine(names: readonly string[], title: string, startsAt: Date, zone?: string): string {
+  const what = displayText(title) || 'a meeting';
+  return `Closed the request for a time from ${fromLabel(names)}: "${what}" is booked for ${shortDate(startsAt, zone)}.`;
+}
+
+/** The detail line of a handled-mail row: Bast's reason, or the plain default. */
+export function handledReason(kind: string, reason: string | null): string {
+  const r = displayText(reason ?? '').replace(/[.\s]+$/, '');
+  if (r) return `${r}.`;
+  return kind === 'waiting_them' ? 'Waiting on them.' : 'No reply needed.';
+}
+
+/** The weekly measures line: `Recorded 41 emails as handled. You reopened 1.` */
+export function handledMeasureLine(recorded: number, reopened: number): string {
+  return `Recorded ${emails(recorded)} as handled. You reopened ${reopened}.`;
+}
+
+export const HANDLED_MAIL = {
+  title: 'Mail recorded as handled',
+  intro: 'The last 30 days. Each one needed no reply from you. Undo puts it back as a reply you owe.',
+  showAll: 'Show all',
+  empty: 'Nothing was recorded as handled in the last 30 days.',
+  undone: 'Put back as a reply you owe.',
+  /** The meta line of a meeting request row. */
+  wantsATime: 'Wants a time',
+  meetingWhy: 'Asked for a time to meet.',
+} as const;

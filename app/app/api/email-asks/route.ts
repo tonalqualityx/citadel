@@ -19,6 +19,9 @@ const queryParamsSchema = z.object({
   // requests it needs to act on. Only `true` is meaningful here (there's no un-request
   // action to filter for), so this deliberately doesn't accept `false`.
   calendar_requested: z.enum(['true']).optional(),
+  // Work stage B: the asks he put back with Undo (decided_by=mike), newest decision first, for the classifier's calibration examples. Subject and reason only are read machine-side.
+  decided_by: z.enum(['mike']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -30,6 +33,8 @@ export async function GET(request: NextRequest) {
       state: searchParams.get('state') ?? undefined,
       account: searchParams.get('account') ?? undefined,
       calendar_requested: searchParams.get('calendar_requested') ?? undefined,
+      decided_by: searchParams.get('decided_by') ?? undefined,
+      limit: searchParams.get('limit') ?? undefined,
     });
 
     const asks = await prisma.emailAsk.findMany({
@@ -37,8 +42,10 @@ export async function GET(request: NextRequest) {
         ...(parsed.state !== undefined && { state: parsed.state }),
         ...(parsed.account !== undefined && { account: parsed.account }),
         ...(parsed.calendar_requested === 'true' && { calendar_requested: true }),
+        ...(parsed.decided_by !== undefined && { decided_by: parsed.decided_by }),
       },
       orderBy: { received_at: 'desc' },
+      ...(parsed.limit !== undefined && { take: parsed.limit }),
     });
 
     return NextResponse.json({

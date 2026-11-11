@@ -5,7 +5,9 @@ import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError, ApiError, AuthError } from '@/lib/api/errors';
 import { formatEmailAskResponse } from '@/lib/api/formatters';
 import { EmailAskState } from '@prisma/client';
-import { isSecurityTagged } from '@/lib/work/ask-closure';
+import { homeOwner, isSecurityTagged } from '@/lib/work/ask-closure';
+import { ownerOfAssignee } from '@/lib/work/decision';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { normalizeRfc } from '@/lib/work/link-asks';
 
 /** Work stage A: why and by whom an ask left open (EmailAsk.closed_reason and closed_by, varchar columns, not enum values). */
@@ -119,6 +121,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         delete data.closed_by;
       }
     }
+    // Work stage B: an ask he reopened (decided_by mike) is held: a machine write never closes it again. Reported in ignored_fields.
+    if (porter && closing && existing.decided_by === 'mike') {
+      ignored_fields.push('state');
+      delete data.state;
+      delete data.closed_reason;
+      delete data.closed_by;
+    }
+    // Work stage B: a `work` decision takes its owner from the task it gets linked to (the task's assignee).
+    let workOwner: 'mike' | 'bast' | 'sabeen' | null = null;
+    if (data.task_id && existing.disposition === 'work' && !existing.owner) {
+      const t = await prisma.task.findUnique({ where: { id: data.task_id }, select: { assignee_id: true } });
+      const home = await homeOwner(prisma);
+      workOwner = ownerOfAssignee(t?.assignee_id ?? null, home?.id ?? null, BOT_USER_IDS) as 'mike' | 'bast' | 'sabeen';
+    }
     // conversation_key is written over null only (a porter never rewrites an existing key).
     const conversationKey = data.conversation_key !== undefined ? normalizeRfc(data.conversation_key) : undefined;
     if (conversationKey !== undefined && existing.conversation_key) {
@@ -133,6 +149,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       data: {
         ...(data.state !== undefined && { state: data.state }),
         ...(data.task_id !== undefined && { task_id: data.task_id }),
+        ...(workOwner && { owner: workOwner }),
         ...(conversationKey !== undefined && !existing.conversation_key && { conversation_key: conversationKey }),
         ...(leaving && { closed_at: new Date() }),
         ...(data.closed_reason !== undefined && { closed_reason: data.closed_reason }),

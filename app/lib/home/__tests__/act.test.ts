@@ -1220,3 +1220,16 @@ describe('Slice 8b: step_done', () => {
     expect(() => planAct({ action: 'arc_add', item_key: STEP, group_key: G, origin: 'in_view' }, { now: NOW, timezone: TZ, state: null, pinned: null, day: null })).toThrow();
   });
 });
+
+// Work stage B
+describe('reopen_ask request', () => {
+  const ok = 'ask:7aa4a01a-1111-4222-8333-944445555666';
+  it('takes only an ask key', async () => {
+    const { homeActSchema } = await import('../act');
+    expect(homeActSchema.safeParse({ action: 'reopen_ask', item_key: ok }).success).toBe(true);
+    for (const bad of ['thread:a:b', 'ask:nope', 'task:7aa4a01a-1111-4222-8333-944445555666', 'ASK:7aa4a01a-1111-4222-8333-944445555666']) {
+      expect(homeActSchema.safeParse({ action: 'reopen_ask', item_key: bad }).success).toBe(false);
+    }
+    expect(homeActSchema.safeParse({ action: 'reopen_ask', item_key: ok, extra: 1 }).success).toBe(false);
+  });
+});

@@ -414,6 +414,8 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'state', type: 'string', required: false, description: 'open|handled|dismissed|archive_requested' },
           { name: 'account', type: 'string', required: false, description: 'Filter to one mailbox, e.g. mike@becomeindelible.com' },
           { name: 'calendar_requested', type: 'string', required: false, description: 'Clarity Phase 6 — only "true" is accepted; the machine-side calendar executor\'s read for pending Add-to-calendar requests' },
+          { name: 'decided_by', type: 'string', required: false, description: 'Work stage B — only "mike" is accepted: the asks he put back with Undo (the classifier\'s calibration examples; subject and disposition_reason only are used)' },
+          { name: 'limit', type: 'number', required: false, description: 'Work stage B — at most this many asks (1-200), newest first' },
         ],
         responseExample: {
           asks: [
@@ -473,6 +475,35 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'draft_started_at', type: 'ISO-8601', required: false, description: 'Draft-started marker (2026-10-15) — machine-set by the classifier when Mike has a draft (not a reply) in the thread. Must be set or cleared together with draft_url (400 otherwise). Cleared automatically when state leaves open.' },
           { name: 'draft_url', type: 'string', required: false, description: 'Gmail link to the draft thread (max 1000, must start with https://mail.google.com/). Paired with draft_started_at; null clears both.' },
         ],
+      },
+    ],
+  },
+  {
+    path: '/api/work/apply-decisions',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage B: apply replayed intake decisions to open legacy email asks. Admin, or the Porter lane (the classifier --decide-replay --apply).',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Strict body, at most 300 items. Citadel recomputes every decision (decideReplay) and trusts none of the claims: the ask must be open, undecided and not held by his own reopen. ' +
+          'Only no_action closes (never an urgent, admin or sales ask, never one linked to a security task); reply_mike, meeting and (urgent only) emergency are stored without closing; work is stored only on an ask already linked to a task; waiting_them is never applied. ' +
+          'dry:true writes nothing; the dry run and the real run decide identically (and decision-replay answers the same). The real run closes with closed_reason no_action and closed_by backfill, and writes ONE Handled line with Undo for 72 hours; each mail also stays in the 30-day list with its own Undo. Owner only (skipped home_off writes nothing). Nothing is sent, drafted or changed in any mailbox.',
+        bodySchema: [
+          { name: 'dry', type: 'boolean', required: true, description: 'true plans only and writes nothing' },
+          { name: 'items', type: 'object', required: true, description: 'Array (1-300): { ask_id (uuid), disposition (no_action|reply_mike|work|meeting|waiting_them|emergency), reason? (max 200) }' },
+        ],
+        responseExample: {
+          dry: 'boolean',
+          counts: { total: 'number', would_close: 'number', would_set: 'number', left: 'number', refused: 'number', by_disposition: { no_action: 'number' } },
+          rows: [{ ask_id: 'uuid', verdict: 'close|set|leave|refused', disposition: 'string|null', why: 'string|null', now: { state: 'string', disposition: 'string|null' }, subject: 'string|null' }],
+          closed: ['uuid'],
+          set: ['uuid'],
+          action_id: 'uuid|null',
+          skipped: '"home_off"',
+        },
       },
     ],
   },

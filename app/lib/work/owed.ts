@@ -24,6 +24,8 @@ export interface LinkedTaskFacts {
 export interface AskLinkFacts {
   task_id: string | null;
   is_urgent?: boolean;
+  /** Work stage B: the intake decision. null = an old row nobody has decided (legacy). */
+  disposition?: string | null;
 }
 
 /** True when the ask is the owner's to answer (it may be owed); false when a live task carries it. */
@@ -33,6 +35,24 @@ export function askIsMine(ask: AskLinkFacts, taskById: ReadonlyMap<string, Linke
   const task = taskById.get(ask.task_id);
   if (!task || task.is_deleted) return true;
   return false;
+}
+
+/**
+ * Work stage B, the owed rule: an ask is owed only when askIsMine holds AND its disposition is reply_mike, or it has none (a legacy
+ * row, which behaves exactly as before until the replay decides it; the 21-day look-back is the existing thread age rule). The drafter's
+ * queue, short drafts, clocks and Slack lines all read this one function. An urgent ask keeps its emergency path (it is never a thread).
+ */
+export function askIsOwed(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
+  if (!askIsMine(ask, taskById)) return false;
+  return ask.disposition == null || ask.disposition === 'reply_mike';
+}
+
+/**
+ * Work stage B: asks that show as a thread row without being owed. A meeting request shows as a row that wants a time; it has no
+ * clock and no draft, and it closes when the meeting is booked.
+ */
+export function askShowsAsMeeting(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
+  return ask.disposition === 'meeting' && askIsMine(ask, taskById);
 }
 
 /** The linked tasks' facts for a set of asks, one query. */

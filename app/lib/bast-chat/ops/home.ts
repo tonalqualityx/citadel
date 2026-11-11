@@ -128,6 +128,11 @@ async function threadWho(db: OpDb, key: string): Promise<string> {
 async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date, message: string | null): Promise<string> {
   const a = input.action;
   if (a === 'arc_reorder' || a === 'lighter' || a === 'not_this_week') return opSummary({ op: 'home_act', action: a }, now);
+  if (a === 'reopen_ask') {
+    const id = input.item_key.slice(4);
+    const ask = await db.emailAsk.findUnique({ where: { id }, select: { subject: true } });
+    return opSummary({ op: 'home_act', action: 'reopen_ask', title: ask?.subject ?? 'that email' }, now);
+  }
   if (a === 'finished_close') return opSummary({ op: 'home_act', action: 'finished_close', count: input.item_keys.length }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
   if (a === 'draft_now' || a === 'needs_thought' || a === 'go_with_that' || a === 'keep_lead' || a === 'treat_as_reply' || a === 'book_block') {

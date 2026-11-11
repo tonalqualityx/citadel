@@ -59,6 +59,8 @@ export interface ActionsInput {
     short?: boolean;
     /** Slice 4b: the Send buttons, present only while the owner's owed_send switch is on and the draft qualifies. */
     send?: { full: boolean; short: boolean };
+    /** Work stage B: a request for a time (disposition meeting). */
+    meeting?: boolean;
     /** Slice 4d: Book 30 minutes (under More on a needs-thought row), present only while the owner's book_blocks switch is on. */
     book?: boolean;
   };
@@ -116,6 +118,12 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
       }
       break;
     case 'thread':
+      if (input.owedThread?.meeting) {
+        // Work stage B: a request for a time. Open the email to answer it yourself; nothing drafts it. It closes when the meeting is booked.
+        if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
+        extras.push(button('no_reply_needed'));
+        break;
+      }
       if (input.owedThread?.leadAsk) {
         // The ten-day question: keep it or let it go. The clock never closes a lead by itself.
         primary.push(button('keep_lead'), button('let_lead_go'));

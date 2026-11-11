@@ -28,3 +28,37 @@ describe('askIsMine: the one rule for "is this email mine to answer"', () => {
     expect(askIsMine({ task_id: 't1' }, facts({ t1: { is_deleted: false, status: 'done', tags: ['security'] } }))).toBe(false);
   });
 });
+
+// Work stage B: the owed rule
+import { askIsOwed, askShowsAsMeeting } from '../owed';
+
+describe('askIsOwed: only reply_mike (or an undecided old row) is owed', () => {
+  const none = facts({});
+  it.each([
+    ['reply_mike', true],
+    [null, true],
+    [undefined, true],
+    ['no_action', false],
+    ['work', false],
+    ['meeting', false],
+    ['waiting_them', false],
+    ['emergency', false],
+  ])('disposition %s -> owed %s', (disposition, owed) => {
+    expect(askIsOwed({ task_id: null, disposition }, none)).toBe(owed);
+  });
+
+  it('an ask a live task carries is never owed, whatever its disposition', () => {
+    expect(askIsOwed({ task_id: 't1', disposition: 'reply_mike' }, facts({ t1: { is_deleted: false, status: 'in_progress' } }))).toBe(false);
+    expect(askIsOwed({ task_id: 't1', disposition: null }, facts({ t1: { is_deleted: false, status: 'done' } }))).toBe(false);
+  });
+
+  it('a deleted task gives the ask back (owed again when reply_mike)', () => {
+    expect(askIsOwed({ task_id: 't1', disposition: 'reply_mike' }, facts({ t1: { is_deleted: true } }))).toBe(true);
+  });
+
+  it('a meeting ask shows as a meeting row, never as owed', () => {
+    expect(askShowsAsMeeting({ task_id: null, disposition: 'meeting' }, none)).toBe(true);
+    expect(askShowsAsMeeting({ task_id: null, disposition: 'reply_mike' }, none)).toBe(false);
+    expect(askShowsAsMeeting({ task_id: 't1', disposition: 'meeting' }, facts({ t1: { is_deleted: false, status: 'in_progress' } }))).toBe(false);
+  });
+});

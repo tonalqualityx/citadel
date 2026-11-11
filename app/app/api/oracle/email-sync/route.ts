@@ -6,6 +6,12 @@ import { handleApiError } from '@/lib/api/errors';
 import { notifyUrgentEmail } from '@/lib/services/notifications';
 import { AskQueue, AskSeverity, EmailAskIntent, EmailMatchSource } from '@prisma/client';
 import { normalizeRfc } from '@/lib/work/link-asks';
+import { DISPOSITIONS, OWNERS, ownerOfAssignee, planSync, waitKeyFor, type DecisionOwner, type SyncExisting } from '@/lib/work/decision';
+import { homeOwner } from '@/lib/work/ask-closure';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
+import { prismaSweepStore } from '@/lib/waits/prisma-store';
+import { buildWaitData } from '@/lib/waits/templates';
+import { displayText } from '@/lib/home/copy';
 
 // Clarity Phase 4a — email on the Seeing Stone. The staged, not-cron-wired classifier
 // (~/.claude/tools/oracle/clarity/email-classifier.py) POSTs here for both mailboxes
@@ -43,6 +49,12 @@ const emailAskSchema = z.object({
   // out from the mail mirror). Optional; absent means untouched. Stored lowercased with no brackets.
   rfc_message_id: z.string().max(255).optional().nullable(),
   conversation_key: z.string().max(255).optional().nullable(),
+  // Work stage B: the one intake decision for this message (the classifier's batch call, then its code floors). All optional; absent
+  // means the ask is undecided (an old classifier), which behaves exactly as before. decided_by 'mike' can never be posted.
+  disposition: z.enum(DISPOSITIONS).optional().nullable(),
+  disposition_reason: z.string().max(200).optional().nullable(),
+  owner: z.enum(OWNERS).optional().nullable(),
+  decided_by: z.enum(['intake', 'bast', 'other_copy']).optional().nullable(),
 });
 
 const emailSyncSchema = z.object({
@@ -156,12 +168,50 @@ export async function POST(request: NextRequest) {
     let upserted = 0;
     let created = 0;
     let notifiedUrgent = 0;
+    // Work stage B: owner only. Without the home owner on the home view every close would be silent, so no decision is stored.
+    const homeOn = await homeOwner(prisma);
+    const items: {
+      message_id: string;
+      id: string;
+      disposition: string | null;
+      adjusted?: string;
+      prior?: { disposition: string | null; task_id: string | null };
+    }[] = [];
 
     for (const ask of data.asks) {
       const existing = await prisma.emailAsk.findUnique({
         where: { message_id: ask.message_id },
-        select: { id: true, is_urgent: true },
+        select: {
+          id: true,
+          is_urgent: true,
+          disposition: true,
+          decided_by: true,
+          intent: true,
+          task_id: true,
+          state: true,
+          closed_by: true,
+          task: { select: { assignee_id: true } },
+        },
       });
+
+      // Work stage B: what the posted decision does to this row.
+      const posted = ask.disposition ?? null;
+      let plan: ReturnType<typeof planSync> | null = null;
+      if (posted && homeOn) {
+        const ex: SyncExisting | null = existing
+          ? {
+              disposition: existing.disposition,
+              decided_by: existing.decided_by,
+              intent: existing.intent,
+              task_id: existing.task_id,
+              state: existing.state,
+              closed_by: existing.closed_by,
+              is_urgent: existing.is_urgent,
+              task_owner: existing.task ? (ownerOfAssignee(existing.task.assignee_id, homeOn.id, BOT_USER_IDS) as DecisionOwner) : null,
+            }
+          : null;
+        plan = planSync(ex, { disposition: posted, reason: ask.disposition_reason ?? null, owner: ask.owner ?? null, is_urgent: ask.is_urgent, intent: ask.intent ?? null });
+      }
 
       // Clarity Phase 6 fields: absent (undefined) means "untouched" — a legacy classifier
       // payload that never sends intent/proposed_event_* leaves those columns exactly as
@@ -177,6 +227,7 @@ export async function POST(request: NextRequest) {
         ...(ask.conversation_key !== undefined && { conversation_key: normalizeRfc(ask.conversation_key) }),
       };
 
+      const decisionFields = { ...(plan?.fields ?? {}), ...(plan?.birth?.state === 'handled' ? { closed_at: new Date() } : {}) };
       const row = await prisma.emailAsk.upsert({
         where: { message_id: ask.message_id },
         create: {
@@ -193,6 +244,7 @@ export async function POST(request: NextRequest) {
           deep_link: ask.deep_link,
           received_at: ask.received_at,
           ...phase6Fields,
+          ...(existing ? {} : decisionFields),
         },
         update: {
           thread_id: ask.thread_id ?? null,
@@ -207,9 +259,38 @@ export async function POST(request: NextRequest) {
           deep_link: ask.deep_link,
           received_at: ask.received_at,
           ...phase6Fields,
+          ...(existing ? decisionFields : {}),
         },
       });
       upserted++;
+
+      // Work stage B: a birth close of waiting_them opens exactly one mail.awaiting_reply wait for the conversation (idempotent).
+      if (plan?.birth?.wait) {
+        const data = buildWaitData({
+          template_key: 'mail.awaiting_reply',
+          subject: displayText(ask.subject),
+          title: `Waiting on ${displayText(ask.from_name) || ask.from_email}: ${displayText(ask.subject)}`.slice(0, 300),
+          started_at: ask.received_at,
+          client_id: row.client_id,
+          email_thread_id: ask.thread_id ?? null,
+          email_account: ask.account,
+          created_by_id: homeOn?.id ?? null,
+          created_by_automation: 'intake',
+          idempotency_key: waitKeyFor(normalizeRfc(ask.conversation_key), ask.message_id),
+        });
+        const store = prismaSweepStore(prisma);
+        const { wait, created } = await store.insertIdempotent(data);
+        if (created) {
+          await store.addEvent({ wait_id: wait.id, kind: 'created', to_state: 'waiting', to_due_at: wait.due_at, reason: 'Opened by the intake decision: waiting on them.', source: 'api', actor_user_id: homeOn?.id ?? null });
+        }
+      }
+      items.push({
+        message_id: ask.message_id,
+        id: row.id,
+        disposition: plan?.disposition ?? row.disposition ?? null,
+        ...(plan?.adjusted ? { adjusted: plan.adjusted } : {}),
+        ...(plan?.prior ? { prior: plan.prior } : {}),
+      });
 
       // Oracle Projects Tab Phase 2 — client/project auto-match. Runs after every
       // upsert; a no-op for any row Mike has already ruled on by hand (match_source
@@ -252,6 +333,9 @@ export async function POST(request: NextRequest) {
       created,
       updated: upserted - created,
       notified_urgent: notifiedUrgent,
+      items,
+      adjusted: items.filter((i) => i.adjusted).map((i) => ({ message_id: i.message_id, id: i.id, disposition: i.disposition, why: i.adjusted })),
+      ...(homeOn ? {} : { skipped: 'home_off' as const }),
     });
   } catch (error) {
     return handleApiError(error);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
+import { closeMeetingAsks } from '@/lib/work/intake';
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     let upserted = 0;
     for (const event of data.events) {
-      await prisma.calendarEvent.upsert({
+      const saved = await prisma.calendarEvent.upsert({
         where: { event_id: event.event_id },
         create: {
           event_id: event.event_id,
@@ -97,6 +98,10 @@ export async function POST(request: NextRequest) {
         },
       });
       upserted++;
+      // Work stage B: a booked meeting closes the open request for a time from an attendee (one Handled line with Undo; owner only).
+      if (event.attendees && event.attendees.length > 0) {
+        await closeMeetingAsks(prisma, { title: saved.title, attendees: saved.attendees, created_at: saved.created_at, starts_at: saved.starts_at });
+      }
     }
 
     const incomingIds = data.events.map((e) => e.event_id);

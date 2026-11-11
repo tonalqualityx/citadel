@@ -38,6 +38,7 @@ function fakeDb(opts: { onHome?: boolean; prior?: { finished_at: Date | null; st
       create: vi.fn(async (a: { data: { action: string; source: string; undo_until: unknown } }) => { calls.push(`action.${a.data.action}.${a.data.source}.${a.data.undo_until}`); return { id: `act-${calls.length}` }; }),
       findFirst: vi.fn(async () => (opts.firstTapAt === null ? null : { created_at: opts.firstTapAt ?? new Date('2026-11-01T15:00:00Z') })),
       findMany: vi.fn(async () => opts.taps ?? []),
+      count: vi.fn(async () => 0), // work stage B: the weekly reopen count
     },
     homeKeeperSettings: { findUnique: vi.fn(async () => (opts.learnOff ? { learn_weights: false } : null)) },
     homeScoreWeight: {
@@ -51,7 +52,7 @@ function fakeDb(opts: { onHome?: boolean; prior?: { finished_at: Date | null; st
       updateMany: rec('task.updateMany', {}),
       findMany: vi.fn(async () => [T1, T2, T3].map((id) => ({ id, client_id: CLIENT_X, project_id: null, sop_id: null, tags: [] }))),
     },
-    emailAsk: { update: rec('ask.update', {}), updateMany: rec('ask.updateMany', {}) },
+    emailAsk: { update: rec('ask.update', {}), updateMany: rec('ask.updateMany', {}), count: vi.fn(async () => 0) },
     wait: { update: rec('wait.update', {}), updateMany: rec('wait.updateMany', {}) },
     project: { update: rec('project.update', {}), updateMany: rec('project.updateMany', {}), findMany: vi.fn(async () => []) },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),

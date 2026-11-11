@@ -4,6 +4,7 @@
  */
 
 import { displayText } from '../copy';
+import { handledMeasureLine } from '@/lib/work/copy';
 import type { GuardResult, WeekMeasures } from './measures';
 
 export const LEARN = {
@@ -85,6 +86,7 @@ export function weekLine(week: WeekMeasures): { text: string; details: string[] 
   add(week.owed.ok, owedSentence(week.owed.value.count), week.owed.details);
   add(week.where.ok, whereSentence(week.where.value), week.where.details);
   add(week.plate.ok, plateSentence(week.plate.value), week.plate.details);
+  if (week.handled_mail?.ok) sentences.push(handledMeasureLine(week.handled_mail.value.recorded, week.handled_mail.value.reopened));
   if (sentences.length === 0) return null;
   if (week.today.ok) details.push(...week.today.details);
   if (week.time_guess?.ok) details.push(...week.time_guess.details);

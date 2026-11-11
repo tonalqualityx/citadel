@@ -106,14 +106,16 @@ export const oracleEndpoints: ApiEndpoint[] = [
           'that never sends them leaves those columns untouched on an update (byte-compatible ' +
           'with pre-Phase-6 classifier payloads), never nulled out. Clarity Phase 6b: intent ' +
           'additionally accepts "admin" for business-critical non-client mail ' +
-          '(accountant/bookkeeper/banking/tax) — same absent-safe rule applies.',
+          '(accountant/bookkeeper/banking/tax) — same absent-safe rule applies. Work stage B: one disposition per message. Floors (code): an urgent, admin or sales ask can never be no_action or waiting_them (stored as reply_mike, reported in adjusted); an emergency with no urgent flag is stored as reply_mike. ' +
+          'A NEW row takes the decision: no_action is created handled (closed_reason no_action, closed_by intake) and waiting_them is created handled with one mail.awaiting_reply wait (idempotency conv:<conversation_key>). ' +
+          'An existing row is never closed by a later sync: it takes a value only when it has none and he has not decided it, never no_action or waiting_them; an intake close that turns urgent reopens as an emergency. Owner only: without the owner on the home view nothing is stored.',
         bodySchema: [
           {
             name: 'asks',
             type: 'object',
             required: true,
             description:
-              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at, intent? (general|meeting|sales|admin — Clarity Phase 6/6b, absent=untouched; admin = business-critical non-client mail: accountant/bookkeeper/banking/tax), proposed_event_at? (ISO-8601, absent=untouched — HIGH-CONFIDENCE parsed meeting time only, never guessed), proposed_event_title? (absent=untouched), proposed_event_minutes? (positive int, absent=untouched), rfc_message_id? (RFC Message-ID, stored lowercased with no brackets, max 255, absent=untouched; work stage A), conversation_key? (RFC id of the conversation root, same rules; work stage A) }',
+              'Array (1-200): { message_id (unique), thread_id?, account, from_name?, from_email, subject, gist? (never set for personal mail — personal is never posted at all), queue? (decide|answer|review|do), severity? (client_blocking|launch_blocking|internal), is_urgent? (default false), deep_link, received_at, intent? (general|meeting|sales|admin — Clarity Phase 6/6b, absent=untouched; admin = business-critical non-client mail: accountant/bookkeeper/banking/tax), proposed_event_at? (ISO-8601, absent=untouched — HIGH-CONFIDENCE parsed meeting time only, never guessed), proposed_event_title? (absent=untouched), proposed_event_minutes? (positive int, absent=untouched), rfc_message_id? (RFC Message-ID, stored lowercased with no brackets, max 255, absent=untouched; work stage A), conversation_key? (RFC id of the conversation root, same rules; work stage A), disposition? (no_action|reply_mike|work|meeting|waiting_them|emergency; work stage B, absent=undecided), disposition_reason? (max 200, stored at most 120 plain characters), owner? (mike|bast|sabeen|nobody), decided_by? (intake|bast|other_copy; never mike) }',
           },
         ],
         responseExample: {
@@ -122,6 +124,10 @@ export const oracleEndpoints: ApiEndpoint[] = [
           created: 'number',
           updated: 'number',
           notified_urgent: 'number',
+          items:
+            'Work stage B: [{ message_id, id, disposition (what the row holds now), adjusted? (why a posted value was changed or not stored), prior?: { disposition, task_id } (the row existed before this call) }]',
+          adjusted: 'Work stage B: the items whose posted value was changed or not stored, [{ message_id, id, disposition, why }]',
+          skipped: '"home_off" (only when the owner is not on the home view: no decision is stored, nothing closes)',
         },
       },
     ],

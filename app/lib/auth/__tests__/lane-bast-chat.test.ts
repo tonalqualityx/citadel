@@ -62,6 +62,7 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/reconcile',
   'POST /api/bast-chat/worker/reconcile/candidates',
   'POST /api/bast-chat/worker/finished',
+  'POST /api/bast-chat/worker/decision-replay',
   'GET /api/bast-chat/worker/session-asks/:id',
   'GET /api/bast-chat/worker/sends',
   'GET /api/tasks',
@@ -185,7 +186,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 46 entries of the plan, and nothing else', () => {
+  it('holds exactly the 47 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -211,11 +212,11 @@ describe('lane bast-chat: the list', () => {
 
 describe('lane bast-chat: no other lane gained anything', () => {
   it('every other lane route list is byte for byte the one on main before this build', () => {
-    // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A adds one porter line).
+    // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A and work stage B each add one porter line).
     const rows = LANES.filter((l) => l !== 'bast-chat').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(156); // 155 on main plus porter POST /api/work/backfill-links (work stage A)
+    expect(rows).toHaveLength(157); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      '57e4a18af75ebfe5a856865e6f5c9d1faa1ef4da25c00e93f225e3abced4d854', // main's 20f12653... plus the one porter line of work stage A
+      '377466a35cd083fe55914a915c119ac40534891be602e06be859cb55500606c0', // main's 20f12653... plus the two porter lines of work stages A and B
     );
   });
 

@@ -9,6 +9,7 @@
 
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { zonedDateString } from '../act';
+import { handledMailMeasure } from '@/lib/work/intake';
 import { RUN_STALE_MS, ownerOnHome } from '../keeper/run';
 import { appendHomeAction, dateOnly } from '../state';
 import { GUARD_ACTION, LEARN, LEARNED_ACTION, MEASURES_ACTION, guardLine, learnedDetails, learnedLine, weekLine } from './copy';
@@ -90,6 +91,7 @@ async function build(db: PrismaClient, ownerId: string, now: Date, tz: string) {
       hard_dates: reads.hard_dates,
       today_days: reads.today_days,
       guess_errors: reads.guess_errors,
+      handled_mail: await handledMailMeasure(db, ownerId, dateOnly(start), new Date(dateOnly(end).getTime() + 86_400_000)),
     });
     const fired = guard(reads.guard_rows);
     week = { week_start: start, week_end: end, measures, guard: fired };

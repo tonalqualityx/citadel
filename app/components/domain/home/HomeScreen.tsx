@@ -13,6 +13,7 @@ import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
 import { ItemCard } from './ItemCard';
 import { HandsCard } from './HandsCard';
+import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
@@ -267,6 +268,7 @@ function HomeBody(p: BodyProps) {
               onOpenProject={(id) => p.setOpenProjectId(id)}
               onUndo={(id) => void p.undo(id)}
               onWrong={(id) => void p.wrong(id)}
+              onReopen={(key) => void p.act({ action: 'reopen_ask', item_key: key }).catch(() => undefined)}
               onLogTime={(prompt, minutes) => void p.reconcile({ action: 'log_time', task_id: prompt.task_id, minutes, day: prompt.day })}
             />
           )}
@@ -343,6 +345,7 @@ function DetailCard({
   onOpenProject,
   onUndo,
   onWrong,
+  onReopen,
   onLogTime,
 }: {
   detail: DetailInfo | null;
@@ -350,6 +353,7 @@ function DetailCard({
   onOpenProject: (id: string) => void;
   onUndo: (actionId: string) => void;
   onWrong: (actionId: string) => void;
+  onReopen: (askKey: string) => void;
   onLogTime: (prompt: { task_id: string; minutes: number; day: string }, minutes: number) => void;
 }) {
   if (!detail) {
@@ -379,7 +383,8 @@ function DetailCard({
           </div>
         </div>
       ) : null}
-      {detail.button || detail.link || detail.undoActionId || detail.wrongActionId ? (
+      {detail.mailList ? <HandledMailList rows={detail.mailList} onReopen={onReopen} /> : null}
+      {detail.button || detail.link || detail.undoActionId || detail.wrongActionId || detail.reopenKey ? (
         <div className="home-actions">
           {detail.button ? (
             <button
@@ -393,6 +398,11 @@ function DetailCard({
           ) : null}
           {detail.undoActionId ? (
             <button type="button" className="home-btn" onClick={() => onUndo(detail.undoActionId!)}>
+              Undo
+            </button>
+          ) : null}
+          {detail.reopenKey ? (
+            <button type="button" className="home-btn" onClick={() => onReopen(detail.reopenKey!)}>
               Undo
             </button>
           ) : null}

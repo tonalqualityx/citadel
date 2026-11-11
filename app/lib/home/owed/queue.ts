@@ -85,6 +85,8 @@ export function owedQueue(
   for (const thread of threads) {
     const newest = thread.asks[0];
     if (!newest) continue;
+    // Work stage B: a request for a time is never drafted (it is not owed); it closes when the meeting is booked.
+    if (newest.disposition === 'meeting') continue;
     const key = threadKey(thread.account, thread.thread_id);
     if (sel.dismissed?.has(key)) continue;
     if (sel.crisisKeys?.has(key) || thread.asks.some((a) => a.is_urgent)) continue;

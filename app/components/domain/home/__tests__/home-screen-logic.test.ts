@@ -10,6 +10,7 @@ import {
   itemsForTile,
   plain,
   resolveKey,
+  rowsFromHandled,
   rowsFromItems,
   todayLabel,
 } from '../home-screen-logic';
@@ -200,5 +201,38 @@ describe('derived lists', () => {
     const d = detailForHandled(res, 'd')!;
     expect(d.timePrompt).toEqual({ task_id: 't1', minutes: 30, day: '2026-11-09' });
     expect(d.wrongActionId).toBeUndefined();
+  });
+});
+
+// Work stage B
+describe('handled mail in the Handled tile', () => {
+  const ASK = 'ask:7aa4a01a-1111-4222-8333-944445555666';
+  const res = (over: Record<string, unknown> = {}) =>
+    ({
+      sections: {
+        handled: [{ id: 'q1', text: 'Recorded as handled: Ken Duffy, "Appreciate it Mike". No reply needed.', href: 'https://mail.google.com/x', at: '2026-11-09T14:00:00Z', undo_action_id: null, reopen_item_key: ASK, details: [] }],
+        handled_more: null,
+      },
+      handled_mail: [{ id: 'q1', key: ASK, title: 'Ken Duffy: Appreciate it Mike', reason: 'A thank-you.', href: null, at: '2026-11-09T14:00:00Z', kind: 'no_action' }],
+      ...over,
+    }) as never;
+
+  it('a recorded line opens with Undo as the reopen act, not a home action id', () => {
+    const d = detailForHandled(res(), 'q1')!;
+    expect(d.reopenKey).toBe(ASK);
+    expect(d.undoActionId).toBeUndefined();
+    expect(d.link?.label).toBe('Open the email');
+  });
+
+  it('the Handled tile ends with "Mail recorded as handled (1). Show all", which opens the list with each Undo key', () => {
+    const rows = rowsFromHandled(res());
+    expect(rows[rows.length - 1]).toMatchObject({ key: 'handled-mail', title: 'Mail recorded as handled (1). Show all' });
+    const d = detailForHandled(res(), 'handled-mail')!;
+    expect(d.title).toBe('Mail recorded as handled');
+    expect(d.mailList).toEqual([{ key: ASK, title: 'Ken Duffy: Appreciate it Mike', reason: 'A thank-you.', href: null, at: '2026-11-09T14:00:00Z' }]);
+  });
+
+  it('no list row when nothing was recorded', () => {
+    expect(rowsFromHandled(res({ handled_mail: [] })).some((r) => r.key === 'handled-mail')).toBe(false);
   });
 });

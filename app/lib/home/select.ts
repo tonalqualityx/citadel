@@ -103,7 +103,9 @@ import { FINISHED_CARD } from '@/lib/work/finished-copy';
 import { FINISHED_CARD_KEY } from './item-key';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
-import { emailLinkLabel } from '@/lib/work/copy';
+import { emailLinkLabel, HANDLED_MAIL, recordedLine, handledReason } from '@/lib/work/copy';
+import { askRef } from '@/lib/work/intake';
+import { stripSubjectPrefix } from '@/lib/email-asks';
 import {
   CAPS,
   FRESH_NEW,
@@ -147,6 +149,7 @@ import {
 import type {
   HomeEverythingElse,
   HomeEverythingElseGroup,
+  HomeHandledMail,
   HomeItem,
   HomeItemType,
   HomeQuietLine,
@@ -256,6 +259,8 @@ export interface SelectInput {
 }
 
 export interface SelectResult {
+  /** Work stage B: Mail recorded as handled, the last 30 days (read only, never counted in Everything else). */
+  handled_mail: HomeHandledMail[];
   sections: HomeSections;
   everything_else: HomeEverythingElse;
   candidates: Candidate[];
@@ -494,6 +499,8 @@ interface Draft {
     outsideDate?: boolean;
     lead?: boolean;
     thread?: { status: 'show' | 'older' };
+    /** Work stage B: the newest ask is a request for a time (disposition meeting): a row that wants a time, never owed, no clock, no draft. */
+    meeting?: boolean;
     /** Slice 4a: where Bast's reply work stands, whether it holds a suggested answer, and the "If you do nothing" line. */
     owedState?: OwedState | null;
     owedSuggestion?: boolean;
@@ -811,14 +818,17 @@ function buildThread(
   now: Date,
   refs: Refs,
   st: RawItemState | undefined,
-  owed: OwedRow | undefined,
+  owedRow: OwedRow | undefined,
   drafterFreshAt: Date | null,
   timezone: string,
   sendOn = false,
   bookOn = false,
 ): Draft {
+  const owed = newestIsMeeting(th) ? undefined : owedRow;
   const score = scoreThread(th, now);
   const newest = th.asks[0];
+  // Work stage B: a request for a time is a row of its own: no clock, no draft, no Waiting words. It closes when the meeting is booked.
+  const meeting = newest.disposition === 'meeting';
   const clientRaw = threadClient(th);
   const projectRaw = threadProject(th);
   const client = refOf(clientRaw);
@@ -828,11 +838,11 @@ function buildThread(
   // Slice 4a: Bast's own draft sits in the same Gmail thread, so its link is the thread's link.
   const draftUrl = hisDraftUrl ?? (hasBastDraft(owed) && newest.deep_link ? newest.deep_link : null);
   const owedState = owedStatus(th, owed, now, drafterFreshAt);
-  const lead = isLeadNow(newest.intent, newest.received_at, owed);
+  const lead = !meeting && isLeadNow(newest.intent, newest.received_at, owed);
   const clock = owedClock(newest.received_at, lead, owed, now);
   const leadAsk = lead && status === 'show' && !!clock.lead?.ask;
-  const woke = status === 'show' && wokeByNewMessage(st, newest.received_at, now);
-  const cameBack = status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
+  const woke = !meeting && status === 'show' && wokeByNewMessage(st, newest.received_at, now);
+  const cameBack = !meeting && status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
   // His short holding draft is shown only while the full draft it came from still covers the newest message.
   const showShort = !!owed?.short_draft_id && !!owed.short_draft_text && owedState !== 'stale_draft' && owedState !== 'his_draft' && owedState !== 'his_draft_older';
   // Slice 4b: the Send buttons exist only while the owner's switch is on and the draft is Bast's current, untouched one with no blank left in it.
@@ -853,18 +863,26 @@ function buildThread(
   const thought = owedState === 'needs_thought' && owed;
   const autoDrafted = owedState === 'draft_ready' && !!owed?.auto_drafted_at;
   const stateLine = owedState === 'his_draft_older' ? NEW_MESSAGE_AFTER_DRAFT : autoDrafted ? AUTO_DRAFT_LINE : owedSecondLine(owedState);
-  const dueLine = lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
-  const waitLine = status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
-  const owedLine =
-    [woke || cameBack ? WOKE_LINE : null, dueLine, waitLine, stateLine, showShort ? SHORT_READY_LINE : null, bookedWords].filter(Boolean).join(' · ') || null;
+  const dueLine = !meeting && lead && clock.lead && status === 'show' ? leadDueLine(weekdayIn(clock.lead.due, timezone), clock.lead.past) : null;
+  const waitLine = !meeting && status === 'show' && clock.waiting ? waitingLine(clock.days) : null;
+  // ONE state phrase on the meta line (the age is already on the row), by a fixed order: a booked block, they wrote again, a short draft,
+  // Needs thought, the draft state, the lead's due day, then how long they have waited.
+  const needsThoughtLine = owedState === 'needs_thought' ? stateLine : null;
+  const owedLine = meeting
+    ? HANDLED_MAIL.wantsATime
+    : [bookedWords, woke || cameBack ? WOKE_LINE : null, showShort ? SHORT_READY_LINE : null, needsThoughtLine, stateLine, dueLine, waitLine].find((x) => !!x) ?? null;
+  // Work stage B: the title reads "sender, client: subject" (the subject, not the gist), cut at 90 characters.
+  const head = client && !sameName(client.name, person) ? `${person}, ${client.name}` : person;
+  const fullTitle = `${head}: ${stripSubjectPrefix(displayText(newest.subject)) || said}`;
+  const threadTitle = fullTitle.length > THREAD_TITLE_MAX ? `${fullTitle.slice(0, THREAD_TITLE_MAX - 1).trimEnd()}\u2026` : fullTitle;
   const item: HomeItem = {
     ...emptyItem(),
     key: threadKey(th.account, th.thread_id),
     type: lead ? 'lead' : 'owed_reply',
-    title: `${person}${client && !sameName(client.name, person) ? ` (${client.name})` : ''}: ${said}`,
+    title: threadTitle,
     who: client && !sameName(client.name, person) ? `${person}, ${client.name}` : person,
     age: ageWords(newest.received_at, now, 'arrived'),
-    why_now: leadAsk ? LEAD_ASK : whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
+    why_now: meeting ? HANDLED_MAIL.meetingWhy : leadAsk ? LEAD_ASK : whyThread({ lead, since: waitedFor(newest.received_at, now), draftReady: !!draftUrl }),
     hard_date: null,
     effort: effortWords(minutes, !!draftUrl),
     minutes,
@@ -904,7 +922,7 @@ function buildThread(
       minutes,
       group: groupFor(client, project, null, refs),
       arcId: null,
-      clockDue: status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
+      clockDue: !meeting && status === 'show' && (lead ? !!clock.lead?.past : clock.waiting),
       unpark: woke || cameBack,
     },
     ctx: {
@@ -912,6 +930,7 @@ function buildThread(
       threadUrl: newest.deep_link || null,
       lead,
       thread: { status },
+      meeting: meeting || undefined,
       owedState,
       owedSuggestion: !!(thought && owed.suggested_answer),
       // Older threads (Everything else) keep the old line; the drafter does not work them.
@@ -921,7 +940,7 @@ function buildThread(
       owedSend: sendFull || sendShort ? { full: sendFull, short: sendShort } : undefined,
       owedBook: bookBtn || undefined,
       owedIfIgnored:
-        status !== 'show'
+        status !== 'show' || meeting
           ? null
           : leadAsk
             ? IF_IGNORED_4C.lead_ask
@@ -932,6 +951,12 @@ function buildThread(
               }),
     },
   };
+}
+
+const THREAD_TITLE_MAX = 90;
+
+function newestIsMeeting(th: RawThread): boolean {
+  return th.asks[0]?.disposition === 'meeting';
 }
 
 function sameName(a: string, b: string): boolean {
@@ -1213,7 +1238,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     botTask: c.botTask,
     owedThread:
       c.kind === 'thread' && ctx.thread?.status === 'show'
-        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook }
+        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend, book: ctx.owedBook, meeting: ctx.meeting }
         : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
@@ -1529,6 +1554,11 @@ export function selectHome(input: SelectInput): SelectResult {
       c.restGroup = 'older_threads';
     } else if (c.score.venture && !c.boosted && !c.fresh && !c.botTask) {
       c.restGroup = 'ventures';
+    } else if (c.kind === 'thread' && ctx.meeting && !c.boosted) {
+      // Work stage B: a request for a time is a row in Decisions ready ("Wants a time"), never counted as a client email waiting.
+      c.section = 'next';
+      c.restGroup = null;
+      nextAll.push(c);
     } else if (c.kind === 'thread') {
       c.section = ctx.lead ? 'leads' : 'mail';
       c.restGroup = null;
@@ -1932,6 +1962,16 @@ export function selectHome(input: SelectInput): SelectResult {
     undo_action_id: null,
     details: [],
   }));
+  // Work stage B: mail recorded as handled at birth: a quiet line with Undo (the home act reopen_ask), the last day.
+  const recorded: HomeQuietLine[] = (raw.intake_handled ?? []).map((h) => ({
+    id: h.id,
+    text: recordedLine({ from_name: h.from_name, from_email: h.from_email, subject: h.subject, kind: h.kind }),
+    href: h.deep_link || null,
+    at: h.handled_at.toISOString(),
+    undo_action_id: null,
+    reopen_item_key: askRef(h.id),
+    details: [],
+  }));
   const kept: HomeQuietLine[] = raw.keeper_lines.map((k) => ({
     id: k.id,
     text: displayText(k.text),
@@ -1985,7 +2025,7 @@ export function selectHome(input: SelectInput): SelectResult {
       time_prompt: x.time_prompt,
     };
   });
-  const handledAll = [...closed, ...kept, ...sends, ...books, ...sentMail].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
+  const handledAll = [...closed, ...recorded, ...kept, ...sends, ...books, ...sentMail].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
   const handled = handledAll.slice(0, CAPS.handled);
   const moreCount = Math.max(0, handledAll.length - CAPS.handled);
 
@@ -2001,7 +2041,22 @@ export function selectHome(input: SelectInput): SelectResult {
     handled_more: moreCount > 0 ? { count: moreCount, text: handledMoreText(moreCount) } : null,
   };
 
+  const handledMail: HomeHandledMail[] = (raw.handled_mail ?? []).map((h) => {
+    const who = displayText(h.from_name) || h.from_email;
+    const head = h.client_name && h.client_name.trim().toLowerCase() !== who.trim().toLowerCase() ? `${who}, ${displayText(h.client_name)}` : who;
+    return {
+      id: h.id,
+      key: askRef(h.id),
+      title: `${head}: ${stripSubjectPrefix(displayText(h.subject)) || 'No subject'}`,
+      reason: handledReason(h.kind, h.reason),
+      href: h.deep_link || null,
+      at: h.handled_at.toISOString(),
+      kind: h.kind,
+    };
+  });
+
   return {
+    handled_mail: handledMail,
     sections,
     everything_else: {
       count: total,

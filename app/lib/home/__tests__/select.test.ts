@@ -214,7 +214,7 @@ describe('people tiles', () => {
     const other = makeThread({ client: jill, from_name: 'Jill Owner', received_at: longAgo });
     const item2 = sel({ threads: [other] }).sections.mail[0];
     expect(item2.who).toBe("Jill Owner, Jill's Cafe");
-    expect(item2.title.startsWith("Jill Owner (Jill's Cafe):")).toBe(true);
+    expect(item2.title.startsWith("Jill Owner, Jill's Cafe:")).toBe(true); // work stage B: "sender, client: subject"
   });
 
   it('the who line on an urgent mail shows the name once too', () => {
@@ -786,7 +786,7 @@ describe('Slice 4a: owed replies on thread rows', () => {
     const th = makeThread({ client: active, received_at: longAgo });
     const item = one(th, row(th));
     expect(item.owed_state).toBe('draft_ready');
-    expect(item.owed_line).toBe('Waiting 5 days. · Draft ready');
+    expect(item.owed_line).toBe('Draft ready');
     expect(item.opened.draft_text).toBe('Thanks for writing. I will get back to you.');
     expect(item.effort).toBe('Draft ready, about 2 minutes');
     expect(item.minutes).toBe(2);
@@ -809,7 +809,7 @@ describe('Slice 4a: owed replies on thread rows', () => {
     const th = makeThread({ client: active, received_at: longAgo });
     const item = one(th, row(th, { state: 'queued', request_kind: 'draft', requested_at: NOW, draft_id: null, draft_text: null }));
     expect(item.owed_state).toBe('drafting');
-    expect(item.owed_line).toBe('Waiting 5 days. · Bast is drafting');
+    expect(item.owed_line).toBe('Bast is drafting');
     expect(item.actions.map((a) => a.id)).toEqual(['open_thread', 'not_now']);
   });
 
@@ -817,7 +817,7 @@ describe('Slice 4a: owed replies on thread rows', () => {
     const th = makeThread({ client: active, received_at: longAgo });
     const r = row(th, { state: 'needs_thought', draft_id: null, draft_text: null, bast_read: 'They want a price.', suggested_answer: 'Ask which pages first.' });
     const item = one(th, r);
-    expect(item.owed_line).toBe('Waiting 5 days. · Needs thought');
+    expect(item.owed_line).toBe('Needs thought');
     expect(item.opened.bast_read).toBe('They want a price.');
     expect(item.opened.suggested_answer).toBe('Ask which pages first.');
     expect(item.opened.draft_text).toBeNull();
@@ -831,13 +831,13 @@ describe('Slice 4a: owed replies on thread rows', () => {
     const th = makeThread({ client: active, received_at: longAgo, draft_url: 'https://mail.google.com/draft/9', draft_started_at: d('2026-11-01T10:00:00Z') });
     const item = one(th);
     expect(item.owed_state).toBe('his_draft_older');
-    expect(item.owed_line).toBe('Waiting 5 days. · Their new message came after your draft.');
+    expect(item.owed_line).toBe('Their new message came after your draft.');
     expect(item.actions.map((a) => a.id)).toEqual(['open_draft', 'no_reply_needed', 'not_now']);
     expect(item.default_if_ignored).toBe('Your draft waits in Gmail. Nothing is sent.');
     const edited = makeThread({ client: active, received_at: longAgo });
     const e = one(edited, row(edited, { mike_edited_at: d('2026-11-09T12:00:00Z') }));
     expect(e.owed_state).toBe('his_draft');
-    expect(e.owed_line).toBe('Waiting 5 days. · You started a draft');
+    expect(e.owed_line).toBe('You started a draft');
     expect(e.opened.draft_text).toBeNull();
   });
 
@@ -845,7 +845,7 @@ describe('Slice 4a: owed replies on thread rows', () => {
     const th = makeThread({ client: active, received_at: longAgo });
     const item = one(th, row(th, { draft_for_ask_id: 'older-ask' }));
     expect(item.owed_state).toBe('stale_draft');
-    expect(item.owed_line).toBe('Waiting 5 days. · Bast is drafting');
+    expect(item.owed_line).toBe('Bast is drafting');
   });
 
   it('the row meta carries the owed words after the age', async () => {

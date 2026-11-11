@@ -330,6 +330,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'finished_close'; count: number }
+  | { op: 'home_act'; action: 'reopen_ask'; title: string }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
   | { op: 'home_act'; action: 'clear_session'; title: string }
@@ -403,6 +404,9 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'finished_close':
           s = o.count === 1 ? 'Closed the 1 task you ticked on the looks-finished list.' : `Closed the ${o.count} tasks you ticked on the looks-finished list.`;
+          break;
+        case 'reopen_ask':
+          s = `Put ${quoted(o.title)} back as a reply you owe.`;
           break;
         case 'finished_close_one':
           s = `Closed ${quoted(o.title)} from the looks-finished list.`;

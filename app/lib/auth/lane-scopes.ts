@@ -149,6 +149,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/oracle/email-sync'),
     // Work stage A: the one-time tidy (work-links/backfill.py). Dry run by default on the machine; Citadel decides everything.
     r('POST', '/api/work/backfill-links'),
+    // Work stage B: the replayed intake decisions (the classifier's --decide-replay --apply; dry:true first, Citadel decides, one Handled line with Undo)
+    r('POST', '/api/work/apply-decisions'),
   ],
   // Wright. project_record, review_citadel, review_watch, steward collectors, enroll_site,
   // steward_citadel; assayer orchestrate
@@ -324,6 +326,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/bast-chat/worker/reconcile/candidates'),
     // Work stage G: the one-time looks-finished sweep (dry:true counts and writes nothing; the real run makes the owner's work_finished_item rows only. It never closes, changes or comments on a task, and sends nothing)
     r('POST', '/api/bast-chat/worker/finished'),
+    // Work stage B: what replayed intake decisions would change (writes nothing)
+    r('POST', '/api/bast-chat/worker/decision-replay'),
     // Session card: one session waiting on the owner (read only; the owner's own, by external id or row id)
     r('GET', '/api/bast-chat/worker/session-asks/:id'),
     // Chat read: what the courier sent or queued (name and domain only, no bodies; read only)

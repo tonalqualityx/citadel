@@ -95,6 +95,8 @@ function makeDb() {
     // Slice 9a: his open cards from sent mail.
     homeReconcileChange: { findMany: vi.fn().mockResolvedValue([]) },
     workFinishedItem: { findMany: vi.fn().mockResolvedValue([]) },
+    // Work stage B: the owner check for the intake lines (no owner row means none are read)
+    bastChatSettings: { findUnique: vi.fn().mockResolvedValue(null) },
     homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
     // Slice 4b: the switch (no row = off) and the outbox rows of his presses.
     homeKeeperSettings: { findUnique: vi.fn().mockResolvedValue(null) },

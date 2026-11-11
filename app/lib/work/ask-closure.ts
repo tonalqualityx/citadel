@@ -20,6 +20,7 @@
 
 import { SECURITY_TAGS } from '@/lib/home/rules';
 import { appendHomeAction, type HomeDb } from '@/lib/home/state';
+import { notHeldByMike } from './decision';
 import { askDetail, backfillLine, catchupLine, taskClosedLine, taskDetail } from './copy';
 
 export const WORK_CLOSE_ACTION = 'work_close';
@@ -152,7 +153,7 @@ async function closeCandidates(
   for (const ask of asks) {
     const reason = reasonOf(ask);
     const r = await db.emailAsk.updateMany({
-      where: { id: ask.id, state: 'open', task_id: ask.task_id },
+      where: { id: ask.id, state: 'open', task_id: ask.task_id, ...notHeldByMike },
       data: { state: 'handled', closed_at: now, closed_reason: reason, closed_by: by, draft_started_at: null, draft_url: null },
     });
     if (r.count === 1) closed.push({ ask, reason });
@@ -249,7 +250,7 @@ export async function closeAsksForTasks(db: HomeDb, taskIds: readonly string[], 
     if (live.length === 0) return out;
 
     const asks = await tx.emailAsk.findMany({
-      where: { task_id: { in: live.map((t) => t.id) }, state: 'open', is_urgent: false, received_at: { lte: finishedAt } },
+      where: { task_id: { in: live.map((t) => t.id) }, state: 'open', is_urgent: false, received_at: { lte: finishedAt }, ...notHeldByMike },
       select: CANDIDATE_SELECT,
       orderBy: { received_at: 'asc' },
     });
@@ -286,7 +287,7 @@ export async function catchUpClosures(
   opts: { dry?: boolean; owner?: { id: string; timezone: string } } = {},
 ): Promise<{ would_close: number; closed: string[]; action_ids: string[] }> {
   const rows = await db.emailAsk.findMany({
-    where: { state: 'open', is_urgent: false, task_id: { not: null }, task: { is_deleted: false, status: { in: ['done', 'abandoned'] } } },
+    where: { state: 'open', is_urgent: false, task_id: { not: null }, task: { is_deleted: false, status: { in: ['done', 'abandoned'] } }, ...notHeldByMike },
     select: { ...CANDIDATE_SELECT, task: { select: { id: true, title: true, status: true, tags: true, completed_at: true, updated_at: true } } },
     orderBy: { received_at: 'asc' },
     take: CATCHUP_TAKE,

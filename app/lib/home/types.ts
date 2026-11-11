@@ -502,6 +502,8 @@ export interface HomeQuietLine {
   undo_action_id: string | null;
   /** Slice 2: extra muted lines on the detail card (for a keeper line, the items it touched). [] when none. */
   details: string[];
+  /** Work stage B: `ask:<id>` for a mail recorded as handled at birth: Undo is the home act reopen_ask on this key, else absent or null. */
+  reopen_item_key?: string | null;
   /** Slice 9a: the home_actions id "This was wrong" posts to /api/home/undo with wrong: true (a sent-mail note line), else absent or null. */
   wrong_action_id?: string | null;
   /** Slice 9a: "Log time? 30 min" on a task marked done from a card with no time on it, else absent or null. */
@@ -633,6 +635,8 @@ export interface HomeResponse {
   today: HomeToday | null;
   sections: HomeSections;
   everything_else: HomeEverythingElse;
+  /** Work stage B: Mail recorded as handled, the last 30 days (read only; each row has Undo through reopen_ask). Never counted in Everything else. */
+  handled_mail?: HomeHandledMail[];
   /**
    * The empty sentence for every tile, from copy.ts, exactly as the design gives them
    * ("Nothing urgent.", "No active projects.", ...). '' where the design has none.
@@ -643,6 +647,45 @@ export interface HomeResponse {
 // ============================================================================
 // B. POST /api/home/act and /api/home/undo
 // ============================================================================
+
+/** Work stage B: one mail recorded as handled by an intake decision. */
+export interface HandledMailLite {
+  id: string;
+  from_name: string | null;
+  from_email: string;
+  subject: string;
+  client_name: string | null;
+  reason: string | null;
+  deep_link: string;
+  handled_at: Date;
+  kind: string;
+}
+
+export interface HomeHandledMail {
+  /** EmailAsk id. */
+  id: string;
+  /** `ask:<id>`: what reopen_ask takes. */
+  key: string;
+  /** "Ken Duffy, client: Appreciate it Mike". */
+  title: string;
+  /** Bast's reason, one plain sentence. */
+  reason: string;
+  href: string | null;
+  at: string;
+  /** no_action | waiting_them */
+  kind: string;
+}
+
+/** Work stage B: a mail recorded as handled in the last day, for its quiet line. */
+export interface RawIntakeHandled {
+  id: string;
+  from_name: string | null;
+  from_email: string;
+  subject: string;
+  kind: string;
+  deep_link: string;
+  handled_at: Date;
+}
 
 /** The `action` values of HomeActRequest; also the home_actions.action column value. */
 export type HomeActName =
@@ -672,7 +715,8 @@ export type HomeActName =
   | 'proposal_no'
   | 'finished_close'
   | 'finished_close_one'
-  | 'finished_keep';
+  | 'finished_keep'
+  | 'reopen_ask';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -811,7 +855,9 @@ export type HomeActRequest =
    */
   | { action: 'finished_close'; item_keys: string[] }
   | { action: 'finished_close_one'; item_key: string }
-  | { action: 'finished_keep'; item_key: string };
+  | { action: 'finished_keep'; item_key: string }
+  /** Work stage B: Undo of a mail recorded as handled. item_key is `ask:<EmailAsk id>`. Reopens it as a reply he owes and holds it against re-closing. Allowed for 30 days. */
+  | { action: 'reopen_ask'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' | 'snooze' }>;
@@ -1080,6 +1126,8 @@ export interface RawEmailAsk {
   draft_started_at: Date | null;
   deep_link: string;
   received_at: Date;
+  /** Work stage B: the intake decision (no_action | reply_mike | work | meeting | waiting_them | emergency), or null on an old row. */
+  disposition?: string | null;
 }
 
 /** Open, non-urgent asks grouped by (account, thread_id ?? message_id). */
@@ -1267,6 +1315,9 @@ export interface RawHomeInputs {
   reconcile_cards?: RawReconcileCard[];
   /** Work stage G: his open looks-finished card, or null. Absent means none. */
   finished?: RawFinishedCard | null;
+  /** Work stage B: mail recorded as handled in the last day (quiet lines with Undo), and in the last 30 days (the list). Absent means none. */
+  intake_handled?: RawIntakeHandled[];
+  handled_mail?: HandledMailLite[];
   reconcile_lines?: RawReconcileLine[];
 
   /** Slice 4a: U's home_owed_thread rows (Bast's drafts and reads). */
@@ -1391,6 +1442,8 @@ export type KeeperActionKind =
   | 'work_close'
   // Work stage G: tasks closed from the looks-finished card (source keeper, Undo for 72 hours)
   | 'finished_close'
+  // Work stage B: a batch of mail recorded as handled, or a booked meeting that closed a request for a time (source keeper, Undo for 72 hours)
+  | 'intake_close'
   // Slice 7b: a learned weight (source keeper, Undo for 7 days)
   | 'keeper_learned'
   | 'not_emergency_rule';

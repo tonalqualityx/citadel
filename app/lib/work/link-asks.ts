@@ -11,6 +11,7 @@
 
 import type { HomeDb } from '@/lib/home/state';
 import { isSecurityTagged } from './ask-closure';
+import { notHeldByMike } from './decision';
 
 /** An RFC Message-ID as stored: lowercased, no brackets, no surrounding space. Null when empty. */
 export function normalizeRfc(v: string | null | undefined): string | null {
@@ -72,7 +73,7 @@ export async function linkAsksForNewTask(
     const close = hold
       ? { count: 0 }
       : await tx.emailAsk.updateMany({
-          where: { id, task_id: task.id, state: 'open', is_urgent: false },
+          where: { id, task_id: task.id, state: 'open', is_urgent: false, ...notHeldByMike },
           data: { state: 'handled', closed_at: now, closed_reason: 'with_task', closed_by: 'intake', draft_started_at: null, draft_url: null },
         });
     if (close.count === 1) out.closed.push(id);

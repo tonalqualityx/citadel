@@ -53,8 +53,8 @@ describe('Slice 4c: clocks on the rows', () => {
     const th2 = makeThread({ client, received_at: d('2026-11-03T15:00:00Z') });
     const row2 = { ...row, thread_key: keyOf(th2), draft_for_ask_id: th2.asks[0].id };
     const it2 = find(sel({ threads: [th2], owed_rows: [row2] }), th2)!.item;
-    expect(it2.owed_line).toContain('Bast wrote it along its suggestion');
-    expect(it2.owed_line).toContain('Short draft ready');
+    // Work stage B: one state phrase on the meta line (the short draft comes before the auto draft line).
+    expect(it2.owed_line).toBe('Short draft ready');
     expect(it2.opened.short_draft_text).toBe('Short one.');
     const ids = [...it2.actions, ...it2.more_actions].map((a) => a.id);
     expect(ids[0]).toBe('open_short');

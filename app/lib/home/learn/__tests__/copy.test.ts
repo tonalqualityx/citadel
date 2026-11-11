@@ -95,3 +95,22 @@ describe('Slice 7b sentences', async () => {
     for (const t of [c.learnedLine('client:x', 'X', 'up'), c.learnedFooter('client:x', 'X', 'up'), c.learnedSettingsSentence('client:x', 'X', 115, null)]) expect(t).not.toMatch(/\d|percent|%/);
   });
 });
+
+describe('weekLine: work stage B handled-mail sentence', () => {
+  it('adds "Recorded 41 emails as handled. You reopened 1." when mail was recorded', () => {
+    const w = measuresWeek({ ...base, snapshots: snaps(5), handled_mail: { recorded: 41, reopened: 1 } });
+    const line = weekLine(w)!;
+    expect(line.text).toContain('Recorded 41 emails as handled. You reopened 1.');
+    expect(lineIsClean(line.text)).toBe(true);
+  });
+  it('says nothing when none was recorded, and the line is unchanged without the input', () => {
+    const none = weekLine(measuresWeek({ ...base, snapshots: snaps(5), handled_mail: { recorded: 0, reopened: 0 } }))!;
+    const absent = weekLine(measuresWeek({ ...base, snapshots: snaps(5) }))!;
+    expect(none.text).toBe(absent.text);
+    expect(none.text).not.toContain('Recorded');
+  });
+  it('one email reads in the singular', () => {
+    const line = weekLine(measuresWeek({ ...base, snapshots: snaps(5), handled_mail: { recorded: 1, reopened: 0 } }))!;
+    expect(line.text).toContain('Recorded 1 email as handled. You reopened 0.');
+  });
+});

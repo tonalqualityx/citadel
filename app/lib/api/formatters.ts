@@ -1204,6 +1204,11 @@ export function formatEmailAskResponse(ask: any) {
     closed_at: ask.closed_at ?? null,
     closed_reason: ask.closed_reason ?? null,
     closed_by: ask.closed_by ?? null,
+    // Work stage B: the intake decision (all null on an undecided old row).
+    disposition: ask.disposition ?? null,
+    disposition_reason: ask.disposition_reason ?? null,
+    owner: ask.owner ?? null,
+    decided_by: ask.decided_by ?? null,
     // Clarity Phase 7 — email-arc attachment: the ask leaves the intake drawer and
     // attaches directly to the arc it belongs to (as well as, or instead of, a task).
     arc_id: ask.arc_id ?? null,

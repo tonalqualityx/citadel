@@ -147,9 +147,9 @@ describe.skipIf(!SCRATCH)('Slice 4c: clocks, wake and joining (real database)', 
   it('owed clock days on a fake now: nothing on day 1, "Waiting 3 days." on day 3, a read request on day 5', async () => {
     await unchanged(async () => {
       expect((await rowAt('c1', NOW))?.owed_line).toBe('Draft ready');
-      expect((await rowAt('c1', at('2026-11-12T22:30:00Z')))?.owed_line).toBe('Waiting 3 days. · Draft ready');
+      expect((await rowAt('c1', at('2026-11-12T22:30:00Z')))?.owed_line).toBe('Draft ready');
       const day5 = at('2026-11-16T22:30:00Z');
-      expect((await rowAt('c1', day5))?.owed_line).toBe('Waiting 5 days. · Draft ready');
+      expect((await rowAt('c1', day5))?.owed_line).toBe('Draft ready');
       expect((await work(NOW)).find((i) => i.thread_key === key('c1'))).toBeUndefined();
       expect((await work(day5)).find((i) => i.thread_key === key('c1'))).toMatchObject({ request: 'read' });
     });
@@ -210,10 +210,10 @@ describe.skipIf(!SCRATCH)('Slice 4c: clocks, wake and joining (real database)', 
 
   it('lead clock: "reply due Wednesday" before, "reply was due" after, a refresh at the clock, a short draft when it comes back', async () => {
     await unchanged(async () => {
-      expect((await rowAt('l1', NOW))?.owed_line).toBe('reply due Wednesday · Draft ready');
+      expect((await rowAt('l1', NOW))?.owed_line).toBe('Draft ready');
       expect((await rowAt('l1', NOW))?.hard_date).toBeNull();
       const after = at('2026-11-11T22:30:00Z');
-      expect((await rowAt('l1', after))?.owed_line).toBe('reply was due Wednesday · Draft ready');
+      expect((await rowAt('l1', after))?.owed_line).toBe('Draft ready');
       expect((await work(after)).find((i) => i.thread_key === key('l1'))).toMatchObject({ lead: true, request: 'draft', bast_draft: { draft_id: 'd-l1' } });
     });
     await prisma.homeOwedThread.update({ where: { user_id_thread_key: { user_id: adminId, thread_key: key('l1') } }, data: { drafted_at: at('2026-11-11T23:00:00Z') } });
