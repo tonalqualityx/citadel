@@ -56,6 +56,15 @@ const ITEM_STATE_SELECT = {
   arc_removed_group: true,
   first_seen_at: true,
   last_shown_at: true,
+  view_set_by: true,
+  keeper_hold_until: true,
+  read_hard_due_at: true,
+  read_hard_due_source: true,
+  dates_read_at: true,
+  card_summary: true,
+  card_checklist: true,
+  card_summary_hash: true,
+  card_summary_at: true,
 } as const;
 
 /** Every home_item_state row for the user. */
@@ -97,6 +106,26 @@ export interface HomeItemStatePatch {
   arc_removed_at?: Date | null;
   arc_removed_group?: string | null;
   last_shown_at?: Date | null;
+  /** Slice 2: null or 'user' is his Not now; 'keeper' is the nightly sort. */
+  view_set_by?: string | null;
+  /** Slice 2: the keeper leaves the item alone until this time (set by an Undo of a keeper action). */
+  keeper_hold_until?: Date | null;
+  read_hard_due_at?: Date | null;
+  read_hard_due_source?: string | null;
+  dates_read_at?: Date | null;
+  /** Slice 2b. */
+  card_summary?: string | null;
+  /** Slice 2b. JSON; null clears it (written as a database NULL). */
+  card_checklist?: Prisma.InputJsonValue | null;
+  card_summary_hash?: string | null;
+  card_summary_at?: Date | null;
+}
+
+/** A patch as Prisma wants it: a null card_checklist becomes a database NULL. */
+function toData(patch: HomeItemStatePatch) {
+  const { card_checklist, ...rest } = patch;
+  if (card_checklist === undefined) return { ...rest };
+  return { ...rest, card_checklist: card_checklist === null ? Prisma.DbNull : card_checklist };
 }
 
 /**
@@ -111,15 +140,16 @@ export async function upsertItemState(
 ): Promise<RawItemState> {
   return db.homeItemState.upsert({
     where: { user_id_item_key: { user_id: userId, item_key: itemKey } },
-    create: { user_id: userId, item_key: itemKey, ...patch },
-    update: { ...patch },
+    create: { user_id: userId, item_key: itemKey, ...toData(patch) },
+    update: toData(patch),
     select: ITEM_STATE_SELECT,
   });
 }
 
 /**
  * Put one item back exactly as a stored before-state had it (undo). Writes every
- * undoable field, so a field that was null before is cleared again. When the before-state is
+ * undoable field, so a field that was null before is cleared again. keeper_hold_until and the
+ * card_* fields are not restored: a hold is set by the Undo itself, and summaries are not an act. When the before-state is
  * null the row did not exist, so it is deleted.
  */
 export async function restoreItemState(
@@ -143,6 +173,11 @@ export async function restoreItemState(
     arc_added_group: before.arc_added_group,
     arc_removed_at: before.arc_removed_at,
     arc_removed_group: before.arc_removed_group,
+    // Slice 2: a before-state stored by Slice 1 has none of these, which reads as null.
+    view_set_by: before.view_set_by ?? null,
+    read_hard_due_at: before.read_hard_due_at ?? null,
+    read_hard_due_source: before.read_hard_due_source ?? null,
+    dates_read_at: before.dates_read_at ?? null,
   };
   await upsertItemState(db, userId, itemKey, fields);
 }

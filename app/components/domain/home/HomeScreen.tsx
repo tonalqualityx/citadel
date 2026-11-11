@@ -7,13 +7,14 @@ import { Button } from '@/components/ui/button';
 import { TaskPeekProvider, useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { ProjectDrawer } from '@/components/domain/oracle/modes/projects/ProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
-import { useHome, useHomeAct, useHomeItemAction } from '@/lib/hooks/use-home';
+import { useHome, useHomeAct, useHomeItemAction, useHomeUndo } from '@/lib/hooks/use-home';
 import type { HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
 import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
 import { ItemCard } from './ItemCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
+import { RestGroupCard } from './RestGroupCard';
 import { BastChatDock } from '@/components/domain/bast-chat/BastChatDock';
 import {
   addCandidates,
@@ -21,13 +22,14 @@ import {
   collapsedLine,
   detailForHandled,
   detailForProject,
-  detailForRest,
   findItem,
   initialKey,
   isItemTile,
   itemsForTile,
   plain,
   resolveKey,
+  restGroup,
+  restHeadingLines,
   rowsFromHandled,
   rowsFromItems,
   rowsFromProjects,
@@ -51,6 +53,7 @@ function HomeScreenInner() {
   const { openTaskPeek } = useTaskPeek();
   const itemActions = useHomeItemAction({ openTask: openTaskPeek });
   const act = useHomeAct();
+  const undo = useHomeUndo();
 
   const [tile, setTile] = React.useState<HomeTileId>('today');
   // undefined = nothing chosen yet (open the tile's first row); null = nothing to open.
@@ -103,6 +106,7 @@ function HomeScreenInner() {
       setShowLists={setShowLists}
       itemActions={itemActions}
       act={act}
+      undo={undo}
     />
   );
 }
@@ -128,6 +132,7 @@ interface BodyProps {
   setShowLists: (v: boolean) => void;
   itemActions: ItemActions;
   act: ReturnType<typeof useHomeAct>;
+  undo: ReturnType<typeof useHomeUndo>;
 }
 
 function HomeBody(p: BodyProps) {
@@ -156,7 +161,6 @@ function HomeBody(p: BodyProps) {
 
   const selectedKey = p.chosen === undefined ? (tile === 'today' || itemTile ? initialKey(res, tile) : (keys[0] ?? null)) : resolveKey(keys, p.chosen.key, p.chosen.index);
   if (tile === 'handled') detail = detailForHandled(res, selectedKey);
-  else if (tile === 'everything_else') detail = detailForRest(res, selectedKey);
   else if (tile === 'projects') detail = detailForProject(projects, selectedKey);
 
   const selectItemKey = (key: string) => {
@@ -172,6 +176,14 @@ function HomeBody(p: BodyProps) {
     void itemActions.run(action, item, groupKey ? { groupKey } : {});
   };
   const onTodayAct = (request: HomeTodayActRequest): Promise<HomeActResponse> => p.act(request);
+
+  const [movingKey, setMovingKey] = React.useState<string | null>(null);
+  const bringForward = (itemKey: string) => {
+    setMovingKey(itemKey);
+    p.act({ action: 'bring_forward', item_key: itemKey })
+      .catch(() => undefined)
+      .finally(() => setMovingKey(null));
+  };
 
   const selectedItem = itemTile ? findItem(res, selectedKey) : null;
   const card = (item: HomeItem | null, empty: string, hideActions = false) => (
@@ -210,8 +222,21 @@ function HomeBody(p: BodyProps) {
         <div className="home-pane">
           {itemTile ? (
             card(selectedItem, res.empty[tile])
+          ) : tile === 'everything_else' ? (
+            <RestGroupCard
+              headingLines={restHeadingLines(res)}
+              group={restGroup(res, selectedKey)}
+              emptyText={res.empty[tile]}
+              busyKey={movingKey}
+              onBringForward={bringForward}
+            />
           ) : (
-            <DetailCard detail={detail} emptyText={res.empty[tile]} onOpenProject={(id) => p.setOpenProjectId(id)} />
+            <DetailCard
+              detail={detail}
+              emptyText={res.empty[tile]}
+              onOpenProject={(id) => p.setOpenProjectId(id)}
+              onUndo={(id) => void p.undo(id)}
+            />
           )}
         </div>
       </div>
@@ -273,10 +298,12 @@ function DetailCard({
   detail,
   emptyText,
   onOpenProject,
+  onUndo,
 }: {
   detail: DetailInfo | null;
   emptyText: string;
   onOpenProject: (id: string) => void;
+  onUndo: (actionId: string) => void;
 }) {
   if (!detail) {
     return (
@@ -293,7 +320,7 @@ function DetailCard({
           {l}
         </p>
       ))}
-      {detail.button || detail.link ? (
+      {detail.button || detail.link || detail.undoActionId ? (
         <div className="home-actions">
           {detail.button ? (
             <button
@@ -303,6 +330,11 @@ function DetailCard({
               onClick={() => onOpenProject(detail.button!.projectId)}
             >
               {detail.button.label}
+            </button>
+          ) : null}
+          {detail.undoActionId ? (
+            <button type="button" className="home-btn" onClick={() => onUndo(detail.undoActionId!)}>
+              Undo
             </button>
           ) : null}
           {detail.link ? (

@@ -13,6 +13,7 @@
 import { zonedParts } from '@/lib/waits/business-days';
 import {
   CONSEQUENCE,
+  DATE_READ,
   FRESH_ACTIVITY_HOURS,
   IMPORTANCE,
   URGENCY,
@@ -23,6 +24,15 @@ import {
   isVenture,
 } from './rules';
 import type { RawEmailAsk, RawReviewFold, RawSessionAsk, RawTask, RawThread, RawWait } from './types';
+
+/** Which rule gave a task its hard date (Slice 2 precedence: hard_due, then promised, then read). */
+export type HardDateKind = 'hard_due' | 'promised' | 'read';
+
+/** The keeper's reading of a task's due_date, from its item state (RawItemState.read_hard_due_*). */
+export interface ReadHardDate {
+  at: Date | null;
+  source: string | null;
+}
 
 /** 1 is the most consequential band, 4 the least. Internal only. */
 export type ConsequenceClass = 1 | 2 | 3 | 4;
@@ -37,8 +47,12 @@ export interface Score {
   clientTrust: number;
   money: number;
   unblocks: number;
-  /** The hard date (rules.ts hardDateOf, date-only values normalized), or null. */
+  /** The hard date (Task.hard_due_at, else rules.ts hardDateOf, else the keeper's reading; date-only values normalized), or null. */
   hardDate: Date | null;
+  /** Where the hard date came from: Task.hard_due_at, the Slice 1 rule (promise or lifeline tag), or the keeper's reading. Null when no hard date. */
+  hardKind: HardDateKind | null;
+  /** The source text that goes in the chip for hard_due and read dates; null for promised dates (the chip names promised_to). */
+  hardSource: string | null;
   /** When the person-waiting clock started, or null when nobody is waiting. */
   waitingSince: Date | null;
   /** Client or project names one of the other ventures. */
@@ -88,10 +102,36 @@ export function calendarDaysUntilDue(due: Date, now: Date): number {
   return civilNum(dueCivil(due)) - civilNum({ y: n.year, m: n.month, d: n.day });
 }
 
-/** The task's hard date with a date-only value normalized, or null when it has none. */
-export function hardDateOfTask(task: Pick<RawTask, 'due_date' | 'promised_to' | 'tags'>): Date | null {
+export interface TaskHardDate {
+  date: Date;
+  kind: HardDateKind;
+  /** Source text for the chip (hard_due and read), else null. */
+  source: string | null;
+}
+
+type HardDateTaskFields = Pick<RawTask, 'due_date' | 'promised_to' | 'tags'> &
+  Partial<Pick<RawTask, 'hard_due_at' | 'hard_due_source'>>;
+
+/**
+ * The task's hard date and where it came from, date-only values normalized. Precedence:
+ * Task.hard_due_at (with its source), then the Slice 1 rule (promised_to or a lifeline or
+ * job-watch tag on due_date), then the keeper's reading of an existing due_date.
+ */
+export function hardDateInfo(task: HardDateTaskFields, read?: ReadHardDate | null): TaskHardDate | null {
+  if (task.hard_due_at) {
+    return { date: normalizeDueDate(task.hard_due_at), kind: 'hard_due', source: task.hard_due_source ?? null };
+  }
   const hard = hardDateOf({ due_date: task.due_date, promised_to: task.promised_to, tags: task.tags });
-  return hard ? normalizeDueDate(hard) : null;
+  if (hard) return { date: normalizeDueDate(hard), kind: 'promised', source: null };
+  if (read?.at) {
+    return { date: normalizeDueDate(read.at), kind: 'read', source: read.source?.trim() || DATE_READ.unclearSource };
+  }
+  return null;
+}
+
+/** The task's hard date with a date-only value normalized, or null when it has none. */
+export function hardDateOfTask(task: HardDateTaskFields, read?: ReadHardDate | null): Date | null {
+  return hardDateInfo(task, read)?.date ?? null;
 }
 
 // ============================================================================
@@ -103,6 +143,8 @@ interface ScoreParts {
   money: number;
   unblocks: number;
   hardDate: Date | null;
+  hardKind?: HardDateKind | null;
+  hardSource?: string | null;
   /** Person-waiting clock start; null when nobody waits. */
   waitingSince: Date | null;
   /** A message newer than FRESH_ACTIVITY_HOURS adds the fresh bonus. */
@@ -156,6 +198,8 @@ function finish(p: ScoreParts, now: Date): Score {
     money,
     unblocks,
     hardDate: p.hardDate,
+    hardKind: p.hardDate ? (p.hardKind ?? null) : null,
+    hardSource: p.hardDate ? (p.hardSource ?? null) : null,
     waitingSince: p.waitingSince,
     venture: p.venture,
   };
@@ -170,7 +214,7 @@ export function taskHasPersonWaiting(task: Pick<RawTask, 'promised_to' | 'reques
   return (!!task.promised_to && task.promised_to.trim() !== '') || !!task.requested_by_contact_id;
 }
 
-export function scoreTask(task: RawTask, now: Date): Score {
+export function scoreTask(task: RawTask, now: Date, read?: ReadHardDate | null): Score {
   const promised = !!task.promised_to && task.promised_to.trim() !== '';
   const trust =
     (task.client?.status === 'active' ? IMPORTANCE.clientTrust.activeClient : 0) +
@@ -184,12 +228,15 @@ export function scoreTask(task: RawTask, now: Date): Score {
     IMPORTANCE.unblocks.blockedTaskCap,
     task.open_blocking_count * IMPORTANCE.unblocks.perBlockedTask,
   );
+  const hard = hardDateInfo(task, read);
   return finish(
     {
       clientTrust: trust,
       money,
       unblocks,
-      hardDate: hardDateOfTask(task),
+      hardDate: hard?.date ?? null,
+      hardKind: hard?.kind ?? null,
+      hardSource: hard?.source ?? null,
       waitingSince: taskHasPersonWaiting(task) ? task.clock_started_at : null,
       freshAt: null,
       venture: isVenture({ client_name: task.client?.name, project_name: task.project?.name }),

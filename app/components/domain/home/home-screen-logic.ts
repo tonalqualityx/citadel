@@ -1,4 +1,4 @@
-import type { HomeItem, HomeResponse, HomeTile, HomeTileId } from '@/lib/home/types';
+import type { HomeEverythingElseGroup, HomeItem, HomeResponse, HomeTile, HomeTileId } from '@/lib/home/types';
 import type { OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 
 /** Any em dash or en dash in text shown on this screen becomes ", " (display only). */
@@ -178,6 +178,8 @@ export interface DetailInfo {
   lines: string[];
   link?: { label: string; href: string };
   button?: { label: string; projectId: string };
+  /** A keeper line's home_actions id: shows "Undo" on the card. */
+  undoActionId?: string;
 }
 
 export function rowsFromHandled(res: HomeResponse): ListRow[] {
@@ -193,15 +195,34 @@ export function detailForHandled(res: HomeResponse, key: string | null): DetailI
   }
   const q = res.sections.handled.find((l) => l.id === key);
   if (!q) return null;
+  const keeper = q.undo_action_id !== null && q.undo_action_id !== undefined;
+  const details = (q.details ?? []).map((d) => plain(d)).filter(Boolean);
   return {
     title: plain(q.text),
-    lines: ['The system closed this itself. Nothing needs you.'],
+    lines: [keeper ? 'The nightly sort did this for you. You can put it back.' : 'The system closed this itself. Nothing needs you.', ...details],
     link: q.href ? { label: 'Open the thread', href: q.href } : undefined,
+    undoActionId: keeper ? (q.undo_action_id as string) : undefined,
   };
 }
 
 export function rowsFromRest(res: HomeResponse): ListRow[] {
   return res.everything_else.groups.map((g) => ({ key: g.key, title: `${g.count}  ${plain(g.label)}`, meta: '', rule: false }));
+}
+
+/** The two heading lines of the Everything else card, plus the scope line when there is one. */
+export function restHeadingLines(res: HomeResponse): string[] {
+  const e = res.everything_else;
+  const n = e.count;
+  const d = e.with_day;
+  const first = `${n} other ${plural(n, 'item is', 'items are')} counted here. ${d} ${plural(d, 'has', 'have')} a day to come back.`;
+  const second = e.past_day > 0 ? `${e.past_day} ${plural(e.past_day, 'is', 'are')} past their day.` : 'None is past its day.';
+  const lines = [first, second];
+  if (e.scope_line) lines.push(plain(e.scope_line));
+  return lines;
+}
+
+export function restGroup(res: HomeResponse, key: string | null): HomeEverythingElseGroup | null {
+  return res.everything_else.groups.find((x) => x.key === key) ?? null;
 }
 
 export function detailForRest(res: HomeResponse, key: string | null): DetailInfo | null {

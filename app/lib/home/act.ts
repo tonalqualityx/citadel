@@ -74,6 +74,7 @@ const RECORDED_IDS = [
 
 /** Strict objects: an unknown field (such as a user id) is a 400, never ignored. */
 export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('bring_forward'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('not_now'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('matters_more'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('not_emergency'), item_key: itemKeySchema }).strict(),
@@ -230,10 +231,14 @@ const DATE_FIELDS: ReadonlySet<StateFieldName> = new Set<StateFieldName>([
   'working_since',
   'arc_added_at',
   'arc_removed_at',
+  'keeper_hold_until',
+  'read_hard_due_at',
+  'dates_read_at',
+  'card_summary_at',
 ]);
 
 /** Every field an action may change, with its default on a row that does not exist. */
-const STATE_DEFAULTS: Required<Omit<HomeItemStatePatch, 'last_shown_at'>> = {
+const STATE_DEFAULTS: Record<string, number | string | null> = {
   park_count: 0,
   view_at: null,
   boosted_at: null,
@@ -244,9 +249,20 @@ const STATE_DEFAULTS: Required<Omit<HomeItemStatePatch, 'last_shown_at'>> = {
   arc_added_group: null,
   arc_removed_at: null,
   arc_removed_group: null,
+  view_set_by: null,
+  keeper_hold_until: null,
+  read_hard_due_at: null,
+  read_hard_due_source: null,
+  dates_read_at: null,
+  card_summary: null,
+  card_checklist: null,
+  card_summary_hash: null,
+  card_summary_at: null,
 };
 
-type StateFields = Record<string, number | string | null>;
+/** A stored field value: a number, a string, null, or (card_checklist only) plain JSON. */
+type FieldValue = number | string | null | object;
+type StateFields = Record<string, FieldValue>;
 
 interface StateRecord {
   item_key: string;
@@ -277,10 +293,10 @@ interface UndoSide {
   day?: DayRecord;
 }
 
-function toJsonValue(v: unknown): number | string | null {
+function toJsonValue(v: unknown): FieldValue {
   if (v instanceof Date) return v.toISOString();
   if (v === undefined || v === null) return null;
-  return v as number | string;
+  return v as FieldValue;
 }
 
 function snapshotDay(day: RawHomeDay): DaySnapshot {
@@ -340,7 +356,7 @@ function fieldsOf(patch: HomeItemStatePatch, from: RawItemState | null, side: 'b
     if (side === 'after') {
       out[key] = toJsonValue(patch[key]);
     } else {
-      const prior = from ? (from as unknown as Record<string, unknown>)[key] : (STATE_DEFAULTS as Record<string, unknown>)[key];
+      const prior = from ? (from as unknown as Record<string, unknown>)[key] : STATE_DEFAULTS[key];
       out[key] = toJsonValue(prior);
     }
   }
@@ -365,6 +381,17 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
   const base = { undoable: true, dayWrite: null as ActPlan['dayWrite'] };
 
   switch (req.action) {
+    case 'bring_forward':
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [
+          { item_key: req.item_key, from: ctx.state, patch: { boosted_at: now, view_at: null, view_set_by: null } },
+        ],
+        message: 'Moved to the front of Next.',
+      };
+
     case 'not_now': {
       const count = ctx.state?.park_count ?? 0;
       if (count === 0) {
@@ -373,7 +400,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           ...base,
           action: req.action,
           item_key: req.item_key,
-          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 1, view_at: next.at } }],
+          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 1, view_at: next.at, view_set_by: 'user' } }],
           message: next.daysAhead === 1 ? 'Back tomorrow at 9:00.' : `Back ${next.weekday} at 9:00.`,
         };
       }
@@ -383,7 +410,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           ...base,
           action: req.action,
           item_key: req.item_key,
-          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 2, view_at: back } }],
+          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 2, view_at: back, view_set_by: 'user' } }],
           message: `Back in ${NOT_NOW.secondReturnDays} days.`,
         };
       }
@@ -396,7 +423,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           {
             item_key: req.item_key,
             from: ctx.state,
-            patch: { park_count: Math.min(count + 1, NOT_NOW.choicesOnlyAtParkCount), view_at: null },
+            patch: { park_count: Math.min(count + 1, NOT_NOW.choicesOnlyAtParkCount), view_at: null, view_set_by: 'user' },
           },
         ],
         message: 'It stays here. Pick what to do with it.',
@@ -705,10 +732,53 @@ export async function runHomeAct(
 // Undo
 // ============================================================================
 
-function reviveField(name: string, v: unknown): number | string | Date | null {
+function reviveField(name: string, v: unknown): number | string | Date | object | null {
   if (v === null || v === undefined) return null;
   if (DATE_FIELDS.has(name as StateFieldName)) return new Date(String(v));
-  return v as number | string;
+  return v as number | string | object;
+}
+
+/** The visible fields a keeper Undo puts back. The markers (dates_read_at, card_summary_hash) are never reverted. */
+export const KEEPER_UNDO_FIELDS: readonly string[] = [
+  'view_at',
+  'view_set_by',
+  'read_hard_due_at',
+  'read_hard_due_source',
+  'card_summary',
+  'card_checklist',
+];
+
+/** How long a keeper Undo keeps the keeper away from the item. */
+export const KEEPER_HOLD_DAYS = 30;
+
+function sameValue(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown) => (v instanceof Date ? v.toISOString() : v === undefined ? null : v);
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+}
+
+/**
+ * Undo of one keeper record: compare-and-set. A visible field goes back only when the row still
+ * holds what the keeper wrote (the record's after value); a field Mike changed since is left alone.
+ * Whatever happens, the item gets keeper_hold_until = now + 30 days so the next night skips it.
+ */
+async function undoKeeperRecord(
+  db: HomeDb,
+  userId: string,
+  rec: StateRecord,
+  afterFields: StateFields | undefined,
+  now: Date
+): Promise<void> {
+  const hold = new Date(now.getTime() + KEEPER_HOLD_DAYS * 24 * 3600 * 1000);
+  const current = await getItemState(db, userId, rec.item_key);
+  const patch: Record<string, unknown> = { keeper_hold_until: hold };
+  if (current && afterFields) {
+    for (const name of KEEPER_UNDO_FIELDS) {
+      if (!(name in rec.fields) || !(name in afterFields)) continue;
+      const now_ = (current as unknown as Record<string, unknown>)[name];
+      if (sameValue(now_, afterFields[name])) patch[name] = reviveField(name, rec.fields[name]);
+    }
+  }
+  await upsertItemState(db, userId, rec.item_key, patch as HomeItemStatePatch);
 }
 
 function isRestMark(row: RawItemState): boolean {
@@ -723,7 +793,12 @@ function isRestMark(row: RawItemState): boolean {
     row.arc_added_group === null &&
     row.arc_removed_at === null &&
     row.arc_removed_group === null &&
-    row.last_shown_at === null
+    row.last_shown_at === null &&
+    (row.view_set_by ?? null) === null &&
+    (row.keeper_hold_until ?? null) === null &&
+    (row.read_hard_due_at ?? null) === null &&
+    (row.dates_read_at ?? null) === null &&
+    (row.card_summary ?? null) === null
   );
 }
 
@@ -760,6 +835,11 @@ async function undoStateRecord(db: HomeDb, userId: string, rec: StateRecord): Pr
         arc_removed_at: null,
         arc_removed_group: null,
         last_shown_at: null,
+        view_set_by: null,
+        keeper_hold_until: null,
+        read_hard_due_at: null,
+        dates_read_at: null,
+        card_summary: null,
       },
     });
   }
@@ -833,7 +913,14 @@ export async function runHomeUndo(
     const marked = await markHomeActionUndone(tx, userId, actionId, now);
     if (!marked) throw new HomeActError('undo_used');
 
-    for (const rec of before.states) await undoStateRecord(tx, userId, rec);
+    if (row.source === 'keeper') {
+      for (const rec of before.states) {
+        const afterRec = after?.states?.find((r) => r.item_key === rec.item_key);
+        await undoKeeperRecord(tx, userId, rec, afterRec?.fields, now);
+      }
+    } else {
+      for (const rec of before.states) await undoStateRecord(tx, userId, rec);
+    }
     if (before.day) await undoDayRecord(tx, userId, before.day, after?.day);
 
     return { ok: true as const, action_id: actionId, item_key: row.item_key };

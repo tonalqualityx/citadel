@@ -198,7 +198,10 @@ export function approveAllLabel(count: number): string {
 // Why it is here now (the muted second line)
 // ============================================================================
 
-export function whyEmergency(rule: EmergencyRule, ctx: { client?: string | null; sender?: string | null }): string {
+export function whyEmergency(
+  rule: EmergencyRule,
+  ctx: { client?: string | null; sender?: string | null; outsideDate?: boolean },
+): string {
   const client = displayText(ctx.client);
   switch (rule) {
     case 'security':
@@ -216,9 +219,17 @@ export function whyEmergency(rule: EmergencyRule, ctx: { client?: string | null;
       return sender ? `An urgent email from ${sender} is still open.` : 'An urgent email is still open.';
     }
     case 'promised_date':
-      return 'A date you promised is close.';
+      return ctx.outsideDate ? 'A real outside date is close.' : 'A date you promised is close.';
   }
 }
+
+/** Slice 2: the line on a task he just made. `chat` is true when it carries the from-chat tag. */
+export function whyFresh(chat: boolean): string {
+  return chat ? 'New from the chat.' : 'New, made by you.';
+}
+
+/** Slice 2: a task the nightly sort gave a day to, on that day. */
+export const WHY_ARRIVED = 'Back today, after waiting its turn.';
 
 export function whyTask(ctx: {
   who: string | null;
@@ -258,7 +269,7 @@ export function whyThread(ctx: { lead: boolean; since: string; draftReady: boole
 // Why it's here (the muted footer: why this row sits where it does)
 // ============================================================================
 
-export function reasonEmergency(rule: EmergencyRule): string {
+export function reasonEmergency(rule: EmergencyRule, outsideDate = false): string {
   switch (rule) {
     case 'security':
       return 'A security flag on a live client site always goes first.';
@@ -273,7 +284,9 @@ export function reasonEmergency(rule: EmergencyRule): string {
     case 'crisis_mail':
       return 'Urgent mail from a real sender goes first.';
     case 'promised_date':
-      return 'A date you promised is two business days away or less.';
+      return outsideDate
+        ? 'A real outside date is two business days away or less.'
+        : 'A date you promised is two business days away or less.';
   }
 }
 
@@ -287,6 +300,8 @@ export const REASON = {
   class1: 'A client is involved and the wait is growing.',
   class2: 'Money, a live site or a real date is involved.',
   class3: 'It holds up other work.',
+  fresh: 'You made it in the last two business days, so it shows here first.',
+  arrived: 'The nightly sort gave it today as its day to come back.',
   working: 'You are doing this now.',
   rest: 'It is on your plate and not due to come forward yet.',
 } as const;
@@ -349,6 +364,7 @@ export function emptySentences(): Record<HomeTileId, string> {
 
 export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: string }> = {
   waiting_turn: { label: 'Waiting their turn', owner: 'You' },
+  scheduled: { label: 'Given a day to come back', owner: 'You' },
   parked: { label: 'Parked by you', owner: 'You' },
   held_projects: { label: 'On paused or unsigned projects', owner: 'Each project' },
   review_pieces: { label: 'Review pieces folded under a sign-off', owner: "Each project's sign-off" },
@@ -357,11 +373,52 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   ventures: { label: 'Other ventures', owner: 'You, other hat' },
 };
 
-/** "52 other items are on your plate and counted here." */
-export function everythingElseLine(count: number): string {
+/**
+ * "52 other items are counted here. 41 have a day to come back. 3 are past their day."
+ * With nothing past: "None is past its day."
+ */
+export function everythingElseLine(count: number, withDay = 0, pastDay = 0): string {
   if (count <= 0) return 'Nothing else is on your plate.';
-  if (count === 1) return '1 other item is on your plate and counted here.';
-  return `${count} other items are on your plate and counted here.`;
+  const head = count === 1 ? '1 other item is counted here.' : `${count} other items are counted here.`;
+  const day = withDay === 1 ? '1 has a day to come back.' : `${withDay} have a day to come back.`;
+  const past = pastDay <= 0 ? 'None is past its day.' : pastDay === 1 ? '1 is past its day.' : `${pastDay} are past their day.`;
+  return `${head} ${day} ${past}`;
+}
+
+/** "5 tasks on unsigned or paused projects are kept as scope, not work." Null when there are none. */
+export function scopeLine(count: number): string | null {
+  if (count <= 0) return null;
+  if (count === 1) return '1 task on an unsigned or paused project is kept as scope, not work.';
+  return `${count} tasks on unsigned or paused projects are kept as scope, not work.`;
+}
+
+/** The one button on a drawer row that can move. */
+export const BRING_FORWARD_LABEL = 'Bring it forward';
+
+/** "Back Thursday, November 12", in the user's zone. */
+export function backOnText(date: Date, timeZone = 'America/New_York'): string {
+  return `Back ${screenDateLine(date, timeZone)}`;
+}
+
+/** Check texts for the Everything else rows. */
+export const REST_CHECK = {
+  joinsNext: 'Joins Next when a row frees up',
+  getsDay: "Gets a day in tonight's sort",
+  newMail: 'Shows after one business day',
+  olderThread: 'No set day. Open the thread to answer or close it.',
+  venture: 'No set day. Other hat.',
+  /** Not in the plan's table: a people row beyond its cap, a wait not yet due, a crisis mail marked not an emergency. */
+  peopleOverflow: 'Shows when a row frees up',
+  waitNotDue: 'Comes up when the wait is due',
+  crisisCleared: 'Marked not an emergency. Open it to close it.',
+} as const;
+
+export function whenProjectStarts(project: string): string {
+  return `When ${displayText(project)} starts`;
+}
+
+export function withSignOff(project: string | null): string {
+  return project ? `With the ${displayText(project)} sign-off` : 'With the sign-off';
 }
 
 /** A quiet "Handled for you" line for a classifier auto-close. */

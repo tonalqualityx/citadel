@@ -8,9 +8,10 @@ vi.mock('@/lib/home/state', () => ({ loadItemStates: vi.fn(async () => []), getH
 vi.mock('@/lib/home/select', () => ({
   selectHome: vi.fn(() => ({
     candidates: [
-      { key: 'task:9', parked: true, item: { title: 'Parked one' }, state: { view_at: new Date('2026-11-11T14:00:00Z') } },
+      { key: 'task:9', parked: true, parkedBy: 'user', item: { title: 'Parked one' }, state: { view_at: new Date('2026-11-11T14:00:00Z') } },
+      { key: 'task:6', parked: true, parkedBy: 'keeper', item: { title: 'Keeper day' }, state: { view_at: new Date('2026-11-12T05:05:00Z') } },
       { key: 'task:8', parked: false, item: { title: 'In view' }, state: undefined },
-      { key: 'task:7', parked: true, item: { title: 'Parked for good' }, state: { view_at: null } },
+      { key: 'task:7', parked: true, parkedBy: 'user', item: { title: 'Parked for good' }, state: { view_at: null } },
     ],
   })),
 }));

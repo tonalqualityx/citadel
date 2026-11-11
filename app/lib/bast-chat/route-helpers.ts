@@ -233,7 +233,7 @@ export async function ownerToday(ownerId: string, now: Date = new Date(), db: Pr
   const s = body.sections;
   const working = s.working_on[0] ?? null;
   const parked = sel.candidates
-    .filter((c) => c.parked)
+    .filter((c) => c.parked && c.parkedBy === 'user')
     .sort((a, b) => (a.state?.view_at?.getTime() ?? Infinity) - (b.state?.view_at?.getTime() ?? Infinity))
     .slice(0, PARKED_MAX)
     .map((c) => ({ key: c.key, title: c.item.title, until: c.state?.view_at ? c.state.view_at.toISOString() : null }));

@@ -24,6 +24,9 @@ function taskRow(over: object = {}) {
     status: 'in_progress',
     tags: ['security'],
     promised_to: null,
+    hard_due_at: null,
+    hard_due_source: null,
+    created_by_id: null,
     due_date: null,
     created_at: T('2026-11-01T12:00:00Z'),
     estimated_minutes: 30,
@@ -83,8 +86,10 @@ function makeDb() {
   return {
     task: {
       findMany: vi.fn().mockImplementation(async (a: { where: { status?: unknown } }) => (a.where.status === 'done' ? [] : [])),
-      count: vi.fn().mockResolvedValue(4),
+      groupBy: vi.fn().mockResolvedValue([]),
     },
+    project: { findMany: vi.fn().mockResolvedValue([]) },
+    homeAction: { findMany: vi.fn().mockResolvedValue([]) },
     comment: { findMany: vi.fn().mockResolvedValue([]) },
     oracleSession: { findMany: vi.fn().mockResolvedValue([]) },
     wait: { findMany: vi.fn().mockResolvedValue([]) },
@@ -173,12 +178,91 @@ describe('loadHomeInputs: tasks', () => {
     expect(db.comment.findMany).not.toHaveBeenCalled();
   });
 
-  it('counts the user\'s tasks on held projects', async () => {
+  it('selects the Slice 2 task fields and maps them', async () => {
+    const hard = T('2026-11-15T05:00:00Z');
+    db.task.findMany.mockResolvedValueOnce([
+      taskRow({ hard_due_at: hard, hard_due_source: 'domain renews', created_by_id: 'u9' }),
+    ]);
     const r = await loadHomeInputs(asDb(db), U, NOW);
+    const sel = taskCall(db, false).select;
+    expect(sel.hard_due_at).toBe(true);
+    expect(sel.hard_due_source).toBe(true);
+    expect(sel.created_by_id).toBe(true);
+    expect(r.tasks[0].hard_due_at).toBe(hard);
+    expect(r.tasks[0].hard_due_source).toBe('domain renews');
+    expect(r.tasks[0].created_by_id).toBe('u9');
+  });
+
+  it('reads held-project tasks as a groupBy with names, and the total is their sum', async () => {
+    db.task.groupBy.mockResolvedValue([
+      { project_id: 'p1', _count: { _all: 1 } },
+      { project_id: 'p2', _count: { _all: 3 } },
+      { project_id: null, _count: { _all: 9 } },
+    ]);
+    db.project.findMany.mockResolvedValue([
+      { id: 'p1', name: 'Alpha' },
+      { id: 'p2', name: 'Grok' },
+    ]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    const arg = db.task.groupBy.mock.calls[0][0];
+    expect(arg.by).toEqual(['project_id']);
+    expect(arg.where.assignee_id).toBe(U);
+    expect(arg.where.project).toEqual({ status: { in: ['quote', 'queue', 'suspended'] } });
+    expect(db.project.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['p1', 'p2'] } });
+    expect(r.held_projects).toEqual([
+      { project: { id: 'p2', name: 'Grok' }, count: 3 },
+      { project: { id: 'p1', name: 'Alpha' }, count: 1 },
+    ]);
     expect(r.held_project_task_count).toBe(4);
-    const where = db.task.count.mock.calls[0][0].where;
-    expect(where.assignee_id).toBe(U);
-    expect(where.project).toEqual({ status: { in: ['quote', 'queue', 'suspended'] } });
+  });
+
+  it('skips the project read and returns zero when nothing is held', async () => {
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(db.project.findMany).not.toHaveBeenCalled();
+    expect(r.held_projects).toEqual([]);
+    expect(r.held_project_task_count).toBe(0);
+  });
+});
+
+describe('loadHomeInputs: keeper lines', () => {
+  const row = (over: object = {}) => ({
+    id: 'a1',
+    action: 'keeper_stagger',
+    after: { line: ' Gave 3 waiting tasks a day to come back. ', details: ['One', '', 5, 'Two'] },
+    created_at: T('2026-11-10T07:35:00Z'),
+    undo_until: T('2026-11-13T07:35:00Z'),
+    ...over,
+  });
+
+  it('asks for this user, source keeper, the last 72 hours, not undone, newest first', async () => {
+    await loadHomeInputs(asDb(db), U, NOW);
+    const arg = db.homeAction.findMany.mock.calls[0][0];
+    expect(arg.where.user_id).toBe(U);
+    expect(arg.where.source).toBe('keeper');
+    expect(arg.where.undone_at).toBeNull();
+    expect(arg.where.created_at.gte).toEqual(new Date(NOW.getTime() - 72 * 3600 * 1000));
+    expect(arg.orderBy).toEqual({ created_at: 'desc' });
+  });
+
+  it('maps after.line and after.details, and drops rows with no line or an unknown action', async () => {
+    db.homeAction.findMany.mockResolvedValue([
+      row(),
+      row({ id: 'a2', after: { details: ['x'] } }),
+      row({ id: 'a3', after: null }),
+      row({ id: 'a4', action: 'not_now' }),
+      row({ id: 'a5', undo_until: null }),
+    ]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.keeper_lines.map((l) => l.id)).toEqual(['a1', 'a5']);
+    expect(r.keeper_lines[0]).toEqual({
+      id: 'a1',
+      action: 'keeper_stagger',
+      text: 'Gave 3 waiting tasks a day to come back.',
+      details: ['One', 'Two'],
+      at: T('2026-11-10T07:35:00Z'),
+      undo_until: T('2026-11-13T07:35:00Z'),
+    });
+    expect(r.keeper_lines[1].undo_until).toEqual(T('2026-11-13T07:35:00Z'));
   });
 });
 

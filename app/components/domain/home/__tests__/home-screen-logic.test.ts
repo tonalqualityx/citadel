@@ -4,6 +4,8 @@ import {
   addCandidates,
   buildTiles,
   collapsedLine,
+  detailForHandled,
+  restHeadingLines,
   initialKey,
   itemsForTile,
   plain,
@@ -66,10 +68,10 @@ function mkRes(over: Partial<HomeResponse> = {}): HomeResponse {
       leads: [],
       mail: [mkItem('thread:m1', { type: 'owed_reply' })],
       next: [mkItem('task:x1'), mkItem('task:s1')],
-      handled: [{ id: 'h1', text: 'Replied', href: null, at: '2026-11-09T10:00:00Z' }],
+      handled: [{ id: 'h1', text: 'Replied', href: null, at: '2026-11-09T10:00:00Z', undo_action_id: null, details: [] }],
       handled_more: { count: 4, text: '4 more handled' },
     },
-    everything_else: { count: 3, line: '3 other items.', groups: [{ key: 'parked', label: 'Parked by you', count: 3, owner: 'You' }] },
+    everything_else: { count: 3, line: '3 other items.', groups: [{ key: 'parked', label: 'Parked by you', count: 3, owner: 'You', items: [] }], with_day: 0, past_day: 0, scope_line: null },
     empty: {
       today: 'Nothing proposed for today.',
       needs_you_now: 'Nothing urgent.',
@@ -162,5 +164,25 @@ describe('derived lists', () => {
   it('plain replaces em and en dashes', () => {
     expect(plain('a — b–c')).toBe('a, b, c');
     expect(plain(null)).toBe('');
+  });
+  it('rest heading lines count items, days and past days', () => {
+    const base = mkRes();
+    const res = mkRes({ everything_else: { ...base.everything_else, count: 52, with_day: 41, past_day: 0, scope_line: null } });
+    expect(restHeadingLines(res)).toEqual(['52 other items are counted here. 41 have a day to come back.', 'None is past its day.']);
+    const res2 = mkRes({ everything_else: { ...base.everything_else, count: 1, with_day: 1, past_day: 1, scope_line: '4 tasks on unsigned or paused projects are kept as scope, not work.' } });
+    expect(restHeadingLines(res2)).toEqual(['1 other item is counted here. 1 has a day to come back.', '1 is past their day.', '4 tasks on unsigned or paused projects are kept as scope, not work.']);
+  });
+  it('handled detail: keeper line carries details and the undo id, classifier line does not', () => {
+    const base = mkRes();
+    const res = mkRes({
+      sections: { ...base.sections, handled: [
+        { id: 'c', text: 'Replied', href: null, at: '', undo_action_id: null, details: [] },
+        { id: 'k', text: 'Gave 3 tasks a day', href: null, at: '', undo_action_id: 'a1', details: ['One', 'Two'] },
+      ] },
+    });
+    expect(detailForHandled(res, 'c')!.undoActionId).toBeUndefined();
+    const k = detailForHandled(res, 'k')!;
+    expect(k.undoActionId).toBe('a1');
+    expect(k.lines.slice(1)).toEqual(['One', 'Two']);
   });
 });

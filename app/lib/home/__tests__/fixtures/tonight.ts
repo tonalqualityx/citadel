@@ -60,6 +60,9 @@ export function makeTask(over: Partial<RawTask> = {}): RawTask {
     status: 'not_started',
     tags: [],
     promised_to: null,
+    hard_due_at: null,
+    hard_due_source: null,
+    created_by_id: null,
     due_date: null,
     created_at: d('2026-11-09T14:00:00Z'),
     clock_started_at: d('2026-11-09T14:00:00Z'),
@@ -189,6 +192,15 @@ export function makeState(item_key: string, over: Partial<RawItemState> = {}): R
     arc_removed_group: null,
     first_seen_at: d('2026-11-01T00:00:00Z'),
     last_shown_at: null,
+    view_set_by: null,
+    keeper_hold_until: null,
+    read_hard_due_at: null,
+    read_hard_due_source: null,
+    dates_read_at: null,
+    card_summary: null,
+    card_checklist: null,
+    card_summary_hash: null,
+    card_summary_at: null,
     ...over,
   };
 }
@@ -206,6 +218,8 @@ export function makeInputs(over: Partial<RawHomeInputs> = {}): RawHomeInputs {
     auto_handled: [],
     calendar_events: [],
     held_project_task_count: 0,
+    held_projects: [],
+    keeper_lines: [],
     ...over,
   };
 }

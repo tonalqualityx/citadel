@@ -86,6 +86,9 @@ const updateTaskSchema = z.object({
   // "internal/target"; a non-empty string sets "promised to this person". Permissive
   // server-side by design (see route.ts POST comment).
   promised_to: z.string().max(200).optional().nullable(),
+  // Home screen Slice 2: a real outside date and who or what set it. due_date is untouched.
+  hard_due_at: z.string().datetime().nullable().optional(),
+  hard_due_source: z.string().trim().min(3).max(200).nullable().optional(),
   requirements: z.array(requirementEntrySchema).optional().nullable(),
   // Quality Gate (PM/Admin only)
   review_requirements: z.array(requirementEntrySchema).optional().nullable(),
@@ -123,6 +126,10 @@ const updateTaskSchema = z.object({
       disconnect: z.array(z.string().uuid()).optional(),
     })
     .optional(),
+}).superRefine((d, ctx) => {
+  if (d.hard_due_at && !d.hard_due_source) {
+    ctx.addIssue({ code: 'custom', path: ['hard_due_source'], message: 'hard_due_source is required when hard_due_at is set' });
+  }
 });
 
 const updateStatusSchema = z.object({
@@ -654,6 +661,13 @@ export async function patchTask(input: PatchTaskInput) {
     updateData.due_date = data.due_date ? new Date(data.due_date) : null;
   }
   if (data.promised_to !== undefined) updateData.promised_to = data.promised_to;
+  if (data.hard_due_at !== undefined) {
+    updateData.hard_due_at = data.hard_due_at ? new Date(data.hard_due_at) : null;
+    updateData.hard_due_source = data.hard_due_at ? (data.hard_due_source ?? null) : null;
+  } else if (data.hard_due_source !== undefined) {
+    // A source alone only edits the label of a date already on the task.
+    updateData.hard_due_source = data.hard_due_source;
+  }
 
   // Review workflow fields - only task creator or PM/Admin can update
   const canUpdateReviewFields = existingTask.created_by_id === auth.userId || auth.role !== 'tech';

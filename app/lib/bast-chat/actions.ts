@@ -326,7 +326,7 @@ export async function appliedSummary(
 export type OpLine =
   | { op: 'home_act'; action: 'not_now'; title: string; until: Date | null }
   | { op: 'home_act'; action: 'not_emergency'; title: string; security?: boolean }
-  | { op: 'home_act'; action: 'matters_more' | 'pin' | 'stop' | 'done_pin' | 'arc_add' | 'arc_remove'; title: string }
+  | { op: 'home_act'; action: 'bring_forward' | 'matters_more' | 'pin' | 'stop' | 'done_pin' | 'arc_add' | 'arc_remove'; title: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
@@ -349,6 +349,9 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'not_emergency':
           s = o.security ? `${quoted(o.title)} is a security item: taken out of Needs you now.` : `${quoted(o.title)}: not an emergency.`;
+          break;
+        case 'bring_forward':
+          s = `${quoted(o.title)} moved to the front of Next.`;
           break;
         case 'matters_more':
           s = `${quoted(o.title)}: moved up on your screen.`;

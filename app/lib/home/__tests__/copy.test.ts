@@ -116,8 +116,22 @@ describe('sentences', () => {
   });
   it('the Everything else sentence', () => {
     expect(copy.everythingElseLine(0)).toBe('Nothing else is on your plate.');
-    expect(copy.everythingElseLine(1)).toBe('1 other item is on your plate and counted here.');
-    expect(copy.everythingElseLine(52)).toBe('52 other items are on your plate and counted here.');
+    expect(copy.everythingElseLine(1)).toBe('1 other item is counted here. 0 have a day to come back. None is past its day.');
+    expect(copy.everythingElseLine(52, 41, 3)).toBe('52 other items are counted here. 41 have a day to come back. 3 are past their day.');
+    expect(copy.everythingElseLine(5, 1, 1)).toBe('5 other items are counted here. 1 has a day to come back. 1 is past its day.');
+  });
+  it('Slice 2 lines', () => {
+    expect(copy.scopeLine(0)).toBeNull();
+    expect(copy.scopeLine(1)).toBe('1 task on an unsigned or paused project is kept as scope, not work.');
+    expect(copy.scopeLine(41)).toBe('41 tasks on unsigned or paused projects are kept as scope, not work.');
+    expect(copy.whyFresh(true)).toBe('New from the chat.');
+    expect(copy.whyFresh(false)).toBe('New, made by you.');
+    expect(copy.WHY_ARRIVED).toBe('Back today, after waiting its turn.');
+    expect(copy.backOnText(d('2026-11-12T14:00:00Z'))).toBe('Back Thursday, November 12');
+    expect(copy.whenProjectStarts('Grok')).toBe('When Grok starts');
+    expect(copy.withSignOff('Grok')).toBe('With the Grok sign-off');
+    expect(copy.hardDateChip(d('2026-11-15T00:00:00.000Z'), 'domain renews')).toBe('Due Sunday, November 15 (domain renews)');
+    expect(copy.REST_GROUP_COPY.scheduled.label).toBe('Given a day to come back');
   });
   it('handled lines', () => {
     expect(copy.handledLine({ who: 'Pat', subject: 'Invoice' })).toBe(`Closed Pat's message "Invoice". The email sorter marked it handled.`);
@@ -164,7 +178,19 @@ function allCopy(): string[] {
     copy.approveAllLabel(39),
     copy.sizeLine(190, 120),
     copy.effortWords(2, true),
-    copy.everythingElseLine(5),
+    copy.everythingElseLine(5, 2, 1),
+    copy.scopeLine(3) ?? '',
+    copy.whyFresh(true),
+    copy.whyFresh(false),
+    copy.WHY_ARRIVED,
+    copy.backOnText(d('2026-11-12T14:00:00Z')),
+    copy.BRING_FORWARD_LABEL,
+    ...Object.values(copy.REST_CHECK),
+    copy.REASON.fresh,
+    copy.REASON.arrived,
+    copy.whyEmergency('promised_date', { outsideDate: true }),
+    copy.reasonEmergency('promised_date', true),
+    copy.REST_GROUP_COPY.scheduled.label,
     copy.handledLine({ who: 'Pat', subject: 'Hi' }),
     copy.hardDateChip(d('2026-11-14T00:00:00.000Z'), 'Gene'),
     copy.ageWords(d('2026-10-27T14:00:00Z'), NOW),

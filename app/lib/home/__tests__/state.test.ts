@@ -118,11 +118,51 @@ describe('home_item_state', () => {
       arc_removed_group: null,
       first_seen_at: new Date(),
       last_shown_at: null,
+      view_set_by: 'keeper',
+      keeper_hold_until: new Date('2026-12-01T00:00:00Z'),
+      read_hard_due_at: null,
+      read_hard_due_source: null,
+      dates_read_at: null,
+      card_summary: null,
+      card_checklist: null,
+      card_summary_hash: null,
+      card_summary_at: null,
     });
     const update = db.homeItemState.upsert.mock.calls[0][0].update;
     expect(update.park_count).toBe(1);
     expect(update.view_at).toBeNull();
     expect(update).not.toHaveProperty('first_seen_at');
+    expect(update.view_set_by).toBe('keeper');
+    expect(update.dates_read_at).toBeNull();
+    expect(update).not.toHaveProperty('keeper_hold_until');
+    expect(update).not.toHaveProperty('card_summary');
+  });
+
+  it('reads the Slice 2 fields and passes them through upsert', async () => {
+    await getItemState(asDb(db), U, 'task:a');
+    const sel = db.homeItemState.findFirst.mock.calls[0][0].select;
+    for (const k of ['view_set_by', 'keeper_hold_until', 'read_hard_due_at', 'read_hard_due_source', 'dates_read_at', 'card_summary', 'card_checklist', 'card_summary_hash', 'card_summary_at']) {
+      expect(sel[k]).toBe(true);
+    }
+    const at = new Date('2026-11-12T05:05:00Z');
+    await upsertItemState(asDb(db), U, 'task:a', { view_at: at, view_set_by: 'keeper', keeper_hold_until: at, dates_read_at: at });
+    const arg = db.homeItemState.upsert.mock.calls[0][0];
+    expect(arg.create).toEqual({ user_id: U, item_key: 'task:a', view_at: at, view_set_by: 'keeper', keeper_hold_until: at, dates_read_at: at });
+    expect(arg.update).toEqual({ view_at: at, view_set_by: 'keeper', keeper_hold_until: at, dates_read_at: at });
+  });
+
+  it('writes a null card_checklist as a database NULL and a value as is', async () => {
+    await upsertItemState(asDb(db), U, 'task:a', { card_checklist: null });
+    expect(db.homeItemState.upsert.mock.calls[0][0].update.card_checklist).toBe(Prisma.DbNull);
+    await upsertItemState(asDb(db), U, 'task:a', { card_checklist: ['a'] });
+    expect(db.homeItemState.upsert.mock.calls[1][0].update.card_checklist).toEqual(['a']);
+  });
+
+  it('restoreItemState reads a Slice 1 before-state (no new fields) as nulls', async () => {
+    await restoreItemState(asDb(db), U, 'task:a', { item_key: 'task:a', park_count: 0 } as never);
+    const update = db.homeItemState.upsert.mock.calls[0][0].update;
+    expect(update.view_set_by).toBeNull();
+    expect(update.read_hard_due_at).toBeNull();
   });
 
   it('restoreItemState deletes the row (scoped to the user) when there was no before-state', async () => {

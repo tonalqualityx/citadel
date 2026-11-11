@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import type { HomeItem, HomeResponse } from '@/lib/home/types';
 
 const h = vi.hoisted(() => ({
@@ -8,11 +8,13 @@ const h = vi.hoisted(() => ({
   done: vi.fn(),
   stop: vi.fn(),
   act: vi.fn(),
+  undo: vi.fn(),
 }));
 
 vi.mock('@/lib/hooks/use-home', () => ({
   useHome: () => h.home,
   useHomeAct: () => h.act,
+  useHomeUndo: () => h.undo,
   useHomeItemAction: () => ({
     run: h.run,
     done: h.done,
@@ -61,9 +63,12 @@ function mkRes(): HomeResponse {
     today: { group_key: 'arc:1', arc_id: '1', arc_name: 'Grok of the Rock', client: null, project: null, why: 'Why.', size_line: 'About 1 hour', minutes_total: 60, minutes_free: 300, quick: [mkItem('task:q1')], steps: [mkItem('task:s1'), mkItem('task:s2')], added_keys: [], swap: [], lighter: null },
     sections: {
       needs_you_now: [mkItem('task:n1', { type: 'emergency' })], working_on: [], leads: [], mail: [], next: [mkItem('task:x1'), mkItem('task:x2')],
-      handled: [{ id: 'h1', text: 'Replied to Mark', href: 'https://mail.example.com/t', at: '' }], handled_more: null,
+      handled: [{ id: 'h1', text: 'Replied to Mark', href: 'https://mail.example.com/t', at: '', undo_action_id: null, details: [] }, { id: 'k1', text: 'Gave 41 waiting tasks a day to come back.', href: null, at: '', undo_action_id: 'act-1', details: ['Renew the domain', 'Fix the form'] }], handled_more: null,
     },
-    everything_else: { count: 3, line: '3 other items are on your plate and counted here.', groups: [{ key: 'parked', label: 'Parked by you', count: 3, owner: 'You' }] },
+    everything_else: { count: 3, line: '3 other items are on your plate and counted here.', groups: [{ key: 'parked', label: 'Parked by you', count: 3, owner: 'You', items: [
+  { key: 'task:r1', title: 'Renew the domain', owner: 'You', check_text: 'Back Thursday, November 12', check_at: '2026-11-12T05:05:00Z', past_check: false, can_bring_forward: true },
+  { key: null, title: 'Grok sign-off', owner: 'The Grok project', check_text: 'Waits for the sign-off', check_at: null, past_check: false, can_bring_forward: false },
+] }], with_day: 2, past_day: 1, scope_line: '4 tasks on unsigned or paused projects are kept as scope, not work.' },
     empty: { today: 'Nothing proposed for today.', needs_you_now: 'Nothing urgent.', working_on: 'Nothing in progress.', leads: 'No sales leads are waiting on you.', mail: 'No client is waiting on a reply from you.', next: 'Nothing needs a decision from you right now.', projects: 'No active projects.', handled: 'Nothing new since you last looked.', everything_else: '' },
   };
 }
@@ -118,6 +123,29 @@ describe('HomeScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /^1\s*project$/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Open the project' }));
     expect(screen.getByTestId('drawer')).toHaveTextContent('open:p1');
+  });
+  it('everything else opens a group card with rows, and Bring it forward posts the right body', async () => {
+    h.act.mockResolvedValue({});
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /everything else/ }));
+    expect(screen.getByText('3 other items are counted here. 2 have a day to come back.')).toBeInTheDocument();
+    expect(screen.getByText('1 is past their day.')).toBeInTheDocument();
+    expect(screen.getByText('Renew the domain')).toBeInTheDocument();
+    expect(screen.getByText('Back Thursday, November 12')).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button', { name: 'Bring it forward' });
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]);
+    expect(h.act).toHaveBeenCalledWith({ action: 'bring_forward', item_key: 'task:r1' });
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Bring it forward' })[0]).not.toBeDisabled());
+  });
+  it('a keeper line shows its details muted and Undo posts its id; a classifier line has no Undo', () => {
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /handled for you/ }));
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Gave 41 waiting tasks/ }));
+    expect(screen.getByText('Fix the form')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(h.undo).toHaveBeenCalledWith('act-1');
   });
   it('a pinned item shows the working bar and collapses the lists to one line', () => {
     const res = mkRes();

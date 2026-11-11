@@ -79,6 +79,15 @@ describe('home op', () => {
     const r = await op.run(ctx() as any, op.validate({ action: 'not_now', item_key: KEY }), {});
     expect(r.summary).toBe('"Grok rescan" stays in view. Pick what to do with it.');
   });
+  it('bring_forward passes through runHomeAct and says it moved to the front of Next', async () => {
+    h.run.mockResolvedValue({ ok: true, action_id: '77777777-7777-4777-8777-777777777777', undo_until: null, item_key: KEY, message: 'Moved to the front of Next.' });
+    const input = op.validate({ action: 'bring_forward', item_key: KEY });
+    const r = await op.run(ctx() as any, input, {});
+    expect(h.run.mock.calls[0][2]).toEqual({ action: 'bring_forward', item_key: KEY });
+    expect(r.summary).toBe('"Grok rescan" moved to the front of Next.');
+    expect(r.undoable).toBe(true);
+    expect(() => op.validate({ action: 'bring_forward', item_key: KEY, user_id: 'x' })).toThrow();
+  });
   it('names a security item for not_emergency', async () => {
     h.db.task.findUnique.mockResolvedValue({ title: 'Wordfence alert', tags: ['security'] });
     const r = await op.run(ctx() as any, op.validate({ action: 'not_emergency', item_key: KEY }), {});

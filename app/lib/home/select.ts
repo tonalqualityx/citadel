@@ -13,12 +13,14 @@
  *   meets an emergency rule, not marked
  *   "Not an emergency"                          -> Needs you now (view_at is ignored)
  *   Not now still running (view_at in future)   -> Everything else, "Parked by you"
+ *   given a day by the nightly sort, day ahead  -> Everything else, "Given a day to come back"
  *   thread older than 21 days                   -> Everything else, "Older open threads"
- *   other venture, not boosted                  -> Everything else, "Other ventures"
+ *   other venture, not boosted, not fresh       -> Everything else, "Other ventures"
  *   qualifying thread, newest ask is sales      -> Sales leads waiting
  *   other qualifying thread                     -> Client emails waiting (3 visible)
  *   task, sign-off, session ask, wait in view
- *   that meets the Next rule                    -> Decisions ready (3 visible)
+ *   that meets the Next rule (a fresh or
+ *   arrived task meets it)                      -> Decisions ready (3 visible)
  *   everything else (overflow, not yet due)     -> Everything else, "Waiting their turn"
  *
  * No score, class, emergency rule or quadrant is placed on any HomeItem.
@@ -38,7 +40,14 @@ import {
   handledLine,
   handledMoreText,
   hardDateChip,
+  backOnText,
   reasonEmergency,
+  scopeLine,
+  whenProjectStarts,
+  whyFresh,
+  withSignOff,
+  REST_CHECK,
+  WHY_ARRIVED,
   waitedFor,
   whyEmergency,
   whySession,
@@ -62,16 +71,20 @@ import {
 import { cardSummary, truncateWords } from './plain-text';
 import {
   CAPS,
+  FRESH_NEW,
   MINUTES,
   NEXT_ENTRY,
   OPEN_WAIT_STATES,
+  PROMISED_DATE_EMERGENCY_BUSINESS_DAYS,
   PRICE_REVIEW_WAIT_TEMPLATE,
   OWN_GROUP_LABEL,
   THREAD_MAX_AGE_DAYS,
   THREAD_MIN_AGE_BUSINESS_DAYS,
   WAIT_IN_VIEW_STATE,
   businessDaysElapsed,
+  businessDaysUntil,
   crisisEmergencyRule,
+  isFreshNew,
   isPersonMessage,
   sessionEmergencyRule,
   taskEmergencyRule,
@@ -100,6 +113,7 @@ import type {
   HomeQuietLine,
   HomeRef,
   HomeRestGroupKey,
+  HomeRestItem,
   HomeSections,
   HomeSourceKind,
   RawArcRef,
@@ -141,7 +155,14 @@ export interface Candidate {
   rule: EmergencyRule | null;
   score: Score;
   boosted: boolean;
+  /** Hidden until state.view_at, whoever set it (his Not now or the nightly sort). */
   parked: boolean;
+  /** Who set the view_at while parked: 'user' (his Not now) or 'keeper' (the nightly sort). Null when not parked. */
+  parkedBy: 'user' | 'keeper' | null;
+  /** A task of his tagged from-chat or made by him, inside its first two business days (rules.ts isFreshNew). */
+  fresh: boolean;
+  /** A task the nightly sort gave a day to, and that day has come (view_set_by keeper, view_at passed). */
+  arrived: boolean;
   pinned: boolean;
   /** In Needs you now, Things in progress, a People list, or the visible Next rows. */
   shown: boolean;
@@ -217,9 +238,10 @@ export function emergencyCompare(a: Candidate, b: Candidate): number {
   return compareKey(a, b);
 }
 
-/** Next: boosted first, then class, then urgency, then oldest. */
+/** Next: boosted first, then fresh (just made), then class, then urgency, then oldest. */
 export function nextCompare(a: Candidate, b: Candidate): number {
   if (a.boosted !== b.boosted) return a.boosted ? -1 : 1;
+  if (a.fresh !== b.fresh) return a.fresh ? -1 : 1;
   if (a.score.klass !== b.score.klass) return a.score.klass - b.score.klass;
   if (a.score.urgency !== b.score.urgency) return b.score.urgency - a.score.urgency;
   if (a.since.getTime() !== b.since.getTime()) return a.since.getTime() - b.since.getTime();
@@ -355,7 +377,9 @@ function stripEndPeriod(s: string): string {
 
 /** What a build step returns before placement. */
 interface Draft {
-  cand: Omit<Candidate, 'shown' | 'inView' | 'section' | 'restGroup' | 'parked' | 'pinned' | 'boosted' | 'rule' | 'state'> & {
+  cand: Omit<Candidate, 'shown' | 'inView' | 'section' | 'restGroup' | 'parked' | 'parkedBy' | 'pinned' | 'boosted' | 'rule' | 'state' | 'fresh' | 'arrived'> & {
+    fresh?: boolean;
+    arrived?: boolean;
     rule: EmergencyRule | null;
   };
   /** Extra inputs for actionsFor and the footer lines. */
@@ -370,17 +394,22 @@ interface Draft {
     waitApprovable?: boolean;
     waitHref?: string | null;
     hasTaskId?: boolean;
+    outsideDate?: boolean;
     lead?: boolean;
     thread?: { status: 'show' | 'older' };
   };
 }
 
-function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
-  const score = scoreTask(task, now);
+function isChatTagged(tags: readonly string[]): boolean {
+  return tags.some((x) => x.trim().toLowerCase() === FRESH_NEW.chatTag);
+}
+
+function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | undefined, userId: string): Draft {
+  const score = scoreTask(task, now, { at: st?.read_hard_due_at ?? null, source: st?.read_hard_due_source ?? null });
   const client = refOf(task.client);
   const project = refOf(task.project);
   const arc = arcIsOpen(task.arc, now) ? task.arc : null;
-  const rule = taskEmergencyRule(
+  let rule = taskEmergencyRule(
     {
       due_date: task.due_date ? normalizeDueDate(task.due_date) : null,
       promised_to: task.promised_to,
@@ -390,12 +419,25 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
     },
     now,
   );
+  // Rule 7 also covers a real outside date filed on the task (never the keeper's "source unclear" reading).
+  if (!rule && task.hard_due_at && businessDaysUntil(normalizeDueDate(task.hard_due_at), now) <= PROMISED_DATE_EMERGENCY_BUSINESS_DAYS) {
+    rule = 'promised_date';
+  }
+  const promisedNamed = !!task.promised_to && task.promised_to.trim() !== '';
+  const outsideDate = rule === 'promised_date' && !promisedNamed;
+  const fresh = isFreshNew(task, userId, now);
+  const arrived =
+    st?.view_set_by === 'keeper' && !!st.view_at && st.view_at.getTime() <= now.getTime();
   const personWaiting = taskHasPersonWaiting(task);
   const since = score.waitingSince ?? task.created_at;
   const who = displayText(task.requested_by_name) || client?.name || null;
   const minutes = taskMinutes(task);
   const why = rule
-    ? whyEmergency(rule, { client: client?.name })
+    ? whyEmergency(rule, { client: client?.name, outsideDate })
+    : fresh
+    ? whyFresh(isChatTagged(task.tags))
+    : arrived
+    ? WHY_ARRIVED
     : whyTask({
         who,
         client: client?.name ?? null,
@@ -420,7 +462,9 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
     who,
     age: ageWords(since, now),
     why_now: why,
-    hard_date: score.hardDate ? hardDateChip(score.hardDate, task.promised_to) : null,
+    hard_date: score.hardDate
+      ? hardDateChip(score.hardDate, score.hardKind === 'promised' ? task.promised_to : score.hardSource)
+      : null,
     effort: effortWords(minutes),
     minutes,
     opened: {
@@ -448,8 +492,10 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
       minutes,
       group: groupFor(client, project, arc, refs),
       arcId: arc ? arc.id : null,
+      fresh,
+      arrived,
     },
-    ctx: { hasTaskId: true },
+    ctx: { hasTaskId: true, outsideDate },
   };
 }
 
@@ -763,9 +809,9 @@ function ifIgnored(c: Candidate): string {
   }
 }
 
-function reasonFor(c: Candidate): string {
+function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.pinned) return REASON.working;
-  if (c.rule) return reasonEmergency(c.rule);
+  if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
   if (c.boosted) return REASON.boosted;
   switch (c.section) {
     case 'leads':
@@ -773,6 +819,8 @@ function reasonFor(c: Candidate): string {
     case 'mail':
       return REASON.mail;
     case 'next':
+      if (c.fresh) return REASON.fresh;
+      if (c.arrived) return REASON.arrived;
       if (c.kind === 'review') return REASON.signOff;
       if (c.kind === 'session') return REASON.session;
       if (c.kind === 'wait') return REASON.wait;
@@ -811,7 +859,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     ...c.item,
     type: itemType(c),
     pinned: c.pinned,
-    reason: reasonFor(c),
+    reason: reasonFor(c, ctx),
     default_if_ignored: ifIgnored(c),
     actions: out.actions,
     more_actions: out.more_actions,
@@ -822,14 +870,53 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
 // selectHome
 // ============================================================================
 
-function meetsNextRule(c: Candidate): boolean {
-  if (c.boosted) return true;
+/**
+ * Whether an item qualifies for Next (before the cap): boosted, fresh (just made) or arrived
+ * (its day from the nightly sort has come), or the class and urgency bands. Sessions, review
+ * folds and waits always qualify (a wait's in-view check is the caller's).
+ */
+export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived' | 'kind' | 'score'>): boolean {
+  if (c.boosted || c.fresh || c.arrived) return true;
   if (c.kind === 'session' || c.kind === 'review') return true;
   if (c.kind === 'wait') return true; // in view is checked by the caller
   const { klass, urgency } = c.score;
   if (klass === 1 && urgency >= NEXT_ENTRY.class1MinUrgency) return true;
   if ((klass === 2 || klass === 3) && urgency >= NEXT_ENTRY.class2or3MinUrgency) return true;
   return false;
+}
+
+const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread'];
+
+/** One Everything else row for an item (check text per the plan's table). */
+function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date): HomeRestItem {
+  const vw = c.state?.view_at ?? null;
+  let text: string;
+  if ((group === 'scheduled' || group === 'parked') && vw) {
+    text = backOnText(vw);
+  } else if (group === 'older_threads') {
+    text = REST_CHECK.olderThread;
+  } else if (group === 'ventures') {
+    text = REST_CHECK.venture;
+  } else if (c.kind === 'crisis') {
+    text = REST_CHECK.crisisCleared;
+  } else if (c.kind === 'thread') {
+    text = REST_CHECK.peopleOverflow;
+  } else if (c.kind === 'wait' && !ctx.waitInView && !c.boosted) {
+    text = REST_CHECK.waitNotDue;
+  } else if (meetsNextRule(c)) {
+    text = REST_CHECK.joinsNext;
+  } else {
+    text = REST_CHECK.getsDay;
+  }
+  return {
+    key: c.key,
+    title: c.item.title,
+    owner: group === 'ventures' ? REST_GROUP_COPY.ventures.owner : 'You',
+    check_text: text,
+    check_at: vw ? vw.toISOString() : null,
+    past_check: !!vw && vw.getTime() <= now.getTime(),
+    can_bring_forward: BRING_FORWARD_KINDS.includes(c.kind),
+  };
 }
 
 export function selectHome(input: SelectInput): SelectResult {
@@ -841,7 +928,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const drafts: Draft[] = [];
   const push = (d: Draft) => drafts.push(d);
 
-  for (const task of raw.tasks) push(buildTask(task, now, refs, states.get(taskKey(task.id))));
+  for (const task of raw.tasks) push(buildTask(task, now, refs, states.get(taskKey(task.id)), raw.user_id));
   for (const fold of raw.review_folds) push(buildReview(fold, now, refs, states.get(reviewKey(fold.project?.id ?? null))));
   for (const s of raw.session_asks) push(buildSession(s, now, refs, states.get(sessionKey(s.external_id))));
   for (const w of raw.waits) {
@@ -872,6 +959,9 @@ export function selectHome(input: SelectInput): SelectResult {
       ...draft.cand,
       rule: emergencyRule,
       boosted: !!st?.boosted_at,
+      fresh: draft.cand.fresh ?? false,
+      arrived: draft.cand.arrived ?? false,
+      parkedBy: null,
       parked: false,
       pinned: false,
       shown: false,
@@ -896,6 +986,7 @@ export function selectHome(input: SelectInput): SelectResult {
   for (const c of candidates) {
     const vw = c.state?.view_at;
     c.parked = !c.pinned && c.rule === null && !!vw && vw.getTime() > now.getTime();
+    c.parkedBy = c.parked ? (c.state?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
   }
 
   // ---- 3. Placement ------------------------------------------------------
@@ -916,18 +1007,18 @@ export function selectHome(input: SelectInput): SelectResult {
       c.restGroup = null;
       needs.push(c);
     } else if (c.parked) {
-      c.restGroup = 'parked';
+      c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
     } else if (c.kind === 'crisis') {
       c.restGroup = 'waiting_turn'; // marked "Not an emergency": counted, not listed
-    } else if (c.kind === 'thread' && ctx.thread?.status === 'older') {
+    } else if (c.kind === 'thread' && ctx.thread?.status === 'older' && !c.boosted) {
       c.restGroup = 'older_threads';
-    } else if (c.score.venture && !c.boosted) {
+    } else if (c.score.venture && !c.boosted && !c.fresh) {
       c.restGroup = 'ventures';
     } else if (c.kind === 'thread') {
       c.section = ctx.lead ? 'leads' : 'mail';
       c.restGroup = null;
       (ctx.lead ? leads : mailAll).push(c);
-    } else if (c.kind === 'wait' && !ctx.waitInView) {
+    } else if (c.kind === 'wait' && !ctx.waitInView && !c.boosted) {
       c.restGroup = 'waiting_turn';
     } else if (meetsNextRule(c)) {
       c.section = 'next';
@@ -964,6 +1055,7 @@ export function selectHome(input: SelectInput): SelectResult {
   // ---- 5. Everything else -----------------------------------------------
   const counts: Record<HomeRestGroupKey, number> = {
     waiting_turn: 0,
+    scheduled: 0,
     parked: 0,
     held_projects: raw.held_project_task_count,
     review_pieces: raw.review_folds.reduce((n, f) => n + f.pieces.length, 0),
@@ -972,21 +1064,106 @@ export function selectHome(input: SelectInput): SelectResult {
     ventures: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
-  const order: HomeRestGroupKey[] = ['waiting_turn', 'parked', 'held_projects', 'review_pieces', 'new_mail', 'older_threads', 'ventures'];
+
+  const itemsByGroup: Record<HomeRestGroupKey, HomeRestItem[]> = {
+    waiting_turn: [],
+    scheduled: [],
+    parked: [],
+    held_projects: [],
+    review_pieces: [],
+    new_mail: [],
+    older_threads: [],
+    ventures: [],
+  };
+  const restCands = candidates.filter((c) => c.section === 'rest' && c.restGroup !== null);
+  const byDay = (a: Candidate, b: Candidate) =>
+    t(a.state?.view_at ?? null) - t(b.state?.view_at ?? null) || compareKey(a, b);
+  restCands.sort((a, b) => (a.restGroup === 'scheduled' || a.restGroup === 'parked' ? byDay(a, b) : rankCompare(a, b)));
+  for (const c of restCands) {
+    const group = c.restGroup as HomeRestGroupKey;
+    itemsByGroup[group].push(restItemOf(c, group, ctxByKey.get(c.key) ?? {}, now));
+  }
+  for (const hp of raw.held_projects) {
+    const name = displayText(hp.project.name) || 'Untitled project';
+    itemsByGroup.held_projects.push({
+      key: null,
+      title: name,
+      owner: `The ${name} project`,
+      check_text: whenProjectStarts(name),
+      check_at: null,
+      past_check: false,
+      can_bring_forward: false,
+    });
+  }
+  for (const fold of raw.review_folds) {
+    const project = displayText(fold.project?.name) || null;
+    const n = fold.pieces.length;
+    itemsByGroup.review_pieces.push({
+      key: null,
+      title: `${n} finished ${n === 1 ? 'piece' : 'pieces'}${project ? ` for ${project}` : ''}`,
+      owner: project ? `The ${project} sign-off` : 'The sign-off',
+      check_text: withSignOff(project),
+      check_at: null,
+      past_check: false,
+      can_bring_forward: false,
+    });
+  }
+  if (youngThreads > 0) {
+    itemsByGroup.new_mail.push({
+      key: null,
+      title: youngThreads === 1 ? '1 new message' : `${youngThreads} new messages`,
+      owner: 'You',
+      check_text: REST_CHECK.newMail,
+      check_at: null,
+      past_check: false,
+      can_bring_forward: false,
+    });
+  }
+
+  const order: HomeRestGroupKey[] = [
+    'waiting_turn',
+    'scheduled',
+    'parked',
+    'held_projects',
+    'review_pieces',
+    'new_mail',
+    'older_threads',
+    'ventures',
+  ];
   const groups: HomeEverythingElseGroup[] = order
     .filter((k) => counts[k] > 0)
-    .map((k) => ({ key: k, label: REST_GROUP_COPY[k].label, count: counts[k], owner: REST_GROUP_COPY[k].owner }));
+    .map((k) => ({
+      key: k,
+      label: REST_GROUP_COPY[k].label,
+      count: counts[k],
+      owner: REST_GROUP_COPY[k].owner,
+      items: itemsByGroup[k],
+    }));
   const total = groups.reduce((n, g) => n + g.count, 0);
+  const allRows = groups.flatMap((g) => g.items);
+  const withDay = allRows.filter((i) => i.check_at !== null).length;
+  const pastDay = allRows.filter((i) => i.past_check).length;
 
   // ---- 6. Handled for you -----------------------------------------------
-  const handledSorted = [...raw.auto_handled].sort((a, b) => b.handled_at.getTime() - a.handled_at.getTime());
-  const handled: HomeQuietLine[] = handledSorted.slice(0, CAPS.handled).map((h) => ({
+  const closed: HomeQuietLine[] = raw.auto_handled.map((h) => ({
     id: h.id,
     text: handledLine({ who: displayText(h.from_name) || h.from_email, subject: h.subject }),
     href: h.deep_link || null,
     at: h.handled_at.toISOString(),
+    undo_action_id: null,
+    details: [],
   }));
-  const moreCount = Math.max(0, handledSorted.length - CAPS.handled);
+  const kept: HomeQuietLine[] = raw.keeper_lines.map((k) => ({
+    id: k.id,
+    text: displayText(k.text),
+    href: null,
+    at: k.at.toISOString(),
+    undo_action_id: k.id,
+    details: k.details.map((x) => displayText(x)).filter((x) => x !== ''),
+  }));
+  const handledAll = [...closed, ...kept].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
+  const handled = handledAll.slice(0, CAPS.handled);
+  const moreCount = Math.max(0, handledAll.length - CAPS.handled);
 
   const itemOf = (c: Candidate): HomeItem => c.item;
   // Only the top Next row's first button is filled: finalize() already did that for that one row.
@@ -1002,7 +1179,14 @@ export function selectHome(input: SelectInput): SelectResult {
 
   return {
     sections,
-    everything_else: { count: total, line: everythingElseLine(total), groups },
+    everything_else: {
+      count: total,
+      line: everythingElseLine(total, withDay, pastDay),
+      groups,
+      with_day: withDay,
+      past_day: pastDay,
+      scope_line: scopeLine(raw.held_project_task_count),
+    },
     candidates,
     byKey: new Map(candidates.map((c) => [c.key, c])),
   };

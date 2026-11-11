@@ -63,6 +63,9 @@ const createTaskSchema = z.object({
   // required client-side choice) — server-side enforcement would 400 the completion-nudge
   // draft path, the intake create+open gesture, and session-task creation.
   promised_to: z.string().max(200).optional().nullable(),
+  // Home screen Slice 2: a real outside date and who or what set it. due_date is untouched.
+  hard_due_at: z.string().datetime().nullable().optional(),
+  hard_due_source: z.string().trim().min(3).max(200).nullable().optional(),
   // Review workflow (Oracle Projects Phase 1, 2026-09-04) — explicit beats SOP beats
   // the (now false) schema default.
   needs_review: z.boolean().optional(),
@@ -88,6 +91,10 @@ const createTaskSchema = z.object({
   // task can never be part of an existing cycle (nothing can already depend on an id that
   // didn't exist a moment ago), but IDs are still validated to exist before connecting.
   blocked_by_ids: z.array(z.string().uuid()).optional(),
+}).superRefine((d, ctx) => {
+  if (d.hard_due_at && !d.hard_due_source) {
+    ctx.addIssue({ code: 'custom', path: ['hard_due_source'], message: 'hard_due_source is required when hard_due_at is set' });
+  }
 });
 
 // Project statuses where tasks are visible to Tech users
@@ -538,6 +545,8 @@ export async function POST(request: NextRequest) {
         due_date: data.due_date ? new Date(data.due_date) : null,
         notes: serializeRichText(data.notes),
         promised_to: data.promised_to ?? null,
+        hard_due_at: data.hard_due_at ? new Date(data.hard_due_at) : null,
+        hard_due_source: data.hard_due_at ? (data.hard_due_source ?? null) : null,
         // Billing fields - charter tasks are never billable (already invoiced via charter).
         // Oracle Projects Phase 1 (Mike's ruling, 2026-09-04) — default flipped false.
         is_billable: data.charter_id ? false : (data.is_billable ?? false),

@@ -100,6 +100,8 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'battery_impact', type: 'string', required: false, description: 'average_drain, high_drain, energizing' },
           { name: 'due_date', type: 'ISO-8601', required: false, description: 'Due date' },
           { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — set to a name to mark this task promised to that person; omit/null for internal/target work. Permissive here; the in-app task-creation forms require an explicit choice.' },
+          { name: 'hard_due_at', type: 'ISO-8601', required: false, description: 'Home screen: a real outside date (a renewal, a promise). Needs hard_due_source. due_date is not changed.' },
+          { name: 'hard_due_source', type: 'string', required: false, description: 'Who or what set hard_due_at, 3 to 200 characters. Required when hard_due_at is set.' },
           { name: 'needs_review', type: 'boolean', required: false, description: 'Whether task needs review' },
           { name: 'reviewer_id', type: 'uuid', required: false, description: 'Reviewer user ID' },
           { name: 'sop_id', type: 'uuid', required: false, description: 'Associated SOP' },
@@ -215,6 +217,8 @@ export const taskEndpoints: ApiEndpoint[] = [
           { name: 'status', type: 'string', required: false, description: 'not_started|in_progress|review|done|blocked|abandoned. Applied alone or together with other fields, through the same transition rules and side effects either way (timestamps, auto-focus on in_progress, activity log, dependent unblocking). A disallowed transition or unknown value returns 400 and writes nothing. An explicit is_focus in the same body wins over the auto-focus.' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'Clarity Phase 4b — attach to an arc (404 if the arc does not exist); pass null to explicitly detach; omit to leave untouched. PM/Admin only.' },
           { name: 'promised_to', type: 'string', required: false, description: 'Clarity Phase 8 — omit to leave untouched, null to clear back to internal/target, a name to set promised-to.' },
+          { name: 'hard_due_at', type: 'ISO-8601', required: false, description: 'Home screen: a real outside date. Omit to leave untouched; null clears it and its source; a date needs hard_due_source in the same body (400 otherwise). due_date is not changed.' },
+          { name: 'hard_due_source', type: 'string', required: false, description: 'Who or what set hard_due_at, 3 to 200 characters.' },
           { name: 'client_visible', type: 'boolean', required: false, description: 'Client portal A3 — share this task in the client portal task lists (default false = private). Does not make it approvable: approve/request-changes still need a staged preview. PM/Admin only.' },
         ],
         responseNotes:

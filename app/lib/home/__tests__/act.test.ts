@@ -56,6 +56,15 @@ function makeDb() {
     arc_added_group: null,
     arc_removed_at: null,
     arc_removed_group: null,
+    view_set_by: null,
+    keeper_hold_until: null,
+    read_hard_due_at: null,
+    read_hard_due_source: null,
+    dates_read_at: null,
+    card_summary: null,
+    card_checklist: null,
+    card_summary_hash: null,
+    card_summary_at: null,
     first_seen_at: new Date('2026-11-01T00:00:00Z'),
     last_shown_at: null,
   };
@@ -188,6 +197,15 @@ function addState(db: Db, key: string, over: Row = {}) {
     arc_added_group: null,
     arc_removed_at: null,
     arc_removed_group: null,
+    view_set_by: null,
+    keeper_hold_until: null,
+    read_hard_due_at: null,
+    read_hard_due_source: null,
+    dates_read_at: null,
+    card_summary: null,
+    card_checklist: null,
+    card_summary_hash: null,
+    card_summary_at: null,
     first_seen_at: new Date('2026-11-01T00:00:00Z'),
     last_shown_at: null,
     ...over,
@@ -254,6 +272,7 @@ describe('not_now', () => {
     expect(res.undo_until).toBe(new Date(NOW.getTime() + 24 * 3600 * 1000).toISOString());
     const s = stateOf(db, T1)!;
     expect(s.park_count).toBe(1);
+    expect(s.view_set_by).toBe('user');
     expect((s.view_at as Date).toISOString()).toBe('2026-11-11T14:00:00.000Z');
     await undo(db, res.action_id);
     expect(stateOf(db, T1)).toBeUndefined();
@@ -284,6 +303,110 @@ describe('not_now', () => {
     const again = await act(db, { action: 'not_now', item_key: T1 });
     expect(again.ok).toBe(true);
     expect(stateOf(db, T1)!.park_count).toBe(3);
+  });
+});
+
+describe('bring_forward', () => {
+  it('boosts, clears the date and who set it, answers the message, and undo puts the keeper date back', async () => {
+    const db = makeDb();
+    const keeperDay = new Date('2026-11-12T05:05:00.000Z');
+    addState(db, T1, { view_at: keeperDay, view_set_by: 'keeper' });
+    const res = await act(db, { action: 'bring_forward', item_key: T1 });
+    expect(res.message).toBe('Moved to the front of Next.');
+    const s = stateOf(db, T1)!;
+    expect((s.boosted_at as Date).getTime()).toBe(NOW.getTime());
+    expect(s.view_at).toBeNull();
+    expect(s.view_set_by).toBeNull();
+    expect(db.actions[0].before).toEqual({
+      states: [{ item_key: T1, existed: true, fields: { boosted_at: null, view_at: keeperDay.toISOString(), view_set_by: 'keeper' } }],
+    });
+    await undo(db, res.action_id);
+    const back = stateOf(db, T1)!;
+    expect(back.boosted_at).toBeNull();
+    expect((back.view_at as Date).getTime()).toBe(keeperDay.getTime());
+    expect(back.view_set_by).toBe('keeper');
+  });
+
+  it('is in the request schema and strict', () => {
+    expect(homeActSchema.safeParse({ action: 'bring_forward', item_key: T1 }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'bring_forward', item_key: T1, user_id: OTHER }).success).toBe(false);
+  });
+});
+
+describe('keeper undo (compare-and-set)', () => {
+  const DAY1 = new Date('2026-11-12T05:05:00.000Z');
+  const NOW_K = new Date('2026-11-10T04:00:00.000Z');
+
+  function keeperRow(db: Db, items: { key: string; before: Row; after: Row; existed?: boolean }[], over: Row = {}) {
+    db.actions.push({
+      id: 'k-1',
+      user_id: U,
+      item_key: null,
+      action: 'keeper_stagger',
+      before: { states: items.map((i) => ({ item_key: i.key, existed: i.existed ?? true, fields: i.before })) },
+      after: { states: items.map((i) => ({ item_key: i.key, fields: i.after })), line: 'x', details: [] },
+      undo_until: new Date(NOW_K.getTime() + 72 * 3600 * 1000),
+      undone_at: null,
+      source: 'keeper',
+      created_at: NOW_K,
+      ...over,
+    });
+  }
+
+  it('puts back an unchanged field, skips one Mike changed, sets a 30 day hold on both, leaves markers alone', async () => {
+    const db = makeDb();
+    addState(db, T1, { view_at: DAY1, view_set_by: 'keeper' });
+    const mikeDay = new Date('2026-11-20T14:00:00.000Z');
+    addState(db, T2, { view_at: mikeDay, view_set_by: 'user', park_count: 1, dates_read_at: NOW_K });
+    keeperRow(db, [
+      { key: T1, before: { view_at: null, view_set_by: null }, after: { view_at: DAY1.toISOString(), view_set_by: 'keeper' } },
+      { key: T2, before: { view_at: null, view_set_by: null }, after: { view_at: DAY1.toISOString(), view_set_by: 'keeper' } },
+    ]);
+    const res = await undo(db, 'k-1', NOW_K);
+    expect(res.ok).toBe(true);
+    const a = stateOf(db, T1)!;
+    expect(a.view_at).toBeNull();
+    expect(a.view_set_by).toBeNull();
+    const b = stateOf(db, T2)!;
+    expect((b.view_at as Date).getTime()).toBe(mikeDay.getTime());
+    expect(b.view_set_by).toBe('user');
+    expect(b.dates_read_at).toEqual(NOW_K);
+    const hold = NOW_K.getTime() + 30 * 24 * 3600 * 1000;
+    expect((a.keeper_hold_until as Date).getTime()).toBe(hold);
+    expect((b.keeper_hold_until as Date).getTime()).toBe(hold);
+    expect(db.actions[0].undone_at).toEqual(NOW_K);
+    expectSharedUntouched(db);
+  });
+
+  it('reverts a date reading, never the dates_read_at marker', async () => {
+    const db = makeDb();
+    const due = new Date('2026-11-25T00:00:00.000Z');
+    addState(db, T1, { read_hard_due_at: due, read_hard_due_source: 'date from the task, source unclear', dates_read_at: NOW_K });
+    keeperRow(db, [
+      {
+        key: T1,
+        before: { read_hard_due_at: null, read_hard_due_source: null, dates_read_at: null },
+        after: { read_hard_due_at: due.toISOString(), read_hard_due_source: 'date from the task, source unclear', dates_read_at: NOW_K.toISOString() },
+      },
+    ], { action: 'keeper_dates' });
+    await undo(db, 'k-1', NOW_K);
+    const s = stateOf(db, T1)!;
+    expect(s.read_hard_due_at).toBeNull();
+    expect(s.read_hard_due_source).toBeNull();
+    expect(s.dates_read_at).toEqual(NOW_K);
+    expect(s.keeper_hold_until).not.toBeNull();
+  });
+
+  it('keeps the row (with its hold) when the keeper created it, and refuses after 72 hours', async () => {
+    const db = makeDb();
+    addState(db, T1, { view_at: DAY1, view_set_by: 'keeper' });
+    keeperRow(db, [{ key: T1, existed: false, before: { view_at: null, view_set_by: null }, after: { view_at: DAY1.toISOString(), view_set_by: 'keeper' } }]);
+    await expect(undo(db, 'k-1', new Date(NOW_K.getTime() + 73 * 3600 * 1000))).rejects.toMatchObject({ code: 'undo_expired' });
+    await undo(db, 'k-1', new Date(NOW_K.getTime() + 71 * 3600 * 1000));
+    expect(stateOf(db, T1)).toBeDefined();
+    expect(stateOf(db, T1)!.view_at).toBeNull();
+    expect(stateOf(db, T1)!.keeper_hold_until).not.toBeNull();
+    await expect(undo(db, 'k-1', NOW_K)).rejects.toMatchObject({ code: 'undo_used' });
   });
 });
 
@@ -612,6 +735,7 @@ describe('undo rules', () => {
 describe('writes stay in the home tables, in one transaction', () => {
   const requests: HomeActRequest[] = [
     { action: 'not_now', item_key: T1 },
+    { action: 'bring_forward', item_key: T1 },
     { action: 'matters_more', item_key: T1 },
     { action: 'not_emergency', item_key: T1 },
     { action: 'pin', item_key: T1 },
@@ -701,6 +825,7 @@ describe('reader-facing sentences', () => {
       { action: 'not_now', item_key: T1 },
       { action: 'not_now', item_key: T1 },
       { action: 'not_now', item_key: T1 },
+      { action: 'bring_forward', item_key: T2 },
       { action: 'matters_more', item_key: T2 },
       { action: 'not_emergency', item_key: T2 },
       { action: 'pin', item_key: T1 },

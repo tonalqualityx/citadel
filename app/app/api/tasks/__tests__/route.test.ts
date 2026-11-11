@@ -613,6 +613,36 @@ describe('POST /api/tasks', () => {
     });
   });
 
+  describe('Hard due date (home screen Slice 2)', () => {
+    it('stores hard_due_at and source and leaves due_date alone', async () => {
+      const response = await POST(createPostRequest({ title: 'Renew', hard_due_at: '2026-11-20T00:00:00.000Z', hard_due_source: 'domain renews' }));
+      expect(response.status).toBe(201);
+      const data = mockTaskCreate.mock.calls[0][0].data;
+      expect(data.hard_due_at).toEqual(new Date('2026-11-20T00:00:00.000Z'));
+      expect(data.hard_due_source).toBe('domain renews');
+      expect(data.due_date).toBeNull();
+    });
+
+    it('a null hard date stores null for both fields', async () => {
+      const response = await POST(createPostRequest({ title: 'Plain', hard_due_at: null }));
+      expect(response.status).toBe(201);
+      const data = mockTaskCreate.mock.calls[0][0].data;
+      expect(data.hard_due_at).toBeNull();
+      expect(data.hard_due_source).toBeNull();
+    });
+
+    it('a hard date with no source is 400', async () => {
+      const response = await POST(createPostRequest({ title: 'Renew', hard_due_at: '2026-11-20T00:00:00.000Z' }));
+      expect(response.status).toBe(400);
+      expect(mockTaskCreate).not.toHaveBeenCalled();
+    });
+
+    it('a source shorter than 3 characters is 400', async () => {
+      const response = await POST(createPostRequest({ title: 'Renew', hard_due_at: '2026-11-20T00:00:00.000Z', hard_due_source: 'x' }));
+      expect(response.status).toBe(400);
+    });
+  });
+
   describe('Title validation', () => {
     it('rejects empty title', async () => {
       const request = createPostRequest({ title: '' });

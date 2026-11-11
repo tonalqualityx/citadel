@@ -18,8 +18,8 @@
  * home_* rows are reset so each run starts from a fresh screen.
  *
  * Run with:
- *   DATABASE_URL=postgresql://citadel:citadel@localhost:55433/migcheck \
- *     npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/seed-home-fixtures.ts
+ *   DATABASE_URL=postgresql://citadel:citadel@localhost:55433/home_s2a \
+ *     npx ts-node -r tsconfig-paths/register --compiler-options '{"module":"CommonJS"}' scripts/seed-home-fixtures.ts
  */
 import {
   PrismaClient,
@@ -242,6 +242,90 @@ async function main() {
   }
   bump('tasks: VCDP review pieces', 39);
 
+  // ---- Slice 2a fixtures: kickoff, quote, undated pile, dated tasks, hard date, Not-now, long description ----
+  const s2: Record<string, string> = {};
+  const mk = async (label: string, data: Record<string, unknown>) => {
+    const t = await prisma.task.create({
+      data: { ...base, status: 'not_started', tags: [FIXTURE_TAG], ...data } as never,
+    });
+    s2[label] = t.id;
+    return t;
+  };
+  const ago = (days: number) => new Date(now.getTime() - days * DAY);
+  const ahead = (days: number) => new Date(now.getTime() + days * DAY);
+
+  await mk('kickoff', {
+    title: 'Stronghold: kick off the shop build with Brian',
+    tags: ['from-chat', 'kickoff', FIXTURE_TAG],
+    client_id: stronghold.id,
+    created_at: ago(1),
+  });
+  await mk('quote', {
+    title: 'Honeycutt: quote the second location page',
+    tags: ['from-chat', 'quote', FIXTURE_TAG],
+    client_id: andyClient.id,
+    created_at: ago(1),
+  });
+  for (let i = 1; i <= 12; i++) {
+    const age = 10 + Math.round(((i - 1) * 30) / 11); // 10 to 40 days
+    await mk(`undated-${String(i).padStart(2, '0')}`, {
+      title: `Undated chore ${String(i).padStart(2, '0')}: tidy a loose end`,
+      created_at: ago(age),
+    });
+  }
+  const createdA = ago(7);
+  await mk('dated-five-days', {
+    title: 'Dated: due exactly 5 days after it was created',
+    created_at: createdA,
+    due_date: new Date(createdA.getTime() + 5 * DAY),
+  });
+  await mk('dated-40-past', {
+    title: 'Dated: due date 40 days in the past',
+    created_at: ago(60),
+    due_date: ago(40),
+  });
+  await mk('dated-10-ahead', {
+    title: 'Dated: due in 10 days, created 30 days ago',
+    created_at: ago(30),
+    due_date: ahead(10),
+  });
+  // Hard date 2 business days out (skip Saturday and Sunday).
+  const hard = new Date(now);
+  for (let left = 2; left > 0; ) {
+    hard.setUTCDate(hard.getUTCDate() + 1);
+    const dow = hard.getUTCDay();
+    if (dow !== 0 && dow !== 6) left--;
+  }
+  hard.setUTCHours(17, 0, 0, 0);
+  await mk('hard-date', {
+    title: 'Renew the fixture domain',
+    created_at: ago(14),
+    hard_due_at: hard,
+    hard_due_source: 'domain renews',
+  });
+  const notNow = await mk('not-now', {
+    title: 'Not now: sort the old photo folders',
+    created_at: ago(20),
+  });
+  const tomorrow = zonedDate(new Date(now.getTime() + DAY), TZ);
+  await prisma.homeItemState.create({
+    data: {
+      user_id: admin.id,
+      item_key: `task:${notNow.id}`,
+      park_count: 1,
+      view_at: new Date(`${tomorrow}T05:05:00.000Z`),
+      view_set_by: 'user',
+    },
+  });
+  const words = Array.from({ length: 300 }, (_, i) => `word${i + 1}`);
+  const longDescription = Array.from({ length: 6 }, (_, p) => words.slice(p * 50, p * 50 + 50).join(' ')).join('\n\n');
+  await mk('long-description', {
+    title: 'Long description: write up the hosting move notes',
+    description: longDescription,
+    created_at: ago(12),
+  });
+  bump('tasks: slice 2a fixtures', Object.keys(s2).length);
+
   // ---- Email asks (upsert by fixed message_id) ----
   type Ask = {
     key: string;
@@ -388,6 +472,8 @@ async function main() {
   console.log(`Admin login (home_view = home):   ${ADMIN_EMAIL}  /  ${DEV_PASSWORD}`);
   console.log(`Tech login  (home_view = overlook): ${TECH_EMAIL}  /  ${DEV_PASSWORD}`);
   console.log(`Seeded for ${dateStr} (${TZ}).`);
+  console.log('Slice 2a fixture task ids (key: id):');
+  for (const [k, v] of Object.entries(s2)) console.log(`  ${k}: ${v}`);
 }
 
 main()

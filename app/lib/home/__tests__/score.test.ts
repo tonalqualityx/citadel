@@ -200,3 +200,33 @@ describe('threads, crisis mail and waits', () => {
     expect(s.importance).toBe(20);
   });
 });
+
+describe('Slice 2: hard date precedence', () => {
+  const read = (iso: string) => ({ at: d(iso), source: null });
+  it('Task.hard_due_at comes first, with its source', () => {
+    const task = makeTask({ hard_due_at: d('2026-11-15T00:00:00.000Z'), hard_due_source: 'domain renews', promised_to: 'Gene', due_date: d('2026-11-12T00:00:00.000Z') });
+    const s = scoreTask(task, NOW, read('2026-11-20T00:00:00.000Z'));
+    expect(s.hardKind).toBe('hard_due');
+    expect(s.hardSource).toBe('domain renews');
+    expect(s.hardDate?.toISOString()).toBe('2026-11-15T16:00:00.000Z');
+  });
+  it('the Slice 1 rule comes second', () => {
+    const task = makeTask({ promised_to: 'Gene', due_date: d('2026-11-12T00:00:00.000Z') });
+    const s = scoreTask(task, NOW, read('2026-11-20T00:00:00.000Z'));
+    expect(s.hardKind).toBe('promised');
+    expect(s.hardSource).toBeNull();
+    expect(s.hardDate?.toISOString()).toBe('2026-11-12T16:00:00.000Z');
+  });
+  it('the keeper reading comes last and carries the unclear-source text', () => {
+    const s = scoreTask(makeTask(), NOW, read('2026-11-20T00:00:00.000Z'));
+    expect(s.hardKind).toBe('read');
+    expect(s.hardSource).toBe('date from the task, source unclear');
+    expect(s.urgency).toBe(50);
+  });
+  it('no date at all gives no kind', () => {
+    const s = scoreTask(makeTask(), NOW);
+    expect(s.hardKind).toBeNull();
+    expect(s.hardSource).toBeNull();
+    expect(hardDateOfTask(makeTask({ hard_due_at: d('2026-11-14T00:00:00.000Z') }))?.toISOString()).toBe('2026-11-14T16:00:00.000Z');
+  });
+});

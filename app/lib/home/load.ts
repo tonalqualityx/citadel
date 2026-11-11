@@ -32,13 +32,16 @@ import {
 } from './rules';
 import { isItemKey } from './item-key';
 import type {
+  KeeperActionKind,
   RawArcRef,
   RawAutoHandled,
   RawCalendarEvent,
   RawClientRef,
   RawCrisis,
   RawEmailAsk,
+  RawHeldProject,
   RawHomeInputs,
+  RawKeeperLine,
   RawProjectRef,
   RawRequirement,
   RawReviewFold,
@@ -49,6 +52,16 @@ import type {
 } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How long a keeper line stays in Handled for you (and open for Undo). */
+const KEEPER_LINE_MS = 72 * 60 * 60 * 1000;
+const KEEPER_ACTIONS: readonly string[] = [
+  'keeper_stagger',
+  'keeper_dates',
+  'keeper_summaries',
+  'keeper_arc_create',
+  'keeper_arc_close',
+  'keeper_arc_link',
+] satisfies KeeperActionKind[];
 /** Cap on classifier auto-closes read; the screen shows 5 and a count. */
 const AUTO_HANDLED_TAKE = 200;
 
@@ -183,6 +196,9 @@ const TASK_SELECT = {
   status: true,
   tags: true,
   promised_to: true,
+  hard_due_at: true,
+  hard_due_source: true,
+  created_by_id: true,
   due_date: true,
   created_at: true,
   estimated_minutes: true,
@@ -246,6 +262,9 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
       status: t.status,
       tags: t.tags,
       promised_to: t.promised_to,
+      hard_due_at: t.hard_due_at,
+      hard_due_source: t.hard_due_source,
+      created_by_id: t.created_by_id,
       due_date: t.due_date,
       created_at: t.created_at,
       clock_started_at: clock,
@@ -273,15 +292,65 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
   });
 }
 
-async function countHeldProjectTasks(db: PrismaClient, userId: string): Promise<number> {
-  return db.task.count({
+/** U's open tasks on held (quote, queue, suspended) projects, grouped by project with the project name. */
+async function loadHeldProjects(db: PrismaClient, userId: string): Promise<RawHeldProject[]> {
+  const groups = await db.task.groupBy({
+    by: ['project_id'],
     where: {
       assignee_id: userId,
       is_deleted: false,
       status: { notIn: CLOSED },
       project: { status: { in: [...HELD_PROJECT_STATUSES] } },
     },
+    _count: { _all: true },
   });
+  const counted = groups.filter((g): g is typeof g & { project_id: string } => g.project_id !== null);
+  if (counted.length === 0) return [];
+  const projects = await db.project.findMany({
+    where: { id: { in: counted.map((g) => g.project_id) } },
+    select: { id: true, name: true },
+  });
+  const names = new Map(projects.map((p) => [p.id, p.name]));
+  return counted
+    .map((g): RawHeldProject => ({
+      project: { id: g.project_id, name: names.get(g.project_id) ?? 'A project' },
+      count: g._count._all,
+    }))
+    .sort((a, b) => b.count - a.count || a.project.name.localeCompare(b.project.name));
+}
+
+function stringList(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : [];
+}
+
+/** The keeper's own Handled lines: source keeper, last 72 hours, not undone, newest first. */
+async function loadKeeperLines(db: PrismaClient, userId: string, now: Date): Promise<RawKeeperLine[]> {
+  const rows = await db.homeAction.findMany({
+    where: {
+      user_id: userId,
+      source: 'keeper',
+      created_at: { gte: new Date(now.getTime() - KEEPER_LINE_MS) },
+      undone_at: null,
+    },
+    select: { id: true, action: true, after: true, created_at: true, undo_until: true },
+    orderBy: { created_at: 'desc' },
+  });
+  const lines: RawKeeperLine[] = [];
+  for (const r of rows) {
+    if (!KEEPER_ACTIONS.includes(r.action)) continue;
+    const after = r.after && typeof r.after === 'object' && !Array.isArray(r.after) ? (r.after as Record<string, unknown>) : null;
+    const text = typeof after?.line === 'string' ? after.line.trim() : '';
+    if (!text) continue;
+    lines.push({
+      id: r.id,
+      action: r.action as KeeperActionKind,
+      text,
+      details: stringList(after?.details),
+      at: r.created_at,
+      undo_until: r.undo_until ?? new Date(r.created_at.getTime() + KEEPER_LINE_MS),
+    });
+  }
+  return lines;
 }
 
 // ============================================================================
@@ -623,7 +692,7 @@ export async function loadHomeInputs(
   now: Date,
   opts: LoadHomeOptions = {}
 ): Promise<RawHomeInputs> {
-  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldCount] =
+  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines] =
     await Promise.all([
       loadTasks(db, userId),
       loadReviewFolds(db, userId),
@@ -633,7 +702,8 @@ export async function loadHomeInputs(
       loadCrises(db),
       loadAutoHandled(db, now),
       loadCalendarEvents(db, userId, now, opts.timezone),
-      countHeldProjectTasks(db, userId),
+      loadHeldProjects(db, userId),
+      loadKeeperLines(db, userId, now),
     ]);
 
   return {
@@ -647,6 +717,8 @@ export async function loadHomeInputs(
     crises,
     auto_handled: autoHandled,
     calendar_events: calendarEvents,
-    held_project_task_count: heldCount,
+    held_project_task_count: heldProjects.reduce((n, h) => n + h.count, 0),
+    held_projects: heldProjects,
+    keeper_lines: keeperLines,
   };
 }

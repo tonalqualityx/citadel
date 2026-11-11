@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectHome, threadStatus } from '../select';
+import { meetsNextRule, selectHome, threadStatus } from '../select';
 import { crisisKey, reviewKey, sessionKey, taskKey, threadKey, waitKey } from '../item-key';
 import type { RawHomeInputs, RawItemState } from '../types';
 import {
@@ -285,10 +285,18 @@ describe('Handled for you and Everything else', () => {
     const byKey = Object.fromEntries(r.everything_else.groups.map((g) => [g.key, g.count]));
     expect(byKey).toEqual({ held_projects: 4, review_pieces: 7 });
     expect(r.everything_else.count).toBe(11);
-    expect(r.everything_else.line).toBe('11 other items are on your plate and counted here.');
+    expect(r.everything_else.line).toBe('11 other items are counted here. 0 have a day to come back. None is past its day.');
+    expect(r.everything_else.scope_line).toBe('4 tasks on unsigned or paused projects are kept as scope, not work.');
   });
   it('empty groups are left out', () => {
-    expect(sel({}).everything_else).toEqual({ count: 0, line: 'Nothing else is on your plate.', groups: [] });
+    expect(sel({}).everything_else).toEqual({
+      count: 0,
+      line: 'Nothing else is on your plate.',
+      groups: [],
+      with_day: 0,
+      past_day: 0,
+      scope_line: null,
+    });
   });
 });
 
@@ -380,5 +388,202 @@ describe('buttons and card', () => {
         'opened', 'pinned', 'project', 'reason', 'source', 'title', 'type', 'who', 'why_now',
       ].sort(),
     );
+  });
+});
+
+describe('Slice 2: fresh tasks, the nightly sort, drawer rows', () => {
+  const ME = makeInputs().user_id;
+  const rest = (r: ReturnType<typeof sel>, key: string) => r.everything_else.groups.find((g) => g.key === key);
+  const fromChat = (over = {}) => makeTask({ tags: ['from-chat'], created_at: d('2026-11-09T14:00:00Z'), ...over });
+
+  it('a from-chat task and a task he made are listed in Next, behind boosted and ahead of class 1', () => {
+    const chat = fromChat();
+    const mine = makeTask({ created_by_id: ME, created_at: d('2026-11-09T14:00:00Z') });
+    const high = clientTask({ clock_started_at: d('2026-10-12T14:00:00Z') });
+    const boosted = makeTask({ client: active });
+    const r = sel({ tasks: [high, chat, mine, boosted] }, [makeState(taskKey(boosted.id), { boosted_at: NOW })]);
+    const order = keys(r.sections.next);
+    expect(order[0]).toBe(taskKey(boosted.id));
+    expect(new Set(order.slice(1, 3))).toEqual(new Set([taskKey(chat.id), taskKey(mine.id)]));
+    expect(order).toHaveLength(3);
+    const chatItem = r.candidates.find((c) => c.key === taskKey(chat.id))!;
+    expect(chatItem.fresh).toBe(true);
+    expect(chatItem.item.why_now).toBe('New from the chat.');
+    expect(chatItem.item.reason).toBe('You made it in the last two business days, so it shows here first.');
+    expect(r.candidates.find((c) => c.key === taskKey(mine.id))!.item.why_now).toBe('New, made by you.');
+  });
+
+  it('a fresh task is gone from Next after two business days', () => {
+    const old = fromChat({ created_at: d('2026-11-04T14:00:00Z') });
+    const r = sel({ tasks: [old] });
+    expect(r.sections.next).toEqual([]);
+    expect(r.candidates[0].fresh).toBe(false);
+    expect(rest(r, 'waiting_turn')?.count).toBe(1);
+  });
+
+  it('ventures do not catch a fresh task', () => {
+    const t = fromChat({ client: makeClient('Saiph Grants') });
+    expect(keys(sel({ tasks: [t] }).sections.next)).toEqual([taskKey(t.id)]);
+  });
+
+  it('a keeper-parked task is not shown and sits in "Given a day to come back"', () => {
+    const t = clientTask();
+    const st = makeState(taskKey(t.id), { view_at: d('2026-11-12T05:05:00Z'), view_set_by: 'keeper' });
+    const r = sel({ tasks: [t] }, [st]);
+    expect(r.sections.next).toEqual([]);
+    const c = r.candidates[0];
+    expect(c.parked).toBe(true);
+    expect(c.parkedBy).toBe('keeper');
+    expect(r.everything_else.groups).toEqual([expect.objectContaining({ key: 'scheduled', count: 1 })]);
+    expect(rest(r, 'scheduled')?.items[0]).toMatchObject({
+      key: taskKey(t.id),
+      owner: 'You',
+      check_text: 'Back Thursday, November 12',
+      check_at: '2026-11-12T05:05:00.000Z',
+      past_check: false,
+      can_bring_forward: true,
+    });
+    expect(r.everything_else.with_day).toBe(1);
+    expect(r.everything_else.line).toBe('1 other item is counted here. 1 has a day to come back. None is past its day.');
+  });
+
+  it('a keeper task whose day has come arrives in Next', () => {
+    const t = makeTask({ client: active }); // would wait its turn
+    const st = makeState(taskKey(t.id), { view_at: d('2026-11-09T05:05:00Z'), view_set_by: 'keeper' });
+    const r = sel({ tasks: [t] }, [st]);
+    expect(keys(r.sections.next)).toEqual([taskKey(t.id)]);
+    expect(r.sections.next[0].why_now).toBe('Back today, after waiting its turn.');
+    expect(r.candidates[0].arrived).toBe(true);
+  });
+
+  it('his own Not now is still parked and still "Parked by you"', () => {
+    const t = clientTask();
+    const r = sel({ tasks: [t] }, [makeState(taskKey(t.id), { park_count: 1, view_at: d('2026-11-10T14:00:00Z') })]);
+    expect(r.candidates[0].parkedBy).toBe('user');
+    expect(r.everything_else.groups).toEqual([expect.objectContaining({ key: 'parked', count: 1 })]);
+    const nullSetBy = sel({ tasks: [t] }, [makeState(taskKey(t.id), { view_at: d('2026-11-10T14:00:00Z'), view_set_by: 'user' })]);
+    expect(nullSetBy.candidates[0].parkedBy).toBe('user');
+  });
+
+  it('meetsNextRule counts fresh and arrived', () => {
+    const base = { boosted: false, fresh: false, arrived: false, kind: 'task' as const, score: { klass: 4, urgency: 10 } as never };
+    expect(meetsNextRule(base)).toBe(false);
+    expect(meetsNextRule({ ...base, fresh: true })).toBe(true);
+    expect(meetsNextRule({ ...base, arrived: true })).toBe(true);
+  });
+
+  it('a boosted older thread goes to its People list; a boosted wait not in view goes to Next', () => {
+    const thread = makeThread({ client: active, received_at: d('2026-10-01T15:00:00Z') });
+    const wait = makeWait();
+    const r = sel({ threads: [thread], waits: [wait] }, [
+      makeState(threadKey(thread.account, thread.thread_id), { boosted_at: NOW }),
+      makeState(waitKey(wait.id), { boosted_at: NOW }),
+    ]);
+    expect(keys(r.sections.mail)).toEqual([threadKey(thread.account, thread.thread_id)]);
+    expect(keys(r.sections.next)).toEqual([waitKey(wait.id)]);
+    expect(r.everything_else.count).toBe(0);
+  });
+
+  it('check texts for every group', () => {
+    const waitingNoDay = makeTask({ client: active, title: 'Quiet one' });
+    const overflow = [0, 1, 2, 3].map((i) => clientTask({ clock_started_at: d(`2026-10-1${i}T14:00:00Z`) }));
+    const venture = makeTask({ client: makeClient('Saiph Grants') });
+    const older = makeThread({ client: active, received_at: d('2026-10-01T15:00:00Z') });
+    const young = makeThread({ client: active, received_at: d('2026-11-09T20:00:00Z') });
+    const proj = makeProject('Grok');
+    const r = sel(
+      {
+        tasks: [waitingNoDay, ...overflow, venture],
+        threads: [older, young],
+        review_folds: [makeFold({ project: proj, client: active }, 2)],
+        held_project_task_count: 5,
+        held_projects: [{ project: { id: proj.id, name: 'Wild Beauty' }, count: 5 }],
+      },
+    );
+    const text = (k: string) => rest(r, k)?.items.map((i) => [i.title, i.owner, i.check_text, i.can_bring_forward]);
+    const turn = rest(r, 'waiting_turn')!.items;
+    expect(turn.find((i) => i.key === taskKey(waitingNoDay.id))).toMatchObject({
+      check_text: "Gets a day in tonight's sort",
+      owner: 'You',
+      check_at: null,
+      past_check: false,
+    });
+    expect(turn.filter((i) => i.title === 'A task' && i.check_text === 'Joins Next when a row frees up')).toHaveLength(1);
+    expect(text('held_projects')).toEqual([['Wild Beauty', 'The Wild Beauty project', 'When Wild Beauty starts', false]]);
+    expect(text('review_pieces')).toEqual([['2 finished pieces for Grok', 'The Grok sign-off', 'With the Grok sign-off', false]]);
+    expect(text('new_mail')).toEqual([['1 new message', 'You', 'Shows after one business day', false]]);
+    expect(text('older_threads')?.[0].slice(1)).toEqual(['You', 'No set day. Open the thread to answer or close it.', true]);
+    expect(text('ventures')?.[0].slice(1)).toEqual(['You, other hat', 'No set day. Other hat.', true]);
+    expect(r.everything_else.scope_line).toBe('5 tasks on unsigned or paused projects are kept as scope, not work.');
+  });
+
+  it('past_check is true for an item still in rest after its day', () => {
+    const t = clientTask({ clock_started_at: d('2026-10-12T14:00:00Z') });
+    const others = [1, 2, 3].map(() => clientTask({ clock_started_at: d('2026-10-12T14:00:00Z') }));
+    const arrivedLate = makeTask({ client: active });
+    const r = sel({ tasks: [t, ...others, arrivedLate] }, [
+      makeState(taskKey(arrivedLate.id), { view_at: d('2026-11-09T05:05:00Z'), view_set_by: 'keeper' }),
+    ]);
+    const item = rest(r, 'waiting_turn')!.items.find((i) => i.key === taskKey(arrivedLate.id))!;
+    expect(item.past_check).toBe(true);
+    expect(r.everything_else.past_day).toBe(1);
+    expect(r.everything_else.line).toContain('1 is past its day.');
+  });
+
+  it('crisis rows cannot be brought forward', () => {
+    const crisis = makeAsk({ is_urgent: true, from_email: 'a@real.example', received_at: d('2026-11-09T20:00:00Z') });
+    const r = sel({ crises: [crisis] }, [makeState(crisisKey(crisis.id), { not_emergency_at: NOW })]);
+    expect(rest(r, 'waiting_turn')?.items[0].can_bring_forward).toBe(false);
+  });
+
+  it('hard date chips: filed date with source, and the keeper reading', () => {
+    const filed = makeTask({ hard_due_at: d('2026-11-15T00:00:00.000Z'), hard_due_source: 'domain renews' });
+    const read = makeTask({ due_date: d('2026-11-15T00:00:00.000Z') });
+    const r = sel({ tasks: [filed, read] }, [
+      makeState(taskKey(read.id), { read_hard_due_at: d('2026-11-15T00:00:00.000Z'), read_hard_due_source: 'date from the task, source unclear' }),
+    ]);
+    const chip = (id: string) => r.candidates.find((c) => c.key === taskKey(id))!.item.hard_date;
+    expect(chip(filed.id)).toBe('Due Sunday, November 15 (domain renews)');
+    expect(chip(read.id)).toBe('Due Sunday, November 15 (date from the task, source unclear)');
+  });
+
+  it('rule 7 sends a close hard_due_at to Needs you now, never a "source unclear" reading', () => {
+    const filed = makeTask({ hard_due_at: d('2026-11-11T00:00:00.000Z'), hard_due_source: 'domain renews' });
+    const read = makeTask({ due_date: d('2026-11-11T00:00:00.000Z') });
+    const r = sel({ tasks: [filed, read] }, [
+      makeState(taskKey(read.id), { read_hard_due_at: d('2026-11-11T00:00:00.000Z'), read_hard_due_source: null }),
+    ]);
+    expect(keys(r.sections.needs_you_now)).toEqual([taskKey(filed.id)]);
+    expect(r.sections.needs_you_now[0].why_now).toBe('A real outside date is close.');
+    expect(r.candidates.find((c) => c.key === taskKey(read.id))!.rule).toBeNull();
+    expect(r.candidates.find((c) => c.key === taskKey(read.id))!.item.hard_date).toContain('date from the task, source unclear');
+  });
+});
+
+describe('Slice 2: Handled for you merges keeper lines', () => {
+  it('merges keeper lines with classifier closes, newest first, capped at 5', () => {
+    const keeper = (n: number) => ({
+      id: `k${n}`,
+      action: 'keeper_stagger' as const,
+      text: `Gave ${n} waiting tasks a day to come back, at most 3 a day, starting Wednesday.`,
+      details: ['One task'],
+      at: d(`2026-11-09T1${n}:30:00Z`),
+      undo_until: d('2026-11-12T10:00:00Z'),
+    });
+    const handled = (n: number) => ({
+      id: `h${n}`,
+      from_name: 'Pat',
+      from_email: 'pat@x.example',
+      subject: `S${n}`,
+      gist: null,
+      client_name: null,
+      deep_link: `https://mail.google.com/${n}`,
+      handled_at: d(`2026-11-09T1${n}:00:00Z`),
+    });
+    const r = sel({ auto_handled: [0, 1, 2, 3].map(handled), keeper_lines: [1, 2, 3].map(keeper) });
+    expect(r.sections.handled.map((h) => h.id)).toEqual(['k3', 'h3', 'k2', 'h2', 'k1']);
+    expect(r.sections.handled[0]).toMatchObject({ undo_action_id: 'k3', details: ['One task'], href: null });
+    expect(r.sections.handled[1]).toMatchObject({ undo_action_id: null, details: [] });
+    expect(r.sections.handled_more).toEqual({ count: 2, text: '2 more handled' });
   });
 });

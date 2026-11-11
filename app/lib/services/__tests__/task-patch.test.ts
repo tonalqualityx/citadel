@@ -251,3 +251,42 @@ describe('patchTask with expect: compare-and-set', () => {
       .rejects.toMatchObject({ code: 'P2003' });
   });
 });
+
+describe('patchTask hard due date (home screen Slice 2)', () => {
+  it('sets hard_due_at and source and does not touch due_date', async () => {
+    const ex = existing();
+    echo(ex);
+    const r = await patchTask({ actor: ADMIN, id: ID, body: { hard_due_at: '2026-11-20T00:00:00.000Z', hard_due_source: 'domain renews' }, existing: ex });
+    expect(r.ok).toBe(true);
+    const data = update.mock.calls[0][0].data;
+    expect(data.hard_due_at).toEqual(new Date('2026-11-20T00:00:00.000Z'));
+    expect(data.hard_due_source).toBe('domain renews');
+    expect('due_date' in data).toBe(false);
+  });
+
+  it('null clears the date and its source', async () => {
+    const ex = existing();
+    echo(ex);
+    await patchTask({ actor: ADMIN, id: ID, body: { hard_due_at: null }, existing: ex });
+    const data = update.mock.calls[0][0].data;
+    expect(data.hard_due_at).toBeNull();
+    expect(data.hard_due_source).toBeNull();
+    expect('due_date' in data).toBe(false);
+  });
+
+  it('a date without a source is rejected and writes nothing', async () => {
+    const ex = existing();
+    echo(ex);
+    await expect(patchTask({ actor: ADMIN, id: ID, body: { hard_due_at: '2026-11-20T00:00:00.000Z' }, existing: ex })).rejects.toThrow();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('a body without the new fields has no hard date keys in the write', async () => {
+    const ex = existing();
+    echo(ex);
+    await patchTask({ actor: ADMIN, id: ID, body: { title: 'New title' }, existing: ex });
+    const data = update.mock.calls[0][0].data;
+    expect('hard_due_at' in data).toBe(false);
+    expect('hard_due_source' in data).toBe(false);
+  });
+});
