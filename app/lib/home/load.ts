@@ -877,7 +877,7 @@ async function loadThreads(db: PrismaClient): Promise<RawThread[]> {
     orderBy: { received_at: 'desc' },
   });
 
-  // Work stage B: only a reply_mike ask (or an undecided old one) is owed; a meeting request shows as a row that wants a time. Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
+  // Work stage B: only a reply_mike ask (or an undecided old one, or a work ask with no live task) is owed; a meeting request shows as a row that wants a time. Work stage A: an ask a live task carries is not the owner's to answer (lib/work/owed.ts, the one rule). It is no thread
   // row, so it is never owed, never drafted and never an arc step. The drafter's queue reads these same threads.
   const taskFacts = await linkedTaskFacts(db, rows);
 

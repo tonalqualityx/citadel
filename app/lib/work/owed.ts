@@ -37,14 +37,24 @@ export function askIsMine(ask: AskLinkFacts, taskById: ReadonlyMap<string, Linke
   return false;
 }
 
+/** True when a task that is not deleted carries the ask (the ask is linked and the task is live). */
+function carriedByLiveTask(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
+  if (!ask.task_id) return false;
+  const task = taskById.get(ask.task_id);
+  return !!task && !task.is_deleted;
+}
+
 /**
  * Work stage B, the owed rule: an ask is owed only when askIsMine holds AND its disposition is reply_mike, or it has none (a legacy
- * row, which behaves exactly as before until the replay decides it; the 21-day look-back is the existing thread age rule). The drafter's
- * queue, short drafts, clocks and Slack lines all read this one function. An urgent ask keeps its emergency path (it is never a thread).
+ * row, which behaves exactly as before until the replay decides it; the 21-day look-back is the existing thread age rule), or it is
+ * `work` with no live task linked (the classifier's follow-up link failed or the task was deleted, so the email would otherwise be
+ * invisible: it is owed exactly like reply_mike until a task carries it). The drafter's queue, short drafts, clocks and Slack lines
+ * all read this one function. An urgent ask keeps its emergency path (it is never a thread).
  */
 export function askIsOwed(ask: AskLinkFacts, taskById: ReadonlyMap<string, LinkedTaskFacts>): boolean {
   if (!askIsMine(ask, taskById)) return false;
-  return ask.disposition == null || ask.disposition === 'reply_mike';
+  if (ask.disposition == null || ask.disposition === 'reply_mike') return true;
+  return ask.disposition === 'work' && !carriedByLiveTask(ask, taskById);
 }
 
 /**

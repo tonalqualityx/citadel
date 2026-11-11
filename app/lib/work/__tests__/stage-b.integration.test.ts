@@ -244,9 +244,21 @@ describe.skipIf(!SCRATCH)('Work stage B: one intake decision per message (real d
       expect(queued).not.toContain(mid('work'));
     });
 
-    it('an open work ask is not owed even when no task linked yet (only reply_mike is owed)', async () => {
+    it('an open work ask with no live task is owed exactly like reply_mike (a failed follow-up link must not hide the email), and a task gives it away', async () => {
       await sync([wire('workfloat', { disposition: 'work', subject: 'Change the hours' })]);
+      expect(await row('workfloat')).toMatchObject({ state: 'open', disposition: 'work', task_id: null });
+      expect(await inThreads('workfloat')).toBe(true);
+      const { raw } = await screen();
+      expect(owedQueue({}, raw.threads, [], NOW).flatMap((e) => e.thread.asks.map((a) => a.message_id))).toContain(mid('workfloat'));
+
+      // A live task carries it: gone from the screen. A deleted task gives it back.
+      const t = await prisma.task.create({ data: { title: `Change the hours ${tag}`, status: 'in_progress', assignee_id: adminId, client_id: clientId, tags: [] } as never });
+      taskIds.push(t.id);
+      const id = (await row('workfloat')).id;
+      await prisma.emailAsk.update({ where: { id }, data: { task_id: t.id } });
       expect(await inThreads('workfloat')).toBe(false);
+      await prisma.task.update({ where: { id: t.id }, data: { is_deleted: true } });
+      expect(await inThreads('workfloat')).toBe(true);
     });
 
     it('a meeting ask is a row that wants a time (never owed, never drafted) and closes when an event with that attendee lands', async () => {
@@ -303,15 +315,15 @@ describe.skipIf(!SCRATCH)('Work stage B: one intake decision per message (real d
       expect(owedQueue({}, raw.threads, [], NOW).flatMap((e) => e.thread.asks.map((a) => a.message_id))).toContain(mid('old'));
     });
 
-    it('the drafter queue lists only reply_mike (and legacy) threads: no thank-you, work, meeting', async () => {
+    it('the drafter queue lists only reply_mike, legacy and unlinked work threads: no thank-you, meeting, waiting', async () => {
       await sync([wire('rep', { subject: 'Can you send the quote', disposition: 'reply_mike' })]);
       const { raw } = await screen();
       const queued = owedQueue({}, raw.threads, [], NOW).flatMap((e) => e.thread.asks.map((a) => a.message_id));
       expect(queued).toContain(mid('rep'));
-      for (const k of ['workfloat', 'wait1', 'wait2']) expect(queued).not.toContain(mid(k));
+      for (const k of ['wait1', 'wait2']) expect(queued).not.toContain(mid(k));
       for (const m of queued.filter((q) => q.startsWith(tag))) {
         const r = await prisma.emailAsk.findUniqueOrThrow({ where: { message_id: m } });
-        expect([null, 'reply_mike']).toContain(r.disposition);
+        expect([null, 'reply_mike', 'work']).toContain(r.disposition);
       }
     });
 
