@@ -153,6 +153,24 @@ export const dashboardEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/home/send',
+    group: 'dashboard',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Send the draft: Mike\'s own press on Bast\'s draft for a thread. Queues one held outbox reply (kind owed_reply) that the courier lane\'s sender claims after 10 minutes. Browser session only, and only while his owed_send switch is on.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'item_key', type: 'string', required: true, description: 'thread:<account>:<thread id>.' },
+          { name: 'draft_id', type: 'string', required: true, description: 'Bast\'s current Gmail draft id for the newest open mail on the thread, or the short holding draft\'s id.' },
+        ],
+        responseExample: { ok: true, action_id: 'uuid', send_after: 'ISO-8601', item_key: 'string', message: 'string' },
+        responseNotes: 'Answers 403 for an API key or the chat (a browser session only) and when the home view is off. 409 with code send_off while the switch is off (the default: no settings row means off), not_current, already_queued or draft_blank. Nothing is sent by this call; undo is POST /api/home/undo until send_after, which cancels the held row.',
+      },
+    ],
+  },
+  {
     path: '/api/home/undo',
     group: 'dashboard',
     methods: [
@@ -165,7 +183,7 @@ export const dashboardEndpoints: ApiEndpoint[] = [
           { name: 'action_id', type: 'uuid', required: true, description: 'The action_id from a POST /api/home/act response' },
         ],
         responseExample: { ok: true, action_id: 'uuid', item_key: 'string|null' },
-        responseNotes: 'Answers 403 unless the caller is an admin whose own home_view preference is home. Refused with 409 when the 24-hour undo window has passed, when the action was already undone, or when the action has no undo (record without undo).',
+        responseNotes: 'Answers 403 unless the caller is an admin whose own home_view preference is home. Refused with 409 when the 24-hour undo window has passed, when the action was already undone, or when the action has no undo (record without undo). A Send the draft press is undone here too, until its 10-minute hold ends, and answers 409 undo_expired after that.',
       },
     ],
   },

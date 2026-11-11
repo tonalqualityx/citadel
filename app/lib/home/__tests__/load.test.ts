@@ -92,6 +92,9 @@ function makeDb() {
     homeAction: { findMany: vi.fn().mockResolvedValue([]) },
     homeOwedThread: { findMany: vi.fn().mockResolvedValue([]) },
     homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
+    // Slice 4b: the switch (no row = off) and the outbox rows of his presses.
+    homeKeeperSettings: { findUnique: vi.fn().mockResolvedValue(null) },
+    emailOutbox: { findMany: vi.fn().mockResolvedValue([]) },
     homeSiteIncident: { findMany: vi.fn().mockResolvedValue([]) },
     homeScoreWeight: { findMany: vi.fn().mockResolvedValue([]) },
     decision: { findMany: vi.fn().mockResolvedValue([]) },

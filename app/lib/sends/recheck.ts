@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db/prisma';
 import { CLIENT_APPROVED_TAG } from '@/lib/services/portal';
 import type { Govern } from './govern';
 import { GO_LIVE_TAG, previewTag } from './claims';
+import { recheckOwedReply } from './owed-reply';
 
 export { GO_LIVE_TAG, PREVIEW_TAG_PREFIX, previewTag, claimNotice, releaseNotice, clearPreviewClaims } from './claims';
 
@@ -88,6 +89,12 @@ export async function recheckSend(govern: Govern, now: Date = new Date()): Promi
         if (!r || r.status !== 'queued') return drop('request_not_queued');
       }
       return OK;
+    }
+
+    case 'owed_reply': {
+      // Home Slice 4b: always enforced (the claim route runs recheckOwedReply itself, with the row's hold).
+      const r = await recheckOwedReply(govern, null);
+      return r.ok ? OK : drop(r.reason);
     }
 
     case 'notice_internal': {

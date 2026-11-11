@@ -37,6 +37,7 @@ import { loadWeights } from './learn/weights-store';
 import { loadNotEmergencyRules } from './emergency/read';
 import { loadProjectSteps } from './projects/load';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
+import { SEND_ACTION } from './owed/send-copy';
 import type {
   KeeperActionKind,
   RawArcRef,
@@ -48,6 +49,7 @@ import type {
   RawHeldProject,
   RawHomeInputs,
   RawKeeperLine,
+  RawOwedSend,
   RawProjectRef,
   RawRequirement,
   RawSiteIncident,
@@ -479,6 +481,70 @@ async function loadDrafterFreshAt(db: PrismaClient, userId: string): Promise<Dat
 }
 
 // ============================================================================
+// Slice 4b: Send the draft
+// ============================================================================
+
+const SEND_LINE_MS = 24 * 60 * 60 * 1000;
+const SEND_EXPIRE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * U's own switch (HomeKeeperSettings.owed_send; no settings row is off) and U's presses on Send the draft in the last 24 hours
+ * that were not undone, each with where its held outbox row stands. A press whose switch is now off, or whose hold ended long
+ * ago without a send, reads as not sent. Reads only.
+ */
+async function loadOwedSend(db: PrismaClient, userId: string, now: Date): Promise<{ on: boolean; sends: RawOwedSend[] }> {
+  const settings = await db.homeKeeperSettings.findUnique({ where: { user_id: userId }, select: { owed_send: true } });
+  const on = settings?.owed_send === true;
+  const actions = await db.homeAction.findMany({
+    where: { user_id: userId, action: SEND_ACTION, undone_at: null, created_at: { gte: new Date(now.getTime() - SEND_LINE_MS) } },
+    select: { id: true, item_key: true, after: true, created_at: true },
+    orderBy: { created_at: 'desc' },
+    take: 50,
+  });
+  if (actions.length === 0) return { on, sends: [] };
+  const afterOf = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+  const ids = actions.map((a) => afterOf(a.after).outbox_id).filter((x): x is string => typeof x === 'string');
+  const rows = ids.length
+    ? await db.emailOutbox.findMany({ where: { id: { in: ids } }, select: { id: true, sent_at: true, superseded_at: true, superseded_reason: true, last_error: true, attempts: true } })
+    : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const sends: RawOwedSend[] = [];
+  for (const a of actions) {
+    const after = afterOf(a.after);
+    const out = typeof after.outbox_id === 'string' ? byId.get(after.outbox_id) : undefined;
+    const sendAfter = typeof after.send_after === 'string' ? new Date(after.send_after) : null;
+    if (!a.item_key || !out || !sendAfter || Number.isNaN(sendAfter.getTime())) continue;
+    if (out.superseded_reason === 'cancelled_by_mike') continue;
+    let status: RawOwedSend['status'] = 'pending';
+    let reason: string | null = null;
+    if (out.sent_at) status = 'sent';
+    else if (out.superseded_at) {
+      status = 'failed';
+      reason = out.superseded_reason;
+    } else if (!on) {
+      status = 'failed';
+      reason = 'send_off';
+    } else if (out.attempts > 0 && out.last_error) {
+      status = 'failed';
+      reason = out.last_error;
+    } else if (now.getTime() - sendAfter.getTime() > SEND_EXPIRE_MS) {
+      status = 'failed';
+      reason = 'expired';
+    }
+    sends.push({
+      action_id: a.id,
+      item_key: a.item_key,
+      who: typeof after.who === 'string' && after.who ? after.who : 'them',
+      send_after: sendAfter,
+      pressed_at: a.created_at,
+      status,
+      reason,
+    });
+  }
+  return { on, sends };
+}
+
+// ============================================================================
 // Review sign-offs
 // ============================================================================
 
@@ -838,6 +904,9 @@ export async function loadHomeInputs(
       resolveZone(db, userId, opts.timezone),
     ]);
 
+  // After the parallel reads, so the earlier home_actions reads keep their order.
+  const owedSend = await loadOwedSend(db, userId, now);
+
   return {
     user_id: userId,
     now,
@@ -859,5 +928,7 @@ export async function loadHomeInputs(
     not_emergency_rules: notEmergencyRules,
     project_steps: projectSteps,
     weights,
+    owed_send: owedSend.on,
+    owed_sends: owedSend.sends,
   };
 }

@@ -237,7 +237,9 @@ describe('Slice 4a copy', () => {
     expect(copy.ACTION_LABELS.needs_thought).toBe('Needs thought');
     expect(copy.ACTION_LABELS.go_with_that).toBe('Go with that');
   });
-  it('no label says send', () => {
-    for (const label of Object.values(copy.ACTION_LABELS)) expect(label).not.toMatch(/\bsend\b/i);
+  it('no label says send, except the two Slice 4b buttons (they exist only while his owed_send switch is on)', () => {
+    const { send_draft, send_short, ...rest } = copy.ACTION_LABELS;
+    expect([send_draft, send_short]).toEqual(['Send the draft', 'Send the short one']);
+    for (const label of Object.values(rest)) expect(label).not.toMatch(/\bsend\b/i);
   });
 });

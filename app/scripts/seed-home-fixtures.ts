@@ -755,6 +755,8 @@ async function main() {
   console.log(`Admin login (home_view = home):   ${ADMIN_EMAIL}  /  ${DEV_PASSWORD}`);
   console.log(`Tech login  (home_view = overlook): ${TECH_EMAIL}  /  ${DEV_PASSWORD}`);
   console.log(`Seeded for ${dateStr} (${TZ}).`);
+  console.log('Slice 4b: Send the draft is OFF. This seed creates no home_keeper_settings row, so the screen shows no Send button.');
+  console.log('  To try it on this scratch database only: INSERT INTO home_keeper_settings (id, user_id, owed_send, updated_at) VALUES (gen_random_uuid(), <admin id>, true, now());');
   console.log('Slice 2a fixture task ids (key: id):');
   for (const [k, v] of Object.entries(s2)) console.log(`  ${k}: ${v}`);
 }

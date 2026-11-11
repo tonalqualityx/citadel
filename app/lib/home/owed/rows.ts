@@ -134,3 +134,19 @@ export async function undoOwedMark(db: HomeDb, userId: string, key: string, befo
   }
   if (Object.keys(patch).length > 0) await db.homeOwedThread.update({ where: { user_id_thread_key: { user_id: userId, thread_key: key } }, data: patch });
 }
+
+// ----------------------------------------------------------------------------
+// After the courier's /sent
+// ----------------------------------------------------------------------------
+
+/** The thread's owed row after a delivered reply: state sent, the sent draft forgotten so nothing ever updates it. */
+export async function markOwedThreadSent(db: HomeDb, userId: string, threadKey: string): Promise<void> {
+  await db.homeOwedThread.updateMany({
+    where: { user_id: userId, thread_key: threadKey },
+    data: {
+      state: 'sent', request_kind: null, requested_at: null,
+      draft_id: null, draft_message_id: null, draft_hash: null, draft_text: null, draft_for_ask_id: null,
+      short_draft_id: null, short_draft_hash: null, short_draft_text: null,
+    },
+  });
+}

@@ -86,6 +86,7 @@ import { HANDS_ITEM_KEY, HANDS_REST_GROUP, handsRow, isHandsTask, type HandsTask
 import { matchesNotEmergencyRule, ruleScopesFor } from './emergency/rule';
 import { siteDownItems, siteHostOf, type IncidentRow, type SiteDownItem } from './emergency/site';
 import { AUTO_DRAFT_LINE, LEAD_ASK, NEW_MESSAGE_AFTER_DRAFT, SHORT_READY_LINE, WOKE_LINE, IF_IGNORED_4C, leadDueLine, waitingLine } from './owed/copy';
+import { notSentLine, sendFailureReason, sentLine, sendingLine } from './owed/send-copy';
 import { isLeadNow, leadResurfacedPastPark, owedClock, weekdayIn, wokeByNewMessage } from './owed/clock';
 import { mergeJoinedThreads, repliedElsewhere, type JoinRow } from './owed/join';
 import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
@@ -454,6 +455,7 @@ interface Draft {
     owedLead?: boolean;
     owedLeadAsk?: boolean;
     owedShort?: boolean;
+    owedSend?: { full: boolean; short: boolean };
     /** Slice 6a: a site down row's mail link, site link and "If you do nothing" line. */
     mailUrl?: string | null;
     siteUrl?: string | null;
@@ -759,6 +761,7 @@ function buildThread(
   owed: OwedRow | undefined,
   drafterFreshAt: Date | null,
   timezone: string,
+  sendOn = false,
 ): Draft {
   const score = scoreThread(th, now);
   const newest = th.asks[0];
@@ -778,6 +781,9 @@ function buildThread(
   const cameBack = status === 'show' && leadResurfacedPastPark(clock.lead, st, now);
   // His short holding draft is shown only while the full draft it came from still covers the newest message.
   const showShort = !!owed?.short_draft_id && !!owed.short_draft_text && owedState !== 'stale_draft' && owedState !== 'his_draft' && owedState !== 'his_draft_older';
+  // Slice 4b: the Send buttons exist only while the owner's switch is on and the draft is Bast's current, untouched one with no blank left in it.
+  const sendFull = sendOn && status === 'show' && owedState === 'draft_ready' && owed?.state === 'drafted' && !!owed.draft_id && !!owed.draft_text && !owed.draft_text.includes('[[');
+  const sendShort = sendOn && status === 'show' && showShort && (owedState === 'draft_ready' || owedState === 'needs_thought') && !!owed?.short_draft_id && !(owed.short_draft_text ?? '').includes('[[');
   const minutes = draftUrl ? MINUTES.threadWithDraft : MINUTES.threadNoDraft;
   const said = stripEndPeriod(displayText(newest.gist) || displayText(newest.subject)) || 'a message';
   const links: { label: string; href: string }[] = [];
@@ -825,6 +831,7 @@ function buildThread(
     project,
     owed_state: owedState,
     owed_line: owedLine,
+    ...(sendFull || sendShort ? { owed_send: { draft_id: sendFull ? owed!.draft_id : null, short_draft_id: sendShort ? owed!.short_draft_id! : null } } : {}),
   };
   return {
     cand: {
@@ -853,6 +860,7 @@ function buildThread(
       owedLead: lead,
       owedLeadAsk: leadAsk,
       owedShort: showShort,
+      owedSend: sendFull || sendShort ? { full: sendFull, short: sendShort } : undefined,
       owedIfIgnored:
         status !== 'show'
           ? null
@@ -1142,7 +1150,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     botTask: c.botTask,
     owedThread:
       c.kind === 'thread' && ctx.thread?.status === 'show'
-        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort }
+        ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion, lead: ctx.owedLead, leadAsk: ctx.owedLeadAsk, short: ctx.owedShort, send: ctx.owedSend }
         : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
@@ -1251,6 +1259,9 @@ export function selectHome(input: SelectInput): SelectResult {
   let youngThreads = 0;
   // Slice 4c: threads joined across inboxes are one conversation, and one that someone on our side already answered leaves.
   const joinedThreads = mergeJoinedThreads(raw.threads, raw.owed_rows);
+  // Slice 4b: a thread whose reply is waiting out the hold, or already went, leaves People. A send that did not go brings it back.
+  const sendingKeys = new Set((raw.owed_sends ?? []).filter((x) => x.status !== 'failed').map((x) => x.item_key));
+  const sendOn = raw.owed_send === true;
   for (const th of joinedThreads.threads) {
     const key = threadKey(th.account, th.thread_id);
     const owedRow = owedByKey.get(key);
@@ -1262,7 +1273,8 @@ export function selectHome(input: SelectInput): SelectResult {
     if (status === 'young') youngThreads += 1;
     if (status === 'show' || status === 'older') {
       if (repliedElsewhere(key, joinedThreads.members.get(key) ?? [], owedByKey as ReadonlyMap<string, JoinRow>, newestAsk.received_at)) continue;
-      push(buildThread(th, status, now, refs, states.get(key), owedRow, raw.drafter_fresh_at, raw.timezone));
+      if (sendingKeys.has(key)) continue;
+      push(buildThread(th, status, now, refs, states.get(key), owedRow, raw.drafter_fresh_at, raw.timezone, sendOn));
     }
   }
   // Slice 6a: site down rows, and the mails an uptime check already covers.
@@ -1701,7 +1713,21 @@ export function selectHome(input: SelectInput): SelectResult {
     undo_action_id: NO_UNDO_LINES.includes(k.action) ? null : k.id,
     details: k.details.map((x) => displayText(x)).filter((x) => x !== ''),
   }));
-  const handledAll = [...closed, ...kept].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
+  // Slice 4b: Handled for you shows each press on Send the draft: sending (Undo until the hold ends), sent, or not sent.
+  const sends: HomeQuietLine[] = (raw.owed_sends ?? []).map((x) => ({
+    id: x.action_id,
+    text:
+      x.status === 'sent'
+        ? sentLine(displayText(x.who))
+        : x.status === 'failed'
+          ? notSentLine(sendFailureReason(x.reason))
+          : sendingLine(displayText(x.who), x.send_after, raw.timezone),
+    href: null,
+    at: x.pressed_at.toISOString(),
+    undo_action_id: x.status === 'pending' && x.send_after.getTime() > now.getTime() ? x.action_id : null,
+    details: [],
+  }));
+  const handledAll = [...closed, ...kept, ...sends].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
   const handled = handledAll.slice(0, CAPS.handled);
   const moreCount = Math.max(0, handledAll.length - CAPS.handled);
 

@@ -1153,6 +1153,9 @@ export async function runHomeUndo(
     if (row.undone_at) throw new HomeActError('undo_used');
     // Slice 4a: the keeper's "Drafted replies" line has no Undo; the drafts are his to keep or discard in Gmail.
     if (row.action === OWED_ACTION) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
+    // Slice 4b: a press on "Send the draft" is undone only on the home screen (POST /api/home/undo cancels the held send). Any other
+    // caller of this function, the chat included, is refused.
+    if (row.action === 'send_draft') throw new HomeActError('not_undoable', 'Undo that on the home screen.');
     // Slice 6a: a saved rule is undone through its own store (it retracts the Decision); the generic undo would leave it confirmed.
     if (row.action === RULE_ACTION) throw new HomeActError('not_undoable', 'A saved rule is removed from its own line under Handled for you.');
     const before = asSide(row.before);

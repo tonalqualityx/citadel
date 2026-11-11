@@ -127,7 +127,10 @@ export type HomeActionId =
   | 'close_lead'
   | 'open_short'
   | 'open_project'
-  | 'step_done';
+  | 'step_done'
+  // Slice 4b: Send the draft. Never a home act: these post to /api/home/send (a session-only route); homeActSchema refuses them.
+  | 'send_draft'
+  | 'send_short';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -282,6 +285,11 @@ export interface HomeItem {
   owed_state?: OwedState | null;
   /** Slice 4a, threads only: the words after the age on the row ("Draft ready", "Their new message came after your draft."), or null. */
   owed_line?: string | null;
+  /**
+   * Slice 4b, threads only: the Gmail draft ids the Send buttons post to /api/home/send. Present only while the owner's owed_send
+   * switch is on and the draft qualifies; absent (or null) otherwise, and then no Send button exists.
+   */
+  owed_send?: { draft_id: string | null; short_draft_id: string | null } | null;
   /**
    * Slice 6a: the choices "Not an emergency" offers as a rule (crisis mail and site down rows only), else absent or [].
    * Each is a scope the rule route accepts. The card asks "Why? This becomes a rule." before saving.
@@ -1040,6 +1048,10 @@ export interface RawHomeInputs {
    * deep-equal to a run that never loaded weights. Server only; no number from a weight reaches the browser.
    */
   weights?: RawWeight[];
+  /** Slice 4b: HomeKeeperSettings.owed_send for U. Absent or false = off (no settings row is off). */
+  owed_send?: boolean;
+  /** Slice 4b: U's presses on Send the draft in the last 24 hours that were not undone. Absent or [] when none. */
+  owed_sends?: RawOwedSend[];
 }
 
 /** Slice 7b: one learned weight on a piece of evidence (client:, project:, sop:, type:, sender:). */
@@ -1061,6 +1073,19 @@ export interface RawProjectStep {
   step_at: Date | null;
   /** The newest updated_at among the project's tasks, else the project's own updated_at. */
   last_activity_at: Date;
+}
+
+/** Slice 4b: one press on "Send the draft", with where its held outbox row stands. */
+export interface RawOwedSend {
+  action_id: string;
+  item_key: string;
+  who: string;
+  send_after: Date;
+  pressed_at: Date;
+  /** pending: waiting for the hold or the sender; sent: delivered; failed: it did not go (the draft is still in Gmail). */
+  status: 'pending' | 'sent' | 'failed';
+  /** For failed: the superseded_reason or last_error, mapped to words by sendFailureReason. */
+  reason: string | null;
 }
 
 /** Slice 6a: a home_site_incident row plus what the screen needs from its site, client and mails. */

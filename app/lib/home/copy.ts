@@ -200,6 +200,8 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   open_short: 'Open the short one',
   open_project: 'Open the project',
   step_done: 'I did this',
+  send_draft: 'Send the draft',
+  send_short: 'Send the short one',
 };
 
 /** "Approve all 39". */

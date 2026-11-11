@@ -3909,8 +3909,11 @@ model EmailOutbox {
   govern            Json?
   superseded_at     DateTime?
   superseded_reason String?   @db.VarChar(64)
+  // Home Slice 4b: not claimable before this (the 10-minute hold on "Send the draft"). Null = no hold, as for every other kind.
+  send_after        DateTime?
 
   @@index([sent_at, created_at])
+  @@index([kind, send_after])
   @@map("email_outbox")
 }
 
@@ -4870,6 +4873,8 @@ model HomeKeeperSettings {
   arcs_close      Boolean  @default(false)
   arcs_link_tasks Boolean  @default(false)
   learn_weights   Boolean  @default(true) // Slice 7b; a missing row also means on
+  // Home Slice 4b: "Send the draft". Off until Mike says yes; no row is created by the slice, so a missing row means off.
+  owed_send       Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   @@map("home_keeper_settings")
@@ -4881,7 +4886,7 @@ model HomeOwedThread {
   user_id           String    @db.Uuid
   user              User      @relation("HomeOwedThreadUser", fields: [user_id], references: [id], onDelete: Cascade)
   thread_key        String    @db.VarChar(300)   // thread:<account>:<thread_id>
-  state             String    @default("queued") @db.VarChar(20) // queued | drafted | needs_thought | failed
+  state             String    @default("queued") @db.VarChar(20) // queued | drafted | needs_thought | failed | sent
   request_kind      String?   @db.VarChar(20)    // draft | read | go_with_that (a pending tap)
   requested_at      DateTime?
   draft_id          String?   @db.VarChar(64)    // Gmail draft id (Bast's only)

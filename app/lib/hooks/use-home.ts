@@ -92,6 +92,19 @@ export function postHomeRule(body: { item_key: string; scope: 'sender' | 'domain
   return apiClient.post<HomeSavedRule>('/home/rule', body);
 }
 
+/** POST /api/home/send, 200 (Slice 4b; the route is session only and answers 409 send_off while the switch is off). */
+export interface HomeSendResult {
+  ok: true;
+  action_id: string;
+  send_after: string;
+  item_key: string;
+  message: string;
+}
+
+export function postHomeSend(body: { item_key: string; draft_id: string }): Promise<HomeSendResult> {
+  return apiClient.post<HomeSendResult>('/home/send', body);
+}
+
 export function postHomeUndo(actionId: string): Promise<HomeUndoResponse> {
   const body: HomeUndoRequest = { action_id: actionId };
   return apiClient.post<HomeUndoResponse>('/home/undo', body);
@@ -183,6 +196,38 @@ export function useHomeRule() {
         return false;
       }
       showToast.success(res.rule.line, {
+        action: { label: 'Undo', onClick: () => void undo(res.action_id) },
+        duration: UNDO_DURATION_MS,
+      });
+      await refetchHome(queryClient);
+      return true;
+    },
+    [queryClient, undo],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// useHomeSend (Slice 4b)
+// ---------------------------------------------------------------------------
+
+/**
+ * `(item, draftId) => Promise<boolean>`: Mike's press on Send the draft (or Send the short one). Toasts the server's line
+ * ("Sending your reply to {name} at {time}.") with Undo, which cancels the held send until the hold ends, then refetches.
+ * A refusal shows the server's own plain sentence. This is its own route (browser session only): the chat cannot reach it.
+ */
+export function useHomeSend() {
+  const queryClient = useQueryClient();
+  const undo = useHomeUndo({ doneText: 'Cancelled. Nothing was sent.' });
+  return useCallback(
+    async (item: HomeItem, draftId: string): Promise<boolean> => {
+      let res: HomeSendResult;
+      try {
+        res = await postHomeSend({ item_key: item.key, draft_id: draftId });
+      } catch (error) {
+        showToast.error(error instanceof Error && error.message ? error.message : HOME_FAILURE_TEXT);
+        return false;
+      }
+      showToast.success(res.message, {
         action: { label: 'Undo', onClick: () => void undo(res.action_id) },
         duration: UNDO_DURATION_MS,
       });
@@ -340,6 +385,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
   const queryClient = useQueryClient();
   const router = useRouter();
   const act = useHomeAct();
+  const send = useHomeSend();
   const openTaskRef = useRef(options.openTask);
   openTaskRef.current = options.openTask;
   const openProjectRef = useRef(options.openProject);
@@ -512,6 +558,13 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'go_with_that':
           await act({ action: 'go_with_that', item_key: item.key });
           return true;
+        // Slice 4b: Send the draft, from his own press, through its own session-only route (never a home act). The draft id comes from the item.
+        case 'send_draft':
+        case 'send_short': {
+          const draftId = action.id === 'send_draft' ? item.owed_send?.draft_id : item.owed_send?.short_draft_id;
+          if (!draftId) return false;
+          return send(item, draftId);
+        }
         // Slice 4c: a lead's clock.
         case 'keep_lead':
           await act({ action: 'keep_lead', item_key: item.key });
@@ -534,7 +587,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
       }
     },
-    [act, finish, queryClient, router],
+    [act, send, finish, queryClient, router],
   );
 
   const run = useCallback(
@@ -550,7 +603,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'send_draft', 'send_short'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

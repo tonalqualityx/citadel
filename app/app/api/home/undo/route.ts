@@ -12,6 +12,7 @@ import { homeUndoSchema, runHomeUndo } from '@/lib/home/act';
 import { RULE_ACTION } from '@/lib/home/emergency/copy';
 import { undoNotEmergencyRule } from '@/lib/home/emergency/store';
 import { getHomeAction } from '@/lib/home/state';
+import { cancelOwedSend, OWED_SEND_ACTION } from '@/lib/home/owed/send';
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest) {
     if (row?.action === RULE_ACTION) {
       const undone = await undoNotEmergencyRule(prisma, auth.userId, parsed.action_id, now);
       return NextResponse.json({ ok: true, action_id: parsed.action_id, item_key: undone.item_key }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    // Slice 4b: a press on "Send the draft" is undone here only (it cancels the held outbox row, compare and set). runHomeUndo
+    // refuses it for every other caller, the chat included.
+    if (row?.action === OWED_SEND_ACTION) {
+      const cancelled = await prisma.$transaction((tx) => cancelOwedSend(tx, auth.userId, parsed.action_id, now));
+      return NextResponse.json(cancelled, { headers: { 'Cache-Control': 'no-store' } });
     }
     const result = await runHomeUndo(prisma, auth.userId, parsed.action_id, now);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });

@@ -5,6 +5,9 @@ import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { writeReceipt } from '@/lib/portal/receipts'; // Fleet item 5
 import { recordChatSend } from '@/lib/portal/chat/outbox-guard';
+import { OWED_REPLY_KIND, parseGovern } from '@/lib/sends/govern';
+import { owedThreadKey } from '@/lib/sends/owed-reply';
+import { markOwedThreadSent } from '@/lib/home/owed/rows';
 
 const sentSchema = z.object({
   message_id: z.string().min(1).max(255).nullable().optional(),
@@ -22,7 +25,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
-    const existing = await prisma.emailOutbox.findUnique({ where: { id }, select: { id: true, sent_at: true, message_id: true, kind: true, task_id: true } });
+    const existing = await prisma.emailOutbox.findUnique({ where: { id }, select: { id: true, sent_at: true, message_id: true, kind: true, task_id: true, govern: true } });
     if (!existing) throw new ApiError('Outbox row not found', 404);
     if (existing.sent_at) {
       return NextResponse.json({ id, sent_at: existing.sent_at, message_id: existing.message_id });
@@ -45,6 +48,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
     if (existing.kind === 'portal_chat' && existing.task_id) {
       await recordChatSend(existing.task_id, data.message_id ?? null, data.gmail_thread_id ?? null);
+    }
+    if (existing.kind === OWED_REPLY_KIND) {
+      // Home Slice 4b: the home screen's line turns from "Sending" to "Sent" by itself (it reads this row); the thread's owed row stops being a draft.
+      const g = parseGovern(existing.govern);
+      if (g?.intent === 'owed_reply') {
+        await markOwedThreadSent(prisma, g.user_id, owedThreadKey(g)).catch((e: unknown) => console.error('owed sent mark failed', e));
+      }
     }
     if (existing.task_id) {
       // Fleet item 5: a delivered mail is a step in the task's trail. The receipt never fails the sent call.

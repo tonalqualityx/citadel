@@ -10,8 +10,9 @@ export const emailOutboxEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'GET',
-        summary: 'List unsent outbox mail, oldest first (max 50). Bodies are not included; claim returns the full row. Superseded rows are not listed.',
+        summary: 'List unsent outbox mail, oldest first (max 50). Bodies are not included; claim returns the full row. Superseded rows are not listed. Rows of kind owed_reply (Mike\'s Send the draft) are never listed here; ask for them with ?kind=owed_reply.',
         ...authFields,
+        bodySchema: [{ name: 'kind', type: 'string', required: false, description: 'Query parameter. Only owed_reply is accepted: it lists only owed_reply rows whose 10-minute hold has ended (each row also carries send_after). Any other value answers 400.' }],
         responseExample: {
           items: [{
             id: 'uuid', to: 'string', cc: 'string|null', subject: 'string',
@@ -29,7 +30,7 @@ export const emailOutboxEndpoints: ApiEndpoint[] = [
     methods: [
       {
         method: 'POST',
-        summary: 'Claim one unsent row (sets claimed_at) and return it with its body (including reply_to and reply_to_gmail_id for portal_chat rows). 409 if already claimed in the last 10 minutes, already sent, or a portal_chat recipient is no longer a person on that chat. After the claim the send-time recheck reads the govern block of the row again: when the governing record made the send wrong, the row is stamped superseded and the answer is 409 with code superseded and a reason. That is final; never retry it. Rows without govern pass and are logged as ungoverned.',
+        summary: 'Claim one unsent row (sets claimed_at) and return it with its body (including reply_to and reply_to_gmail_id for portal_chat rows). 409 if already claimed in the last 10 minutes, already sent, or a portal_chat recipient is no longer a person on that chat. After the claim the send-time recheck reads the govern block of the row again: when the governing record made the send wrong, the row is stamped superseded and the answer is 409 with code superseded and a reason. That is final; never retry it. Rows without govern pass and are logged as ungoverned. A row with a send_after in the future is not claimable (409 held, row untouched). An owed_reply row is checked again at the claim, always, whatever send_recheck_mode says: 409 no_press, superseded (undone, expired or already replied) or send_off (the owed_send switch is off; the row is left waiting).',
         ...authFields,
         responseExample: {
           id: 'uuid', to: 'string', cc: 'string|null', subject: 'string', text: 'string', html: 'string|null',

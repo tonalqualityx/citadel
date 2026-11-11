@@ -57,6 +57,8 @@ export interface ActionsInput {
     leadAsk?: boolean;
     /** Slice 4c: Bast wrote a two-line holding draft into his Gmail (Open the short one; never a Send). */
     short?: boolean;
+    /** Slice 4b: the Send buttons, present only while the owner's owed_send switch is on and the draft qualifies. */
+    send?: { full: boolean; short: boolean };
   };
   /** Slice 6a, a site down row: the mail behind it (deep link) and the site itself. */
   mailUrl?: string | null;
@@ -109,24 +111,31 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
         break;
       }
       if (input.owedThread && !input.owedThread.state?.startsWith('his_draft')) {
-        const { state, suggestion, lead, short } = input.owedThread;
+        const { state, suggestion, lead, short, send } = input.owedThread;
         if (short && input.threadUrl) {
-          // A short holding draft is in his Gmail (in the same thread): open it first. Nothing here sends it.
+          // A short holding draft is in his Gmail (in the same thread): open it first. Nothing here sends it, except his own press on Send (4b).
+          if (send?.full) primary.push(button('send_draft'));
           primary.push(button('open_short', input.threadUrl));
-          if (state === 'needs_thought' && suggestion) primary.push(button('go_with_that'));
+          if (send?.short) extras.push(button('send_short'));
+          if (send?.full) {
+            // The Send button and Open the short one fill the row; the rest sit under More.
+          } else if (state === 'needs_thought' && suggestion) primary.push(button('go_with_that'));
           else if (input.draftUrl) primary.push(button('open_draft', input.draftUrl));
           else primary.push(button('open_thread', input.threadUrl));
           if (state === 'draft_ready' || state === 'stale_draft') extras.push(button('needs_thought'));
+          if (send?.full && input.draftUrl) extras.push(button('open_draft', input.draftUrl));
           if (state === 'needs_thought') extras.push(button('open_thread', input.threadUrl), button('draft_now'));
           extras.push(button('no_reply_needed'));
           if (lead) extras.push(button('not_lead'));
           break;
         }
         if (state === 'draft_ready' || state === 'stale_draft') {
-          // Bast's draft is in his Gmail: open it, or ask for Bast's read instead.
+          // Bast's draft is in his Gmail: open it, or ask for Bast's read instead. With Send on (4b), Send the draft comes first.
+          if (send?.full) primary.push(button('send_draft'));
           if (input.draftUrl) primary.push(button('open_draft', input.draftUrl));
           else if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
-          primary.push(button('needs_thought'));
+          if (send?.full) extras.push(button('needs_thought'));
+          else primary.push(button('needs_thought'));
           extras.push(button('no_reply_needed'));
           if (lead) extras.push(button('not_lead'));
         } else if (state === 'needs_thought') {
