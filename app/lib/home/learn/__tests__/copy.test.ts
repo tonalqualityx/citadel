@@ -59,3 +59,39 @@ describe('text safety', () => {
     expect(lineIsClean(t)).toBe(true);
   });
 });
+
+describe('Slice 7b sentences', async () => {
+  const c = await import('../copy');
+  const all = (): string[] => [
+    c.learnedLine('client:x', 'Nerd Herd', 'up'),
+    c.learnedLine('client:x', 'Nerd Herd', 'down'),
+    c.learnedLine('type:session', 'session questions', 'down'),
+    c.learnedLine('project:p', 'the Alpha project', 'up'),
+    c.learnedLine('sop:s', 'tasks that follow Plugin updates', 'up'),
+    c.learnedLine('sender:a@b.co', 'mail from a@b.co', 'up'),
+    ...c.learnedDetails(3, 0),
+    ...c.learnedDetails(1, 2),
+    c.learnedFooter('client:x', 'Nerd Herd', 'up'),
+    c.learnedFooter('type:wait', 'waits', 'down'),
+    c.learnedSettingsSentence('client:x', 'Nerd Herd', 105, 'November 30'),
+    c.learnedSettingsSentence('type:review', 'sign-offs', 95, null),
+    c.LEARNED_EMPTY,
+    c.LEARNED_SWITCH_HINT,
+    c.LEARNED_ORDER_ONLY,
+  ];
+  it('reads as the plan words', () => {
+    expect(c.learnedLine('client:x', 'Nerd Herd', 'up')).toBe('Learned: Nerd Herd work now comes up a little sooner.');
+    expect(c.learnedLine('type:session', 'session questions', 'down')).toBe('Learned: Session questions now come up a little later.');
+    expect(c.learnedDetails(3, 0)[0]).toBe('You moved 3 items up and set none aside in the last 4 weeks.');
+    expect(c.learnedDetails(3, 0)[1]).toBe('This changes order only. It never changes what counts as an emergency or a real date.');
+    expect(c.learnedFooter('client:x', 'Nerd Herd', 'up')).toBe('Comes up a little sooner because you moved Nerd Herd work up before.');
+    expect(c.learnedSettingsSentence('client:x', 'Nerd Herd', 105, 'November 30')).toBe('Nerd Herd work comes up a little sooner, since November 30');
+  });
+  it('has no dash and none of the banned words, even when a name carries them', () => {
+    for (const t of all()) expect(c.lineIsClean(t), t).toBe(true);
+    expect(c.lineIsClean(c.learnedLine('client:x', 'Priority overdue Co', 'up'))).toBe(true);
+  });
+  it('carries no number from a weight', () => {
+    for (const t of [c.learnedLine('client:x', 'X', 'up'), c.learnedFooter('client:x', 'X', 'up'), c.learnedSettingsSentence('client:x', 'X', 115, null)]) expect(t).not.toMatch(/\d|percent|%/);
+  });
+});

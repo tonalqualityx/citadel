@@ -32,6 +32,8 @@ import {
 } from './rules';
 import { isItemKey } from './item-key';
 import { RULE_ACTION } from './emergency/copy';
+import { LEARNED_ACTION } from './learn/copy';
+import { loadWeights } from './learn/weights-store';
 import { loadNotEmergencyRules } from './emergency/read';
 import { loadProjectSteps } from './projects/load';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
@@ -387,6 +389,19 @@ async function loadKeeperLines(db: PrismaClient, userId: string, now: Date): Pro
     const text = typeof after?.line === 'string' ? after.line.trim() : '';
     if (r.action !== RULE_ACTION || !text || !r.undo_until) continue;
     lines.push({ id: r.id, action: 'not_emergency_rule', text, details: [], at: r.created_at, undo_until: r.undo_until });
+  }
+  // Slice 7b: a Learned line stays while its Undo is open (seven days).
+  const learnedRows = await db.homeAction.findMany({
+    where: { user_id: userId, action: LEARNED_ACTION, source: 'keeper', undone_at: null, undo_until: { gt: now } },
+    select: { id: true, action: true, after: true, created_at: true, undo_until: true },
+    orderBy: { created_at: 'desc' },
+    take: 20,
+  });
+  for (const r of learnedRows) {
+    const after = r.after && typeof r.after === 'object' && !Array.isArray(r.after) ? (r.after as Record<string, unknown>) : null;
+    const text = typeof after?.line === 'string' ? after.line.trim() : '';
+    if (r.action !== LEARNED_ACTION || !text || !r.undo_until) continue;
+    lines.push({ id: r.id, action: 'keeper_learned', text, details: stringList(after?.details), at: r.created_at, undo_until: r.undo_until });
   }
   lines.sort((a, b) => b.at.getTime() - a.at.getTime());
   return lines;
@@ -802,7 +817,7 @@ export async function loadHomeInputs(
   now: Date,
   opts: LoadHomeOptions = {}
 ): Promise<RawHomeInputs> {
-  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt, siteIncidents, notEmergencyRules, projectSteps, timezone] =
+  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt, siteIncidents, notEmergencyRules, projectSteps, weights, timezone] =
     await Promise.all([
       loadTasks(db, userId),
       loadReviewFolds(db, userId),
@@ -819,6 +834,7 @@ export async function loadHomeInputs(
       loadSiteIncidents(db, userId, now),
       loadNotEmergencyRules(db, userId),
       loadProjectSteps(db, userId),
+      loadWeights(db, userId),
       resolveZone(db, userId, opts.timezone),
     ]);
 
@@ -842,5 +858,6 @@ export async function loadHomeInputs(
     site_incidents: siteIncidents,
     not_emergency_rules: notEmergencyRules,
     project_steps: projectSteps,
+    weights,
   };
 }

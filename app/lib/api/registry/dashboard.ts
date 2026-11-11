@@ -107,6 +107,33 @@ export const dashboardEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/home/learned',
+    group: 'dashboard',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'What the Home screen learned from the caller\'s taps (Slice 7b): one sentence per learned weight, and whether learning is on. Browser session only.',
+        auth: 'required',
+        roles: ['admin'],
+        responseExample: { on: true, items: [{ evidence_key: 'client:uuid', sentence: 'Nerd Herd work comes up a little sooner, since November 30', since: 'ISO-8601' }] },
+        responseNotes: 'Sentences only: no weight or percent is returned. Answers 403 for an API key or the chat and when the home view is off.',
+      },
+      {
+        method: 'POST',
+        summary: 'Put a learned weight back to untouched, or switch "Learn from my taps". Browser session only.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'action', type: 'string', required: true, description: 'put_back or learning.' },
+          { name: 'evidence_key', type: 'string', required: false, description: 'For put_back: the key from GET /api/home/learned.' },
+          { name: 'on', type: 'boolean', required: false, description: 'For learning: true or false.' },
+        ],
+        responseExample: { ok: true, on: true, items: [], action_id: 'uuid', undo_until: 'ISO-8601' },
+        responseNotes: 'Put back sets the weight to untouched and holds it 30 days; its Undo (POST /api/home/undo) stays open 24 hours. Answers 403 for an API key or the chat, 404 for a key that is not learned. A Learned line under Handled for you is undone through POST /api/home/undo for seven days.',
+      },
+    ],
+  },
+  {
     path: '/api/home/rule',
     group: 'dashboard',
     methods: [

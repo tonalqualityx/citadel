@@ -11,16 +11,19 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { zonedDateString } from '../act';
 import { RUN_STALE_MS, ownerOnHome } from '../keeper/run';
 import { appendHomeAction, dateOnly } from '../state';
-import { GUARD_ACTION, LEARN, MEASURES_ACTION, guardLine, weekLine } from './copy';
+import { GUARD_ACTION, LEARN, LEARNED_ACTION, MEASURES_ACTION, guardLine, learnedDetails, learnedLine, weekLine } from './copy';
 import { guard, measuresWeek, type DailySnapshot, type GuardResult, type WeekMeasures } from './measures';
 import { buildDailySnapshot, loadWeekReads } from './store';
+import { buildSignals } from './signals';
+import { WEIGHT, planShifts, type Shift } from './weights';
+import { applyShifts, historyDays, learningOn, loadCurrentWeights, loadTaps, resolveEvidence } from './weights-store';
 import { previousWeek, weekdayOfYmd } from './working-hours';
 
 const RUN_KIND = 'learn';
 const TX_TIMEOUT_MS = 30_000;
 
 export interface LearnLine {
-  action: typeof MEASURES_ACTION | typeof GUARD_ACTION;
+  action: typeof MEASURES_ACTION | typeof GUARD_ACTION | typeof LEARNED_ACTION;
   line: string;
   details: string[];
 }
@@ -41,7 +44,16 @@ export interface LearnResult {
   daily?: DailySnapshot;
   week?: LearnWeek | null;
   lines?: LearnLine[];
+  /** Slice 7b: the weight shifts this run makes (dry run: would make). Evidence keys and labels, never a number the screen shows. */
+  learned?: LearnedShift[];
   action_ids: string[];
+}
+
+export interface LearnedShift {
+  evidence_key: string;
+  label: string;
+  dir: 'up' | 'down';
+  line: string;
 }
 
 const json = (v: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
@@ -82,7 +94,29 @@ async function build(db: PrismaClient, ownerId: string, now: Date, tz: string) {
     if (line) lines.push({ action: MEASURES_ACTION, line: line.text, details: line.details });
     if (fired) lines.push({ action: GUARD_ACTION, line: guardLine(fired), details: guardDetails(fired) });
   }
-  return { date, monday, daily, week, lines };
+
+  // Slice 7b: the Monday weight step. Reads only; the shifts are written by runLearn.
+  let shifts: Shift[] = [];
+  const labels = new Map<string, string>();
+  const learned: LearnedShift[] = [];
+  if (monday && (await learningOn(db, ownerId))) {
+    const [taps, current, days] = await Promise.all([
+      loadTaps(db, ownerId, now, tz, WEIGHT.windowDays),
+      loadCurrentWeights(db, ownerId),
+      historyDays(db, ownerId, now),
+    ]);
+    const resolved = await resolveEvidence(db, ownerId, Array.from(new Set(taps.map((t) => t.item_key).filter((k): k is string => !!k))));
+    const signals = buildSignals(taps, resolved.evidence);
+    shifts = planShifts({ signals, current, historyDays: days, now, monday, learning: true });
+    for (const [k, v] of resolved.labels) labels.set(k, v);
+    for (const s of shifts) {
+      const label = labels.get(s.evidence_key) ?? s.evidence_key.slice(s.evidence_key.indexOf(':') + 1);
+      const dir = s.to > s.from ? 'up' : 'down';
+      learned.push({ evidence_key: s.evidence_key, label, dir, line: learnedLine(s.evidence_key, label, dir) });
+      lines.push({ action: LEARNED_ACTION, line: learnedLine(s.evidence_key, label, dir), details: learnedDetails(s.up, s.down) });
+    }
+  }
+  return { date, monday, daily, week, lines, shifts, labels, learned };
 }
 
 export async function runLearn(db: PrismaClient, ownerId: string, now: Date, opts: { dryRun: boolean }): Promise<LearnResult> {
@@ -90,7 +124,9 @@ export async function runLearn(db: PrismaClient, ownerId: string, now: Date, opt
   if (!ok) return { dry_run: opts.dryRun, skipped: 'home_off', action_ids: [] };
 
   if (opts.dryRun) {
-    const built = await build(db, ownerId, now, timezone);
+    const { shifts: _s, labels: _l, ...built } = await build(db, ownerId, now, timezone);
+    void _s;
+    void _l;
     return { dry_run: true, ...built, action_ids: [] };
   }
 
@@ -133,6 +169,7 @@ export async function runLearn(db: PrismaClient, ownerId: string, now: Date, opt
 
       const actionIds: string[] = [];
       for (const l of built.lines) {
+        if (l.action === LEARNED_ACTION) continue; // written below with its weight row
         const action = await appendHomeAction(tx, ownerId, {
           item_key: null,
           action: l.action,
@@ -143,14 +180,23 @@ export async function runLearn(db: PrismaClient, ownerId: string, now: Date, opt
         actionIds.push(action.id);
       }
 
+      if (built.shifts.length > 0) {
+        const current = await loadCurrentWeights(tx, ownerId);
+        const applied = await applyShifts(tx, ownerId, built.shifts, built.labels, current, now);
+        for (const a of applied) actionIds.push(a.action_id);
+      }
+
       await tx.homeKeeperRun.update({
         where: runKey,
         data: {
           finished_at: now,
-          counts: { daily: 1, week: built.week ? 1 : 0, lines: built.lines.length, min_business_days: LEARN.minBusinessDays },
+          counts: { daily: 1, week: built.week ? 1 : 0, lines: built.lines.length, learned: built.shifts.length, min_business_days: LEARN.minBusinessDays },
         },
       });
-      return { dry_run: false, ...built, action_ids: actionIds };
+      const { shifts: _s, labels: _l, ...out } = built;
+      void _s;
+      void _l;
+      return { dry_run: false, ...out, action_ids: actionIds };
     },
     { timeout: TX_TIMEOUT_MS },
   );

@@ -1035,6 +1035,18 @@ export interface RawHomeInputs {
   not_emergency_rules: NotEmergencyRule[];
   /** Slice 8b: in-progress projects whose next step is his, written by Bast or by him. Read only. */
   project_steps: RawProjectStep[];
+  /**
+   * Slice 7b: his learned weights that are not at 100 (loadWeights). Absent or [] means none: selectHome output is then
+   * deep-equal to a run that never loaded weights. Server only; no number from a weight reaches the browser.
+   */
+  weights?: RawWeight[];
+}
+
+/** Slice 7b: one learned weight on a piece of evidence (client:, project:, sop:, type:, sender:). */
+export interface RawWeight {
+  evidence_key: string;
+  label: string;
+  weight_pct: number;
 }
 
 /** Slice 8b: one project's next step, as the loader read it. */
@@ -1087,6 +1099,8 @@ export type KeeperActionKind =
   // Slice 7a: the Monday measures line and the approval-speed guard line (source keeper, a report: no Undo)
   | 'keeper_measures'
   | 'keeper_guard'
+  // Slice 7b: a learned weight (source keeper, Undo for 7 days)
+  | 'keeper_learned'
   | 'not_emergency_rule';
 
 /** One task given a day to come back. */

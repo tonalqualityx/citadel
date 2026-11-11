@@ -96,3 +96,69 @@ export function guardLine(g: GuardResult): string {
   const secs = LEARN.guardGapMs / 1000;
   return `You approved ${g.approvals} of ${g.rows} sign-offs and approvals last week, most within ${secs} seconds of your tap before. If these do not need you, tell Bast and it will suggest asking less.`;
 }
+
+// ============================================================================
+// Slice 7b: Learned lines, the card footer sentence and the settings text. Sentences only: no number from a weight.
+// ============================================================================
+
+/** The home_actions.action a weight change is written under (source keeper, Undo for 7 days). */
+export const LEARNED_ACTION = 'keeper_learned';
+
+export const LEARNED_ORDER_ONLY = 'This changes order only. It never changes what counts as an emergency or a real date.';
+export const LEARNED_EMPTY = 'Nothing learned yet. It needs a few weeks of your taps.';
+export const LEARNED_SWITCH_LABEL = 'Learn from my taps';
+export const LEARNED_SWITCH_HINT = 'When this is off, nothing new is learned. What was learned stays until you put it back.';
+export const LEARNED_HEADING = 'What the home screen learned';
+export const LEARNED_PUT_BACK = 'Put back';
+
+function evKind(key: string): string {
+  return key.split(':', 1)[0];
+}
+
+function cap1(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/** The subject of a sentence for a piece of evidence, and whether the verb is plural. */
+function subject(key: string, label: string): { text: string; plural: boolean } {
+  const l = cleanLabel(label, 60);
+  switch (evKind(key)) {
+    case 'client':
+      return { text: `${l} work`, plural: false };
+    case 'project':
+      return { text: `work on ${l}`, plural: false };
+    case 'sender':
+      return { text: l, plural: false };
+    default:
+      return { text: l, plural: true };
+  }
+}
+
+/** "Learned: Nerd Herd work now comes up a little sooner." */
+export function learnedLine(key: string, label: string, dir: 'up' | 'down'): string {
+  const s = subject(key, label);
+  const verb = s.plural ? 'come' : 'comes';
+  return `Learned: ${cap1(s.text)} now ${verb} up a little ${dir === 'up' ? 'sooner' : 'later'}.`;
+}
+
+/** The Show lines under a Learned line. */
+export function learnedDetails(up: number, down: number): string[] {
+  const n = (c: number, one: string, many: string) => (c === 0 ? 'none' : c === 1 ? `1 ${one}` : `${c} ${many}`);
+  return [`You moved ${n(up, 'item', 'items')} up and set ${n(down, 'item', 'items')} aside in the last 4 weeks.`, LEARNED_ORDER_ONLY];
+}
+
+/** The card footer sentence, after "Why it's here". */
+export function learnedFooter(key: string, label: string, dir: 'up' | 'down'): string {
+  const s = subject(key, label);
+  return dir === 'up'
+    ? `Comes up a little sooner because you moved ${s.text} up before.`
+    : `Comes up a little later because you set ${s.text} aside before.`;
+}
+
+/** One settings line, "Nerd Herd work comes up a little sooner, since November 30". */
+export function learnedSettingsSentence(key: string, label: string, weightPct: number, since: string | null): string {
+  const s = subject(key, label);
+  const verb = s.plural ? 'come' : 'comes';
+  const tail = since ? `, since ${since}` : '';
+  return `${cap1(s.text)} ${verb} up a little ${weightPct > 100 ? 'sooner' : 'later'}${tail}`;
+}

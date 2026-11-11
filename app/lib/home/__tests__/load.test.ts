@@ -93,6 +93,7 @@ function makeDb() {
     homeOwedThread: { findMany: vi.fn().mockResolvedValue([]) },
     homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
     homeSiteIncident: { findMany: vi.fn().mockResolvedValue([]) },
+    homeScoreWeight: { findMany: vi.fn().mockResolvedValue([]) },
     decision: { findMany: vi.fn().mockResolvedValue([]) },
     client: { findMany: vi.fn().mockResolvedValue([]) },
     comment: { findMany: vi.fn().mockResolvedValue([]) },
@@ -629,5 +630,24 @@ describe('loadHomeInputs: Slice 6a site incidents, rules and lines', () => {
     const second = db.homeAction.findMany.mock.calls[1][0];
     expect(second.where).toMatchObject({ user_id: U, action: 'not_emergency_rule', undone_at: null });
     expect(second.where.undo_until.gt).toEqual(NOW);
+  });
+});
+
+describe('loadHomeInputs: Slice 7b learned weights and Learned lines', () => {
+  it('reads only the owner\'s weights that are not at 100, and returns them as the weights input', async () => {
+    db.homeScoreWeight.findMany.mockResolvedValue([{ evidence_key: 'client:c1', label: 'Grok', weight_pct: 105 }]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(db.homeScoreWeight.findMany.mock.calls[0][0].where).toEqual({ user_id: U, weight_pct: { not: 100 } });
+    expect(r.weights).toEqual([{ evidence_key: 'client:c1', label: 'Grok', weight_pct: 105 }]);
+  });
+
+  it('keeps a Learned line while its seven day Undo is open, with its text and details', async () => {
+    const learned = { id: 'l1', action: 'keeper_learned', after: { line: 'Learned: Grok work now comes up a little sooner.', details: ['You moved 3 items up and set none aside in the last 4 weeks.'] }, created_at: T('2026-11-08T12:00:00Z'), undo_until: T('2026-11-15T12:00:00Z') };
+    db.homeAction.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([learned]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.keeper_lines.map((l) => [l.id, l.action, l.text])).toEqual([['l1', 'keeper_learned', 'Learned: Grok work now comes up a little sooner.']]);
+    const third = db.homeAction.findMany.mock.calls[2][0];
+    expect(third.where).toMatchObject({ user_id: U, action: 'keeper_learned', source: 'keeper', undone_at: null });
+    expect(third.where.undo_until.gt).toEqual(NOW);
   });
 });

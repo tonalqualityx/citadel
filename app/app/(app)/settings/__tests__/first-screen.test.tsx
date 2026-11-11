@@ -18,6 +18,7 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 vi.mock('@/lib/api/client', () => ({ apiClient: { patch: vi.fn() } }));
 vi.mock('@/lib/utils/theme', () => ({ applyTheme: vi.fn() }));
+vi.mock('@/components/domain/home/LearnedCard', () => ({ LearnedCard: () => <div>Learned card</div> }));
 vi.mock('@/components/domain/settings/portal-chat-settings', () => ({ PortalChatSettings: () => null }));
 
 import GuildPage from '../page';
@@ -65,5 +66,18 @@ describe('Settings: First screen card', () => {
     mockUseAuth.mockReturnValue({ user: { name: 'Sam', role: 'tech' }, isAdmin: false });
     render(<GuildPage />);
     expect(screen.queryByText('First screen')).not.toBeInTheDocument();
+  });
+
+  it('shows What the home screen learned only while the Home screen is the first screen', () => {
+    mockUseAuth.mockReturnValue({ user: { name: 'Mike', role: 'admin' }, isAdmin: true });
+    const { unmount } = render(<GuildPage />);
+    expect(screen.queryByText('Learned card')).not.toBeInTheDocument();
+    unmount();
+    mockUsePreferences.mockReturnValue({
+      data: { preferences: { home_view: 'home', naming_convention: 'awesome', theme: 'system' } },
+      isLoading: false,
+    });
+    render(<GuildPage />);
+    expect(screen.getByText('Learned card')).toBeInTheDocument();
   });
 });

@@ -28,6 +28,7 @@ import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { ARC_STEP_KEYS_MAX, CLOSED_TASK_STATUSES, LEFT_OFF_NOTE_MAX, NOT_NOW, UNDO_WINDOW_HOURS } from './rules';
 import { loadHomeInputs } from './load';
 import { HANDS_PARKED_MESSAGE, RULE_ACTION } from './emergency/copy';
+import { undoWeightRecord, weightRecords } from './learn/weights-store';
 import { HANDS_ITEM_KEY, nextHandsMonday } from './emergency/hands';
 import { clearOwedRequest, markOwed, OWED_ACTION, requestOwed, undoOwedMark, type OwedMarkValues } from './owed/rows';
 import { KEEP_LEAD_MESSAGE, TREAT_AS_REPLY_MESSAGE } from './owed/copy';
@@ -1186,6 +1187,11 @@ export async function runHomeUndo(
       }
     } else {
       for (const rec of before.states) await undoStateRecord(tx, userId, rec);
+    }
+    // Slice 7b: a learned weight (a Learned line, or a Put back). Compare-and-set; the key is held 30 days after a Learned undo.
+    const weightsAfter = weightRecords(row.after);
+    for (const rec of weightRecords(row.before)) {
+      await undoWeightRecord(tx, userId, rec, weightsAfter.find((w) => w.evidence_key === rec.evidence_key), now);
     }
     if (before.day) await undoDayRecord(tx, userId, before.day, after?.day);
     for (const rec of before.arcs ?? []) await undoArcRecord(tx, userId, rec, now);

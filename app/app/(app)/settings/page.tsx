@@ -10,6 +10,7 @@ import { apiClient } from '@/lib/api/client';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { LearnedCard } from '@/components/domain/home/LearnedCard';
 import { PortalChatSettings } from '@/components/domain/settings/portal-chat-settings';
 
 export default function GuildPage() {
@@ -241,6 +242,7 @@ export default function GuildPage() {
                 isPending={updatePreferences.isPending}
               />
             </div>
+            {preferences?.home_view === 'home' && <LearnedCard />}
           </SettingsCard>
         )}
 

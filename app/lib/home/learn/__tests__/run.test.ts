@@ -10,7 +10,19 @@ const OWNER = '3ecfb7be-0000-4000-8000-000000000001';
 const MONDAY = new Date('2026-11-23T15:00:00Z');
 const TUESDAY = new Date('2026-11-24T15:00:00Z');
 
-function fakeDb(opts: { onHome?: boolean; prior?: { finished_at: Date | null; started_at: Date } | null } = {}) {
+const CLIENT_X = 'c0000000-0000-4000-8000-00000000000a';
+const T1 = 'a0000000-0000-4000-8000-000000000001';
+const T2 = 'a0000000-0000-4000-8000-000000000002';
+const T3 = 'a0000000-0000-4000-8000-000000000003';
+const tap = (action: string, taskId: string, iso: string) => ({ item_key: `task:${taskId}`, action, after: {}, undone_at: null, created_at: new Date(iso) });
+/** Five up taps on three tasks of client X over three days, the oldest 20 days before the Monday. */
+const XTAPS = [
+  tap('matters_more', T1, '2026-11-17T15:00:00Z'),
+  tap('bring_forward', T2, '2026-11-18T15:00:00Z'),
+  tap('matters_more', T3, '2026-11-19T15:00:00Z'),
+];
+
+function fakeDb(opts: { onHome?: boolean; prior?: { finished_at: Date | null; started_at: Date } | null; learnOff?: boolean; taps?: unknown[]; firstTapAt?: Date | null; weights?: unknown[] } = {}) {
   const calls: string[] = [];
   const rec = (name: string, ret: unknown) => vi.fn(async (...a: unknown[]) => { calls.push(name); void a; return ret; });
   const db = {
@@ -22,11 +34,26 @@ function fakeDb(opts: { onHome?: boolean; prior?: { finished_at: Date | null; st
       update: rec('run.update', {}),
     },
     homeMeasure: { upsert: vi.fn(async (a: { create: { kind: string } }) => { calls.push(`measure.${a.create.kind}`); return {}; }) },
-    homeAction: { create: vi.fn(async (a: { data: { action: string; source: string; undo_until: unknown } }) => { calls.push(`action.${a.data.action}.${a.data.source}.${a.data.undo_until}`); return { id: `act-${calls.length}` }; }) },
-    task: { update: rec('task.update', {}), updateMany: rec('task.updateMany', {}) },
+    homeAction: {
+      create: vi.fn(async (a: { data: { action: string; source: string; undo_until: unknown } }) => { calls.push(`action.${a.data.action}.${a.data.source}.${a.data.undo_until}`); return { id: `act-${calls.length}` }; }),
+      findFirst: vi.fn(async () => (opts.firstTapAt === null ? null : { created_at: opts.firstTapAt ?? new Date('2026-11-01T15:00:00Z') })),
+      findMany: vi.fn(async () => opts.taps ?? []),
+    },
+    homeKeeperSettings: { findUnique: vi.fn(async () => (opts.learnOff ? { learn_weights: false } : null)) },
+    homeScoreWeight: {
+      findMany: vi.fn(async () => opts.weights ?? []),
+      upsert: vi.fn(async (a: { create: { evidence_key: string; weight_pct: number } }) => { calls.push(`weight.${a.create.evidence_key}.${a.create.weight_pct}`); return {}; }),
+    },
+    client: { findMany: vi.fn(async () => [{ id: CLIENT_X, name: 'Nerd Herd' }]) },
+    sop: { findMany: vi.fn(async () => []) },
+    task: {
+      update: rec('task.update', {}),
+      updateMany: rec('task.updateMany', {}),
+      findMany: vi.fn(async () => [T1, T2, T3].map((id) => ({ id, client_id: CLIENT_X, project_id: null, sop_id: null, tags: [] }))),
+    },
     emailAsk: { update: rec('ask.update', {}), updateMany: rec('ask.updateMany', {}) },
     wait: { update: rec('wait.update', {}), updateMany: rec('wait.updateMany', {}) },
-    project: { update: rec('project.update', {}), updateMany: rec('project.updateMany', {}) },
+    project: { update: rec('project.update', {}), updateMany: rec('project.updateMany', {}), findMany: vi.fn(async () => []) },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
   };
   return { db: db as unknown as PrismaClient, calls, raw: db };
@@ -120,5 +147,69 @@ describe('runLearn', () => {
     const { db } = fakeDb();
     const res = await runLearn(db, OWNER, MONDAY, { dryRun: true });
     for (const l of res.lines ?? []) expect(l.line).not.toMatch(/[–—]|priorit|overdue/i);
+  });
+
+  describe('Slice 7b: the Monday weight step', () => {
+    it('five taps on three of one client\'s tasks over three days, with 20 days of history, shift that client up by one step: one Learned line with Undo, one weight row', async () => {
+      const { db, calls } = fakeDb({ taps: XTAPS, firstTapAt: new Date('2026-11-03T15:00:00Z') });
+      const res = await runLearn(db, OWNER, MONDAY, { dryRun: false });
+      expect(res.learned?.map((l) => [l.evidence_key, l.dir, l.line])).toEqual(
+        expect.arrayContaining([[`client:${CLIENT_X}`, 'up', 'Learned: Nerd Herd work now comes up a little sooner.']]),
+      );
+      expect(calls.some((c) => /^action\.keeper_learned\.keeper\.\w/.test(c) && !c.endsWith('.null'))).toBe(true);
+      expect(calls).toContain(`weight.client:${CLIENT_X}.105`);
+      // Never more than three shifts, and no write outside the owner's own home rows.
+      expect(calls.filter((c) => c.startsWith('weight.')).length).toBeLessThanOrEqual(3);
+      expect(calls.some((c) => /^(task|ask|wait|project)\./.test(c))).toBe(false);
+    });
+
+    it('a Tuesday run never shifts, whatever the taps', async () => {
+      const { db, calls } = fakeDb({ taps: XTAPS });
+      const res = await runLearn(db, OWNER, TUESDAY, { dryRun: false });
+      expect(res.learned ?? []).toEqual([]);
+      expect(calls.some((c) => c.startsWith('weight.'))).toBe(false);
+    });
+
+    it('with Learn from my taps off, nothing shifts', async () => {
+      const { db, calls } = fakeDb({ taps: XTAPS, learnOff: true });
+      const res = await runLearn(db, OWNER, MONDAY, { dryRun: false });
+      expect(res.learned).toEqual([]);
+      expect(calls.some((c) => c.startsWith('weight.') || c.includes('keeper_learned'))).toBe(false);
+    });
+
+    it('under 14 days of history nothing shifts', async () => {
+      const { db, calls } = fakeDb({ taps: XTAPS, firstTapAt: new Date('2026-11-12T15:00:00Z') });
+      const res = await runLearn(db, OWNER, MONDAY, { dryRun: false });
+      expect(res.learned).toEqual([]);
+      expect(calls.some((c) => c.startsWith('weight.'))).toBe(false);
+    });
+
+    it('a held key does not shift', async () => {
+      const { db, calls } = fakeDb({ taps: XTAPS });
+      (db as unknown as { homeScoreWeight: { findMany: unknown } }).homeScoreWeight.findMany = vi.fn(async () => [
+        { evidence_key: `client:${CLIENT_X}`, weight_pct: 100, held_until: new Date('2026-12-10T00:00:00Z') },
+        { evidence_key: 'type:task', weight_pct: 100, held_until: new Date('2026-12-10T00:00:00Z') },
+      ]);
+      const res = await runLearn(db, OWNER, MONDAY, { dryRun: false });
+      expect(res.learned).toEqual([]);
+      expect(calls.some((c) => c.startsWith('weight.'))).toBe(false);
+    });
+
+    it('a dry run lists the would-learn lines and writes nothing', async () => {
+      const { db, calls, raw } = fakeDb({ taps: XTAPS });
+      const res = await runLearn(db, OWNER, MONDAY, { dryRun: true });
+      expect(res.lines?.some((l) => l.action === 'keeper_learned')).toBe(true);
+      expect(calls).toEqual([]);
+      expect(raw.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('the Learned line is clean text', async () => {
+      const { db } = fakeDb({ taps: XTAPS });
+      const res = await runLearn(db, OWNER, MONDAY, { dryRun: true });
+      for (const l of res.lines ?? []) {
+        expect(l.line).not.toMatch(/[–—]|priorit|overdue/i);
+        for (const x of l.details) expect(x).not.toMatch(/[–—]|priorit|overdue/i);
+      }
+    });
   });
 });

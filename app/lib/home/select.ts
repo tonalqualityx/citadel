@@ -90,6 +90,9 @@ import { isLeadNow, leadResurfacedPastPark, owedClock, weekdayIn, wokeByNewMessa
 import { mergeJoinedThreads, repliedElsewhere, type JoinRow } from './owed/join';
 import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
 import { cardSummary, truncateWords } from './plain-text';
+import { applyWeights, type WeightRow } from './learn/apply';
+import { learnedFooter } from './learn/copy';
+import { evidenceKeys } from './learn/evidence';
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
@@ -126,6 +129,7 @@ import {
   scoreTask,
   scoreThread,
   scoreWait,
+  STEP_URGENCY_CAP,
   taskHasPersonWaiting,
   threadClient,
   threadProject,
@@ -198,6 +202,8 @@ export interface Candidate {
   unpark?: boolean;
   /** Slice 3: Bast's task, stopped and tagged needs-mike (RawTask.bot_task). Never a Today step, never in the keeper's pool. */
   botTask: boolean;
+  /** Slice 7b: set when a learned weight changed this item's urgency (server only; the screen gets a sentence, never a number). */
+  learned?: { key: string; label: string; dir: 'up' | 'down' };
   pinned: boolean;
   /** In Needs you now, Things in progress, a People list, or the visible Next rows. */
   shown: boolean;
@@ -1145,7 +1151,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     ...c.item,
     type: itemType(c),
     pinned: c.pinned,
-    reason: reasonFor(c, ctx),
+    reason: c.learned && c.shown ? `${reasonFor(c, ctx)} ${learnedFooter(c.learned.key, c.learned.label, c.learned.dir)}` : reasonFor(c, ctx),
     default_if_ignored:
       c.kind === 'thread' && !c.rule && ctx.owedIfIgnored
         ? ctx.owedIfIgnored
@@ -1300,6 +1306,41 @@ export function selectHome(input: SelectInput): SelectResult {
   // ---- 2. State facts: boost, not-an-emergency, parked, pinned ----------
   const candidates: Candidate[] = [];
   const ctxByKey = new Map<string, FinalizeCtx>();
+
+  // Slice 7b: learned weights. Absent or all at 100 changes nothing. Applied once per candidate, before placement, so the
+  // class, Next bands, rank and Today's arc all read the weighted urgency. Never on an emergency, crisis, site, hands row or bot task.
+  const weightMap = new Map<string, WeightRow>();
+  for (const w of raw.weights ?? []) if (w.weight_pct !== 100) weightMap.set(w.evidence_key, w);
+  const tasksByKey = new Map(raw.tasks.map((x) => [taskKey(x.id), x]));
+  const senderByThread = new Map(joinedThreads.threads.map((th) => [threadKey(th.account, th.thread_id), th.asks[0].from_email]));
+  const learn = (c: Candidate, lead: boolean): void => {
+    if (weightMap.size === 0) return;
+    const rt = c.kind === 'task' ? tasksByKey.get(c.key) : undefined;
+    const keys = evidenceKeys({
+      kind: c.kind,
+      client_id: c.item.client?.id ?? null,
+      project_id: c.item.project?.id ?? null,
+      sop_id: rt?.sop?.id ?? null,
+      sender: c.kind === 'thread' ? (senderByThread.get(c.key) ?? null) : null,
+    });
+    const res = applyWeights(
+      c.score,
+      {
+        kind: c.kind,
+        rule: c.rule !== null,
+        botTask: c.botTask,
+        lead,
+        tags: rt?.tags ?? [],
+        hardDate: c.hardDate !== null || c.score.hardDate !== null,
+        keys,
+        cap: c.kind === 'step' ? STEP_URGENCY_CAP : undefined,
+      },
+      weightMap,
+    );
+    if (!res) return;
+    c.score = res.score;
+    c.learned = { key: res.key, label: res.label, dir: res.dir };
+  };
   for (const draft of drafts) {
     const st = states.get(draft.cand.key);
     const emergencyRule = draft.cand.rule && !st?.not_emergency_at && !draft.muted ? draft.cand.rule : null;
@@ -1321,6 +1362,7 @@ export function selectHome(input: SelectInput): SelectResult {
       restGroup: 'waiting_turn',
       state: st,
     };
+    learn(c, draft.ctx.lead === true);
     candidates.push(c);
     ctxByKey.set(c.key, draft.ctx);
   }
@@ -1433,6 +1475,7 @@ export function selectHome(input: SelectInput): SelectResult {
       restGroup: 'project_steps',
       state: st,
     };
+    learn(c, false);
     const vw = st?.view_at;
     c.parked = !!vw && vw.getTime() > now.getTime();
     c.parkedBy = c.parked ? (st?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
