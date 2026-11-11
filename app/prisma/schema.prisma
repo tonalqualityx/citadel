@@ -88,6 +88,7 @@ model User {
 
   home_keeper_runs     HomeKeeperRun[]     @relation("HomeKeeperRunUser")
   home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
+  home_owed_threads    HomeOwedThread[]    @relation("HomeOwedThreadUser")
 
   @@map("users")
 }
@@ -4840,6 +4841,35 @@ model HomeKeeperSettings {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   @@map("home_keeper_settings")
+}
+
+// Home screen Slice 4a: Bast's owed-reply work on one thread, for that user only. Never read by another screen.
+model HomeOwedThread {
+  id                String    @id @default(uuid()) @db.Uuid
+  user_id           String    @db.Uuid
+  user              User      @relation("HomeOwedThreadUser", fields: [user_id], references: [id], onDelete: Cascade)
+  thread_key        String    @db.VarChar(300)   // thread:<account>:<thread_id>
+  state             String    @default("queued") @db.VarChar(20) // queued | drafted | needs_thought | failed
+  request_kind      String?   @db.VarChar(20)    // draft | read | go_with_that (a pending tap)
+  requested_at      DateTime?
+  draft_id          String?   @db.VarChar(64)    // Gmail draft id (Bast's only)
+  draft_message_id  String?   @db.VarChar(64)
+  draft_hash        String?   @db.VarChar(64)    // sha256 of the body Bast wrote
+  draft_text        String?   @db.Text           // what Bast wrote, shown on the card
+  draft_for_ask_id  String?   @db.Uuid           // newest inbound ask when drafted
+  drafted_at        DateTime?
+  mike_edited_at    DateTime?                    // Bast saw his edit; never touches the draft again
+  bast_read         String?   @db.VarChar(400)
+  suggested_answer  String?   @db.VarChar(300)
+  needs_commitment  Boolean   @default(false)
+  thought_since     DateTime?
+  attempts          Int       @default(0)
+  last_error        String?   @db.VarChar(300)
+  last_model        String?   @db.VarChar(20)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+  @@unique([user_id, thread_key])
+  @@map("home_owed_thread")
 }
 
 // Home screen Slice 1: the day's proposal, written once per zoned day and changed only by

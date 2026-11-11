@@ -446,6 +446,54 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/owed',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the owner\'s owed-reply drafting queue (the machine\'s work list and dry run)',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [{ name: 'limit', type: 'number', required: false, description: 'At most this many items (1 to 6; default and cap 6)' }],
+        responseExample: {
+          items: [
+            {
+              thread_key: 'string (thread:<account>:<thread_id>)',
+              account: 'string',
+              thread_id: 'string',
+              ask_ids: ['string (uuid, every open ask on the thread, newest first)'],
+              newest: { ask_id: 'string (uuid)', gmail_id: 'string', from_email: 'string', from_name: 'string|null', subject: 'string', received_at: 'ISO-8601', intent: 'string|null' },
+              client_name: 'string|null',
+              lead: 'boolean',
+              request: '"draft"|"read"|"go_with_that"|null (a tap waiting)',
+              suggested_answer: 'string|null',
+              bast_draft: '{draft_id, draft_hash, for_ask_id}|null (Bast\'s own Gmail draft on this thread)',
+            },
+          ],
+          skipped: '"home_off" (only when the owner is not an active admin on the home view; then items is [])',
+        },
+        responseNotes: 'Owner only; takes no user id. In order: taps, redrafts, leads, the oldest thread. Writes nothing.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: save the owed-reply drafter\'s results (the crontab wrapper)',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'items', type: 'object', required: true, description: 'At most 10 of {thread_key, newest_ask_id, outcome: "drafted", draft_id, draft_message_id, draft_text, model, cost_usd?} | {..., outcome: "needs_thought", read, suggested_answer|null, needs_commitment, model, cost_usd?} | {..., outcome: "mike_edited"} | {..., outcome: "failed", error}. Strict: any other field is 400. Body at most 64 KB.' },
+        ],
+        responseExample: {
+          saved: [{ thread_key: 'string', outcome: '"drafted"|"needs_thought"|"mike_edited"|"failed"' }],
+          refused: [{ thread_key: 'string', reason: '"draft_money"|"draft_time"|"draft_scope"|"draft_shape"|"read_shape"|"suggested_money"|"suggested_time"|"suggested_scope"|"suggested_shape"|"stale"|"duplicate"|"no_draft"|"bad_key"', status: '409 (only on "stale")' }],
+          action_id: 'string (uuid)|null (one keeper home_actions row when something was drafted)',
+          line: 'string|null (the quiet line Mike sees)',
+          skipped: '"home_off" (the owner is not on the home view; nothing written)',
+        },
+        responseNotes: 'Owner only. The commitment checks run again here; a body, read or suggested answer that fails is refused and listed. A newest_ask_id that is no longer the newest open ask on the thread is refused 409 stale and nothing is written for it. Writes only the owner\'s home_owed_thread rows, one home_keeper_runs row per day (kind owed_reply) and one home_actions row (source keeper); never an email ask, task or outbox row, and nothing is sent.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/ops',
     group: 'bast-chat',
     methods: [
