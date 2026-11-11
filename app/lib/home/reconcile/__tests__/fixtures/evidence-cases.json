@@ -1,0 +1,429 @@
+[
+ {
+  "quote": "I removed the File Manager plugin.",
+  "new_part": "Hi Kue.\nI removed the File Manager plugin.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "Here is the sample page for the Phil Camp memorial.",
+  "new_part": "Hi Kue.\nHere is the sample page for the Phil Camp memorial.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I've updated the footer links.",
+  "new_part": "Hi Kue.\nI've updated the footer links.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I have uploaded the new logo.",
+  "new_part": "Hi Kue.\nI have uploaded the new logo.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "We fixed the contact form.",
+  "new_part": "Hi Kue.\nWe fixed the contact form.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I deleted the old admin account.",
+  "new_part": "Hi Kue.\nI deleted the old admin account.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "The staging site is live.",
+  "new_part": "Hi Kue.\nThe staging site is live.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "The redirect is fixed.",
+  "new_part": "Hi Kue.\nThe redirect is fixed.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "The backup is done.",
+  "new_part": "Hi Kue.\nThe backup is done.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I sent the files over to Kue.",
+  "new_part": "Hi Kue.\nI sent the files over to Kue.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I built the landing page.",
+  "new_part": "Hi Kue.\nI built the landing page.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "The form has been tested on mobile.",
+  "new_part": "Hi Kue.\nThe form has been tested on mobile.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I replaced the hero image.",
+  "new_part": "Hi Kue.\nI replaced the hero image.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I turned off the plugin.",
+  "new_part": "Hi Kue.\nI turned off the plugin.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "We removed the spam pages.",
+  "new_part": "Hi Kue.\nWe removed the spam pages.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "Attached is the signed agreement.",
+  "new_part": "Hi Kue.\nAttached is the signed agreement.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I cleaned up the sitemap.",
+  "new_part": "Hi Kue.\nI cleaned up the sitemap.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "The certificate is up.",
+  "new_part": "Hi Kue.\nThe certificate is up.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I rotated the keys.",
+  "new_part": "Hi Kue.\nI rotated the keys.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I wrote the page copy.",
+  "new_part": "Hi Kue.\nI wrote the page copy.\nLet me know what you think.",
+  "quoted_part": "On Mon, Kue wrote:\n> Is the site OK?",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I removed the File   Manager plugin.",
+  "new_part": "Hi\nI removed the File\nManager plugin.\nThanks",
+  "quoted_part": "",
+  "ok": true,
+  "reason": "ok"
+ },
+ {
+  "quote": "I'll remove it tomorrow.",
+  "new_part": "Hi.\nI'll remove it tomorrow.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I will fix the form.",
+  "new_part": "Hi.\nI will fix the form.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I'm going to update the plugin.",
+  "new_part": "Hi.\nI'm going to update the plugin.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I plan to remove the plugin.",
+  "new_part": "Hi.\nI plan to remove the plugin.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I hope I removed it.",
+  "new_part": "Hi.\nI hope I removed it.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "It should be fixed now.",
+  "new_part": "Hi.\nIt should be fixed now.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I could remove the plugin.",
+  "new_part": "Hi.\nI could remove the plugin.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I might have fixed it.",
+  "new_part": "Hi.\nI might have fixed it.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I may remove it.",
+  "new_part": "Hi.\nI may remove it.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I tried to fix the form.",
+  "new_part": "Hi.\nI tried to fix the form.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I removed it tomorrow.",
+  "new_part": "Hi.\nI removed it tomorrow.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I fixed it, soon it is live.",
+  "new_part": "Hi.\nI fixed it, soon it is live.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I removed it later.",
+  "new_part": "Hi.\nI removed it later.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "Once I removed it, it is done.",
+  "new_part": "Hi.\nOnce I removed it, it is done.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "When I removed it, it was fine.",
+  "new_part": "Hi.\nWhen I removed it, it was fine.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "If I removed it, it is fine.",
+  "new_part": "Hi.\nIf I removed it, it is fine.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I have not yet removed it.",
+  "new_part": "Hi.\nI have not yet removed it.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I haven't removed it.",
+  "new_part": "Hi.\nI haven't removed it.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I didn't remove it.",
+  "new_part": "Hi.\nI didn't remove it.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I still removed nothing.",
+  "new_part": "Hi.\nI still removed nothing.\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "Did I remove it?",
+  "new_part": "Hi.\nDid I remove it?\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "I removed it, right?",
+  "new_part": "Hi.\nI removed it, right?\nThanks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "hedged"
+ },
+ {
+  "quote": "Kue removed it.",
+  "new_part": "Hi.\nKue removed it.\n",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "not_done"
+ },
+ {
+  "quote": "The plugin is gone.",
+  "new_part": "Hi.\nThe plugin is gone.\n",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "not_done"
+ },
+ {
+  "quote": "Please remove the plugin.",
+  "new_part": "Hi.\nPlease remove the plugin.\n",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "not_done"
+ },
+ {
+  "quote": "The site looks great.",
+  "new_part": "Hi.\nThe site looks great.\n",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "not_done"
+ },
+ {
+  "quote": "Thanks for the update.",
+  "new_part": "Hi.\nThanks for the update.\n",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "not_done"
+ },
+ {
+  "quote": "I removed the File Manager plugin.",
+  "new_part": "Thanks, noted.",
+  "quoted_part": "On Mon, Kue wrote:\n> I removed the File Manager plugin.",
+  "ok": false,
+  "reason": "quote_not_new"
+ },
+ {
+  "quote": "I fixed the form.",
+  "new_part": "Thanks, noted.",
+  "quoted_part": "I fixed the form.",
+  "ok": false,
+  "reason": "quote_not_new"
+ },
+ {
+  "quote": "I fixed the form.",
+  "new_part": "I fixed the form.",
+  "quoted_part": "I fixed the form.",
+  "ok": false,
+  "reason": "quote_not_new"
+ },
+ {
+  "quote": "",
+  "new_part": "Hi",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "quote_not_new"
+ },
+ {
+  "quote": "I fixed it. I removed it. I updated it.",
+  "new_part": "I fixed it. I removed it. I updated it.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "quote_long"
+ },
+ {
+  "quote": "I fixed the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form .",
+  "new_part": "I fixed the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form the form .",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "quote_long"
+ },
+ {
+  "quote": "I fixed it and the invoice is $400.",
+  "new_part": "I fixed it and the invoice is $400.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "commitment"
+ },
+ {
+  "quote": "I fixed it and it cost 3 hours.",
+  "new_part": "I fixed it and it cost 3 hours.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "commitment"
+ },
+ {
+  "quote": "I removed the plugin.",
+  "new_part": "I removed the plugin. The plugin fee is higher this month.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "commitment"
+ },
+ {
+  "quote": "I removed the plugin and we guarantee nothing breaks.",
+  "new_part": "I removed the plugin and we guarantee nothing breaks.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "commitment"
+ },
+ {
+  "quote": "I fixed it on Monday.",
+  "new_part": "I fixed it on Monday.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "commitment"
+ },
+ {
+  "quote": "I removed the plugin.",
+  "new_part": "I removed the plugin.\nThe plugin work comes to 500 dollars.",
+  "quoted_part": "",
+  "ok": false,
+  "reason": "commitment"
+ },
+ {
+  "quote": "I removed the File Manager plugin.",
+  "new_part": "I removed the File Manager plugin.\nSeparately, lunch Friday?",
+  "quoted_part": "",
+  "ok": true,
+  "reason": "ok"
+ }
+]

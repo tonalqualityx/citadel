@@ -69,6 +69,12 @@ export interface ActionsInput {
   dayChoices?: HomeChoice[];
   /** "Snooze": the quick choices; same rule as dayChoices. */
   snoozeChoices?: HomeChoice[];
+  /**
+   * Slice 9a, a card from his sent mail: the whole button row, built by reconcile/card.ts from the card's kind and placement. It is shown
+   * as built (a Track it card has four buttons) and never gets Not now withdrawn, This matters more, a snooze or an arc button.
+   * noDefault: the card asks "add to X or start a new project?", so no button is filled.
+   */
+  proposal?: { buttons: HomeItemAction[]; noDefault: boolean };
 }
 
 export interface ActionsOutput {
@@ -182,6 +188,8 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
     case 'hands':
       primary.push(button('not_this_week'));
       break;
+    case 'proposal':
+      break; // buttons come from input.proposal (actionsFor returns before this)
     case 'step':
       // Open the drawer, or say it is done (the browser queues the project refresh first). Not now and This matters more come from below.
       primary.push(button('open_project'), button('step_done'));
@@ -191,6 +199,12 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
 }
 
 export function actionsFor(input: ActionsInput): ActionsOutput {
+  // Slice 9a: a card from his sent mail carries its own buttons.
+  if (input.kind === 'proposal' && input.proposal) {
+    const row = input.proposal.buttons.map((b) => ({ ...b, filled: false }));
+    if (input.filledFirst && !input.proposal.noDefault && row.length > 0) row[0] = { ...row[0], filled: true };
+    return { actions: row, more_actions: [] };
+  }
   // Slice 6a: the Monday hands row has one button of its own; the jobs inside carry their own.
   if (input.kind === 'hands') {
     const only = [button('not_this_week')];

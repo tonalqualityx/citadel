@@ -40,7 +40,8 @@ export async function POST(request: NextRequest) {
       const cancelled = await prisma.$transaction((tx) => cancelOwedSend(tx, auth.userId, parsed.action_id, now));
       return NextResponse.json(cancelled, { headers: { 'Cache-Control': 'no-store' } });
     }
-    const result = await runHomeUndo(prisma, auth.userId, parsed.action_id, now);
+    // Slice 9a: `wrong` ("This was wrong") is allowed only on a line the sent-mail reconciler wrote; runHomeUndo refuses it on any other row.
+    const result = await runHomeUndo(prisma, auth.userId, parsed.action_id, now, { wrong: parsed.wrong === true });
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return handleApiError(error);

@@ -15,7 +15,7 @@ describe('template table', () => {
   it('registers the 29 clocks from the spec plus the generic handoff and the portal clocks', () => {
     const keys = WAIT_TEMPLATES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(keys.filter((k) => k !== 'handoff.generic' && !k.startsWith('portal.') && !k.startsWith('engagement.'))).toHaveLength(29);
+    expect(keys.filter((k) => k !== 'handoff.generic' && !k.startsWith('portal.') && !k.startsWith('engagement.') && !k.startsWith('mail.'))).toHaveLength(29);
     // Portal phase B: slice 1 adds first_response and emergency; slice 2 adds client_reply and awaiting_client.
     expect(keys.filter((k) => k.startsWith('portal.')).sort()).toEqual([
       'portal.awaiting_client',
@@ -34,6 +34,7 @@ describe('template table', () => {
         'charter.price_review',
         'engagement.stalled',
         'handoff.generic',
+        'mail.awaiting_reply',
         'meeting.type_unclear',
         'portal.awaiting_client',
         'portal.client_reply',
@@ -42,6 +43,17 @@ describe('template table', () => {
         'switch.off',
       ].sort()
     );
+  });
+
+  it('mail.awaiting_reply sends nothing and lands on Mike when it has no contact (Home Slice 9a)', () => {
+    const t = getTemplate('mail.awaiting_reply')!;
+    expect(t).toMatchObject({ kind: 'external', enabled: true, sends: false, owner: 'client', shepherd: 'mike', blocks_client: false, on_reply: 'stop' });
+    expect(t.steps).toHaveLength(1);
+    expect(t.steps[0]).toMatchObject({ duration: { value: 5, unit: 'business_days' }, action: 'escalate' });
+    const d = buildWaitData({ template_key: 'mail.awaiting_reply', subject: 'the sample page' });
+    expect(d.title).toBe('Waiting on the sample page');
+    expect(d.blocks_client).toBe(false);
+    expect((d.action_payload as Record<string, unknown>).shepherd_role).toBe('mike');
   });
 
   it('matches the portal spec table (6.5)', () => {

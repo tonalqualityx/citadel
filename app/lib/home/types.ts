@@ -48,7 +48,7 @@ import type {
 // ============================================================================
 
 /** The record kind behind an item; the prefix of its item key (see item-key.ts). */
-export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step';
+export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step' | 'proposal';
 
 /**
  * How a row reads, set by select.ts (H4). One value per item.
@@ -63,7 +63,7 @@ export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' |
  * Clients use it for small presentation choices only (for example the gold rule on
  * emergencies). Section membership comes from HomeSections, never from this field.
  */
-export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step';
+export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step' | 'proposal';
 
 /**
  * Every button id a row or card can carry. actions-for.ts (H4) decides which an item gets
@@ -138,7 +138,13 @@ export type HomeActionId =
   | 'book_block'
   // Slice 4b: Send the draft. Never a home act: these post to /api/home/send (a session-only route); homeActSchema refuses them.
   | 'send_draft'
-  | 'send_short';
+  | 'send_short'
+  // Slice 9a, a card from his sent mail: Yes (runs the card's stored plan), No (closes it), Track it (placement carried on the button;
+  // posts to /api/home/reconcile, session only, never a home act) and Open the email (a link).
+  | 'proposal_yes'
+  | 'proposal_no'
+  | 'track_it'
+  | 'open_email';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -189,6 +195,11 @@ export interface HomeItemAction {
   href: string | null;
   /** on_day only: the quick choices ("Tomorrow", weekday names, "Next week"), each a calendar day in his zone. */
   choices?: HomeChoice[];
+  /** Slice 9a, track_it only: where the tasks go. 'project' (the named live project), 'new_project', or 'none' (a single finished one-off). */
+  placement?: 'project' | 'new_project' | 'none';
+  /** Slice 9a, on a request from the browser (track_it, proposal_yes with a time choice): the minutes chosen (null or 0 = no time) and whether the time is billable. */
+  minutes?: number | null;
+  billable?: boolean;
   /** on_day and snooze only, on a request from the browser: the choice picked. */
   date?: string;
   hours?: 1 | 2 | 3 | 4;
@@ -333,6 +344,25 @@ export interface HomeItem {
   not_emergency_refusal?: string | null;
   /** Slice 6a: the Monday hands row only. The jobs, grouped by written steps. */
   hands?: HomeHands | null;
+  /** Slice 9a: a card from his sent mail (type 'proposal'): the evidence, the time choices and the placement. */
+  proposal?: HomeProposal | null;
+}
+
+/** Slice 9a: what a sent-mail card shows. Built by the server from the home_reconcile_change row; text is plain. */
+export interface HomeProposal {
+  kind: 'done' | 'note' | 'waiting' | 'session' | 'wait' | 'track';
+  /** The card lines: his quote with the recipient and date first, then the open points or the track plan. */
+  lines: string[];
+  /** "Why Bast asks: ..." */
+  why: string;
+  /** The Gmail thread link ("Open the email"), or null. */
+  link: string | null;
+  /** From older mail (the look-back): shown in the drawer only. */
+  look_back: boolean;
+  /** Time choices: only on Track it and on a done card for a task with no time. */
+  time: { default: number; choices: number[]; basis: string | null; billable_choice: boolean } | null;
+  /** Track it only: how the card files the work (the buttons carry the choice). */
+  placement: { kind: 'add' | 'ask' | 'new' | 'loose'; project_id: string | null; project_name: string | null } | null;
 }
 
 /** Slice 6a: one scope choice for a "Not an emergency" rule. */
@@ -435,6 +465,10 @@ export interface HomeQuietLine {
   undo_action_id: string | null;
   /** Slice 2: extra muted lines on the detail card (for a keeper line, the items it touched). [] when none. */
   details: string[];
+  /** Slice 9a: the home_actions id "This was wrong" posts to /api/home/undo with wrong: true (a sent-mail note line), else absent or null. */
+  wrong_action_id?: string | null;
+  /** Slice 9a: "Log time? 30 min" on a task marked done from a card with no time on it, else absent or null. */
+  time_prompt?: { task_id: string; minutes: number; day: string } | null;
 }
 
 /** The roll-up line after the visible quiet lines, for example "4 more handled". */
@@ -475,7 +509,8 @@ export type HomeRestGroupKey =
   | 'ventures' // other ventures
   | 'bast_stopped' // Slice 3: tasks Bast stopped on beyond the one that holds a Next slot
   | 'hands' // Slice 6a: tasks tagged hands or credential-rotation (they come as one weekly row, never one by one)
-  | 'project_steps'; // Slice 8b: project next steps that are his and did not make Next
+  | 'project_steps' // Slice 8b: project next steps that are his and did not make Next
+  | 'from_sent_mail'; // Slice 9a: cards from his sent mail beyond the one in Decisions ready, and every look-back card
 
 /** Slice 2: one row inside an Everything else group. Every row has an owner and a check text. */
 export interface HomeRestItem {
@@ -595,7 +630,9 @@ export type HomeActName =
   | 'clear_session'
   | 'on_day'
   | 'snooze'
-  | 'book_block';
+  | 'book_block'
+  | 'proposal_yes'
+  | 'proposal_no';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -716,7 +753,16 @@ export type HomeActRequest =
    * block on his own calendar with no attendees. 409 book_off, book_not_ready, already_booked, or no_free_slot (nothing written).
    * Undo within 24 hours: before the event exists it clears the request; after, it asks the machine to delete that one event.
    */
-  | { action: 'book_block'; item_key: string };
+  | { action: 'book_block'; item_key: string }
+  /**
+   * Slice 9a, a card from his sent mail: Yes. Runs the card's stored plan after re-checking it (the task still open and still his; the
+   * session's ask still the same text). Covers done, waiting, session, wait and note cards that offer no time choice. A Track it card,
+   * or a done card with a time choice, answers 400 "Tap this on the home screen." (POST /api/home/reconcile is the only door that can
+   * create a time entry, and homeActSchema refuses track_it and log_time). Undo within 24 hours (compare-and-set, nothing deleted).
+   */
+  | { action: 'proposal_yes'; item_key: string }
+  /** Slice 9a: No. Closes the card; the same piece of work is never proposed again. */
+  | { action: 'proposal_no'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' | 'snooze' }>;
@@ -763,6 +809,8 @@ export interface HomeActErrorBody {
 export interface HomeUndoRequest {
   /** A HomeActResponse.action_id. */
   action_id: string;
+  /** Slice 9a: "This was wrong", only on a sent-mail line. Undoes it, then keeps Bast from changing that task from his mail for 90 days. */
+  wrong?: true;
 }
 
 /** POST /api/home/undo, 200. */
@@ -770,6 +818,8 @@ export interface HomeUndoResponse {
   ok: true;
   action_id: string;
   item_key: string | null;
+  /** Slice 9a: "Changed since. Open the task." when part of a Track it was left alone because he changed it, else absent or null. */
+  message?: string | null;
 }
 
 // ============================================================================
@@ -1097,6 +1147,40 @@ export interface RawKeeperLine {
   undo_until: Date;
 }
 
+
+/** Slice 9a: one open card from his sent mail (home_reconcile_change, mode card, state open, not past its two weeks). */
+export interface RawReconcileCard {
+  id: string;
+  kind: 'done' | 'note' | 'waiting' | 'session' | 'wait' | 'track';
+  title: string;
+  lines: string[];
+  /** The WhyCode (decide.ts) the card was made for. */
+  reason: string | null;
+  link: string | null;
+  created_at: Date;
+  look_back: boolean;
+  plan: Record<string, unknown>;
+  minutes_estimate: number | null;
+  estimate_basis: string | null;
+  /** quote_to, the recipient label. */
+  who: string | null;
+  quote_at: Date | null;
+}
+
+/** Slice 9a: one Handled line for his sent mail (a note, or a card he marked done with no time on it). */
+export interface RawReconcileLine {
+  /** The home_actions id: the Undo and "This was wrong" target. */
+  id: string;
+  text: string;
+  details: string[];
+  link: string | null;
+  at: Date;
+  undo_until: Date | null;
+  /** True for an automatic note (it offers "This was wrong"). */
+  note: boolean;
+  time_prompt: { task_id: string; minutes: number; day: string } | null;
+}
+
 /** Everything loadHomeInputs(prisma, userId, now) returns. */
 export interface RawHomeInputs {
   user_id: string;
@@ -1116,6 +1200,10 @@ export interface RawHomeInputs {
   held_projects: RawHeldProject[];
   /** Slice 2: the keeper's own Handled lines, newest first. */
   keeper_lines: RawKeeperLine[];
+  /** Slice 9a: his open cards from sent mail, and the Handled lines of the notes. Absent means none. */
+  reconcile_cards?: RawReconcileCard[];
+  reconcile_lines?: RawReconcileLine[];
+
   /** Slice 4a: U's home_owed_thread rows (Bast's drafts and reads). */
   owed_rows: OwedRow[];
   /** Slice 4a: finished_at of the owner's owed_reply keeper run row for today (the freshness stamp), or null. */

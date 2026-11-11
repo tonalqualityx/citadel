@@ -39,6 +39,9 @@ import { requestBook, undoBook } from './owed/book';
 import { BOOK_COPY, bookLine } from './owed/book-copy';
 import { NO_FREE_SLOT } from './owed/slot';
 import { selectHome } from './select';
+import { proposalNo, proposalYes } from './reconcile/apply';
+import { afterUndo, undoReconcileRecord } from './reconcile/undo';
+import { readRecord } from './reconcile/records';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
 import {
@@ -144,6 +147,10 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('step_done'), item_key: itemKeySchema }).strict(),
   // Session card: clear the question a session parked on him. Writes only his home_item_state row; the session's own record is never touched.
   z.object({ action: z.literal('clear_session'), item_key: itemKeySchema }).strict(),
+  // Slice 9a: a card from his sent mail. There is deliberately no track_it and no log_time here: they create a time entry, and the only
+  // door that can is POST /api/home/reconcile (session only). proposal_yes on a Track it card answers 400 "Tap this on the home screen."
+  z.object({ action: z.literal('proposal_yes'), item_key: itemKeySchema }).strict(),
+  z.object({ action: z.literal('proposal_no'), item_key: itemKeySchema }).strict(),
   // Do it on a day: park the item until the day he picked (his own rows only; the day is checked against today in his zone).
   // Snooze: a short park (15 minutes to 24 hours). Exactly one of until (an ISO instant) and hours (1 to 4).
   z
@@ -158,7 +165,7 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('on_day'), item_key: itemKeySchema, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, ON_DAY_BAD_DAY) }).strict(),
 ]);
 
-export const homeUndoSchema = z.object({ action_id: z.string().uuid() }).strict();
+export const homeUndoSchema = z.object({ action_id: z.string().uuid(), wrong: z.literal(true).optional() }).strict();
 
 // ============================================================================
 // Errors and sentences
@@ -620,6 +627,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
 
     case 'arc_add': {
       if (parseItemKey(req.item_key)?.kind === 'step') throw new ApiError('A project next step is not added to the arc.', 400);
+      if (parseItemKey(req.item_key)?.kind === 'proposal') throw new ApiError('A card from your sent mail is not added to the arc.', 400);
       const day = requireDay(ctx, req.group_key);
       if (day.step_item_keys.includes(req.item_key) || day.quick_item_keys.includes(req.item_key)) {
         throw new HomeActError('already_in_arc');
@@ -861,6 +869,11 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       return { ...base, action: req.action, item_key: req.item_key, stateWrites: [], book: true, message: null };
     }
 
+    case 'proposal_yes':
+    case 'proposal_no':
+      // Run by runHomeAct through lib/home/reconcile/apply.ts, never planned here.
+      throw new HomeActError('not_found', 'That is not a home change.');
+
     case 'record':
       return {
         action: req.action,
@@ -953,6 +966,10 @@ export async function runHomeAct(
   req: HomeActRequest,
   opts: RunOptions
 ): Promise<HomeActResponse> {
+  // Slice 9a: a tap on a card from his sent mail (its own writers; see lib/home/reconcile/apply.ts).
+  if (req.action === 'proposal_no') return proposalNo(db, userId, req.item_key, opts.now);
+  if (req.action === 'proposal_yes') return proposalYes(db, userId, req.item_key, { now: opts.now, timezone: opts.timezone, allowTime: false, minutes: null });
+
   let targetDay: ProposedDay | null | undefined;
   if (req.action === 'swap' || req.action === 'lighter') {
     const resolved = await resolveTargetDay(db, userId, req, opts);
@@ -1336,11 +1353,14 @@ export async function runHomeUndo(
   db: PrismaClient,
   userId: string,
   actionId: string,
-  now: Date
+  now: Date,
+  opts: { wrong?: boolean } = {}
 ): Promise<HomeUndoResponse> {
   return db.$transaction(async (tx) => {
     const row = await getHomeAction(tx, userId, actionId);
     if (!row) throw new HomeActError('not_found');
+    // Slice 9a: "This was wrong" exists only on a line the sent-mail reconciler wrote. Any other row is refused.
+    if (opts.wrong && row.source !== 'reconcile') throw new HomeActError('not_undoable', 'That cannot be marked wrong.');
     if (row.undone_at) throw new HomeActError('undo_used');
     // Slice 4a: the keeper's "Drafted replies" line has no Undo; the drafts are his to keep or discard in Gmail.
     if (row.action === OWED_ACTION) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
@@ -1365,6 +1385,15 @@ export async function runHomeUndo(
 
     const marked = await markHomeActionUndone(tx, userId, actionId, now);
     if (!marked) throw new HomeActError('undo_used');
+
+    // Slice 9a: a reconcile record (a note, Track it, Log time, a done, a wait). Compare-and-set; nothing is deleted. A 30 day hold follows.
+    const rec = readRecord(row.before);
+    let reconcileMessage: string | null = null;
+    if (rec) {
+      const out = await undoReconcileRecord(tx as unknown as PrismaClient, userId, rec, now);
+      reconcileMessage = out.message;
+      await afterUndo(tx as unknown as PrismaClient, userId, rec, now, opts.wrong === true);
+    }
 
     // Slice 4a: a tap Undo clears only while no run has served it; after that the draft exists and stays.
     if (before.owed) {
@@ -1393,7 +1422,7 @@ export async function runHomeUndo(
     if (before.day) await undoDayRecord(tx, userId, before.day, after?.day);
     for (const rec of before.arcs ?? []) await undoArcRecord(tx, userId, rec, now);
 
-    return { ok: true as const, action_id: actionId, item_key: row.item_key };
+    return { ok: true as const, action_id: actionId, item_key: row.item_key, ...(reconcileMessage ? { message: reconcileMessage } : {}) };
   });
 }
 

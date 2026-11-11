@@ -85,6 +85,10 @@ async function describeItem(db: OpDb, key: string): Promise<Described> {
       const pr = await db.project.findUnique({ where: { id: p.project_id }, select: { name: true } });
       return { title: pr?.name ?? 'that project', security: false };
     }
+    case 'proposal': {
+      const c = await db.homeReconcileChange.findUnique({ where: { id: p.id }, select: { title: true } });
+      return { title: c?.title ?? 'that card', security: false };
+    }
   }
 }
 
@@ -130,6 +134,7 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   else if (a === 'not_emergency') line = { op: 'home_act', action: 'not_emergency', title: d.title, security: d.security };
   else if (a === 'step_done') line = { op: 'home_act', action: 'step_done', title: d.title };
   else if (a === 'clear_session') line = { op: 'home_act', action: 'clear_session', title: d.title };
+  else if (a === 'proposal_yes' || a === 'proposal_no') line = { op: 'home_act', action: a, title: d.title };
   else if (a === 'on_day' || a === 'snooze') line = { op: 'home_act', action: a, title: d.title, message: message ?? '' };
   else line = { op: 'home_act', action: a, title: d.title };
   return opSummary(line, now);

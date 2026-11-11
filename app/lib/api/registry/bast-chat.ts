@@ -600,6 +600,84 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/reconcile',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the sent-mail reconciler\'s context (switches, caps, messages already processed, holds, hashes of Bast\'s own drafts, whether the look-back is done)',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          owner_ok: 'boolean',
+          on: 'boolean (the owner\'s reconcile_on switch)',
+          auto: 'false (9a never changes a task on its own)',
+          caps: '{notes_left, cards_left}',
+          processed: 'string[] (message_key, last 21 days)',
+          holds: 'string[] (target_key, active)',
+          bast_draft_hashes: 'string[] (sha256 of every draft Bast wrote, last 21 days)',
+          lookback_done: 'boolean (a reconcile_lookback run row exists)',
+          skipped: '"home_off"',
+        },
+        responseNotes: 'Owner only; takes no user id. Writes nothing.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: judge (dry: true, writes nothing) or save (dry: false) what the machine read from the owner\'s sent mail; the end of the look-back is {dry: false, lookback_end: true, messages: []}',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'dry', type: 'boolean', required: true, description: 'true runs every validation and answers the decisions with no write; false runs the same validation, then writes.' },
+          { name: 'lookback_end', type: 'boolean', required: false, description: 'true (with messages: []) marks the look-back used up, once.' },
+          { name: 'messages', type: 'object', required: true, description: 'At most 10 of {message_key, account, gmail_id, thread_id, thread_root, sent_at, to_label, subject, lookback, bast_words, new_part (at most 6,000 characters, never stored), quoted_part_hash, filter: {model, cost_usd}, match: {model, cost_usd}|null, outcome: "nothing"|"actions", actions: []}. Each action is a note, done, waiting, session, wait or track object.' },
+        ],
+        responseExample: {
+          messages: [
+            {
+              message_key: 'string',
+              outcome: '"nothing"|"noted"|"proposed"|"refused"|"bast_words"|"skipped"|"already"',
+              decisions: [{ i: 'number (the action index)', result: '"noted"|"carded"|"nothing"|"refused"', reason: 'quote_not_new|quote_long|not_open|not_candidate|held|duplicate|already|bad_shape|bast_words (on a refusal)' }],
+            },
+          ],
+          lookback_end: '"set"|"would_set"|"already"',
+          skipped: '"home_off"|"reconcile_off"',
+        },
+        responseNotes: 'Owner only. Strict body, 128 KB cap, 413 over it, 400 for more than 10 messages. Citadel decides every evidence rule from its own data; the machine\'s opinion is never trusted. The only automatic change is an internal note on the owner\'s OWN open task (written by Bast, never client visible, each with a Handled line, Undo and "This was wrong"); a task tagged security, security-report, lifeline or job-watch may get a note but is never closed except by his tap on a card. Everything else is a card. Never changes a task\'s status, never creates a time entry, project or task, never sends, drafts or changes any email.',
+      },
+    ],
+  },
+  {
+    path: '/api/bast-chat/worker/reconcile/candidates',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Chat lane: what each sent message could be about (tasks with their basis, sessions, waits, the client\'s live projects, retainer hours). Writes nothing.',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'messages', type: 'object', required: true, description: 'At most 10 of {message_key, account, thread_id, thread_rfc_ids: [], to: [{email, name}], cc: [{email, name}], subject, sent_at}.' },
+        ],
+        responseExample: {
+          messages: [
+            {
+              message_key: 'string',
+              client: '{id, name}|null',
+              tasks: '[at most 8: {id, title, mine, status, tags, protected, client, project, open_items (at most 6), basis [thread|client|site|subject], free_to_change}]',
+              sessions: '[{session_key, kind: "ask", title, text (at most 600), asked_at} | {key, kind: "work", title, started_at, last_event_at, span_minutes}]',
+              waits: '[{id, title, state}]',
+              projects: '[{id, name, type, status, is_retainer, open_tasks}] (the client\'s live projects)',
+              retainer: '{hours}|null',
+              tracked_hint: '{state, kind, title}|null',
+            },
+          ],
+          skipped: '"home_off"|"reconcile_off"',
+        },
+        responseNotes: 'Owner only. Strict body, 64 KB cap. Writes nothing.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/session-asks/:id',
     group: 'bast-chat',
     methods: [

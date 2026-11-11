@@ -9,6 +9,9 @@ import { bastReadLine, CLOSE_LEAD_LABEL, NOT_LEAD_ASK, SHORT_DRAFT_TITLE, sugges
 import { RULE_ASK_TITLE, RULE_REASON_MAX, RULE_SAVE_LABEL } from '@/lib/home/emergency/copy';
 import { plain } from './home-screen-logic';
 
+/** The time choices of a sent-mail card: minutes, null for none. */
+const NUMBER_MAX = 1440;
+
 export interface ItemCardExtraProps extends ItemCardProps {
   /** The pinned item's card leaves its buttons to WorkingOnBar. */
   hideActions?: boolean;
@@ -48,6 +51,15 @@ export function ItemCard({
   const [leadPickOpen, setLeadPickOpen] = React.useState(false);
   // "Do it on a day": the quick choices open under More.
   const [dayPickOpen, setDayPickOpen] = React.useState<'on_day' | 'snooze' | null>(null);
+  // Slice 9a, a card from his sent mail: the minutes chosen (null = no time entry) and whether the time is billable.
+  const proposalTime = item?.proposal?.time ?? null;
+  const [minutes, setMinutes] = React.useState<number | null>(proposalTime && item?.proposal?.kind === 'track' ? proposalTime.default : null);
+  const [notBillable, setNotBillable] = React.useState(false);
+  React.useEffect(() => {
+    setMinutes(proposalTime && item?.proposal?.kind === 'track' ? proposalTime.default : null);
+    setNotBillable(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemKey]);
   React.useEffect(() => {
     setLeadPickOpen(false);
     setDayPickOpen(null);
@@ -95,6 +107,10 @@ export function ItemCard({
           setDayPickOpen((v) => (v === which ? null : which));
           return;
         }
+        if (item.proposal && (a.id === 'track_it' || (a.id === 'proposal_yes' && item.proposal.time))) {
+          onAction({ ...a, minutes, billable: !notBillable }, item);
+          return;
+        }
         onAction(a, item);
       }}
     >
@@ -119,6 +135,53 @@ export function ItemCard({
       </div>
       {item.why_now ? <p className="home-why">{plain(item.why_now)}</p> : null}
       {item.outside_check ? <p className="home-why" data-testid="outside-check">{plain(item.outside_check)}</p> : null}
+
+      {item.proposal ? (
+        <div className="home-prompt home-proposal" data-testid="proposal">
+          {item.proposal.lines.map((l, i) => (
+            <p key={`${i}-${l}`} className={i === 0 ? undefined : 'home-small'}>
+              {plain(l)}
+            </p>
+          ))}
+          <p className="home-muted home-small">{plain(item.proposal.why)}</p>
+          {proposalTime ? (
+            <div role="group" aria-label="Time spent">
+              <p className="home-small">{item.proposal.kind === 'track' ? 'Time spent (minutes). Change it before you tap.' : 'Log time with it (minutes):'}</p>
+              <div className="home-actions">
+                {item.proposal.kind !== 'track' ? (
+                  <button type="button" className="home-btn" data-filled={minutes === null ? 'true' : undefined} disabled={busy} onClick={() => setMinutes(null)}>
+                    None
+                  </button>
+                ) : null}
+                {proposalTime.choices.map((m) => (
+                  <button key={m} type="button" className="home-btn" data-filled={minutes === m ? 'true' : undefined} disabled={busy} onClick={() => setMinutes(m)}>
+                    {m}
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  className="home-rulepick-input"
+                  aria-label="Minutes"
+                  min={1}
+                  max={NUMBER_MAX}
+                  value={minutes !== null && !proposalTime.choices.includes(minutes) ? minutes : ''}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const n = Math.round(Number(e.target.value));
+                    setMinutes(Number.isFinite(n) && n > 0 ? Math.min(n, NUMBER_MAX) : null);
+                  }}
+                />
+              </div>
+              {proposalTime.billable_choice ? (
+                <label className="home-rulepick-row">
+                  <input type="checkbox" checked={notBillable} disabled={busy} onChange={(e) => setNotBillable(e.target.checked)} />
+                  <span>Not billable</span>
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {prompt ? (
         <div className="home-prompt" role="group" aria-label={prompt.text}>

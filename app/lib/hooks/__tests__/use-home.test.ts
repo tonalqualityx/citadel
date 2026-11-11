@@ -490,3 +490,74 @@ describe('Slice 8b: a project next step', () => {
     expect(api.post.mock.calls.some((c) => String(c[0]).includes('/refresh'))).toBe(false);
   });
 });
+
+describe('Slice 9a: cards from his sent mail', () => {
+  const KEY = 'proposal:7aa4a01a-1111-4222-8333-944445555666';
+  const card = (over: Partial<HomeItem> = {}) => item({ key: KEY, type: 'proposal', ...over }, { kind: 'proposal', id: 'x', ids: ['x'], task_status: null });
+  const reply = { ok: true, action_id: 'r1', undo_until: '2026-11-12T00:00:00Z', item_key: KEY, message: 'Tracked: 4 tasks and 1 hour 30 minutes on The Vermont Standard.' };
+
+  it('Track it posts only to /home/reconcile with the placement, minutes and billable choice, and toasts the line with Undo', async () => {
+    api.post.mockResolvedValueOnce(reply);
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'track_it', placement: 'new_project', minutes: 90, billable: false }, card())).toBe(true);
+    });
+    expect(api.post).toHaveBeenLastCalledWith('/home/reconcile', { action: 'track_it', item_key: KEY, placement: 'new_project', minutes: 90, billable: false });
+    expect(toasts.success).toHaveBeenLastCalledWith(reply.message, expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }));
+  });
+
+  it('Track it without a placement posts nothing', async () => {
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'track_it' }, card())).toBe(false);
+    });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('Mark it done with a time choice goes to /home/reconcile; without one it is a home act', async () => {
+    api.post.mockResolvedValue({ ...reply, message: 'Marked it done.' });
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    const withTime = card({ proposal: { kind: 'done', lines: [], why: '', link: null, look_back: false, time: { default: 30, choices: [15, 30], basis: null, billable_choice: false }, placement: null } });
+    await act(async () => {
+      await result.current.run({ id: 'proposal_yes', minutes: 30 }, withTime);
+    });
+    expect(api.post).toHaveBeenLastCalledWith('/home/reconcile', { action: 'proposal_yes', item_key: KEY, minutes: 30 });
+    await act(async () => {
+      await result.current.run({ id: 'proposal_yes' }, card());
+    });
+    expect(api.post).toHaveBeenLastCalledWith('/home/act', { action: 'proposal_yes', item_key: KEY });
+    await act(async () => {
+      await result.current.run({ id: 'proposal_no' }, card());
+    });
+    expect(api.post).toHaveBeenLastCalledWith('/home/act', { action: 'proposal_no', item_key: KEY });
+  });
+
+  it('"This was wrong" posts the action id with wrong: true to /home/undo and says what it did', async () => {
+    api.post.mockResolvedValueOnce({ ok: true, action_id: 'n1', item_key: 'task:abc' });
+    const { result } = renderHook(() => useHomeUndo({ doneText: 'Hidden.', wrong: true }), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current('n1')).toBe(true);
+    });
+    expect(api.post).toHaveBeenLastCalledWith('/home/undo', { action_id: 'n1', wrong: true });
+    expect(toasts.success).toHaveBeenLastCalledWith('Hidden.');
+  });
+
+  it('a plain Undo posts no wrong flag', async () => {
+    api.post.mockResolvedValueOnce({ ok: true, action_id: 'n1', item_key: 'task:abc' });
+    const { result } = renderHook(() => useHomeUndo(), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      await result.current('n1');
+    });
+    expect(api.post).toHaveBeenLastCalledWith('/home/undo', { action_id: 'n1' });
+  });
+
+  it('a refusal from the session door shows the server sentence once', async () => {
+    api.post.mockRejectedValueOnce(new Error('That card is not open any more.'));
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current.run({ id: 'track_it', placement: 'none', minutes: null, billable: true }, card())).toBe(false);
+    });
+    expect(toasts.error).toHaveBeenCalledTimes(1);
+    expect(toasts.error).toHaveBeenCalledWith('That card is not open any more.');
+  });
+});

@@ -87,6 +87,9 @@ model User {
   home_actions     HomeAction[]    @relation("HomeActionUser")
 
   home_keeper_runs     HomeKeeperRun[]     @relation("HomeKeeperRunUser")
+  home_reconcile_messages HomeReconcileMessage[] @relation("HomeReconcileMessageUser")
+  home_reconcile_changes  HomeReconcileChange[]  @relation("HomeReconcileChangeUser")
+  home_reconcile_holds    HomeReconcileHold[]    @relation("HomeReconcileHoldUser")
   home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
   home_owed_threads    HomeOwedThread[]    @relation("HomeOwedThreadUser")
   home_site_incidents  HomeSiteIncident[]  @relation("HomeSiteIncidentUser")
@@ -4896,6 +4899,8 @@ model HomeKeeperSettings {
   outside_scan    Boolean  @default(false)
   // Home Slice 4d: "Book 30 minutes", a private block on the owner's own calendar from a needs-thought row. Off until Mike says yes.
   book_blocks     Boolean  @default(false)
+  // Home Slice 9a: the sent-mail reconciler reads his sent mail, writes notes on his own tasks and makes cards. No row means off.
+  reconcile_on    Boolean  @default(false)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
   @@map("home_keeper_settings")
@@ -5222,4 +5227,83 @@ model HomeScoreWeight {
 
   @@unique([user_id, evidence_key])
   @@map("home_score_weights")
+}
+
+// Home Slice 9a: one row per sent message the reconciler processed, for that user only. A message is processed once.
+model HomeReconcileMessage {
+  id           String                @id @default(uuid()) @db.Uuid
+  user_id      String                @db.Uuid
+  user         User                  @relation("HomeReconcileMessageUser", fields: [user_id], references: [id], onDelete: Cascade)
+  message_key  String                @db.VarChar(300) // RFC Message-ID, lowercased, no brackets; else "<account>/<gmail_id>"
+  account      String                @db.VarChar(255)
+  gmail_id     String                @db.VarChar(64)
+  thread_id    String                @db.VarChar(255)
+  sent_at      DateTime
+  to_label     String?               @db.VarChar(300) // "Kue Chen" or "Kue Chen and 2 others"
+  subject      String?               @db.VarChar(500)
+  outcome      String                @db.VarChar(20) // nothing | noted | proposed | acted | refused | bast_words | skipped
+  refusal      String?               @db.VarChar(200)
+  lookback     Boolean               @default(false)
+  filter_model String?               @db.VarChar(20)
+  match_model  String?               @db.VarChar(20)
+  cost_usd     Decimal               @default(0) @db.Decimal(10, 4)
+  wrong_at     DateTime? // "This was wrong" on any change from this message
+  created_at   DateTime              @default(now())
+  changes      HomeReconcileChange[]
+
+  @@unique([user_id, message_key])
+  @@index([user_id, sent_at])
+  @@map("home_reconcile_message")
+}
+
+// Home Slice 9a: one evidence-carrying change: a note, an auto change (9b) or a card. Every row keeps the quote and the link.
+model HomeReconcileChange {
+  id               String               @id @default(uuid()) @db.Uuid
+  user_id          String               @db.Uuid
+  user             User                 @relation("HomeReconcileChangeUser", fields: [user_id], references: [id], onDelete: Cascade)
+  message_id       String               @db.Uuid
+  message          HomeReconcileMessage @relation(fields: [message_id], references: [id], onDelete: Cascade)
+  kind             String               @db.VarChar(12) // note | done | waiting | session | wait | track | step
+  mode             String               @db.VarChar(10) // auto | card
+  state            String               @default("open") @db.VarChar(12) // card: open | applied | dismissed | expired | undone; auto: applied | undone
+  target_key       String?              @db.VarChar(300) // task:<id> | session:<external id> | wait:<id> | project:<id> | null for track
+  dedupe_key       String               @db.VarChar(300)
+  title            String               @db.VarChar(300)
+  lines            Json? // card lines (open points, the track plan), server-built
+  plan             Json? // server-built: exactly what the tap performs
+  quote            String?              @db.VarChar(400)
+  quote_to         String?              @db.VarChar(300)
+  quote_at         DateTime?
+  link             String?              @db.VarChar(1000) // gmail thread link
+  confidence       String               @db.VarChar(8) // high | medium
+  basis            String[]             @default([]) @db.VarChar(20) // thread | client | site | subject
+  reason           String?              @db.VarChar(200) // why it is a card
+  minutes_estimate Int?
+  estimate_basis   String?              @db.VarChar(300)
+  home_action_id   String?              @db.Uuid // the Handled line, or his tap
+  comment_id       String?              @db.Uuid
+  time_entry_id    String?              @db.Uuid // only ever set by his tap
+  created_ids      Json? // {project_id?, task_ids[]} made by Track it
+  shown_until      DateTime? // card expiry (14 days)
+  created_at       DateTime             @default(now())
+  resolved_at      DateTime?
+
+  @@unique([user_id, dedupe_key])
+  @@index([user_id, state])
+  @@index([user_id, target_key])
+  @@map("home_reconcile_change")
+}
+
+// Home Slice 9a: a target the reconciler leaves alone (after Undo 30 days, after "This was wrong" 90 days).
+model HomeReconcileHold {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  user       User     @relation("HomeReconcileHoldUser", fields: [user_id], references: [id], onDelete: Cascade)
+  target_key String   @db.VarChar(300)
+  until      DateTime
+  reason     String   @db.VarChar(20) // undo | wrong | no
+  created_at DateTime @default(now())
+
+  @@unique([user_id, target_key])
+  @@map("home_reconcile_hold")
 }

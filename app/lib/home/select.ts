@@ -98,6 +98,7 @@ import { effortExtras, learnedFooter, timeBasisSentence } from './learn/copy';
 import { evidenceKeys, isLearnableKey } from './learn/evidence';
 import { ON_DAY_REASON, ON_DAY_WHY_NOW, SNOOZE_BACK_WHY, dayChoices, isDayArrived, isDayParked, isSnoozeBack, isSnoozeParked, onDayCheckText, snoozeCheckText, snoozeChoices } from './on-day';
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
+import { buildProposalDraft, proposalOrder, type ProposalDraft } from './reconcile/card';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
 import {
@@ -160,6 +161,7 @@ import type {
   RawProjectStep,
   RawReviewFold,
   HomeChoice,
+  HomeItemAction,
   RawSessionAsk,
   RawSiteIncident,
   RawTask,
@@ -503,6 +505,8 @@ interface Draft {
     mailUrl?: string | null;
     siteUrl?: string | null;
     siteIfIgnored?: string | null;
+    /** Slice 9a: a card from his sent mail: its buttons, "Why Bast asks" line and "If you do nothing" line. */
+    proposal?: { ifIgnored: string; why: string; buttons: HomeItemAction[]; noDefault: boolean };
   };
 }
 
@@ -1155,6 +1159,7 @@ function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.kind === 'hands') return HANDS_REASON;
   if (c.kind === 'step') return stepReason(c.item.project?.name ?? '');
+  if (c.kind === 'proposal') return ctx.proposal?.why ?? '';
   if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
   if (c.boosted) return REASON.boosted;
   switch (c.section) {
@@ -1207,6 +1212,7 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     siteUrl: ctx.siteUrl,
     dayChoices: c.dayChoices,
     snoozeChoices: c.snoozeChoices,
+    proposal: ctx.proposal ? { buttons: ctx.proposal.buttons, noDefault: ctx.proposal.noDefault } : undefined,
   });
   const finalItem: HomeItem = {
     ...c.item,
@@ -1215,7 +1221,9 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     why_now: c.dayArrived ? ON_DAY_WHY_NOW : c.snoozeBack ? SNOOZE_BACK_WHY : c.item.why_now,
     reason: c.learned && c.shown ? `${reasonFor(c, ctx)} ${learnedFooter(c.learned.key, c.learned.label, c.learned.dir)}` : reasonFor(c, ctx),
     default_if_ignored:
-      c.kind === 'thread' && !c.rule && ctx.owedIfIgnored
+      c.kind === 'proposal' && ctx.proposal
+        ? ctx.proposal.ifIgnored
+        : c.kind === 'thread' && !c.rule && ctx.owedIfIgnored
         ? ctx.owedIfIgnored
         : c.kind === 'site' && c.rule && ctx.siteIfIgnored
           ? ctx.siteIfIgnored
@@ -1248,7 +1256,7 @@ export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived'
   return false;
 }
 
-const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step'];
+const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step', 'proposal'];
 
 /** One Everything else row for an item (check text per the plan's table). */
 function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date, timeZone: string): HomeRestItem {
@@ -1268,6 +1276,8 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
     text = REST_CHECK.venture;
   } else if (group === 'hands') {
     text = REST_CHECK.handsRow;
+  } else if (group === 'from_sent_mail') {
+    text = ctx.proposal?.why.includes('older mail') ? REST_CHECK.sentMailOlder : REST_CHECK.sentMailCard;
   } else if (group === 'project_steps') {
     text = c.boosted ? REST_CHECK.joinsNext : meetsNextRule(c) ? REST_CHECK.stepOneAtATime : REST_CHECK.stepHeld;
   } else if (c.kind === 'site') {
@@ -1591,6 +1601,66 @@ export function selectHome(input: SelectInput): SelectResult {
     }
   });
 
+
+  // Slice 9a: a card from his sent mail is a row of its own. One sits in Decisions ready at a time (security first, then Track it, then the
+  // newest); the rest, and every look-back card, wait in the drawer group "From your sent mail". A card he brought forward takes a Next slot.
+  // Cards are never part of Today and never score money, a date or a person waiting.
+  const eligibleCards: (ProposalDraft & { id: string; at: Date; cand: Candidate })[] = [];
+  for (const card of raw.reconcile_cards ?? []) {
+    const d = buildProposalDraft(card, now, raw.timezone);
+    const st = states.get(d.item.key);
+    const c: Candidate = {
+      key: d.item.key,
+      kind: 'proposal',
+      item: d.item,
+      rule: null,
+      score: scoreStep({ client: { status: 'active', name: null }, project_name: null, last_activity_at: card.created_at }, now),
+      since: card.created_at,
+      personWaiting: false,
+      hardDate: null,
+      minutes: d.item.minutes,
+      group: { key: OWN_GROUP_KEY, name: OWN_GROUP_LABEL, client: null, project: null, arc: null },
+      arcId: null,
+      dayArrived: isDayArrived(st, now, raw.timezone),
+      snoozeBack: isSnoozeBack(st, now, raw.timezone),
+      boosted: !!st?.boosted_at || isDayArrived(st, now, raw.timezone),
+      fresh: false,
+      arrived: false,
+      botTask: false,
+      clockDue: false,
+      unpark: false,
+      parkedBy: null,
+      parked: false,
+      pinned: false,
+      shown: false,
+      inView: false,
+      section: 'rest',
+      restGroup: 'from_sent_mail',
+      state: st,
+    };
+    const vw = st?.view_at;
+    c.parked = !!vw && vw.getTime() > now.getTime();
+    c.parkedBy = c.parked ? (st?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
+    candidates.push(c);
+    ctxByKey.set(c.key, { proposal: { ifIgnored: d.ifIgnored, why: d.why, buttons: d.buttons, noDefault: d.no_default } });
+    if (c.parked) {
+      c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
+    } else if (c.boosted) {
+      c.section = 'next';
+      c.restGroup = null;
+      nextAll.push(c);
+    } else if (!d.look_back) {
+      eligibleCards.push({ ...d, id: card.id, at: card.created_at, cand: c });
+    }
+  }
+  eligibleCards.sort(proposalOrder);
+  if (eligibleCards.length > 0) {
+    const top = eligibleCards[0].cand;
+    top.section = 'next';
+    top.restGroup = null;
+    nextAll.push(top);
+  }
+
   for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) c.inView = true;
 
   needs.sort(emergencyCompare);
@@ -1644,7 +1714,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const next = nextAll.slice(0, nextSlots);
   for (const c of nextAll.slice(nextSlots)) {
     c.section = 'rest';
-    c.restGroup = c.kind === 'step' ? 'project_steps' : 'waiting_turn';
+    c.restGroup = c.kind === 'step' ? 'project_steps' : c.kind === 'proposal' ? 'from_sent_mail' : 'waiting_turn';
   }
   if (handsCand) next.unshift(handsCand);
   for (const c of [...needs, ...working, ...leads, ...mail, ...next]) c.shown = true;
@@ -1688,6 +1758,7 @@ export function selectHome(input: SelectInput): SelectResult {
     bast_stopped: 0,
     hands: 0,
     project_steps: 0,
+    from_sent_mail: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
 
@@ -1703,6 +1774,7 @@ export function selectHome(input: SelectInput): SelectResult {
     bast_stopped: [],
     hands: [],
     project_steps: [],
+    from_sent_mail: [],
   };
   const restCands = candidates.filter((c) => c.section === 'rest' && c.restGroup !== null);
   const byDay = (a: Candidate, b: Candidate) =>
@@ -1761,6 +1833,7 @@ export function selectHome(input: SelectInput): SelectResult {
     'bast_stopped',
     'project_steps',
     'hands',
+    'from_sent_mail',
   ];
   const groups: HomeEverythingElseGroup[] = order
     .filter((k) => counts[k] > 0)
@@ -1823,7 +1896,22 @@ export function selectHome(input: SelectInput): SelectResult {
       },
     ];
   });
-  const handledAll = [...closed, ...kept, ...sends, ...books].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
+  // Slice 9a: Handled for you shows each note written from his sent mail (Undo and "This was wrong" for 72 hours), and a task marked done
+  // from a card with no time on it ("Log time? 30 min").
+  const sentMail: HomeQuietLine[] = (raw.reconcile_lines ?? []).map((x) => {
+    const open = !!x.undo_until && x.undo_until.getTime() > now.getTime();
+    return {
+      id: x.id,
+      text: displayText(x.text),
+      href: x.link,
+      at: x.at.toISOString(),
+      undo_action_id: open ? x.id : null,
+      details: x.details.map((d) => displayText(d)).filter((d) => d !== ''),
+      wrong_action_id: x.note && open ? x.id : null,
+      time_prompt: x.time_prompt,
+    };
+  });
+  const handledAll = [...closed, ...kept, ...sends, ...books, ...sentMail].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));
   const handled = handledAll.slice(0, CAPS.handled);
   const moreCount = Math.max(0, handledAll.length - CAPS.handled);
 

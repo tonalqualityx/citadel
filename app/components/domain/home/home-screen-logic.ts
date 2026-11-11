@@ -180,6 +180,10 @@ export interface DetailInfo {
   button?: { label: string; projectId: string };
   /** A keeper line's home_actions id: shows "Undo" on the card. */
   undoActionId?: string;
+  /** Slice 9a, a note from his sent mail: the id "This was wrong" posts to /api/home/undo with wrong: true. */
+  wrongActionId?: string;
+  /** Slice 9a: "Log time? 30 min" on a task marked done from a card with no time on it. */
+  timePrompt?: { task_id: string; minutes: number; day: string };
 }
 
 export function rowsFromHandled(res: HomeResponse): ListRow[] {
@@ -197,6 +201,17 @@ export function detailForHandled(res: HomeResponse, key: string | null): DetailI
   if (!q) return null;
   const keeper = q.undo_action_id !== null && q.undo_action_id !== undefined;
   const details = (q.details ?? []).map((d) => plain(d)).filter(Boolean);
+  // Slice 9a: a line from his sent mail (a note, or a card marked done).
+  if (q.wrong_action_id || q.time_prompt) {
+    return {
+      title: plain(q.text),
+      lines: [q.wrong_action_id ? 'Bast added this note from your sent mail. Undo hides it. Nothing is deleted.' : 'You marked this done from a card.', ...details],
+      link: q.href ? { label: 'Open the email', href: q.href } : undefined,
+      undoActionId: keeper ? (q.undo_action_id as string) : undefined,
+      wrongActionId: q.wrong_action_id ?? undefined,
+      timePrompt: q.time_prompt ?? undefined,
+    };
+  }
   return {
     title: plain(q.text),
     lines: [keeper ? 'The nightly sort did this for you. You can put it back.' : 'The system closed this itself. Nothing needs you.', ...details],

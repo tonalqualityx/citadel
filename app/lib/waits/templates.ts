@@ -649,6 +649,21 @@ export const WAIT_TEMPLATES: WaitTemplate[] = [
     spec: 'portal.awaiting_client | external | client; liaison | 5 bd | task to liaison: follow up by email or call | no',
   },
 
+  // ----- Mail he sent and is waiting on (Home Slice 9a: opened only by his tap on a sent-mail card) -----
+  {
+    key: 'mail.awaiting_reply',
+    kind: 'external',
+    enabled: true,
+    sends: false,
+    owner: 'client',
+    shepherd: 'mike',
+    blocks_client: false,
+    title: 'Waiting on {subject}',
+    steps: [{ duration: bd(5), action: 'escalate', note: "Comes into view on Mike's home screen: no answer yet." }],
+    on_reply: 'stop',
+    spec: 'mail.awaiting_reply | external | person asked by email; Mike shepherds | 5 bd | comes into view on the home screen | no',
+  },
+
   // ----- Meetings, switches, generic -----
   {
     key: 'meeting.type_unclear',

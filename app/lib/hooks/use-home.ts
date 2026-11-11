@@ -105,9 +105,19 @@ export function postHomeSend(body: { item_key: string; draft_id: string }): Prom
   return apiClient.post<HomeSendResult>('/home/send', body);
 }
 
-export function postHomeUndo(actionId: string): Promise<HomeUndoResponse> {
-  const body: HomeUndoRequest = { action_id: actionId };
+export function postHomeUndo(actionId: string, wrong = false): Promise<HomeUndoResponse> {
+  const body: HomeUndoRequest = { action_id: actionId, ...(wrong ? { wrong: true as const } : {}) };
   return apiClient.post<HomeUndoResponse>('/home/undo', body);
+}
+
+/** POST /api/home/reconcile (Slice 9a; session only): Track it, Log time, or Mark it done with a time choice. The only door that creates a time entry. */
+export type HomeReconcileRequest =
+  | { action: 'track_it'; item_key: string; placement: 'project' | 'new_project' | 'none'; minutes: number | null; billable: boolean }
+  | { action: 'log_time'; task_id: string; minutes: number; day: string }
+  | { action: 'proposal_yes'; item_key: string; minutes: number | null };
+
+export function postHomeReconcile(body: HomeReconcileRequest): Promise<HomeActResponse> {
+  return apiClient.post<HomeActResponse>('/home/reconcile', body);
 }
 
 /** GET /api/home. No focus, reconnect or interval refetch; only an action refetches it. */
@@ -154,22 +164,25 @@ async function recordQuietly(item: HomeItem, did: HomeRecordedActionId, undo = f
  * `(actionId) => Promise<boolean>`: undo a home-only action, toast, refetch. The toast reads "Undone." for his own
  * actions; the keeper's lines pass `{ doneText: 'Put back.' }`.
  */
-export function useHomeUndo(opts: { doneText?: string } = {}) {
+export function useHomeUndo(opts: { doneText?: string; wrong?: boolean } = {}) {
   const doneText = opts.doneText ?? 'Undone.';
+  const wrong = opts.wrong === true;
   const queryClient = useQueryClient();
   return useCallback(
     async (actionId: string): Promise<boolean> => {
+      let message: string | null | undefined;
       try {
-        await postHomeUndo(actionId);
+        message = (await postHomeUndo(actionId, wrong))?.message;
       } catch {
         showToast.error(UNDO_FAILURE_TEXT);
         return false;
       }
-      showToast.success(doneText);
+      // Only the Track it undo that left part of it alone carries a line on the undo answer.
+      showToast.success(message && message.startsWith('Changed since') ? `${doneText} ${message}` : doneText);
       await refetchHome(queryClient);
       return true;
     },
-    [queryClient, doneText],
+    [queryClient, doneText, wrong],
   );
 }
 
@@ -231,6 +244,38 @@ export function useHomeSend() {
         action: { label: 'Undo', onClick: () => void undo(res.action_id) },
         duration: UNDO_DURATION_MS,
       });
+      await refetchHome(queryClient);
+      return true;
+    },
+    [queryClient, undo],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// useHomeReconcile (Slice 9a)
+// ---------------------------------------------------------------------------
+
+/**
+ * `(request) => Promise<boolean>`: Track it, Log time, or Mark it done with a time choice, through the session-only route. Toasts the
+ * server's line with Undo (24 hours), then refetches. A refusal shows the server's own plain sentence.
+ */
+export function useHomeReconcile() {
+  const queryClient = useQueryClient();
+  const undo = useHomeUndo();
+  return useCallback(
+    async (request: HomeReconcileRequest): Promise<boolean> => {
+      let res: HomeActResponse;
+      try {
+        res = await postHomeReconcile(request);
+      } catch (error) {
+        showToast.error(error instanceof Error && error.message ? error.message : HOME_FAILURE_TEXT);
+        return false;
+      }
+      showToast.success(res.message ?? 'Done.', {
+        action: res.undo_until ? { label: 'Undo', onClick: () => void undo(res.action_id) } : undefined,
+        duration: UNDO_DURATION_MS,
+      });
+      invalidateOtherSurfaces(queryClient);
       await refetchHome(queryClient);
       return true;
     },
@@ -350,6 +395,9 @@ export interface HomeItemActionOptions {
   openProject?: (projectId: string) => void;
 }
 
+/** A button as the browser sends it to run(): the id plus the choice it carries (a day, hours, a placement, minutes). */
+export type RunAction = { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string; placement?: 'project' | 'new_project' | 'none'; minutes?: number | null; billable?: boolean };
+
 export interface HomeRunOptions {
   /** Resend of do_now after "Switch to this one?" was confirmed. */
   switch?: boolean;
@@ -361,7 +409,7 @@ export interface HomeRunOptions {
 
 export interface HomeItemActionApi {
   /** Run one button. Resolves true when it worked (or only navigated), false when it failed or was paused for a question. */
-  run: (action: { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string }, item: HomeItem, opts?: HomeRunOptions) => Promise<boolean>;
+  run: (action: RunAction, item: HomeItem, opts?: HomeRunOptions) => Promise<boolean>;
   /** WorkingOnBar onDone: the item's done path (existing endpoint, then done_pin). */
   done: (item: HomeItem) => Promise<boolean>;
   /** WorkingOnBar onStop: "Stop for now" with the note. */
@@ -386,6 +434,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
   const router = useRouter();
   const act = useHomeAct();
   const send = useHomeSend();
+  const reconcile = useHomeReconcile();
   const openTaskRef = useRef(options.openTask);
   openTaskRef.current = options.openTask;
   const openProjectRef = useRef(options.openProject);
@@ -426,7 +475,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
   );
 
   const execute = useCallback(
-    async (action: { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string }, item: HomeItem, opts: HomeRunOptions): Promise<boolean> => {
+    async (action: RunAction, item: HomeItem, opts: HomeRunOptions): Promise<boolean> => {
       const src = item.source;
       switch (action.id) {
         case 'done': {
@@ -584,6 +633,18 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           if (!draftId) return false;
           return send(item, draftId);
         }
+        // Slice 9a: a card from his sent mail. A done card with a time choice and Track it go through the session-only route (the only door
+        // that creates a time entry); every other Yes, and No, are home acts. The server's line is the toast.
+        case 'proposal_yes':
+          if (item.proposal?.time) return reconcile({ action: 'proposal_yes', item_key: item.key, minutes: action.minutes ?? null });
+          await act({ action: 'proposal_yes', item_key: item.key });
+          return true;
+        case 'proposal_no':
+          await act({ action: 'proposal_no', item_key: item.key });
+          return true;
+        case 'track_it':
+          if (!action.placement) return false;
+          return reconcile({ action: 'track_it', item_key: item.key, placement: action.placement, minutes: action.minutes ?? null, billable: action.billable !== false });
         // Slice 4c: a lead's clock.
         case 'keep_lead':
           await act({ action: 'keep_lead', item_key: item.key });
@@ -606,11 +667,11 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
       }
     },
-    [act, send, finish, queryClient, router],
+    [act, send, reconcile, finish, queryClient, router],
   );
 
   const run = useCallback(
-    async (action: { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string }, item: HomeItem, opts: HomeRunOptions = {}) => {
+    async (action: RunAction, item: HomeItem, opts: HomeRunOptions = {}) => {
       setPending({ key: item.key, action: action.id });
       setStatus(null);
       setPinAsk(null);
@@ -622,7 +683,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'on_day', 'snooze', 'clear_session', 'book_block', 'send_draft', 'send_short'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'on_day', 'snooze', 'clear_session', 'book_block', 'send_draft', 'send_short', 'proposal_yes', 'proposal_no', 'track_it'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

@@ -185,4 +185,20 @@ describe('derived lists', () => {
     expect(k.undoActionId).toBe('a1');
     expect(k.lines.slice(1)).toEqual(['One', 'Two']);
   });
+  it('handled detail: a note from his sent mail has Undo, "This was wrong", its quote and "Open the email"; a done card line offers Log time', () => {
+    const base = mkRes();
+    const res = mkRes({
+      sections: { ...base.sections, handled: [
+        { id: 'n', text: 'Noted on "x" from your email to Kue Chen, November 9.', href: 'https://mail.google.com/x', at: '', undo_action_id: 'n1', wrong_action_id: 'n1', details: ['Your email to Kue Chen, Monday, November 9: "I did it."'] },
+        { id: 'd', text: 'Marked "y" done from your email card.', href: null, at: '', undo_action_id: 'd1', time_prompt: { task_id: 't1', minutes: 30, day: '2026-11-09' }, details: [] },
+      ] },
+    });
+    const n = detailForHandled(res, 'n')!;
+    expect(n).toMatchObject({ undoActionId: 'n1', wrongActionId: 'n1', link: { label: 'Open the email', href: 'https://mail.google.com/x' } });
+    expect(n.lines[0]).toBe('Bast added this note from your sent mail. Undo hides it. Nothing is deleted.');
+    expect(n.lines[1]).toContain('"I did it."');
+    const d = detailForHandled(res, 'd')!;
+    expect(d.timePrompt).toEqual({ task_id: 't1', minutes: 30, day: '2026-11-09' });
+    expect(d.wrongActionId).toBeUndefined();
+  });
 });

@@ -418,6 +418,8 @@ describe('contract guards', () => {
       on_day: { action: 'on_day', item_key: t, date: '2026-11-19' },
       snooze: { action: 'snooze', item_key: t, hours: 3 },
       book_block: { action: 'book_block', item_key: 'thread:a:b' },
+      proposal_yes: { action: 'proposal_yes', item_key: 'proposal:7aa4a01a-1111-4222-8333-944445555666' },
+      proposal_no: { action: 'proposal_no', item_key: 'proposal:7aa4a01a-1111-4222-8333-944445555666' },
     };
     for (const [name, req] of Object.entries(every)) expect(req.action).toBe(name);
   });

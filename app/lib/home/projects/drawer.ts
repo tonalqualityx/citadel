@@ -59,7 +59,7 @@ export function projectDrawerItems(candidates: Candidate[], projectId: string, t
     .filter((c) => c.item.project?.id === projectId)
     // A done task folded under the sign-off is part of the sign-off row; a crisis or site row marked "not an emergency" is counted, not listed.
     // The project's own next step row is the drawer's "Next step" line, not one of his items.
-    .filter((c) => c.kind !== 'step')
+    .filter((c) => c.kind !== 'step' && c.kind !== 'proposal')
     .filter((c) => c.restGroup !== 'review_pieces' && !(c.section === 'rest' && (c.kind === 'crisis' || c.kind === 'site')))
     .sort(drawerCompare)
     .map((c) => ({ item: c.item, where: whereOf(c, timeZone) }));

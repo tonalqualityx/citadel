@@ -278,7 +278,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design/worker/publishes/:id'),
   ],
   // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
-  // always enforced. Exactly these 41 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two).
+  // always enforced. Exactly these 44 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two, 9a the sent-mail reconciler's three: its context GET, its candidates POST and its dry-or-real POST, which write internal notes on his own tasks as Bast and make cards; nothing is sent, no time entry is ever created, no task status changes).
   // No DELETE, no comment write, no dependencies, no email-asks PATCH, no outbox, no decisions, no
   // api-keys, no admin, no home routes. Routes alone are not enough here: the task POST and PATCH bodies are
   // narrowed for this lane by lib/bast-chat/task-filter.ts (plan task C4).
@@ -315,6 +315,11 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/bast-chat/worker/home-watch/ack'),
     // Slice 6c: the machine's outside scan result for a site it was handed (home_emergency_watch rows and one keeper line only; nothing is sent or requested from Citadel)
     r('POST', '/api/bast-chat/worker/home-watch/scan'),
+    // Slice 9a: the sent-mail reconciler (GET is the context, the candidates POST writes nothing, the POST is the dry run with dry:true and the real
+    // save without it; internal notes on his own tasks as Bast and home_reconcile rows only. Nothing is sent, drafted or changed in any mailbox, no time entry is created, no task status changes)
+    r('GET', '/api/bast-chat/worker/reconcile'),
+    r('POST', '/api/bast-chat/worker/reconcile'),
+    r('POST', '/api/bast-chat/worker/reconcile/candidates'),
     // Session card: one session waiting on the owner (read only; the owner's own, by external id or row id)
     r('GET', '/api/bast-chat/worker/session-asks/:id'),
     // The chat's reads and its two task writes (body-filtered)

@@ -63,6 +63,7 @@ import type {
   RawThread,
   RawWait,
 } from './types';
+import { loadReconcile } from './reconcile/screen';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a keeper line stays in Handled for you (and open for Undo). */
@@ -963,6 +964,7 @@ export async function loadHomeInputs(
   const owedSend = await loadOwedSend(db, userId, now);
   const owedBooks = await loadOwedBooks(db, userId, now);
   const outsideChecks = await loadOutsideChecks(db, userId);
+  const reconcile = await loadReconcile(db, userId, now);
 
   return {
     user_id: userId,
@@ -978,6 +980,8 @@ export async function loadHomeInputs(
     held_project_task_count: heldProjects.reduce((n, h) => n + h.count, 0),
     held_projects: heldProjects,
     keeper_lines: keeperLines,
+    reconcile_cards: reconcile.cards,
+    reconcile_lines: reconcile.lines,
     owed_rows: owedRows,
     drafter_fresh_at: drafterFreshAt,
     timezone,

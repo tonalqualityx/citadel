@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   act: vi.fn(),
   undo: vi.fn(),
   saveRule: vi.fn(),
+  reconcile: vi.fn(),
 }));
 
 vi.mock('@/lib/hooks/use-home', () => ({
@@ -17,6 +18,7 @@ vi.mock('@/lib/hooks/use-home', () => ({
   useHomeAct: () => h.act,
   useHomeUndo: () => h.undo,
   useHomeRule: () => h.saveRule,
+  useHomeReconcile: () => h.reconcile,
   useHomeItemAction: () => ({
     run: h.run,
     done: h.done,

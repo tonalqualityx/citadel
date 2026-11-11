@@ -88,9 +88,12 @@ function makeDb() {
       findMany: vi.fn().mockImplementation(async (a: { where: { status?: unknown } }) => (a.where.status === 'done' ? [] : [])),
       groupBy: vi.fn().mockResolvedValue([]),
     },
+    timeEntry: { groupBy: vi.fn().mockResolvedValue([]) },
     project: { findMany: vi.fn().mockResolvedValue([]) },
     homeAction: { findMany: vi.fn().mockResolvedValue([]) },
     homeOwedThread: { findMany: vi.fn().mockResolvedValue([]) },
+    // Slice 9a: his open cards from sent mail.
+    homeReconcileChange: { findMany: vi.fn().mockResolvedValue([]) },
     homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
     // Slice 4b: the switch (no row = off) and the outbox rows of his presses.
     homeKeeperSettings: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -667,5 +670,47 @@ describe('loadHomeInputs: Slice 7b learned weights and Learned lines', () => {
     const third = db.homeAction.findMany.mock.calls[2][0];
     expect(third.where).toMatchObject({ user_id: U, action: 'keeper_learned', source: 'keeper', undone_at: null });
     expect(third.where.undo_until.gt).toEqual(NOW);
+  });
+});
+
+describe('loadHomeInputs: Slice 9a cards and lines from his sent mail', () => {
+  it('reads his own open cards (not past two weeks) and leaves out a card whose task closed another way', async () => {
+    const db = makeDb();
+    const cardRow = (over: object = {}) => ({
+      id: 'c1', kind: 'done', title: 'Your email says you removed File Manager. Mark this done?', lines: ['q'], reason: 'security', link: 'https://mail.google.com/x',
+      created_at: T('2026-11-10T12:00:00Z'), plan: { type: 'done' }, minutes_estimate: null, estimate_basis: null, quote_to: 'Kue Chen', quote_at: T('2026-11-09T15:00:00Z'),
+      target_key: 'task:t-open', message: { lookback: false }, ...over,
+    });
+    db.homeReconcileChange.findMany.mockResolvedValue([cardRow(), cardRow({ id: 'c2', target_key: 'task:t-closed' }), cardRow({ id: 'c3', kind: 'track', target_key: null, message: { lookback: true } })]);
+    db.task.findMany.mockImplementation(async (a: { where: { id?: unknown } }) => (a.where.id ? [{ id: 't-open', assignee_id: U }] : []));
+    const raw = await loadHomeInputs(db as unknown as PrismaClient, U, NOW, { timezone: 'America/New_York' });
+    expect(raw.reconcile_cards?.map((c) => c.id)).toEqual(['c1', 'c3']);
+    expect(raw.reconcile_cards?.[1].look_back).toBe(true);
+    const where = db.homeReconcileChange.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ user_id: U, mode: 'card', state: 'open' });
+  });
+
+  it('a card for done or waiting that is no longer his task is left out', async () => {
+    const db = makeDb();
+    db.homeReconcileChange.findMany.mockResolvedValue([
+      { id: 'c1', kind: 'done', title: 't', lines: [], reason: null, link: null, created_at: NOW, plan: {}, minutes_estimate: null, estimate_basis: null, quote_to: null, quote_at: null, target_key: 'task:t1', message: { lookback: false } },
+    ]);
+    db.task.findMany.mockImplementation(async (a: { where: { id?: unknown } }) => (a.where.id ? [{ id: 't1', assignee_id: 'someone-else' }] : []));
+    const raw = await loadHomeInputs(db as unknown as PrismaClient, U, NOW, { timezone: 'America/New_York' });
+    expect(raw.reconcile_cards).toEqual([]);
+  });
+
+  it('turns an automatic note into a Handled line with its details and link, undone ones excluded by the query', async () => {
+    const db = makeDb();
+    db.homeAction.findMany.mockImplementation(async (a: { where: { source?: string; OR?: unknown } }) =>
+      a.where.OR
+        ? [{ id: 'n1', action: 'reconcile_note', source: 'reconcile', before: {}, after: { line: 'Noted on "x" from your email to Kue Chen, November 9.', details: ['q'], link: 'https://mail.google.com/x' }, created_at: NOW, undo_until: new Date(NOW.getTime() + 3600_000) }]
+        : []
+    );
+    const raw = await loadHomeInputs(db as unknown as PrismaClient, U, NOW, { timezone: 'America/New_York' });
+    expect(raw.reconcile_lines).toHaveLength(1);
+    expect(raw.reconcile_lines?.[0]).toMatchObject({ id: 'n1', note: true, details: ['q'], link: 'https://mail.google.com/x', time_prompt: null });
+    const call = db.homeAction.findMany.mock.calls.find((c) => (c[0] as { where: { OR?: unknown } }).where.OR);
+    expect((call?.[0] as { where: Record<string, unknown> }).where).toMatchObject({ user_id: U, undone_at: null });
   });
 });

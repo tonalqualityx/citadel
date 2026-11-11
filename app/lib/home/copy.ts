@@ -207,6 +207,10 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   send_draft: 'Send the draft',
   send_short: 'Send the short one',
   book_block: 'Book 30 minutes',
+  proposal_yes: 'Yes',
+  proposal_no: 'No',
+  track_it: 'Track it',
+  open_email: 'Open the email',
 };
 
 /** "Approve all 39". */
@@ -404,6 +408,7 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   bast_stopped: { label: 'Stopped with Bast, waiting on you', owner: 'Bast' },
   hands: { label: "This week's hands", owner: 'You' },
   project_steps: { label: 'Project next steps', owner: 'You' },
+  from_sent_mail: { label: 'From your sent mail', owner: 'Bast' },
 };
 
 /**
@@ -451,6 +456,9 @@ export const REST_CHECK = {
   /** Slice 8b: a qualifying step behind the one that holds the Next slot. */
   stepOneAtATime: 'Shows here one at a time. Bring it forward to see it now.',
   stepHeld: 'Stays here until you bring it forward',
+  /** Slice 9a: a card from his sent mail that is not the one in Decisions ready. */
+  sentMailCard: 'Waiting for your tap. Nothing changes until you tap.',
+  sentMailOlder: 'From older mail. Bring it forward to see it now.',
 } as const;
 
 export function whenProjectStarts(project: string): string {

@@ -332,6 +332,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
   | { op: 'home_act'; action: 'clear_session'; title: string }
+  | { op: 'home_act'; action: 'proposal_yes' | 'proposal_no'; title: string }
   | { op: 'home_act'; action: 'on_day' | 'snooze'; title: string; message: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
   | { op: 'email_ask_state'; subject: string; state: 'handled' | 'dismissed' | 'open'; draft_kept?: boolean }
@@ -392,6 +393,12 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'treat_as_reply':
           s = `${o.who}'s lead is now a plain reply.`;
+          break;
+        case 'proposal_yes':
+          s = `Done what your email card suggested: ${o.title}.`;
+          break;
+        case 'proposal_no':
+          s = `Closed the card: ${o.title}.`;
           break;
         case 'not_this_week':
           s = "This week's hands row is parked until next Monday.";

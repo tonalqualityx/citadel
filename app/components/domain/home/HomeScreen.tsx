@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { TaskPeekProvider, useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { HomeProjectDrawer } from './HomeProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
-import { useHome, useHomeAct, useHomeItemAction, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
+import { useHome, useHomeAct, useHomeItemAction, useHomeReconcile, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
 import type { HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
 import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
@@ -19,6 +19,7 @@ import { CalendarStrip, CalendarSoonLine } from './CalendarStrip';
 import { CalendarDrawer } from './CalendarDrawer';
 import { useHomeCalendar } from '@/lib/hooks/use-home-calendar';
 import { RestGroupCard } from './RestGroupCard';
+import { LOG_TIME_PROMPT } from '@/lib/home/reconcile/copy';
 import { BastChatDock } from '@/components/domain/bast-chat/BastChatDock';
 import {
   addCandidates,
@@ -61,6 +62,9 @@ function HomeScreenInner() {
   const saveRule = useHomeRule();
   // Only the keeper's Handled lines undo from here, so the toast says what happened to them.
   const undo = useHomeUndo({ doneText: 'Put back.' });
+  // Slice 9a: "This was wrong" on a note from his sent mail, and "Log time?" on a task marked done from a card (the session-only route).
+  const wrong = useHomeUndo({ doneText: 'Hidden. Bast will not change that task from your mail for 90 days.', wrong: true });
+  const reconcile = useHomeReconcile();
 
   const [tile, setTile] = React.useState<HomeTileId>('today');
   // undefined = nothing chosen yet (open the tile's first row); null = nothing to open.
@@ -114,6 +118,8 @@ function HomeScreenInner() {
       act={act}
       saveRule={saveRule}
       undo={undo}
+      wrong={wrong}
+      reconcile={reconcile}
     />
   );
 }
@@ -141,6 +147,8 @@ interface BodyProps {
   act: ReturnType<typeof useHomeAct>;
   saveRule: ReturnType<typeof useHomeRule>;
   undo: ReturnType<typeof useHomeUndo>;
+  wrong: ReturnType<typeof useHomeUndo>;
+  reconcile: ReturnType<typeof useHomeReconcile>;
 }
 
 function HomeBody(p: BodyProps) {
@@ -254,6 +262,8 @@ function HomeBody(p: BodyProps) {
               emptyText={res.empty[tile]}
               onOpenProject={(id) => p.setOpenProjectId(id)}
               onUndo={(id) => void p.undo(id)}
+              onWrong={(id) => void p.wrong(id)}
+              onLogTime={(prompt, minutes) => void p.reconcile({ action: 'log_time', task_id: prompt.task_id, minutes, day: prompt.day })}
             />
           )}
         </div>
@@ -328,11 +338,15 @@ function DetailCard({
   emptyText,
   onOpenProject,
   onUndo,
+  onWrong,
+  onLogTime,
 }: {
   detail: DetailInfo | null;
   emptyText: string;
   onOpenProject: (id: string) => void;
   onUndo: (actionId: string) => void;
+  onWrong: (actionId: string) => void;
+  onLogTime: (prompt: { task_id: string; minutes: number; day: string }, minutes: number) => void;
 }) {
   if (!detail) {
     return (
@@ -349,7 +363,19 @@ function DetailCard({
           {l}
         </p>
       ))}
-      {detail.button || detail.link || detail.undoActionId ? (
+      {detail.timePrompt ? (
+        <div className="home-prompt" role="group" aria-label={LOG_TIME_PROMPT(detail.timePrompt.minutes)}>
+          <p>{LOG_TIME_PROMPT(detail.timePrompt.minutes)}</p>
+          <div className="home-actions">
+            {[15, 30, 60, 90, 120].map((m) => (
+              <button key={m} type="button" className="home-btn" data-filled={m === detail.timePrompt!.minutes ? 'true' : undefined} onClick={() => onLogTime(detail.timePrompt!, m)}>
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {detail.button || detail.link || detail.undoActionId || detail.wrongActionId ? (
         <div className="home-actions">
           {detail.button ? (
             <button
@@ -364,6 +390,11 @@ function DetailCard({
           {detail.undoActionId ? (
             <button type="button" className="home-btn" onClick={() => onUndo(detail.undoActionId!)}>
               Undo
+            </button>
+          ) : null}
+          {detail.wrongActionId ? (
+            <button type="button" className="home-btn" onClick={() => onWrong(detail.wrongActionId!)}>
+              This was wrong
             </button>
           ) : null}
           {detail.link ? (

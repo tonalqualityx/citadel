@@ -20,6 +20,7 @@ import {
   taskKey,
   threadKey,
   waitKey,
+  proposalKey,
   type ParsedItemKey,
 } from '../item-key';
 
@@ -212,5 +213,18 @@ describe('Slice 8b key: step', () => {
     for (const bad of ['step:', 'step:none', 'step:not-a-uuid', `step:${P}:x`, `step: ${P}`]) expect(isItemKey(bad)).toBe(false);
     expect(itemKeySchema.safeParse(`step:${P}`).success).toBe(true);
     expect(() => buildItemKey({ kind: 'step', project_id: 'nope' })).toThrow();
+  });
+});
+
+describe('Slice 9a: proposal keys', () => {
+  it('round trips proposal:<uuid> and rejects anything else', () => {
+    const k = proposalKey(U1);
+    expect(k).toBe(`proposal:${U1}`);
+    expect(parseItemKey(k)).toEqual({ kind: 'proposal', id: U1 });
+    expect(itemKeyKind(k)).toBe('proposal');
+    expect(buildItemKey({ kind: 'proposal', id: U1.toUpperCase() })).toBe(k);
+    expect(isItemKey('proposal:nope')).toBe(false);
+    expect(isItemKey('proposal:')).toBe(false);
+    expect(itemKeySchema.safeParse(k).success).toBe(true);
   });
 });

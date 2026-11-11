@@ -335,3 +335,79 @@ describe('ItemCard: a project next step (Slice 8b)', () => {
     expect(container.textContent).toContain('Stays here. Bast reads the project again tonight and rewrites this step.');
   });
 });
+
+describe('ItemCard: Slice 9a, a card from his sent mail', () => {
+  const proposalItem = (over: Partial<HomeItem> = {}, time: HomeItem['proposal'] extends infer P ? (P extends { time: infer T } ? T : never) : never = null as never): HomeItem =>
+    mkItem('proposal:1', {
+      type: 'proposal',
+      title: 'You built and sent a sample page for Phil Camp. Track it?',
+      actions: [
+        { id: 'track_it', label: 'Add to Memorial pages', filled: true, href: null, placement: 'project' },
+        { id: 'track_it', label: 'Start a new project', filled: false, href: null, placement: 'new_project' },
+        { id: 'not_now', label: 'Not now', filled: false, href: null },
+        { id: 'proposal_no', label: 'No, leave it', filled: false, href: null },
+      ],
+      default_if_ignored: 'Stays here for two weeks, then goes quietly. Nothing is made until you tap.',
+      reason: 'Why Bast asks: this work is not in Citadel yet.',
+      opened: { summary: '', summary_by: null, done_when: [], how: null, links: [{ label: 'Open the email', href: 'https://mail.google.com/x' }], task_id: null, left_off_note: null },
+      proposal: {
+        kind: 'track',
+        lines: ['Your email to The Editor, Monday, November 9: "Here is the page."', 'Done: Build the page (Monday, November 9).', 'Where it goes: Memorial pages.'],
+        why: 'Why Bast asks: this work is not in Citadel yet.',
+        link: 'https://mail.google.com/x',
+        look_back: false,
+        time: time ?? { default: 90, choices: [15, 30, 60, 90, 120], basis: 'six emails', billable_choice: true },
+        placement: { kind: 'add', project_id: 'p', project_name: 'Memorial pages' },
+      },
+      ...over,
+    });
+
+  it('shows the lines, the why line, the time choices with the estimate preselected, the buttons and the footer', () => {
+    render(<ItemCard {...base} item={proposalItem()} />);
+    expect(screen.getByText(/Your email to The Editor, Monday, November 9/)).toBeInTheDocument();
+    expect(screen.getByText('Where it goes: Memorial pages.')).toBeInTheDocument();
+    expect(screen.getAllByText('Why Bast asks: this work is not in Citadel yet.').length).toBeGreaterThan(0);
+    const group = screen.getByRole('group', { name: 'Time spent' });
+    expect(group.querySelector('button[data-filled="true"]')?.textContent).toBe('90');
+    expect(screen.getByRole('button', { name: 'Add to Memorial pages' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start a new project' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'No, leave it' })).toBeInTheDocument();
+    expect(screen.getByText('Open the email')).toBeInTheDocument();
+    expect(screen.getByText(/Stays here for two weeks/)).toBeInTheDocument();
+  });
+
+  it('Track it sends the placement on the button with the minutes chosen and the billable choice', () => {
+    const onAction = vi.fn();
+    render(<ItemCard {...base} onAction={onAction} item={proposalItem()} />);
+    fireEvent.click(screen.getByRole('button', { name: '60' }));
+    fireEvent.click(screen.getByLabelText('Not billable'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new project' }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ id: 'track_it', placement: 'new_project', minutes: 60, billable: false }), expect.objectContaining({ key: 'proposal:1' }));
+  });
+
+  it('a number field sets a minutes of his own', () => {
+    const onAction = vi.fn();
+    render(<ItemCard {...base} onAction={onAction} item={proposalItem()} />);
+    fireEvent.change(screen.getByLabelText('Minutes'), { target: { value: '75' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Memorial pages' }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ placement: 'project', minutes: 75 }), expect.anything());
+  });
+
+  it('a done card starts with no time (None), a note card shows no time choice at all, and No sends no minutes', () => {
+    const done = proposalItem(
+      { actions: [{ id: 'proposal_yes', label: 'Mark it done', filled: true, href: null }, { id: 'proposal_no', label: 'No', filled: false, href: null }], proposal: { kind: 'done', lines: ['x'], why: 'w', link: null, look_back: false, time: { default: 30, choices: [15, 30, 60, 90, 120], basis: null, billable_choice: false }, placement: null } },
+    );
+    const onAction = vi.fn();
+    const { unmount } = render(<ItemCard {...base} onAction={onAction} item={done} />);
+    expect(screen.getByRole('group', { name: 'Time spent' }).querySelector('button[data-filled="true"]')?.textContent).toBe('None');
+    expect(screen.queryByLabelText('Not billable')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark it done' }));
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ id: 'proposal_yes', minutes: null }), expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    expect(onAction).toHaveBeenLastCalledWith(expect.not.objectContaining({ minutes: expect.anything() }), expect.anything());
+    unmount();
+    const note = proposalItem({ actions: [{ id: 'proposal_yes', label: 'Add the note', filled: true, href: null }], proposal: { kind: 'note', lines: ['x'], why: 'w', link: null, look_back: false, time: null, placement: null } });
+    render(<ItemCard {...base} item={note} />);
+    expect(screen.queryByRole('group', { name: 'Time spent' })).toBeNull();
+  });
+});
