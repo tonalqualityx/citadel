@@ -120,6 +120,7 @@ export function ItemCard({
           {hasLeft ? (
             <div className="home-blk">
               {o.summary ? <p>{plain(o.summary)}</p> : null}
+              {o.summary && o.summary_by === 'bast' ? <p className="home-muted home-small">Short version by Bast.</p> : null}
               {o.left_off_note ? (
                 <div>
                   <h3>Where you left off</h3>

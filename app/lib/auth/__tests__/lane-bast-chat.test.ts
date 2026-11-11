@@ -46,6 +46,8 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/ops',
   'GET /api/bast-chat/worker/home-keeper',
   'POST /api/bast-chat/worker/home-keeper',
+  'GET /api/bast-chat/worker/home-keeper/summaries',
+  'POST /api/bast-chat/worker/home-keeper/summaries',
   'GET /api/tasks',
   'POST /api/tasks',
   'GET /api/tasks/:id',
@@ -133,6 +135,8 @@ const REFUSED = [
   `POST /api/bast-chat/worker/ops/${ID}`,
   'PATCH /api/bast-chat/worker/home-keeper',
   'DELETE /api/bast-chat/worker/home-keeper',
+  'PATCH /api/bast-chat/worker/home-keeper/summaries',
+  'DELETE /api/bast-chat/worker/home-keeper/summaries',
   // the design worker routes
   ...DESIGN_WORKER_ROUTES,
 ];

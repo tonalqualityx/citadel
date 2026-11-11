@@ -296,6 +296,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     // Home screen Slice 2a: the nightly keeper (GET is the dry run, POST the real run; the crontab wrapper only)
     r('GET', '/api/bast-chat/worker/home-keeper'),
     r('POST', '/api/bast-chat/worker/home-keeper'),
+    // Slice 2b: the keeper's card summaries (GET lists the long cards, POST saves Bast's short versions)
+    r('GET', '/api/bast-chat/worker/home-keeper/summaries'),
+    r('POST', '/api/bast-chat/worker/home-keeper/summaries'),
     // The chat's reads and its two task writes (body-filtered)
     r('GET', '/api/tasks'),
     r('POST', '/api/tasks'),

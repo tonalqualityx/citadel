@@ -71,6 +71,7 @@ import {
   OWN_GROUP_KEY,
 } from './item-key';
 import { cardSummary, truncateWords } from './plain-text';
+import { descriptionHash, readStoredChecklist } from './summary-hash';
 import {
   CAPS,
   FRESH_NEW,
@@ -412,6 +413,13 @@ function isChatTagged(tags: readonly string[]): boolean {
   return tags.some((x) => x.trim().toLowerCase() === FRESH_NEW.chatTag);
 }
 
+/** Slice 2b: Bast's stored short version, only while the hash it was written from still matches the description. */
+function bastSummary(task: RawTask, st: RawItemState | undefined): { summary: string; checklist: string[] } | null {
+  if (!st || !st.card_summary || st.card_summary.trim() === '' || !st.card_summary_hash) return null;
+  if (st.card_summary_hash !== descriptionHash(task.description)) return null;
+  return { summary: st.card_summary, checklist: readStoredChecklist(st.card_checklist) };
+}
+
 function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | undefined, userId: string): Draft {
   const score = scoreTask(task, now, { at: st?.read_hard_due_at ?? null, source: st?.read_hard_due_source ?? null });
   const client = refOf(task.client);
@@ -465,6 +473,7 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
   const doneWhen = task.requirements
     .map((r) => ({ text: displayText(r.text), done: r.completed }))
     .filter((r) => r.text !== '');
+  const bast = bastSummary(task, st);
   const item: HomeItem = {
     ...emptyItem(),
     key: taskKey(task.id),
@@ -479,8 +488,14 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
     effort: effortWords(minutes),
     minutes,
     opened: {
-      summary: displayText(cardSummary(task.description)),
-      done_when: doneWhen.length >= 2 ? doneWhen : [],
+      summary: bast ? displayText(bast.summary) : displayText(cardSummary(task.description)),
+      summary_by: bast ? 'bast' : null,
+      done_when:
+        doneWhen.length >= 2
+          ? doneWhen
+          : bast && task.requirements.length === 0 && bast.checklist.length >= 2
+          ? bast.checklist.map((text) => ({ text: displayText(text), done: false })).filter((r) => r.text !== '')
+          : [],
       how: task.sop ? { label: displayText(task.sop.title) || 'The SOP', href: `/sops/${task.sop.id}` } : null,
       links,
       task_id: task.id,
@@ -534,6 +549,7 @@ function buildReview(fold: RawReviewFold, now: Date, refs: Refs, st: RawItemStat
     minutes,
     opened: {
       summary: `${n} ${pieces}${project ? ` on ${project.name}` : ''} ${n === 1 ? 'is' : 'are'} done and waiting for your approval.`,
+      summary_by: null,
       done_when: [],
       how: null,
       links,
@@ -589,6 +605,7 @@ function buildSession(s: RawSessionAsk, now: Date, refs: Refs, st: RawItemState 
     minutes,
     opened: {
       summary: displayText(cardSummary(s.waiting_on)),
+      summary_by: null,
       done_when: [],
       how: null,
       links,
@@ -645,6 +662,7 @@ function buildWait(w: RawWait, now: Date, refs: Refs, st: RawItemState | undefin
     minutes,
     opened: {
       summary: displayText(cardSummary(w.detail)) || title,
+      summary_by: null,
       done_when: [],
       how: null,
       links,
@@ -718,6 +736,7 @@ function buildThread(
       summary: newest.gist
         ? displayText(cardSummary(newest.gist))
         : `${person} wrote about "${displayText(newest.subject)}".`,
+      summary_by: null,
       done_when: [],
       how: null,
       links,
@@ -773,6 +792,7 @@ function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs,
     minutes,
     opened: {
       summary: a.gist ? displayText(cardSummary(a.gist)) : `An urgent email from ${person}: "${displayText(a.subject)}".`,
+      summary_by: null,
       done_when: [],
       how: null,
       links,

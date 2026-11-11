@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'crypto';
 import { meetsNextRule, selectHome, threadStatus } from '../select';
 import { crisisKey, reviewKey, sessionKey, taskKey, threadKey, waitKey } from '../item-key';
 import type { RawHomeInputs, RawItemState } from '../types';
@@ -703,5 +704,57 @@ describe('Slice 3: one Bast-stopped task holds a Next slot at a time', () => {
     const r = run(t.slice(1));
     expect(r.sections.next.map((i) => i.key)).toEqual([taskKey(t[1].id)]);
     expect(group(r)?.count).toBe(11);
+  });
+});
+
+describe('Slice 2b: Bast card summaries', () => {
+  const desc = JSON.stringify([{ type: 'paragraph', content: [{ type: 'text', text: 'The original first paragraph of a long note.' }] }]);
+  const stamp = createHash('sha256').update(desc, 'utf8').digest('hex');
+  const stored = (taskId: string, over: Partial<RawItemState> = {}) =>
+    makeState(taskKey(taskId), { card_summary: 'Bast short version.', card_checklist: ['One thing', 'Two thing'], card_summary_hash: stamp, ...over });
+  const opened = (task: ReturnType<typeof makeTask>, states: RawItemState[]) => {
+    const r = sel({ tasks: [task] }, states);
+    return r.byKey.get(taskKey(task.id))!.item.opened;
+  };
+
+  it('with no stored summary the card is the Slice 1 summary and summary_by is null', () => {
+    const t = clientTask({ description: desc });
+    const o = opened(t, []);
+    expect(o.summary).toBe('The original first paragraph of a long note.');
+    expect(o.summary_by).toBeNull();
+  });
+  it('uses the stored summary and its Done when lines only while the hash matches', () => {
+    const t = clientTask({ description: desc });
+    const o = opened(t, [stored(t.id)]);
+    expect(o.summary).toBe('Bast short version.');
+    expect(o.summary_by).toBe('bast');
+    expect(o.done_when.map((x) => x.text)).toEqual(['One thing', 'Two thing']);
+  });
+  it('a stale hash falls back to the Slice 1 summary and drops the checklist', () => {
+    const t = clientTask({ description: desc });
+    const o = opened(t, [stored(t.id, { card_summary_hash: 'f'.repeat(64) })]);
+    expect(o.summary).toBe('The original first paragraph of a long note.');
+    expect(o.summary_by).toBeNull();
+    expect(o.done_when).toEqual([]);
+  });
+  it('an edited description no longer matches the stored hash', () => {
+    const t = clientTask({ description: `${desc} ` });
+    expect(opened(t, [stored(t.id)]).summary_by).toBeNull();
+  });
+  it('a task with its own checklist keeps it, and fewer than 2 stored lines show no list', () => {
+    const own = clientTask({ description: desc, requirements: [{ text: 'Mine A', completed: false }, { text: 'Mine B', completed: true }] });
+    expect(opened(own, [stored(own.id)]).done_when.map((x) => x.text)).toEqual(['Mine A', 'Mine B']);
+    const one = clientTask({ description: desc, requirements: [{ text: 'Only one', completed: false }] });
+    expect(opened(one, [stored(one.id)]).done_when).toEqual([]);
+    const few = clientTask({ description: desc });
+    expect(opened(few, [stored(few.id, { card_checklist: ['Just one'] })]).done_when).toEqual([]);
+  });
+  it('an empty stored summary is ignored', () => {
+    const t = clientTask({ description: desc });
+    expect(opened(t, [stored(t.id, { card_summary: '  ' })]).summary_by).toBeNull();
+  });
+  it('other kinds of card never claim a Bast summary', () => {
+    const r = sel({ threads: [makeThread({ client: active, received_at: d('2026-11-02T15:00:00Z') })] });
+    for (const c of r.candidates) expect(c.item.opened.summary_by).toBeNull();
   });
 });

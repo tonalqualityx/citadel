@@ -40,7 +40,7 @@ interface UndoRecord {
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
 
 /** Whether the owner may have a run: an active admin whose home_view is 'home'. */
-async function ownerOnHome(db: HomeDb, ownerId: string): Promise<{ ok: boolean; timezone: string }> {
+export async function ownerOnHome(db: HomeDb, ownerId: string): Promise<{ ok: boolean; timezone: string }> {
   const user = await db.user.findUnique({
     where: { id: ownerId },
     select: { is_active: true, role: true, preferences: { select: { home_view: true, timezone: true } } },

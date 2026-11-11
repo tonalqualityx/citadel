@@ -53,7 +53,7 @@ function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {
     effort: 'About 10 minutes', minutes: 10,
     actions: [{ id: 'done', label: 'Done', filled: true, href: null }], more_actions: [],
     default_if_ignored: 'Stays here.', reason: 'It is here.', pinned: false,
-    opened: { summary: `Summary ${key}.`, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+    opened: { summary: `Summary ${key}.`, summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
     source: { kind: 'task', id: key, ids: [key], task_status: 'not_started' }, client: null, project: null, ...over,
   };
 }

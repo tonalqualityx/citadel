@@ -173,6 +173,8 @@ export interface HomeDoneWhen {
 export interface HomeItemCard {
   /** One to three sentences, at most about 60 words (plain-text.ts cardSummary for tasks). Never null; '' only when nothing is known. */
   summary: string;
+  /** Slice 2b: 'bast' when summary is Bast's short version (shown only while its hash matches the description), else null. */
+  summary_by: 'bast' | null;
   /**
    * One entry per deliverable. H4 sends [] when there are fewer than 2 (design 2B: one
    * deliverable means no checklist); ItemCard also renders it only at 2 or more.

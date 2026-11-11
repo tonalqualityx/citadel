@@ -22,7 +22,7 @@ function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {
     default_if_ignored: 'Stays here.',
     reason: 'It is here.',
     pinned: false,
-    opened: { summary: 'Summary.', done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+    opened: { summary: 'Summary.', summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
     source: { kind: 'task', id: key, ids: [key], task_status: 'not_started' },
     client: null,
     project: null,
@@ -133,5 +133,26 @@ describe('ItemCard', () => {
   it('hideActions drops the buttons', () => {
     render(<ItemCard {...base} item={mkItem('a')} hideActions />);
     expect(screen.queryByRole('button', { name: 'Done' })).toBeNull();
+  });
+  it('shows the muted "Short version by Bast." line only for a Bast summary', () => {
+    const plainItem = mkItem('task:1');
+    const { rerender } = render(<ItemCard {...base} item={plainItem} />);
+    expect(screen.queryByText('Short version by Bast.')).toBeNull();
+    const bast = mkItem('task:1', { opened: { ...plainItem.opened, summary: 'Short.', summary_by: 'bast', task_id: 'abc' } });
+    rerender(<ItemCard {...base} item={bast} />);
+    const note = screen.getByText('Short version by Bast.');
+    expect(note.className).toContain('home-muted');
+    expect(screen.getByText('Short.')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Original notes'));
+    expect(mockPeek).toHaveBeenCalledWith('abc');
+  });
+  it('shows a Done when list from Bast lines at 2 or more, and none at fewer', () => {
+    const o = mkItem('task:1').opened;
+    const lines = (n: number) => Array.from({ length: n }, (_, i) => ({ text: `Line ${i + 1}`, done: false }));
+    const { rerender } = render(<ItemCard {...base} item={mkItem('task:1', { opened: { ...o, summary_by: 'bast', done_when: lines(3) } })} />);
+    expect(screen.getByText('Done when')).toBeInTheDocument();
+    expect(screen.getByText('Line 3')).toBeInTheDocument();
+    rerender(<ItemCard {...base} item={mkItem('task:1', { opened: { ...o, summary_by: 'bast', done_when: lines(1) } })} />);
+    expect(screen.queryByText('Done when')).toBeNull();
   });
 });

@@ -30,7 +30,7 @@ function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {
     default_if_ignored: 'Stays here.',
     reason: 'It is here.',
     pinned: false,
-    opened: { summary: 'Summary.', done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+    opened: { summary: 'Summary.', summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
     source: { kind: 'task', id: key, ids: [key], task_status: 'not_started' },
     client: null,
     project: null,

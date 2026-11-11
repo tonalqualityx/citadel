@@ -403,6 +403,43 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/home-keeper/summaries',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the owner\'s long home cards that still need a short version',
+        auth: 'required',
+        roles: WORKER,
+        queryParams: [{ name: 'limit', type: 'number', required: false, description: 'At most this many items (1 to 40; default and cap 40)' }],
+        responseExample: {
+          items: [{ item_key: 'string (task:<uuid>)', task_id: 'string (uuid)', title: 'string', text: 'string (plain text, at most 6000 characters)', hash: 'string (sha256 of the stored description; send it back unchanged)', has_checklist: 'boolean' }],
+          skipped: '"home_off" (only when the owner is not an active admin on the home view; then items is [])',
+        },
+        responseNotes: 'Owner only; takes no user id. Only the owner\'s open tasks whose description is over 120 words and whose stored hash is not the current one. Tasks under a keeper hold and Bast\'s own tasks are left out. In view first, then by rank. Writes nothing.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: save Bast\'s short versions of long home cards (the crontab wrapper)',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'items', type: 'object', required: true, description: 'At most 40 of {item_key, hash, summary, done_when?: string[]}. Strict: any other field is 400.' },
+        ],
+        responseExample: {
+          dry_run: 'false',
+          skipped_all: '"home_off" (the owner is not on the home view; nothing written)',
+          saved: 'number',
+          refused: [{ item_key: 'string', reason: '"empty"|"too_long"|"dash"|"banned_word"|"bad_done_when"' }],
+          skipped: [{ item_key: 'string', reason: '"duplicate"|"not_found"|"not_long"|"stale_hash"|"held"|"unchanged"|"changed"' }],
+          action_id: 'string (uuid)|null (one home_actions row for the whole save)',
+          line: 'string|null (the quiet line Mike sees)',
+        },
+        responseNotes: 'Owner only. A summary over 60 words, or with a dash, "priority", "priorities" or "overdue", is refused and listed; the others are saved. An item whose hash no longer matches the description is skipped. Writes only the owner\'s home_item_state card fields and one home_actions row (source keeper, undo open 72 hours); never a task, arc, email ask, wait, comment or notification, and sends nothing.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/ops',
     group: 'bast-chat',
     methods: [

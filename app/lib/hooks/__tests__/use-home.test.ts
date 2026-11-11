@@ -48,7 +48,7 @@ function item(over: Partial<HomeItem> = {}, source: Partial<HomeItem['source']> 
     default_if_ignored: '',
     reason: '',
     pinned: false,
-    opened: { summary: '', done_when: [], how: null, links: [], task_id: 'abc', left_off_note: null },
+    opened: { summary: '', summary_by: null, done_when: [], how: null, links: [], task_id: 'abc', left_off_note: null },
     source: { kind: 'task', id: 'abc', ids: ['abc'], task_status: 'in_progress', ...source },
     client: null,
     project: null,
