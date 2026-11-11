@@ -49,9 +49,10 @@ describe('actionsFor', () => {
     const r = actionsFor({ ...base, kind: 'session', sessionUrl: 'https://claude.ai/code/s' });
     expect(r.actions.map((a) => [a.id, a.href])).toEqual([
       ['open_session', 'https://claude.ai/code/s'],
+      ['clear_session', null],
       ['not_now', null],
     ]);
-    expect(ids(actionsFor({ ...base, kind: 'session' }).actions)).toEqual(['not_now']);
+    expect(ids(actionsFor({ ...base, kind: 'session' }).actions)).toEqual(['clear_session', 'not_now']);
   });
 
   it('wait: Approve with an approval request, Done otherwise, Open only for a price review', () => {

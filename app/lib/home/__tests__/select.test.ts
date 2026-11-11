@@ -601,7 +601,7 @@ describe('Slice 3: a task Bast stopped on (needs-mike)', () => {
     expect(item.who).toBe('Bast');
     expect(item.why_now).toBe('Bast stopped on this and needs you.');
     expect(item.default_if_ignored).toBe('Stays with Bast, stopped, until you answer on the task.');
-    expect([...item.actions, ...item.more_actions].map((a) => a.id)).toEqual(['open_task', 'not_now', 'matters_more']);
+    expect([...item.actions, ...item.more_actions].map((a) => a.id)).toEqual(['open_task', 'not_now', 'matters_more', 'snooze', 'on_day']);
     expect(r.candidates[0].botTask).toBe(true);
   });
 

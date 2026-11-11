@@ -18,7 +18,7 @@
 import { ACTION_LABELS, approveAllLabel } from './copy';
 import { CAPS, NOT_NOW } from './rules';
 import type { OwedState } from './owed/state';
-import type { HomeActionId, HomeItemAction, HomeSourceKind } from './types';
+import type { HomeActionId, HomeChoice, HomeItemAction, HomeSourceKind } from './types';
 
 export interface ActionsInput {
   kind: HomeSourceKind;
@@ -65,6 +65,10 @@ export interface ActionsInput {
   /** Slice 6a, a site down row: the mail behind it (deep link) and the site itself. */
   mailUrl?: string | null;
   siteUrl?: string | null;
+  /** "Do it on a day": the quick choices; absent = no such button (the hands row, a working-on item). */
+  dayChoices?: HomeChoice[];
+  /** "Snooze": the quick choices; same rule as dayChoices. */
+  snoozeChoices?: HomeChoice[];
 }
 
 export interface ActionsOutput {
@@ -95,6 +99,7 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
       break;
     case 'session':
       if (input.sessionUrl) primary.push(button('open_session', input.sessionUrl));
+      primary.push(button('clear_session'));
       break;
     case 'wait':
       if (input.waitPriceReview) {
@@ -206,6 +211,8 @@ export function actionsFor(input: ActionsInput): ActionsOutput {
   }
 
   if (!input.emergency && !input.pinned) more.push(button('matters_more'));
+  if (!input.pinned && input.snoozeChoices) more.push({ ...button('snooze'), choices: input.snoozeChoices });
+  if (!input.pinned && input.dayChoices) more.push({ ...button('on_day'), choices: input.dayChoices });
   if (!input.pinned && !input.botTask && input.kind !== 'step') more.push(button('add_to_arc'));
 
   // Over the cap: the overflow goes under More, keeping order.

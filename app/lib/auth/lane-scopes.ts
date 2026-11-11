@@ -315,6 +315,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/bast-chat/worker/home-watch/ack'),
     // Slice 6c: the machine's outside scan result for a site it was handed (home_emergency_watch rows and one keeper line only; nothing is sent or requested from Citadel)
     r('POST', '/api/bast-chat/worker/home-watch/scan'),
+    // Session card: one session waiting on the owner (read only; the owner's own, by external id or row id)
+    r('GET', '/api/bast-chat/worker/session-asks/:id'),
     // The chat's reads and its two task writes (body-filtered)
     r('GET', '/api/tasks'),
     r('POST', '/api/tasks'),

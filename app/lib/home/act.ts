@@ -26,7 +26,9 @@ import { ApiError } from '@/lib/api/errors';
 import { groupKeySchema, itemKeySchema, parseItemKey } from './item-key';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { ARC_STEP_KEYS_MAX, CLOSED_TASK_STATUSES, LEFT_OFF_NOTE_MAX, NOT_NOW, UNDO_WINDOW_HOURS } from './rules';
-import { loadHomeInputs } from './load';
+import { loadHomeInputs, loadSessionAsks } from './load';
+import { ON_DAY_BAD_DAY, checkOnDay, dayToDate, onDayMessage, snoozeCountToday, snoozeInstant, snoozeMessage } from './on-day';
+import { SESSION_CLEARED_MESSAGE, sessionAskHash } from './session-clear';
 import { HANDS_PARKED_MESSAGE, RULE_ACTION } from './emergency/copy';
 import { undoWeightRecord, weightRecords } from './learn/weights-store';
 import { HANDS_ITEM_KEY, nextHandsMonday } from './emergency/hands';
@@ -140,6 +142,20 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('book_block'), item_key: itemKeySchema }).strict(),
   // Slice 8b: I did this on a project next step. Writes only his home_item_state row; the project's refresh is the browser's own call.
   z.object({ action: z.literal('step_done'), item_key: itemKeySchema }).strict(),
+  // Session card: clear the question a session parked on him. Writes only his home_item_state row; the session's own record is never touched.
+  z.object({ action: z.literal('clear_session'), item_key: itemKeySchema }).strict(),
+  // Do it on a day: park the item until the day he picked (his own rows only; the day is checked against today in his zone).
+  // Snooze: a short park (15 minutes to 24 hours). Exactly one of until (an ISO instant) and hours (1 to 4).
+  z
+    .object({
+      action: z.literal('snooze'),
+      item_key: itemKeySchema,
+      until: z.string().datetime({ offset: true }).optional(),
+      hours: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).optional(),
+    })
+    .strict()
+    .refine((v) => (v.until === undefined) !== (v.hours === undefined), { message: 'Send either until or hours.' }),
+  z.object({ action: z.literal('on_day'), item_key: itemKeySchema, date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, ON_DAY_BAD_DAY) }).strict(),
 ]);
 
 export const homeUndoSchema = z.object({ action_id: z.string().uuid() }).strict();
@@ -278,6 +294,10 @@ const DATE_FIELDS: ReadonlySet<StateFieldName> = new Set<StateFieldName>([
   'card_summary_at',
   'parked_at',
   'step_done_at',
+  'session_cleared_at',
+  'on_day',
+  'snoozed_until',
+  'snooze_day',
 ]);
 
 /** Every field an action may change, with its default on a row that does not exist. */
@@ -304,6 +324,12 @@ const STATE_DEFAULTS: Record<string, number | string | null> = {
   parked_at: null,
   step_done_at: null,
   step_done_text: null,
+  session_cleared_at: null,
+  session_cleared_hash: null,
+  on_day: null,
+  snoozed_until: null,
+  snooze_count: 0,
+  snooze_day: null,
 };
 
 /** A stored field value: a number, a string, null, or (card_checklist only) plain JSON. */
@@ -407,7 +433,12 @@ export interface ActContext {
   targetDay?: ProposedDay | null;
   /** For step_done: Project.next_step_text now, read inside the transaction (never taken from the request). */
   stepText?: string | null;
+  /** For clear_session: the session's waiting_on now (the ask in view), read inside the transaction (never taken from the request). */
+  sessionAsk?: string | null;
+  /** For on_day: the item's hard, promised or lifeline end date (read before the transaction), or null. */
+  hardDate?: Date | null;
 }
+
 
 interface StateWrite {
   item_key: string;
@@ -421,6 +452,8 @@ export interface ActPlan {
   item_key: string | null;
   stateWrites: StateWrite[];
   dayWrite: { date: string; patch: HomeDayPatch; before: DayRecord; after: DayRecord } | null;
+  /** Snooze: Undo ends when the snooze does (never later than the usual window). */
+  undoUntil?: Date;
   /** True for every action but record. */
   undoable: boolean;
   /** For record: what was logged. */
@@ -460,6 +493,12 @@ function requireDay(ctx: ActContext, groupKey: string): RawHomeDay {
   return ctx.day;
 }
 
+/** Today's civil day in his zone as the parts dayToDate takes. */
+function checkDayOf(now: Date, timeZone: string): { y: number; m: number; d: number } {
+  const [y, m, d] = zonedDateString(now, timeZone).split('-').map(Number);
+  return { y, m, d };
+}
+
 /** Pure: what one request does. Throws HomeActError for a refused request. */
 export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
   const { now } = ctx;
@@ -485,7 +524,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           ...base,
           action: req.action,
           item_key: req.item_key,
-          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 1, view_at: next.at, view_set_by: 'user', parked_at: now } }],
+          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 1, view_at: next.at, view_set_by: 'user', parked_at: now, on_day: null, snoozed_until: null } }],
           message: next.daysAhead === 1 ? 'Back tomorrow at 9:00.' : `Back ${next.weekday} at 9:00.`,
         };
       }
@@ -495,7 +534,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           ...base,
           action: req.action,
           item_key: req.item_key,
-          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 2, view_at: back, view_set_by: 'user', parked_at: now } }],
+          stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { park_count: 2, view_at: back, view_set_by: 'user', parked_at: now, on_day: null, snoozed_until: null } }],
           message: `Back in ${NOT_NOW.secondReturnDays} days.`,
         };
       }
@@ -508,7 +547,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
           {
             item_key: req.item_key,
             from: ctx.state,
-            patch: { park_count: Math.min(count + 1, NOT_NOW.choicesOnlyAtParkCount), view_at: null, view_set_by: 'user' },
+            patch: { park_count: Math.min(count + 1, NOT_NOW.choicesOnlyAtParkCount), view_at: null, view_set_by: 'user', on_day: null, snoozed_until: null },
           },
         ],
         message: 'It stays here. Pick what to do with it.',
@@ -731,6 +770,78 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       };
     }
 
+    case 'clear_session': {
+      if (parseItemKey(req.item_key)?.kind !== 'session') throw new HomeActError('not_found', 'That is not a session question.');
+      if (ctx.sessionAsk == null) throw new HomeActError('not_found', 'That session has no question for you any more.');
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [{ item_key: req.item_key, from: ctx.state, patch: { session_cleared_at: now, session_cleared_hash: sessionAskHash(ctx.sessionAsk) } }],
+        message: SESSION_CLEARED_MESSAGE,
+      };
+    }
+
+    case 'snooze': {
+      if (parseItemKey(req.item_key) === null || parseItemKey(req.item_key)?.kind === 'hands') throw new HomeActError('not_found', 'That item cannot be snoozed.');
+      const until = snoozeInstant(req, now);
+      const count = snoozeCountToday(ctx.state, now, ctx.timezone);
+      // The same parking as on_day, on a short clock. It leaves Working on too. park_count, the weights and today's list rows are untouched:
+      // the item comes back to its own place when the snooze ends.
+      const patch: HomeItemStatePatch = {
+        view_at: until,
+        view_set_by: 'user',
+        parked_at: now,
+        snoozed_until: until,
+        snooze_count: count,
+        snooze_day: dayToDate(checkDayOf(now, ctx.timezone)),
+        on_day: null,
+      };
+      if (ctx.state?.working_since) patch.working_since = null;
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [{ item_key: req.item_key, from: ctx.state, patch }],
+        message: snoozeMessage(until, now, ctx.timezone, ctx.hardDate ?? null, count),
+        undoUntil: new Date(Math.min(until.getTime(), now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000)),
+      };
+    }
+
+    case 'on_day': {
+      if (parseItemKey(req.item_key) === null || parseItemKey(req.item_key)?.kind === 'hands') throw new HomeActError('not_found', 'That item cannot be set for a day.');
+      const today = zonedDateString(now, ctx.timezone);
+      const picked = checkOnDay(req.date, today);
+      const viewAt = zonedToUtc(picked.y, picked.m, picked.d, 0, 5, ctx.timezone);
+      // It leaves Working on too (like Stop for now, without the note). park_count and the weights are not touched.
+      const patch: HomeItemStatePatch = { view_at: viewAt, view_set_by: 'user', parked_at: now, on_day: dayToDate(picked), snoozed_until: null };
+      if (ctx.state?.working_since) patch.working_since = null;
+      // Today's list: the item leaves Quick and the steps (the day row only; no arc_removed marker, so it can come back on its day).
+      let dayWrite: ActPlan['dayWrite'] = null;
+      const day = ctx.day;
+      if (day && (day.quick_item_keys.includes(req.item_key) || day.step_item_keys.includes(req.item_key))) {
+        const afterDay: RawHomeDay = {
+          ...day,
+          quick_item_keys: day.quick_item_keys.filter((k) => k !== req.item_key),
+          step_item_keys: day.step_item_keys.filter((k) => k !== req.item_key),
+        };
+        dayWrite = {
+          date: day.date,
+          patch: { quick_item_keys: afterDay.quick_item_keys, step_item_keys: afterDay.step_item_keys },
+          before: { date: day.date, group_key: day.group_key, kind: 'rewrite', snapshot: snapshotDay(day) },
+          after: { date: day.date, group_key: day.group_key, kind: 'rewrite', snapshot: snapshotDay(afterDay) },
+        };
+      }
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [{ item_key: req.item_key, from: ctx.state, patch }],
+        dayWrite,
+        message: onDayMessage(picked, today, ctx.hardDate ?? null),
+      };
+    }
+
     case 'keep_lead':
     case 'treat_as_reply': {
       if (parseItemKey(req.item_key)?.kind !== 'thread') throw new HomeActError('not_found', 'That is not an email thread.');
@@ -792,6 +903,14 @@ async function resolveTargetDay(
   return dayForGroup(sel, req.to_group_key, day, raw.calendar_events, opts.now);
 }
 
+/** For on_day: the item's hard, promised or lifeline end date as the screen reads it now (read only, before the transaction). */
+async function resolveHardDate(db: PrismaClient, userId: string, itemKey: string, opts: RunOptions): Promise<Date | null> {
+  const raw = await loadHomeInputs(db, userId, opts.now, { timezone: opts.timezone });
+  const states = await loadItemStates(db, userId);
+  const c = selectHome({ raw, states, now: opts.now }).byKey.get(itemKey);
+  return c ? (c.hardDate ?? c.score.hardDate ?? null) : null;
+}
+
 const CLOSED_STATUSES = [...CLOSED_TASK_STATUSES];
 
 /**
@@ -841,12 +960,22 @@ export async function runHomeAct(
     targetDay = resolved;
   }
 
+  let hardDate: Date | null = null;
+  if (req.action === 'snooze') {
+    snoozeInstant(req, opts.now); // a bad time is a 400 before anything is read
+    hardDate = await resolveHardDate(db, userId, req.item_key, opts);
+  }
+  if (req.action === 'on_day') {
+    checkOnDay(req.date, zonedDateString(opts.now, opts.timezone)); // a bad day is a 400 before anything is read
+    hardDate = await resolveHardDate(db, userId, req.item_key, opts);
+  }
+
   return db.$transaction(async (tx) => {
     const itemKey = 'item_key' in req ? req.item_key : null;
     const [state, pinned, day] = await Promise.all([
       itemKey ? getItemState(tx, userId, itemKey) : Promise.resolve(null),
       req.action === 'pin' ? findPinnedItemState(tx, userId) : Promise.resolve(null),
-      req.action === 'arc_add' || req.action === 'arc_remove' || req.action === 'arc_reorder' || req.action === 'swap' || req.action === 'lighter'
+      req.action === 'on_day' || req.action === 'arc_add' || req.action === 'arc_remove' || req.action === 'arc_reorder' || req.action === 'swap' || req.action === 'lighter'
         ? getHomeDay(tx, userId, opts.date)
         : Promise.resolve(null),
     ]);
@@ -864,7 +993,17 @@ export async function runHomeAct(
       }
     }
 
-    const plan = planAct(req, { now: opts.now, timezone: opts.timezone, state, pinned, day, targetDay, stepText });
+    // Session card: the ask is read here, as the session holds it now, and only when it is one he is shown (not already cleared).
+    let sessionAsk: string | null = null;
+    if (req.action === 'clear_session') {
+      const parsed = parseItemKey(req.item_key);
+      if (parsed?.kind === 'session') {
+        const asks = await loadSessionAsks(tx as unknown as PrismaClient);
+        sessionAsk = asks.find((a) => a.external_id === parsed.external_id)?.waiting_on ?? null;
+      }
+    }
+
+    const plan = planAct(req, { now: opts.now, timezone: opts.timezone, state, pinned, day, targetDay, stepText, sessionAsk, hardDate });
 
     for (const w of plan.stateWrites) {
       await upsertItemState(tx, userId, w.item_key, w.patch);
@@ -933,7 +1072,7 @@ export async function runHomeAct(
     // Slice 2c: with his switch on, an add or remove on today's real arc is copied onto his own task's arc_id.
     const arcLinks = await copyArcEditToTask(tx, userId, req, day);
 
-    const undoUntil = plan.undoable ? new Date(opts.now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000) : null;
+    const undoUntil = plan.undoable ? (plan.undoUntil ?? new Date(opts.now.getTime() + UNDO_WINDOW_HOURS * 3600 * 1000)) : null;
     let before: UndoSide | { recorded: { did: string; undo: boolean } };
     let after: UndoSide | { recorded: { did: string; undo: boolean } };
     if (plan.recorded) {
@@ -1090,7 +1229,13 @@ function isRestMark(row: RawItemState): boolean {
     (row.card_summary ?? null) === null &&
     (row.parked_at ?? null) === null &&
     (row.step_done_at ?? null) === null &&
-    (row.step_done_text ?? null) === null
+    (row.step_done_text ?? null) === null &&
+    (row.session_cleared_at ?? null) === null &&
+    (row.session_cleared_hash ?? null) === null &&
+    (row.on_day ?? null) === null &&
+    (row.snoozed_until ?? null) === null &&
+    (row.snooze_count ?? 0) === 0 &&
+    (row.snooze_day ?? null) === null
   );
 }
 
@@ -1135,6 +1280,12 @@ async function undoStateRecord(db: HomeDb, userId: string, rec: StateRecord): Pr
         parked_at: null,
         step_done_at: null,
         step_done_text: null,
+        session_cleared_at: null,
+        session_cleared_hash: null,
+        on_day: null,
+        snoozed_until: null,
+        snooze_count: 0,
+        snooze_day: null,
       },
     });
   }

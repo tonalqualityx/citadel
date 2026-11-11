@@ -53,7 +53,7 @@ describe('Slice 8b: a project next step as a row', () => {
     expect(item.title).toBe('Email Jack to accept the seven pages on the review site.');
     expect(item.why_now).toBe('Jack Gaughan Artist Site · quiet 21 days');
     expect(item.actions.map((a) => a.label)).toEqual(['Open the project', 'I did this', 'Not now']);
-    expect(item.more_actions.map((a) => a.label)).toEqual(['This matters more']);
+    expect(item.more_actions.map((a) => a.label)).toEqual(['This matters more', 'Snooze', 'Do it on a day']);
     expect(item.reason).toBe('The next step on Jack Gaughan Artist Site is yours.');
     expect(item.default_if_ignored).toBe('Stays here. Bast reads the project again tonight and rewrites this step.');
     expect(item.project?.id).toBe(s.project_id);

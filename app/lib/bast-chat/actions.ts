@@ -331,6 +331,8 @@ export type OpLine =
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
+  | { op: 'home_act'; action: 'clear_session'; title: string }
+  | { op: 'home_act'; action: 'on_day' | 'snooze'; title: string; message: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
   | { op: 'email_ask_state'; subject: string; state: 'handled' | 'dismissed' | 'open'; draft_kept?: boolean }
   | { op: 'wait_change'; action: 'redate' | 'extend'; title: string; due: Date }
@@ -405,6 +407,13 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'step_done':
           s = `Marked the ${o.title} step as done.`;
+          break;
+        case 'clear_session':
+          s = `Cleared the question from the ${o.title} session.`;
+          break;
+        case 'on_day':
+        case 'snooze':
+          s = `${quoted(o.title)}: ${o.message}`;
           break;
       }
       break;

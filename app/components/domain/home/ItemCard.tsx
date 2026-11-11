@@ -46,8 +46,11 @@ export function ItemCard({
   const [saving, setSaving] = React.useState(false);
   // Slice 4c: "Not a lead" asks whether to treat the thread as a reply or close it.
   const [leadPickOpen, setLeadPickOpen] = React.useState(false);
+  // "Do it on a day": the quick choices open under More.
+  const [dayPickOpen, setDayPickOpen] = React.useState<'on_day' | 'snooze' | null>(null);
   React.useEffect(() => {
     setLeadPickOpen(false);
+    setDayPickOpen(null);
     setMoreOpen(false);
     setPickOpen(false);
     setPickScope(null);
@@ -85,6 +88,11 @@ export function ItemCard({
         }
         if (a.id === 'not_lead') {
           setLeadPickOpen(true);
+          return;
+        }
+        if ((a.id === 'on_day' || a.id === 'snooze') && a.choices && a.choices.length > 0) {
+          const which: 'on_day' | 'snooze' = a.id;
+          setDayPickOpen((v) => (v === which ? null : which));
           return;
         }
         onAction(a, item);
@@ -154,6 +162,32 @@ export function ItemCard({
               {CLOSE_LEAD_LABEL}
             </button>
             <button type="button" className="home-btn" onClick={() => setLeadPickOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {dayPickOpen ? (
+        <div className="home-prompt" role="group" aria-label={ACTION_LABELS[dayPickOpen]}>
+          <p>{ACTION_LABELS[dayPickOpen]}</p>
+          <div className="home-actions">
+            {(item.more_actions.find((x) => x.id === dayPickOpen)?.choices ?? []).map((c) => (
+              <button
+                key={c.label}
+                type="button"
+                className="home-btn"
+                disabled={busy}
+                onClick={() => {
+                  const id = dayPickOpen;
+                  setDayPickOpen(null);
+                  onAction({ id, label: ACTION_LABELS[id], filled: false, href: null, date: c.date, hours: c.hours, until: c.until }, item);
+                }}
+              >
+                {plain(c.label)}
+              </button>
+            ))}
+            <button type="button" className="home-btn" onClick={() => setDayPickOpen(null)}>
               Cancel
             </button>
           </div>

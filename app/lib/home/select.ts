@@ -96,6 +96,7 @@ import { cardSummary, truncateWords } from './plain-text';
 import { applyWeights, type WeightRow } from './learn/apply';
 import { effortExtras, learnedFooter, timeBasisSentence } from './learn/copy';
 import { evidenceKeys, isLearnableKey } from './learn/evidence';
+import { ON_DAY_REASON, ON_DAY_WHY_NOW, SNOOZE_BACK_WHY, dayChoices, isDayArrived, isDayParked, isSnoozeBack, isSnoozeParked, onDayCheckText, snoozeCheckText, snoozeChoices } from './on-day';
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
@@ -158,6 +159,7 @@ import type {
   RawProjectRef,
   RawProjectStep,
   RawReviewFold,
+  HomeChoice,
   RawSessionAsk,
   RawSiteIncident,
   RawTask,
@@ -201,6 +203,16 @@ export interface Candidate {
   arrived: boolean;
   /** Slice 4c: a client reply on its third business day, or a lead past its clock. It goes to the top of its People tile (after a boosted row). */
   clockDue?: boolean;
+  /** "Do it on a day": his day has come. Boosted for that day only; the card says "You said today." */
+  dayArrived?: boolean;
+  /** "Do it on a day": the emergency rule he parked until a day (rule is null meanwhile). The Slack lifeline line still reads it. */
+  dayHeldRule?: EmergencyRule | null;
+  /** "Do it on a day": the quick choices for this card's More list (server only; same array for every item). */
+  dayChoices?: HomeChoice[];
+  /** "Snooze": a snooze ended earlier today; the card says "Back from a snooze." (no boost). */
+  snoozeBack?: boolean;
+  /** "Snooze": the quick choices for this card's More list (server only). */
+  snoozeChoices?: HomeChoice[];
   /** Slice 4c: a thread whose Not now ended early (a new message from them, or a lead that came back at its repeat time). */
   unpark?: boolean;
   /** Slice 3: Bast's task, stopped and tagged needs-mike (RawTask.bot_task). Never a Today step, never in the keeper's pool. */
@@ -272,6 +284,7 @@ export function rankCompare(a: Candidate, b: Candidate): number {
 
 /** Needs you now: client-facing first, then the nearest hard date, then the oldest. */
 export function emergencyCompare(a: Candidate, b: Candidate): number {
+  if (!!a.dayArrived !== !!b.dayArrived) return a.dayArrived ? -1 : 1; // the day he picked, first
   const ac = a.item.client !== null;
   const bc = b.item.client !== null;
   if (ac !== bc) return ac ? -1 : 1;
@@ -1138,6 +1151,7 @@ function ifIgnored(c: Candidate): string {
 
 function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.pinned) return REASON.working;
+  if (c.dayArrived) return ON_DAY_REASON;
   if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.kind === 'hands') return HANDS_REASON;
   if (c.kind === 'step') return stepReason(c.item.project?.name ?? '');
@@ -1191,11 +1205,14 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
         : undefined,
     mailUrl: ctx.mailUrl,
     siteUrl: ctx.siteUrl,
+    dayChoices: c.dayChoices,
+    snoozeChoices: c.snoozeChoices,
   });
   const finalItem: HomeItem = {
     ...c.item,
     type: itemType(c),
     pinned: c.pinned,
+    why_now: c.dayArrived ? ON_DAY_WHY_NOW : c.snoozeBack ? SNOOZE_BACK_WHY : c.item.why_now,
     reason: c.learned && c.shown ? `${reasonFor(c, ctx)} ${learnedFooter(c.learned.key, c.learned.label, c.learned.dir)}` : reasonFor(c, ctx),
     default_if_ignored:
       c.kind === 'thread' && !c.rule && ctx.owedIfIgnored
@@ -1234,10 +1251,14 @@ export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived'
 const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step'];
 
 /** One Everything else row for an item (check text per the plan's table). */
-function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date): HomeRestItem {
+function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date, timeZone: string): HomeRestItem {
   const vw = c.state?.view_at ?? null;
   let text: string;
-  if ((group === 'scheduled' || group === 'parked') && vw) {
+  if (group === 'parked' && c.state?.snoozed_until && c.state.snoozed_until.getTime() > now.getTime() && c.parkedBy === 'user') {
+    text = snoozeCheckText(c.state.snoozed_until, now, timeZone);
+  } else if (group === 'parked' && c.state?.on_day && c.parkedBy === 'user') {
+    text = onDayCheckText(c.state.on_day);
+  } else if ((group === 'scheduled' || group === 'parked') && vw) {
     text = backOnText(vw);
   } else if (group === 'older_threads') {
     text = REST_CHECK.olderThread;
@@ -1399,11 +1420,18 @@ export function selectHome(input: SelectInput): SelectResult {
   };
   for (const draft of drafts) {
     const st = states.get(draft.cand.key);
-    const emergencyRule = draft.cand.rule && !st?.not_emergency_at && !draft.muted ? draft.cand.rule : null;
+    // "Do it on a day": an emergency he set for a later day leaves Needs you now (and so Quick) until that day, then returns. A thread
+    // that a new message woke early is not held (the existing 4c wake rule).
+    const dayParked = (isDayParked(st, now) || isSnoozeParked(st, now)) && !draft.cand.unpark;
+    const dayArrived = isDayArrived(st, now, raw.timezone);
+    const emergencyRule = draft.cand.rule && !st?.not_emergency_at && !draft.muted && !dayParked ? draft.cand.rule : null;
     const c: Candidate = {
       ...draft.cand,
       rule: emergencyRule,
-      boosted: !!st?.boosted_at,
+      dayArrived,
+      snoozeBack: isSnoozeBack(st, now, raw.timezone),
+      dayHeldRule: dayParked && draft.cand.rule && !st?.not_emergency_at && !draft.muted ? draft.cand.rule : null,
+      boosted: !!st?.boosted_at || dayArrived,
       fresh: draft.cand.fresh ?? false,
       arrived: draft.cand.arrived ?? false,
       botTask: draft.cand.botTask ?? false,
@@ -1516,7 +1544,9 @@ export function selectHome(input: SelectInput): SelectResult {
     const c: Candidate = {
       ...d.cand,
       rule: null,
-      boosted: !!st?.boosted_at,
+      dayArrived: isDayArrived(st, now, raw.timezone),
+      snoozeBack: isSnoozeBack(st, now, raw.timezone),
+      boosted: !!st?.boosted_at || isDayArrived(st, now, raw.timezone),
       fresh: false,
       arrived: false,
       botTask: false,
@@ -1622,6 +1652,12 @@ export function selectHome(input: SelectInput): SelectResult {
 
   // ---- 4. Final items (buttons, footer lines) ---------------------------
   const topNextKey = next[0]?.key ?? null;
+  const dayPicks = dayChoices(now, raw.timezone);
+  const snoozePicks = snoozeChoices(now, raw.timezone);
+  for (const c of candidates) {
+    c.dayChoices = dayPicks;
+    c.snoozeChoices = snoozePicks;
+  }
   for (const c of candidates) finalize(c, ctxByKey.get(c.key) ?? {}, c.key === topNextKey);
   if (handsCand && handsSel) {
     const byTask = new Map(handsJobCands.map((c) => [(taskRawByKey.get(c.key) as RawTask).id, c]));
@@ -1674,7 +1710,7 @@ export function selectHome(input: SelectInput): SelectResult {
   restCands.sort((a, b) => (a.restGroup === 'scheduled' || a.restGroup === 'parked' ? byDay(a, b) : rankCompare(a, b)));
   for (const c of restCands) {
     const group = c.restGroup as HomeRestGroupKey;
-    itemsByGroup[group].push(restItemOf(c, group, ctxByKey.get(c.key) ?? {}, now));
+    itemsByGroup[group].push(restItemOf(c, group, ctxByKey.get(c.key) ?? {}, now, raw.timezone));
   }
   for (const hp of raw.held_projects) {
     const name = displayText(hp.project.name) || 'Untitled project';

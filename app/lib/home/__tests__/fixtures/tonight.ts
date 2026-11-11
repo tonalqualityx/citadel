@@ -205,6 +205,12 @@ export function makeState(item_key: string, over: Partial<RawItemState> = {}): R
     parked_at: null,
     step_done_at: null,
     step_done_text: null,
+    session_cleared_at: null,
+    session_cleared_hash: null,
+    on_day: null,
+    snoozed_until: null,
+    snooze_count: 0,
+    snooze_day: null,
     ...over,
   };
 }

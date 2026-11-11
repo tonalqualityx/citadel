@@ -71,8 +71,10 @@ async function describeItem(db: OpDb, key: string): Promise<Described> {
       const pr = await db.project.findUnique({ where: { id: p.project_id }, select: { name: true } });
       return { title: pr ? `${pr.name} sign-off` : 'the sign-off', security: false };
     }
-    case 'session':
-      return { title: 'that session', security: false };
+    case 'session': {
+      const s = await db.oracleSession.findFirst({ where: { external_id: p.external_id }, orderBy: { last_event_at: 'desc' }, select: { title: true } });
+      return { title: cleanLine(s?.title ?? '', 60) || 'that', security: false };
+    }
     case 'site': {
       const s = await db.site.findUnique({ where: { id: p.id }, select: { url: true } });
       return { title: s?.url ? `${s.url.replace(/^https?:\/\//, '').replace(/[/?#].*$/, '')} going down` : 'that site', security: false };
@@ -113,7 +115,7 @@ async function threadWho(db: OpDb, key: string): Promise<string> {
   return name || a?.from_email.split('@')[0] || 'that person';
 }
 
-async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date): Promise<string> {
+async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date, message: string | null): Promise<string> {
   const a = input.action;
   if (a === 'arc_reorder' || a === 'lighter' || a === 'not_this_week') return opSummary({ op: 'home_act', action: a }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
@@ -127,6 +129,8 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   if (a === 'not_now') line = { op: 'home_act', action: 'not_now', title: d.title, until };
   else if (a === 'not_emergency') line = { op: 'home_act', action: 'not_emergency', title: d.title, security: d.security };
   else if (a === 'step_done') line = { op: 'home_act', action: 'step_done', title: d.title };
+  else if (a === 'clear_session') line = { op: 'home_act', action: 'clear_session', title: d.title };
+  else if (a === 'on_day' || a === 'snooze') line = { op: 'home_act', action: a, title: d.title, message: message ?? '' };
   else line = { op: 'home_act', action: a, title: d.title };
   return opSummary(line, now);
 }
@@ -147,7 +151,7 @@ async function run(ctx: OpContext, input: HomeInput): Promise<OpRun> {
   const row = await getHomeAction(db, ctx.ownerId, res.action_id);
   let until: Date | null = null;
   if (input.action === 'not_now') until = (await getItemState(db, ctx.ownerId, input.item_key))?.view_at ?? null;
-  const summary = await lineFor(db, input, until, ctx.now);
+  const summary = await lineFor(db, input, until, ctx.now, res.message);
   const key = 'item_key' in input ? input.item_key : null;
   return {
     target_id: res.action_id,

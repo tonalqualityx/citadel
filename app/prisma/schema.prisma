@@ -4816,6 +4816,12 @@ model HomeItemState {
   parked_at            DateTime?                  // 4c: when his Not now was tapped; a newer message from them wakes the row
   step_done_at         DateTime?                  // 8b: when he tapped "I did this" on a project next step
   step_done_text       String?   @db.Text         // 8b: the step text at that moment (a rewritten step shows again)
+  session_cleared_at   DateTime?                  // session card: when he tapped "Clear it" on a session's parked question
+  on_day               DateTime? @db.Date         // "Do it on a day": the calendar day he said he would do it (view_at holds 00:05 of that day his time)
+  snoozed_until        DateTime?                  // "Snooze": the instant a short snooze ends (view_at holds the same instant)
+  snooze_count         Int       @default(0)      // snoozes of this item on snooze_day
+  snooze_day           DateTime? @db.Date         // the calendar day (his zone) snooze_count counts
+  session_cleared_hash String?   @db.VarChar(64)  // session card: sha256 of that question's text; the item stays hidden while the session's waiting_on hashes the same
 
   // 7c: display-only guesses written by the nightly learn step for his open tasks. Never copied to Task.
   effort_minutes    Int?

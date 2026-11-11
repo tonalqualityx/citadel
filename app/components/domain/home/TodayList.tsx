@@ -7,7 +7,7 @@
  * and never fetches by itself (the add box's search and create go through use-home hooks).
  */
 import { useState } from 'react';
-import type { HomeArcChoice, HomeItem, TodayListProps } from '@/lib/home/types';
+import type { HomeArcChoice, HomeChoice, HomeItem, HomeTodayActRequest, TodayListProps } from '@/lib/home/types';
 import { AddToArcSearch } from './AddToArcSearch';
 import { ArcEditor } from './ArcEditor';
 import { QUICK_HEADING, arcHeading, dayOverflows, rowMeta, whyLine } from './today-list-logic';
@@ -16,8 +16,53 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 const BTN = `min-h-[40px] rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3.5 py-2 text-[0.9rem] font-semibold disabled:opacity-55 ${FOCUS}`;
 const GROUP = 'border-t border-[var(--border)] px-3.5 pb-1.5 pt-3 text-[0.72rem] font-bold uppercase tracking-[0.05em] text-[var(--text-muted)] first:border-t-0';
 
-function QuickRow({ item, selected, onSelect }: { item: HomeItem; selected: boolean; onSelect: (item: HomeItem) => void }) {
+function QuickRow({
+  item,
+  selected,
+  onSelect,
+  onSnooze,
+  disabled,
+}: {
+  item: HomeItem;
+  selected: boolean;
+  onSelect: (item: HomeItem) => void;
+  onSnooze: (item: HomeItem, choice: HomeChoice) => void;
+  disabled: boolean;
+}) {
   const meta = rowMeta(item);
+  const [open, setOpen] = useState(false);
+  const choices = (item.more_actions ?? []).find((a) => a.id === 'snooze')?.choices ?? [];
+  return (
+    <div className="flex min-w-0 flex-col">
+      <QuickRowButton item={item} selected={selected} onSelect={onSelect} meta={meta} />
+      {choices.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5 px-3.5 pb-2">
+          <button type="button" className="text-[0.8rem] font-semibold underline" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            Snooze
+          </button>
+          {open
+            ? choices.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  disabled={disabled}
+                  className={`min-h-[32px] rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 text-[0.8rem] font-semibold disabled:opacity-55 ${FOCUS}`}
+                  onClick={() => {
+                    setOpen(false);
+                    onSnooze(item, c);
+                  }}
+                >
+                  {c.label}
+                </button>
+              ))
+            : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function QuickRowButton({ item, selected, onSelect, meta }: { item: HomeItem; selected: boolean; onSelect: (item: HomeItem) => void; meta: string | null }) {
   return (
     <button
       type="button"
@@ -66,7 +111,17 @@ export function TodayList({
         <>
           <h3 className={GROUP}>{QUICK_HEADING}</h3>
           {today.quick.map((item) => (
-            <QuickRow key={item.key} item={item} selected={item.key === selectedKey} onSelect={onSelect} />
+            <QuickRow
+              key={item.key}
+              item={item}
+              selected={item.key === selectedKey}
+              onSelect={onSelect}
+              disabled={busy}
+              onSnooze={(it, c) => {
+                const when = c.hours ? { hours: c.hours } : { until: c.until };
+                onAct({ action: 'snooze', item_key: it.key, ...when } as HomeTodayActRequest).catch(() => undefined);
+              }}
+            />
           ))}
         </>
       ) : null}

@@ -596,6 +596,28 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/session-asks/:id',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: one session that is waiting on the owner (the question it parked), by external id or row id',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          title: 'string|null (the session title)',
+          waiting_on: 'string (the full ask, at most 2000 characters)',
+          since: 'ISO-8601',
+          session_url: 'string|null (https://claude.ai/code/... link)',
+          client: 'string|null (name)',
+          project: 'string|null (name)',
+          home_key: 'string (session:<external id>; what the home op takes)',
+        },
+        responseNotes: 'Owner only; takes no user id. 404 for an id that is not a token, a session with no ask, an archived or ended one, and one the owner cleared that has not asked anything new. Writes nothing. Sends Cache-Control: no-store.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/home-watch',
     group: 'bast-chat',
     methods: [

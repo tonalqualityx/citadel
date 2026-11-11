@@ -1640,3 +1640,13 @@ describe('card copy (V5)', () => {
     expect(JSON.stringify(p.card)).not.toMatch(/\u2014|\u2013|priorit|overdue/i);
   });
 });
+
+describe('opSummary: session card and day lines', () => {
+  it('says the cleared session line the owner reads', () => {
+    expect(opSummary({ op: 'home_act', action: 'clear_session', title: 'Griswold chatbot' })).toBe('Cleared the question from the Griswold chatbot session.');
+  });
+  it('puts the server message after the quoted title for on_day and snooze', () => {
+    expect(opSummary({ op: 'home_act', action: 'on_day', title: 'Renew the certificate', message: 'Set for Thursday.' })).toBe('"Renew the certificate": Set for Thursday.');
+    expect(opSummary({ op: 'home_act', action: 'snooze', title: 'Renew the certificate', message: 'Snoozed until 2:00.' })).toBe('"Renew the certificate": Snoozed until 2:00.');
+  });
+});

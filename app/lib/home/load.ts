@@ -40,6 +40,7 @@ import { loadProjectSteps } from './projects/load';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
 import { SEND_ACTION } from './owed/send-copy';
 import { BOOK_ACTION } from './owed/book-copy';
+import { sessionAskIsCleared } from './session-clear';
 import type {
   KeeperActionKind,
   RawArcRef,
@@ -644,7 +645,8 @@ async function loadReviewFolds(db: PrismaClient, userId: string): Promise<RawRev
 // Session asks
 // ============================================================================
 
-async function loadSessionAsks(db: PrismaClient): Promise<RawSessionAsk[]> {
+/** Every live session ask, newest first, one per external_id. Not filtered by what the owner cleared (loadSessionAsksFor does that). */
+export async function loadSessionAsks(db: PrismaClient): Promise<RawSessionAsk[]> {
   const rows = await db.oracleSession.findMany({
     where: {
       waiting_on: { not: null },
@@ -703,6 +705,22 @@ async function loadSessionAsks(db: PrismaClient): Promise<RawSessionAsk[]> {
     seen.add(a.external_id);
     return true;
   });
+}
+
+/**
+ * The session asks one owner is shown: loadSessionAsks without the ones he cleared. A cleared ask stays hidden while the
+ * session's waiting_on hashes the same as the text he cleared; a different text shows again. Reads only his own home_item_state rows.
+ */
+export async function loadSessionAsksFor(db: PrismaClient, userId: string): Promise<RawSessionAsk[]> {
+  const asks = await loadSessionAsks(db);
+  if (asks.length === 0) return asks;
+  const rows = await db.homeItemState.findMany({
+    where: { user_id: userId, item_key: { in: asks.map((a) => `session:${a.external_id}`) }, session_cleared_hash: { not: null } },
+    select: { item_key: true, session_cleared_at: true, session_cleared_hash: true },
+  });
+  if (rows.length === 0) return asks;
+  const byKey = new Map(rows.map((r) => [r.item_key, r]));
+  return asks.filter((a) => !sessionAskIsCleared(a.waiting_on, byKey.get(`session:${a.external_id}`)));
 }
 
 // ============================================================================
@@ -924,7 +942,7 @@ export async function loadHomeInputs(
     await Promise.all([
       loadTasks(db, userId),
       loadReviewFolds(db, userId),
-      loadSessionAsks(db),
+      loadSessionAsksFor(db, userId),
       loadWaits(db, userId),
       loadThreads(db),
       loadCrises(db),

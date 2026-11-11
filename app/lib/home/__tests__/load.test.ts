@@ -103,6 +103,7 @@ function makeDb() {
     client: { findMany: vi.fn().mockResolvedValue([]) },
     comment: { findMany: vi.fn().mockResolvedValue([]) },
     oracleSession: { findMany: vi.fn().mockResolvedValue([]) },
+    homeItemState: { findMany: vi.fn().mockResolvedValue([]) },
     wait: { findMany: vi.fn().mockResolvedValue([]) },
     emailAsk: { findMany: vi.fn().mockResolvedValue([]) },
     calendarEvent: { findMany: vi.fn().mockResolvedValue([]) },

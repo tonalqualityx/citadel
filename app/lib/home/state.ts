@@ -68,6 +68,12 @@ const ITEM_STATE_SELECT = {
   parked_at: true,
   step_done_at: true,
   step_done_text: true,
+  session_cleared_at: true,
+  on_day: true,
+  snoozed_until: true,
+  snooze_count: true,
+  snooze_day: true,
+  session_cleared_hash: true,
   effort_minutes: true,
   effort_source: true,
   effort_basis_n: true,
@@ -132,6 +138,15 @@ export interface HomeItemStatePatch {
   /** Slice 8b: "I did this" on a project next step. */
   step_done_at?: Date | null;
   step_done_text?: string | null;
+  /** Session card: "Clear it". */
+  session_cleared_at?: Date | null;
+  session_cleared_hash?: string | null;
+  /** "Do it on a day". */
+  on_day?: Date | null;
+  /** "Snooze". */
+  snoozed_until?: Date | null;
+  snooze_count?: number;
+  snooze_day?: Date | null;
 }
 
 /** A patch as Prisma wants it: a null card_checklist becomes a database NULL. */
@@ -194,6 +209,12 @@ export async function restoreItemState(
     dates_read_at: before.dates_read_at ?? null,
     step_done_at: before.step_done_at ?? null,
     step_done_text: before.step_done_text ?? null,
+    session_cleared_at: before.session_cleared_at ?? null,
+    session_cleared_hash: before.session_cleared_hash ?? null,
+    on_day: before.on_day ?? null,
+    snoozed_until: before.snoozed_until ?? null,
+    snooze_count: before.snooze_count ?? 0,
+    snooze_day: before.snooze_day ?? null,
   };
   await upsertItemState(db, userId, itemKey, fields);
 }

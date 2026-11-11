@@ -128,7 +128,7 @@ describe.skipIf(!SCRATCH)('Slice 8b: project next steps (real database)', () => 
     expect(row.title).toBe('Email Jack to accept the seven pages on the review site.');
     expect(row.why_now).toBe(`shows ${tag} · quiet 21 days`);
     expect(row.actions.map((a) => a.label)).toEqual(['Open the project', 'I did this', 'Not now']);
-    expect(row.more_actions.map((a) => a.label)).toEqual(['This matters more']);
+    expect(row.more_actions.map((a) => a.label)).toEqual(['This matters more', 'Snooze', 'Do it on a day']);
     expect(row.reason).toBe(`The next step on shows ${tag} is yours.`);
     // The quieter, older project reads as the longer wait, so it comes first.
     expect(resp.sections.next.map((i) => i.key).slice(0, 2)).toContain(stepKey(P.shows));

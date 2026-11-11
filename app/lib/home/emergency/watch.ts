@@ -200,6 +200,10 @@ export interface WatchItem {
   hard_date: Date | null;
   /** True for a Kuma site-down row the uptime watchdog already escalated on Slack. */
   watchdog_escalated: boolean;
+  /** An emergency he set for a later day ("Do it on a day"): out of Needs you now, so no first or still waiting line. Only a lifeline's daily line keeps going. */
+  day_held?: boolean;
+  /** A snooze's end (past or future): the "still waiting" clock starts again then, and the again line may go 4 working hours after it. */
+  resume_at?: Date | null;
 }
 
 /** The tracked row for an item, as the store read it. */
@@ -264,7 +268,8 @@ export function planLines(input: { items: readonly WatchItem[]; states: Readonly
 
     // first sight (skipped for a Kuma incident the watchdog already escalated)
     const firstSent = !!st && (st.slack_first_at !== null || st.slack_first_claims >= MAX_CLAIMS);
-    if (!it.watchdog_escalated && sendOk && !firstSent && (!st || offerable(st.slack_first_claims, st.slack_first_claimed_at, now))) {
+    const held = it.day_held === true;
+    if (!held && !it.watchdog_escalated && sendOk && !firstSent && (!st || offerable(st.slack_first_claims, st.slack_first_claimed_at, now))) {
       out.push({ id: st ? lineId(st.id, 'first') : id, kind: 'first', item_key: it.key, text: firstLineText(it.title, it.why) });
     }
 
@@ -272,9 +277,10 @@ export function planLines(input: { items: readonly WatchItem[]; states: Readonly
 
     // still waiting: only after the first line was handed out, once, with no home action and the item still here
     const firstHandedOut = st.slack_first_claimed_at !== null;
-    if (out.length < MAX_LINES_PER_RUN && sendOk && firstHandedOut && !st.acted_at) {
+    if (out.length < MAX_LINES_PER_RUN && sendOk && firstHandedOut && !st.acted_at && !held) {
       const againSent = st.slack_again_at !== null || st.slack_again_claims >= MAX_CLAIMS;
-      const clockStart = st.slack_first_claimed_at && st.slack_first_claimed_at.getTime() > st.first_seen_at.getTime() ? st.slack_first_claimed_at : st.first_seen_at;
+      let clockStart = st.slack_first_claimed_at && st.slack_first_claimed_at.getTime() > st.first_seen_at.getTime() ? st.slack_first_claimed_at : st.first_seen_at;
+      if (it.resume_at && it.resume_at.getTime() > clockStart.getTime()) clockStart = it.resume_at;
       if (!againSent && againDue(clockStart, now, timeZone) && offerable(st.slack_again_claims, st.slack_again_claimed_at, now)) {
         out.push({ id: lineId(st.id, 'again'), kind: 'again', item_key: it.key, text: againLineText(it.title, st.first_seen_at, timeZone) });
       }

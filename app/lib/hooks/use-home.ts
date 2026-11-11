@@ -361,7 +361,7 @@ export interface HomeRunOptions {
 
 export interface HomeItemActionApi {
   /** Run one button. Resolves true when it worked (or only navigated), false when it failed or was paused for a question. */
-  run: (action: { id: HomeActionId; href?: string | null }, item: HomeItem, opts?: HomeRunOptions) => Promise<boolean>;
+  run: (action: { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string }, item: HomeItem, opts?: HomeRunOptions) => Promise<boolean>;
   /** WorkingOnBar onDone: the item's done path (existing endpoint, then done_pin). */
   done: (item: HomeItem) => Promise<boolean>;
   /** WorkingOnBar onStop: "Stop for now" with the note. */
@@ -426,7 +426,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
   );
 
   const execute = useCallback(
-    async (action: { id: HomeActionId; href?: string | null }, item: HomeItem, opts: HomeRunOptions): Promise<boolean> => {
+    async (action: { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string }, item: HomeItem, opts: HomeRunOptions): Promise<boolean> => {
       const src = item.source;
       switch (action.id) {
         case 'done': {
@@ -548,6 +548,21 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'not_this_week':
           await act({ action: 'not_this_week', item_key: item.key });
           return true;
+        // "Do it on a day": the server's line is the toast. A day the card did not give is not sent.
+        case 'on_day':
+          if (!action.date) return false;
+          await act({ action: 'on_day', item_key: item.key, date: action.date });
+          return true;
+        // Snooze: hours or a clock instant from the card; the server checks the window and its line is the toast.
+        case 'snooze':
+          if (action.hours) await act({ action: 'snooze', item_key: item.key, hours: action.hours });
+          else if (action.until) await act({ action: 'snooze', item_key: item.key, until: action.until });
+          else return false;
+          return true;
+        // A session card: clear the question (his own rows only; the session is untouched). The server's line is the toast.
+        case 'clear_session':
+          await act({ action: 'clear_session', item_key: item.key });
+          return true;
         // Slice 4a: asks for a draft or a read. The server's line is the toast; nothing is sent from here or anywhere.
         case 'draft_now':
           await act({ action: 'draft_now', item_key: item.key });
@@ -595,7 +610,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
   );
 
   const run = useCallback(
-    async (action: { id: HomeActionId; href?: string | null }, item: HomeItem, opts: HomeRunOptions = {}) => {
+    async (action: { id: HomeActionId; href?: string | null; date?: string; hours?: 1 | 2 | 3 | 4; until?: string }, item: HomeItem, opts: HomeRunOptions = {}) => {
       setPending({ key: item.key, action: action.id });
       setStatus(null);
       setPinAsk(null);
@@ -607,7 +622,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'book_block', 'send_draft', 'send_short'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week', 'keep_lead', 'treat_as_reply', 'step_done', 'on_day', 'snooze', 'clear_session', 'book_block', 'send_draft', 'send_short'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

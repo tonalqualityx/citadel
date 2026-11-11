@@ -128,6 +128,12 @@ export type HomeActionId =
   | 'open_short'
   | 'open_project'
   | 'step_done'
+  // Session card: Clear it (a home act; remembers the cleared text on his own row, never touches the session).
+  | 'clear_session'
+  // Do it on a day (a home act: parks the item until the day he picked; writes only his own home rows).
+  | 'on_day'
+  // Snooze: a short park (1 to 24 hours) that returns the item to its place.
+  | 'snooze'
   // Slice 4d: Book 30 minutes (a home act: a request on his own owed row; the machine makes the private calendar block).
   | 'book_block'
   // Slice 4b: Send the draft. Never a home act: these post to /api/home/send (a session-only route); homeActSchema refuses them.
@@ -154,6 +160,17 @@ export type HomeRecordedActionId = Extract<
   | 'handled'
 >;
 
+/** A quick choice under on_day (date) or snooze (hours or until). */
+export interface HomeChoice {
+  label: string;
+  /** on_day: YYYY-MM-DD in his zone. */
+  date?: string;
+  /** snooze: hours from now. */
+  hours?: 1 | 2 | 3 | 4;
+  /** snooze: an ISO instant. */
+  until?: string;
+}
+
 /** One button. Filled by actions-for.ts (H4); labels come from copy.ts. */
 export interface HomeItemAction {
   id: HomeActionId;
@@ -170,6 +187,12 @@ export interface HomeItemAction {
    * Set for open_session, open_draft, open_thread and (when there is one) open_wait.
    */
   href: string | null;
+  /** on_day only: the quick choices ("Tomorrow", weekday names, "Next week"), each a calendar day in his zone. */
+  choices?: HomeChoice[];
+  /** on_day and snooze only, on a request from the browser: the choice picked. */
+  date?: string;
+  hours?: 1 | 2 | 3 | 4;
+  until?: string;
 }
 
 /** A named link. `href` follows the same rule as HomeItemAction.href. */
@@ -569,6 +592,9 @@ export type HomeActName =
   | 'go_with_that'
   | 'not_this_week'
   | 'step_done'
+  | 'clear_session'
+  | 'on_day'
+  | 'snooze'
   | 'book_block';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
@@ -664,6 +690,27 @@ export type HomeActRequest =
    */
   | { action: 'step_done'; item_key: string }
   /**
+   * A session card: Clear it. Writes only his home_item_state row for session:<external_id> (session_cleared_at, session_cleared_hash =
+   * sha256 of the session's waiting_on read inside the transaction, never taken from the request). The OracleSession row is not touched.
+   * The card stays hidden while the session's waiting_on hashes the same and shows again on a new text. Undoable for 24 hours.
+   */
+  | { action: 'clear_session'; item_key: string }
+  /**
+   * Do it on a day: he said when HE will do this item. Parks it until 00:05 on `date` his time (view_at, view_set_by user, parked_at,
+   * on_day) and takes it out of Needs you now, Quick, today's steps and Working on until then, whatever it is (an emergency too: it
+   * returns). `date` is tomorrow or later, at most 60 days out (else 400 "Pick a day after today."). Not a Not now (park_count and
+   * the learner are untouched) and no Task field is written. On the day it returns boosted with "You said today." Undoable for 24 hours.
+   */
+  | { action: 'on_day'; item_key: string; date: string }
+  /**
+   * Snooze: the item leaves every list until `until` (an ISO instant 15 minutes to 24 hours ahead) or until `hours` (1 to 4) from now;
+   * exactly one of the two. Longer is on_day's job (400 "Pick a day instead."). Same parking as on_day (view_at, view_set_by user,
+   * parked_at) plus snoozed_until and a per-day count (the third snooze of an item in a day adds a plain sentence). It returns to
+   * its place with "Back from a snooze." (no boost). Not a Not now: park_count and the learner are untouched; no Task field is
+   * written. Undo for the length of the snooze, at most 24 hours.
+   */
+  | { action: 'snooze'; item_key: string; until?: string; hours?: 1 | 2 | 3 | 4 }
+  /**
    * Slice 4d, a needs-thought thread: Book 30 minutes. Picks his next free half hour (today or the next business day, 10:00 to 17:00
    * his time, clear of meetings) and writes only the request and slot on his own home_owed_thread row; the machine makes a private
    * block on his own calendar with no attendees. 409 book_off, book_not_ready, already_booked, or no_free_slot (nothing written).
@@ -672,7 +719,7 @@ export type HomeActRequest =
   | { action: 'book_block'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
-export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' }>;
+export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' | 'snooze' }>;
 
 /** POST /api/home/act, 200. */
 export interface HomeActResponse {
@@ -993,6 +1040,15 @@ export interface RawItemState {
   /** Slice 8b: when he tapped "I did this" on a project next step, and the step text then. */
   step_done_at?: Date | null;
   step_done_text?: string | null;
+  /** Session card: when he cleared a session's question, and the sha256 of its text then. */
+  session_cleared_at?: Date | null;
+  session_cleared_hash?: string | null;
+  /** Do it on a day: the calendar day he picked (UTC midnight of that date). view_at holds 00:05 of it in his zone. */
+  on_day?: Date | null;
+  /** Snooze: the instant it ends, and how many snoozes of this item were taken on snooze_day (his zone). */
+  snoozed_until?: Date | null;
+  snooze_count?: number;
+  snooze_day?: Date | null;
   /** Slice 7c: display-only guesses the nightly learn step wrote for an open task. Never a Task field. */
   effort_minutes?: number | null;
   effort_source?: string | null;

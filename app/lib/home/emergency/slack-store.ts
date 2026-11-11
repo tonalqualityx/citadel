@@ -56,7 +56,10 @@ export async function loadWatchItems(db: PrismaClient, ownerId: string, now: Dat
         ).map((r) => r.site_id)
       )
     : new Set<string>();
-  return sel.sections.needs_you_now.map((item) => {
+  const held: WatchItem[] = sel.candidates
+    .filter((c) => c.dayHeldRule && c.parked)
+    .map((c) => ({ key: c.key, title: c.item.title, why: c.item.why_now, lifeline: c.dayHeldRule === 'lifeline', hard_date: c.hardDate ?? null, watchdog_escalated: false, day_held: true, resume_at: c.state?.snoozed_until ?? null }));
+  const listed = sel.sections.needs_you_now.map((item) => {
     const cand = sel.byKey.get(item.key);
     const siteId = parseSiteItemKey(item.key);
     return {
@@ -66,8 +69,10 @@ export async function loadWatchItems(db: PrismaClient, ownerId: string, now: Dat
       lifeline: cand?.rule === 'lifeline',
       hard_date: cand?.hardDate ?? null,
       watchdog_escalated: !!siteId && escalated.has(siteId),
+      resume_at: cand?.state?.snoozed_until ?? null,
     };
   });
+  return [...listed, ...held];
 }
 
 const dayOf = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
@@ -152,6 +157,7 @@ export async function trackWatch(db: HomeDb, ownerId: string, items: readonly Wa
       user_id: ownerId,
       item_key: { in: open.map((r) => r.item_key) },
       source: { not: 'keeper' },
+      action: { not: 'snooze' }, // a snooze is not "acted": the line may still go 4 working hours after it ends
       created_at: { gte: new Date(Math.min(...open.map((r) => r.first_seen_at.getTime()))) },
     },
     select: { item_key: true, created_at: true },
