@@ -94,6 +94,7 @@ function makeDb() {
     homeOwedThread: { findMany: vi.fn().mockResolvedValue([]) },
     // Slice 9a: his open cards from sent mail.
     homeReconcileChange: { findMany: vi.fn().mockResolvedValue([]) },
+    workFinishedItem: { findMany: vi.fn().mockResolvedValue([]) },
     homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
     // Slice 4b: the switch (no row = off) and the outbox rows of his presses.
     homeKeeperSettings: { findUnique: vi.fn().mockResolvedValue(null) },

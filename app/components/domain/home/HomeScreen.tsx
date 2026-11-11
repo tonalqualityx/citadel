@@ -8,11 +8,12 @@ import { TaskPeekProvider, useTaskPeek } from '@/lib/contexts/task-peek-context'
 import { HomeProjectDrawer } from './HomeProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
 import { useHome, useHomeAct, useHomeItemAction, useHomeReconcile, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
-import type { HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
+import type { HomeActRequest, HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
 import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
 import { ItemCard } from './ItemCard';
 import { HandsCard } from './HandsCard';
+import { FinishedCard } from './FinishedCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
 import { CalendarStrip, CalendarSoonLine } from './CalendarStrip';
@@ -192,6 +193,7 @@ function HomeBody(p: BodyProps) {
     void itemActions.run(action, item, groupKey ? { groupKey } : {});
   };
   const onTodayAct = (request: HomeTodayActRequest): Promise<HomeActResponse> => p.act(request);
+  const onFinishedAct = (request: HomeActRequest): Promise<HomeActResponse> => p.act(request);
 
   const [movingKey, setMovingKey] = React.useState<string | null>(null);
   // Slice 10a: today's calendar (a time and who per row) and the meeting drawer that loads on open.
@@ -206,7 +208,9 @@ function HomeBody(p: BodyProps) {
 
   const selectedItem = itemTile ? findItem(res, selectedKey) : null;
   const card = (item: HomeItem | null, empty: string, hideActions = false, inDrawer = false) =>
-    item?.hands ? (
+    item?.finished ? (
+      <FinishedCard item={item} onAction={onAction} onAct={onFinishedAct} busy={itemActions.pendingFor(item) != null} />
+    ) : item?.hands ? (
       <HandsCard item={item} onAction={onAction} pendingFor={itemActions.pendingFor} />
     ) : (
     <ItemCard

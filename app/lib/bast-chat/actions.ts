@@ -329,10 +329,11 @@ export type OpLine =
   | { op: 'home_act'; action: 'bring_forward' | 'matters_more' | 'pin' | 'stop' | 'done_pin' | 'arc_add' | 'arc_remove'; title: string }
   | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
+  | { op: 'home_act'; action: 'finished_close'; count: number }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
   | { op: 'home_act'; action: 'clear_session'; title: string }
-  | { op: 'home_act'; action: 'proposal_yes' | 'proposal_no'; title: string }
+  | { op: 'home_act'; action: 'proposal_yes' | 'proposal_no' | 'finished_close_one' | 'finished_keep'; title: string }
   | { op: 'home_act'; action: 'on_day' | 'snooze'; title: string; message: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
   | { op: 'email_ask_state'; subject: string; state: 'handled' | 'dismissed' | 'open'; draft_kept?: boolean }
@@ -399,6 +400,15 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'proposal_no':
           s = `Closed the card: ${o.title}.`;
+          break;
+        case 'finished_close':
+          s = o.count === 1 ? 'Closed the 1 task you ticked on the looks-finished list.' : `Closed the ${o.count} tasks you ticked on the looks-finished list.`;
+          break;
+        case 'finished_close_one':
+          s = `Closed ${quoted(o.title)} from the looks-finished list.`;
+          break;
+        case 'finished_keep':
+          s = `Kept ${quoted(o.title)} open. It will not be offered again for 90 days.`;
           break;
         case 'not_this_week':
           s = "This week's hands row is parked until next Monday.";

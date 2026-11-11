@@ -99,6 +99,8 @@ import { evidenceKeys, isLearnableKey } from './learn/evidence';
 import { ON_DAY_REASON, ON_DAY_WHY_NOW, SNOOZE_BACK_WHY, dayChoices, isDayArrived, isDayParked, isSnoozeBack, isSnoozeParked, onDayCheckText, snoozeCheckText, snoozeChoices } from './on-day';
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { buildProposalDraft, proposalOrder, type ProposalDraft } from './reconcile/card';
+import { FINISHED_CARD } from '@/lib/work/finished-copy';
+import { FINISHED_CARD_KEY } from './item-key';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
 import { emailLinkLabel } from '@/lib/work/copy';
@@ -1141,6 +1143,7 @@ function ifIgnored(c: Candidate): string {
   if (c.botTask) return IF_IGNORED.botStopped;
   if (c.kind === 'step') return STEP_IF_IGNORED;
   if (c.kind === 'hands') return HANDS_IF_IGNORED;
+  if (c.kind === 'finished') return FINISHED_CARD.ifIgnored;
   if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
   switch (c.kind) {
     case 'thread':
@@ -1161,6 +1164,7 @@ function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.dayArrived) return ON_DAY_REASON;
   if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.kind === 'hands') return HANDS_REASON;
+  if (c.kind === 'finished') return FINISHED_CARD.reason;
   if (c.kind === 'step') return stepReason(c.item.project?.name ?? '');
   if (c.kind === 'proposal') return ctx.proposal?.why ?? '';
   if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
@@ -1259,7 +1263,7 @@ export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived'
   return false;
 }
 
-const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step', 'proposal'];
+const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step', 'proposal', 'finished'];
 
 /** One Everything else row for an item (check text per the plan's table). */
 function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date, timeZone: string): HomeRestItem {
@@ -1662,6 +1666,73 @@ export function selectHome(input: SelectInput): SelectResult {
     top.section = 'next';
     top.restGroup = null;
     nextAll.push(top);
+  }
+
+  // Work stage G: the one looks-finished card is a row of its own: one slot in Decisions ready, never part of Today, never scoring
+  // money, a date or a person waiting. Not now parks it like any row. Closing waits for his tap.
+  if (raw.finished && raw.finished.rows.length > 0) {
+    const fin = raw.finished;
+    const key = FINISHED_CARD_KEY;
+    const st = states.get(key);
+    const others = fin.others.filter((o) => o.count > 0).map((o) => FINISHED_CARD.others(o.count, o.name));
+    const minutes = 2;
+    const item: HomeItem = {
+      ...emptyItem(),
+      key,
+      type: 'finished',
+      title: FINISHED_CARD.title(fin.rows.length),
+      who: null,
+      age: waitedFor(fin.since, now),
+      why_now: FINISHED_CARD.whyNow,
+      hard_date: null,
+      effort: effortWords(minutes),
+      minutes,
+      opened: { summary: '', summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+      source: { kind: 'finished', id: 'all', ids: fin.rows.map((r) => r.task_id), task_status: null },
+      client: null,
+      project: null,
+      finished: { count: fin.rows.length, rows: fin.rows, others },
+    };
+    const c: Candidate = {
+      key,
+      kind: 'finished',
+      item,
+      rule: null,
+      score: scoreStep({ client: { status: 'active', name: null }, project_name: null, last_activity_at: fin.since }, now),
+      since: fin.since,
+      personWaiting: false,
+      hardDate: null,
+      minutes,
+      group: { key: OWN_GROUP_KEY, name: OWN_GROUP_LABEL, client: null, project: null, arc: null },
+      arcId: null,
+      dayArrived: isDayArrived(st, now, raw.timezone),
+      snoozeBack: isSnoozeBack(st, now, raw.timezone),
+      boosted: !!st?.boosted_at || isDayArrived(st, now, raw.timezone),
+      fresh: false,
+      arrived: false,
+      botTask: false,
+      clockDue: false,
+      unpark: false,
+      parkedBy: null,
+      parked: false,
+      pinned: false,
+      shown: false,
+      inView: false,
+      section: 'next',
+      restGroup: null,
+      state: st,
+    };
+    const vw = st?.view_at;
+    c.parked = !!vw && vw.getTime() > now.getTime();
+    c.parkedBy = c.parked ? (st?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
+    candidates.push(c);
+    ctxByKey.set(key, {});
+    if (c.parked) {
+      c.section = 'rest';
+      c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
+    } else {
+      nextAll.push(c);
+    }
   }
 
   for (const c of [...needs, ...working, ...leads, ...mailAll, ...nextAll]) c.inView = true;

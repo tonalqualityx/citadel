@@ -85,6 +85,12 @@ async function describeItem(db: OpDb, key: string): Promise<Described> {
       const pr = await db.project.findUnique({ where: { id: p.project_id }, select: { name: true } });
       return { title: pr?.name ?? 'that project', security: false };
     }
+    case 'finished': {
+      if (!p.id) return { title: 'the looks-finished list', security: false };
+      const it = await db.workFinishedItem.findUnique({ where: { id: p.id }, select: { task_id: true } });
+      const t = it ? await db.task.findUnique({ where: { id: it.task_id }, select: { title: true } }) : null;
+      return t ? { title: t.title, security: false } : fallback;
+    }
     case 'proposal': {
       const c = await db.homeReconcileChange.findUnique({ where: { id: p.id }, select: { title: true } });
       return { title: c?.title ?? 'that card', security: false };
@@ -122,6 +128,7 @@ async function threadWho(db: OpDb, key: string): Promise<string> {
 async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date, message: string | null): Promise<string> {
   const a = input.action;
   if (a === 'arc_reorder' || a === 'lighter' || a === 'not_this_week') return opSummary({ op: 'home_act', action: a }, now);
+  if (a === 'finished_close') return opSummary({ op: 'home_act', action: 'finished_close', count: input.item_keys.length }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
   if (a === 'draft_now' || a === 'needs_thought' || a === 'go_with_that' || a === 'keep_lead' || a === 'treat_as_reply' || a === 'book_block') {
     return opSummary({ op: 'home_act', action: a, who: await threadWho(db, input.item_key) }, now);
@@ -157,7 +164,7 @@ async function run(ctx: OpContext, input: HomeInput): Promise<OpRun> {
   let until: Date | null = null;
   if (input.action === 'not_now') until = (await getItemState(db, ctx.ownerId, input.item_key))?.view_at ?? null;
   const summary = await lineFor(db, input, until, ctx.now, res.message);
-  const key = 'item_key' in input ? input.item_key : null;
+  const key = 'item_key' in input ? input.item_key : input.action === 'finished_close' ? (input.item_keys[0] ?? null) : null;
   return {
     target_id: res.action_id,
     before: { home_action_id: res.action_id, action: input.action, item_key: key, state: (row?.before ?? null) as OpJson },

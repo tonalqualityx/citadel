@@ -1,0 +1,2117 @@
+{
+ "now": "2026-11-12T15:00:00.000Z",
+ "cases": [
+  {
+   "name": "no evidence is never a candidate",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "go-live receipt after creation is strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "a live receipt made before the task existed is not evidence",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": null,
+      "created_at": "2026-10-13T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "live_url alone on another step counts",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "staged",
+      "live_url": "https://x.example/",
+      "created_at": "2026-11-07T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "a staged receipt with no live url is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "staged",
+      "live_url": null,
+      "created_at": "2026-11-07T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "project done is strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": {
+     "id": "p1",
+     "name": "Phil Camp memorial page",
+     "status": "done"
+    },
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "project_done"
+    ]
+   }
+  },
+  {
+   "name": "project cancelled is strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": {
+     "id": "p1",
+     "name": "Old",
+     "status": "cancelled"
+    },
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "project_done"
+    ]
+   }
+  },
+  {
+   "name": "project in progress is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": {
+     "id": "p1",
+     "name": "Live",
+     "status": "in_progress"
+    },
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "worker done after last update is strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [
+     {
+      "kind": "worker_done",
+      "ref": "run1",
+      "at": "2026-11-10T15:00:00.000Z"
+     }
+    ],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "worker_done"
+    ]
+   }
+  },
+  {
+   "name": "worker done before the last update is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [
+     {
+      "kind": "worker_done",
+      "ref": "run1",
+      "at": "2026-10-31T15:00:00.000Z"
+     }
+    ],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "worker done in the future is ignored",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [
+     {
+      "kind": "worker_done",
+      "ref": "run1",
+      "at": "2026-11-15T15:00:00.000Z"
+     }
+    ],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "his past-tense words on an open done card are strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [
+     {
+      "kind": "done",
+      "mode": "card",
+      "state": "open",
+      "quote": "I removed the File Manager plugin.",
+      "quote_to": "Kue",
+      "quote_at": "2026-11-09T15:00:00.000Z",
+      "link": "https://mail.example/1"
+     }
+    ],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "mike_words"
+    ]
+   }
+  },
+  {
+   "name": "an expired done card still counts",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [
+     {
+      "kind": "done",
+      "mode": "card",
+      "state": "expired",
+      "quote": "Shipped it",
+      "quote_to": "Ed",
+      "quote_at": "2026-11-09T15:00:00.000Z",
+      "link": null
+     }
+    ],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "mike_words"
+    ]
+   }
+  },
+  {
+   "name": "a dismissed card is a no",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [
+     {
+      "kind": "done",
+      "mode": "card",
+      "state": "dismissed",
+      "quote": "Shipped it",
+      "quote_to": "Ed",
+      "quote_at": "2026-11-09T15:00:00.000Z",
+      "link": null
+     }
+    ],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "an undone note is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [
+     {
+      "kind": "note",
+      "mode": "auto",
+      "state": "undone",
+      "quote": "Shipped it",
+      "quote_to": "Ed",
+      "quote_at": "2026-11-09T15:00:00.000Z",
+      "link": null
+     }
+    ],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "a note with his words is strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [
+     {
+      "kind": "note",
+      "mode": "auto",
+      "state": "applied",
+      "quote": "I removed the File Manager plugin.",
+      "quote_to": "Kue",
+      "quote_at": "2026-11-09T15:00:00.000Z",
+      "link": null
+     }
+    ],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "mike_words"
+    ]
+   }
+  },
+  {
+   "name": "a card with no quote is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [
+     {
+      "kind": "done",
+      "mode": "card",
+      "state": "open",
+      "quote": null,
+      "quote_to": null,
+      "quote_at": null,
+      "link": null
+     }
+    ],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "a meeting task with an ended event and a matching attendee is strong",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Call with Morgan about the redesign",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [
+     {
+      "title": "Call with Morgan",
+      "ends_at": "2026-11-10T15:00:00.000Z",
+      "attendee_emails": [
+       "morgan@client.test"
+      ],
+      "attendee_names": [
+       "Morgan"
+      ]
+     }
+    ],
+    "contact_emails": [
+     "morgan@client.test"
+    ],
+    "contact_names": [
+     "Morgan"
+    ],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "meeting_held"
+    ]
+   }
+  },
+  {
+   "name": "a meeting task with a different attendee is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Call with Morgan",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [
+     {
+      "title": "Call with Morgan",
+      "ends_at": "2026-11-10T15:00:00.000Z",
+      "attendee_emails": [
+       "morgan@client.test"
+      ],
+      "attendee_names": [
+       "Morgan"
+      ]
+     }
+    ],
+    "contact_emails": [
+     "other@client.test"
+    ],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "a meeting event that has not ended is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Call with Morgan",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [
+     {
+      "title": "Call with Morgan",
+      "ends_at": "2026-11-13T15:00:00.000Z",
+      "attendee_emails": [
+       "morgan@client.test"
+      ],
+      "attendee_names": [
+       "Morgan"
+      ]
+     }
+    ],
+    "contact_emails": [
+     "morgan@client.test"
+    ],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "an event from before the task was made is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Call with Morgan",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [
+     {
+      "title": "Call with Morgan",
+      "ends_at": "2026-10-03T15:00:00.000Z",
+      "attendee_emails": [
+       "morgan@client.test"
+      ],
+      "attendee_names": [
+       "Morgan"
+      ]
+     }
+    ],
+    "contact_emails": [
+     "morgan@client.test"
+    ],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "a task that is not a meeting ignores calendar events",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Build the footer",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [
+     {
+      "title": "Call with Morgan",
+      "ends_at": "2026-11-10T15:00:00.000Z",
+      "attendee_emails": [
+       "morgan@client.test"
+      ],
+      "attendee_names": [
+       "Morgan"
+      ]
+     }
+    ],
+    "contact_emails": [
+     "morgan@client.test"
+    ],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "every ask closed and we replied after the newest is medium",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [
+     {
+      "state": "handled",
+      "closed_reason": "with_task",
+      "received_at": "2026-11-04T15:00:00.000Z"
+     }
+    ],
+    "outbox_sent": [
+     "2026-11-06T15:00:00.000Z"
+    ],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "medium",
+    "kinds": [
+     "asks_answered"
+    ]
+   }
+  },
+  {
+   "name": "closed asks with no reply after are nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [
+     {
+      "state": "handled",
+      "closed_reason": "with_task",
+      "received_at": "2026-11-04T15:00:00.000Z"
+     }
+    ],
+    "outbox_sent": [
+     "2026-11-03T15:00:00.000Z"
+    ],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "an open ask blocks the answered rule",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [
+     {
+      "state": "open",
+      "closed_reason": null,
+      "received_at": "2026-11-04T15:00:00.000Z"
+     },
+     {
+      "state": "handled",
+      "closed_reason": null,
+      "received_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "outbox_sent": [
+     "2026-11-11T15:00:00.000Z"
+    ],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "closed as answered by Mike counts as a reply",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [
+     {
+      "state": "handled",
+      "closed_reason": "answered_by_mike",
+      "received_at": "2026-11-04T15:00:00.000Z"
+     }
+    ],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "medium",
+    "kinds": [
+     "asks_answered"
+    ]
+   }
+  },
+  {
+   "name": "a later done task with the same words is medium",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": [
+     {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "title": "Add the blurb to the home page",
+      "completed_at": "2026-11-10T15:00:00.000Z"
+     }
+    ]
+   },
+   "expect": {
+    "group": "main",
+    "strength": "medium",
+    "kinds": [
+     "same_work_done"
+    ]
+   }
+  },
+  {
+   "name": "a later done task with other words is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": [
+     {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "title": "Renew the hosting plan",
+      "completed_at": "2026-11-10T15:00:00.000Z"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "name": "a done task from before this one was made is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": [
+     {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "title": "Add the blurb",
+      "completed_at": "2026-10-03T15:00:00.000Z"
+     }
+    ]
+   },
+   "expect": null
+  },
+  {
+   "name": "a commit after creation is medium",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [
+     {
+      "kind": "commit",
+      "ref": "abc123 add the blurb",
+      "at": "2026-11-08T15:00:00.000Z"
+     }
+    ],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "medium",
+    "kinds": [
+     "commit"
+    ]
+   }
+  },
+  {
+   "name": "a commit before creation is nothing",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [
+     {
+      "kind": "commit",
+      "ref": "abc123",
+      "at": "2026-09-23T15:00:00.000Z"
+     }
+    ],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "strong and medium together read as strong, strong first",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [
+     {
+      "kind": "commit",
+      "ref": "abc",
+      "at": "2026-11-08T15:00:00.000Z"
+     }
+    ],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt",
+     "commit"
+    ]
+   }
+  },
+  {
+   "name": "security tag puts it in the security group",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [
+     "security"
+    ],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "security",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "security-report tag too",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [
+     "security-report"
+    ],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "security",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "a task a client can see is in the portal group",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": true,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "portal",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "security wins over portal",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [
+     "security"
+    ],
+    "client_visible": true,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "security",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "an unticked checklist item makes it unticked",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": [
+     {
+      "id": "a",
+      "text": "x",
+      "completed": false,
+      "sort_order": 0
+     }
+    ],
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "unticked",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "an unticked item inside a section counts",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": [
+     {
+      "id": "s",
+      "type": "section",
+      "title": "S",
+      "sort_order": 0,
+      "items": [
+       {
+        "id": "a",
+        "text": "x",
+        "completed": true,
+        "sort_order": 0
+       },
+       {
+        "id": "b",
+        "text": "y",
+        "completed": false,
+        "sort_order": 1
+       }
+      ]
+     }
+    ],
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "unticked",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "a fully ticked checklist is main",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": [
+     {
+      "id": "a",
+      "text": "x",
+      "completed": true,
+      "sort_order": 0
+     }
+    ],
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "main",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "an unticked review checklist item counts",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": [
+     {
+      "id": "a",
+      "text": "x",
+      "completed": false,
+      "sort_order": 0
+     }
+    ],
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": "https://lifelineiv.com/",
+      "created_at": "2026-11-03T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "unticked",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt"
+    ]
+   }
+  },
+  {
+   "name": "an old orphan task is medium and in the orphan group",
+   "task": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "title": "Orphaned thread: Griswold scope",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-31T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "orphan",
+    "strength": "medium",
+    "kinds": [
+     "orphan_sweep"
+    ]
+   }
+  },
+  {
+   "name": "an orphan task under 7 days is nothing",
+   "task": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "title": "Orphaned thread: Griswold scope",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-11-09T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "the Echo Grace orphan the owner kept is nothing",
+   "task": {
+    "id": "c4722a17-1111-4111-8111-111111111111",
+    "title": "Orphaned thread: Griswold scope",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-31T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null
+  },
+  {
+   "name": "an orphan with a security tag is security",
+   "task": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "title": "Orphaned thread: Griswold scope",
+    "status": "in_progress",
+    "tags": [
+     "security"
+    ],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-31T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "security",
+    "strength": "medium",
+    "kinds": [
+     "orphan_sweep"
+    ]
+   }
+  },
+  {
+   "name": "an orphan with a live receipt stays in the orphan group, strong",
+   "task": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "title": "Orphaned thread: Griswold scope",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-31T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [
+     {
+      "step": "live",
+      "live_url": null,
+      "created_at": "2026-11-07T15:00:00.000Z"
+     }
+    ],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": {
+    "group": "orphan",
+    "strength": "strong",
+    "kinds": [
+     "go_live_receipt",
+     "orphan_sweep"
+    ]
+   }
+  },
+  {
+   "name": "eligibility: a deleted task is skipped",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": true,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "skip"
+  },
+  {
+   "name": "eligibility: a done task is skipped",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "done",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "skip"
+  },
+  {
+   "name": "eligibility: edited in the last 48 hours is skipped",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-11T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "skip"
+  },
+  {
+   "name": "eligibility: edited 3 days ago is fine",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-09T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "ok"
+  },
+  {
+   "name": "eligibility: another person's task is counted only",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "sabeen",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "other_user"
+  },
+  {
+   "name": "eligibility: a bot's task is fine",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "bot",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "ok"
+  },
+  {
+   "name": "eligibility: no assignee is fine",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "in_progress",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": null,
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "ok"
+  },
+  {
+   "name": "eligibility: abandoned is skipped",
+   "task": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "title": "Add the blurb",
+    "status": "abandoned",
+    "tags": [],
+    "client_visible": false,
+    "assignee_id": "owner",
+    "created_at": "2026-10-23T15:00:00.000Z",
+    "updated_at": "2026-11-02T15:00:00.000Z",
+    "is_deleted": false,
+    "requirements": null,
+    "review_requirements": null,
+    "project": null,
+    "client_id": "c1"
+   },
+   "signals": {
+    "receipts": [],
+    "machine": [],
+    "reconcile": [],
+    "calendar": [],
+    "contact_emails": [],
+    "contact_names": [],
+    "asks": [],
+    "outbox_sent": [],
+    "later_done": []
+   },
+   "expect": null,
+   "eligibility": "skip"
+  }
+ ]
+}

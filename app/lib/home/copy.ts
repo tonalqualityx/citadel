@@ -211,6 +211,9 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   proposal_no: 'No',
   track_it: 'Track it',
   open_email: 'Open the email',
+  finished_close: 'Close the ticked ones',
+  finished_close_one: 'Close this one',
+  finished_keep: 'Not finished',
 };
 
 /** "Approve all 39". */

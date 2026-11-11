@@ -43,6 +43,7 @@ import { proposalNo, proposalYes } from './reconcile/apply';
 import { afterUndo, undoReconcileRecord } from './reconcile/undo';
 import { readWorkCloseRecord, undoWorkClose, WORK_CLOSE_ACTION } from '@/lib/work/ask-closure';
 import { readRecord } from './reconcile/records';
+import { FINISHED_ACTION, FINISHED_KEEP_ACTION, finishedClose, finishedCloseOne, finishedKeep, readFinishedRecord, undoFinishedClose, undoFinishedKeep } from '@/lib/work/finished-store';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
 import {
@@ -152,6 +153,11 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   // door that can is POST /api/home/reconcile (session only). proposal_yes on a Track it card answers 400 "Tap this on the home screen."
   z.object({ action: z.literal('proposal_yes'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('proposal_no'), item_key: itemKeySchema }).strict(),
+  // Work stage G: the looks-finished card. Closing goes through the normal task status path; the three acts are the owner's own taps
+  // (the chat may call them: it is his word). The ticked list is at most 100 keys.
+  z.object({ action: z.literal('finished_close'), item_keys: z.array(itemKeySchema).min(1).max(100) }).strict(),
+  z.object({ action: z.literal('finished_close_one'), item_key: itemKeySchema }).strict(),
+  z.object({ action: z.literal('finished_keep'), item_key: itemKeySchema }).strict(),
   // Do it on a day: park the item until the day he picked (his own rows only; the day is checked against today in his zone).
   // Snooze: a short park (15 minutes to 24 hours). Exactly one of until (an ISO instant) and hours (1 to 4).
   z
@@ -872,7 +878,10 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
 
     case 'proposal_yes':
     case 'proposal_no':
-      // Run by runHomeAct through lib/home/reconcile/apply.ts, never planned here.
+    case 'finished_close':
+    case 'finished_close_one':
+    case 'finished_keep':
+      // Run by runHomeAct (lib/home/reconcile/apply.ts, lib/work/finished-store.ts), never planned here.
       throw new HomeActError('not_found', 'That is not a home change.');
 
     case 'record':
@@ -969,6 +978,10 @@ export async function runHomeAct(
 ): Promise<HomeActResponse> {
   // Slice 9a: a tap on a card from his sent mail (its own writers; see lib/home/reconcile/apply.ts).
   if (req.action === 'proposal_no') return proposalNo(db, userId, req.item_key, opts.now);
+  // Work stage G: the looks-finished card's taps (their own writers; see lib/work/finished-store.ts).
+  if (req.action === 'finished_close') return finishedClose(db, userId, req.item_keys, opts.now);
+  if (req.action === 'finished_close_one') return finishedCloseOne(db, userId, req.item_key, opts.now);
+  if (req.action === 'finished_keep') return finishedKeep(db, userId, req.item_key, opts.now);
   if (req.action === 'proposal_yes') return proposalYes(db, userId, req.item_key, { now: opts.now, timezone: opts.timezone, allowTime: false, minutes: null });
 
   let targetDay: ProposedDay | null | undefined;
@@ -1401,6 +1414,16 @@ export async function runHomeUndo(
     if (row.action === WORK_CLOSE_ACTION) {
       const closeRec = readWorkCloseRecord(row.before);
       if (closeRec) await undoWorkClose(tx as unknown as PrismaClient, userId, closeRec, now);
+    }
+
+    // Work stage G: tasks closed from the looks-finished card, and a Not finished. Compare-and-set; anything changed since stays.
+    if (row.action === FINISHED_ACTION) {
+      const fin = readFinishedRecord(row.before);
+      if (fin) await undoFinishedClose(tx, userId, fin, now);
+    }
+    if (row.action === FINISHED_KEEP_ACTION) {
+      const keepId = (before as unknown as { finished_keep?: { item_id?: string } }).finished_keep?.item_id;
+      if (keepId) await undoFinishedKeep(tx, userId, keepId);
     }
 
     // Slice 4a: a tap Undo clears only while no run has served it; after that the draft exists and stays.

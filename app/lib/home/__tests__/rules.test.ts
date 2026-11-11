@@ -420,6 +420,9 @@ describe('contract guards', () => {
       book_block: { action: 'book_block', item_key: 'thread:a:b' },
       proposal_yes: { action: 'proposal_yes', item_key: 'proposal:7aa4a01a-1111-4222-8333-944445555666' },
       proposal_no: { action: 'proposal_no', item_key: 'proposal:7aa4a01a-1111-4222-8333-944445555666' },
+      finished_close: { action: 'finished_close', item_keys: ['finished:7aa4a01a-1111-4222-8333-944445555666'] },
+      finished_close_one: { action: 'finished_close_one', item_key: 'finished:7aa4a01a-1111-4222-8333-944445555666' },
+      finished_keep: { action: 'finished_keep', item_key: 'finished:7aa4a01a-1111-4222-8333-944445555666' },
     };
     for (const [name, req] of Object.entries(every)) expect(req.action).toBe(name);
   });

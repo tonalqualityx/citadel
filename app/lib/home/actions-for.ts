@@ -188,6 +188,8 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
     case 'hands':
       primary.push(button('not_this_week'));
       break;
+    case 'finished':
+      break; // the card carries its own two buttons (actionsFor returns before this)
     case 'proposal':
       break; // buttons come from input.proposal (actionsFor returns before this)
     case 'step':
@@ -204,6 +206,11 @@ export function actionsFor(input: ActionsInput): ActionsOutput {
     const row = input.proposal.buttons.map((b) => ({ ...b, filled: false }));
     if (input.filledFirst && !input.proposal.noDefault && row.length > 0) row[0] = { ...row[0], filled: true };
     return { actions: row, more_actions: [] };
+  }
+  // Work stage G: the looks-finished card has two buttons of its own; each task row inside carries its own.
+  if (input.kind === 'finished') {
+    const row = [button('finished_close'), button('not_now')];
+    return { actions: input.filledFirst ? [{ ...row[0], filled: true }, row[1]] : row, more_actions: [] };
   }
   // Slice 6a: the Monday hands row has one button of its own; the jobs inside carry their own.
   if (input.kind === 'hands') {

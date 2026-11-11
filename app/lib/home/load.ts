@@ -66,6 +66,7 @@ import type {
 } from './types';
 import { loadReconcile } from './reconcile/screen';
 import { askIsMine, linkedTaskFacts } from '@/lib/work/owed';
+import { loadFinishedCard } from '@/lib/work/finished-store';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a keeper line stays in Handled for you (and open for Undo). */
@@ -88,6 +89,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   'keeper_guard',
   // Work stage A: emails closed with their task (Undo for 72 hours)
   'work_close',
+  // Work stage G: tasks closed from the looks-finished card (Undo for 72 hours)
+  'finished_close',
 ] satisfies KeeperActionKind[];
 /** How long an answered uptime-mail check keeps its mails out of Needs you now. */
 const ANSWERED_KEEP_MS = 3 * DAY_MS;
@@ -991,6 +994,7 @@ export async function loadHomeInputs(
   const owedBooks = await loadOwedBooks(db, userId, now);
   const outsideChecks = await loadOutsideChecks(db, userId);
   const reconcile = await loadReconcile(db, userId, now);
+  const finished = await loadFinishedCard(db, userId);
 
   return {
     user_id: userId,
@@ -1008,6 +1012,7 @@ export async function loadHomeInputs(
     keeper_lines: keeperLines,
     reconcile_cards: reconcile.cards,
     reconcile_lines: reconcile.lines,
+    finished,
     owed_rows: owedRows,
     drafter_fresh_at: drafterFreshAt,
     timezone,

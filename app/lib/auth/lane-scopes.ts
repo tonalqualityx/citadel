@@ -322,6 +322,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/bast-chat/worker/reconcile'),
     r('POST', '/api/bast-chat/worker/reconcile'),
     r('POST', '/api/bast-chat/worker/reconcile/candidates'),
+    // Work stage G: the one-time looks-finished sweep (dry:true counts and writes nothing; the real run makes the owner's work_finished_item rows only. It never closes, changes or comments on a task, and sends nothing)
+    r('POST', '/api/bast-chat/worker/finished'),
     // Session card: one session waiting on the owner (read only; the owner's own, by external id or row id)
     r('GET', '/api/bast-chat/worker/session-asks/:id'),
     // Chat read: what the courier sent or queued (name and domain only, no bodies; read only)

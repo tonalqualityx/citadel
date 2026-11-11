@@ -804,6 +804,34 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/finished',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Chat lane: the one-time looks-finished sweep (dry:true counts and writes nothing)',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'dry', type: 'boolean', required: true, description: 'true: count only, write nothing. false: make the owner\'s looks-finished rows once.' },
+          { name: 'machine_evidence', type: 'object', required: false, description: 'At most 5000 of {task_id (uuid), kind: worker_done|commit, ref (200 at most), at (ISO instant)}: the worker ledger\'s done lines and commits that name a task. Strict: any other field is 400. Body at most 1 MB.' },
+        ],
+        responseExample: {
+          dry: 'boolean',
+          total: 'number (tasks that would be listed, others not counted)',
+          counts: { main: { strong: 0, medium: 0 }, security: { strong: 0, medium: 0 }, portal: { strong: 0, medium: 0 }, unticked: { strong: 0, medium: 0 }, orphan: { strong: 0, medium: 0 } },
+          others: [{ name: 'string', count: 0 }],
+          sample: ['string (up to 10 task titles)'],
+          created: 'number (rows made; 0 on a dry run)',
+          run_key: 'string',
+          already_open: 'true (only when open rows exist and dry is false; nothing is written)',
+          skipped: '"home_off" (only when the owner is not an active admin on the home view; nothing is written)',
+        },
+        responseNotes: 'Owner only; takes no user id. A task is listed only when something concrete says it is done (go-live receipt, its project is done, the worker finished it, the owner\'s own past-tense words in a sent-mail card, a meeting that happened, every email on it answered, a later done task that says the same, a commit, or filed by the old session sweep). Never listed: deleted or not-open tasks, tasks edited in the last 48 hours, tasks the owner marked not finished within 90 days; tasks assigned to other people are only counted. The sweep never closes, changes or comments on a task and sends nothing; the owner closes them with his tap on the home screen (POST /api/home/act finished_close, finished_close_one, finished_keep).',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/ops',
     group: 'bast-chat',
     methods: [

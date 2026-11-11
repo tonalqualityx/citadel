@@ -48,7 +48,7 @@ import type {
 // ============================================================================
 
 /** The record kind behind an item; the prefix of its item key (see item-key.ts). */
-export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step' | 'proposal';
+export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step' | 'proposal' | 'finished';
 
 /**
  * How a row reads, set by select.ts (H4). One value per item.
@@ -63,7 +63,7 @@ export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' |
  * Clients use it for small presentation choices only (for example the gold rule on
  * emergencies). Section membership comes from HomeSections, never from this field.
  */
-export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step' | 'proposal';
+export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step' | 'proposal' | 'finished';
 
 /**
  * Every button id a row or card can carry. actions-for.ts (H4) decides which an item gets
@@ -144,7 +144,12 @@ export type HomeActionId =
   | 'proposal_yes'
   | 'proposal_no'
   | 'track_it'
-  | 'open_email';
+  | 'open_email'
+  // Work stage G, the looks-finished card: Close the ticked ones, Close this one (security and portal rows), Not finished. The card's own
+  // buttons are only Close the ticked ones and Not now; the rows carry the others.
+  | 'finished_close'
+  | 'finished_close_one'
+  | 'finished_keep';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -346,6 +351,38 @@ export interface HomeItem {
   hands?: HomeHands | null;
   /** Slice 9a: a card from his sent mail (type 'proposal'): the evidence, the time choices and the placement. */
   proposal?: HomeProposal | null;
+  /** Work stage G: the looks-finished card (type 'finished'): each task with its proof. */
+  finished?: HomeFinished | null;
+}
+
+/** Work stage G: one task on the looks-finished card. */
+export interface HomeFinishedRow {
+  /** `finished:<work_finished_item uuid>`: what the three finished_* acts take. */
+  key: string;
+  task_id: string;
+  title: string;
+  href: string;
+  group: 'main' | 'security' | 'portal' | 'unticked' | 'orphan';
+  strength: 'strong' | 'medium';
+  /** Ticked by default in its group's list: strong proof in the main list, every orphan row. */
+  ticked: boolean;
+  /** The proof, one line each, with a link when there is one. */
+  evidence: { line: string; href: string | null }[];
+}
+
+/** Work stage G: what the looks-finished card shows. */
+export interface HomeFinished {
+  count: number;
+  rows: HomeFinishedRow[];
+  /** Plain lines for finished tasks that belong to other people (counted, never listed or closed). */
+  others: string[];
+}
+
+/** Work stage G: the loader's rows for the card. */
+export interface RawFinishedCard {
+  rows: HomeFinishedRow[];
+  others: { name: string; count: number }[];
+  since: Date;
 }
 
 /** Slice 9a: what a sent-mail card shows. Built by the server from the home_reconcile_change row; text is plain. */
@@ -632,7 +669,10 @@ export type HomeActName =
   | 'snooze'
   | 'book_block'
   | 'proposal_yes'
-  | 'proposal_no';
+  | 'proposal_no'
+  | 'finished_close'
+  | 'finished_close_one'
+  | 'finished_keep';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -762,7 +802,16 @@ export type HomeActRequest =
    */
   | { action: 'proposal_yes'; item_key: string }
   /** Slice 9a: No. Closes the card; the same piece of work is never proposed again. */
-  | { action: 'proposal_no'; item_key: string };
+  | { action: 'proposal_no'; item_key: string }
+  /**
+   * Work stage G, the looks-finished card. finished_close: the ticked list (at most 100 keys). Only main and orphan rows close; a security,
+   * portal or unticked row in it is refused and stays open. Closes through the normal task status path (so Stage A closes the task's
+   * emails), writes one Handled line with Undo for 72 hours. finished_close_one: one security or portal row, its own line and Undo.
+   * finished_keep: Not finished; the row leaves the card and is not offered again for 90 days (Undo 24 hours).
+   */
+  | { action: 'finished_close'; item_keys: string[] }
+  | { action: 'finished_close_one'; item_key: string }
+  | { action: 'finished_keep'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' | 'snooze' }>;
@@ -1216,6 +1265,8 @@ export interface RawHomeInputs {
   keeper_lines: RawKeeperLine[];
   /** Slice 9a: his open cards from sent mail, and the Handled lines of the notes. Absent means none. */
   reconcile_cards?: RawReconcileCard[];
+  /** Work stage G: his open looks-finished card, or null. Absent means none. */
+  finished?: RawFinishedCard | null;
   reconcile_lines?: RawReconcileLine[];
 
   /** Slice 4a: U's home_owed_thread rows (Bast's drafts and reads). */
@@ -1338,6 +1389,8 @@ export type KeeperActionKind =
   | 'keeper_guard'
   // Work stage A: the emails closed with their task (source keeper, Undo for 72 hours)
   | 'work_close'
+  // Work stage G: tasks closed from the looks-finished card (source keeper, Undo for 72 hours)
+  | 'finished_close'
   // Slice 7b: a learned weight (source keeper, Undo for 7 days)
   | 'keeper_learned'
   | 'not_emergency_rule';

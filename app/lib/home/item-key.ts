@@ -16,6 +16,7 @@
  *   hands:week                                   Slice 6a: the Monday "This week's hands" row
  *   step:<project uuid>                          Slice 8b: the next step of one project
  *   proposal:<change uuid>                       Slice 9a: a card from his sent mail (home_reconcile_change)
+ *   finished:all | finished:<item uuid>          Work stage G: the looks-finished card, and one of its rows (work_finished_item)
  *
  * Group keys, at most 120 characters (home_day.group_key is VarChar(120)):
  *   arc:<arc uuid> | client:<client uuid> | project:<project uuid> | own
@@ -37,7 +38,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Any whitespace or control character makes a key invalid.
 const BAD_CHAR_RE = /[\s\u0000-\u001f\u007f]/;
 
-export const ITEM_KEY_PREFIXES: readonly HomeSourceKind[] = ['task', 'review', 'session', 'wait', 'thread', 'crisis', 'site', 'hands', 'step', 'proposal'];
+export const ITEM_KEY_PREFIXES: readonly HomeSourceKind[] = ['task', 'review', 'session', 'wait', 'thread', 'crisis', 'site', 'hands', 'step', 'proposal', 'finished'];
 
 export type ParsedItemKey =
   | { kind: 'task'; id: string }
@@ -49,7 +50,8 @@ export type ParsedItemKey =
   | { kind: 'site'; id: string }
   | { kind: 'hands' }
   | { kind: 'step'; project_id: string }
-  | { kind: 'proposal'; id: string };
+  | { kind: 'proposal'; id: string }
+  | { kind: 'finished'; id: string | null };
 
 export type ParsedGroupKey =
   | { kind: 'arc'; id: string }
@@ -58,6 +60,9 @@ export type ParsedGroupKey =
   | { kind: 'own' };
 
 export const OWN_GROUP_KEY = 'own';
+/** Work stage G: the one looks-finished card is `finished:all`; each of its rows is `finished:<work_finished_item uuid>`. */
+export const FINISHED_CARD_ID = 'all';
+export const FINISHED_CARD_KEY = 'finished:all';
 
 function isUuid(s: string): boolean {
   return UUID_RE.test(s);
@@ -92,6 +97,9 @@ export function parseItemKey(key: unknown): ParsedItemKey | null {
       return isUuid(rest) ? { kind: 'step', project_id: rest } : null;
     case 'proposal':
       return isUuid(rest) ? { kind: 'proposal', id: rest } : null;
+    case 'finished':
+      if (rest === FINISHED_CARD_ID) return { kind: 'finished', id: null };
+      return isUuid(rest) ? { kind: 'finished', id: rest } : null;
     case 'hands':
       return rest === 'week' ? { kind: 'hands' } : null;
     case 'review':
@@ -130,6 +138,9 @@ export function buildItemKey(parsed: ParsedItemKey): string {
     case 'site':
     case 'proposal':
       key = `${parsed.kind}:${String(parsed.id).toLowerCase()}`;
+      break;
+    case 'finished':
+      key = `finished:${parsed.id ? String(parsed.id).toLowerCase() : FINISHED_CARD_ID}`;
       break;
     case 'hands':
       key = 'hands:week';
