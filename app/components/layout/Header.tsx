@@ -14,8 +14,9 @@ import { useAuth } from '@/lib/hooks/use-auth';
 import { useConsoleCapture } from '@/lib/hooks/use-console-capture';
 import { Avatar } from '@/components/ui/avatar';
 import { apiClient } from '@/lib/api/client';
+import { cn } from '@/lib/utils/cn';
 
-export function Header() {
+export function Header({ homeChrome = false }: { homeChrome?: boolean } = {}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -40,13 +41,17 @@ export function Header() {
       {/* Mobile menu button */}
       <button
         onClick={() => setShowMobileMenu(true)}
-        className="lg:hidden text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors"
+        className={cn(
+          'text-text-sub hover:text-text-main p-1 rounded hover:bg-background-light transition-colors',
+          homeChrome ? 'flex items-center gap-1.5 pr-2' : 'lg:hidden'
+        )}
       >
         <Menu className="h-6 w-6" />
+        {homeChrome && <span className="text-sm font-medium">Menu</span>}
       </button>
 
       {/* Mobile navigation drawer */}
-      <MobileNav open={showMobileMenu} onClose={() => setShowMobileMenu(false)} />
+      <MobileNav open={showMobileMenu} onClose={() => setShowMobileMenu(false)} anyWidth={homeChrome} />
 
       {/* Mobile logo */}
       <div className="lg:hidden flex items-center gap-2">
@@ -91,7 +96,7 @@ export function Header() {
         <TimerWidget />
 
         {/* Notifications */}
-        <NotificationBell />
+        {!homeChrome && <NotificationBell />}
 
         {/* User menu */}
         <div className="relative">

@@ -112,6 +112,7 @@ describe('PATCH /api/comments/[id]', () => {
         type: 'task_mentioned',
         entityType: 'task',
         entityId: 'task-1',
+        actorUserId: AUTHOR,
       })
     );
   });

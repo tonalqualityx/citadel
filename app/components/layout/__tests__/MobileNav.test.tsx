@@ -121,4 +121,16 @@ describe('MobileNav', () => {
     expect(screen.queryByText('Deals')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Admin/i })).not.toBeInTheDocument();
   });
+
+  it('hides the overlay and drawer from wide screens by default', () => {
+    const { container } = render(<MobileNav open onClose={vi.fn()} />);
+    expect(screen.getByRole('navigation').parentElement).toHaveClass('lg:hidden');
+    expect(container.querySelector('[aria-hidden="true"]')).toHaveClass('lg:hidden');
+  });
+
+  it('anyWidth drops lg:hidden from the overlay and the drawer', () => {
+    const { container } = render(<MobileNav open anyWidth onClose={vi.fn()} />);
+    expect(screen.getByRole('navigation').parentElement).not.toHaveClass('lg:hidden');
+    expect(container.querySelector('[aria-hidden="true"]')).not.toHaveClass('lg:hidden');
+  });
 });

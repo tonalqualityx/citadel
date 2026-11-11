@@ -238,6 +238,7 @@ export async function PATCH(
           message: `"${snippet}"`,
           entityType: 'task',
           entityId: existingComment.task.id,
+          actorUserId: auth.userId,
         });
       }
     }

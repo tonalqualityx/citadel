@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key, MessageSquare } from 'lucide-react';
+import { Settings, Palette, Bell, Type, Check, Loader2, Camera, User, Key, MessageSquare, Home } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePreferences, useUpdatePreferences } from '@/lib/hooks/use-preferences';
 import { useAuth } from '@/lib/hooks/use-auth';
@@ -14,7 +14,7 @@ import { PortalChatSettings } from '@/components/domain/settings/portal-chat-set
 
 export default function GuildPage() {
   const { data, isLoading } = usePreferences();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const updatePreferences = useUpdatePreferences();
   const queryClient = useQueryClient();
 
@@ -218,6 +218,32 @@ export default function GuildPage() {
           </div>
         </SettingsCard>
 
+        {/* First screen (admin) */}
+        {isAdmin && (
+          <SettingsCard
+            icon={Home}
+            title="First screen"
+            description="Which screen opens first. Home screen also hides the bell, folds the sidebar behind Menu, and quiets mentions from Bast and other bots."
+          >
+            <div className="grid grid-cols-2 gap-4">
+              <FirstScreenOption
+                value="home"
+                current={preferences?.home_view || 'overlook'}
+                onChange={(value) => updatePreferences.mutate({ home_view: value })}
+                title="Home screen"
+                isPending={updatePreferences.isPending}
+              />
+              <FirstScreenOption
+                value="overlook"
+                current={preferences?.home_view || 'overlook'}
+                onChange={(value) => updatePreferences.mutate({ home_view: value })}
+                title="Overlook"
+                isPending={updatePreferences.isPending}
+              />
+            </div>
+          </SettingsCard>
+        )}
+
         {/* API Keys */}
         <SettingsCard
           icon={Key}
@@ -350,6 +376,42 @@ function NamingOption({
       )}
       <h3 className="font-medium text-text-main">{title}</h3>
       <p className="text-sm text-text-sub mt-1">{description}</p>
+    </button>
+  );
+}
+
+function FirstScreenOption({
+  value,
+  current,
+  onChange,
+  title,
+  isPending,
+}: {
+  value: 'overlook' | 'home';
+  current: string;
+  onChange: (value: 'overlook' | 'home') => void;
+  title: string;
+  isPending: boolean;
+}) {
+  const isSelected = current === value;
+
+  return (
+    <button
+      onClick={() => onChange(value)}
+      disabled={isPending}
+      aria-pressed={isSelected}
+      className={`relative p-4 rounded-lg border-2 text-left transition-all ${
+        isSelected
+          ? 'border-primary bg-primary/5'
+          : 'border-border-warm hover:border-primary/50'
+      }`}
+    >
+      {isSelected && (
+        <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+          <Check className="h-3 w-3 text-white" />
+        </div>
+      )}
+      <h3 className="font-medium text-text-main">{title}</h3>
     </button>
   );
 }

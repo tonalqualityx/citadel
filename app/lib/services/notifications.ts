@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { NotificationType, NotificationPriority } from '@prisma/client';
 import { dispatchNotification, DispatchOptions } from './notification-dispatcher';
+import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 
 interface CreateNotificationParams {
   userId: string;
@@ -12,6 +13,8 @@ interface CreateNotificationParams {
   bundleKey?: string;
   priority?: NotificationPriority;
   metadata?: Record<string, unknown>;
+  /** Who caused this notification (the commenter). Used to quiet bot mentions for the home screen user. */
+  actorUserId?: string;
 }
 
 /**
@@ -29,7 +32,18 @@ export async function createNotification(params: CreateNotificationParams) {
     bundleKey,
     priority,
     metadata,
+    actorUserId,
   } = params;
+
+  // A user on the home screen does not get notices when a bot mentions them. Bast's stopped tasks
+  // are listed on the home screen instead (tag needs-mike). All channels: nothing is created or sent.
+  if (type === 'task_mentioned' && actorUserId && BOT_USER_IDS.includes(actorUserId)) {
+    const pref = await prisma.userPreference.findUnique({
+      where: { user_id: userId },
+      select: { home_view: true },
+    });
+    if (pref?.home_view === 'home') return null;
+  }
 
   // Use the dispatcher for multi-channel routing
   const result = await dispatchNotification({

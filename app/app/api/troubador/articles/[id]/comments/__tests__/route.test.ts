@@ -93,6 +93,7 @@ describe('POST /api/troubador/articles/[id]/comments', () => {
         type: 'task_mentioned',
         entityType: 'article',
         entityId: ARTICLE_ID,
+        actorUserId: AUTHOR,
       })
     );
   });

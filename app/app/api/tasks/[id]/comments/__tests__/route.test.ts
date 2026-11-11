@@ -112,7 +112,7 @@ describe('POST /api/tasks/[id]/comments', () => {
     expect(body.mentioned_user_ids).toEqual([MENTIONED]);
 
     expect(mockCreateNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: MENTIONED, type: 'task_mentioned' })
+      expect.objectContaining({ userId: MENTIONED, type: 'task_mentioned', actorUserId: AUTHOR })
     );
     // assignee (not mentioned) still gets comment_added
     expect(mockCreateNotification).toHaveBeenCalledWith(

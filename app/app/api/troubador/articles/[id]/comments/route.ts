@@ -66,6 +66,7 @@ export async function POST(
           message: `"${snippet}"`,
           entityType: 'article',
           entityId: id,
+          actorUserId: auth.userId,
         });
       }
     }

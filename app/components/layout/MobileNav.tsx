@@ -11,6 +11,8 @@ import { useAuth } from '@/lib/hooks/use-auth';
 interface MobileNavProps {
   open: boolean;
   onClose: () => void;
+  /** Home chrome: the drawer works at every width, not only below lg. */
+  anyWidth?: boolean;
 }
 
 interface NavItem {
@@ -26,7 +28,7 @@ interface NavSection {
   defaultOpen?: boolean;
 }
 
-export function MobileNav({ open, onClose }: MobileNavProps) {
+export function MobileNav({ open, onClose, anyWidth = false }: MobileNavProps) {
   const pathname = usePathname();
   const { t } = useTerminology();
   const { isPmOrAdmin, isAdmin } = useAuth();
@@ -147,13 +149,13 @@ export function MobileNav({ open, onClose }: MobileNavProps) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-50 bg-black/50 lg:hidden"
+        className={cn('fixed inset-0 z-50 bg-black/50', !anyWidth && 'lg:hidden')}
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 left-0 z-50 flex w-[min(85vw,18rem)] flex-col bg-background-light shadow-xl lg:hidden animate-in slide-in-from-left duration-200">
+      <div className={cn('fixed inset-y-0 left-0 z-50 flex w-[min(85vw,18rem)] flex-col bg-background-light shadow-xl animate-in slide-in-from-left duration-200', !anyWidth && 'lg:hidden')}>
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between h-14 px-4 border-b border-border-warm">
           <span className="text-lg font-bold text-text-main">Menu</span>

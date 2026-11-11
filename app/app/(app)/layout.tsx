@@ -1,9 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { Header } from '@/components/layout/Header';
+import { AppShell } from '@/components/layout/AppShell';
 import { AppProviders } from '@/components/layout/app-providers';
-import { CommandPalette } from '@/components/layout/CommandPalette';
 import { verifyAccessToken } from '@/lib/auth/jwt';
 
 // BlockNote / Mantine CSS imports
@@ -38,14 +36,7 @@ export default async function AppLayout({
 
   return (
     <AppProviders>
-      <div className="min-h-screen bg-background-light">
-        <Sidebar />
-        <div className="lg:pl-60">
-          <Header />
-          <main className="p-6">{children}</main>
-        </div>
-        <CommandPalette />
-      </div>
+      <AppShell>{children}</AppShell>
     </AppProviders>
   );
 }

@@ -3,14 +3,17 @@
 import * as React from 'react';
 import type { WorkingOnBarProps } from '@/lib/home/types';
 import { plain } from './home-screen-logic';
+import { useAwayReturn } from './away';
 
 /** The pinned item with Done and Stop for now. The other lists shrink to one line. */
 export function WorkingOnBar({ item, collapsedLine, onDone, onStop, busy = false }: WorkingOnBarProps) {
   const [asking, setAsking] = React.useState(false);
   const [note, setNote] = React.useState('');
   const noteId = React.useId();
+  const { away, dismiss } = useAwayReturn(true);
 
   const stop = () => {
+    dismiss();
     onStop(note.trim());
     setAsking(false);
     setNote('');
@@ -18,7 +21,7 @@ export function WorkingOnBar({ item, collapsedLine, onDone, onStop, busy = false
 
   return (
     <section className="home-pane home-working" aria-label="Working on">
-      <h3>Working on</h3>
+      <h3>{away ? 'You were on this.' : 'Working on'}</h3>
       <h2>{plain(item.title)}</h2>
       <div className="home-meta">
         {item.who ? <span>{plain(item.who)}</span> : null}
@@ -42,7 +45,21 @@ export function WorkingOnBar({ item, collapsedLine, onDone, onStop, busy = false
         </div>
       ) : (
         <div className="home-actions">
-          <button type="button" className="home-btn" data-filled="true" disabled={busy} onClick={onDone}>
+          {away ? (
+            <button type="button" className="home-btn" onClick={dismiss}>
+              Still on it
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="home-btn"
+            data-filled="true"
+            disabled={busy}
+            onClick={() => {
+              dismiss();
+              onDone();
+            }}
+          >
             Done
           </button>
           <button type="button" className="home-btn" disabled={busy} onClick={() => setAsking(true)}>

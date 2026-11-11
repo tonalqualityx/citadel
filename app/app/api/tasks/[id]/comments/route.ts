@@ -262,6 +262,7 @@ export async function POST(
         message: `"${snippet}"`,
         entityType: 'task',
         entityId: taskId,
+        actorUserId: auth.userId,
       });
     }
 
