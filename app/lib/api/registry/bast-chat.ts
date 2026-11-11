@@ -446,6 +446,47 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/home-keeper/learn',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the weekly measures and the approval-speed guard as a dry run',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: 'true',
+          date: 'string (YYYY-MM-DD, his day)',
+          monday: 'boolean',
+          daily: { date: 'string', open_items: 'number', past_day: 'number', owed: [{ key: 'string', label: 'string', age_bd: 'number' }] },
+          week: '{week_start, week_end, measures, guard}|null (null except on his Monday)',
+          lines: [{ action: '"keeper_measures"|"keeper_guard"', line: 'string', details: ['string'] }],
+          skipped: '"home_off" (only when the owner is not an active admin on the home view)',
+          action_ids: '[] (always empty here)',
+        },
+        responseNotes: 'Owner only; takes no user id. Writes nothing. A sentence of the Monday line appears only when its measure has at least 5 business days of data; with none, lines holds no keeper_measures line.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: the learn step, the real run (the crontab wrapper)',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: 'false',
+          date: 'string',
+          monday: 'boolean',
+          daily: { date: 'string', open_items: 'number', past_day: 'number', owed: ['object'] },
+          week: 'object|null',
+          lines: [{ action: '"keeper_measures"|"keeper_guard"', line: 'string', details: ['string'] }],
+          already_ran: 'true (this day already has a learn row; nothing written)',
+          skipped: '"home_off"',
+          action_ids: ['string (uuid, one home_actions row per line)'],
+        },
+        responseNotes: 'Strict empty body {}. Owner only. Once per zoned day. Writes only the owner\'s home_measures, one home_keeper_runs row of kind learn and home_actions lines (source keeper, no Undo). It changes no ranking, task, email ask, wait or project, and sends nothing.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/owed',
     group: 'bast-chat',
     methods: [

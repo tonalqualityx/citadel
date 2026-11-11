@@ -69,6 +69,9 @@ const KEEPER_ACTIONS: readonly string[] = [
   // Slice 6a: the site check's own lines (no Undo)
   'watch_site_cleared',
   'watch_site_down',
+  // Slice 7a: the Monday measures line and the approval-speed guard line (no Undo)
+  'keeper_measures',
+  'keeper_guard',
 ] satisfies KeeperActionKind[];
 /** How long an answered uptime-mail check keeps its mails out of Needs you now. */
 const ANSWERED_KEEP_MS = 3 * DAY_MS;

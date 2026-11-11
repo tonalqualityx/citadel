@@ -1159,6 +1159,9 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
   };
 }
 
+/** Keeper lines that are reports or checks, not changes: they carry no Undo. */
+const NO_UNDO_LINES: readonly string[] = ['keeper_owed_drafts', 'watch_site_cleared', 'watch_site_down', 'keeper_measures', 'keeper_guard'];
+
 export function selectHome(input: SelectInput): SelectResult {
   const { raw, now } = input;
   const states = new Map(input.states.map((s) => [s.item_key, s]));
@@ -1525,7 +1528,7 @@ export function selectHome(input: SelectInput): SelectResult {
     text: displayText(k.text),
     href: null,
     at: k.at.toISOString(),
-    undo_action_id: k.action === 'keeper_owed_drafts' || k.action === 'watch_site_cleared' || k.action === 'watch_site_down' ? null : k.id,
+    undo_action_id: NO_UNDO_LINES.includes(k.action) ? null : k.id,
     details: k.details.map((x) => displayText(x)).filter((x) => x !== ''),
   }));
   const handledAll = [...closed, ...kept].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));

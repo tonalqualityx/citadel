@@ -870,6 +870,21 @@ describe('Slice 4a: owed replies on thread rows', () => {
     expect(r.sections.handled.find((h) => h.id === 's1')?.undo_action_id).toBe('s1');
   });
 
+  it('Slice 7a: the measures line and the guard line are reports with no Undo', () => {
+    const keeper = (id: string, action: 'keeper_measures' | 'keeper_guard') => ({
+      id,
+      action,
+      text: 'Last week: 188 open items, 6 past their day.',
+      details: ['Detail one.'],
+      at: d('2026-11-09T10:00:00Z'),
+      undo_until: d('2026-11-12T10:00:00Z'),
+    });
+    const r = sel({ keeper_lines: [keeper('m1', 'keeper_measures'), keeper('g1', 'keeper_guard')] });
+    expect(r.sections.handled.find((h) => h.id === 'm1')?.undo_action_id).toBeNull();
+    expect(r.sections.handled.find((h) => h.id === 'g1')?.undo_action_id).toBeNull();
+    expect(r.sections.handled.find((h) => h.id === 'm1')?.details).toEqual(['Detail one.']);
+  });
+
   it('an older thread keeps the Slice 1 buttons and line', () => {
     const th = makeThread({ client: active, received_at: d('2026-10-01T15:00:00Z') });
     const r = sel({ threads: [th] });

@@ -607,6 +607,18 @@ describe('loadHomeInputs: Slice 6a site incidents, rules and lines', () => {
     expect(fallback.timezone).toBe('America/New_York');
   });
 
+  it('Slice 7a: keeps the measures and guard lines, with the line text and details', async () => {
+    const m = { id: 'm1', action: 'keeper_measures', after: { line: 'Last week: 188 open items, 6 past their day.', details: ['Hard dates met: 1. Hard dates missed: 0.'] }, created_at: T('2026-11-23T12:00:00Z'), undo_until: null };
+    const g = { id: 'g1', action: 'keeper_guard', after: { line: 'You approved 23 of 24 sign-offs and approvals last week.', details: [] }, created_at: T('2026-11-23T12:00:01Z'), undo_until: null };
+    db.homeAction.findMany.mockResolvedValueOnce([g, m]).mockResolvedValueOnce([]);
+    const r = await loadHomeInputs(asDb(db), U, T('2026-11-23T13:00:00Z'));
+    expect(r.keeper_lines.map((l) => [l.id, l.action, l.text])).toEqual([
+      ['g1', 'keeper_guard', 'You approved 23 of 24 sign-offs and approvals last week.'],
+      ['m1', 'keeper_measures', 'Last week: 188 open items, 6 past their day.'],
+    ]);
+    expect(r.keeper_lines[1].details).toEqual(['Hard dates met: 1. Hard dates missed: 0.']);
+  });
+
   it('keeps the "answers again" lines (no Undo id on the screen) and a saved-rule line while its Undo is open', async () => {
     const rule = { id: 'r1', action: 'not_emergency_rule', after: { line: 'Saved a rule: mail from a@b.com is not an emergency.' }, created_at: T('2026-11-09T12:00:00Z'), undo_until: T('2026-11-16T12:00:00Z') };
     const watch = { id: 'w1', action: 'watch_site_cleared', after: { line: 'jillscafe.com answers again (checked 10:42).', details: ['jillscafe.com'] }, created_at: T('2026-11-10T14:00:00Z'), undo_until: null };

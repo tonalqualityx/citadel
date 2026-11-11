@@ -1055,6 +1055,9 @@ export type KeeperActionKind =
   // Slice 6a: the site-down check's lines (source keeper, no Undo) and the saved-rule line (his own press, Undo for 7 days)
   | 'watch_site_cleared'
   | 'watch_site_down'
+  // Slice 7a: the Monday measures line and the approval-speed guard line (source keeper, a report: no Undo)
+  | 'keeper_measures'
+  | 'keeper_guard'
   | 'not_emergency_rule';
 
 /** One task given a day to come back. */

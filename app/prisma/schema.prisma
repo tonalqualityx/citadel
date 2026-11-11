@@ -90,6 +90,7 @@ model User {
   home_keeper_settings HomeKeeperSettings? @relation("HomeKeeperSettingsUser")
   home_owed_threads    HomeOwedThread[]    @relation("HomeOwedThreadUser")
   home_site_incidents  HomeSiteIncident[]  @relation("HomeSiteIncidentUser")
+  home_measures        HomeMeasure[]       @relation("HomeMeasureUser")
 
   @@map("users")
 }
@@ -5113,4 +5114,18 @@ model BastChatWorkerState {
   isolation_ok_at    DateTime?
 
   @@map("bast_chat_worker_state")
+}
+
+// Home screen Slice 7a: nightly and weekly measures for that user (design section 7). Never read by another screen.
+model HomeMeasure {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  user       User     @relation("HomeMeasureUser", fields: [user_id], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  kind       String   @db.VarChar(20) // daily | week
+  value      Json
+  created_at DateTime @default(now())
+
+  @@unique([user_id, date, kind])
+  @@map("home_measures")
 }
