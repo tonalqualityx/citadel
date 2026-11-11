@@ -494,6 +494,37 @@ export const bastChatEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/bast-chat/worker/home-watch',
+    group: 'bast-chat',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Chat lane: the sites the site-down second check should look at, and the owner\'s open site incidents (dry run)',
+        auth: 'required',
+        roles: WORKER,
+        responseExample: {
+          dry_run: true,
+          checks: [{ key: 'string (site:<uuid>)', site_id: 'string (uuid)', domain: 'string (host of a Site of an active client)' }],
+          open: [{ key: 'string', site_id: 'string (uuid)', domain: 'string', source: '"kuma"|"uptime_mail"', started_at: 'ISO-8601', last_checked_at: 'ISO-8601|null', last_check_up: 'boolean|null', ask_ids: ['string (uuid)'] }],
+          skipped: '"home_off" (only when the owner is not an active admin on the home view; then checks and open are [])',
+        },
+        responseNotes: 'Owner only; takes no user id. Lists only hosts of Sites of active clients; no domain taken from mail text is ever listed. Writes nothing.',
+      },
+      {
+        method: 'POST',
+        summary: 'Chat lane: save one site-down check report (the crontab wrapper)',
+        auth: 'required',
+        roles: WORKER,
+        bodySchema: [
+          { name: 'kuma', type: 'object', required: false, description: 'null (the watchdog state could not be read, nothing is closed) or at most 200 of {monitor, domain, client_id?, started, escalated?}.' },
+          { name: 'checks', type: 'object', required: false, description: 'At most 100 of {key: "site:<uuid>", up, summary? (500 at most), checked_at}. Strict: any other field is 400. Body at most 64 KB.' },
+        ],
+        responseExample: { lines: [], counts: { opened: 0, updated: 0, closed: 0, ignored: 0 }, skipped: '"home_off" (nothing written)' },
+        responseNotes: 'Owner only. Writes only the owner\'s home_site_incident rows and their "answers again" home_actions lines; never an email ask, task, site or outbox row, and nothing is requested or sent. A check for a site that was not asked about is ignored.',
+      },
+    ],
+  },
+  {
     path: '/api/bast-chat/worker/ops',
     group: 'bast-chat',
     methods: [

@@ -190,6 +190,8 @@ export const ACTION_LABELS: Record<HomeActionId, string> = {
   draft_now: 'Draft it now',
   needs_thought: 'Needs thought',
   go_with_that: 'Go with that',
+  not_this_week: 'Not this week',
+  open_site: 'Open the site',
 };
 
 /** "Approve all 39". */
@@ -223,6 +225,8 @@ export function whyEmergency(
     }
     case 'promised_date':
       return ctx.outsideDate ? 'A real outside date is close.' : 'A date you promised is close.';
+    case 'site_down':
+      return client ? `${client}'s site is not answering.` : 'A client site is not answering.';
   }
 }
 
@@ -294,6 +298,8 @@ export function reasonEmergency(rule: EmergencyRule, outsideDate = false): strin
       return outsideDate
         ? 'A real outside date is two business days away or less.'
         : 'A date you promised is two business days away or less.';
+    case 'site_down':
+      return 'A client site that does not answer goes first.';
   }
 }
 
@@ -381,6 +387,7 @@ export const REST_GROUP_COPY: Record<HomeRestGroupKey, { label: string; owner: s
   older_threads: { label: 'Older open threads', owner: 'You' },
   ventures: { label: 'Other ventures', owner: 'You, other hat' },
   bast_stopped: { label: 'Stopped with Bast, waiting on you', owner: 'Bast' },
+  hands: { label: "This week's hands", owner: 'You' },
 };
 
 /**
@@ -422,6 +429,8 @@ export const REST_CHECK = {
   peopleOverflow: 'Shows when a row frees up',
   waitNotDue: 'Comes up when the wait is due',
   crisisCleared: 'Marked not an emergency. Open it to close it.',
+  /** Slice 6a: a hands task, listed in Everything else; it is done from the Monday row. */
+  handsRow: 'Comes up in the Monday hands row',
 } as const;
 
 export function whenProjectStarts(project: string): string {

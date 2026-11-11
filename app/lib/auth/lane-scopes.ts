@@ -278,7 +278,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design/worker/publishes/:id'),
   ],
   // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
-  // always enforced. Exactly these 33 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two).
+  // always enforced. Exactly these 35 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 6a the home-watch route's two).
   // No DELETE, no comment write, no dependencies, no email-asks PATCH, no outbox, no decisions, no
   // api-keys, no admin, no home routes. Routes alone are not enough here: the task POST and PATCH bodies are
   // narrowed for this lane by lib/bast-chat/task-filter.ts (plan task C4).
@@ -302,6 +302,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     // Slice 4a: owed replies (GET is the drafting queue and the dry run, POST saves the machine's results; home tables only, nothing is sent)
     r('GET', '/api/bast-chat/worker/owed'),
     r('POST', '/api/bast-chat/worker/owed'),
+    // Slice 6a: the site-down second check (GET is the dry run, POST saves the machine's report; home tables only, nothing is sent)
+    r('GET', '/api/bast-chat/worker/home-watch'),
+    r('POST', '/api/bast-chat/worker/home-watch'),
     // The chat's reads and its two task writes (body-filtered)
     r('GET', '/api/tasks'),
     r('POST', '/api/tasks'),

@@ -13,6 +13,7 @@ import { ownerOnHome } from '../keeper/run';
 import { parseItemKey } from '../item-key';
 import { appendHomeAction, getHomeAction, getItemState, markHomeActionUndone, upsertItemState, type HomeDb } from '../state';
 import {
+  RULE_ACTION,
   RULE_DEFAULT_TEXT,
   RULE_DOMAIN_REFUSED,
   RULE_ITEM_NOT_FOUND,
@@ -34,14 +35,11 @@ import {
 import {
   domainRuleAllowed,
   normalizeHost,
-  parseRuleKey,
   ruleKey,
   ruleScopesFor,
-  RULE_KEY_PREFIX,
   RULE_LANE,
   RULE_TAGS,
   RULE_UNDO_DAYS,
-  type NotEmergencyRule,
   type RuleItem,
   type RuleKind,
 } from './rule';
@@ -60,8 +58,9 @@ import {
   type SiteHost,
 } from './site';
 import { emailDomain, isOwnAddress } from '../rules';
+import { loadNotEmergencyRules } from './read';
 
-export const RULE_ACTION = 'not_emergency_rule';
+export { RULE_ACTION };
 const DAY_MS = 86_400_000;
 
 // ============================================================================
@@ -289,21 +288,7 @@ export async function undoNotEmergencyRule(
   });
 }
 
-/** The caller's confirmed "Not an emergency" rules (lane home-emergency, their own, key ours). */
-export async function loadNotEmergencyRules(db: HomeDb, userId: string): Promise<NotEmergencyRule[]> {
-  const rows = await db.decision.findMany({
-    where: { lane: RULE_LANE, status: 'confirmed', created_by_id: userId, key: { startsWith: RULE_KEY_PREFIX } },
-    select: { key: true },
-    orderBy: { created_at: 'asc' },
-    take: 500,
-  });
-  const out: NotEmergencyRule[] = [];
-  for (const r of rows) {
-    const p = parseRuleKey(r.key);
-    if (p) out.push(p);
-  }
-  return out;
-}
+export { loadNotEmergencyRules };
 
 // ============================================================================
 // home-watch (worker)

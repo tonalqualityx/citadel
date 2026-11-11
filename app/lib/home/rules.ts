@@ -589,7 +589,8 @@ export type EmergencyRule =
   | 'client_waiting' // 4. client-blocking wait, client waiting more than 1 business day
   | 'session_client_blocking' // 5. session ask with severity client_blocking
   | 'crisis_mail' // 6. open urgent mail, sender not noise
-  | 'promised_date'; // 7. promised hard date 2 business days away or less
+  | 'promised_date' // 7. promised hard date 2 business days away or less
+  | 'site_down'; // Slice 6a: a client site is down (watchdog incident 10 minutes old, or an uptime mail Bast's own check confirmed)
 
 export interface TaskEmergencyFields extends HardDateFields {
   site_id: string | null;

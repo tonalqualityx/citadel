@@ -19,6 +19,7 @@
  *   createAndAddToArc, each wrapping useHomeAct with the right request (ArcEditor onReorder /
  *   onRemove, AddToArcSearch onAdd).
  * - useHomeUndo(): `(actionId) => Promise<boolean>`; posts /api/home/undo, toasts, refetches.
+ * - useHomeRule(): `(item, scope, reason) => Promise<boolean>`; posts /api/home/rule (Slice 6a, a "Not an emergency" rule), toasts with Undo.
  * - Helpers: HOME_KEYS, postHomeAct, postHomeUndo, isPinConflict, HOME_PIN_SWITCH_TEXT,
  *   HOME_FAILURE_TEXT, HOME_PIN_CONFIRM_LABEL, HOME_PIN_CANCEL_LABEL.
  *
@@ -74,6 +75,20 @@ export function isPinConflict(error: unknown): boolean {
 
 export function postHomeAct(request: HomeActRequest): Promise<HomeActResponse> {
   return apiClient.post<HomeActResponse>('/home/act', request);
+}
+
+/** POST /api/home/rule, 200 (the route's own shape; the saved rule is never part of the home payload). */
+export interface HomeSavedRule {
+  ok: true;
+  action_id: string;
+  undo_until: string;
+  item_key: string;
+  rule: { key: string; kind: string; value: string; revision: number; line: string };
+  message: string;
+}
+
+export function postHomeRule(body: { item_key: string; scope: 'sender' | 'domain' | 'site'; reason?: string }): Promise<HomeSavedRule> {
+  return apiClient.post<HomeSavedRule>('/home/rule', body);
 }
 
 export function postHomeUndo(actionId: string): Promise<HomeUndoResponse> {
@@ -141,6 +156,39 @@ export function useHomeUndo(opts: { doneText?: string } = {}) {
       return true;
     },
     [queryClient, doneText],
+  );
+}
+
+// ---------------------------------------------------------------------------
+// useHomeRule (Slice 6a)
+// ---------------------------------------------------------------------------
+
+/**
+ * `(item, scope, reason) => Promise<boolean>`: save a "Not an emergency" rule, toast the saved line with Undo (the undo
+ * route removes the rule for seven days), refetch. A refusal shows the server's own plain sentence. This is its own
+ * route (browser session only): the chat's home op cannot reach it.
+ */
+export function useHomeRule() {
+  const queryClient = useQueryClient();
+  const undo = useHomeUndo({ doneText: 'Rule removed.' });
+  return useCallback(
+    async (item: HomeItem, scope: 'sender' | 'domain' | 'site', reason: string): Promise<boolean> => {
+      let res: HomeSavedRule;
+      try {
+        const text = reason.trim();
+        res = await postHomeRule({ item_key: item.key, scope, ...(text ? { reason: text } : {}) });
+      } catch (error) {
+        showToast.error(error instanceof Error && error.message ? error.message : HOME_FAILURE_TEXT);
+        return false;
+      }
+      showToast.success(res.rule.line, {
+        action: { label: 'Undo', onClick: () => void undo(res.action_id) },
+        duration: UNDO_DURATION_MS,
+      });
+      await refetchHome(queryClient);
+      return true;
+    },
+    [queryClient, undo],
   );
 }
 
@@ -399,6 +447,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
         case 'open_wait':
         case 'open_session':
         case 'open_draft':
+        case 'open_site':
         case 'open_thread': {
           const href = action.href ?? null;
           if (href) {
@@ -419,6 +468,10 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return true;
         case 'not_emergency':
           await act({ action: 'not_emergency', item_key: item.key });
+          return true;
+        // Slice 6a: park the Monday hands row until next Monday.
+        case 'not_this_week':
+          await act({ action: 'not_this_week', item_key: item.key });
           return true;
         // Slice 4a: asks for a draft or a read. The server's line is the toast; nothing is sent from here or anywhere.
         case 'draft_now':
@@ -461,7 +514,7 @@ export function useHomeItemAction(options: HomeItemActionOptions = {}): HomeItem
           return false;
         }
         // Home-only actions already toasted through useHomeAct; the rest toast here.
-        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that'].includes(action.id);
+        const alreadyToasted = ['not_now', 'matters_more', 'not_emergency', 'stop', 'add_to_arc', 'remove_from_arc', 'draft_now', 'needs_thought', 'go_with_that', 'not_this_week'].includes(action.id);
         if (!alreadyToasted) showToast.error(HOME_FAILURE_TEXT);
         setStatus({ key: item.key, text: HOME_FAILURE_TEXT });
         return false;

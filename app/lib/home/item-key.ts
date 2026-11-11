@@ -12,6 +12,8 @@
  *   wait:<wait uuid>
  *   thread:<EmailAsk.account>:<thread id>        account has no ':'; the thread id is the rest
  *   crisis:<email ask uuid>
+ *   site:<site uuid>                              Slice 6a: a site that is down
+ *   hands:week                                   Slice 6a: the Monday "This week's hands" row
  *
  * Group keys, at most 120 characters (home_day.group_key is VarChar(120)):
  *   arc:<arc uuid> | client:<client uuid> | project:<project uuid> | own
@@ -33,7 +35,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Any whitespace or control character makes a key invalid.
 const BAD_CHAR_RE = /[\s\u0000-\u001f\u007f]/;
 
-export const ITEM_KEY_PREFIXES: readonly HomeSourceKind[] = ['task', 'review', 'session', 'wait', 'thread', 'crisis'];
+export const ITEM_KEY_PREFIXES: readonly HomeSourceKind[] = ['task', 'review', 'session', 'wait', 'thread', 'crisis', 'site', 'hands'];
 
 export type ParsedItemKey =
   | { kind: 'task'; id: string }
@@ -41,7 +43,9 @@ export type ParsedItemKey =
   | { kind: 'session'; external_id: string }
   | { kind: 'wait'; id: string }
   | { kind: 'thread'; account: string; thread_id: string }
-  | { kind: 'crisis'; id: string };
+  | { kind: 'crisis'; id: string }
+  | { kind: 'site'; id: string }
+  | { kind: 'hands' };
 
 export type ParsedGroupKey =
   | { kind: 'arc'; id: string }
@@ -78,6 +82,10 @@ export function parseItemKey(key: unknown): ParsedItemKey | null {
       return isUuid(rest) ? { kind: 'wait', id: rest } : null;
     case 'crisis':
       return isUuid(rest) ? { kind: 'crisis', id: rest } : null;
+    case 'site':
+      return isUuid(rest) ? { kind: 'site', id: rest } : null;
+    case 'hands':
+      return rest === 'week' ? { kind: 'hands' } : null;
     case 'review':
       if (rest === 'none') return { kind: 'review', project_id: null };
       return isUuid(rest) ? { kind: 'review', project_id: rest } : null;
@@ -111,7 +119,11 @@ export function buildItemKey(parsed: ParsedItemKey): string {
     case 'task':
     case 'wait':
     case 'crisis':
+    case 'site':
       key = `${parsed.kind}:${String(parsed.id).toLowerCase()}`;
+      break;
+    case 'hands':
+      key = 'hands:week';
       break;
     case 'review':
       key = `review:${parsed.project_id ? String(parsed.project_id).toLowerCase() : 'none'}`;
@@ -133,6 +145,8 @@ export function buildItemKey(parsed: ParsedItemKey): string {
 export const taskKey = (id: string): string => buildItemKey({ kind: 'task', id });
 export const waitKey = (id: string): string => buildItemKey({ kind: 'wait', id });
 export const crisisKey = (id: string): string => buildItemKey({ kind: 'crisis', id });
+export const siteKey = (id: string): string => buildItemKey({ kind: 'site', id });
+export const HANDS_KEY = 'hands:week';
 export const reviewKey = (projectId: string | null): string => buildItemKey({ kind: 'review', project_id: projectId });
 export const sessionKey = (externalId: string): string => buildItemKey({ kind: 'session', external_id: externalId });
 export const threadKey = (account: string, threadId: string): string =>

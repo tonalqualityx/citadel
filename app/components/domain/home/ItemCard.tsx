@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { HomeItemAction, HomeLink, ItemCardProps } from '@/lib/home/types';
 import { useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { bastReadLine, suggestedAnswerLine } from '@/lib/home/owed/copy';
+import { RULE_ASK_TITLE, RULE_REASON_MAX, RULE_SAVE_LABEL } from '@/lib/home/emergency/copy';
 import { plain } from './home-screen-logic';
 
 export interface ItemCardExtraProps extends ItemCardProps {
@@ -31,12 +32,23 @@ export function ItemCard({
   statusText = null,
   prompt = null,
   onOpenProject,
+  onSaveRule,
   hideActions = false,
 }: ItemCardExtraProps) {
   const { openTaskPeek } = useTaskPeek();
   const [moreOpen, setMoreOpen] = React.useState(false);
   const itemKey = item?.key ?? null;
-  React.useEffect(() => setMoreOpen(false), [itemKey]);
+  // Slice 6a: "Not an emergency" on crisis mail and site rows asks "Why? This becomes a rule." before it saves.
+  const [pickOpen, setPickOpen] = React.useState(false);
+  const [pickScope, setPickScope] = React.useState<string | null>(null);
+  const [pickReason, setPickReason] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  React.useEffect(() => {
+    setMoreOpen(false);
+    setPickOpen(false);
+    setPickScope(null);
+    setPickReason('');
+  }, [itemKey]);
 
   if (!item) {
     return (
@@ -47,6 +59,7 @@ export function ItemCard({
   }
 
   const busy = pendingAction != null;
+  const scopes = item.not_emergency_scopes ?? [];
   const o = item.opened;
   const doneWhen = o.done_when.length >= 2 ? o.done_when : [];
   const hasLeft = Boolean(o.summary) || doneWhen.length > 0 || Boolean(o.left_off_note) || Boolean(o.draft_text) || Boolean(o.bast_read) || Boolean(o.suggested_answer);
@@ -60,7 +73,14 @@ export function ItemCard({
       data-filled={a.filled ? 'true' : undefined}
       disabled={busy}
       aria-busy={pendingAction === a.id ? 'true' : undefined}
-      onClick={() => onAction(a, item)}
+      onClick={() => {
+        if (a.id === 'not_emergency' && scopes.length > 0 && onSaveRule) {
+          setPickScope(scopes[0].scope);
+          setPickOpen(true);
+          return;
+        }
+        onAction(a, item);
+      }}
     >
       {plain(a.label)}
     </button>
@@ -97,6 +117,55 @@ export function ItemCard({
         </div>
       ) : null}
 
+      {pickOpen && scopes.length > 0 && onSaveRule ? (
+        <div className="home-prompt home-rulepick" role="group" aria-label={RULE_ASK_TITLE}>
+          <p>{RULE_ASK_TITLE}</p>
+          {scopes.map((s) => (
+            <label key={s.scope} className="home-rulepick-row">
+              <input
+                type="radio"
+                name={`rule-scope-${item.key}`}
+                checked={pickScope === s.scope}
+                onChange={() => setPickScope(s.scope)}
+              />
+              <span>{plain(s.label)}</span>
+            </label>
+          ))}
+          <label className="home-rulepick-row">
+            <span className="home-muted home-small">Reason, if you want one</span>
+            <input
+              type="text"
+              className="home-rulepick-input"
+              maxLength={RULE_REASON_MAX}
+              value={pickReason}
+              onChange={(e) => setPickReason(e.target.value)}
+            />
+          </label>
+          <div className="home-actions">
+            <button
+              type="button"
+              className="home-btn"
+              data-filled="true"
+              disabled={saving || pickScope === null}
+              onClick={() => {
+                if (pickScope === null) return;
+                setSaving(true);
+                onSaveRule(item, pickScope as 'sender' | 'domain' | 'site', pickReason)
+                  .then((ok) => {
+                    if (ok) setPickOpen(false);
+                  })
+                  .finally(() => setSaving(false));
+              }}
+            >
+              {RULE_SAVE_LABEL}
+            </button>
+            <button type="button" className="home-btn" disabled={saving} onClick={() => setPickOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {!hideActions ? (
         <div className="home-actions">
           {item.actions.map(button)}
@@ -113,6 +182,7 @@ export function ItemCard({
         </div>
       ) : null}
       {!hideActions && moreOpen ? <div className="home-actions">{item.more_actions.map(button)}</div> : null}
+      {item.not_emergency_refusal ? <p className="home-muted home-small">{plain(item.not_emergency_refusal)}</p> : null}
       <p className="home-said" role="status">
         {statusText ? plain(statusText) : ''}
       </p>

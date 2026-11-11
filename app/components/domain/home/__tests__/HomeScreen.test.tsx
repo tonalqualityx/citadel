@@ -9,12 +9,14 @@ const h = vi.hoisted(() => ({
   stop: vi.fn(),
   act: vi.fn(),
   undo: vi.fn(),
+  saveRule: vi.fn(),
 }));
 
 vi.mock('@/lib/hooks/use-home', () => ({
   useHome: () => h.home,
   useHomeAct: () => h.act,
   useHomeUndo: () => h.undo,
+  useHomeRule: () => h.saveRule,
   useHomeItemAction: () => ({
     run: h.run,
     done: h.done,
@@ -91,6 +93,28 @@ describe('HomeScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /need you now|needs you now/ }));
     expect(screen.getByRole('button', { name: /Title task:n1/ })).toHaveAttribute('data-rule', 'now');
     expect(screen.getByRole('heading', { level: 2, name: 'Title task:n1' })).toBeInTheDocument();
+  });
+  it('Slice 6a: the Monday hands row opens as the hands card, and a job button runs on the job\'s own item', () => {
+    const job = mkItem('task:j1', { title: 'Rotate the SFTP password', actions: [{ id: 'do_now', label: "I'll do it now", filled: false, href: null }, { id: 'done', label: 'Done', filled: false, href: null }], more_actions: [{ id: 'open_task', label: 'Open', filled: false, href: null }] });
+    const row = mkItem('hands:week', {
+      type: 'hands',
+      title: "This week's hands: 1 job, about 10 minutes in all.",
+      actions: [{ id: 'not_this_week', label: 'Not this week', filled: true, href: null }],
+      source: { kind: 'hands', id: 'week', ids: ['j1'], task_status: null },
+      hands: { count: 1, minutes: 10, groups: [{ sop_id: null, label: 'No written steps', jobs: [{ title: 'Rotate the SFTP password', minutes: 10, item: job }] }] },
+    });
+    const res = mkRes();
+    res.sections.next = [row, mkItem('task:x1')];
+    h.home = { data: res, isLoading: false, isError: false, refetch: vi.fn() };
+    render(<HomeScreen />);
+    fireEvent.click(screen.getByRole('button', { name: /decisions ready/ }));
+    expect(screen.getByRole('heading', { level: 2, name: /This week's hands/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'No written steps' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(h.run.mock.calls[0][1].key).toBe('task:j1');
+    fireEvent.click(screen.getByRole('button', { name: 'Not this week' }));
+    expect(h.run.mock.calls[1][0].id).toBe('not_this_week');
+    expect(h.run.mock.calls[1][1].key).toBe('hands:week');
   });
   it('choosing another row swaps the card, and nothing reorders', () => {
     render(<HomeScreen />);

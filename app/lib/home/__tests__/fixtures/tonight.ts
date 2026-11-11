@@ -223,6 +223,9 @@ export function makeInputs(over: Partial<RawHomeInputs> = {}): RawHomeInputs {
     keeper_lines: [],
     owed_rows: [],
     drafter_fresh_at: null,
+    timezone: 'America/New_York',
+    site_incidents: [],
+    not_emergency_rules: [],
     ...over,
   };
 }

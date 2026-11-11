@@ -141,3 +141,19 @@ describe('home op: Slice 4a owed reply taps', () => {
     }
   });
 });
+
+describe('home op: Slice 6a', () => {
+  it('not_this_week is allowed and says what it did; the chat has no action that saves a rule', async () => {
+    expect(op.validate({ action: 'not_this_week', item_key: 'hands:week' })).toEqual({ action: 'not_this_week', item_key: 'hands:week' });
+    for (const action of ['not_emergency_rule', 'save_rule', 'rule']) expect(() => op.validate({ action, item_key: 'crisis:11111111-1111-4111-8111-111111111111', scope: 'sender' })).toThrow();
+    expect(() => op.validate({ action: 'not_emergency', item_key: 'crisis:11111111-1111-4111-8111-111111111111', scope: 'sender' })).toThrow();
+    h.run.mockResolvedValue({ ok: true, action_id: '77777777-7777-4777-8777-777777777777', undo_until: null, item_key: 'hands:week', message: 'Back next Monday.' });
+    const r = await op.run(ctx() as any, op.validate({ action: 'not_this_week', item_key: 'hands:week' }), {});
+    expect(r.summary).toBe("This week's hands row is parked until next Monday.");
+    expect(r.summary).not.toMatch(/[\u2013\u2014]|priorit|overdue/i);
+  });
+  it('Undo of a saved rule is refused by the screen\'s own undo, so a chat undo can never retract or restore a rule', async () => {
+    h.undo.mockRejectedValue(Object.assign(new Error('A saved rule is removed from its own line under Handled for you.'), { statusCode: 409 }));
+    await expect(op.undo(ctx() as any, { after: { home_action_id: 'abc' } } as any, {})).rejects.toThrow('A saved rule is removed');
+  });
+});

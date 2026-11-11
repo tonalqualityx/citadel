@@ -7,11 +7,12 @@ import { Button } from '@/components/ui/button';
 import { TaskPeekProvider, useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { ProjectDrawer } from '@/components/domain/oracle/modes/projects/ProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
-import { useHome, useHomeAct, useHomeItemAction, useHomeUndo } from '@/lib/hooks/use-home';
+import { useHome, useHomeAct, useHomeItemAction, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
 import type { HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
 import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
 import { ItemCard } from './ItemCard';
+import { HandsCard } from './HandsCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
 import { RestGroupCard } from './RestGroupCard';
@@ -53,6 +54,7 @@ function HomeScreenInner() {
   const { openTaskPeek } = useTaskPeek();
   const itemActions = useHomeItemAction({ openTask: openTaskPeek });
   const act = useHomeAct();
+  const saveRule = useHomeRule();
   // Only the keeper's Handled lines undo from here, so the toast says what happened to them.
   const undo = useHomeUndo({ doneText: 'Put back.' });
 
@@ -107,6 +109,7 @@ function HomeScreenInner() {
       setShowLists={setShowLists}
       itemActions={itemActions}
       act={act}
+      saveRule={saveRule}
       undo={undo}
     />
   );
@@ -133,6 +136,7 @@ interface BodyProps {
   setShowLists: (v: boolean) => void;
   itemActions: ItemActions;
   act: ReturnType<typeof useHomeAct>;
+  saveRule: ReturnType<typeof useHomeRule>;
   undo: ReturnType<typeof useHomeUndo>;
 }
 
@@ -187,7 +191,10 @@ function HomeBody(p: BodyProps) {
   };
 
   const selectedItem = itemTile ? findItem(res, selectedKey) : null;
-  const card = (item: HomeItem | null, empty: string, hideActions = false) => (
+  const card = (item: HomeItem | null, empty: string, hideActions = false) =>
+    item?.hands ? (
+      <HandsCard item={item} onAction={onAction} pendingFor={itemActions.pendingFor} />
+    ) : (
     <ItemCard
       item={item}
       emptyText={empty}
@@ -196,9 +203,10 @@ function HomeBody(p: BodyProps) {
       statusText={itemActions.statusFor(item)}
       prompt={itemActions.promptFor(item)}
       onOpenProject={(id) => p.setOpenProjectId(id)}
+      onSaveRule={p.saveRule}
       hideActions={hideActions}
     />
-  );
+    );
 
   const lists = (
     <>

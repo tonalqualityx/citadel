@@ -15,6 +15,7 @@ import {
   useHomeAct,
   useHomeArcActions,
   useHomeItemAction,
+  useHomeRule,
   useHomeUndo,
   isPinConflict,
   HOME_FAILURE_TEXT,
@@ -365,5 +366,68 @@ describe('useHomeItemAction: Slice 4a owed taps', () => {
       expect(await result.current.run({ id: 'draft_now' }, threadItem())).toBe(false);
     });
     expect(toasts.error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Slice 6a: rules, the hands row and open_site', () => {
+  const crisis = () => item({ key: 'crisis:abc', type: 'emergency' }, { kind: 'crisis', id: 'abc', ids: ['abc'] });
+
+  it('useHomeRule posts only to /home/rule, toasts the saved line with Undo, and Undo posts the action id to /home/undo', async () => {
+    api.post.mockResolvedValueOnce({
+      ok: true,
+      action_id: 'r1',
+      undo_until: '2026-11-18T00:00:00Z',
+      item_key: 'crisis:abc',
+      rule: { key: 'home-not-emergency:sender:a@b.com', kind: 'sender', value: 'a@b.com', revision: 0, line: 'Saved a rule: mail from a@b.com is not an emergency.' },
+      message: 'Saved. It will not come back as an emergency.',
+    });
+    const { result } = renderHook(() => useHomeRule(), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current(crisis(), 'sender', '  noise  ')).toBe(true);
+    });
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith('/home/rule', { item_key: 'crisis:abc', scope: 'sender', reason: 'noise' });
+    const opts = toasts.success.mock.calls[0][1] as { action: { label: string; onClick: () => void } };
+    expect(toasts.success.mock.calls[0][0]).toBe('Saved a rule: mail from a@b.com is not an emergency.');
+    expect(opts.action.label).toBe('Undo');
+    api.post.mockResolvedValueOnce({ ok: true, action_id: 'r1', item_key: 'crisis:abc' });
+    await act(async () => {
+      opts.action.onClick();
+    });
+    await waitFor(() => expect(api.post).toHaveBeenLastCalledWith('/home/undo', { action_id: 'r1' }));
+  });
+
+  it('useHomeRule sends no reason when it is blank, and shows the server sentence when refused', async () => {
+    api.post.mockRejectedValueOnce(new Error('A security flag is never turned into a rule.'));
+    const { result } = renderHook(() => useHomeRule(), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      expect(await result.current(crisis(), 'domain', '   ')).toBe(false);
+    });
+    expect(api.post).toHaveBeenCalledWith('/home/rule', { item_key: 'crisis:abc', scope: 'domain' });
+    expect(toasts.error).toHaveBeenCalledWith('A security flag is never turned into a rule.');
+  });
+
+  it('the one-time not_emergency never posts to the rule route', async () => {
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    await act(async () => {
+      await result.current.run({ id: 'not_emergency' }, crisis());
+    });
+    expect(api.post).toHaveBeenCalledWith('/home/act', { action: 'not_emergency', item_key: 'crisis:abc' });
+    expect(api.post.mock.calls.some((c) => c[0] === '/home/rule')).toBe(false);
+  });
+
+  it('not_this_week posts the act, and open_site opens its href in a new tab and records it', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { result } = renderHook(() => useHomeItemAction({}), { wrapper: wrapperFor(makeClient()) });
+    const row = item({ key: 'hands:week', type: 'hands' }, { kind: 'hands', id: 'week', ids: [] });
+    await act(async () => {
+      expect(await result.current.run({ id: 'not_this_week' }, row)).toBe(true);
+    });
+    expect(api.post).toHaveBeenCalledWith('/home/act', { action: 'not_this_week', item_key: 'hands:week' });
+    await act(async () => {
+      expect(await result.current.run({ id: 'open_site', href: 'https://jillscafe.com/' }, item({ key: 'site:abc' }, { kind: 'site' }))).toBe(true);
+    });
+    expect(open).toHaveBeenCalledWith('https://jillscafe.com/', '_blank', 'noopener,noreferrer');
+    open.mockRestore();
   });
 });

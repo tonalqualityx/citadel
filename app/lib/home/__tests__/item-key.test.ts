@@ -185,3 +185,20 @@ describe('zod schemas', () => {
     expect(groupKeySchema.safeParse(`task:${U1}`).success).toBe(false);
   });
 });
+
+describe('Slice 6a keys: site and hands', () => {
+  const S = '7aa4a01a-1111-4222-8333-944445555666';
+  it('site:<uuid> and hands:week round-trip, and nothing else parses under those prefixes', () => {
+    expect(parseItemKey(`site:${S}`)).toEqual({ kind: 'site', id: S });
+    expect(buildItemKey({ kind: 'site', id: S.toUpperCase() })).toBe(`site:${S}`);
+    expect(parseItemKey('hands:week')).toEqual({ kind: 'hands' });
+    expect(buildItemKey({ kind: 'hands' })).toBe('hands:week');
+    expect(itemKeyKind(`site:${S}`)).toBe('site');
+    expect(itemKeyKind('hands:week')).toBe('hands');
+    for (const bad of ['site:not-a-uuid', `site:${S}:x`, 'hands:', 'hands:next', 'hands:week:1', `hands:${S}`]) {
+      expect(isItemKey(bad)).toBe(false);
+    }
+    expect(itemKeySchema.safeParse(`site:${S}`).success).toBe(true);
+    expect(itemKeySchema.safeParse('hands:week').success).toBe(true);
+  });
+});

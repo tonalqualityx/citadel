@@ -65,11 +65,25 @@ import {
   projectGroupKey,
   reviewKey,
   sessionKey,
+  siteKey,
   taskKey,
   threadKey,
   waitKey,
   OWN_GROUP_KEY,
 } from './item-key';
+import {
+  HANDS_IF_IGNORED,
+  HANDS_REASON,
+  HANDS_SUMMARY,
+  HANDS_WHY_NOW,
+  SECURITY_NEVER_RULE,
+  SITE_RULED_CHECK,
+  minutesWord,
+  siteSummary,
+} from './emergency/copy';
+import { HANDS_ITEM_KEY, HANDS_REST_GROUP, handsRow, isHandsTask, type HandsTask } from './emergency/hands';
+import { matchesNotEmergencyRule, ruleScopesFor } from './emergency/rule';
+import { siteDownItems, siteHostOf, type IncidentRow, type SiteDownItem } from './emergency/site';
 import { NEW_MESSAGE_AFTER_DRAFT } from './owed/copy';
 import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, type OwedState } from './owed/state';
 import { cardSummary, truncateWords } from './plain-text';
@@ -99,7 +113,9 @@ import {
 import {
   normalizeDueDate,
   scoreCrisis,
+  scoreHands,
   scoreReview,
+  scoreSite,
   scoreSession,
   scoreTask,
   scoreThread,
@@ -129,6 +145,7 @@ import type {
   RawProjectRef,
   RawReviewFold,
   RawSessionAsk,
+  RawSiteIncident,
   RawTask,
   RawThread,
   RawWait,
@@ -393,6 +410,8 @@ interface Draft {
     botTask?: boolean;
     rule: EmergencyRule | null;
   };
+  /** Slice 6a: a "Not an emergency" rule (or an answered site check) already covers this crisis mail or site row. */
+  muted?: boolean;
   /** Extra inputs for actionsFor and the footer lines. */
   ctx: {
     waitInView?: boolean;
@@ -412,6 +431,10 @@ interface Draft {
     owedState?: OwedState | null;
     owedSuggestion?: boolean;
     owedIfIgnored?: string | null;
+    /** Slice 6a: a site down row's mail link, site link and "If you do nothing" line. */
+    mailUrl?: string | null;
+    siteUrl?: string | null;
+    siteIfIgnored?: string | null;
   };
 }
 
@@ -798,7 +821,7 @@ function sameName(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs, st: RawItemState | undefined): Draft {
+function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs, st: RawItemState | undefined, muted = false): Draft {
   const score = scoreCrisis(a, now);
   const client = refOf(a.client);
   const project = refOf(a.project);
@@ -831,8 +854,10 @@ function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs,
     source: { kind: 'crisis', id: a.id, ids: [a.id], task_status: null },
     client,
     project,
+    not_emergency_scopes: ruleScopesFor({ kind: 'crisis', from_email: a.from_email }).map((s) => ({ scope: s.scope, label: s.label })),
   };
   return {
+    muted,
     cand: {
       key: item.key,
       kind: 'crisis',
@@ -850,12 +875,102 @@ function buildCrisis(a: RawEmailAsk, rule: EmergencyRule, now: Date, refs: Refs,
   };
 }
 
+/** Slice 6a: a client site that is down (a watchdog incident 10 minutes old, or an uptime mail Bast's own check confirmed). */
+function buildSite(it: SiteDownItem, inc: RawSiteIncident, now: Date, refs: Refs, st: RawItemState | undefined, muted: boolean): Draft {
+  const client = inc.client_id ? (refs.clients.get(inc.client_id) ?? (inc.client_name ? { id: inc.client_id, name: displayText(inc.client_name) } : null)) : null;
+  const score = scoreSite({ client: inc.client_id ? { status: 'active' } : null, started_at: inc.started_at }, now);
+  const minutes = 5;
+  const links: { label: string; href: string }[] = [...inc.mail_links.map((l) => ({ label: displayText(l.label) || 'The email thread', href: l.href }))];
+  links.push({ label: 'The site', href: `https://${it.domain}/` });
+  if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: it.key,
+    type: 'emergency',
+    title: it.title,
+    who: null,
+    age: minutesWord(it.down_minutes),
+    why_now: it.detail,
+    hard_date: null,
+    effort: effortWords(minutes, false),
+    minutes,
+    opened: {
+      summary: siteSummary(it.source, it.domain),
+      summary_by: null,
+      done_when: [],
+      how: null,
+      links,
+      task_id: null,
+      left_off_note: displayText(st?.left_off_note) || null,
+    },
+    source: { kind: 'site', id: it.site_id, ids: [it.site_id], task_status: null },
+    client,
+    project: null,
+    not_emergency_scopes: ruleScopesFor({ kind: 'site', host: it.domain }).map((s) => ({ scope: s.scope, label: s.label })),
+  };
+  return {
+    muted,
+    cand: {
+      key: item.key,
+      kind: 'site',
+      item,
+      rule: 'site_down',
+      score,
+      since: inc.started_at,
+      personWaiting: false,
+      hardDate: null,
+      minutes,
+      group: groupFor(client, null, null, refs),
+      arcId: null,
+    },
+    ctx: { mailUrl: inc.mail_links[0]?.href ?? null, siteUrl: `https://${it.domain}/`, siteIfIgnored: it.default_if_ignored },
+  };
+}
+
+/** Slice 6a: the Monday hands row (its jobs are filled in once the tasks are final). */
+function buildHandsRow(count: number, minutes: number, title: string, taskIds: string[], now: Date): Draft {
+  const item: HomeItem = {
+    ...emptyItem(),
+    key: HANDS_ITEM_KEY,
+    type: 'hands',
+    title,
+    who: null,
+    age: 'this week',
+    why_now: HANDS_WHY_NOW,
+    hard_date: null,
+    effort: effortWords(minutes, false),
+    minutes,
+    opened: { summary: HANDS_SUMMARY, summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
+    source: { kind: 'hands', id: 'week', ids: taskIds, task_status: null },
+    client: null,
+    project: null,
+    hands: { count, minutes, groups: [] },
+  };
+  return {
+    cand: {
+      key: item.key,
+      kind: 'hands',
+      item,
+      rule: null,
+      score: scoreHands(now),
+      since: now,
+      personWaiting: false,
+      hardDate: null,
+      minutes,
+      group: { key: OWN_GROUP_KEY, name: OWN_GROUP_LABEL, client: null, project: null, arc: null },
+      arcId: null,
+    },
+    ctx: {},
+  };
+}
+
 // ============================================================================
 // Footer lines and buttons (need the final placement)
 // ============================================================================
 
 function ifIgnored(c: Candidate): string {
   if (c.botTask) return IF_IGNORED.botStopped;
+  if (c.kind === 'hands') return HANDS_IF_IGNORED;
   if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
   switch (c.kind) {
     case 'thread':
@@ -874,6 +989,7 @@ function ifIgnored(c: Candidate): string {
 function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.pinned) return REASON.working;
   if (c.botTask && !c.boosted) return REASON.botStopped;
+  if (c.kind === 'hands') return HANDS_REASON;
   if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
   if (c.boosted) return REASON.boosted;
   switch (c.section) {
@@ -919,16 +1035,27 @@ function finalize(c: Candidate, ctx: FinalizeCtx, filledFirst: boolean): void {
     hasTaskId: ctx.hasTaskId,
     botTask: c.botTask,
     owedThread: c.kind === 'thread' && ctx.thread?.status === 'show' ? { state: ctx.owedState ?? null, suggestion: !!ctx.owedSuggestion } : undefined,
+    mailUrl: ctx.mailUrl,
+    siteUrl: ctx.siteUrl,
   });
-  c.item = {
+  const finalItem: HomeItem = {
     ...c.item,
     type: itemType(c),
     pinned: c.pinned,
     reason: reasonFor(c, ctx),
-    default_if_ignored: c.kind === 'thread' && !c.rule && ctx.owedIfIgnored ? ctx.owedIfIgnored : ifIgnored(c),
+    default_if_ignored:
+      c.kind === 'thread' && !c.rule && ctx.owedIfIgnored
+        ? ctx.owedIfIgnored
+        : c.kind === 'site' && c.rule && ctx.siteIfIgnored
+          ? ctx.siteIfIgnored
+          : ifIgnored(c),
     actions: out.actions,
     more_actions: out.more_actions,
   };
+  // Slice 6a: only an emergency offers a rule; a task emergency says why it never can. The keys are left off otherwise.
+  if (!c.rule || !finalItem.not_emergency_scopes || finalItem.not_emergency_scopes.length === 0) delete finalItem.not_emergency_scopes;
+  if (c.rule && c.kind === 'task') finalItem.not_emergency_refusal = SECURITY_NEVER_RULE;
+  c.item = finalItem;
 }
 
 // ============================================================================
@@ -964,6 +1091,10 @@ function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now
     text = REST_CHECK.botStopped;
   } else if (group === 'ventures') {
     text = REST_CHECK.venture;
+  } else if (group === 'hands') {
+    text = REST_CHECK.handsRow;
+  } else if (c.kind === 'site') {
+    text = SITE_RULED_CHECK;
   } else if (c.kind === 'crisis') {
     text = REST_CHECK.crisisCleared;
   } else if (c.kind === 'thread') {
@@ -1012,10 +1143,42 @@ export function selectHome(input: SelectInput): SelectResult {
       push(buildThread(th, status, now, refs, states.get(key), owedByKey.get(key), raw.drafter_fresh_at));
     }
   }
+  // Slice 6a: site down rows, and the mails an uptime check already covers.
+  const incidentRows: IncidentRow[] = raw.site_incidents.map((i) => ({
+    site_id: i.site_id,
+    domain: i.domain,
+    client_id: i.client_id,
+    client_name: i.client_name,
+    source: i.source,
+    ask_ids: i.ask_ids,
+    started_at: i.started_at,
+    last_checked_at: i.last_checked_at,
+    last_check_up: i.last_check_up,
+    closed_at: i.closed_at,
+  }));
+  const incidentBySite = new Map<string, RawSiteIncident>();
+  for (const i of raw.site_incidents) {
+    const cur = incidentBySite.get(i.site_id);
+    if (!i.closed_at && (!cur || i.started_at < cur.started_at)) incidentBySite.set(i.site_id, i);
+  }
+  const skipAsks = new Set<string>(); // merged into a visible site down row
+  const muteAsks = new Set<string>(); // answered by a check, or covered by a rule on the site
+  for (const i of raw.site_incidents) {
+    if (i.source === 'uptime_mail' && i.closed_at && i.close_reason === 'answered') for (const id of i.ask_ids) muteAsks.add(id);
+  }
+  for (const it of siteDownItems(incidentRows, now)) {
+    const inc = incidentBySite.get(it.site_id);
+    if (!inc) continue;
+    const ruled = matchesNotEmergencyRule({ kind: 'site', host: siteHostOf(`https://${it.domain}`) }, raw.not_emergency_rules);
+    if (it.source === 'uptime_mail') for (const id of it.ask_ids) (ruled ? muteAsks : skipAsks).add(id);
+    push(buildSite(it, inc, now, refs, states.get(siteKey(it.site_id)), ruled));
+  }
   for (const a of raw.crises) {
     const rule = crisisEmergencyRule({ is_urgent: a.is_urgent, state: a.state, from_email: a.from_email, client: a.client });
     if (!rule) continue; // noise, or not urgent and open
-    push(buildCrisis(a, rule, now, refs, states.get(crisisKey(a.id))));
+    if (skipAsks.has(a.id)) continue; // its site down row carries the mail link
+    const muted = muteAsks.has(a.id) || matchesNotEmergencyRule({ kind: 'crisis', from_email: a.from_email }, raw.not_emergency_rules);
+    push(buildCrisis(a, rule, now, refs, states.get(crisisKey(a.id)), muted));
   }
 
   // ---- 2. State facts: boost, not-an-emergency, parked, pinned ----------
@@ -1023,7 +1186,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const ctxByKey = new Map<string, FinalizeCtx>();
   for (const draft of drafts) {
     const st = states.get(draft.cand.key);
-    const emergencyRule = draft.cand.rule && !st?.not_emergency_at ? draft.cand.rule : null;
+    const emergencyRule = draft.cand.rule && !st?.not_emergency_at && !draft.muted ? draft.cand.rule : null;
     const c: Candidate = {
       ...draft.cand,
       rule: emergencyRule,
@@ -1043,6 +1206,15 @@ export function selectHome(input: SelectInput): SelectResult {
     candidates.push(c);
     ctxByKey.set(c.key, draft.ctx);
   }
+
+  // Slice 6a: Mike's open tasks tagged hands or credential-rotation, with no hard date, never sit in Next one by one.
+  const taskRawByKey = new Map(raw.tasks.map((x) => [taskKey(x.id), x]));
+  const handsTaskCands = candidates.filter((c) => {
+    if (c.kind !== 'task' || c.botTask || c.rule !== null || c.boosted) return false;
+    const rt = taskRawByKey.get(c.key);
+    return !!rt && isHandsTask({ tags: rt.tags, status: rt.status, has_hard_date: c.hardDate !== null });
+  });
+  const handsTaskKeys = new Set(handsTaskCands.map((c) => c.key));
 
   // The pinned item: the newest working_since; only one at a time.
   let pinnedCand: Candidate | null = null;
@@ -1086,8 +1258,10 @@ export function selectHome(input: SelectInput): SelectResult {
       needs.push(c);
     } else if (c.parked) {
       c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
-    } else if (c.kind === 'crisis') {
-      c.restGroup = 'waiting_turn'; // marked "Not an emergency": counted, not listed
+    } else if (handsTaskKeys.has(c.key)) {
+      c.restGroup = HANDS_REST_GROUP; // Slice 6a: the Monday row holds these; the keeper never gives them a day
+    } else if (c.kind === 'crisis' || c.kind === 'site') {
+      c.restGroup = 'waiting_turn'; // marked "Not an emergency" (or ruled so): counted, not listed
     } else if (c.botTask && !c.boosted && c !== botHolder) {
       c.restGroup = 'bast_stopped';
     } else if (c.kind === 'thread' && ctx.thread?.status === 'older' && !c.boosted) {
@@ -1121,16 +1295,71 @@ export function selectHome(input: SelectInput): SelectResult {
     c.section = 'rest';
     c.restGroup = 'waiting_turn';
   }
-  const next = nextAll.slice(0, CAPS.next);
-  for (const c of nextAll.slice(CAPS.next)) {
+  // Slice 6a: the Monday hands row takes the first Next slot (Monday 00:05 to Friday 23:59, until parked or done).
+  const handsJobCands = handsTaskCands.filter((c) => !c.pinned && !c.parked);
+  const handsJobs: HandsTask[] = handsJobCands.map((c) => {
+    const rt = taskRawByKey.get(c.key) as RawTask;
+    return {
+      id: rt.id,
+      title: c.item.title,
+      tags: rt.tags,
+      status: rt.status,
+      has_hard_date: false,
+      estimated_minutes: rt.estimated_minutes,
+      sop: rt.sop,
+    };
+  });
+  const handsSel = handsRow(handsJobs, now, raw.timezone, states.get(HANDS_ITEM_KEY)?.view_at ?? null);
+  let handsCand: Candidate | null = null;
+  if (handsSel) {
+    const d = buildHandsRow(handsSel.count, handsSel.minutes, handsSel.title, handsJobs.map((j) => j.id), now);
+    handsCand = {
+      ...d.cand,
+      rule: null,
+      boosted: false,
+      fresh: false,
+      arrived: false,
+      botTask: false,
+      parkedBy: null,
+      parked: false,
+      pinned: false,
+      shown: false,
+      inView: false,
+      section: 'next',
+      restGroup: null,
+      state: states.get(HANDS_ITEM_KEY),
+    };
+    candidates.push(handsCand);
+    ctxByKey.set(handsCand.key, d.ctx);
+  }
+  const nextSlots = CAPS.next - (handsCand ? 1 : 0);
+  const next = nextAll.slice(0, nextSlots);
+  for (const c of nextAll.slice(nextSlots)) {
     c.section = 'rest';
     c.restGroup = 'waiting_turn';
   }
+  if (handsCand) next.unshift(handsCand);
   for (const c of [...needs, ...working, ...leads, ...mail, ...next]) c.shown = true;
+  if (handsCand) handsCand.inView = true;
 
   // ---- 4. Final items (buttons, footer lines) ---------------------------
   const topNextKey = next[0]?.key ?? null;
   for (const c of candidates) finalize(c, ctxByKey.get(c.key) ?? {}, c.key === topNextKey);
+  if (handsCand && handsSel) {
+    const byTask = new Map(handsJobCands.map((c) => [(taskRawByKey.get(c.key) as RawTask).id, c]));
+    handsCand.item = {
+      ...handsCand.item,
+      hands: {
+        count: handsSel.count,
+        minutes: handsSel.minutes,
+        groups: handsSel.groups.map((g) => ({
+          sop_id: g.sop_id,
+          label: displayText(g.label) || g.label,
+          jobs: g.jobs.map((j) => ({ title: j.title, minutes: j.minutes, item: (byTask.get(j.task_id) as Candidate).item })),
+        })),
+      },
+    };
+  }
 
   // ---- 5. Everything else -----------------------------------------------
   const counts: Record<HomeRestGroupKey, number> = {
@@ -1143,6 +1372,7 @@ export function selectHome(input: SelectInput): SelectResult {
     older_threads: 0,
     ventures: 0,
     bast_stopped: 0,
+    hands: 0,
   };
   for (const c of candidates) if (c.section === 'rest' && c.restGroup) counts[c.restGroup] += 1;
 
@@ -1156,6 +1386,7 @@ export function selectHome(input: SelectInput): SelectResult {
     older_threads: [],
     ventures: [],
     bast_stopped: [],
+    hands: [],
   };
   const restCands = candidates.filter((c) => c.section === 'rest' && c.restGroup !== null);
   const byDay = (a: Candidate, b: Candidate) =>
@@ -1212,6 +1443,7 @@ export function selectHome(input: SelectInput): SelectResult {
     'older_threads',
     'ventures',
     'bast_stopped',
+    'hands',
   ];
   const groups: HomeEverythingElseGroup[] = order
     .filter((k) => counts[k] > 0)
@@ -1241,7 +1473,7 @@ export function selectHome(input: SelectInput): SelectResult {
     text: displayText(k.text),
     href: null,
     at: k.at.toISOString(),
-    undo_action_id: k.action === 'keeper_owed_drafts' ? null : k.id,
+    undo_action_id: k.action === 'keeper_owed_drafts' || k.action === 'watch_site_cleared' || k.action === 'watch_site_down' ? null : k.id,
     details: k.details.map((x) => displayText(x)).filter((x) => x !== ''),
   }));
   const handledAll = [...closed, ...kept].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? -1 : 1));

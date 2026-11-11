@@ -49,6 +49,9 @@ export interface ActionsInput {
    * a needs-thought row holds a suggested answer. Absent = the Slice 1 buttons.
    */
   owedThread?: { state: OwedState | null; suggestion: boolean };
+  /** Slice 6a, a site down row: the mail behind it (deep link) and the site itself. */
+  mailUrl?: string | null;
+  siteUrl?: string | null;
 }
 
 export interface ActionsOutput {
@@ -121,11 +124,24 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
       primary.push(button('handled'));
       if (input.threadUrl) primary.push(button('open_thread', input.threadUrl));
       break;
+    case 'site':
+      // A site down row has nothing of ours to mark done: open the mail (when a mail names it) or the site, or rule it out.
+      if (input.mailUrl) primary.push(button('open_thread', input.mailUrl));
+      if (input.siteUrl) primary.push(button('open_site', input.siteUrl));
+      break;
+    case 'hands':
+      primary.push(button('not_this_week'));
+      break;
   }
   return { primary, extras };
 }
 
 export function actionsFor(input: ActionsInput): ActionsOutput {
+  // Slice 6a: the Monday hands row has one button of its own; the jobs inside carry their own.
+  if (input.kind === 'hands') {
+    const only = [button('not_this_week')];
+    return { actions: input.filledFirst ? [{ ...only[0], filled: true }] : only, more_actions: [] };
+  }
   const { primary, extras } = own(input);
   const visible: HomeItemAction[] = [...primary];
   const more: HomeItemAction[] = [...extras];

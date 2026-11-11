@@ -9,7 +9,6 @@
  */
 
 import { roundMinutes } from '../copy';
-import { zonedToUtc } from '../act';
 import { HANDS_NO_SOP_LABEL, handsTitle } from './copy';
 
 export const HANDS_TAGS: readonly string[] = ['hands', 'credential-rotation'];
@@ -36,6 +35,28 @@ export function isHandsTask(t: Pick<HandsTask, 'tags' | 'status' | 'has_hard_dat
   if (t.status === 'done' || t.status === 'abandoned') return false;
   if (t.has_hard_date) return false;
   return t.tags.some((tag) => HANDS_TAGS.includes(tag));
+}
+
+/** The UTC instant of y-m-d h:mi on the wall clock of the zone (kept here so this pure module does not import act.ts). */
+function zonedToUtc(y: number, m: number, d: number, h: number, mi: number, timeZone: string): Date {
+  const wallAsUtcMs = (date: Date): number => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(date);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') === 24 ? 0 : get('hour'), get('minute'), get('second'));
+  };
+  const nominal = Date.UTC(y, m - 1, d, h, mi);
+  let guess = nominal;
+  for (let i = 0; i < 3; i++) guess = nominal - (wallAsUtcMs(new Date(guess)) - guess);
+  return new Date(guess);
 }
 
 /** Day of week (0 Sunday to 6 Saturday) and minutes since midnight on his wall clock. */

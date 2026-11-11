@@ -203,3 +203,56 @@ describe('ItemCard: Slice 4a owed replies', () => {
     for (const b of screen.getAllByRole('button')) expect(b.textContent).not.toMatch(/send/i);
   });
 });
+
+describe('ItemCard: Slice 6a rule picker', () => {
+  const crisis = (over: Partial<HomeItem> = {}) =>
+    mkItem('crisis:abc', {
+      type: 'emergency',
+      actions: [{ id: 'handled', label: 'Handled', filled: false, href: null }, { id: 'not_emergency', label: 'Not an emergency', filled: false, href: null }],
+      not_emergency_scopes: [
+        { scope: 'sender', label: 'Mail from alerts@wpmudev.com' },
+        { scope: 'domain', label: 'Mail from anyone at wpmudev.com' },
+      ],
+      ...over,
+    });
+
+  it('Not an emergency asks "Why? This becomes a rule." with the choices, and does not act yet', () => {
+    const onAction = vi.fn();
+    render(<ItemCard {...base} item={crisis()} onAction={onAction} onSaveRule={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Not an emergency' }));
+    expect(screen.getByText('Why? This becomes a rule.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mail from alerts@wpmudev.com')).toBeChecked();
+    expect(screen.getByLabelText('Mail from anyone at wpmudev.com')).not.toBeChecked();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('Save rule sends the chosen scope and the reason, and Cancel closes it without a call', async () => {
+    const onSaveRule = vi.fn().mockResolvedValue(true);
+    const item = crisis();
+    render(<ItemCard {...base} item={item} onSaveRule={onSaveRule} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Not an emergency' }));
+    fireEvent.click(screen.getByLabelText('Mail from anyone at wpmudev.com'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Always noise' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    expect(onSaveRule).toHaveBeenCalledWith(item, 'domain', 'Always noise');
+    await screen.findByRole('button', { name: 'Not an emergency' });
+    fireEvent.click(screen.getByRole('button', { name: 'Not an emergency' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onSaveRule).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Why? This becomes a rule.')).toBeNull();
+  });
+
+  it('a task emergency keeps the one-time button and says a security flag is never a rule', () => {
+    const onAction = vi.fn();
+    const item = mkItem('task:1', {
+      type: 'emergency',
+      actions: [{ id: 'not_emergency', label: 'Not an emergency', filled: false, href: null }],
+      not_emergency_refusal: 'A security flag is never turned into a rule.',
+    });
+    render(<ItemCard {...base} item={item} onAction={onAction} onSaveRule={vi.fn()} />);
+    expect(screen.getByText('A security flag is never turned into a rule.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Not an emergency' }));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Why? This becomes a rule.')).toBeNull();
+  });
+});

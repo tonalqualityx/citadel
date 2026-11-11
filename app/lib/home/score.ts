@@ -349,3 +349,24 @@ export function scoreCrisis(a: RawEmailAsk, now: Date): Score {
     now,
   );
 }
+
+/** Slice 6a: a client site that is down. The clock is when it went down; the client's trust band applies. */
+export function scoreSite(site: { client: { status: string } | null; started_at: Date; venture?: boolean }, now: Date): Score {
+  return finish(
+    {
+      clientTrust: site.client?.status === 'active' ? IMPORTANCE.clientTrust.activeClient : 0,
+      money: 0,
+      unblocks: 0,
+      hardDate: null,
+      waitingSince: site.started_at,
+      freshAt: null,
+      venture: site.venture === true,
+    },
+    now,
+  );
+}
+
+/** Slice 6a: the Monday hands row has no clock and no client of its own. */
+export function scoreHands(now: Date): Score {
+  return finish({ clientTrust: 0, money: 0, unblocks: 0, hardDate: null, waitingSince: null, freshAt: null, venture: false }, now);
+}

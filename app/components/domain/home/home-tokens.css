@@ -145,3 +145,29 @@
 
 [data-home] .home-working { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; border-left: 3px solid var(--accent); }
 [data-home] .home-working textarea { font: inherit; font-size: 0.9rem; width: 100%; box-sizing: border-box; min-height: 3.6em; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-elevated); color: var(--text-primary); resize: vertical; }
+
+/* Slice 6a: the "Not an emergency" rule picker and the Monday hands row. */
+[data-home] .home-rulepick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+[data-home] .home-rulepick-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: inherit;
+}
+[data-home] .home-hands-group {
+  margin-top: 12px;
+}
+[data-home] .home-hands-job {
+  margin: 8px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}

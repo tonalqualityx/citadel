@@ -72,7 +72,7 @@ export const dashboardEndpoints: ApiEndpoint[] = [
         auth: 'required',
         roles: ['admin'],
         bodySchema: [
-          { name: 'action', type: 'string', required: true, description: 'One of: not_now, matters_more, not_emergency, pin, stop, done_pin, arc_add, arc_remove, arc_reorder, swap, lighter, record' },
+          { name: 'action', type: 'string', required: true, description: 'One of: not_now, matters_more, not_emergency, not_this_week, pin, stop, done_pin, arc_add, arc_remove, arc_reorder, swap, lighter, record' },
           { name: 'item_key', type: 'string', required: false, description: 'Item key such as task:<uuid>, review:<uuid>, session:<id>, wait:<uuid>, thread:<account>:<thread id>, crisis:<uuid>. Required for every action except swap, lighter and arc_reorder.' },
           { name: 'switch', type: 'boolean', required: false, description: 'pin only: true moves the pin from another item. Without it a second pin answers 409 pin_conflict.' },
           { name: 'note', type: 'string', required: false, description: 'stop only: where the work was left off. Trimmed; null or empty clears it.' },
@@ -85,6 +85,25 @@ export const dashboardEndpoints: ApiEndpoint[] = [
         ],
         responseExample: { ok: true, action_id: 'uuid', undo_until: 'ISO-8601|null', item_key: 'string|null', message: 'string|null' },
         responseNotes: 'Answers 403 unless the caller is an admin whose own home_view preference is home. Errors use { error, code }: 409 with code pin_conflict, stale_day, already_in_arc or not_in_arc; 400 for an invalid body. Writes touch only the caller\'s home_item_state, home_day and home_actions rows, never a shared record.',
+      },
+    ],
+  },
+  {
+    path: '/api/home/rule',
+    group: 'dashboard',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Save a "Not an emergency" rule from the Home screen for a crisis mail (this sender or this domain) or a site down row (this site). Browser session only.',
+        auth: 'required',
+        roles: ['admin'],
+        bodySchema: [
+          { name: 'item_key', type: 'string', required: true, description: 'crisis:<uuid> or site:<uuid>.' },
+          { name: 'scope', type: 'string', required: true, description: 'One of: sender, domain, site. Only the choices the item offers are accepted.' },
+          { name: 'reason', type: 'string', required: false, description: 'One line, 300 characters at most.' },
+        ],
+        responseExample: { ok: true, action_id: 'uuid', undo_until: 'ISO-8601', item_key: 'string', rule: { key: 'string', kind: 'string', value: 'string', revision: 'number', line: 'string' }, message: 'string' },
+        responseNotes: 'Answers 403 for an API key or the chat (a browser session only) and when the home view is off. 400 for a task item ("A security flag is never turned into a rule."), a free mail or own domain, or a choice the item does not offer. Writes one Decision (lane home-emergency, kind ruling, confirmed) with a link, the caller\'s home_item_state and one home_actions row; undo is POST /api/home/undo for seven days.',
       },
     ],
   },

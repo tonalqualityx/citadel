@@ -8,8 +8,11 @@ vi.mock('@/lib/auth/middleware', () => ({ requireAuth: vi.fn() }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     userPreference: { findUnique: vi.fn() },
+    homeAction: { findFirst: vi.fn() },
   },
 }));
+
+vi.mock('@/lib/home/emergency/store', () => ({ undoNotEmergencyRule: vi.fn() }));
 
 vi.mock('@/lib/home/act', async () => {
   const actual = await vi.importActual<typeof import('@/lib/home/act')>('@/lib/home/act');
@@ -19,12 +22,15 @@ vi.mock('@/lib/home/act', async () => {
 import { requireAuth } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
 import { HomeActError, runHomeAct, runHomeUndo } from '@/lib/home/act';
+import { undoNotEmergencyRule } from '@/lib/home/emergency/store';
 import { POST } from '../route';
 
 const mockAuth = vi.mocked(requireAuth);
 const mockPref = prisma.userPreference.findUnique as Mock;
 const mockAct = vi.mocked(runHomeAct);
 const mockUndo = vi.mocked(runHomeUndo);
+const mockRuleUndo = vi.mocked(undoNotEmergencyRule);
+const mockActionRow = prisma.homeAction.findFirst as Mock;
 
 const MIKE = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -48,6 +54,7 @@ const validBody = { action_id: ACTION };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockActionRow.mockResolvedValue(null);
 });
 
 describe('POST /api/home/undo access', () => {
@@ -129,5 +136,27 @@ describe('POST /api/home/undo results', () => {
     const res = await POST(req({ action_id: ACTION }));
     expect(res.status).toBe(status);
     expect((await res.json()).code).toBe(code);
+  });
+});
+
+describe('POST /api/home/undo, a saved "Not an emergency" rule (Slice 6a)', () => {
+  it('goes to the rule store, never the generic undo, so the Decision is retracted', async () => {
+    signIn();
+    mockActionRow.mockResolvedValue({ id: ACTION, action: 'not_emergency_rule' });
+    mockRuleUndo.mockResolvedValue({ ok: true, item_key: 'crisis:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', message: 'Rule removed.' });
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, action_id: ACTION, item_key: 'crisis:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    expect(mockRuleUndo).toHaveBeenCalledTimes(1);
+    expect(mockRuleUndo.mock.calls[0][1]).toBe(MIKE);
+    expect(mockUndo).not.toHaveBeenCalled();
+  });
+
+  it('an API key is refused before anything is read (the rule undo is browser session only)', async () => {
+    signIn({ via: 'api_key' });
+    const res = await POST(req(validBody));
+    expect(res.status).toBe(403);
+    expect(mockRuleUndo).not.toHaveBeenCalled();
+    expect(mockUndo).not.toHaveBeenCalled();
   });
 });

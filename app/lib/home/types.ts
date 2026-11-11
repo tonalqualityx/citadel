@@ -27,6 +27,7 @@
  */
 
 import type { OwedRow, OwedState } from './owed/state';
+import type { NotEmergencyRule } from './emergency/rule';
 import type {
   AskQueue,
   AskSeverity,
@@ -47,7 +48,7 @@ import type {
 // ============================================================================
 
 /** The record kind behind an item; the prefix of its item key (see item-key.ts). */
-export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis';
+export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands';
 
 /**
  * How a row reads, set by select.ts (H4). One value per item.
@@ -62,7 +63,7 @@ export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' |
  * Clients use it for small presentation choices only (for example the gold rule on
  * emergencies). Section membership comes from HomeSections, never from this field.
  */
-export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task';
+export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands';
 
 /**
  * Every button id a row or card can carry. actions-for.ts (H4) decides which an item gets
@@ -116,7 +117,9 @@ export type HomeActionId =
   | 'remove_from_arc'
   | 'draft_now'
   | 'needs_thought'
-  | 'go_with_that';
+  | 'go_with_that'
+  | 'not_this_week'
+  | 'open_site';
 
 /** The HomeActionId values that call an existing Citadel endpoint and are logged with `record`. */
 export type HomeRecordedActionId = Extract<
@@ -132,6 +135,7 @@ export type HomeRecordedActionId = Extract<
   | 'open_wait'
   | 'open_draft'
   | 'open_thread'
+  | 'open_site'
   | 'no_reply_needed'
   | 'handled'
 >;
@@ -267,6 +271,40 @@ export interface HomeItem {
   owed_state?: OwedState | null;
   /** Slice 4a, threads only: the words after the age on the row ("Draft ready", "Their new message came after your draft."), or null. */
   owed_line?: string | null;
+  /**
+   * Slice 6a: the choices "Not an emergency" offers as a rule (crisis mail and site down rows only), else absent or [].
+   * Each is a scope the rule route accepts. The card asks "Why? This becomes a rule." before saving.
+   */
+  not_emergency_scopes?: HomeScopeChoice[];
+  /** Slice 6a: on a task emergency, "A security flag is never turned into a rule." (it keeps the one-time Not an emergency). */
+  not_emergency_refusal?: string | null;
+  /** Slice 6a: the Monday hands row only. The jobs, grouped by written steps. */
+  hands?: HomeHands | null;
+}
+
+/** Slice 6a: one scope choice for a "Not an emergency" rule. */
+export interface HomeScopeChoice {
+  scope: 'sender' | 'domain' | 'site';
+  label: string;
+}
+
+/** Slice 6a: the hands row's jobs. */
+export interface HomeHandsJob {
+  title: string;
+  minutes: number;
+  /** The job's own task item, for its Done, I'll do it now and Open buttons. */
+  item: HomeItem;
+}
+export interface HomeHandsGroup {
+  /** The SOP id, or null for "No written steps". */
+  sop_id: string | null;
+  label: string;
+  jobs: HomeHandsJob[];
+}
+export interface HomeHands {
+  count: number;
+  minutes: number;
+  groups: HomeHandsGroup[];
 }
 
 /** A Swap or Lighter choice: another group Today could be. */
@@ -382,7 +420,8 @@ export type HomeRestGroupKey =
   | 'new_mail' // threads from a known person too young to show yet (not a business day old)
   | 'older_threads' // qualifying threads whose newest open ask is over 21 days old
   | 'ventures' // other ventures
-  | 'bast_stopped'; // Slice 3: tasks Bast stopped on beyond the one that holds a Next slot
+  | 'bast_stopped' // Slice 3: tasks Bast stopped on beyond the one that holds a Next slot
+  | 'hands'; // Slice 6a: tasks tagged hands or credential-rotation (they come as one weekly row, never one by one)
 
 /** Slice 2: one row inside an Everything else group. Every row has an owner and a check text. */
 export interface HomeRestItem {
@@ -496,7 +535,8 @@ export type HomeActName =
   | 'record'
   | 'draft_now'
   | 'needs_thought'
-  | 'go_with_that';
+  | 'go_with_that'
+  | 'not_this_week';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -574,7 +614,12 @@ export type HomeActRequest =
   /** Slice 4a: Needs thought. Asks Bast for its read and a suggested answer on a drafted thread. Same rules as draft_now. */
   | { action: 'needs_thought'; item_key: string }
   /** Slice 4a: Go with that. Asks Bast to redraft along its suggested answer. 409 no_suggestion without one. */
-  | { action: 'go_with_that'; item_key: string };
+  | { action: 'go_with_that'; item_key: string }
+  /**
+   * Slice 6a, the hands row only: Not this week. Parks the row to next Monday 00:05 (view_at, view_set_by user). Undoable. There is
+   * deliberately no action here that saves a "Not an emergency" rule: that is POST /api/home/rule (browser session only).
+   */
+  | { action: 'not_this_week'; item_key: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' }>;
@@ -954,6 +999,29 @@ export interface RawHomeInputs {
   owed_rows: OwedRow[];
   /** Slice 4a: finished_at of the owner's owed_reply keeper run row for today (the freshness stamp), or null. */
   drafter_fresh_at: Date | null;
+  /** Slice 6a: his IANA zone (the hands row's Monday to Friday window). */
+  timezone: string;
+  /** Slice 6a: U's site incidents (open ones, and uptime-mail ones closed as answered in the last 3 days). */
+  site_incidents: RawSiteIncident[];
+  /** Slice 6a: U's confirmed "Not an emergency" rules (Decision lane home-emergency). */
+  not_emergency_rules: NotEmergencyRule[];
+}
+
+/** Slice 6a: a home_site_incident row plus what the screen needs from its site, client and mails. */
+export interface RawSiteIncident {
+  site_id: string;
+  domain: string;
+  client_id: string | null;
+  client_name: string | null;
+  source: 'kuma' | 'uptime_mail';
+  ask_ids: string[];
+  started_at: Date;
+  last_checked_at: Date | null;
+  last_check_up: boolean | null;
+  closed_at: Date | null;
+  close_reason: string | null;
+  /** The mail behind it, as named links (deep links of the asks). */
+  mail_links: HomeLink[];
 }
 
 // ============================================================================
@@ -968,7 +1036,11 @@ export type KeeperActionKind =
   | 'keeper_arc_create'
   | 'keeper_arc_close'
   | 'keeper_arc_link'
-  | 'keeper_owed_drafts';
+  | 'keeper_owed_drafts'
+  // Slice 6a: the site-down check's lines (source keeper, no Undo) and the saved-rule line (his own press, Undo for 7 days)
+  | 'watch_site_cleared'
+  | 'watch_site_down'
+  | 'not_emergency_rule';
 
 /** One task given a day to come back. */
 export interface KeeperStaggerChange {
@@ -1124,6 +1196,11 @@ export interface ItemCardProps {
   prompt?: HomeCardPrompt | null;
   /** Opens ProjectDrawer for item.project. */
   onOpenProject?: (projectId: string) => void;
+  /**
+   * Slice 6a: save a "Not an emergency" choice as a rule (crisis mail and site down rows). Resolves true when it was saved.
+   * Without it, or without item.not_emergency_scopes, Not an emergency is the one-time action.
+   */
+  onSaveRule?: (item: HomeItem, scope: HomeScopeChoice['scope'], reason: string) => Promise<boolean>;
 }
 
 /** WorkingOnBar (H9b): the pinned item, with Done and Stop for now. */

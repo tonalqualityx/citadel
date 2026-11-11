@@ -22,6 +22,12 @@
  * lead, the client thread with no draft (Mark) and the two threads with his own drafts (Jessica, Andy) are the other
  * cases; the Jill's Cafe mail is the crisis. Nothing in the seed sends mail or touches an outbox.
  *
+ * Slice 6a adds: a Kuma-style site down incident (12 minutes old, shown) and a second one (5 minutes old, not shown yet) for the
+ * admin only; an uptime-mail incident whose own check found the site down (the mail is linked from one row); a "Not an emergency"
+ * rule on the WPMU DEV sender (an urgent mail from it is in Rest, not in Needs you now) saved as a confirmed Decision (lane
+ * home-emergency) for the admin; and five open tasks tagged hands or credential-rotation (the Monday row shows from Monday 00:05 to
+ * Friday 23:59 Eastern; on a weekend the jobs sit in Everything else, "This week's hands"). Nothing here requests a site or sends mail.
+ *
  * Run with:
  *   DATABASE_URL=postgresql://citadel:citadel@localhost:55433/home_s2a \
  *     npx ts-node -r tsconfig-paths/register --compiler-options '{"module":"CommonJS"}' scripts/seed-home-fixtures.ts
@@ -126,6 +132,9 @@ async function main() {
   await prisma.homeItemState.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
   await prisma.homeOwedThread.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
   await prisma.homeKeeperRun.deleteMany({ where: { user_id: { in: [admin.id, tech.id] }, kind: 'owed_reply' } });
+  await prisma.homeSiteIncident.deleteMany({ where: { user_id: { in: [admin.id, tech.id] } } });
+  // The rules this seed saved for the two fixture users (their own Decision rows and links, nothing else).
+  await prisma.decision.deleteMany({ where: { key: { startsWith: 'home-not-emergency:' }, created_by_id: { in: [admin.id, tech.id] } } });
 
   // ---- Clients, sites, projects ----
   const grok = await findOrCreateClient('Grok Wellness');
@@ -596,6 +605,115 @@ async function main() {
     },
   });
   bump('calendar events');
+
+  // ---- Slice 6a fixtures: site down incidents, a saved rule, the hands tasks ----
+  const kumaSite = await findOrCreateSite('Rowan Pottery site', rowan.id);
+  const youngSite = await findOrCreateSite('Alder Books site', (await findOrCreateClient('Alder Books (home fixture)')).id);
+  const mailSite = jillsSite;
+  const siteHost = (url: string | null) => (url ?? '').replace(/^https?:\/\//, '').replace(/[/?#].*$/, '');
+  const [kumaRow, youngRow] = await Promise.all([prisma.site.findUniqueOrThrow({ where: { id: kumaSite.id } }), prisma.site.findUniqueOrThrow({ where: { id: youngSite.id } })]);
+  await prisma.homeSiteIncident.create({
+    data: {
+      user_id: admin.id,
+      site_id: kumaSite.id,
+      domain: siteHost(kumaRow.url),
+      client_id: rowan.id,
+      source: 'kuma',
+      monitor: 'rowan-pottery',
+      started_at: new Date(now.getTime() - 12 * MIN),
+      last_checked_at: new Date(now.getTime() - 2 * MIN),
+      watchdog_escalated: true,
+    },
+  });
+  await prisma.homeSiteIncident.create({
+    data: {
+      user_id: admin.id,
+      site_id: youngSite.id,
+      domain: siteHost(youngRow.url),
+      client_id: youngRow.client_id,
+      source: 'kuma',
+      monitor: 'alder-books',
+      started_at: new Date(now.getTime() - 5 * MIN),
+      last_checked_at: new Date(now.getTime() - 1 * MIN),
+    },
+  });
+  const jillsMail = await prisma.emailAsk.findFirst({ where: { message_id: `${MID}crisis-jills` }, select: { id: true } });
+  if (jillsMail) {
+    await prisma.homeSiteIncident.create({
+      data: {
+        user_id: admin.id,
+        site_id: mailSite.id,
+        domain: siteHost((await prisma.site.findUniqueOrThrow({ where: { id: mailSite.id } })).url),
+        client_id: jills.id,
+        source: 'uptime_mail',
+        ask_ids: [jillsMail.id],
+        started_at: new Date(now.getTime() - 30 * MIN),
+        last_checked_at: new Date(now.getTime() - 3 * MIN),
+        last_check_up: false,
+        check_summary: 'No answer after 3 tries.',
+      },
+    });
+  }
+  bump('home_site_incident rows (admin only)', jillsMail ? 3 : 2);
+
+  const wpmuMessage = `${MID}crisis-wpmu`;
+  const wpmuFields = {
+    thread_id: wpmuMessage,
+    account: MINE,
+    from_name: 'WPMU DEV',
+    from_email: 'alerts@wpmudev.example',
+    subject: 'Weekly security report is ready',
+    gist: 'The weekly report from the host. Not an outage.',
+    queue: 'do' as const,
+    severity: 'internal' as const,
+    is_urgent: true,
+    state: 'open' as const,
+    deep_link: `https://mail.google.com/mail/u/0/#inbox/${wpmuMessage}`,
+    received_at: new Date(now.getTime() - 3 * HOUR),
+  };
+  const wpmuAsk = await prisma.emailAsk.upsert({ where: { message_id: wpmuMessage }, create: { message_id: wpmuMessage, ...wpmuFields }, update: wpmuFields });
+  const ruleKey = 'home-not-emergency:sender:alerts@wpmudev.example';
+  const rule = await prisma.decision.upsert({
+    where: { key: ruleKey },
+    create: {
+      key: ruleKey,
+      title: 'Not an emergency: mail from alerts@wpmudev.example is not an emergency',
+      text: 'Weekly report, never an outage.',
+      kind: 'ruling',
+      status: 'confirmed',
+      scope: 'lane',
+      lane: 'home-emergency',
+      author_user_id: admin.id,
+      ruled_at: now,
+      confirmed_by_user_id: admin.id,
+      confirmed_at: now,
+      created_by_id: admin.id,
+      tags: ['home-screen', 'not-emergency'],
+    },
+    update: { status: 'confirmed', lane: 'home-emergency', created_by_id: admin.id, confirmed_by_user_id: admin.id, confirmed_at: now },
+    select: { id: true },
+  });
+  await prisma.decisionLink.upsert({
+    where: { decision_id_entity_kind_entity_id_relation: { decision_id: rule.id, entity_kind: 'email_ask', entity_id: wpmuAsk.id, relation: 'ruled_on' } },
+    create: { decision_id: rule.id, entity_kind: 'email_ask', entity_id: wpmuAsk.id, relation: 'ruled_on' },
+    update: {},
+  });
+  bump('email asks: WPMU DEV urgent mail (covered by the saved rule)');
+  bump('decisions: one saved Not an emergency rule (admin)');
+
+  const handsJobs: Array<{ title: string; tags: string[]; minutes: number | null }> = [
+    { title: 'Rotate the SFTP password for Grok (home fixture)', tags: ['credential-rotation', FIXTURE_TAG], minutes: 10 },
+    { title: 'Rotate the SFTP password for Rowan Pottery (home fixture)', tags: ['credential-rotation', FIXTURE_TAG], minutes: 10 },
+    { title: 'Update the DNS record for the Alder subdomain (home fixture)', tags: ['hands', FIXTURE_TAG], minutes: 15 },
+    { title: 'Move the Stronghold domain to the new registrar (home fixture)', tags: ['hands', FIXTURE_TAG], minutes: null },
+    { title: 'Add the new analytics property to the GA4 admin (home fixture)', tags: ['hands', FIXTURE_TAG], minutes: 5 },
+  ];
+  for (const j of handsJobs) {
+    await prisma.task.create({
+      data: { ...base, title: j.title, status: 'not_started', tags: j.tags, estimated_minutes: j.minutes, created_at: new Date(now.getTime() - 9 * DAY) },
+    });
+  }
+  bump('tasks: hands and credential-rotation', handsJobs.length);
 
   console.log('Seeded:');
   for (const [k, v] of Object.entries(counts)) console.log(`  ${k}: ${v}`);

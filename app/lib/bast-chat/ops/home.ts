@@ -72,6 +72,12 @@ async function describeItem(db: OpDb, key: string): Promise<Described> {
     }
     case 'session':
       return { title: 'that session', security: false };
+    case 'site': {
+      const s = await db.site.findUnique({ where: { id: p.id }, select: { url: true } });
+      return { title: s?.url ? `${s.url.replace(/^https?:\/\//, '').replace(/[/?#].*$/, '')} going down` : 'that site', security: false };
+    }
+    case 'hands':
+      return { title: "this week's hands", security: false };
   }
 }
 
@@ -104,7 +110,7 @@ async function threadWho(db: OpDb, key: string): Promise<string> {
 
 async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date): Promise<string> {
   const a = input.action;
-  if (a === 'arc_reorder' || a === 'lighter') return opSummary({ op: 'home_act', action: a }, now);
+  if (a === 'arc_reorder' || a === 'lighter' || a === 'not_this_week') return opSummary({ op: 'home_act', action: a }, now);
   if (a === 'swap') return opSummary({ op: 'home_act', action: 'swap', title: await groupName(db, input.to_group_key) }, now);
   if (a === 'draft_now' || a === 'needs_thought' || a === 'go_with_that') {
     return opSummary({ op: 'home_act', action: a, who: await threadWho(db, input.item_key) }, now);

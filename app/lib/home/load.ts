@@ -31,6 +31,8 @@ import {
   OPEN_WAIT_STATES,
 } from './rules';
 import { isItemKey } from './item-key';
+import { RULE_ACTION } from './emergency/copy';
+import { loadNotEmergencyRules } from './emergency/read';
 import { OWED_ROW_SELECT, OWED_RUN_KIND } from './owed/rows';
 import type {
   KeeperActionKind,
@@ -45,6 +47,7 @@ import type {
   RawKeeperLine,
   RawProjectRef,
   RawRequirement,
+  RawSiteIncident,
   RawReviewFold,
   RawSessionAsk,
   RawTask,
@@ -63,7 +66,12 @@ const KEEPER_ACTIONS: readonly string[] = [
   'keeper_arc_close',
   'keeper_arc_link',
   'keeper_owed_drafts',
+  // Slice 6a: the site check's own lines (no Undo)
+  'watch_site_cleared',
+  'watch_site_down',
 ] satisfies KeeperActionKind[];
+/** How long an answered uptime-mail check keeps its mails out of Needs you now. */
+const ANSWERED_KEEP_MS = 3 * DAY_MS;
 /** Cap on classifier auto-closes read; the screen shows 5 and a count. */
 const AUTO_HANDLED_TAKE = 200;
 
@@ -363,7 +371,73 @@ async function loadKeeperLines(db: PrismaClient, userId: string, now: Date): Pro
       undo_until: r.undo_until ?? new Date(r.created_at.getTime() + KEEPER_LINE_MS),
     });
   }
+  // Slice 6a: a rule he saved stays as a line while its Undo is open (seven days). Not a keeper action: his own press.
+  const ruleRows = await db.homeAction.findMany({
+    where: { user_id: userId, action: RULE_ACTION, undone_at: null, undo_until: { gt: now } },
+    select: { id: true, action: true, after: true, created_at: true, undo_until: true },
+    orderBy: { created_at: 'desc' },
+    take: 20,
+  });
+  for (const r of ruleRows) {
+    const after = r.after && typeof r.after === 'object' && !Array.isArray(r.after) ? (r.after as Record<string, unknown>) : null;
+    const text = typeof after?.line === 'string' ? after.line.trim() : '';
+    if (r.action !== RULE_ACTION || !text || !r.undo_until) continue;
+    lines.push({ id: r.id, action: 'not_emergency_rule', text, details: [], at: r.created_at, undo_until: r.undo_until });
+  }
+  lines.sort((a, b) => b.at.getTime() - a.at.getTime());
   return lines;
+}
+
+// ============================================================================
+// Slice 6a: site incidents
+// ============================================================================
+
+/** U's open site incidents, plus uptime-mail ones closed as answered in the last 3 days (they keep their mails out of Needs you now). */
+async function loadSiteIncidents(db: PrismaClient, userId: string, now: Date): Promise<RawSiteIncident[]> {
+  const rows = await db.homeSiteIncident.findMany({
+    where: {
+      user_id: userId,
+      OR: [
+        { closed_at: null },
+        { source: 'uptime_mail', close_reason: 'answered', closed_at: { gte: new Date(now.getTime() - ANSWERED_KEEP_MS) } },
+      ],
+    },
+    orderBy: { started_at: 'asc' },
+    take: 500,
+  });
+  if (rows.length === 0) return [];
+  const askIds = Array.from(new Set(rows.flatMap((r) => r.ask_ids)));
+  const clientIds = Array.from(new Set(rows.map((r) => r.client_id).filter((x): x is string => !!x)));
+  const [asks, clients] = await Promise.all([
+    askIds.length ? db.emailAsk.findMany({ where: { id: { in: askIds } }, select: { id: true, deep_link: true, received_at: true }, orderBy: { received_at: 'desc' } }) : Promise.resolve([]),
+    clientIds.length ? db.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+  ]);
+  const link = new Map(asks.map((a) => [a.id, a.deep_link]));
+  const names = new Map(clients.map((c) => [c.id, c.name]));
+  return rows.map((r): RawSiteIncident => ({
+    site_id: r.site_id,
+    domain: r.domain,
+    client_id: r.client_id,
+    client_name: r.client_id ? (names.get(r.client_id) ?? null) : null,
+    source: r.source === 'kuma' ? 'kuma' : 'uptime_mail',
+    ask_ids: r.ask_ids,
+    started_at: r.started_at,
+    last_checked_at: r.last_checked_at,
+    last_check_up: r.last_check_up,
+    closed_at: r.closed_at,
+    close_reason: r.close_reason,
+    mail_links: r.ask_ids
+      .map((id) => link.get(id))
+      .filter((h): h is string => !!h)
+      .slice(0, 1)
+      .map((href) => ({ label: 'The email thread', href })),
+  }));
+}
+
+async function resolveZone(db: PrismaClient, userId: string, tz?: string): Promise<string> {
+  if (tz) return tz;
+  const pref = await db.userPreference.findUnique({ where: { user_id: userId }, select: { timezone: true } });
+  return pref?.timezone || DEFAULT_DISPLAY_TIMEZONE;
 }
 
 // ============================================================================
@@ -724,7 +798,7 @@ export async function loadHomeInputs(
   now: Date,
   opts: LoadHomeOptions = {}
 ): Promise<RawHomeInputs> {
-  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt] =
+  const [tasks, reviewFolds, sessionAsks, waits, threads, crises, autoHandled, calendarEvents, heldProjects, keeperLines, owedRows, drafterFreshAt, siteIncidents, notEmergencyRules, timezone] =
     await Promise.all([
       loadTasks(db, userId),
       loadReviewFolds(db, userId),
@@ -738,6 +812,9 @@ export async function loadHomeInputs(
       loadKeeperLines(db, userId, now),
       loadOwedRows(db, userId),
       loadDrafterFreshAt(db, userId),
+      loadSiteIncidents(db, userId, now),
+      loadNotEmergencyRules(db, userId),
+      resolveZone(db, userId, opts.timezone),
     ]);
 
   return {
@@ -756,5 +833,8 @@ export async function loadHomeInputs(
     keeper_lines: keeperLines,
     owed_rows: owedRows,
     drafter_fresh_at: drafterFreshAt,
+    timezone,
+    site_incidents: siteIncidents,
+    not_emergency_rules: notEmergencyRules,
   };
 }

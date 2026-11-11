@@ -158,3 +158,19 @@ describe('Slice 4a: owed thread buttons', () => {
   });
 });
 
+
+describe('actionsFor: Slice 6a', () => {
+  it('a site down row: open the mail, open the site, then Not an emergency; never Handled, Done or Not now', () => {
+    const r = actionsFor({ ...base, kind: 'site', emergency: true, mailUrl: 'https://mail/x', siteUrl: 'https://jillscafe.com/' });
+    expect(r.actions.map((a) => [a.id, a.href])).toEqual([
+      ['open_thread', 'https://mail/x'],
+      ['open_site', 'https://jillscafe.com/'],
+      ['not_emergency', null],
+    ]);
+    expect(ids(actionsFor({ ...base, kind: 'site', emergency: true, siteUrl: 'https://jillscafe.com/' }).actions)).toEqual(['open_site', 'not_emergency']);
+  });
+  it('the hands row has one button, Not this week, filled when it is the top Next row, and no More', () => {
+    expect(actionsFor({ ...base, kind: 'hands' })).toEqual({ actions: [{ id: 'not_this_week', label: 'Not this week', filled: false, href: null }], more_actions: [] });
+    expect(actionsFor({ ...base, kind: 'hands', filledFirst: true }).actions[0].filled).toBe(true);
+  });
+});

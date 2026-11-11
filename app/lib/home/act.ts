@@ -27,6 +27,8 @@ import { groupKeySchema, itemKeySchema, parseItemKey } from './item-key';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { ARC_STEP_KEYS_MAX, CLOSED_TASK_STATUSES, LEFT_OFF_NOTE_MAX, NOT_NOW, UNDO_WINDOW_HOURS } from './rules';
 import { loadHomeInputs } from './load';
+import { HANDS_PARKED_MESSAGE, RULE_ACTION } from './emergency/copy';
+import { HANDS_ITEM_KEY, nextHandsMonday } from './emergency/hands';
 import { clearOwedRequest, OWED_ACTION, requestOwed } from './owed/rows';
 import type { OwedRequestKind } from './owed/state';
 import { selectHome } from './select';
@@ -71,6 +73,7 @@ const RECORDED_IDS = [
   'open_wait',
   'open_draft',
   'open_thread',
+  'open_site',
   'no_reply_needed',
   'handled',
 ] as const;
@@ -120,6 +123,9 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('draft_now'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('needs_thought'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('go_with_that'), item_key: itemKeySchema }).strict(),
+  // Slice 6a: park the Monday hands row. There is deliberately no action here that saves a "Not an emergency" rule: that is
+  // POST /api/home/rule (browser session only), so the chat can never reach it.
+  z.object({ action: z.literal('not_this_week'), item_key: itemKeySchema }).strict(),
 ]);
 
 export const homeUndoSchema = z.object({ action_id: z.string().uuid() }).strict();
@@ -660,6 +666,19 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
       return { ...base, action: req.action, item_key: req.item_key, stateWrites: [], owed: { kind: tap.kind }, message: tap.message };
     }
 
+    case 'not_this_week': {
+      if (req.item_key !== HANDS_ITEM_KEY) throw new HomeActError('not_found', 'That is not the weekly hands row.');
+      return {
+        ...base,
+        action: req.action,
+        item_key: req.item_key,
+        stateWrites: [
+          { item_key: req.item_key, from: ctx.state, patch: { view_at: nextHandsMonday(now, ctx.timezone), view_set_by: 'user' } },
+        ],
+        message: HANDS_PARKED_MESSAGE,
+      };
+    }
+
     case 'record':
       return {
         action: req.action,
@@ -1044,6 +1063,8 @@ export async function runHomeUndo(
     if (row.undone_at) throw new HomeActError('undo_used');
     // Slice 4a: the keeper's "Drafted replies" line has no Undo; the drafts are his to keep or discard in Gmail.
     if (row.action === OWED_ACTION) throw new HomeActError('not_undoable', UNDONE_DRAFT_TEXT);
+    // Slice 6a: a saved rule is undone through its own store (it retracts the Decision); the generic undo would leave it confirmed.
+    if (row.action === RULE_ACTION) throw new HomeActError('not_undoable', 'A saved rule is removed from its own line under Handled for you.');
     const before = asSide(row.before);
     const after = asSide(row.after);
     if (row.action === 'record' || !row.undo_until || !before) throw new HomeActError('not_undoable');

@@ -1061,3 +1061,58 @@ describe('Slice 4a: draft_now, needs_thought, go_with_that', () => {
     expect(db.actions[0].undone_at).toBeNull();
   });
 });
+
+describe('Slice 6a: not_this_week, and no action saves a rule', () => {
+  const HANDS = 'hands:week';
+  const later = new Date(NOW.getTime() + 3600 * 1000);
+
+  it('the act schema never gains an action that saves a "Not an emergency" rule', () => {
+    const names = (homeActSchema as unknown as { options: Array<{ shape: { action: { value: string } } }> }).options.map((o) => o.shape.action.value);
+    expect(names).toContain('not_this_week');
+    expect(names.filter((n) => /rule|scope|site|sender|domain/i.test(n))).toEqual([]);
+    // The one-time not_emergency takes only its key: a scope or reason on it is a 400, never a rule.
+    expect(homeActSchema.safeParse({ action: 'not_emergency', item_key: T1 }).success).toBe(true);
+    expect(homeActSchema.safeParse({ action: 'not_emergency', item_key: T1, scope: 'sender' }).success).toBe(false);
+    expect(homeActSchema.safeParse({ action: 'not_emergency', item_key: T1, reason: 'noise' }).success).toBe(false);
+    for (const action of ['not_emergency_rule', 'save_rule', 'rule', 'not_emergency_sender', 'not_emergency_domain']) {
+      expect(homeActSchema.safeParse({ action, item_key: T1, scope: 'sender' }).success).toBe(false);
+    }
+  });
+
+  it('not_this_week parks only the hands row, to next Monday 00:05 in his zone', () => {
+    const plan = planAct({ action: 'not_this_week', item_key: HANDS }, { now: NOW, timezone: TZ, state: null, pinned: null, day: null });
+    expect(plan.stateWrites).toHaveLength(1);
+    expect(plan.stateWrites[0].patch).toEqual({ view_at: new Date('2026-11-16T05:05:00.000Z'), view_set_by: 'user' });
+    expect(plan.undoable).toBe(true);
+    expect(plan.message).toBe('Back next Monday.');
+    expect(() => planAct({ action: 'not_this_week', item_key: T1 }, { now: NOW, timezone: TZ, state: null, pinned: null, day: null })).toThrow(HomeActError);
+  });
+
+  it('not_this_week writes only his item state and a home action, and Undo puts the row back', async () => {
+    const db = makeDb();
+    const res = await runHomeAct(db as unknown as PrismaClient, U, { action: 'not_this_week', item_key: HANDS }, OPTS);
+    expect(db.states).toHaveLength(1);
+    expect(db.states[0]).toMatchObject({ user_id: U, item_key: HANDS, view_at: new Date('2026-11-16T05:05:00.000Z'), view_set_by: 'user' });
+    for (const m of [db.task, db.arc, db.wait, db.emailAsk]) for (const fn of Object.values(m)) expect(fn).not.toHaveBeenCalled();
+    await runHomeUndo(db as unknown as PrismaClient, U, res.action_id, later);
+    expect(db.states.every((r) => r.view_at === null || r.view_at === undefined)).toBe(true);
+  });
+
+  it('a saved rule is never undone by the generic undo (it would leave the Decision confirmed)', async () => {
+    const db = makeDb();
+    db.actions.push({
+      id: 'r1',
+      user_id: U,
+      item_key: 'crisis:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      action: 'not_emergency_rule',
+      source: 'user',
+      before: { states: [] },
+      after: { states: [], line: 'Saved a rule: mail from a@b.com is not an emergency.' },
+      undo_until: new Date(NOW.getTime() + 3600 * 1000),
+      undone_at: null,
+      created_at: NOW,
+    });
+    await expect(runHomeUndo(db as unknown as PrismaClient, U, 'r1', NOW)).rejects.toMatchObject({ code: 'not_undoable', statusCode: 409 });
+    expect(db.actions[0].undone_at).toBeNull();
+  });
+});

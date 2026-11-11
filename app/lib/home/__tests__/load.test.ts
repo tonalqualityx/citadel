@@ -92,6 +92,9 @@ function makeDb() {
     homeAction: { findMany: vi.fn().mockResolvedValue([]) },
     homeOwedThread: { findMany: vi.fn().mockResolvedValue([]) },
     homeKeeperRun: { findFirst: vi.fn().mockResolvedValue(null) },
+    homeSiteIncident: { findMany: vi.fn().mockResolvedValue([]) },
+    decision: { findMany: vi.fn().mockResolvedValue([]) },
+    client: { findMany: vi.fn().mockResolvedValue([]) },
     comment: { findMany: vi.fn().mockResolvedValue([]) },
     oracleSession: { findMany: vi.fn().mockResolvedValue([]) },
     wait: { findMany: vi.fn().mockResolvedValue([]) },
@@ -540,5 +543,78 @@ describe('loadHomeInputs: Slice 4a owed rows', () => {
     ]);
     const r = await loadHomeInputs(asDb(db), U, NOW);
     expect(r.keeper_lines.map((l) => l.action)).toEqual(['keeper_owed_drafts']);
+  });
+});
+
+describe('loadHomeInputs: Slice 6a site incidents, rules and lines', () => {
+  const inc = (over: object = {}) => ({
+    id: 'i1',
+    user_id: U,
+    site_id: 's1',
+    domain: 'jillscafe.com',
+    client_id: 'c1',
+    source: 'uptime_mail',
+    monitor: null,
+    ask_ids: ['e1'],
+    started_at: T('2026-11-10T14:00:00Z'),
+    last_checked_at: T('2026-11-10T14:55:00Z'),
+    last_check_up: false,
+    check_summary: null,
+    watchdog_escalated: false,
+    closed_at: null,
+    close_reason: null,
+    ...over,
+  });
+
+  it('reads this user\'s open incidents and answered mail ones of the last 3 days, with the client name and the mail link', async () => {
+    db.homeSiteIncident.findMany.mockResolvedValue([inc()]);
+    db.emailAsk.findMany.mockImplementation(async (a: { where: { id?: unknown } }) =>
+      a.where.id ? [{ id: 'e1', deep_link: 'https://mail/e1', received_at: T('2026-11-10T13:00:00Z') }] : [],
+    );
+    db.client.findMany.mockResolvedValue([{ id: 'c1', name: 'Jill' }]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    const arg = db.homeSiteIncident.findMany.mock.calls[0][0];
+    expect(arg.where.user_id).toBe(U);
+    expect(arg.where.OR[0]).toEqual({ closed_at: null });
+    expect(arg.where.OR[1]).toMatchObject({ source: 'uptime_mail', close_reason: 'answered' });
+    expect(arg.where.OR[1].closed_at.gte).toEqual(new Date(NOW.getTime() - 3 * 86400000));
+    expect(r.site_incidents).toHaveLength(1);
+    expect(r.site_incidents[0]).toMatchObject({ site_id: 's1', domain: 'jillscafe.com', client_name: 'Jill', source: 'uptime_mail', last_check_up: false });
+    expect(r.site_incidents[0].mail_links).toEqual([{ label: 'The email thread', href: 'https://mail/e1' }]);
+  });
+
+  it('no incidents means [] and no extra reads', async () => {
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.site_incidents).toEqual([]);
+    expect(db.client.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reads only this user\'s confirmed rules of the home-emergency lane, and the zone', async () => {
+    db.decision.findMany.mockResolvedValue([
+      { key: 'home-not-emergency:sender:alerts@wpmudev.com' },
+      { key: 'home-not-emergency:site:jillscafe.com' },
+      { key: 'something-else' },
+    ]);
+    const r = await loadHomeInputs(asDb(db), U, NOW, { timezone: 'America/Chicago' });
+    const arg = db.decision.findMany.mock.calls[0][0];
+    expect(arg.where).toMatchObject({ lane: 'home-emergency', status: 'confirmed', created_by_id: U });
+    expect(r.not_emergency_rules).toEqual([
+      { kind: 'sender', value: 'alerts@wpmudev.com' },
+      { kind: 'site', value: 'jillscafe.com' },
+    ]);
+    expect(r.timezone).toBe('America/Chicago');
+    const fallback = await loadHomeInputs(asDb(db), U, NOW);
+    expect(fallback.timezone).toBe('America/New_York');
+  });
+
+  it('keeps the "answers again" lines (no Undo id on the screen) and a saved-rule line while its Undo is open', async () => {
+    const rule = { id: 'r1', action: 'not_emergency_rule', after: { line: 'Saved a rule: mail from a@b.com is not an emergency.' }, created_at: T('2026-11-09T12:00:00Z'), undo_until: T('2026-11-16T12:00:00Z') };
+    const watch = { id: 'w1', action: 'watch_site_cleared', after: { line: 'jillscafe.com answers again (checked 10:42).', details: ['jillscafe.com'] }, created_at: T('2026-11-10T14:00:00Z'), undo_until: null };
+    db.homeAction.findMany.mockResolvedValueOnce([watch]).mockResolvedValueOnce([rule]);
+    const r = await loadHomeInputs(asDb(db), U, NOW);
+    expect(r.keeper_lines.map((l) => [l.id, l.action])).toEqual([['w1', 'watch_site_cleared'], ['r1', 'not_emergency_rule']]);
+    const second = db.homeAction.findMany.mock.calls[1][0];
+    expect(second.where).toMatchObject({ user_id: U, action: 'not_emergency_rule', undone_at: null });
+    expect(second.where.undo_until.gt).toEqual(NOW);
   });
 });
