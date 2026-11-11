@@ -92,7 +92,7 @@ import { hasBastDraft, ifIgnoredLine, owedSecondLine, owedStatus, type OwedRow, 
 import { cardSummary, truncateWords } from './plain-text';
 import { applyWeights, type WeightRow } from './learn/apply';
 import { learnedFooter } from './learn/copy';
-import { evidenceKeys } from './learn/evidence';
+import { evidenceKeys, isLearnableKey } from './learn/evidence';
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
@@ -1310,7 +1310,7 @@ export function selectHome(input: SelectInput): SelectResult {
   // Slice 7b: learned weights. Absent or all at 100 changes nothing. Applied once per candidate, before placement, so the
   // class, Next bands, rank and Today's arc all read the weighted urgency. Never on an emergency, crisis, site, hands row or bot task.
   const weightMap = new Map<string, WeightRow>();
-  for (const w of raw.weights ?? []) if (w.weight_pct !== 100) weightMap.set(w.evidence_key, w);
+  for (const w of raw.weights ?? []) if (w.weight_pct !== 100 && isLearnableKey(w.evidence_key)) weightMap.set(w.evidence_key, w);
   const tasksByKey = new Map(raw.tasks.map((x) => [taskKey(x.id), x]));
   const senderByThread = new Map(joinedThreads.threads.map((th) => [threadKey(th.account, th.thread_id), th.asks[0].from_email]));
   const learn = (c: Candidate, lead: boolean): void => {

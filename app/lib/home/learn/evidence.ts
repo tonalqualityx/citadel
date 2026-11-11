@@ -6,14 +6,15 @@
 
 import type { HomeSourceKind } from '../types';
 
-export const EVIDENCE_TYPES = ['review', 'session', 'wait', 'thread', 'task', 'step'] as const;
+/** Kinds that can take a weight. Tasks are the bulk of his list, so "tasks come up sooner" would say nothing: `type:task` never learns. */
+export const EVIDENCE_TYPES = ['review', 'session', 'wait', 'thread', 'step'] as const;
 export type EvidenceType = (typeof EVIDENCE_TYPES)[number];
 
 export type EvidenceKind = 'client' | 'project' | 'sop' | 'type' | 'sender';
 
 const KEY_MAX = 200;
 
-/** The type key for an item kind, or null for kinds that never take a weight (crisis, site, hands). */
+/** The type key for an item kind, or null for kinds that never take a type weight (task, crisis, site, hands). */
 export function typeOf(kind: HomeSourceKind): EvidenceType | null {
   return (EVIDENCE_TYPES as readonly string[]).includes(kind) ? (kind as EvidenceType) : null;
 }
@@ -29,18 +30,24 @@ export interface EvidenceInput {
 
 /** The evidence keys of one item, in a fixed order. [] for a kind that never takes a weight. */
 export function evidenceKeys(i: EvidenceInput): string[] {
+  if (i.kind === 'crisis' || i.kind === 'site' || i.kind === 'hands') return [];
   const type = typeOf(i.kind);
-  if (!type) return [];
   const keys: string[] = [];
   if (i.client_id) keys.push(`client:${i.client_id}`);
   if (i.project_id) keys.push(`project:${i.project_id}`);
   if (i.sop_id) keys.push(`sop:${i.sop_id}`);
-  keys.push(`type:${type}`);
+  if (type) keys.push(`type:${type}`);
   if (i.kind === 'thread' && !i.client_id && i.sender) {
     const s = i.sender.trim().toLowerCase();
     if (s) keys.push(`sender:${s}`);
   }
   return keys.filter((k) => k.length <= KEY_MAX);
+}
+
+/** False for a stored key that may never carry a weight (a `type:task` row, or an unknown type), so it is ignored everywhere. */
+export function isLearnableKey(key: string): boolean {
+  if (key.startsWith('type:')) return (EVIDENCE_TYPES as readonly string[]).includes(key.slice(5));
+  return evidenceKindOf(key) !== null;
 }
 
 export function evidenceKindOf(key: string): EvidenceKind | null {
@@ -70,7 +77,6 @@ export const TYPE_LABEL: Record<EvidenceType, string> = {
   session: 'session questions',
   wait: 'waits',
   thread: 'email threads',
-  task: 'tasks',
   step: 'project next steps',
 };
 

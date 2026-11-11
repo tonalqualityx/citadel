@@ -4,6 +4,7 @@
 
 import type { HomeDb } from '../state';
 import { learnedSettingsSentence } from './copy';
+import { isLearnableKey } from './evidence';
 import { WEIGHT } from './weights';
 
 export interface LearnedItem {
@@ -22,7 +23,7 @@ export async function listLearned(db: HomeDb, userId: string, tz: string): Promi
     select: { evidence_key: true, label: true, weight_pct: true, changed_at: true },
     orderBy: [{ changed_at: 'asc' }, { evidence_key: 'asc' }],
   });
-  return rows.map((r) => ({
+  return rows.filter((r) => isLearnableKey(r.evidence_key)).map((r) => ({
     evidence_key: r.evidence_key,
     sentence: learnedSettingsSentence(r.evidence_key, r.label, r.weight_pct, r.changed_at ? dayText(r.changed_at, tz) : null),
     since: r.changed_at ? r.changed_at.toISOString() : null,

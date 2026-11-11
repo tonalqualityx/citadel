@@ -26,6 +26,17 @@ describe('learningOn and setLearning', () => {
   });
 });
 
+describe('a stored type:task row is ignored', () => {
+  it('loadWeights drops it', async () => {
+    const findMany = vi.fn(async () => [
+      { evidence_key: 'type:task', label: 'tasks', weight_pct: 120 },
+      { evidence_key: 'client:x', label: 'X', weight_pct: 105 },
+    ]);
+    const db = { homeScoreWeight: { findMany } } as unknown as PrismaClient;
+    expect((await loadWeights(db, U)).map((w) => w.evidence_key)).toEqual(['client:x']);
+  });
+});
+
 describe('loadWeights', () => {
   it('reads the owner\'s weights not at 100', async () => {
     const findMany = vi.fn(async () => [{ evidence_key: 'client:x', label: 'X', weight_pct: 105 }]) as unknown as ReturnType<typeof vi.fn>;
@@ -135,10 +146,10 @@ describe('resolveEvidence', () => {
   it('rebuilds a task\'s evidence and labels, and marks an emergency-tagged one as protected', async () => {
     const d = db();
     const r = await resolveEvidence(d as unknown as PrismaClient, U, [`task:${T1}`, `task:${T2}`]);
-    expect(r.evidence.get(`task:${T1}`)).toEqual({ keys: [`client:${C1}`, 'type:task'], protected: false });
+    expect(r.evidence.get(`task:${T1}`)).toEqual({ keys: [`client:${C1}`], protected: false });
     expect(r.evidence.get(`task:${T2}`)?.protected).toBe(true);
     expect(r.labels.get(`client:${C1}`)).toBe('Nerd Herd');
-    expect(r.labels.get('type:task')).toBe('tasks');
+    expect(r.labels.has('type:task')).toBe(false);
   });
   it('reads tasks only when assigned to the owner (a bot\'s task never resolves)', async () => {
     const d = db();

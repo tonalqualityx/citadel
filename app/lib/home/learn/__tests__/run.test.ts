@@ -159,7 +159,8 @@ describe('runLearn', () => {
       expect(calls.some((c) => /^action\.keeper_learned\.keeper\.\w/.test(c) && !c.endsWith('.null'))).toBe(true);
       expect(calls).toContain(`weight.client:${CLIENT_X}.105`);
       // Never more than three shifts, and no write outside the owner's own home rows.
-      expect(calls.filter((c) => c.startsWith('weight.')).length).toBeLessThanOrEqual(3);
+      expect(calls.filter((c) => c.startsWith('weight.'))).toEqual([`weight.client:${CLIENT_X}.105`]);
+      expect(res.learned).toHaveLength(1);
       expect(calls.some((c) => /^(task|ask|wait|project)\./.test(c))).toBe(false);
     });
 
@@ -188,7 +189,6 @@ describe('runLearn', () => {
       const { db, calls } = fakeDb({ taps: XTAPS });
       (db as unknown as { homeScoreWeight: { findMany: unknown } }).homeScoreWeight.findMany = vi.fn(async () => [
         { evidence_key: `client:${CLIENT_X}`, weight_pct: 100, held_until: new Date('2026-12-10T00:00:00Z') },
-        { evidence_key: 'type:task', weight_pct: 100, held_until: new Date('2026-12-10T00:00:00Z') },
       ]);
       const res = await runLearn(db, OWNER, MONDAY, { dryRun: false });
       expect(res.learned).toEqual([]);

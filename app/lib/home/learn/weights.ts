@@ -3,6 +3,7 @@
  * Only on a Monday run, only with learning on, 5 at a time, at most 3 a week, only on the evidence floor, never a held key.
  */
 
+import { isLearnableKey } from './evidence';
 import { tally, type Signal } from './signals';
 
 export const WEIGHT = {
@@ -64,6 +65,7 @@ export function planShifts(input: PlanInput): Shift[] {
   if (input.historyDays < WEIGHT.historyDays) return [];
   const out: Shift[] = [];
   for (const t of tally(input.signals)) {
+    if (!isLearnableKey(t.key)) continue;
     const taps = t.up + t.down;
     if (taps < WEIGHT.minTaps || t.items < WEIGHT.minItems || t.days < WEIGHT.minDays) continue;
     const net = (t.up - t.down) / taps;

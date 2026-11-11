@@ -272,6 +272,16 @@ describe('Slice 7b: what a weight may and may not move', () => {
   });
 });
 
+describe('Slice 7b: type:task never learns', () => {
+  it('a stored type:task weight changes nothing', () => {
+    const t = makeTask({ client: makeClient('Any Co'), requested_by_contact_id: 'c', clock_started_at: d('2026-11-02T14:00:00Z') });
+    const raw = makeInputs({ now: NOW, tasks: [t] });
+    const r = run(raw, [], [W('type:task', 120, 'tasks')]);
+    expect(r.candidates.map((c) => c.score)).toEqual(run(raw, []).candidates.map((c) => c.score));
+    expect(r.candidates.some((c) => c.learned)).toBe(false);
+  });
+});
+
 function clientTaskFor(client: ReturnType<typeof makeClient>) {
   return makeTask({ client, requested_by_contact_id: 'c', clock_started_at: d('2026-11-02T14:00:00Z') });
 }

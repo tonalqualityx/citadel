@@ -11,7 +11,7 @@ import { hasClientBlockingTag, hasLifelineTag, hasSecurityTag } from '../rules';
 import { appendHomeAction, type HomeDb } from '../state';
 import type { WeightRow } from './apply';
 import { cleanLabel, learnedDetails, learnedLine, LEARNED_ACTION } from './copy';
-import { evidenceKeys, evidenceKindOf, evidenceLabel, typeLabel, type EvidenceKind } from './evidence';
+import { evidenceKeys, isLearnableKey, evidenceKindOf, evidenceLabel, typeLabel, type EvidenceKind } from './evidence';
 import { SIGNAL_ACTIONS, type ResolvedEvidence, type TapRow } from './signals';
 import { WEIGHT, type CurrentWeight, type Shift } from './weights';
 import { ymdInZone } from './working-hours';
@@ -41,13 +41,13 @@ export async function loadWeights(db: HomeDb, userId: string): Promise<WeightRow
     select: { evidence_key: true, label: true, weight_pct: true },
     orderBy: { evidence_key: 'asc' },
   });
-  return rows;
+  return rows.filter((r) => isLearnableKey(r.evidence_key));
 }
 
 /** Every weight row (also those at 100 and held), keyed by evidence. */
 export async function loadCurrentWeights(db: HomeDb, userId: string): Promise<Map<string, CurrentWeight>> {
   const rows = await db.homeScoreWeight.findMany({ where: { user_id: userId }, select: { evidence_key: true, weight_pct: true, held_until: true } });
-  return new Map(rows.map((r) => [r.evidence_key, { weight_pct: r.weight_pct, held_until: r.held_until }]));
+  return new Map(rows.filter((r) => isLearnableKey(r.evidence_key)).map((r) => [r.evidence_key, { weight_pct: r.weight_pct, held_until: r.held_until }]));
 }
 
 /** Whole days from his first home tap (source home) to now; 0 when there is none. */

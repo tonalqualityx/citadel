@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { evidenceKeys, evidenceKindOf, evidenceLabel, typeLabel, typeOf } from '../evidence';
+import { evidenceKeys, evidenceKindOf, evidenceLabel, isLearnableKey, typeLabel, typeOf } from '../evidence';
 
 describe('evidence keys', () => {
-  it('a task carries client, project, sop and type', () => {
-    expect(evidenceKeys({ kind: 'task', client_id: 'c', project_id: 'p', sop_id: 's' })).toEqual(['client:c', 'project:p', 'sop:s', 'type:task']);
+  it('a task carries client, project and sop, and never a type key', () => {
+    expect(evidenceKeys({ kind: 'task', client_id: 'c', project_id: 'p', sop_id: 's' })).toEqual(['client:c', 'project:p', 'sop:s']);
+    expect(evidenceKeys({ kind: 'task' })).toEqual([]);
+    expect(typeOf('task')).toBeNull();
   });
   it('every learnable kind has its type key', () => {
-    for (const k of ['review', 'session', 'wait', 'thread', 'task', 'step'] as const) expect(evidenceKeys({ kind: k })).toEqual([`type:${k}`]);
+    for (const k of ['review', 'session', 'wait', 'thread', 'step'] as const) expect(evidenceKeys({ kind: k })).toEqual([`type:${k}`]);
   });
   it('crisis mail, site rows and the hands row have no evidence at all', () => {
     for (const k of ['crisis', 'site', 'hands'] as const) {
@@ -17,7 +19,7 @@ describe('evidence keys', () => {
   it('a sender key only for a thread with no client, lower-cased', () => {
     expect(evidenceKeys({ kind: 'thread', sender: ' Pat@Example.com ' })).toEqual(['type:thread', 'sender:pat@example.com']);
     expect(evidenceKeys({ kind: 'thread', client_id: 'c', sender: 'pat@example.com' })).toEqual(['client:c', 'type:thread']);
-    expect(evidenceKeys({ kind: 'task', sender: 'pat@example.com' })).toEqual(['type:task']);
+    expect(evidenceKeys({ kind: 'task', sender: 'pat@example.com' })).toEqual([]);
   });
   it('labels read as the plan words', () => {
     expect(evidenceLabel('client', 'Nerd Herd')).toBe('Nerd Herd');
@@ -31,5 +33,12 @@ describe('evidence keys', () => {
     expect(typeLabel('type:step')).toBe('project next steps');
     expect(evidenceKindOf('sop:x')).toBe('sop');
     expect(evidenceKindOf('nope:x')).toBeNull();
+    expect(typeLabel('type:task')).toBeNull();
+  });
+  it('a stored type:task key is never learnable', () => {
+    expect(isLearnableKey('type:task')).toBe(false);
+    expect(isLearnableKey('type:thread')).toBe(true);
+    expect(isLearnableKey('client:x')).toBe(true);
+    expect(isLearnableKey('type:bogus')).toBe(false);
   });
 });

@@ -166,28 +166,26 @@ describe.skipIf(!SCRATCH)('Slice 7b: learned weights (real database)', () => {
     expect(await weightRows()).toEqual([]);
   });
 
-  it('a Monday run moves the weights by exactly one step and writes one Learned line each, with Undo for 7 days', async () => {
+  it('a Monday run moves the weights by exactly one step and writes exactly one Learned line, with Undo for 7 days', async () => {
     const res = await runLearn(prisma, adminId, MON_1, { dryRun: false });
     const rows = await weightRows();
-    expect(rows.map((r) => [r.evidence_key, r.weight_pct])).toEqual([
-      [`client:${clientX}`, 105],
-      ['type:task', 105],
-    ]);
+    // Tasks never learn as a kind: three taps on one client's tasks move that client only.
+    expect(rows.map((r) => [r.evidence_key, r.weight_pct])).toEqual([[`client:${clientX}`, 105]]);
     expect(rows.every((r) => r.signals_up === 3 && r.signals_down === 0 && r.held_until === null && r.changed_by_action_id)).toBe(true);
     const lines = await prisma.homeAction.findMany({ where: { user_id: adminId, action: 'keeper_learned' } });
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(1);
     for (const l of lines) {
       expect(l).toMatchObject({ source: 'keeper', item_key: null });
       expect(l.undo_until!.getTime()).toBe(MON_1.getTime() + 7 * DAY);
     }
-    expect(res.action_ids.length).toBeGreaterThanOrEqual(2);
+    expect(res.action_ids).toContain(lines[0].id);
   });
 
   it('on the screen: the lines are under Handled for you with Undo, X leads Next, and the emergency is still first', async () => {
     const { status, body } = await home();
     expect(status).toBe(200);
     const learned = body.sections.handled.filter((h: { text: string }) => h.text.startsWith('Learned:'));
-    expect(learned).toHaveLength(2);
+    expect(learned).toHaveLength(1);
     expect(learned.every((l: { undo_action_id: string | null }) => !!l.undo_action_id)).toBe(true);
     expect(learned.map((l: { text: string }) => l.text)).toContain(`Learned: Nerd Herd ${tag} work now comes up a little sooner.`);
     const learnedX = learned.find((l: { text: string }) => l.text.includes('Nerd Herd'));
@@ -209,7 +207,7 @@ describe.skipIf(!SCRATCH)('Slice 7b: learned weights (real database)', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.on).toBe(true);
-    expect(body.items).toHaveLength(2);
+    expect(body.items).toHaveLength(1);
     expect(body.items.map((i: { sentence: string }) => i.sentence)).toContain(`Nerd Herd ${tag} work comes up a little sooner, since November 30`);
     expect(JSON.stringify(body)).not.toMatch(/weight|pct|percent|signals|105/i);
   });
@@ -219,7 +217,7 @@ describe.skipIf(!SCRATCH)('Slice 7b: learned weights (real database)', () => {
     const res = await post('/api/home/learned', { action: 'put_back', evidence_key: `client:${clientX}` }, postLearned);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.items).toHaveLength(1);
+    expect(body.items).toHaveLength(0);
     const row = (await weightRows()).find((r) => r.evidence_key === `client:${clientX}`)!;
     expect(row.weight_pct).toBe(100);
     expect(row.held_until!.getTime()).toBe(MON_1.getTime() + 30 * DAY);
@@ -232,12 +230,14 @@ describe.skipIf(!SCRATCH)('Slice 7b: learned weights (real database)', () => {
   });
 
   it('Undo of a Learned line (the existing undo route) puts the weight back to 100 and holds it 30 days; compare and set', async () => {
-    const line = await prisma.homeAction.findFirst({ where: { user_id: adminId, action: 'keeper_learned', after: { path: ['weights', '0', 'evidence_key'], equals: 'type:task' } } });
+    // Fixture reset: the Put back above left the weight at 100; set it back to what the Learned line wrote.
+    await prisma.homeScoreWeight.updateMany({ where: { user_id: adminId }, data: { weight_pct: 105, held_until: null } });
+    const line = await prisma.homeAction.findFirst({ where: { user_id: adminId, action: 'keeper_learned' } });
     expect(line).not.toBeNull();
     as(adminId, 'admin');
     const res = await post('/api/home/undo', { action_id: line!.id }, postUndo);
     expect(res.status).toBe(200);
-    const row = (await weightRows()).find((r) => r.evidence_key === 'type:task')!;
+    const row = (await weightRows()).find((r) => r.evidence_key === `client:${clientX}`)!;
     expect(row.weight_pct).toBe(100);
     expect(row.held_until!.getTime()).toBe(MON_1.getTime() + 30 * DAY);
     // A second undo is refused.
@@ -253,7 +253,7 @@ describe.skipIf(!SCRATCH)('Slice 7b: learned weights (real database)', () => {
     expect(res.monday).toBe(true);
     expect(res.learned ?? []).toEqual([]);
     expect((await weightRows()).every((r) => r.weight_pct === 100)).toBe(true);
-    expect(await prisma.homeAction.count({ where: { user_id: adminId, action: 'keeper_learned' } })).toBe(2);
+    expect(await prisma.homeAction.count({ where: { user_id: adminId, action: 'keeper_learned' } })).toBe(1);
   });
 
   it('with Learn from my taps off nothing shifts; the switch is a session route', async () => {
@@ -278,7 +278,7 @@ describe.skipIf(!SCRATCH)('Slice 7b: learned weights (real database)', () => {
     as(adminId, 'admin', 'api_key');
     expect((await getLearned()).status).toBe(403);
     expect((await post('/api/home/learned', { action: 'learning', on: false }, postLearned)).status).toBe(403);
-    expect((await post('/api/home/learned', { action: 'put_back', evidence_key: 'type:task' }, postLearned)).status).toBe(403);
+    expect((await post('/api/home/learned', { action: 'put_back', evidence_key: `client:${clientX}` }, postLearned)).status).toBe(403);
     expect(JSON.stringify(await weightRows())).toBe(rowsBefore);
     expect((await prisma.homeKeeperSettings.findUnique({ where: { user_id: adminId } }))!.learn_weights).toBe(true);
   });
