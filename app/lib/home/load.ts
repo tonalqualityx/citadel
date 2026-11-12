@@ -99,6 +99,10 @@ const KEEPER_ACTIONS: readonly string[] = [
   'intake_close',
   // Work stage G: tasks closed from the looks-finished card (Undo for 72 hours)
   'finished_close',
+  // Triage: ideas released or dropped (Undo for 72 hours)
+  'triage_release',
+  'triage_release_plan',
+  'triage_drop',
   // Work stage D: a source attached quietly to the work it belongs to (Undo for 72 hours)
   'work_attach',
   // Work stage E: work started from a session, and the one-time clear of old session questions (Undo for 72 hours)

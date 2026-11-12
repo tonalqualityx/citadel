@@ -43,6 +43,8 @@ class Boundary extends React.Component<{ children: React.ReactNode }, { failed: 
 export interface BastChatDockProps {
   /** The card that is open on the home screen right now, or null. */
   card: OpenCardInput | null;
+  /** A number that goes up each time something on the screen asks the panel to open (Triage's Talk about this). */
+  openSignal?: number;
 }
 
 /**
@@ -58,12 +60,23 @@ export function BastChatDock(props: BastChatDockProps) {
   );
 }
 
-function DockInner({ card: cardInput }: BastChatDockProps) {
+function DockInner({ card: cardInput, openSignal = 0 }: BastChatDockProps) {
   const [open, setOpen] = React.useState(false);
   React.useEffect(() => {
     if (read(BAST_DOCK_OPEN_KEY) === 'open') setOpen(true);
   }, []);
   const chat = useBastChat({ open });
+  const focusButton = React.useRef(false);
+  const focusInput = React.useRef(false);
+  // Something on the screen asked for the panel (Talk about this). The first value is the page loading, not a request.
+  const lastSignal = React.useRef(openSignal);
+  React.useEffect(() => {
+    if (openSignal === lastSignal.current) return;
+    lastSignal.current = openSignal;
+    focusInput.current = true;
+    setOpen(true);
+    write(BAST_DOCK_OPEN_KEY, 'open');
+  }, [openSignal]);
 
   const [draft, setDraft] = React.useState('');
   const card = React.useMemo(() => cardFromInput(cardInput), [cardInput]);
@@ -77,8 +90,6 @@ function DockInner({ card: cardInput }: BastChatDockProps) {
 
   const buttonRef = React.useRef<HTMLButtonElement | null>(null);
   const panelRef = React.useRef<HTMLDivElement | null>(null);
-  const focusButton = React.useRef(false);
-  const focusInput = React.useRef(false);
 
   const setOpenPersist = React.useCallback((next: boolean) => {
     setOpen(next);
