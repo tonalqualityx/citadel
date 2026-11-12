@@ -17,7 +17,9 @@ import { mayOverride, trackedResponse } from '@/lib/work/tracked';
  * deliverables as its tasks. 200 {result: tracked, target_key, name, href, project_id, task_ids, action_id}, or {skipped: "home_off"}.
  * 409 target_finished for a project that is finished, 409 no_client when a project is needed and no client is known. `create_anyway`
  * is honoured for the owner's own session only, never a machine lane. One Handled line with Undo (72 hours). The oracle lane, and
- * the owner's session. TODO(stage-f): the estimated time spent.
+ * the owner's session.
+ * Work stage F: optional estimated_minutes (0 to 1440, or null) and estimate_basis (what it was inferred from) store one mike_estimate clock row on
+ * the new work; the answer carries clock_id and estimated_minutes. It is an estimate only: no time entry is made.
  */
 const bodySchema = z
   .object({
@@ -25,6 +27,8 @@ const bodySchema = z
     project_target: z.string().refine((k) => parseTargetKey(k) !== null, 'A project key is project:<id>').nullable(),
     deliverables: z.array(z.string().min(1).max(400)).max(DELIVERABLES_MAX),
     create_anyway: z.boolean().optional(),
+    estimated_minutes: z.number().int().min(0).max(1440).nullable().optional(),
+    estimate_basis: z.string().max(240).nullable().optional(),
   })
   .strict();
 
@@ -41,6 +45,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       project_target: body.project_target,
       deliverables: body.deliverables,
       create_anyway: mayOverride(auth, body.create_anyway),
+      estimated_minutes: body.estimated_minutes ?? null,
+      estimate_basis: body.estimate_basis ?? null,
       attached_by: attachedByFor(auth),
     });
     if (out.result === 'already_tracked') return trackedResponse(prisma, out.handled, { kind: 'session', ref: id });

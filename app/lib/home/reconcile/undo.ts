@@ -9,6 +9,7 @@
  *             started or blocked and his); the project it made goes to cancelled only while still in_progress with no other task;
  *             its time entry is soft deleted only while unchanged. What he changed since is left alone and the answer says so.
  *   log_time  the entry is soft deleted only while unchanged.
+ *   log_clock the entry is soft deleted only while unchanged, then the clock rows it answered are un-stamped (Work stage F).
  *   session   is undone by the home screen's own clear_session record (this row carries none).
  * After every Undo: a 30 day hold on the target and the card row's state 'undone'. "This was wrong" adds a 90 day hold and stamps the
  * message's wrong_at. Called inside runHomeUndo's transaction (db is a transaction client).
@@ -57,6 +58,12 @@ export async function undoReconcileRecord(db: PrismaClient, userId: string, rec:
     }
     case 'log_time': {
       if (!(await softDeleteEntry(db, userId, rec.time_entry_id, rec.started_at, rec.duration))) throw new ReconcileError('changed_since');
+      break;
+    }
+    case 'log_clock': {
+      // Work stage F: the entry goes (only while unchanged), then the estimate rows it answered are offered again.
+      if (!(await softDeleteEntry(db, userId, rec.time_entry_id, rec.started_at, rec.duration))) throw new ReconcileError('changed_since');
+      await db.workClock.updateMany({ where: { id: { in: rec.clock_ids }, time_entry_id: rec.time_entry_id }, data: { time_entry_id: null } });
       break;
     }
     case 'wait': {

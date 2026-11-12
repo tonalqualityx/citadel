@@ -8,6 +8,7 @@ import { ACTION_LABELS } from '@/lib/home/copy';
 import { bastReadLine, CLOSE_LEAD_LABEL, NOT_LEAD_ASK, SHORT_DRAFT_TITLE, suggestedAnswerLine, TREAT_AS_REPLY_LABEL } from '@/lib/home/owed/copy';
 import { RULE_ASK_TITLE, RULE_REASON_MAX, RULE_SAVE_LABEL } from '@/lib/home/emergency/copy';
 import { plain } from './home-screen-logic';
+import { WorkClockLines } from './WorkClockLines';
 
 /** The time choices of a sent-mail card: minutes, null for none. */
 const NUMBER_MAX = 1440;
@@ -399,6 +400,7 @@ export function ItemCard({
                   </ul>
                 </>
               ) : null}
+              {o.task_id ? <WorkClockLines targetKey={`task:${o.task_id}`} /> : null}
               {item.default_if_ignored ? (
                 <>
                   <h3>If you do nothing</h3>

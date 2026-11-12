@@ -5438,3 +5438,37 @@ model WorkStaleAskClear {
   @@index([run_key])
   @@map("work_stale_ask_clear")
 }
+
+// ============================================
+// Work stage F: the two clocks. Kept OUT of time_entries on purpose: that table has about 23 readers and the retainer report counts every
+// billable entry whatever the user, so Bast's time there would leak into retainer and billing. Nothing here is ever shown to a client:
+// the portal, client reports, retainer reports and Steward never read it (lib/work/__tests__/clock-guard.test.ts is the invariant). A time
+// entry exists only after the owner's own tap ("Log it?"), which stamps time_entry_id. No foreign keys on purpose, like work_link.
+// kind mike_estimate = Bast's estimate of the owner's active time, inferred from session timestamps; bast_run = Bast's own measured working time.
+// ============================================
+model WorkClock {
+  id                  String   @id @default(uuid()) @db.Uuid
+  kind                String   @db.VarChar(20) // mike_estimate | bast_run
+  user_id             String?  @db.Uuid // the owner, for mike_estimate
+  target_key          String?  @db.VarChar(60) // project:<id> | task:<id>; null = time before any link (never shown)
+  project_id          String?  @db.Uuid // the project of the target (for a task, its own project), for the project total
+  task_id             String?  @db.Uuid
+  session_external_id String?  @db.VarChar(255)
+  source              String   @db.VarChar(30) // session | citadel-worker | workflow | track
+  started_at          DateTime
+  ended_at            DateTime
+  minutes             Int
+  agent_minutes       Int? // subagent and workflow minutes inside the same window
+  cost_usd            Decimal? @db.Decimal(10, 4) // real ledger cost for unattended runs only; null for interactive turns
+  model               String?  @db.VarChar(20)
+  basis               String?  @db.VarChar(300) // what the figure was inferred from, shown beside every estimate
+  time_entry_id       String?  @db.Uuid // set only by the owner's Log it tap
+  dedupe_key          String   @unique @db.VarChar(300)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@index([target_key, started_at])
+  @@index([project_id, started_at])
+  @@index([task_id, started_at])
+  @@map("work_clock")
+}

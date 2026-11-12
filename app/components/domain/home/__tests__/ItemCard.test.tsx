@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+// Work stage F: the clock lines read their own hooks; they have their own test (WorkClockLines.test.tsx).
+vi.mock('../WorkClockLines', () => ({ WorkClockLines: () => null }));
 import { ItemCard } from '../ItemCard';
 import type { HomeItem } from '@/lib/home/types';
 

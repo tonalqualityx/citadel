@@ -114,7 +114,8 @@ export function postHomeUndo(actionId: string, wrong = false): Promise<HomeUndoR
 export type HomeReconcileRequest =
   | { action: 'track_it'; item_key: string; placement: 'project' | 'new_project' | 'none'; minutes: number | null; billable: boolean }
   | { action: 'log_time'; task_id: string; minutes: number; day: string }
-  | { action: 'proposal_yes'; item_key: string; minutes: number | null };
+  | { action: 'proposal_yes'; item_key: string; minutes: number | null }
+  | { action: 'log_clock'; target_key: string; minutes: number; billable?: boolean };
 
 export function postHomeReconcile(body: HomeReconcileRequest): Promise<HomeActResponse> {
   return apiClient.post<HomeActResponse>('/home/reconcile', body);

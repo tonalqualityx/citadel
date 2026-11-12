@@ -284,6 +284,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/oracle/sessions/:id/close-task'),
     r('POST', '/api/oracle/sessions/:id/track'),
     r('POST', '/api/oracle/sessions/stale-asks'),
+    // Work stage F: the two clocks (the session hooks post Mike's estimated active time and Bast's working time; work_clock only, never a time entry)
+    r('POST', '/api/oracle/clocks'),
   ],
   // Designer Portal daemon (design D2, 7.3). Service user designer-worker@indelible.bot; exactly these 14.
   'design-worker': [
@@ -352,6 +354,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/work/attach'),
     // Work stage B: what replayed intake decisions would change (writes nothing)
     r('POST', '/api/bast-chat/worker/decision-replay'),
+    // Work stage F: the nightly keeper posts the ledger-derived Bast working time (work_clock only; never a time entry)
+    r('POST', '/api/oracle/clocks'),
     // Session card: one session waiting on the owner (read only; the owner's own, by external id or row id)
     r('GET', '/api/bast-chat/worker/session-asks/:id'),
     // Chat read: what the courier sent or queued (name and domain only, no bodies; read only)

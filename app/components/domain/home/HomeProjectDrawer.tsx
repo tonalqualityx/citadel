@@ -24,6 +24,7 @@ import {
   stripMikePrefix,
 } from '@/lib/home/projects/copy';
 import { plain } from './home-screen-logic';
+import { WorkClockLines } from './WorkClockLines';
 
 export interface HomeProjectDrawerProps {
   /** The project to show, or null when the drawer is closed. */
@@ -119,6 +120,9 @@ export function HomeProjectDrawer({ projectId, card, userId, timeZone, renderIte
                     ) : null}
                   </section>
                 ) : null}
+
+                {/* Work stage F: his estimated time and Bast's working time, owner only; never shown to a client */}
+                {projectId ? <WorkClockLines targetKey={`project:${projectId}`} /> : null}
 
                 {step && step.text ? (
                   <section data-testid="home-project-next-step">

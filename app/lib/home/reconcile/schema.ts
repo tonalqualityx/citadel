@@ -156,6 +156,8 @@ export const homeReconcileBodySchema = z.discriminatedUnion('action', [
     })
     .strict(),
   z.object({ action: z.literal('log_time'), task_id: z.string().uuid(), minutes: z.number().int().min(1).max(1440), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),
+  // Work stage F: "Log it?" on a clock estimate. target_key is project:<id> or task:<id>; the minutes are his choice (the estimate is preselected).
+  z.object({ action: z.literal('log_clock'), target_key: z.string().min(10).max(60), minutes: z.number().int().min(1).max(1440), billable: z.boolean().optional() }).strict(),
   z.object({ action: z.literal('proposal_yes'), item_key: itemKeySchema, minutes: z.number().int().min(0).max(1440).nullable() }).strict(),
 ]);
 export type HomeReconcileBody = z.output<typeof homeReconcileBodySchema>;

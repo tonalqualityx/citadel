@@ -17,6 +17,8 @@ export type ReconcileRecord =
       time_duration: number | null;
     }
   | { kind: 'log_time'; task_id: string; time_entry_id: string; started_at: string; duration: number }
+  /** Work stage F: his Log it tap on a clock estimate. Undo soft deletes the entry and un-stamps the clock rows it answered. */
+  | { kind: 'log_clock'; target_key: string; time_entry_id: string; started_at: string; duration: number; clock_ids: string[] }
   | { kind: 'no'; change_id: string };
 
 export function readRecord(v: unknown): ReconcileRecord | null {

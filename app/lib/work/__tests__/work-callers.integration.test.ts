@@ -26,6 +26,7 @@ import { POST as evidencePost } from '@/app/api/oracle/sessions/[id]/evidence/ro
 import { POST as closePost } from '@/app/api/oracle/sessions/[id]/close-task/route';
 import { POST as trackPost } from '@/app/api/oracle/sessions/[id]/track/route';
 import { POST as stalePost } from '@/app/api/oracle/sessions/stale-asks/route';
+import { POST as clocksPost } from '@/app/api/oracle/clocks/route';
 import { GET as stateGet } from '@/app/api/work/[key]/state/route';
 import { POST as attachPost } from '@/app/api/work/attach/route';
 import { POST as workEvidencePost } from '@/app/api/work/evidence/route';
@@ -107,6 +108,8 @@ describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () =>
     ['close-task', () => closePost(jreq('/api/oracle/sessions/s1/close-task', 'POST'), sid('s1'))],
     ['track', () => trackPost(jreq('/api/oracle/sessions/s1/track', 'POST'), sid('s1'))],
     ['stale-asks', () => stalePost(jreq('/api/oracle/sessions/stale-asks', 'POST'))],
+    // Work stage F: the clocks the session hooks post
+    ['clocks', () => clocksPost(jreq('/api/oracle/clocks', 'POST'))],
   ];
 
   describe('an unlaned oracle service user key (as production has it)', () => {
@@ -128,6 +131,35 @@ describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () =>
       as('oracle');
       expect((await attachPost(jreq('/api/work/attach', 'POST'))).status).toBe(400);
       expect((await workEvidencePost(jreq('/api/work/evidence', 'POST'))).status).toBe(400);
+    });
+  });
+
+  describe('Work stage F: the clocks, posted by the unlaned oracle service key', () => {
+    it('the real key-to-auth path accepts the unlaned key, saves a row for the owner, and refuses the other service user and a courier-lane key', async () => {
+      const ownerSettings = await prisma.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
+      await prisma.userPreference.upsert({ where: { user_id: adminId }, create: { user_id: adminId, home_view: 'home', timezone: 'America/New_York' }, update: { home_view: 'home' } });
+      await prisma.bastChatSettings.upsert({ where: { id: 1 }, create: { id: 1, owner_user_id: adminId }, update: { owner_user_id: adminId } });
+      const dedupe = `${tag}-clock`;
+      const started = new Date(Date.now() - 3 * 3_600_000);
+      const row = { kind: 'bast_run', target_key: `task:${openTaskId}`, session_external_id: `sess-${tag}`, source: 'citadel-worker', started_at: started.toISOString(), ended_at: new Date(started.getTime() + 20 * 60_000).toISOString(), minutes: 20, cost_usd: 1.25, model: 'sonnet', basis: 'worker pass', dedupe_key: dedupe };
+      try {
+        as('oracle');
+        const ok = await clocksPost(jreq('/api/oracle/clocks', 'POST', { rows: [row] }));
+        expect(ok.status).toBe(200);
+        expect(await ok.json()).toMatchObject({ result: 'saved', created: 1, updated: 0, refused: [] });
+        expect(await prisma.workClock.findUniqueOrThrow({ where: { dedupe_key: dedupe } })).toMatchObject({ kind: 'bast_run', task_id: openTaskId, user_id: null, time_entry_id: null });
+        expect(await prisma.timeEntry.count({ where: { task_id: openTaskId } })).toBe(0);
+        as('other');
+        expect((await clocksPost(jreq('/api/oracle/clocks', 'POST', { rows: [{ ...row, dedupe_key: `${dedupe}-2` }] }))).status).toBe(403);
+        as('courier', { 'x-citadel-route': 'POST /api/oracle/clocks' });
+        expect((await clocksPost(jreq('/api/oracle/clocks', 'POST', { rows: [{ ...row, dedupe_key: `${dedupe}-3` }] }))).status).toBe(403);
+        expect(await prisma.workClock.count({ where: { dedupe_key: { startsWith: dedupe } } })).toBe(1);
+      } finally {
+        await prisma.workClock.deleteMany({ where: { dedupe_key: { startsWith: dedupe } } });
+        if (ownerSettings) await prisma.bastChatSettings.update({ where: { id: 1 }, data: { owner_user_id: ownerSettings.owner_user_id } });
+        else await prisma.bastChatSettings.deleteMany({ where: { id: 1 } });
+        await prisma.userPreference.deleteMany({ where: { user_id: adminId } });
+      }
     });
   });
 

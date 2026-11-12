@@ -41,3 +41,6 @@ export const SESSION_LANES = ['oracle'] as const;
 
 /** A session's external id as a URL part: a short safe token (the same rule a session card id uses). */
 export const SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,255}$/;
+
+/** Work stage F: the clock rows are posted by the session hooks (oracle lane, or its unlaned service key) and the nightly keeper (bast-chat lane). */
+export const CLOCK_LANES = ['oracle', 'bast-chat'] as const;

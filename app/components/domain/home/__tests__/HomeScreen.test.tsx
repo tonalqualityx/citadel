@@ -77,6 +77,8 @@ vi.mock('../TodayList', () => ({
   ),
 }));
 
+// Work stage F: the clock lines read their own hooks; they have their own test (WorkClockLines.test.tsx).
+vi.mock('../WorkClockLines', () => ({ WorkClockLines: () => null }));
 import { HomeScreen } from '../HomeScreen';
 
 function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {

@@ -8,6 +8,8 @@ vi.mock('@/lib/hooks/use-home-project', () => ({ useHomeProject: () => h.q }));
 // Work stage D: the drawer's Attached list reads its own hook; here it has nothing yet.
 vi.mock('@/lib/hooks/use-work-state', () => ({ useWorkState: () => ({ data: undefined }) }));
 
+// Work stage F: the clock lines read their own hooks; they have their own test (WorkClockLines.test.tsx).
+vi.mock('../WorkClockLines', () => ({ WorkClockLines: () => null }));
 import { HomeProjectDrawer } from '../HomeProjectDrawer';
 
 function mkItem(key: string, over: Partial<HomeItem> = {}): HomeItem {

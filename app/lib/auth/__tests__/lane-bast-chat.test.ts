@@ -66,6 +66,8 @@ const EXPECTED = [
   'GET /api/work/:key/state',
   'POST /api/work/attach',
   'POST /api/bast-chat/worker/decision-replay',
+  // Work stage F: the nightly keeper posts the ledger-derived Bast working time (work_clock only)
+  'POST /api/oracle/clocks',
   'GET /api/bast-chat/worker/session-asks/:id',
   'GET /api/bast-chat/worker/sends',
   'GET /api/tasks',
@@ -189,7 +191,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 49 entries of the plan, and nothing else', () => {
+  it('holds exactly the 50 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -202,7 +204,7 @@ describe('lane bast-chat: the list', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
     expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
     for (const r of writes) {
-      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/work/attach';
+      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/work/attach' || r.pattern === '/api/oracle/clocks';
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });
@@ -217,9 +219,9 @@ describe('lane bast-chat: no other lane gained anything', () => {
   it('every other lane route list is byte for byte the one on main before this build', () => {
     // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A and work stage B each add one porter line).
     const rows = LANES.filter((l) => l !== 'bast-chat').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(173); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear)
+    expect(rows).toHaveLength(174); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear), and oracle POST /api/oracle/clocks (work stage F)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      '14a5327b5ca64fd217280dc66fdab9fc68f43cec544f0a5d816fd9461d063aad', // main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E
+      '78ffa238f22a6f92468cda9092ad60a9ab0ac97772054a2ba86059aae8c25f48', // main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E and the one oracle line of work stage F
     );
   });
 
