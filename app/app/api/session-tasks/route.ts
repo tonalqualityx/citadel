@@ -9,6 +9,7 @@ import { serializeRichText } from '@/lib/api/blocknote';
 import { resolveArc } from '@/lib/arc-resolution';
 import { SEVERITY_TO_PRIORITY } from '@/lib/ask-severity';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
+import { hasSecurityWords } from '@/lib/work/stale-asks';
 import { checkTracked } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
 import { mayOverride, trackedResponse } from '@/lib/work/tracked';
 
@@ -88,11 +89,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ...formatTaskResponse(updated), deduped: true });
     }
 
+    // Security wording in the title or a plain-text description: guard-exempt and tagged security (never dismiss a security flag).
+    const isSecurity = hasSecurityWords(data.title, typeof data.description === 'string' ? data.description : null);
+
     // Work stage D: a session whose work is already carried by open work parks nothing new. A client-blocking or launch-blocking ask keeps
     // its own path and is never answered "already tracked".
     {
       const source = { kind: 'session' as const, ref: data.session_external_id };
-      const tracked = await checkTracked(prisma, [source], { override: mayOverride(auth, data.create_anyway), urgent: data.severity === 'client_blocking' || data.severity === 'launch_blocking' });
+      const tracked = await checkTracked(prisma, [source], { override: mayOverride(auth, data.create_anyway), urgent: data.severity === 'client_blocking' || data.severity === 'launch_blocking' || isSecurity });
       if (tracked) return trackedResponse(prisma, tracked, source);
     }
 
@@ -158,6 +162,7 @@ export async function POST(request: NextRequest) {
         source_session_external_id: data.session_external_id,
         arc_id: arcId,
         needs_review: false,
+        ...(isSecurity ? { tags: ['security'] } : {}),
         created_by_id: auth.userId,
       },
       include: TASK_INCLUDE,

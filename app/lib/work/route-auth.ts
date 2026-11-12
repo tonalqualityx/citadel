@@ -4,22 +4,35 @@
  */
 import { AuthError } from '@/lib/api/errors';
 import type { AuthPayload } from '@/lib/auth/middleware';
+import { isOracleBot } from '@/lib/oracle/helpers';
 import type { AttachedBy } from './links';
 
 export const STATE_LANES = ['bast', 'oracle', 'bast-chat', 'porter'] as const;
 export const ATTACH_LANES = ['porter', 'oracle', 'bast-chat'] as const;
 export const EVIDENCE_LANES = ['bast', 'courier', 'porter', 'oracle'] as const;
 
-export function requireWorkCaller(auth: Pick<AuthPayload, 'role' | 'lane'>, lanes: readonly string[]): void {
+type CallerAuth = Pick<AuthPayload, 'role' | 'lane'> & Partial<Pick<AuthPayload, 'email' | 'via'>>;
+
+/**
+ * The oracle service user's own machine key carries no lane:<name> scope in production (lanes come only from a lane: entry in a key's
+ * scopes, so an unscoped key reaches the route with no lane). That key, and only that key, stands in for the oracle lane: an API key,
+ * no lane, whose user is the oracle service user (isOracleBot). Any other unlaned non-admin key stays refused.
+ */
+export function isUnlanedOracleKey(auth: CallerAuth): boolean {
+  return !auth.lane && auth.via === 'api_key' && isOracleBot(auth);
+}
+
+export function requireWorkCaller(auth: CallerAuth, lanes: readonly string[]): void {
   if (auth.role === 'admin') return;
   if (auth.lane && lanes.includes(auth.lane)) return;
+  if (lanes.includes('oracle') && isUnlanedOracleKey(auth)) return;
   throw new AuthError('Insufficient permissions', 403);
 }
 
 /** Who attached: the porter (intake) is `intake`; the owner's own session is `mike`; every other lane is `bast`. */
-export function attachedByFor(auth: Pick<AuthPayload, 'role' | 'lane'>): AttachedBy {
+export function attachedByFor(auth: CallerAuth): AttachedBy {
   if (auth.lane === 'porter') return 'intake';
-  if (auth.lane) return 'bast';
+  if (auth.lane || isUnlanedOracleKey(auth)) return 'bast';
   return 'mike';
 }
 

@@ -36,6 +36,7 @@ vi.mock('@/lib/db/prisma', () => ({
 }));
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
+import { checkTracked } from '@/lib/work/guard';
 import { prisma } from '@/lib/db/prisma';
 
 const mockRequireAuth = vi.mocked(requireAuth);
@@ -224,5 +225,22 @@ describe('POST /api/email-asks/[id]/create-task', () => {
 
     const res = await POST(req(), ctx());
     expect(res.status).toBe(500);
+  });
+
+  it('security-worded, non-urgent mail is guard-exempt and the task is tagged security', async () => {
+    mockAskFindUnique.mockResolvedValue(ask({ is_urgent: false, severity: 'internal', subject: 'Security alert: new sign-in', gist: 'Provider notice' }));
+    mockTaskCreate.mockResolvedValue({ id: 'task-s' });
+    const res = await POST(req(), ctx());
+    expect(res.status).toBe(201);
+    expect(vi.mocked(checkTracked).mock.calls[0][2]).toMatchObject({ urgent: true });
+    expect(mockTaskCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ tags: ['security'] }) }));
+  });
+
+  it('ordinary non-urgent mail keeps the guard (urgent false) and gets no tags', async () => {
+    mockAskFindUnique.mockResolvedValue(ask({ is_urgent: false, severity: 'internal', subject: 'Lunch', gist: 'Pizza' }));
+    mockTaskCreate.mockResolvedValue({ id: 'task-o' });
+    await POST(req(), ctx());
+    expect(vi.mocked(checkTracked).mock.calls[0][2]).toMatchObject({ urgent: false });
+    expect(mockTaskCreate.mock.calls[0][0].data.tags).toBeUndefined();
   });
 });

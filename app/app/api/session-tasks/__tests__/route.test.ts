@@ -31,6 +31,7 @@ vi.mock('@/lib/db/prisma', () => ({
 }));
 
 import { requireAuth } from '@/lib/auth/middleware';
+import { checkTracked } from '@/lib/work/guard';
 import { prisma } from '@/lib/db/prisma';
 
 const mockRequireAuth = vi.mocked(requireAuth);
@@ -454,5 +455,24 @@ describe('POST /api/session-tasks — arc resolution', () => {
     );
     expect(mockArcFindUnique).not.toHaveBeenCalled();
     expect(mockArcFindMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/session-tasks — security wording', () => {
+  it('a security-worded title is guard-exempt and the task is tagged security', async () => {
+    mockUserFindUnique.mockResolvedValue({ id: ASSIGNEE_ID, is_active: true });
+    mockTaskCreate.mockResolvedValue(mockTask());
+    const res = await POST(postRequest({ session_external_id: 'sess-sec', title: 'Possible compromise on the Griswold site' }));
+    expect(res.status).toBe(201);
+    expect(vi.mocked(checkTracked).mock.calls.at(-1)?.[2]).toMatchObject({ urgent: true });
+    expect(mockTaskCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ tags: ['security'] }) }));
+  });
+
+  it('an ordinary title keeps the guard and gets no tags', async () => {
+    mockUserFindUnique.mockResolvedValue({ id: ASSIGNEE_ID, is_active: true });
+    mockTaskCreate.mockResolvedValue(mockTask());
+    await POST(postRequest({ session_external_id: 'sess-ord', title: 'Update the footer' }));
+    expect(vi.mocked(checkTracked).mock.calls.at(-1)?.[2]).toMatchObject({ urgent: false });
+    expect(mockTaskCreate.mock.calls.at(-1)?.[0].data.tags).toBeUndefined();
   });
 });

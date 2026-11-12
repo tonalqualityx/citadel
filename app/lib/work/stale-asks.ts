@@ -33,7 +33,10 @@ const SAMPLE = 10;
 /** The most one run clears (the plan counts 357 today). */
 export const STALE_RUN_MAX = 2000;
 
-const SECURITY_WORDS = /\b(security|compromis\w*|malware|breach\w*|hack\w*|phish\w*|ransom\w*|vulnerab\w*|backdoor|exploit\w*|intrusion|spam\s+dirs?)\b/i;
+export const SECURITY_WORDS = /\b(security|compromis\w*|malware|breach\w*|hack\w*|phish\w*|ransom\w*|vulnerab\w*|backdoor|exploit\w*|intrusion|spam\s+dirs?)\b/i;
+
+/** The server's one security wording test: any of these parts says security. */
+export const hasSecurityWords = (...parts: Array<string | null | undefined>): boolean => SECURITY_WORDS.test(parts.filter(Boolean).join(' '));
 
 export const isLiveSessionStatus = (status: string): boolean => status === 'running' || status === 'waiting';
 

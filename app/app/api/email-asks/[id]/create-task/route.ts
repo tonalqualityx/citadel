@@ -9,6 +9,7 @@ import { resolveArc } from '@/lib/arc-resolution';
 import { priorityForSeverity } from '@/lib/ask-severity';
 import { stripSubjectPrefix, matchClientByEmailDomain, normalizeGmailDeepLink } from '@/lib/email-asks';
 import { checkTracked } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
+import { hasSecurityWords } from '@/lib/work/stale-asks';
 import { emailRefOfAsk } from '@/lib/work/keys';
 import { mayOverride, trackedResponse } from '@/lib/work/tracked';
 
@@ -69,11 +70,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json().catch(() => ({}));
     const data = createTaskSchema.parse(body);
 
+    // Security mail (the server's one security wording test, on the subject and gist) is never filed as plain tracked work, whatever
+    // its urgency flag says: it is guard-exempt and the task is tagged security. Never dismiss a security flag.
+    const isSecurity = hasSecurityWords(ask.subject, ask.gist);
+
     // Work stage D: the conversation is attached to open work (a project or another task): answer with it, create nothing. An urgent ask
     // keeps its own path and is never answered "already tracked".
     {
       const source = { kind: 'email' as const, ref: emailRefOfAsk(ask) };
-      const tracked = await checkTracked(prisma, [source], { override: mayOverride(auth, data.create_anyway), urgent: ask.is_urgent });
+      const tracked = await checkTracked(prisma, [source], { override: mayOverride(auth, data.create_anyway), urgent: ask.is_urgent || isSecurity });
       if (tracked) return trackedResponse(prisma, tracked, source);
     }
 
@@ -120,6 +125,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         arc_id: arcId,
         sop_id: data.sop_id ?? null,
         needs_review: false,
+        ...(isSecurity ? { tags: ['security'] } : {}),
         created_by_id: auth.userId,
       },
       include: TASK_INCLUDE,
