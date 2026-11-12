@@ -589,7 +589,12 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
   if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
   if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
   const doneWhen = task.requirements
-    .map((r) => ({ text: displayText(r.text), done: r.completed }))
+    .map((r) => ({
+      text: displayText(r.text),
+      done: r.completed,
+      ...(r.id ? { id: r.id } : {}),
+      ...(r.answer ? { answer: displayText(r.answer) } : {}),
+    }))
     .filter((r) => r.text !== '');
   const bast = bastSummary(task, st);
   const item: HomeItem = {

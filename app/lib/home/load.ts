@@ -69,6 +69,7 @@ import { loadReconcile } from './reconcile/screen';
 import { askIsOwed, askShowsAsMeeting, linkedTaskFacts } from '@/lib/work/owed';
 import { INTAKE_CLOSE_REASONS, loadHandledMail } from '@/lib/work/intake';
 import { loadFinishedCard } from '@/lib/work/finished-store';
+import { latestAnswers } from '@/lib/tasks/checklist-answers';
 import { loadSessionFinishedCards } from '@/lib/work/sessions-store';
 import { loadAttachQuestions } from '@/lib/work/attach-store';
 import { attachedTrackCardIds, guardSessionAsks, handledAskIds, loadTaskAttachments } from '@/lib/work/home-guard';
@@ -190,7 +191,7 @@ function toNumber(v: unknown): number | null {
 /** Task.requirements (Json) as deliverables, in sort_order. [] when none or unreadable. */
 function readRequirements(json: unknown): RawRequirement[] {
   if (!Array.isArray(json)) return [];
-  const items: { text: string; completed: boolean; sort: number; idx: number }[] = [];
+  const items: { text: string; completed: boolean; sort: number; idx: number; id?: string }[] = [];
   json.forEach((r, idx) => {
     if (!r || typeof r !== 'object') return;
     const o = r as Record<string, unknown>;
@@ -200,10 +201,11 @@ function readRequirements(json: unknown): RawRequirement[] {
       completed: o.completed === true,
       sort: typeof o.sort_order === 'number' ? o.sort_order : idx,
       idx,
+      ...(typeof o.id === 'string' && o.id !== '' ? { id: o.id } : {}),
     });
   });
   items.sort((a, b) => a.sort - b.sort || a.idx - b.idx);
-  return items.map(({ text, completed }) => ({ text, completed }));
+  return items.map(({ text, completed, id }) => ({ text, completed, ...(id ? { id } : {}) }));
 }
 
 function clientRef(c: { id: string; name: string; status: RawClientRef['status'] } | null | undefined): RawClientRef | null {
@@ -321,6 +323,21 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
     emailsByTask.set(a.task_id, list);
   }
 
+  // The answers he saved on a checklist item (comments that start `Answer on "..."`), for the tasks that show a checklist.
+  const listed = new Map(rows.map((t) => [t.id, readRequirements(t.requirements)]));
+  const withLists = rows.filter((t) => (listed.get(t.id) ?? []).length >= 2).map((t) => t.id);
+  const answersByTask = new Map<string, Map<number, string>>();
+  if (withLists.length > 0) {
+    const answerRows = await db.comment.findMany({
+      where: { task_id: { in: withLists }, is_deleted: false, content: { contains: 'Answer on "' } },
+      select: { task_id: true, content: true, chat_meta: true },
+      orderBy: { created_at: 'asc' },
+    });
+    const byTask = new Map<string, { content: string; chat_meta: unknown }[]>();
+    for (const c of answerRows) byTask.set(c.task_id, [...(byTask.get(c.task_id) ?? []), c]);
+    for (const [taskId, comments] of byTask) answersByTask.set(taskId, latestAnswers(listed.get(taskId) ?? [], comments));
+  }
+
   return rows.map((t): RawTask => {
     const human = lastHuman.get(t.id) ?? null;
     const clock = human && human.getTime() > t.created_at.getTime() ? human : t.created_at;
@@ -354,7 +371,10 @@ async function loadTasks(db: PrismaClient, userId: string): Promise<RawTask[]> {
       has_open_email_ask: t.email_asks.length > 0,
       emails: emailsByTask.get(t.id) ?? [],
       arc: arcRef(t.arc),
-      requirements: readRequirements(t.requirements),
+      requirements: (listed.get(t.id) ?? []).map((r, i) => {
+        const a = answersByTask.get(t.id)?.get(i);
+        return a ? { ...r, answer: a } : r;
+      }),
       sop: t.sop ? { id: t.sop.id, title: t.sop.title } : null,
       origin_url: t.origin_url,
       staging_preview_url: t.staging_preview_url,

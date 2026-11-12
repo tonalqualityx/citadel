@@ -62,6 +62,8 @@ interface ReceiptRule {
   domains: readonly string[];
   sub: boolean;
   subjects: readonly RegExp[];
+  /** When set, only these exact sender addresses match (the domain alone is not enough). */
+  senders?: readonly string[];
 }
 
 /**
@@ -100,6 +102,38 @@ export const PROVIDER_RECEIPT_RULES: readonly ReceiptRule[] = [
       /^your invoice is available\s*$/i,
     ],
   },
+  {
+    domains: ['cloudways.com'],
+    sub: false,
+    subjects: [/^\[cloudways\]\s+your\s+\d{4}-\d{2}\s+invoice\s+for\s+team:\s+.+?\s+is\s+available\s*$/i],
+  },
+  {
+    domains: ['billtrust.com'],
+    sub: false,
+    subjects: [/^Acct No\. \d+: Your Invoice from AmeriGas Propane is Available\b.*$/i],
+  },
+  {
+    domains: ['sendgrid.com'],
+    sub: false,
+    subjects: [/^you have a new invoice from sendgrid\s*\(INV\d+\)\s*$/i],
+  },
+  {
+    domains: ['smarthub.coop'],
+    sub: false,
+    subjects: [/^your bill is available to view online\s*$/i],
+  },
+  {
+    domains: ['mail.nexudus.com'],
+    sub: false,
+    subjects: [/^new invoice from black river innovation campus\s*$/i, /^payment confirmation for invoice\s+#?[A-Za-z0-9-]+\s*$/i],
+  },
+  {
+    // Our own support group relays the AWS statement. Only this exact sender and this exact subject shape.
+    domains: ['becomeindelible.com'],
+    sub: false,
+    senders: ['support@becomeindelible.com'],
+    subjects: [/^amazon web services billing statement available(?:\s*\[account:\s*\d+\])?\s*$/i],
+  },
 ];
 
 /** Trouble wording: any hit in the subject or the gist and the receipt is not routine. Mirrors PROVIDER_RECEIPT_VETO_RE. */
@@ -130,8 +164,9 @@ export function isVerifiedProviderReceipt(f: ReceiptFacts): boolean {
   const domain = senderDomain(f.from_email);
   if (!subject || !domain) return false;
   if (RECEIPT_VETO_RE.test(`${subject} ${f.gist ?? ''}`)) return false;
+  const addr = (f.from_email ?? '').trim().toLowerCase();
   return PROVIDER_RECEIPT_RULES.some(
-    (r) => r.domains.some((d) => domain === d || (r.sub && domain.endsWith('.' + d))) && r.subjects.some((re) => re.test(subject)),
+    (r) => (!r.senders || r.senders.includes(addr)) && r.domains.some((d) => domain === d || (r.sub && domain.endsWith('.' + d))) && r.subjects.some((re) => re.test(subject)),
   );
 }
 

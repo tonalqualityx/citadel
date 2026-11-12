@@ -9,6 +9,7 @@ import { bastReadLine, CLOSE_LEAD_LABEL, NOT_LEAD_ASK, SHORT_DRAFT_TITLE, sugges
 import { RULE_ASK_TITLE, RULE_REASON_MAX, RULE_SAVE_LABEL } from '@/lib/home/emergency/copy';
 import { plain } from './home-screen-logic';
 import { WorkClockLines } from './WorkClockLines';
+import { DoneWhenList } from './DoneWhenList';
 
 /** The time choices of a sent-mail card: minutes, null for none. */
 const NUMBER_MAX = 1440;
@@ -38,6 +39,9 @@ export function ItemCard({
   prompt = null,
   onOpenProject,
   onSaveRule,
+  onChecklistTick,
+  onChecklistAnswer,
+  onChecklistNote,
   hideActions = false,
 }: ItemCardExtraProps) {
   const { openTaskPeek } = useTaskPeek();
@@ -356,18 +360,7 @@ export function ItemCard({
                 </div>
               ) : null}
               {doneWhen.length > 0 ? (
-                <>
-                  <h3>Done when</h3>
-                  {doneWhen.map((d, i) => (
-                    <div className="home-check" key={`${i}-${d.text}`}>
-                      <span className="home-box" data-done={d.done ? 'true' : undefined} aria-hidden="true" />
-                      <span>
-                        {plain(d.text)}
-                        {d.done ? <span className="home-muted"> (done)</span> : null}
-                      </span>
-                    </div>
-                  ))}
-                </>
+                <DoneWhenList taskId={o.task_id} items={doneWhen} onTick={onChecklistTick} onAnswer={onChecklistAnswer} onNote={onChecklistNote} />
               ) : null}
             </div>
           ) : null}

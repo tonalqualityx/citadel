@@ -36,9 +36,11 @@ const SCRATCH = /localhost:55433/.test(process.env.DATABASE_URL ?? '');
 
 describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () => {
   const tag = `wc-${Date.now()}`;
-  const keys = { oracle: `ck_${tag}_oracle`, other: `ck_${tag}_other`, courier: `ck_${tag}_courier`, admin: `ck_${tag}_admin` };
+  const keys = { bast: `ck_${tag}_bast`, bastLaned: `ck_${tag}_bastlaned`, oracle: `ck_${tag}_oracle`, other: `ck_${tag}_other`, courier: `ck_${tag}_courier`, admin: `ck_${tag}_admin` };
   const userIds: string[] = [];
   let createdOracleUser = false;
+  let createdBastUser = false;
+  let bastUserId = '';
   let createdOwnerId = '';
   let oracleUserId = '';
   let adminId = '';
@@ -67,6 +69,13 @@ describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () =>
       createdOwnerId = randomUUID();
       await prisma.user.create({ data: { id: createdOwnerId, email: 'mike@becomeindelible.com', password_hash: 'x', name: 'Owner WC', role: 'admin' } });
     }
+    const bastExisting = await prisma.user.findUnique({ where: { email: 'bast@becomeindelible.com' } });
+    if (bastExisting) bastUserId = bastExisting.id;
+    else {
+      bastUserId = randomUUID();
+      createdBastUser = true;
+      await prisma.user.create({ data: { id: bastUserId, email: 'bast@becomeindelible.com', password_hash: 'x', name: 'Bast WC', role: 'pm' } });
+    }
     const otherId = randomUUID();
     adminId = randomUUID();
     await prisma.user.createMany({
@@ -80,6 +89,8 @@ describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () =>
     await mkKey(otherId, keys.other); // another service user, no lane
     await mkKey(oracleUserId, keys.courier, ['lane:courier']); // a different lane
     await mkKey(adminId, keys.admin);
+    await mkKey(bastUserId, keys.bast); // no lane: scope, as in production
+    await mkKey(bastUserId, keys.bastLaned, ['lane:courier']);
     const t = await prisma.task.create({ data: { title: `Open work ${tag}`, status: 'in_progress', assignee_id: adminId, tags: [] } as never });
     openTaskId = t.id;
     taskIds.push(t.id);
@@ -98,6 +109,7 @@ describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () =>
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     if (createdOwnerId) await prisma.user.deleteMany({ where: { id: createdOwnerId } });
     if (createdOracleUser) await prisma.user.deleteMany({ where: { id: oracleUserId } });
+    if (createdBastUser) await prisma.user.deleteMany({ where: { id: bastUserId } });
     await prisma.$disconnect();
   });
 
@@ -160,6 +172,25 @@ describe.skipIf(!SCRATCH)('work routes through the real key-to-auth path', () =>
         else await prisma.bastChatSettings.deleteMany({ where: { id: 1 } });
         await prisma.userPreference.deleteMany({ where: { user_id: adminId } });
       }
+    });
+  });
+
+  describe('the Bast service user unlaned key (as production has it)', () => {
+    const stateKey = () => ({ params: Promise.resolve({ key: `task:${openTaskId}` }) });
+    it('reads a task state (200) through the real key-to-auth path', async () => {
+      as('bast');
+      expect((await stateGet(jreq('/x', 'GET'), stateKey())).status).toBe(200);
+    });
+    it('is refused where the lane list has no bast (session routes, attach), and a courier-laned Bast key is refused on state', async () => {
+      as('bast');
+      expect((await trackPost(jreq('/api/oracle/sessions/s1/track', 'POST'), sid('s1'))).status).toBe(403);
+      expect((await attachPost(jreq('/api/work/attach', 'POST'))).status).toBe(403);
+      as('bastLaned', { 'x-citadel-route': 'GET /api/work/task:x/state' });
+      expect((await stateGet(jreq('/x', 'GET'), stateKey())).status).toBe(403);
+    });
+    it('another service user unlaned key is refused on state', async () => {
+      as('other');
+      expect((await stateGet(jreq('/x', 'GET'), stateKey())).status).toBe(403);
     });
   });
 

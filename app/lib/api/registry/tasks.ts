@@ -305,6 +305,24 @@ export const taskEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/tasks/:id/checklist',
+    group: 'tasks',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Tick or untick one "Done when" item, and optionally record an answer to it.',
+        auth: 'required',
+        bodySchema: [
+          { name: 'item_id', type: 'string', required: true, description: 'The id of the item in the task requirements' },
+          { name: 'completed', type: 'boolean', required: false, description: 'true ticks, false unticks. Ignored when an answer is sent (an answer always ticks).' },
+          { name: 'answer', type: 'string', required: false, description: 'Up to 2000 characters. Stored as an internal task comment, Answer on "<item text>": <answer>, in the same transaction as the tick. Never shown to a client.' },
+        ],
+        responseExample: { item_id: 'string', completed: 'boolean', comment_id: 'uuid|null' },
+        responseNotes: 'Send completed or answer (at least one). 404 when the item is not on the task. A machine key (the bast-chat lane, or any key minted for a bot user) writes the comment as "From Mike, through the chat: Answer on ..." and gets 409 task_held on a task assigned to a bot. No chat action record or Undo: untick with completed false.',
+      },
+    ],
+  },
+  {
     path: '/api/tasks/:id/mention-suggestions',
     group: 'tasks',
     methods: [

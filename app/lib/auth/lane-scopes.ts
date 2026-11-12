@@ -305,7 +305,7 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('PATCH', '/api/design/worker/publishes/:id'),
   ],
   // Bast chat daemon (Mike's home screen panel; implementation/plans/bast-chat.md 2.1 and 3 T3). Bast user,
-  // always enforced. Exactly these 45 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two, 9a the sent-mail reconciler's three: its context GET, its candidates POST and its dry-or-real POST, which write internal notes on his own tasks as Bast and make cards; nothing is sent, no time entry is ever created, no task status changes; chat reads add the sends listing's one GET: what the courier sent or queued, no bodies, no addresses).
+  // always enforced. Exactly these 46 method+path entries (the worker conversation route is GET and PATCH; v2 adds the ops route; home Slice 2a adds the keeper's GET and POST, 2b the summaries' two, 4a the owed route's two, 4d its bookings route's two, 6a the home-watch route's two, 6b the ack route's one, 6c the scan result route's one, 7a the learn route's two, 9a the sent-mail reconciler's three: its context GET, its candidates POST and its dry-or-real POST, which write internal notes on his own tasks as Bast and make cards; nothing is sent, no time entry is ever created, no task status changes; chat reads add the sends listing's one GET: what the courier sent or queued, no bodies, no addresses).
   // No DELETE, no comment write, no dependencies, no email-asks PATCH, no outbox (the courier's own routes; the sends listing below is the chat's own read-only view of it), no decisions, no
   // api-keys, no admin, no home routes. Routes alone are not enough here: the task POST and PATCH bodies are
   // narrowed for this lane by lib/bast-chat/task-filter.ts (plan task C4).
@@ -366,6 +366,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id'),
     r('PATCH', '/api/tasks/:id'),
     r('GET', '/api/tasks/:id/comments'),
+    // Tick, untick or answer one "Done when" item on the owner's word (not on a task a bot holds; the answer is an internal note)
+    r('POST', '/api/tasks/:id/checklist'),
     r('GET', '/api/projects'),
     r('GET', '/api/projects/:id'),
     r('GET', '/api/oracle/projects'),

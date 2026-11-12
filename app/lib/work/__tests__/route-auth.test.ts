@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ORACLE_SERVICE_EMAIL } from '@/lib/oracle/helpers';
-import { ATTACH_LANES, EVIDENCE_LANES, SESSION_LANES, STATE_LANES, attachedByFor, requireWorkCaller } from '../route-auth';
+import { BAST_SERVICE_EMAIL, ATTACH_LANES, EVIDENCE_LANES, SESSION_LANES, STATE_LANES, attachedByFor, requireWorkCaller } from '../route-auth';
 
 const oracleKey = { role: 'pm', via: 'api_key' as const, email: ORACLE_SERVICE_EMAIL };
 
@@ -44,5 +44,26 @@ describe('attachedByFor', () => {
     expect(attachedByFor({ role: 'pm', lane: 'porter' })).toBe('intake');
     expect(attachedByFor({ role: 'pm', lane: 'oracle' })).toBe('bast');
     expect(attachedByFor({ role: 'admin', via: 'session' })).toBe('mike');
+  });
+});
+
+describe('the Bast service user unlaned key', () => {
+  const bastKey = { role: 'pm', via: 'api_key' as const, email: BAST_SERVICE_EMAIL };
+  it('counts as lane bast wherever the list names bast', () => {
+    expect(() => requireWorkCaller(bastKey, STATE_LANES)).not.toThrow();
+    expect(() => requireWorkCaller(bastKey, EVIDENCE_LANES)).not.toThrow();
+    expect(() => requireWorkCaller({ ...bastKey, email: BAST_SERVICE_EMAIL.toUpperCase() }, STATE_LANES)).not.toThrow();
+  });
+  it('is refused where the list does not name bast, with a lane scope of another lane, or as a session', () => {
+    expect(() => requireWorkCaller(bastKey, SESSION_LANES)).toThrow(/Insufficient permissions/);
+    expect(() => requireWorkCaller(bastKey, ATTACH_LANES)).toThrow(/Insufficient permissions/);
+    expect(() => requireWorkCaller({ ...bastKey, lane: 'courier' }, STATE_LANES)).toThrow(/Insufficient permissions/);
+    expect(() => requireWorkCaller({ ...bastKey, via: 'session' }, STATE_LANES)).toThrow();
+  });
+  it('another service user unlaned key is still refused on the state routes', () => {
+    expect(() => requireWorkCaller({ role: 'pm', via: 'api_key', email: 'troubador@indelible.bot' }, STATE_LANES)).toThrow();
+  });
+  it('attached by bast', () => {
+    expect(attachedByFor(bastKey)).toBe('bast');
   });
 });

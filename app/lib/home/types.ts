@@ -226,8 +226,12 @@ export interface HomeRef {
 /** One "Done when" deliverable (from Task.requirements, or composed for a fold). */
 export interface HomeDoneWhen {
   text: string;
-  /** The requirement's own completed flag. Display only; the card does not write it. */
+  /** The requirement's own completed flag. The card writes it through POST /api/tasks/:id/checklist. */
   done: boolean;
+  /** The requirement's id in Task.requirements. Absent on a checklist Bast drafted: that one stays display only. */
+  id?: string;
+  /** The latest answer he saved on this item (a task comment), or absent. */
+  answer?: string;
 }
 
 /** The cold-open card (design 2B), shown by ItemCard. Filled by select.ts with copy.ts. */
@@ -1000,6 +1004,10 @@ export interface RawArcRef {
 export interface RawRequirement {
   text: string;
   completed: boolean;
+  /** The requirement's id, when it has one. */
+  id?: string;
+  /** The latest saved answer on it (see lib/tasks/checklist.ts), when there is one. */
+  answer?: string;
 }
 
 /**
@@ -1680,6 +1688,10 @@ export interface ItemCardProps {
    * Without it, or without item.not_emergency_scopes, Not an emergency is the one-time action.
    */
   onSaveRule?: (item: HomeItem, scope: HomeScopeChoice['scope'], reason: string) => Promise<boolean>;
+  /** The "Done when" list on a task card: tick or untick one item, save an answer (comment + tick), save a note (comment). Without them the list is display only. */
+  onChecklistTick?: (taskId: string, itemId: string, completed: boolean) => Promise<boolean>;
+  onChecklistAnswer?: (taskId: string, itemId: string, answer: string) => Promise<boolean>;
+  onChecklistNote?: (taskId: string, note: string) => Promise<boolean>;
 }
 
 /** WorkingOnBar (H9b): the pinned item, with Done and Stop for now. */

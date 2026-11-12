@@ -22,17 +22,30 @@ export function isUnlanedOracleKey(auth: CallerAuth): boolean {
   return !auth.lane && auth.via === 'api_key' && isOracleBot(auth);
 }
 
+/** The Bast service user's address (the same one the lane tests and seeds use). */
+export const BAST_SERVICE_EMAIL = 'bast@becomeindelible.com';
+
+/**
+ * The Bast service user's own machine key also carries no lane:<name> scope in production. That key, and only that key, stands in for the
+ * `bast` lane on routes whose lane list names `bast`: an API key, no lane, whose user is the Bast service user. A key with any lane
+ * scope is judged by that lane alone, and another service user's unlaned key stays refused.
+ */
+export function isUnlanedBastKey(auth: CallerAuth): boolean {
+  return !auth.lane && auth.via === 'api_key' && (auth.email ?? '').toLowerCase() === BAST_SERVICE_EMAIL;
+}
+
 export function requireWorkCaller(auth: CallerAuth, lanes: readonly string[]): void {
   if (auth.role === 'admin') return;
   if (auth.lane && lanes.includes(auth.lane)) return;
   if (lanes.includes('oracle') && isUnlanedOracleKey(auth)) return;
+  if (lanes.includes('bast') && isUnlanedBastKey(auth)) return;
   throw new AuthError('Insufficient permissions', 403);
 }
 
 /** Who attached: the porter (intake) is `intake`; the owner's own session is `mike`; every other lane is `bast`. */
 export function attachedByFor(auth: CallerAuth): AttachedBy {
   if (auth.lane === 'porter') return 'intake';
-  if (auth.lane || isUnlanedOracleKey(auth)) return 'bast';
+  if (auth.lane || isUnlanedOracleKey(auth) || isUnlanedBastKey(auth)) return 'bast';
   return 'mike';
 }
 

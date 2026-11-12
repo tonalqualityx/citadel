@@ -18,6 +18,7 @@ vi.mock('@/lib/hooks/use-home', () => ({
   useHomeAct: () => h.act,
   useHomeUndo: () => h.undo,
   useHomeRule: () => h.saveRule,
+  useHomeChecklist: () => ({ tick: async () => true, answer: async () => true, note: async () => true }),
   useHomeReconcile: () => h.reconcile,
   useHomeItemAction: () => ({
     run: h.run,

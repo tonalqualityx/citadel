@@ -221,6 +221,41 @@ export function useHomeRule() {
 }
 
 // ---------------------------------------------------------------------------
+// useHomeChecklist
+// ---------------------------------------------------------------------------
+
+/**
+ * The "Done when" list on a task card. `tick` writes one item (POST /api/tasks/:id/checklist), `answer` saves his answer as a
+ * task comment and ticks the item in the same call, `note` saves a task comment only (POST /api/tasks/:id/comments, internal).
+ * Each resolves true when saved; a failure shows one plain sentence and resolves false so the card can put the box back.
+ * A save refetches the screen.
+ */
+export function useHomeChecklist() {
+  const queryClient = useQueryClient();
+  const run = useCallback(
+    async (call: () => Promise<unknown>): Promise<boolean> => {
+      try {
+        await call();
+      } catch (error) {
+        showToast.error(error instanceof Error && error.message ? error.message : HOME_FAILURE_TEXT);
+        return false;
+      }
+      await refetchHome(queryClient);
+      return true;
+    },
+    [queryClient],
+  );
+  return useMemo(
+    () => ({
+      tick: (taskId: string, itemId: string, completed: boolean) => run(() => apiClient.post(`/tasks/${taskId}/checklist`, { item_id: itemId, completed })),
+      answer: (taskId: string, itemId: string, answer: string) => run(() => apiClient.post(`/tasks/${taskId}/checklist`, { item_id: itemId, answer })),
+      note: (taskId: string, note: string) => run(() => apiClient.post(`/tasks/${taskId}/comments`, { content: note, is_internal: true })),
+    }),
+    [run],
+  );
+}
+
+// ---------------------------------------------------------------------------
 // useHomeSend (Slice 4b)
 // ---------------------------------------------------------------------------
 

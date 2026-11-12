@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { TaskPeekProvider, useTaskPeek } from '@/lib/contexts/task-peek-context';
 import { HomeProjectDrawer } from './HomeProjectDrawer';
 import { useOracleProjects, type OracleProjectCard } from '@/lib/hooks/use-oracle-projects';
-import { useHome, useHomeAct, useHomeItemAction, useHomeReconcile, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
+import { useHome, useHomeAct, useHomeChecklist, useHomeItemAction, useHomeReconcile, useHomeRule, useHomeUndo } from '@/lib/hooks/use-home';
 import type { HomeActRequest, HomeActResponse, HomeItem, HomeItemAction, HomeResponse, HomeTileId, HomeTodayActRequest } from '@/lib/home/types';
 import { TileStrip } from './TileStrip';
 import { ItemList } from './ItemList';
@@ -63,6 +63,7 @@ function HomeScreenInner() {
   const itemActions = useHomeItemAction({ openTask: openTaskPeek, openProject: setOpenProjectId });
   const act = useHomeAct();
   const saveRule = useHomeRule();
+  const checklist = useHomeChecklist();
   // Only the keeper's Handled lines undo from here, so the toast says what happened to them.
   const undo = useHomeUndo({ doneText: 'Put back.' });
   // Slice 9a: "This was wrong" on a note from his sent mail, and "Log time?" on a task marked done from a card (the session-only route).
@@ -120,6 +121,7 @@ function HomeScreenInner() {
       itemActions={itemActions}
       act={act}
       saveRule={saveRule}
+      checklist={checklist}
       undo={undo}
       wrong={wrong}
       reconcile={reconcile}
@@ -149,6 +151,7 @@ interface BodyProps {
   itemActions: ItemActions;
   act: ReturnType<typeof useHomeAct>;
   saveRule: ReturnType<typeof useHomeRule>;
+  checklist: ReturnType<typeof useHomeChecklist>;
   undo: ReturnType<typeof useHomeUndo>;
   wrong: ReturnType<typeof useHomeUndo>;
   reconcile: ReturnType<typeof useHomeReconcile>;
@@ -226,6 +229,9 @@ function HomeBody(p: BodyProps) {
       prompt={itemActions.promptFor(item)}
       onOpenProject={inDrawer ? undefined : (id) => p.setOpenProjectId(id)}
       onSaveRule={p.saveRule}
+      onChecklistTick={p.checklist.tick}
+      onChecklistAnswer={p.checklist.answer}
+      onChecklistNote={p.checklist.note}
       hideActions={hideActions}
     />
     );

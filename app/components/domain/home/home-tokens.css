@@ -135,6 +135,10 @@
 [data-home] .home-blk { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 [data-home] .home-check { display: flex; gap: 8px; align-items: baseline; }
 [data-home] .home-box { flex: none; width: 13px; height: 13px; border: 1.5px solid var(--text-muted); border-radius: 3px; transform: translateY(2px); }
+[data-home] .home-checkbox { flex: none; width: 16px; height: 16px; margin: 0; accent-color: var(--success); transform: translateY(2px); }
+[data-home] .home-answer { margin: 0 0 6px 24px; }
+[data-home] .home-answer-box { margin: 4px 0 8px 24px; }
+[data-home] .home-answer-box textarea { display: block; width: 100%; max-width: 480px; font: inherit; margin-bottom: 4px; }
 [data-home] .home-box[data-done="true"] { background: var(--success); border-color: var(--success); }
 [data-home] .home-foot { border-top: 1px solid var(--border); padding-top: 10px; font-size: 0.85rem; color: var(--text-secondary); }
 [data-home] .home-note { border-left: 3px solid var(--border); padding: 6px 12px; font-size: 0.9rem; }

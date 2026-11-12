@@ -180,8 +180,8 @@ describe('loadHomeInputs: tasks', () => {
     expect(t.open_blocking_count).toBe(2);
     expect(t.has_open_email_ask).toBe(false);
     expect(t.requirements).toEqual([
-      { text: 'First', completed: false },
-      { text: 'Second', completed: true },
+      { text: 'First', completed: false, id: 'a' },
+      { text: 'Second', completed: true, id: 'b' },
     ]);
     expect(t.client).toEqual(client);
     expect(t).not.toHaveProperty('priority');
@@ -194,7 +194,7 @@ describe('loadHomeInputs: tasks', () => {
         ? []
         : [taskRow({ id: 't1' }), taskRow({ id: 't2' }), taskRow({ id: 't3', created_at: T('2026-11-05T00:00:00Z') })]
     );
-    db.comment.findMany.mockResolvedValue([
+    db.comment.findMany.mockResolvedValueOnce([
       { task_id: 't1', created_at: T('2026-11-08T00:00:00Z') }, // newest first
       { task_id: 't1', created_at: T('2026-11-03T00:00:00Z') },
       { task_id: 't3', created_at: T('2026-11-02T00:00:00Z') }, // older than created_at: ignored

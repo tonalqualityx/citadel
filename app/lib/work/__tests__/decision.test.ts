@@ -320,3 +320,54 @@ describe('decideReplay and the provider receipt exemption', () => {
     expect(run(a)).toMatchObject({ verdict: 'leave', why: 'already_decided' });
   });
 });
+
+describe('the routine invoice senders added with the home checklist work', () => {
+  const rec = (o: Partial<Parameters<typeof isVerifiedProviderReceipt>[0]>) => ({ subject: '', from_email: '', gist: 'A routine notice.', is_urgent: false, intent: 'admin', ...o });
+  const CASES: [string, string, string][] = [
+    ['Cloudways', '[Cloudways] Your 2026-10 invoice for team: Indelible is available', 'billing@cloudways.com'],
+    ['AmeriGas', 'Acct No. 203740388: Your Invoice from AmeriGas Propane is Available Online', 'noreply@billtrust.com'],
+    ['SendGrid', 'You have a new invoice from SendGrid (INV20070252)', 'billing@sendgrid.com'],
+    ['Vermontel', 'Your bill is available to view online', 'vermontel-no-reply@smarthub.coop'],
+    ['Nexudus new', 'New Invoice from Black River Innovation Campus', 'noreply@mail.nexudus.com'],
+    ['Nexudus paid', 'Payment Confirmation for invoice #BRIC-INV-0063', 'noreply@mail.nexudus.com'],
+    ['AWS relay', 'Amazon Web Services Billing Statement Available [Account: 245112717090]', 'support@becomeindelible.com'],
+    ['AWS relay bare', 'Amazon Web Services Billing Statement Available', 'support@becomeindelible.com'],
+  ];
+  it.each(CASES)('%s fires on its sample subject', (_n, subject, from_email) => {
+    expect(isVerifiedProviderReceipt(rec({ subject, from_email }))).toBe(true);
+    expect(applyFloors('no_action', { is_urgent: false, intent: 'admin', exempt: { kind: 'provider_receipt', subject, from_email, gist: 'x' } }).disposition).toBe('no_action');
+  });
+  it.each(CASES)('%s does not fire with trouble wording in the subject or the gist', (_n, subject, from_email) => {
+    expect(isVerifiedProviderReceipt(rec({ subject: `${subject} past due`, from_email }))).toBe(false);
+    for (const gist of ['Payment failed, action required', 'Your account is suspended', 'Past due balance']) {
+      expect(isVerifiedProviderReceipt(rec({ subject, from_email, gist }))).toBe(false);
+    }
+  });
+  it.each(CASES)('%s does not fire from a lookalike domain or when urgent or not admin', (_n, subject, from_email) => {
+    const [local, dom] = from_email.split('@');
+    for (const bad of [`${local}@${dom}.evil.test`, `${local}@evil${dom}`, `${local}@gmail.com`]) {
+      expect(isVerifiedProviderReceipt(rec({ subject, from_email: bad }))).toBe(false);
+    }
+    expect(isVerifiedProviderReceipt(rec({ subject, from_email, is_urgent: true }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject, from_email, intent: 'work' }))).toBe(false);
+  });
+  it('AmeriGas tolerates a tail on the subject, Cloudways any team name and month', () => {
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Acct No. 1: Your Invoice from AmeriGas Propane is Available Online - Reminder', from_email: 'a@billtrust.com' }))).toBe(true);
+    expect(isVerifiedProviderReceipt(rec({ subject: '[Cloudways] Your 2027-01 invoice for team: Some Other Team is available', from_email: 'a@cloudways.com' }))).toBe(true);
+  });
+  it('the AWS relay needs exactly support@becomeindelible.com and that subject shape', () => {
+    const subject = 'Amazon Web Services Billing Statement Available [Account: 245112717090]';
+    for (const from_email of ['bast@becomeindelible.com', 'Support@becomeindelible.com.evil.test', 'billing@becomeindelible.com', 'support2@becomeindelible.com']) {
+      expect(isVerifiedProviderReceipt(rec({ subject, from_email }))).toBe(false);
+    }
+    for (const other of ['Your invoice is available', 'Invoice question', 'Your AWS invoice is available']) {
+      expect(isVerifiedProviderReceipt(rec({ subject: other, from_email: 'support@becomeindelible.com' }))).toBe(false);
+    }
+    expect(isVerifiedProviderReceipt(rec({ subject, from_email: 'SUPPORT@becomeindelible.com' }))).toBe(true);
+  });
+  it('a subject off the shape does not fire', () => {
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Your bill is available to view online, call us', from_email: 'a@smarthub.coop' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'New Invoice from Someone Else', from_email: 'a@mail.nexudus.com' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'You have a new invoice from SendGrid', from_email: 'a@sendgrid.com' }))).toBe(false);
+  });
+});
