@@ -330,6 +330,8 @@ export type OpLine =
   | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'finished_close'; count: number }
+  | { op: 'home_act'; action: 'triage_release' | 'triage_drop'; count: number }
+  | { op: 'home_act'; action: 'triage_release_plan'; line: string }
   | { op: 'home_act'; action: 'reopen_ask'; title: string }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
@@ -401,6 +403,15 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'proposal_no':
           s = `Closed the card: ${o.title}.`;
+          break;
+        case 'triage_release':
+          s = o.count === 1 ? 'Released 1 idea from Triage.' : `Released ${o.count} ideas from Triage.`;
+          break;
+        case 'triage_drop':
+          s = o.count === 1 ? 'Dropped 1 idea from Triage.' : `Dropped ${o.count} ideas from Triage.`;
+          break;
+        case 'triage_release_plan':
+          s = o.line;
           break;
         case 'finished_close':
           s = o.count === 1 ? 'Closed the 1 task you ticked on the looks-finished list.' : `Closed the ${o.count} tasks you ticked on the looks-finished list.`;
