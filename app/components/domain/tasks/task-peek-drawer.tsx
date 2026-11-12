@@ -450,7 +450,7 @@ export function TaskPeekDrawer({ taskId, open, onOpenChange }: TaskPeekDrawerPro
                     <Square className="h-4 w-4 mr-2" />
                     Stop Timer ({formatElapsedTime(timer.elapsedSeconds)})
                   </Button>
-                ) : task.status !== 'done' && task.status !== 'abandoned' ? (
+                ) : task.status !== 'done' && task.status !== 'abandoned' && task.status !== 'triage' ? (
                   <Button
                     onClick={handleStartTimer}
                     disabled={timer.isLoading}

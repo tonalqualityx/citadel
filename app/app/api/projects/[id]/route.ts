@@ -71,7 +71,8 @@ export async function GET(
           orderBy: { sort_order: 'asc' },
         },
         tasks: {
-          where: { is_deleted: false },
+          // A triage task is parked for Mike: contractors (tech) never get it in a project's task list.
+          where: { is_deleted: false, ...(auth.role === 'tech' ? { status: { not: 'triage' as const } } : {}) },
           include: {
             assignee: { select: { id: true, name: true, email: true, avatar_url: true } },
             function: { select: { id: true, name: true } },

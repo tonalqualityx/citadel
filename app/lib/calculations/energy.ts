@@ -216,7 +216,7 @@ export interface ProjectEstimates {
 }
 
 export function calculateProjectEstimates(tasks: TaskForEstimate[], timeSpentMinutes: number = 0): ProjectEstimates {
-  const incompleteTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'abandoned');
+  const incompleteTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'abandoned' && t.status !== 'triage');
   const completedTasks = tasks.filter(t => t.status === 'done');
 
   // Sum of base energy estimates (in minutes, then convert to hours)

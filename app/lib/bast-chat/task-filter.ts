@@ -79,7 +79,7 @@ export const CHAT_POST_ALLOWED = [
  */
 export const CHAT_POST_CONTROLS = ['source_key', 'create_anyway'] as const;
 /** Statuses: all six (plan 1.2). Closing is `done`, letting go is `abandoned`, reopening is `not_started` or `in_progress`. */
-export const CHAT_PATCH_STATUSES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
+export const CHAT_PATCH_STATUSES = ['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
 
 type Code = 'chat_field_refused' | 'chat_lane_refused';
 export type ChatFilterInput = {

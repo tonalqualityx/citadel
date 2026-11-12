@@ -183,7 +183,7 @@ describe('GET /api/charters/[id]/commission-tasks', () => {
 
       // Branch 2: active tasks (not done/abandoned)
       const activeBranch = where.OR[1];
-      expect(activeBranch.status).toEqual({ notIn: ['done', 'abandoned'] });
+      expect(activeBranch.status).toEqual({ notIn: ['done', 'abandoned', 'triage'] });
     });
 
     it('always includes active (non-done/abandoned) tasks regardless of dates', async () => {

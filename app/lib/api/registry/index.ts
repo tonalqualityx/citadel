@@ -121,7 +121,7 @@ export const apiEnums = {
   userRoles: ['tech', 'pm', 'admin', 'designer'],
   projectStatuses: ['quote', 'queue', 'ready', 'in_progress', 'review', 'done', 'suspended', 'cancelled'],
   projectTypes: ['project', 'retainer', 'internal'],
-  taskStatuses: ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'],
+  taskStatuses: ['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'],
   taskPriorities: [1, 2, 3, 4, 5],
   mysteryFactors: ['none', 'average', 'significant', 'no_idea'],
   batteryImpacts: ['average_drain', 'high_drain', 'energizing'],

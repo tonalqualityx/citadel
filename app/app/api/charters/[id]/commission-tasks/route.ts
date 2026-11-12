@@ -59,7 +59,7 @@ export async function GET(
             completed_at: { gte: periodStart, lte: periodEnd },
           },
           {
-            status: { notIn: ['done', 'abandoned'] },
+            status: { notIn: ['done', 'abandoned', 'triage'] },
           },
         ],
       },

@@ -946,7 +946,7 @@ describe('Slice 2c: arc records (arcs_link_tasks and the keeper arc undo kinds)'
     db.task.updateMany.mockResolvedValue({ count: 1 });
     const res = await act(db, { action: 'arc_add', item_key: TASK_KEY, group_key: GA, origin: 'in_view' });
     expect(db.task.updateMany).toHaveBeenCalledWith({
-      where: { id: TASK_ID, assignee_id: U, arc_id: null, is_deleted: false, status: { notIn: ['done', 'abandoned'] } },
+      where: { id: TASK_ID, assignee_id: U, arc_id: null, is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } },
       data: { arc_id: ARC },
     });
     expect((db.actions[0].before as Row).arcs).toEqual([{ kind: 'link', task_id: TASK_ID, from_arc_id: null, to_arc_id: ARC }]);

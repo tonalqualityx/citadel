@@ -3,7 +3,9 @@ import { TaskStatus, ProjectStatus } from '@prisma/client';
 // Valid task status transitions
 // Flexible workflow - review is handled by needs_review/approved flags, not status
 const TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  not_started: ['in_progress', 'done', 'blocked', 'abandoned'],
+  // triage: an idea parked for Mike. Only release (-> not_started) or drop (-> abandoned) leave it.
+  triage: ['not_started', 'abandoned'],
+  not_started: ['in_progress', 'done', 'blocked', 'abandoned', 'triage'],
   in_progress: ['done', 'not_started', 'blocked', 'abandoned', 'review'],
   review: ['done', 'in_progress', 'abandoned'], // Legacy - kept for existing tasks
   done: ['in_progress', 'not_started'], // Reopen
@@ -83,6 +85,7 @@ export function getProjectStatusLabel(status: ProjectStatus): string {
 
 export function getTaskStatusLabel(status: TaskStatus): string {
   const labels: Record<TaskStatus, string> = {
+    triage: 'Triage',
     not_started: 'Not Started',
     in_progress: 'In Progress',
     review: 'Review',
@@ -113,6 +116,7 @@ export function getTaskStatusVariant(
   status: TaskStatus
 ): 'default' | 'success' | 'warning' | 'error' | 'info' {
   const variants: Record<TaskStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+    triage: 'info',
     not_started: 'default',
     in_progress: 'info',
     review: 'warning',

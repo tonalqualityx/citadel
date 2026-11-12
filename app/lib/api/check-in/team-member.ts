@@ -25,7 +25,7 @@ export async function buildTeamMemberCheckIn(user: CheckInUser) {
     where: {
       assignee_id: user.id,
       is_deleted: false,
-      status: { notIn: [TaskStatus.done, TaskStatus.abandoned] },
+      status: { notIn: [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage] },
     },
     include: CHECKIN_TASK_INCLUDE,
     orderBy: [{ priority: 'asc' }, { due_date: 'asc' }, { title: 'asc' }],

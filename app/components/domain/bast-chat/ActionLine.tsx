@@ -86,6 +86,7 @@ function Quoted({ label, children, testId, textTestId }: { label: string; childr
 }
 
 const STATUS_WORDS: Record<string, string> = {
+  triage: 'in triage',
   not_started: 'not started',
   in_progress: 'in progress',
   review: 'in review',

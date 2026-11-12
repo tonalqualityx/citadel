@@ -1142,7 +1142,7 @@ describe('GET /api/tasks', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             AND: expect.arrayContaining([
-              expect.objectContaining({ status: { notIn: ['done', 'abandoned'] } }),
+              expect.objectContaining({ status: { notIn: ['done', 'abandoned', 'triage'] } }),
             ]),
           }),
         })

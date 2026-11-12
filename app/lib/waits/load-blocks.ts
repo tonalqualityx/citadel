@@ -63,7 +63,7 @@ export async function loadRitualBlocks(
       where: {
         is_deleted: false,
         assignee_id: mikeId,
-        status: { notIn: ['done', 'abandoned'] },
+        status: { notIn: ['done', 'abandoned', 'triage'] },
         due_date: { not: null, lte: limit },
       },
       select: { id: true, title: true, due_date: true, promised_to: true, client: { select: { id: true, name: true } } },

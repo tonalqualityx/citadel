@@ -6,11 +6,11 @@ import { getStartOfDayForTimezone, getStartOfWeekForTimezone } from '@/lib/utils
 import { ProjectStatus, TaskStatus } from '@prisma/client';
 
 // Non-readonly arrays for Prisma compatibility
-const INCOMPLETE_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned];
+const INCOMPLETE_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage];
 const ACTIVE_PROJECT_STATUSES: ProjectStatus[] = [ProjectStatus.ready, ProjectStatus.in_progress];
 
 // For "My Tasks" lists, also exclude blocked tasks - users shouldn't work on blocked tasks
-const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.blocked];
+const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage, TaskStatus.blocked];
 
 // Valid sort options for My Tasks
 type TaskSortBy = 'priority' | 'due_date' | 'estimate';
@@ -488,7 +488,7 @@ async function getPmDashboard(
       _count: {
         select: {
           tasks: {
-            where: { is_deleted: false, status: { notIn: ['done', 'abandoned'] } },
+            where: { is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } },
           },
         },
       },
@@ -623,7 +623,7 @@ async function getAdminDashboard(
       _count: {
         select: {
           tasks: {
-            where: { is_deleted: false, status: { notIn: ['done', 'abandoned'] } },
+            where: { is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } },
           },
         },
       },
@@ -753,7 +753,7 @@ async function getSystemStats() {
       where: { is_deleted: false, status: { in: ['ready', 'in_progress', 'review'] } },
     }),
     prisma.task.count({
-      where: { is_deleted: false, status: { notIn: ['done', 'abandoned'] } },
+      where: { is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } },
     }),
     prisma.user.count({
       where: { is_active: true },

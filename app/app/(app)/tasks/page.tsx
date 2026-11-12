@@ -38,6 +38,7 @@ import {
 import type { Task } from '@/lib/hooks/use-tasks';
 
 const statusOptions = [
+  { value: 'triage', label: 'Triage' },
   { value: 'not_started', label: 'Not Started' },
   { value: 'in_progress', label: 'In Progress' },
   { value: 'review', label: 'Review' },
