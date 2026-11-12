@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { DISPOSITIONS, applyFloors, birthState, cleanReason, decideReplay, notHeldByMike, ownerFor, ownerOfAssignee, planSync, waitKeyFor, type ReplayAsk, type SyncExisting } from '../decision';
+import { DISPOSITIONS, FLOOR_EXEMPTIONS, MACHINE_DECIDERS, RECEIPT_VETO_RE, applyFloors, floorExemptHolds, isVerifiedProviderReceipt, senderDomain, birthState, cleanReason, decideReplay, notHeldByMike, ownerFor, ownerOfAssignee, planSync, waitKeyFor, type ReplayAsk, type SyncExisting } from '../decision';
 
 describe('applyFloors', () => {
   it.each([
@@ -146,5 +146,177 @@ describe('decideReplay', () => {
   it('refuses a missing ask and a value outside the list', () => {
     expect(run(null, 'no_action').verdict).toBe('refused');
     expect(run(ask(), 'ignore').verdict).toBe('refused');
+  });
+});
+
+describe('the provider receipt exemption', () => {
+  const rec = (o: Partial<Parameters<typeof isVerifiedProviderReceipt>[0]> = {}) => ({
+    subject: 'Payment received: Invoice #1042-(Acme Co)', from_email: 'quickbooks@notification.intuit.com', gist: 'A payment came in.', is_urgent: false, intent: 'admin', ...o,
+  });
+
+  it('the only exemption is provider_receipt', () => {
+    expect([...FLOOR_EXEMPTIONS]).toEqual(['provider_receipt']);
+  });
+
+  it.each([
+    ['Payment received: Invoice #1042-(Acme Co)', 'quickbooks@notification.intuit.com'],
+    ['Payment received: Invoice 77', 'x@intuit.com'],
+    ['Invoice 55 from Indelible, Inc.', 'quickbooks@notification.intuit.com'],
+    ['Congrats, you just got paid!', 'no-reply@waveapps.com'],
+    ['Invoice #7 from Who Is Mike Dion? LLC', 'invoices@waveapps.com'],
+    ['Your invoice is available', 'no-reply@notify.cloudflare.com'],
+    ['Your invoice is available', 'billing@cloudflare.com'],
+    ['Google Workspace: Your invoice is available for example.com', 'payments-noreply@google.com'],
+    ['Your invoice is available', 'payments-noreply@google.com'],
+    ['Amazon Web Services Billing Statement Available [Account: 123456789012]', 'no-reply-aws@aws.com'],
+    ['Amazon Web Services Billing Statement Available', 'no-reply-aws@amazon.com'],
+    ['AWS Billing Statement Available [Account: 1]', 'no-reply-aws@aws.com'],
+    ['Your AWS invoice is available', 'billing@aws.com'],
+    ['Your invoice is available', 'billing@aws.com'],
+  ])('%s from %s verifies', (subject, from_email) => {
+    expect(isVerifiedProviderReceipt(rec({ subject, from_email }))).toBe(true);
+  });
+
+  it('a receipt subject from a lookalike or wrong provider domain does not verify', () => {
+    for (const from_email of ['x@notintuit.com', 'x@intuit.com.evil.test', 'x@intuit-billing.com', 'x@waveapps.com.evil.test', 'x@mail.google.com.evil.test', 'x@evilcloudflare.com', 'x@aws.com.evil.test', 'x@sub.aws.com', 'x@sub.google.com', 'x@gmail.com']) {
+      expect(isVerifiedProviderReceipt(rec({ from_email }))).toBe(false);
+      expect(isVerifiedProviderReceipt(rec({ from_email, subject: 'Your invoice is available' }))).toBe(false);
+    }
+  });
+
+  it('a provider subject from another provider does not verify', () => {
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Congrats, you just got paid!', from_email: 'x@intuit.com' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Payment received: Invoice #9', from_email: 'x@waveapps.com' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Payment received: Invoice #9', from_email: 'x@cloudflare.com' }))).toBe(false);
+  });
+
+  it('a sender that is not exactly one plain address does not verify', () => {
+    for (const from_email of ['', null, undefined, 'intuit.com', 'a@intuit.com, b@evil.test', 'Intuit <a@intuit.com>', 'a@b@intuit.com']) {
+      expect(isVerifiedProviderReceipt(rec({ from_email }))).toBe(false);
+    }
+  });
+
+  it('subjects off the closed list do not verify', () => {
+    for (const subject of ['Invoice 55 from Someone Else', 'Your invoice is available now, pay today', 'Your invoice', 'Invoice #4 from Indelible', 'FYI Payment received: Invoice #1', '', null, undefined]) {
+      if (subject === 'Invoice #4 from Indelible') {
+        expect(isVerifiedProviderReceipt(rec({ subject }))).toBe(true);
+      } else {
+        expect(isVerifiedProviderReceipt(rec({ subject }))).toBe(false);
+      }
+    }
+  });
+
+  it.each([
+    'failed', 'declined', 'past due', 'unpaid', 'suspended', 'action required', 'expires soon', 'warning', 'suspicious login', 'security notice', 'unauthorized charge', 'overdue', 'final notice',
+  ])('trouble wording "%s" in the gist vetoes it', (w) => {
+    expect(isVerifiedProviderReceipt(rec({ gist: `Heads up: ${w}` }))).toBe(false);
+    expect(RECEIPT_VETO_RE.test(w)).toBe(true);
+  });
+
+  it('trouble wording in the subject vetoes it, even on a listed provider', () => {
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Your invoice is available', from_email: 'x@notify.cloudflare.com' }))).toBe(true);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Payment received: Invoice #12-(Security Past Due LLC)' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Payment received: Invoice #12 failed' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Action required: Your AWS account is past due', from_email: 'x@aws.com' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: '[Action required] Payment failed for invoice #IN-1', from_email: 'x@notify.cloudflare.com' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ subject: 'Action required: your billing account has been suspended.', from_email: 'x@google.com' }))).toBe(false);
+  });
+
+  it('an urgent ask, a sales ask or a non-admin intent never verifies', () => {
+    expect(isVerifiedProviderReceipt(rec({ is_urgent: true }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ intent: 'sales' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ intent: 'general' }))).toBe(false);
+    expect(isVerifiedProviderReceipt(rec({ intent: null }))).toBe(false);
+  });
+
+  it('senderDomain reads one plain address only', () => {
+    expect(senderDomain(' A@Notification.Intuit.com ')).toBe('notification.intuit.com');
+    expect(senderDomain('nope')).toBeNull();
+  });
+
+  const facts = (o: Record<string, unknown> = {}) => ({
+    is_urgent: false, intent: 'admin',
+    exempt: { kind: 'provider_receipt' as const, subject: 'Payment received: Invoice #1042-(Acme Co)', from_email: 'q@notification.intuit.com', gist: 'g' }, ...o,
+  });
+
+  it('applyFloors lets a verified receipt through the admin floor, as no_action only', () => {
+    expect(applyFloors('no_action', facts())).toEqual({ disposition: 'no_action', adjusted: null, exempted: 'provider_receipt' });
+    expect(applyFloors('waiting_them', facts())).toEqual({ disposition: 'reply_mike', adjusted: 'waiting_them_refused_admin' });
+  });
+
+  it('applyFloors keeps the floor for a claim the server cannot verify, a missing claim, urgent and sales', () => {
+    const bad = { kind: 'provider_receipt' as const, subject: 'Payment received: Invoice #1', from_email: 'q@intuit.com.evil.test', gist: 'g' };
+    expect(applyFloors('no_action', facts({ exempt: bad }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(applyFloors('no_action', facts({ exempt: undefined }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(applyFloors('no_action', facts({ exempt: { ...facts().exempt, kind: null } }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(applyFloors('no_action', facts({ is_urgent: true }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_urgent' });
+    expect(applyFloors('no_action', facts({ intent: 'sales' }))).toEqual({ disposition: 'reply_mike', adjusted: 'no_action_refused_sales' });
+    expect(floorExemptHolds(facts({ intent: 'general' }))).toBe(false);
+  });
+
+  it('planSync records a verified receipt as handled at birth and ignores an unverified claim', () => {
+    const posted = { disposition: 'no_action' as const, reason: 'A routine receipt that asks nothing.', is_urgent: false, intent: 'admin', floor_exempt: 'provider_receipt' as const, subject: 'Payment received: Invoice #5', from_email: 'q@notification.intuit.com', gist: 'g' };
+    const ok = planSync(null, posted);
+    expect(ok).toMatchObject({ disposition: 'no_action', exempted: 'provider_receipt', adjusted: null });
+    expect(ok.birth?.state).toBe('handled');
+    const bad = planSync(null, { ...posted, from_email: 'q@notintuit.com' });
+    expect(bad).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+    expect(bad.exempted).toBeUndefined();
+    expect(planSync(null, { ...posted, gist: 'Payment failed' })).toMatchObject({ disposition: 'reply_mike' });
+    expect(planSync(null, { ...posted, floor_exempt: null })).toMatchObject({ disposition: 'reply_mike' });
+  });
+
+  it('planSync never closes an existing row, exempt or not', () => {
+    const ex: SyncExisting = { disposition: null, decided_by: null, intent: 'admin', task_id: null, state: 'open', closed_by: null, is_urgent: false };
+    const p = planSync(ex, { disposition: 'no_action', reason: null, is_urgent: false, intent: 'admin', floor_exempt: 'provider_receipt', subject: 'Payment received: Invoice #5', from_email: 'q@intuit.com', gist: null });
+    expect(p).toMatchObject({ disposition: null, adjusted: 'close_only_at_birth' });
+  });
+});
+
+describe('decideReplay and the provider receipt exemption', () => {
+  const ask = (o: Partial<ReplayAsk> = {}): ReplayAsk => ({
+    id: 'a1', state: 'open', disposition: null, decided_by: null, is_urgent: false, intent: 'admin', task_id: null, task_security: false,
+    subject: 'Payment received: Invoice #1042-(Acme Co)', from_email: 'q@notification.intuit.com', gist: 'g', ...o,
+  });
+  const run = (a: ReplayAsk | null, d = 'no_action', floor_exempt: 'provider_receipt' | null = 'provider_receipt') => decideReplay(a, { disposition: d, floor_exempt });
+
+  it('an undecided verified receipt closes through the exempt path', () => {
+    expect(run(ask())).toMatchObject({ verdict: 'close', disposition: 'no_action', why: 'provider_receipt' });
+  });
+  it('the same ask without the claim, or failing the check, is floored to reply_mike as today', () => {
+    expect(run(ask(), 'no_action', null)).toMatchObject({ verdict: 'set', disposition: 'reply_mike', why: 'no_action_refused_admin' });
+    expect(run(ask({ from_email: 'q@intuit.com.evil.test' }))).toMatchObject({ verdict: 'set', disposition: 'reply_mike', why: 'no_action_refused_admin' });
+    expect(run(ask({ gist: 'Payment failed' }))).toMatchObject({ verdict: 'set', disposition: 'reply_mike' });
+    expect(run(ask({ intent: 'sales' }))).toMatchObject({ verdict: 'set', disposition: 'reply_mike', why: 'no_action_refused_sales' });
+    expect(run(ask({ is_urgent: true }))).toMatchObject({ verdict: 'set', disposition: 'reply_mike', why: 'no_action_refused_urgent' });
+  });
+  it('an undecided verified receipt held by his reopen or on a security task is left', () => {
+    expect(run(ask({ decided_by: 'mike' }))).toMatchObject({ verdict: 'leave', why: 'held_by_mike' });
+    expect(run(ask({ task_security: true, task_id: 't' }))).toMatchObject({ verdict: 'leave', why: 'security_task' });
+  });
+  it.each([...MACHINE_DECIDERS])('a stored reply_mike decided by %s changes to no_action only for a verified receipt', (by) => {
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by }))).toMatchObject({ verdict: 'close', disposition: 'no_action', why: 'provider_receipt_redecided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by }), 'no_action', null)).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by, from_email: 'q@notintuit.com' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by, gist: 'past due' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by, is_urgent: true }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by, intent: 'sales' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: by, task_security: true, task_id: 't' }))).toMatchObject({ verdict: 'leave', why: 'security_task' });
+  });
+  it('a stored reply_mike decided by him, or with no decider, is never changed', () => {
+    expect(run(ask({ disposition: 'reply_mike', decided_by: 'mike' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: null }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+  });
+  it('only reply_mike is redecided, and only to no_action', () => {
+    for (const disposition of ['emergency', 'meeting', 'work', 'no_action', 'waiting_them']) {
+      expect(run(ask({ disposition, decided_by: 'intake' }))).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    }
+    expect(run(ask({ disposition: 'reply_mike', decided_by: 'intake' }), 'meeting')).toMatchObject({ verdict: 'leave', why: 'already_decided' });
+    expect(run(ask({ disposition: 'reply_mike', decided_by: 'intake', state: 'handled' }))).toMatchObject({ verdict: 'leave', why: 'not_open' });
+  });
+  it('a receipt that lacks facts (an old caller) cannot pass', () => {
+    const a = ask({ disposition: 'reply_mike', decided_by: 'intake' });
+    delete a.from_email;
+    expect(run(a)).toMatchObject({ verdict: 'leave', why: 'already_decided' });
   });
 });

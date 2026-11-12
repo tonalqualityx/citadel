@@ -489,11 +489,11 @@ export const clarityEndpoints: ApiEndpoint[] = [
         roles: ['admin'],
         responseNotes:
           'Strict body, at most 300 items. Citadel recomputes every decision (decideReplay) and trusts none of the claims: the ask must be open, undecided and not held by his own reopen. ' +
-          'Only no_action closes (never an urgent, admin or sales ask, never one linked to a security task); reply_mike, meeting and (urgent only) emergency are stored without closing; work is stored only on an ask already linked to a task; waiting_them is never applied. ' +
+          'Only no_action closes (never an urgent, admin or sales ask, never one linked to a security task); reply_mike, meeting and (urgent only) emergency are stored without closing; work is stored only on an ask already linked to a task; waiting_them is never applied. One exception to the admin floor and to already_decided: an item with floor_exempt provider_receipt that the server verifies itself (admin intent, not urgent, subject on its closed list for the provider whose domain sent it, no trouble wording in subject or gist) closes, and so does a stored reply_mike that a machine (intake, bast, other_copy) decided, never one he decided (why provider_receipt, provider_receipt_redecided). ' +
           'dry:true writes nothing; the dry run and the real run decide identically (and decision-replay answers the same). The real run closes with closed_reason no_action and closed_by backfill, and writes ONE Handled line with Undo for 72 hours; each mail also stays in the 30-day list with its own Undo. Owner only (skipped home_off writes nothing). Nothing is sent, drafted or changed in any mailbox.',
         bodySchema: [
           { name: 'dry', type: 'boolean', required: true, description: 'true plans only and writes nothing' },
-          { name: 'items', type: 'object', required: true, description: 'Array (1-300): { ask_id (uuid), disposition (no_action|reply_mike|work|meeting|waiting_them|emergency), reason? (max 200) }' },
+          { name: 'items', type: 'object', required: true, description: 'Array (1-300): { ask_id (uuid), disposition (no_action|reply_mike|work|meeting|waiting_them|emergency), reason? (max 200), floor_exempt? (provider_receipt) }' },
         ],
         responseExample: {
           dry: 'boolean',

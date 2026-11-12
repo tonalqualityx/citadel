@@ -6,7 +6,7 @@ import { handleApiError } from '@/lib/api/errors';
 import { notifyUrgentEmail } from '@/lib/services/notifications';
 import { AskQueue, AskSeverity, EmailAskIntent, EmailMatchSource } from '@prisma/client';
 import { normalizeRfc } from '@/lib/work/link-asks';
-import { DISPOSITIONS, OWNERS, ownerOfAssignee, planSync, waitKeyFor, type DecisionOwner, type SyncExisting } from '@/lib/work/decision';
+import { DISPOSITIONS, FLOOR_EXEMPTIONS, OWNERS, ownerOfAssignee, planSync, waitKeyFor, type DecisionOwner, type SyncExisting } from '@/lib/work/decision';
 import { homeOwner } from '@/lib/work/ask-closure';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 import { prismaSweepStore } from '@/lib/waits/prisma-store';
@@ -55,6 +55,9 @@ const emailAskSchema = z.object({
   disposition_reason: z.string().max(200).optional().nullable(),
   owner: z.enum(OWNERS).optional().nullable(),
   decided_by: z.enum(['intake', 'bast', 'other_copy']).optional().nullable(),
+  // A claim that this is a routine provider receipt (admin intent, no trouble wording). The server re-checks subject, sender domain
+  // and wording itself (lib/work/decision.ts isVerifiedProviderReceipt) and ignores the claim when the check fails.
+  floor_exempt: z.enum(FLOOR_EXEMPTIONS).optional().nullable(),
 });
 
 const emailSyncSchema = z.object({
@@ -175,6 +178,7 @@ export async function POST(request: NextRequest) {
       id: string;
       disposition: string | null;
       adjusted?: string;
+      floor_exempt?: string;
       prior?: { disposition: string | null; task_id: string | null };
     }[] = [];
 
@@ -210,7 +214,17 @@ export async function POST(request: NextRequest) {
               task_owner: existing.task ? (ownerOfAssignee(existing.task.assignee_id, homeOn.id, BOT_USER_IDS) as DecisionOwner) : null,
             }
           : null;
-        plan = planSync(ex, { disposition: posted, reason: ask.disposition_reason ?? null, owner: ask.owner ?? null, is_urgent: ask.is_urgent, intent: ask.intent ?? null });
+        plan = planSync(ex, {
+          disposition: posted,
+          reason: ask.disposition_reason ?? null,
+          owner: ask.owner ?? null,
+          is_urgent: ask.is_urgent,
+          intent: ask.intent ?? null,
+          floor_exempt: ask.floor_exempt ?? null,
+          subject: ask.subject,
+          from_email: ask.from_email,
+          gist: ask.gist ?? null,
+        });
       }
 
       // Clarity Phase 6 fields: absent (undefined) means "untouched" — a legacy classifier
@@ -289,6 +303,7 @@ export async function POST(request: NextRequest) {
         id: row.id,
         disposition: plan?.disposition ?? row.disposition ?? null,
         ...(plan?.adjusted ? { adjusted: plan.adjusted } : {}),
+        ...(plan?.exempted ? { floor_exempt: plan.exempted } : {}),
         ...(plan?.prior ? { prior: plan.prior } : {}),
       });
 

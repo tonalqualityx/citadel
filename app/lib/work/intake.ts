@@ -14,7 +14,7 @@
  */
 
 import { appendHomeAction, type HomeDb } from '@/lib/home/state';
-import { cleanReason, decideReplay, notHeldByMike, type Disposition, type ReplayAsk } from './decision';
+import { cleanReason, decideReplay, MACHINE_DECIDERS, notHeldByMike, type Disposition, type FloorExempt, type ReplayAsk } from './decision';
 import { homeOwner, isSecurityTagged } from './ask-closure';
 import { intakeBatchLine, meetingBookedLine, askDetail } from './copy';
 
@@ -117,6 +117,8 @@ export interface ReplayItem {
   ask_id: string;
   disposition: string;
   reason?: string | null;
+  /** A claim that the mail is a routine provider receipt. The server checks it itself (decision.ts isVerifiedProviderReceipt). */
+  floor_exempt?: FloorExempt | null;
 }
 
 export interface ReplayRowOut {
@@ -146,6 +148,7 @@ const ASK_FACTS = {
   is_urgent: true,
   intent: true,
   task_id: true,
+  gist: true,
   subject: true,
   from_name: true,
   from_email: true,
@@ -178,6 +181,9 @@ export async function planReplay(db: HomeDb, items: readonly ReplayItem[]): Prom
           intent: a.intent,
           task_id: a.task && !a.task.is_deleted ? a.task_id : null,
           task_security: !!a.task && isSecurityTagged(a.task.tags),
+          subject: a.subject,
+          from_email: a.from_email,
+          gist: a.gist,
         }
       : null;
     const d = decideReplay(facts, item);
@@ -226,7 +232,11 @@ export async function applyDecisions(db: HomeDb, items: readonly ReplayItem[], o
       const reason = cleanReason(reasons.get(r.ask_id));
       if (r.verdict === 'close') {
         const w = await tx.emailAsk.updateMany({
-          where: { id: r.ask_id, state: 'open', disposition: null, is_urgent: false, ...notHeldByMike },
+          // Compare and set on what the plan read: an undecided ask, or (verified receipt only) a reply_mike a machine stored.
+          where:
+            r.now?.disposition === 'reply_mike'
+              ? { id: r.ask_id, state: 'open', disposition: 'reply_mike', is_urgent: false, decided_by: { in: [...MACHINE_DECIDERS] } }
+              : { id: r.ask_id, state: 'open', disposition: null, is_urgent: false, ...notHeldByMike },
           data: { state: 'handled', disposition: 'no_action', disposition_reason: reason, owner: 'nobody', decided_by: 'intake', closed_at: now, closed_reason: 'no_action', closed_by: 'backfill', draft_started_at: null, draft_url: null },
         });
         if (w.count === 1) closed.push(r.ask_id);
@@ -379,10 +389,12 @@ export async function handledMailMeasure(db: HomeDb, userId: string, since: Date
 // ----------------------------------------------------------------------------
 
 import { z } from 'zod';
-import { DISPOSITIONS as DISPOSITION_LIST } from './decision';
+import { DISPOSITIONS as DISPOSITION_LIST, FLOOR_EXEMPTIONS } from './decision';
 
 export const APPLY_DECISIONS_MAX = 300;
 export const REPLAY_ITEMS_MAX = 500;
-const replayItem = z.object({ ask_id: z.string().uuid(), disposition: z.enum(DISPOSITION_LIST), reason: z.string().max(200).optional().nullable() }).strict();
+const replayItem = z
+  .object({ ask_id: z.string().uuid(), disposition: z.enum(DISPOSITION_LIST), reason: z.string().max(200).optional().nullable(), floor_exempt: z.enum(FLOOR_EXEMPTIONS).optional().nullable() })
+  .strict();
 export const applyDecisionsBodySchema = z.object({ dry: z.boolean(), items: z.array(replayItem).min(1).max(APPLY_DECISIONS_MAX) }).strict();
 export const decisionReplayBodySchema = z.object({ items: z.array(replayItem).min(1).max(REPLAY_ITEMS_MAX) }).strict();

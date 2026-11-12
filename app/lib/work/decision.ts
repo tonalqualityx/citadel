@@ -9,6 +9,10 @@
  * - An emergency with no urgent flag has no emergency path to land on, so it is stored as reply_mike (the ask stays on his
  *   screen as an owed reply) and reported.
  *
+ * - One narrow exemption from the admin floor: a routine provider receipt (floor_exempt 'provider_receipt'). The server does not
+ *   trust the claim: isVerifiedProviderReceipt re-checks the subject against a closed list, the sender's domain against the
+ *   provider, and the absence of any trouble wording. Anything that fails keeps the floor exactly as it was.
+ *
  * It also holds the birth state (what row an intake decision creates) and the owner of a decision. Nothing here sends,
  * drafts or changes mail.
  */
@@ -38,22 +42,129 @@ export function cleanReason(v: string | null | undefined): string | null {
   return s.length > DISPOSITION_REASON_MAX ? s.slice(0, DISPOSITION_REASON_MAX - 1).trimEnd() : s;
 }
 
+// ----------------------------------------------------------------------------
+// The one floor exemption: a routine provider receipt
+// ----------------------------------------------------------------------------
+
+export const FLOOR_EXEMPTIONS = ['provider_receipt'] as const;
+export type FloorExempt = (typeof FLOOR_EXEMPTIONS)[number];
+
+export interface ReceiptFacts {
+  subject: string | null | undefined;
+  from_email: string | null | undefined;
+  gist: string | null | undefined;
+  is_urgent: boolean;
+  intent: string | null | undefined;
+}
+
+interface ReceiptRule {
+  /** Sender domains. An entry matches that domain exactly, or a subdomain of it when `sub` is true. */
+  domains: readonly string[];
+  sub: boolean;
+  subjects: readonly RegExp[];
+}
+
+/**
+ * The closed list. Same shape as the classifier's provider_receipt rule (PROVIDER_ROUTINE_RECEIPTS in email-classifier.py): the
+ * money-in receipts of the two invoicing tools, and the "your invoice is available" notices of three providers. The Intuit and
+ * Wave invoice rows name the owner's own businesses, so an invoice a vendor sends him is never in the list.
+ */
+export const PROVIDER_RECEIPT_RULES: readonly ReceiptRule[] = [
+  {
+    domains: ['intuit.com'],
+    sub: true,
+    subjects: [/^payment received:\s+invoice\s+#?\d+/i, /^invoice\s+#?\d+\s+from\s+indelible\b/i],
+  },
+  {
+    domains: ['waveapps.com'],
+    sub: true,
+    subjects: [/^congrats, you just got paid!?\s*$/i, /^invoice\s+#?\d+\s+from\s+who is mike dion\b/i],
+  },
+  {
+    domains: ['cloudflare.com', 'notify.cloudflare.com'],
+    sub: false,
+    subjects: [/^your invoice is available\s*$/i],
+  },
+  {
+    domains: ['google.com'],
+    sub: false,
+    subjects: [/^google workspace:\s+your invoice is available(?:\s+for\s+[a-z0-9][a-z0-9.-]*\.[a-z]{2,})?\s*$/i, /^your invoice is available\s*$/i],
+  },
+  {
+    domains: ['aws.com', 'amazon.com'],
+    sub: false,
+    subjects: [
+      /^amazon web services billing statement available(?:\s*\[account:\s*\d+\])?\s*$/i,
+      /^aws billing statement available(?:\s*\[account:\s*\d+\])?\s*$/i,
+      /^your (?:amazon web services|aws) invoice is available\s*$/i,
+      /^your invoice is available\s*$/i,
+    ],
+  },
+];
+
+/** Trouble wording: any hit in the subject or the gist and the receipt is not routine. Mirrors PROVIDER_RECEIPT_VETO_RE. */
+export const RECEIPT_VETO_RE = new RegExp(
+  '(past due|overdue|owed|owe\\b|unpaid|balance due|amount due|due (?:on|by|today|soon)|failed|failure|declin|refund' +
+    '|dispute|charge ?back|suspend|expir|renew|cancel|terminat|delinquen|final notice|action required|action needed' +
+    '|attention|warning|alert|security|suspicious|unusual|unauthori[sz]ed|compromis|breach|risk|problem|error|issue' +
+    '|unable|could not|couldn\'t|locked|verify|confirm your|exceed|limit|outage|\\bdown\\b|payment request' +
+    '|request for payment|please (?:pay|pay now)|pay now|update your)',
+  'i',
+);
+
+/** The domain of one plain address, lowercased, or null when the value is not exactly one address. */
+export function senderDomain(addr: string | null | undefined): string | null {
+  const a = (addr ?? '').trim().toLowerCase();
+  if (!/^[^\s@<>,;]+@[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/.test(a)) return null;
+  return a.slice(a.indexOf('@') + 1);
+}
+
+/**
+ * The server's own check of a floor_exempt claim. True only when the ask is not urgent, its intent is admin, the subject is on the
+ * closed list for the provider whose domain sent it, and neither the subject nor the gist carries trouble wording. A lookalike
+ * domain (a longer name that merely contains the provider's) never matches.
+ */
+export function isVerifiedProviderReceipt(f: ReceiptFacts): boolean {
+  if (f.is_urgent || f.intent !== 'admin') return false;
+  const subject = (f.subject ?? '').trim();
+  const domain = senderDomain(f.from_email);
+  if (!subject || !domain) return false;
+  if (RECEIPT_VETO_RE.test(`${subject} ${f.gist ?? ''}`)) return false;
+  return PROVIDER_RECEIPT_RULES.some(
+    (r) => r.domains.some((d) => domain === d || (r.sub && domain.endsWith('.' + d))) && r.subjects.some((re) => re.test(subject)),
+  );
+}
+
 export interface FloorFacts {
   is_urgent: boolean;
   intent: string | null;
+  /** A claim that this is a routine provider receipt, with what the server needs to check it. Never trusted on its own. */
+  exempt?: { kind: FloorExempt | null | undefined; subject: string | null | undefined; from_email: string | null | undefined; gist: string | null | undefined };
 }
 
 export interface FloorResult {
   disposition: Disposition;
   /** Why the value was changed, or null when it stands. */
   adjusted: string | null;
+  /** Set when a verified provider receipt was let through the admin floor. */
+  exempted?: FloorExempt;
+}
+
+/** True when a no_action may skip the admin floor: the claim names a known exemption and the server's own check passes. */
+export function floorExemptHolds(f: FloorFacts): boolean {
+  const e = f.exempt;
+  if (!e || e.kind !== 'provider_receipt') return false;
+  return isVerifiedProviderReceipt({ subject: e.subject, from_email: e.from_email, gist: e.gist, is_urgent: f.is_urgent, intent: f.intent });
 }
 
 /** The structural floors. */
 export function applyFloors(disposition: Disposition, facts: FloorFacts): FloorResult {
   if (disposition === 'no_action' || disposition === 'waiting_them') {
     if (facts.is_urgent) return { disposition: 'reply_mike', adjusted: `${disposition}_refused_urgent` };
-    if (facts.intent === 'admin') return { disposition: 'reply_mike', adjusted: `${disposition}_refused_admin` };
+    if (facts.intent === 'admin') {
+      if (disposition === 'no_action' && floorExemptHolds(facts)) return { disposition, adjusted: null, exempted: 'provider_receipt' };
+      return { disposition: 'reply_mike', adjusted: `${disposition}_refused_admin` };
+    }
     if (facts.intent === 'sales') return { disposition: 'reply_mike', adjusted: `${disposition}_refused_sales` };
   }
   if (disposition === 'emergency' && !facts.is_urgent) return { disposition: 'reply_mike', adjusted: 'emergency_without_urgent_flag' };
@@ -117,7 +228,14 @@ export interface ReplayAsk {
   task_id: string | null;
   /** The linked task is security tagged (its asks are never closed by inference). */
   task_security: boolean;
+  /** What the provider-receipt check reads (all optional: absent means the check cannot pass). */
+  subject?: string | null;
+  from_email?: string | null;
+  gist?: string | null;
 }
+
+/** decided_by values that mean a machine decided (the replay or the intake), never the owner. */
+export const MACHINE_DECIDERS = ['intake', 'bast', 'other_copy'] as const;
 
 export type ReplayVerdict = 'close' | 'set' | 'leave' | 'refused';
 
@@ -136,18 +254,31 @@ export interface ReplayDecision {
  * closes; reply_mike, meeting and (urgent only) emergency are stored without closing; work is stored only on an ask already linked
  * to a task; waiting_them is never applied by the replay (it would need a wait), so it is left.
  */
-export function decideReplay(ask: ReplayAsk | null, item: { disposition: string; reason?: string | null }): ReplayDecision {
+export function decideReplay(ask: ReplayAsk | null, item: { disposition: string; reason?: string | null; floor_exempt?: FloorExempt | null }): ReplayDecision {
   if (!ask) return { ask_id: '', verdict: 'refused', disposition: null, why: 'ask_not_found' };
   const out = (verdict: ReplayVerdict, disposition: Disposition | null, why: string | null): ReplayDecision => ({ ask_id: ask.id, verdict, disposition, why });
   if (!isDisposition(item.disposition)) return out('refused', null, 'not_a_disposition');
   if (ask.state !== 'open') return out('leave', null, 'not_open');
-  if (ask.disposition !== null) return out('leave', null, 'already_decided');
+  const exemptFacts = { kind: item.floor_exempt, subject: ask.subject, from_email: ask.from_email, gist: ask.gist };
+  if (ask.disposition !== null) {
+    // The one way a stored decision changes: a verified routine provider receipt that an earlier machine pass left as reply_mike
+    // is recorded as handled. Never one he decided himself, never any other stored value, never without the server's own check.
+    const redo =
+      item.disposition === 'no_action' &&
+      ask.disposition === 'reply_mike' &&
+      ask.decided_by !== null &&
+      (MACHINE_DECIDERS as readonly string[]).includes(ask.decided_by) &&
+      floorExemptHolds({ is_urgent: ask.is_urgent, intent: ask.intent, exempt: exemptFacts });
+    if (!redo) return out('leave', null, 'already_decided');
+    if (ask.task_security) return out('leave', null, 'security_task');
+    return out('close', 'no_action', 'provider_receipt_redecided');
+  }
   if (ask.decided_by === 'mike') return out('leave', null, 'held_by_mike');
-  const floored = applyFloors(item.disposition, { is_urgent: ask.is_urgent, intent: ask.intent });
+  const floored = applyFloors(item.disposition, { is_urgent: ask.is_urgent, intent: ask.intent, exempt: exemptFacts });
   const d = floored.disposition;
   if (d === 'no_action') {
     if (ask.task_security) return out('leave', null, 'security_task');
-    return out('close', 'no_action', null);
+    return out('close', 'no_action', floored.exempted ? 'provider_receipt' : null);
   }
   if (d === 'waiting_them') return out('leave', null, 'waiting_not_applied');
   if (d === 'work') return ask.task_id ? out('set', 'work', null) : out('leave', null, 'work_without_task');
@@ -176,6 +307,11 @@ export interface SyncPosted {
   owner?: DecisionOwner | null;
   is_urgent: boolean;
   intent: string | null;
+  /** The posted claim and the mail facts the server checks it against (a new row only; see planSync). */
+  floor_exempt?: FloorExempt | null;
+  subject?: string | null;
+  from_email?: string | null;
+  gist?: string | null;
 }
 
 export interface SyncPlan {
@@ -188,6 +324,8 @@ export interface SyncPlan {
   /** An update that reopens an intake close because the ask is now urgent. */
   reopen: boolean;
   adjusted: string | null;
+  /** Set when a verified provider receipt was recorded as handled although its intent is admin. */
+  exempted?: FloorExempt;
   prior: { disposition: string | null; task_id: string | null } | null;
 }
 
@@ -197,7 +335,11 @@ export interface SyncPlan {
  * (those are only a birth). An existing intake close that turns urgent reopens as an emergency (the floors only raise).
  */
 export function planSync(existing: SyncExisting | null, posted: SyncPosted): SyncPlan {
-  const floor = applyFloors(posted.disposition, { is_urgent: posted.is_urgent, intent: posted.intent ?? existing?.intent ?? null });
+  const floor = applyFloors(posted.disposition, {
+    is_urgent: posted.is_urgent,
+    intent: posted.intent ?? existing?.intent ?? null,
+    exempt: { kind: posted.floor_exempt, subject: posted.subject, from_email: posted.from_email, gist: posted.gist },
+  });
   const d = floor.disposition;
   const reason = cleanReason(posted.reason);
   const owner = ownerFor(d, existing?.task_owner ?? null) ?? posted.owner ?? null;
@@ -211,7 +353,7 @@ export function planSync(existing: SyncExisting | null, posted: SyncPosted): Syn
       fields.closed_reason = birth.closed_reason;
       fields.closed_by = birth.closed_by;
     }
-    return { disposition: d, fields, birth, reopen: false, adjusted: floor.adjusted, prior: null };
+    return { disposition: d, fields, birth, reopen: false, adjusted: floor.adjusted, ...(floor.exempted ? { exempted: floor.exempted } : {}), prior: null };
   }
 
   const prior = { disposition: existing.disposition, task_id: existing.task_id };

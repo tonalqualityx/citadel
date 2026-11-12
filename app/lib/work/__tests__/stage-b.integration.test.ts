@@ -432,6 +432,120 @@ describe.skipIf(!SCRATCH)('Work stage B: one intake decision per message (real d
   });
 
   // ------------------------------------------------------------------------------------------------------------------
+  describe('routine provider receipts: handled through the verified exempt path only', () => {
+    const rcpt = { intent: 'admin', from_email: 'quickbooks@notification.intuit.com', subject: 'Payment received: Invoice #1042-(Acme Co)', gist: 'A payment came in.' };
+
+    it('email-sync: a verified receipt is born handled although its intent is admin; every failed check keeps the floor', async () => {
+      const body = await sync([
+        wire('rc1', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt' }),
+        wire('rc2', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', from_email: 'quickbooks@notintuit.com' }),
+        wire('rc3', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', subject: 'Payment received: Invoice #1042 failed' }),
+        wire('rc4', { ...rcpt, disposition: 'no_action' }),
+        wire('rc5', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', is_urgent: true }),
+        wire('rc6', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', intent: 'sales' }),
+        wire('rc7', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', gist: 'Your payment is past due' }),
+        wire('rc8', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', from_email: 'no-reply@notify.cloudflare.com', subject: 'Your invoice is available', gist: null }),
+        wire('rc9', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt', from_email: 'no-reply@notify.cloudflare.com.evil.test', subject: 'Your invoice is available' }),
+      ]);
+      const by = (k: string) => body.items.find((i: { message_id: string }) => i.message_id === mid(k));
+      expect(by('rc1')).toMatchObject({ disposition: 'no_action', floor_exempt: 'provider_receipt' });
+      expect(by('rc1').adjusted).toBeUndefined();
+      expect(await row('rc1')).toMatchObject({ state: 'handled', disposition: 'no_action', closed_reason: 'no_action', closed_by: 'intake', decided_by: 'intake', intent: 'admin' });
+      expect(by('rc8')).toMatchObject({ disposition: 'no_action', floor_exempt: 'provider_receipt' });
+      expect((await row('rc8')).state).toBe('handled');
+      expect(by('rc2')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+      expect(by('rc3')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+      expect(by('rc4')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+      expect(by('rc5')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_urgent' });
+      expect(by('rc6')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_sales' });
+      expect(by('rc7')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+      expect(by('rc9')).toMatchObject({ disposition: 'reply_mike', adjusted: 'no_action_refused_admin' });
+      for (const k of ['rc2', 'rc3', 'rc4', 'rc5', 'rc6', 'rc7', 'rc9']) expect((await row(k)).state).toBe('open');
+      // The handled receipt is in the 30-day list with Undo, like any recorded-as-handled mail.
+      expect((await screen()).sel.handled_mail.some((m) => m.id === (by('rc1') as { id: string }).id)).toBe(true);
+    });
+
+    it('email-sync: a claim with a bad value is a 400, and the claim never closes an existing row', async () => {
+      as(porter());
+      const bad = await syncPost(jreq('/api/oracle/email-sync', 'POST', { asks: [wire('rcbad', { ...rcpt, disposition: 'no_action', floor_exempt: 'anything' })] }));
+      expect(bad.status).toBe(400);
+      await sync([wire('rcex', { ...rcpt, disposition: 'reply_mike' })]);
+      const again = await sync([wire('rcex', { ...rcpt, disposition: 'no_action', floor_exempt: 'provider_receipt' })]);
+      expect(again.items[0]).toMatchObject({ disposition: 'reply_mike', prior: { disposition: 'reply_mike' } });
+      expect((await row('rcex')).state).toBe('open');
+    });
+
+    it('the replay: undecided and machine-decided reply_mike receipts close, his own decision and every unverified one stay; dry equals the replay route', async () => {
+      const a = await legacy('rr1', { ...rcpt });
+      const b = await legacy('rr2', { ...rcpt, disposition: 'reply_mike', decided_by: 'intake', owner: 'mike', disposition_reason: 'Money mail.' });
+      const c = await legacy('rr3', { ...rcpt, disposition: 'reply_mike', decided_by: 'mike', owner: 'mike' });
+      const d = await legacy('rr4', { ...rcpt, disposition: 'reply_mike', decided_by: 'intake', from_email: 'q@intuit.com.evil.test' });
+      const e = await legacy('rr5', { ...rcpt, disposition: 'reply_mike', decided_by: 'intake', subject: 'Payment received: Invoice #9 past due' });
+      const f = await legacy('rr6', { ...rcpt, disposition: 'reply_mike', decided_by: 'intake', subject: 'Quote for the site', from_email: 'q@intuit.com' });
+      const g = await legacy('rr7', { ...rcpt, disposition: 'emergency', decided_by: 'intake', is_urgent: true });
+      const h = await legacy('rr8', { ...rcpt, disposition: 'reply_mike', decided_by: 'intake', is_urgent: true });
+      const i = await legacy('rr9', { ...rcpt, disposition: 'meeting', decided_by: 'intake' });
+      const j = await legacy('rr10', { ...rcpt, disposition: 'reply_mike', decided_by: 'bast', subject: 'Your invoice is available', from_email: 'x@notify.cloudflare.com', gist: null });
+      const k = await legacy('rr11', { ...rcpt, subject: 'Your invoice is available', from_email: 'x@notify.cloudflare.com.evil.test' });
+      const ex = 'provider_receipt';
+      const items = [a, b, c, d, e, f, g, h, i, j].map((x) => ({ ask_id: x.id, disposition: 'no_action', reason: 'A routine receipt that asks nothing.', floor_exempt: ex }));
+      items.push({ ask_id: k.id, disposition: 'no_action', reason: 'x', floor_exempt: ex });
+      const before = await snapshot();
+      const rp = await replay(items);
+      const dry = await apply(items, true);
+      expect(await snapshot()).toEqual(before);
+      expect(dry.body.rows).toEqual(rp.body.rows);
+      expect(dry.body.counts).toEqual(rp.body.counts);
+      const v = dry.body.rows.map((r: { verdict: string; why: string | null }) => `${r.verdict}:${r.why}`);
+      expect(v).toEqual([
+        'close:provider_receipt',
+        'close:provider_receipt_redecided',
+        'leave:already_decided',
+        'leave:already_decided',
+        'leave:already_decided',
+        'leave:already_decided',
+        'leave:already_decided',
+        'leave:already_decided',
+        'leave:already_decided',
+        'close:provider_receipt_redecided',
+        'set:no_action_refused_admin',
+      ]);
+      const real = await apply(items, false);
+      expect(real.body.rows).toEqual(dry.body.rows);
+      expect(real.body.closed.sort()).toEqual([a.id, b.id, j.id].sort());
+      for (const [key, who] of [['rr1', 'a'], ['rr2', 'b'], ['rr10', 'j']] as const) {
+        void who;
+        expect(await row(key)).toMatchObject({ state: 'handled', disposition: 'no_action', closed_reason: 'no_action', closed_by: 'backfill', decided_by: 'intake', owner: 'nobody' });
+      }
+      expect(await row('rr3')).toMatchObject({ state: 'open', disposition: 'reply_mike', decided_by: 'mike' });
+      expect(await row('rr4')).toMatchObject({ state: 'open', disposition: 'reply_mike' });
+      expect(await row('rr5')).toMatchObject({ state: 'open', disposition: 'reply_mike' });
+      expect(await row('rr6')).toMatchObject({ state: 'open', disposition: 'reply_mike' });
+      expect(await row('rr7')).toMatchObject({ state: 'open', disposition: 'emergency' });
+      expect(await row('rr8')).toMatchObject({ state: 'open', disposition: 'reply_mike' });
+      expect(await row('rr9')).toMatchObject({ state: 'open', disposition: 'meeting' });
+      expect(await row('rr11')).toMatchObject({ state: 'open', disposition: 'reply_mike', decided_by: 'intake' });
+
+      // A second run changes nothing; Undo puts a closed one back as a reply he owes, held against re-closing.
+      const again = await apply(items, false);
+      expect(again.body.closed).toEqual([]);
+      const line = (await screen()).sel.sections.handled.find((l) => l.text === 'Recorded 3 emails as handled: no reply needed.');
+      expect(line?.undo_action_id).toBeTruthy();
+      as(admin());
+      await runHomeUndo(prisma, adminId, line!.undo_action_id!, NOW);
+      expect(await row('rr2')).toMatchObject({ state: 'open', disposition: 'reply_mike', decided_by: 'mike', closed_reason: null });
+      await apply(items, false);
+      expect((await row('rr2')).state).toBe('open');
+    });
+
+    it('apply-decisions: a bad floor_exempt value is a 400', async () => {
+      as(porter());
+      const res = await applyPost(jreq('/api/work/apply-decisions', 'POST', { dry: true, items: [{ ask_id: randomUUID(), disposition: 'no_action', floor_exempt: 'everything' }] }));
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // ------------------------------------------------------------------------------------------------------------------
   describe('screen, other users and the weekly line', () => {
     it('GET /api/home carries handled_mail and the 30-day window drops older closes', async () => {
       await sync([wire('oldclose', { disposition: 'no_action' })]);
