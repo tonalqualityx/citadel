@@ -7,7 +7,7 @@ import type { PatchTaskExpect } from '@/lib/services/task-patch';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { formatTaskResponse } from '@/lib/api/formatters';
 import { logUpdate, logDelete } from '@/lib/services/activity';
-import { checkTaskAccess, patchTask } from '@/lib/services/task-patch';
+import { checkTaskAccess, patchTask, mayLeaveTriage, TRIAGE_EXIT_TEXT } from '@/lib/services/task-patch';
 
 export async function GET(
   request: NextRequest,
@@ -141,8 +141,10 @@ export async function DELETE(
     // Get task title for activity log
     const task = await prisma.task.findUnique({
       where: { id },
-      select: { title: true },
+      select: { title: true, status: true },
     });
+    // Deleting a triage task is dropping it: only Mike or the chat lane may (same rule as leaving triage).
+    if (task?.status === 'triage' && !mayLeaveTriage(auth)) throw new ApiError(TRIAGE_EXIT_TEXT, 403, 'triage_exit_forbidden');
 
     // Soft delete
     await prisma.task.update({

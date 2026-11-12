@@ -71,7 +71,7 @@ export async function cancelRequest(access: PortalAccess, taskId: string, now: D
              tags = array_append(array_remove(array_remove(array_remove(tags, 'awaiting-clarification'), 'chat-clarifying'), 'client-approved'), ${CLIENT_CANCELLED_TAG}),
              updated_at = ${now}
        WHERE id = ${taskId}::uuid
-         AND status NOT IN ('abandoned', 'done')`;
+         AND status NOT IN ('abandoned', 'done', 'triage')`;
     if (n !== 1) return false;
     // Work stage A: the client cancelling ends the task, so the emails linked to it close (same transaction).
     await closeAsksForTask(tx, taskId, 'abandoned', { now });

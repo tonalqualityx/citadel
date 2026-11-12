@@ -22,6 +22,7 @@ export const BLOCKING_TAGS: readonly string[] = [
   'scheduled',
   'client-plan-approval',
   'plan-approval',
+  'design-runner',
 ];
 
 export const BOT_USER_IDS: readonly string[] = [

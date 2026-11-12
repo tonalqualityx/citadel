@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
 import { NotificationType, NotificationPriority } from '@prisma/client';
-import { dispatchNotification, DispatchOptions } from './notification-dispatcher';
+import { dispatchNotification, suppressedForTriage, DispatchOptions } from './notification-dispatcher';
 import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 
 interface CreateNotificationParams {
@@ -45,6 +45,9 @@ export async function createNotification(params: CreateNotificationParams) {
     if (pref?.home_view === 'home') return null;
   }
 
+  // A triage task is parked for Mike; a contractor hears nothing about it (also enforced under the dispatcher).
+  if (await suppressedForTriage(userId, entityType, entityId)) return null;
+
   // Use the dispatcher for multi-channel routing
   const result = await dispatchNotification({
     userId,
@@ -74,6 +77,7 @@ export async function createNotification(params: CreateNotificationParams) {
  */
 export async function createInAppNotificationOnly(params: CreateNotificationParams) {
   const { userId, type, title, message, entityType, entityId, bundleKey, priority } = params;
+  if (await suppressedForTriage(userId, entityType, entityId)) return null;
 
   // If bundling, check for existing recent notification with same bundle key
   if (bundleKey) {

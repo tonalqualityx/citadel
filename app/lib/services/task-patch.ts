@@ -164,6 +164,28 @@ function assertTriageExit(auth: AuthPayload, from: TaskStatus, to: TaskStatus) {
   }
 }
 
+/** Filing a task into triage forces client_visible false; this tag remembers it was true so release can restore it. */
+export const TRIAGE_WAS_VISIBLE_TAG = 'triage-was-client-visible';
+
+/**
+ * What a status change does to client_visible and the marker tag. Into triage: remember a true value in the tag.
+ * Out of triage: put a remembered true back and drop the tag. `baseTags` is the tag list the write will start from.
+ */
+export function triageVisibilityPatch(
+  existing: { status: TaskStatus; client_visible: boolean; tags: string[] },
+  nextStatus: TaskStatus | undefined,
+  baseTags: string[],
+): { client_visible?: boolean; tags?: string[] } {
+  if (nextStatus === undefined || nextStatus === existing.status) return {};
+  if (nextStatus === 'triage' && existing.status !== 'triage') {
+    return existing.client_visible && !baseTags.includes(TRIAGE_WAS_VISIBLE_TAG) ? { tags: [...baseTags, TRIAGE_WAS_VISIBLE_TAG] } : {};
+  }
+  if (existing.status === 'triage' && nextStatus !== 'triage' && baseTags.includes(TRIAGE_WAS_VISIBLE_TAG)) {
+    return { client_visible: true, tags: baseTags.filter((t) => t !== TRIAGE_WAS_VISIBLE_TAG) };
+  }
+  return {};
+}
+
 type StatusTransitionData = {
   status: TaskStatus;
   started_at?: Date;
@@ -465,6 +487,7 @@ export async function patchTask(input: PatchTaskInput) {
       ...claimCleared,
       // Into triage: nothing may hold the task, and nothing about it is client-visible.
       ...(enteringTriage ? { ...CLEAR_CLAIM_DATA, client_visible: false } : {}),
+      ...triageVisibilityPatch(existingTask, statusData.status, existingTask.tags),
     };
 
     const task = await prisma.task.update({
@@ -754,6 +777,12 @@ export async function patchTask(input: PatchTaskInput) {
 
   // Bast triage: classification + provenance + staging approval
   if (data.tags !== undefined) updateData.tags = data.tags;
+  // Triage entry/exit: remember and restore client_visible (an explicit client_visible in the body is ignored while in triage).
+  {
+    const patch = triageVisibilityPatch(existingTask, statusChange, (updateData.tags as string[] | undefined) ?? existingTask.tags);
+    if (patch.tags) updateData.tags = patch.tags;
+    if (patch.client_visible !== undefined) updateData.client_visible = patch.client_visible;
+  }
   if (data.source !== undefined) updateData.source = data.source;
   if (data.source_ref !== undefined) updateData.source_ref = data.source_ref;
   if (data.requested_by_contact_id !== undefined) updateData.requested_by_contact_id = data.requested_by_contact_id;

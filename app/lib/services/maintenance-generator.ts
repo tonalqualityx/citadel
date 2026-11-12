@@ -161,7 +161,7 @@ export async function generateMaintenanceTasksForSite(siteId: string): Promise<G
     where: {
       site_id: siteId,
       is_maintenance_task: true,
-      status: { notIn: ['done', 'abandoned'] },
+      status: { notIn: ['done', 'abandoned', 'triage'] }, // a triage task is Mike's to release or drop
       maintenance_period: { not: currentPeriod },
     },
   });
