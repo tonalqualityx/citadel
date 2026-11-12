@@ -76,6 +76,7 @@ vi.mock('@/lib/calculations/energy', () => ({
 
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
+import { checkTracked } from '@/lib/work/guard';
 import { logCreate } from '@/lib/services/activity';
 import { notifyTaskAssigned } from '@/lib/services/notifications';
 import type { Mock } from 'vitest';
@@ -192,6 +193,25 @@ describe('POST /api/tasks', () => {
     it('a standalone task created by anyone else is still reviewed by its creator', async () => {
       await POST(createPostRequest({ title: 'Mine' }));
       expect(mockTaskCreate.mock.calls[0][0].data.reviewer_id).toBe('user-123');
+    });
+  });
+
+  describe('Work stage D: a security-tagged create is never answered already_tracked', () => {
+    const opts = () => (vi.mocked(checkTracked).mock.calls.at(-1) as unknown[])[2] as { override?: boolean; urgent?: boolean };
+    it('marks the guard call urgent for a security or security-report tag, in any case', async () => {
+      for (const t of ['security-report', 'Security-Report', 'security', 'SECURITY']) {
+        vi.mocked(checkTracked).mockClear();
+        expect((await POST(createPostRequest({ title: 'WPMU report', source: 'email', source_ref: 'm1', tags: [t] }))).status).toBe(201);
+        expect(opts().urgent).toBe(true);
+      }
+    });
+    it('does not mark an untagged or otherwise tagged create urgent, and a machine lane never overrides', async () => {
+      vi.mocked(checkTracked).mockClear();
+      await POST(createPostRequest({ title: 'Plain', source: 'email', source_ref: 'm1', tags: ['assay'] }));
+      expect(opts().urgent).toBe(false);
+      mockRequireAuth.mockResolvedValue({ userId: 'user-123', role: 'pm', email: 'b@example.com', via: 'api_key', lane: 'porter' } as never);
+      await POST(createPostRequest({ title: 'Plain', source: 'email', source_ref: 'm1', create_anyway: true }));
+      expect(opts().override).toBe(false);
     });
   });
 

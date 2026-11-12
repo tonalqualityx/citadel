@@ -350,6 +350,39 @@ describe.skipIf(!SCRATCH)('Work stage D: the linking model (real database), the 
       expect(await taskCount()).toBe(n + 1);
     });
 
+    it('11b. a NEW security report email on a conversation attached to ordinary open work is still filed (task and project)', async () => {
+      // The real path of the security-report lane: source email + source_ref/source_rfc (no source_key) and the security-report tag.
+      // Own asks, so the shared walk (the measures count in 16) is not disturbed.
+      as(porter());
+      await ask('sx1');
+      await attachSource(prisma, { kind: 'email', ref: `${tag}-conv-sx1`, target_key: `task:${ids.T1}`, attached_by: 'mike', move: true });
+      const n = await taskCount();
+      const plain = { assignee_id: adminId, client_id: clientId, source: 'email', source_ref: `${tag}-sx1`, source_rfc: `${tag}-rfc-sx1` };
+      // control: without the tag, and with a machine create_anyway, the conversation attached to the ordinary task T1 is answered already_tracked
+      const control = await tasksPost(jreq('/api/tasks', 'POST', { ...plain, title: `Plain ${tag}`, create_anyway: true }));
+      expect(control.status).toBe(200);
+      expect((await control.json()).already_tracked).toBe(true);
+      expect(await taskCount()).toBe(n);
+      // the same conversation on a live PROJECT, control first
+      await ask('sp1');
+      await attachSource(prisma, { kind: 'email', ref: `${tag}-conv-sp1`, target_key: `project:${ids.website}`, attached_by: 'mike', move: true });
+      const ctl = await tasksPost(jreq('/api/tasks', 'POST', { assignee_id: adminId, client_id: clientId, source: 'email', source_ref: `${tag}-sp1`, title: `Plain proj ${tag}` }));
+      expect(ctl.status).toBe(200);
+      expect((await ctl.json()).target_key).toBe(`project:${ids.website}`);
+      expect(await taskCount()).toBe(n);
+      // with a security tag (any case, either tag) it is created, on the task conversation and on the project conversation
+      let made = 0;
+      for (const t of ['security-report', 'Security-Report', 'security', 'SECURITY']) {
+        const res = await tasksPost(jreq('/api/tasks', 'POST', { ...plain, title: `WPMU security report ${t} ${tag}`, tags: [t] }));
+        expect(res.status).toBe(201);
+        expect((await res.json()).already_tracked).toBeUndefined();
+        made += 1;
+      }
+      const sec = await tasksPost(jreq('/api/tasks', 'POST', { assignee_id: adminId, client_id: clientId, source: 'email', source_ref: `${tag}-sp1`, title: `Security on project ${tag}`, tags: ['security-report'] }));
+      expect(sec.status).toBe(201);
+      expect(await taskCount()).toBe(n + made + 1);
+    });
+
     it('12. the state of the project: one line, everything attached with its date, evidence', async () => {
       as(admin());
       const res = await stateGet(jreq(`/api/work/project:${ids.website}/state`, 'GET'), { params: Promise.resolve({ key: `project:${ids.website}` }) });
