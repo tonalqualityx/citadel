@@ -31,7 +31,8 @@ import { ApiError } from '@/lib/api/errors';
 import { designClaimHolder, isUuid, type DesignActor } from './helpers';
 import { RUNNER_TAG, STAGE_TAG_PREFIX } from './track-session';
 
-export const DESIGN_CLOSED_TASK_STATUSES = ['done', 'abandoned'] as const;
+/** Statuses no design path may open: finished work, and `triage` (an idea parked for Mike, not yet work). */
+export const DESIGN_CLOSED_TASK_STATUSES = ['done', 'abandoned', 'triage'] as const;
 export const DESIGN_VISIBLE_PROJECT_STATUSES = ['ready', 'in_progress', 'review'] as const;
 export const DESIGN_SITE_TYPE = 'eleventy';
 export const DESIGN_TERMINAL_SESSION_STATUSES = ['closed', 'abandoned'] as const;

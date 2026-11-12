@@ -121,7 +121,7 @@ async function gather(db: PrismaClient, userId: string, now: Date, days: number)
   const projectIds = linkRows.map((l) => l.project_id).filter((x): x is string => !!x);
   const [secTasks, secProjectTasks] = await Promise.all([
     taskIds.length ? db.task.findMany({ where: { id: { in: taskIds }, is_deleted: false }, select: { id: true, tags: true } }) : Promise.resolve([]),
-    projectIds.length ? db.task.findMany({ where: { project_id: { in: projectIds }, is_deleted: false, status: { notIn: ['done', 'abandoned'] } }, select: { project_id: true, tags: true } }) : Promise.resolve([]),
+    projectIds.length ? db.task.findMany({ where: { project_id: { in: projectIds }, is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } }, select: { project_id: true, tags: true } }) : Promise.resolve([]),
   ]);
   const secTaskIds = new Set(secTasks.filter((t) => hasSecurityTag(t.tags)).map((t) => t.id));
   const secProjectIds = new Set(secProjectTasks.filter((t) => hasSecurityTag(t.tags)).map((t) => t.project_id as string));

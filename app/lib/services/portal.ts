@@ -281,6 +281,9 @@ export async function validateTaskToken(token: string) {
 
   if (!task) return null;
 
+  // A task parked in triage is never reachable by a client link, even one issued before it was filed there.
+  if (task.status === 'triage') return null;
+
   // A deleted requester revokes every token route (no fallback to the primary contact).
   if (task.requested_by_contact?.is_deleted) return null;
 

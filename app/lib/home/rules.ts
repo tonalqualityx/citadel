@@ -21,8 +21,8 @@ import { DUE_HOUR, addBusinessDays, zonedParts } from '@/lib/waits/business-days
 // Sources (plan 1.1)
 // ============================================================================
 
-/** Task statuses that are never on the plate. */
-export const CLOSED_TASK_STATUSES = ['done', 'abandoned'] as const;
+/** Task statuses that are never on the plate. `triage` is an idea parked for Mike's release: not work until then. */
+export const CLOSED_TASK_STATUSES = ['done', 'abandoned', 'triage'] as const;
 
 /** A task whose project has one of these statuses is not an item (plan 1.1). */
 export const EXCLUDED_PROJECT_STATUSES = ['quote', 'queue', 'suspended', 'cancelled', 'done'] as const;

@@ -83,7 +83,7 @@ export const TASK_FIELDS = ['status', 'title', 'arc_id', 'assignee_id'] as const
 /** v1: recorded beside a status change. Undo ignores `completed_at` now: patchTask sets it from the status. */
 export const RESTORE_EXTRA_FIELDS = ['due_date', 'completed_at'] as const;
 export const ACTION_TOOLS = ['create_task', 'update_task', 'add_to_arc', 'remove_from_arc', 'propose_handoff'] as const;
-const TASK_STATUSES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
+const TASK_STATUSES = ['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
 
 // ---------------------------------------------------------------------------------------------
 // The record format (before and after) of a task change
@@ -146,6 +146,7 @@ function recordFields(v: unknown): TaskFields | null {
 // ---------------------------------------------------------------------------------------------
 
 const STATUS_WORDS: Record<string, string> = {
+  triage: 'triage',
   not_started: 'not started',
   in_progress: 'in progress',
   review: 'review',
@@ -330,6 +331,8 @@ export type OpLine =
   | { op: 'home_act'; action: 'draft_now' | 'needs_thought' | 'go_with_that' | 'keep_lead' | 'treat_as_reply' | 'book_block'; who: string }
   | { op: 'home_act'; action: 'arc_reorder' | 'lighter' | 'not_this_week' }
   | { op: 'home_act'; action: 'finished_close'; count: number }
+  | { op: 'home_act'; action: 'triage_release' | 'triage_drop'; count: number }
+  | { op: 'home_act'; action: 'triage_release_plan'; line: string }
   | { op: 'home_act'; action: 'reopen_ask'; title: string }
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
@@ -401,6 +404,15 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'proposal_no':
           s = `Closed the card: ${o.title}.`;
+          break;
+        case 'triage_release':
+          s = o.count === 1 ? 'Released 1 idea from Triage.' : `Released ${o.count} ideas from Triage.`;
+          break;
+        case 'triage_drop':
+          s = o.count === 1 ? 'Dropped 1 idea from Triage.' : `Dropped ${o.count} ideas from Triage.`;
+          break;
+        case 'triage_release_plan':
+          s = o.line;
           break;
         case 'finished_close':
           s = o.count === 1 ? 'Closed the 1 task you ticked on the looks-finished list.' : `Closed the ${o.count} tasks you ticked on the looks-finished list.`;

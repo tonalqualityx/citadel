@@ -278,7 +278,7 @@ export async function loadRetainers(access: PortalAccess, opts: { now?: Date } =
             taskBase,
             {
               OR: [
-                { client_approved_at: null, status: { notIn: ['abandoned', 'done'] } },
+                { client_approved_at: null, status: { notIn: ['abandoned', 'done', 'triage'] } },
                 // Approved by the client, not live yet: still moving, so still on the card.
                 approvedGoingLiveWhere(),
               ],

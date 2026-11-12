@@ -51,10 +51,10 @@ export function calculateHealthFromTasks(tasks: TaskForHealth[]): Omit<ProjectHe
   const overdueTasks = tasks.filter((t) => {
     if (!t.due_date) return false;
     const dueDate = typeof t.due_date === 'string' ? new Date(t.due_date) : t.due_date;
-    return dueDate < now && t.status !== 'done' && t.status !== 'abandoned';
+    return dueDate < now && t.status !== 'done' && t.status !== 'abandoned' && t.status !== 'triage';
   }).length;
   const completedTasks = tasks.filter((t) => t.status === 'done').length;
-  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'abandoned').length;
+  const activeTasks = tasks.filter((t) => t.status !== 'done' && t.status !== 'abandoned' && t.status !== 'triage').length;
 
   // Tasks on track (not blocked, not overdue)
   const tasksOnTrack = activeTasks > 0
@@ -177,7 +177,7 @@ export async function calculateProjectHealth(projectId: string): Promise<Project
   // Count blocked and overdue tasks
   const blockedTasks = tasks.filter((t) => t.status === 'blocked').length;
   const overdueTasks = tasks.filter(
-    (t) => t.due_date && new Date(t.due_date) < now && t.status !== 'done' && t.status !== 'abandoned'
+    (t) => t.due_date && new Date(t.due_date) < now && t.status !== 'done' && t.status !== 'abandoned' && t.status !== 'triage'
   ).length;
   const completedTasks = tasks.filter((t) => t.status === 'done').length;
 

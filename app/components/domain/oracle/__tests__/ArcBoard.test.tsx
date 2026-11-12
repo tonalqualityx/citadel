@@ -95,6 +95,24 @@ describe('ArcBoard — close/reopen (Clarity Phase 7 completion nudge trigger)',
   });
 });
 
+describe('ArcBoard — triage tasks', () => {
+  it('renders an arc holding a triage task, in the Not started column, without crashing', async () => {
+    mockGet.mockResolvedValue(
+      arcFixture({
+        tasks: [
+          {
+            id: 'task-triage', title: 'Parked idea', status: 'triage', priority: 3, due_date: null, assignee_id: null,
+            assignee: null, needs_review: false, approved: false, estimated_minutes: null, cover_url: null,
+          },
+        ],
+        task_count: 1,
+      })
+    );
+    renderWithClient(<ArcBoard arcId="arc-1" />);
+    expect(await screen.findByText('Parked idea')).toBeInTheDocument();
+  });
+});
+
 describe('ArcBoard — accord panel (Clarity Phase 3 Reckoning)', () => {
   it('renders nothing when the arc has no accord link', async () => {
     mockGet.mockResolvedValue(arcFixture());

@@ -23,6 +23,7 @@ export async function POST(
       select: {
         id: true,
         is_deleted: true,
+        status: true,
         title: true,
         staging_preview_url: true,
         client_id: true,
@@ -35,6 +36,10 @@ export async function POST(
 
     if (!task || task.is_deleted) {
       throw new ApiError('Task not found', 404);
+    }
+
+    if (task.status === 'triage') {
+      throw new ApiError('Task is in triage; nothing is sent to the client until it is released', 409);
     }
 
     const contact = await resolveTaskContact(task);

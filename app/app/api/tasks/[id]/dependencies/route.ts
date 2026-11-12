@@ -55,7 +55,8 @@ export async function POST(
     });
 
     // Optionally set task status to blocked if not already
-    if (task.status !== 'blocked' && blocker.status !== 'done') {
+    // A triage task is parked for Mike: a new blocker never changes its status (the blockers keep the order once it is released).
+    if (task.status !== 'blocked' && task.status !== 'triage' && blocker.status !== 'done') {
       await prisma.task.update({
         where: { id },
         data: { status: 'blocked' },

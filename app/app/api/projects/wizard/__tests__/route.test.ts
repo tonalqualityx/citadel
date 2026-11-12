@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Mock } from 'vitest';
 import { POST } from '../route';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 // Project wizard: SOP tags onto tasks (design-job:*, design-stage:*, design-runner only),
 // Site.design_path = portal once, v1 assignment unchanged. SPEC 7.1 (W0.4).
@@ -18,6 +19,7 @@ const tx = {
   projectTeamAssignment: { createMany: vi.fn() },
   task: { create: vi.fn(), update: vi.fn() },
   site: { updateMany: vi.fn() },
+  function: { findMany: vi.fn() },
 };
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -49,6 +51,7 @@ function sop(id: string, functionId: string, tags: string[]) {
     id,
     title: `SOP ${id}`,
     function_id: functionId,
+    function: { name: functionId === FUNC_BOT ? 'Bot' : 'Design' },
     default_priority: 3,
     energy_estimate: 2,
     mystery_factor: 'none',
@@ -100,6 +103,7 @@ beforeEach(() => {
   tx.task.create.mockImplementation(async () => ({ id: `task-${++n}` }));
   tx.task.update.mockResolvedValue({});
   tx.site.updateMany.mockResolvedValue({ count: 1 });
+  tx.function.findMany.mockResolvedValue([]);
   mockTransaction.mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx));
   mockProjectFind.mockResolvedValue({ id: 'proj-1' });
 });
@@ -220,5 +224,75 @@ describe('POST /api/projects/wizard assignment', () => {
     const tasks = createdTasks();
     expect(tasks[0].assignee_id).toBeNull();
     expect(tasks[1].assignee_id).toBe(USER_DESIGNER);
+  });
+});
+
+// Triage wizard (S6): all tasks start in triage, Bot steps unassigned, others fall back to manager then Mike.
+describe('POST /api/projects/wizard triage and fallback assignment', () => {
+  const MANAGER = '88888888-8888-4888-8888-888888888888';
+  const FUNC_OTHER = '99999999-9999-4999-8999-999999999999';
+
+  function threeTasks() {
+    mockRecipeFind.mockResolvedValue(
+      recipeWith([
+        recipeTask('rt-bot', sop('bot', FUNC_BOT, [])),
+        recipeTask('rt-design', sop('design', FUNC_DESIGN, [])),
+        recipeTask('rt-after', sop('after', FUNC_DESIGN, []), { depends_on_ids: ['rt-bot'] }),
+      ])
+    );
+  }
+
+  it('leaves Bot steps unassigned, sends others to the manager, creates all tasks in triage', async () => {
+    threeTasks();
+    const res = await POST(
+      request({
+        team_assignments: [
+          { function_id: FUNC_BOT, user_id: USER_DESIGNER },
+          { function_id: FUNC_OTHER, user_id: MANAGER, is_lead: true },
+        ],
+      })
+    );
+    expect(res.status).toBe(201);
+    const tasks = createdTasks();
+    expect(tasks).toHaveLength(3);
+    expect(tasks[0].assignee_id).toBeNull();
+    expect(tasks[1].assignee_id).toBe(MANAGER);
+    expect(tasks[2].assignee_id).toBe(MANAGER);
+    for (const t of tasks) expect(t.status).toBe('triage');
+  });
+
+  it('falls back to the team member holding the Project Manager function when no lead is flagged', async () => {
+    threeTasks();
+    tx.function.findMany.mockResolvedValue([{ id: FUNC_OTHER, name: 'Project Manager' }]);
+    await POST(request({ team_assignments: [{ function_id: FUNC_OTHER, user_id: MANAGER }] }));
+    const tasks = createdTasks();
+    expect(tasks[0].assignee_id).toBeNull();
+    expect(tasks[1].assignee_id).toBe(MANAGER);
+  });
+
+  it('with no lead and no PM member, falls back to the creating user when they are a pm', async () => {
+    threeTasks();
+    mockRequireAuth.mockResolvedValue({ userId: 'pm-creator', role: 'pm', email: 'p@example.com' });
+    await POST(request());
+    expect(createdTasks()[1].assignee_id).toBe('pm-creator');
+  });
+
+  it('falls back to Mike when Mike is the creating admin and nobody is the manager', async () => {
+    threeTasks();
+    mockRequireAuth.mockResolvedValue({ userId: MIKE_USER_ID, role: 'admin', email: 'm@example.com' });
+    await POST(request());
+    const tasks = createdTasks();
+    expect(tasks[0].assignee_id).toBeNull();
+    expect(tasks[1].assignee_id).toBe(MIKE_USER_ID);
+  });
+
+  it('keeps the dependency wiring unchanged', async () => {
+    threeTasks();
+    await POST(request({ team_assignments: [{ function_id: FUNC_DESIGN, user_id: USER_DESIGNER }] }));
+    expect(tx.task.update).toHaveBeenCalledTimes(1);
+    expect(tx.task.update).toHaveBeenCalledWith({
+      where: { id: 'task-3' },
+      data: { blocked_by: { connect: [{ id: 'task-1' }] } },
+    });
   });
 });

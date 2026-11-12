@@ -388,7 +388,7 @@ export async function GET(
           lte: period.end,
         },
         status: {
-          notIn: ['done', 'abandoned'],
+          notIn: ['done', 'abandoned', 'triage'],
         },
         OR: [
           // Explicitly marked as retainer work for this client
@@ -504,7 +504,7 @@ export async function GET(
         is_support: false, // Exclude support tasks
         due_date: null,
         status: {
-          notIn: ['done', 'abandoned'],
+          notIn: ['done', 'abandoned', 'triage'],
         },
         OR: [
           // Explicitly marked as retainer work for this client

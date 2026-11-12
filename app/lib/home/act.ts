@@ -48,6 +48,7 @@ import { ATTACH_CHOOSE_ACTION, WORK_ATTACH_ACTION, attachChoose, readAttachChoos
 import { readRecord } from './reconcile/records';
 import { readStaleRecord, undoStaleClear } from '@/lib/work/stale-asks';
 import { readTrackRecord, undoSessionTrack } from '@/lib/work/session-track';
+import { TRIAGE_ACTIONS, readTriageRecord, release as triageRelease, releasePlan as triageReleasePlan, drop as triageDrop, undoTriage } from '@/lib/tasks/triage';
 import { FINISHED_ACTION, FINISHED_KEEP_ACTION, finishedClose, finishedCloseOne, finishedKeep, readFinishedRecord, undoFinishedClose, undoFinishedKeep } from '@/lib/work/finished-store';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
@@ -160,6 +161,10 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('proposal_no'), item_key: itemKeySchema }).strict(),
   // Work stage G: the looks-finished card. Closing goes through the normal task status path; the three acts are the owner's own taps
   // (the chat may call them: it is his word). The ticked list is at most 100 keys.
+  // Triage (operating model S3): Mike's own taps on the Triage section. Task writes go through patchTask, whose check is the authority.
+  z.object({ action: z.literal('triage_release'), task_ids: z.array(z.string().uuid()).min(1).max(1000) }).strict(),
+  z.object({ action: z.literal('triage_release_plan'), group_key: z.string().min(1).max(120) }).strict(),
+  z.object({ action: z.literal('triage_drop'), task_ids: z.array(z.string().uuid()).min(1).max(1000) }).strict(),
   z.object({ action: z.literal('finished_close'), item_keys: z.array(itemKeySchema).min(1).max(100) }).strict(),
   z.object({ action: z.literal('finished_close_one'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('finished_keep'), item_key: itemKeySchema }).strict(),
@@ -887,6 +892,9 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
 
     case 'proposal_yes':
     case 'proposal_no':
+    case 'triage_release':
+    case 'triage_release_plan':
+    case 'triage_drop':
     case 'finished_close':
     case 'finished_close_one':
     case 'finished_keep':
@@ -989,6 +997,10 @@ export async function runHomeAct(
 ): Promise<HomeActResponse> {
   // Slice 9a: a tap on a card from his sent mail (its own writers; see lib/home/reconcile/apply.ts).
   if (req.action === 'proposal_no') return proposalNo(db, userId, req.item_key, opts.now);
+  // Triage: Release, Release plan and Drop (lib/tasks/triage.ts).
+  if (req.action === 'triage_release') return triageRelease(db, userId, req.task_ids, opts.now);
+  if (req.action === 'triage_release_plan') return triageReleasePlan(db, userId, req.group_key, opts.now);
+  if (req.action === 'triage_drop') return triageDrop(db, userId, req.task_ids, opts.now);
   // Work stage G: the looks-finished card's taps (their own writers; see lib/work/finished-store.ts).
   if (req.action === 'finished_close') return finishedClose(db, userId, req.item_keys, opts.now);
   if (req.action === 'finished_close_one') return finishedCloseOne(db, userId, req.item_key, opts.now);
@@ -1464,6 +1476,12 @@ export async function runHomeUndo(
     if (row.action === INTAKE_CLOSE_ACTION) {
       const rec = readIntakeCloseRecord(row.before);
       if (rec) await undoIntakeClose(tx, rec);
+    }
+
+    // Triage: a release, a release plan or a drop. Compare-and-set; anything changed since stays.
+    if ((TRIAGE_ACTIONS as readonly string[]).includes(row.action)) {
+      const tri = readTriageRecord(row.before);
+      if (tri) await undoTriage(tx, userId, tri, now);
     }
 
     // Work stage G: tasks closed from the looks-finished card, and a Not finished. Compare-and-set; anything changed since stays.

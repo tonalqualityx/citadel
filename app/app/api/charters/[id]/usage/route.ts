@@ -145,7 +145,7 @@ export async function GET(
             },
             // In-progress or not started (active work)
             {
-              status: { notIn: ['done', 'abandoned'] },
+              status: { notIn: ['done', 'abandoned', 'triage'] },
             },
           ],
         },

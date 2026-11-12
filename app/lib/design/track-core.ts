@@ -53,10 +53,10 @@ export async function loadTrack(tx: Tx | PrismaClient, trackId: string): Promise
   return t;
 }
 
-/** A task by tag within a project: not deleted, not abandoned, oldest first (SPEC 2.3). */
+/** A task by tag within a project: not deleted, not abandoned, not in triage, oldest first (SPEC 2.3). */
 export async function findTaskByTag(tx: Tx | PrismaClient, projectId: string, tag: string) {
   return tx.task.findFirst({
-    where: { project_id: projectId, tags: { has: tag }, is_deleted: false, status: { not: 'abandoned' } },
+    where: { project_id: projectId, tags: { has: tag }, is_deleted: false, status: { notIn: ['abandoned', 'triage'] } }, // triage is parked for Mike, never a stage task
     orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
     select: { id: true, title: true, status: true, tags: true, assignee_id: true, requirements: true },
   });
@@ -72,7 +72,7 @@ export async function completeStageTask(taskId: string, approverId: string, scop
   const db: Tx | PrismaClient = scope ? scope.tx : prisma;
   const now = new Date();
   const res = await db.task.updateMany({
-    where: { id: taskId, is_deleted: false, status: { not: 'abandoned' }, OR: [{ status: { not: 'done' } }, { approved: false }] },
+    where: { id: taskId, is_deleted: false, status: { notIn: ['abandoned', 'triage'] }, OR: [{ status: { not: 'done' } }, { approved: false }] },
     data: { status: 'done', approved: true, approved_at: now, approved_by_id: approverId, completed_at: now, ...CLEAR_CLAIM_DATA },
   });
   if (res.count === 0) return false;

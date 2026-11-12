@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
+import { mayLeaveTriage, TRIAGE_EXIT_TEXT } from '@/lib/services/task-patch';
 
 const bulkUpdateSchema = z.object({
   task_ids: z.array(z.string().uuid()).min(1, 'At least one task ID is required'),
@@ -95,7 +96,7 @@ export async function DELETE(request: NextRequest) {
         id: { in: task_ids },
         is_deleted: false,
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
     if (existingTasks.length !== task_ids.length) {
@@ -103,6 +104,8 @@ export async function DELETE(request: NextRequest) {
       const missingIds = task_ids.filter((id) => !existingIds.has(id));
       throw new ApiError(`Tasks not found: ${missingIds.join(', ')}`, 404);
     }
+    // Deleting a triage task is dropping it: only Mike or the chat lane may (same rule as leaving triage).
+    if (existingTasks.some((t) => t.status === 'triage') && !mayLeaveTriage(auth)) throw new ApiError(TRIAGE_EXIT_TEXT, 403, 'triage_exit_forbidden');
 
     // Soft delete tasks
     const result = await prisma.task.updateMany({

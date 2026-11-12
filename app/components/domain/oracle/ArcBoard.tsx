@@ -59,9 +59,10 @@ const COLUMNS: { id: ColumnId; title: string }[] = [
 // `blocked` renders as a chip on the card, not its own column (existing repo convention —
 // see CharterKanban's 'ready' bucket) — it's grouped visually with Not started here.
 function columnForTask(task: ArcTask): ColumnId {
-  if (task.status === 'blocked') return 'not_started';
+  if (task.status === 'blocked' || task.status === 'triage') return 'not_started';
   if (task.status === 'abandoned') return 'done';
-  return (task.status as ColumnId) ?? 'not_started';
+  const col = task.status as ColumnId;
+  return COLUMNS.some((c) => c.id === col) ? col : 'not_started';
 }
 
 // Never a 0%-guilt display: quiet (muted) below ~50%, gains presence (accent, fuller

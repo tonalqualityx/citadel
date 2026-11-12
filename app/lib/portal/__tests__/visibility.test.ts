@@ -45,7 +45,7 @@ describe('portal task visibility', () => {
 
   it('clientVisibleTaskWhere() is requested-by-contact OR client_visible OR staged', () => {
     expect(clientVisibleTaskWhere()).toEqual({
-      OR: [{ requested_by_contact_id: { not: null } }, { client_visible: true }, stagedTaskWhere()],
+      OR: [{ requested_by_contact_id: { not: null }, status: { not: 'triage' } }, { client_visible: true, status: { not: 'triage' } }, stagedTaskWhere()],
     });
   });
 

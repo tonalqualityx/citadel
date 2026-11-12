@@ -178,7 +178,7 @@ describe('loadRetainers', () => {
     await loadRetainers(owner, { now: NOW });
     const where = p.task.findMany.mock.calls[0][0].where;
     expect(where.AND[1]).toEqual({
-      OR: [{ client_approved_at: null, status: { notIn: ['abandoned', 'done'] } }, approvedGoingLiveWhere()],
+      OR: [{ client_approved_at: null, status: { notIn: ['abandoned', 'done', 'triage'] } }, approvedGoingLiveWhere()],
     });
     // The done query is unchanged: finished work only, in the period.
     expect(JSON.stringify(p.task.findMany.mock.calls[1][0].where)).toContain('"status":"done"');

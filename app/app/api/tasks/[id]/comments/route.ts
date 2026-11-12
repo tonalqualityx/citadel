@@ -89,6 +89,7 @@ export async function GET(
 
     // Tech users can only see comments on tasks they have access to
     if (auth.role === 'tech') {
+      if (task.status === 'triage') throw new ApiError('Task not found', 404); // parked for Mike
       let hasAccess = false;
 
       // Ad-hoc tasks assigned to the user
@@ -178,6 +179,7 @@ export async function POST(
 
     // Tech users can only comment on tasks they have access to
     if (auth.role === 'tech') {
+      if (task.status === 'triage') throw new ApiError('Task not found', 404); // parked for Mike
       let hasAccess = false;
 
       if (!task.project_id && task.assignee_id === auth.userId) {

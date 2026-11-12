@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       where: {
         is_deleted: false,
         assignee_id: { not: null },
-        status: { notIn: ['done', 'abandoned'] },
+        status: { notIn: ['done', 'abandoned', 'triage'] },
         due_date: {
           gte: now,
           lte: tomorrow,

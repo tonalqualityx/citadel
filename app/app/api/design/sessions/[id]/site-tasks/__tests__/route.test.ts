@@ -61,7 +61,7 @@ describe('GET /api/design/sessions/:id/site-tasks', () => {
     const where = taskFind.mock.calls[0][0].where;
     expect(where).toMatchObject({
       is_deleted: false,
-      status: { notIn: ['done', 'abandoned'] },
+      status: { notIn: ['done', 'abandoned', 'triage'] },
       project_id: { in: [PROJECT_ID] },
       project: { is_deleted: false, status: { in: ['ready', 'in_progress', 'review'] } },
       OR: [{ site_id: SITE_ID }, { site_id: null, project: { site_id: SITE_ID } }],

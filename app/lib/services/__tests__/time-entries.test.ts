@@ -52,9 +52,23 @@ describe('startRunningEntry', () => {
   it('touchTask false leaves the task alone and passes description and billing through', async () => {
     await startRunningEntry({ userId: 'u1', taskId: 't1', projectId: 'p9', description: 'Design portal (auto)', isBillable: false, touchTask: false });
     expect(task.updateMany).not.toHaveBeenCalled();
-    expect(task.findUnique).not.toHaveBeenCalled();
+    // only the triage check reads the task; project_id was passed in
+    expect(task.findUnique).toHaveBeenCalledTimes(1);
+    expect(task.findUnique).toHaveBeenCalledWith({ where: { id: 't1' }, select: { status: true } });
     expect(te.create.mock.calls[0][0].data).toMatchObject({ project_id: 'p9', description: 'Design portal (auto)', is_billable: false });
   });
+});
+
+describe('startRunningEntry on a triage task', () => {
+  for (const [who, userId] of [['a tech user', 'tech-user'], ['a worker key user', 'worker-key-user']] as const) {
+    it(`refuses for ${who}: no timer, no task writes, running timers untouched`, async () => {
+      task.findUnique.mockResolvedValue({ status: 'triage', project_id: 'proj' });
+      await expect(startRunningEntry({ userId, taskId: 't1', touchTask: true })).rejects.toMatchObject({ statusCode: 409 });
+      expect(te.create).not.toHaveBeenCalled();
+      expect(te.update).not.toHaveBeenCalled();
+      expect(task.updateMany).not.toHaveBeenCalled();
+    });
+  }
 });
 
 describe('stopRunningEntry', () => {

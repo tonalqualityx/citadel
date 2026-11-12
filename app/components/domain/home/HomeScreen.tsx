@@ -15,6 +15,9 @@ import { ItemCard } from './ItemCard';
 import { HandsCard } from './HandsCard';
 import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
+import { TriageCard } from './TriageCard';
+import { openTriageConversation } from './triage-talk';
+import type { OpenCardInput } from '@/components/domain/bast-chat/card-context';
 import { AttachCard } from './AttachCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
@@ -185,10 +188,20 @@ function HomeBody(p: BodyProps) {
   if (tile === 'handled') detail = detailForHandled(res, selectedKey);
   else if (tile === 'projects') detail = detailForProject(projects, selectedKey);
 
+  // Talk about this (Triage): the card the chat is about, and a count that opens the chat each time it is tapped.
+  const [talkCard, setTalkCard] = React.useState<OpenCardInput | null>(null);
+  const [talkOpen, setTalkOpen] = React.useState(0);
+  const onTalk = (card: OpenCardInput) =>
+    openTriageConversation(card, (c) => {
+      setTalkCard(c);
+      setTalkOpen((n) => n + 1);
+    });
   const selectItemKey = (key: string) => {
+    setTalkCard(null);
     p.setChosen({ key, index: Math.max(keys.indexOf(key), 0) });
   };
   const pickTile = (id: HomeTileId) => {
+    setTalkCard(null);
     p.setTile(id);
     p.setChosen(undefined);
   };
@@ -239,6 +252,7 @@ function HomeBody(p: BodyProps) {
   const lists = (
     <>
       <TileStrip tiles={tiles} selected={tile} onSelect={pickTile} />
+      {res.triage && res.triage.count > 0 ? <TriageCard triage={res.triage} onAct={onFinishedAct} onTalk={onTalk} busy={itemActions.busy} /> : null}
       <div className="home-work">
         <div className="home-pane">
           {tile === 'today' ? (
@@ -290,7 +304,9 @@ function HomeBody(p: BodyProps) {
 
   // The card Mike is looking at, for the Bast chat's "About" line. Kind and id only leave the browser.
   const shown = pinned && !p.showLists ? pinned : selectedItem;
-  const chatCard = shown
+  const chatCard = talkCard
+    ? talkCard
+    : shown
     ? { key: shown.key, title: shown.title, type: shown.type, task_id: shown.opened.task_id, tile }
     : tile === 'projects' && detail && selectedKey
       ? { key: selectedKey, title: detail.title, tile }
@@ -326,7 +342,7 @@ function HomeBody(p: BodyProps) {
       ) : (
         lists
       )}
-      <BastChatDock card={chatCard} />
+      <BastChatDock card={chatCard} openSignal={talkOpen} />
       <CalendarDrawer
         eventId={openEventId}
         renderItem={(item) => card(item, '', false, true)}

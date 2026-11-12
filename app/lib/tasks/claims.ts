@@ -43,7 +43,7 @@ export interface Claim {
 
 export type ClaimResult =
   | { ok: true; claim: Claim }
-  | { ok: false; reason: 'not_found' | 'closed' | 'taken'; holder?: string | null; lease_until?: Date | null };
+  | { ok: false; reason: 'not_found' | 'closed' | 'triage' | 'taken'; holder?: string | null; lease_until?: Date | null };
 
 interface ClaimRow {
   id: string;
@@ -77,7 +77,7 @@ export async function claimTask(
       lease_until = ${NOW} + make_interval(secs => ${ttl}::int)
     WHERE id = ${input.taskId}::uuid
       AND is_deleted = false
-      AND status NOT IN ('done', 'abandoned')
+      AND status NOT IN ('done', 'abandoned', 'triage')
       AND (lease_until IS NULL OR lease_until < ${NOW} OR claim_holder = ${input.holder})
     RETURNING id, claim_holder, claim_token::text AS claim_token, claimed_at, lease_until`;
   if (rows.length === 1) return { ok: true, claim: toClaim(rows[0]) };
@@ -85,6 +85,7 @@ export async function claimTask(
   const t = await db.task.findUnique({ where: { id: input.taskId }, select: { is_deleted: true, status: true, claim_holder: true, lease_until: true } });
   if (!t || t.is_deleted) return { ok: false, reason: 'not_found' };
   if (t.status === 'done' || t.status === 'abandoned') return { ok: false, reason: 'closed', holder: t.claim_holder, lease_until: t.lease_until };
+  if (t.status === 'triage') return { ok: false, reason: 'triage', holder: t.claim_holder, lease_until: t.lease_until };
   return { ok: false, reason: 'taken', holder: t.claim_holder, lease_until: t.lease_until };
 }
 

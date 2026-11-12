@@ -108,7 +108,7 @@ function classifyTask(task: Task): TaskType {
 
 function isOverdue(task: Task): boolean {
   if (!task.due_date) return false;
-  if (task.status === 'done' || task.status === 'abandoned') return false;
+  if (task.status === 'done' || task.status === 'abandoned' || task.status === 'triage') return false;
   return new Date(task.due_date) < new Date();
 }
 

@@ -62,7 +62,9 @@ export async function unblockEligibleDependents(taskId: string): Promise<string[
   if (toUnblock.length > 0) {
     const ids = toUnblock.map(t => t.id);
     await prisma.task.updateMany({
-      where: { id: { in: ids } },
+      // Re-check the status in the write itself: only a task still `blocked` is ever released here,
+      // so a task that was filed into triage in the meantime stays there.
+      where: { id: { in: ids }, status: 'blocked' },
       data: { status: 'not_started' },
     });
     return ids;
@@ -77,7 +79,9 @@ export async function reblockDependents(taskId: string): Promise<string[]> {
   const dependentTasks = await prisma.task.findMany({
     where: {
       blocked_by: { some: { id: taskId } },
-      status: { notIn: ['blocked', 'done', 'abandoned'] },
+      // triage is parked for Mike: a blocker reopening must never flip it to blocked (the heal
+      // sweep would then release it to not_started).
+      status: { notIn: ['triage', 'blocked', 'done', 'abandoned'] },
       is_deleted: false,
     },
     select: { id: true },
@@ -86,7 +90,7 @@ export async function reblockDependents(taskId: string): Promise<string[]> {
   if (dependentTasks.length > 0) {
     const ids = dependentTasks.map(t => t.id);
     await prisma.task.updateMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, status: { notIn: ['triage', 'blocked', 'done', 'abandoned'] } },
       data: { status: 'blocked' },
     });
     return ids;
@@ -181,7 +185,9 @@ export async function healBlockedTasks(): Promise<string[]> {
   if (toUnblock.length > 0) {
     const ids = toUnblock.map(t => t.id);
     await prisma.task.updateMany({
-      where: { id: { in: ids } },
+      // Re-check the status in the write itself: only a task still `blocked` is ever released here,
+      // so a task that was filed into triage in the meantime stays there.
+      where: { id: { in: ids }, status: 'blocked' },
       data: { status: 'not_started' },
     });
     return ids;

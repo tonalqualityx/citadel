@@ -270,7 +270,7 @@ export function UsageTracker({ charterId, budgetHours }: UsageTrackerProps) {
     COMPLETED_STATUSES.includes(t.status)
   );
   const plannedTasks = allTasks.filter(
-    (t) => !COMPLETED_STATUSES.includes(t.status)
+    (t) => !COMPLETED_STATUSES.includes(t.status) && t.status !== 'triage'
   );
 
   const plannedTotalDisplay = plannedLow === plannedHigh

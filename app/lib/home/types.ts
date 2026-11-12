@@ -684,6 +684,11 @@ export interface HomeResponse {
   /** Work stage B: Mail recorded as handled, the last 30 days (read only; each row has Undo through reopen_ask). Never counted in Everything else. */
   handled_mail?: HomeHandledMail[];
   /**
+   * Triage (operating model S3): the ideas parked for his release, grouped. Present only for the owner (Mike); absent for everyone else,
+   * and absent when nothing waits. Triage tasks are never shown anywhere else on this screen as work.
+   */
+  triage?: HomeTriage | null;
+  /**
    * The empty sentence for every tile, from copy.ts, exactly as the design gives them
    * ("Nothing urgent.", "No active projects.", ...). '' where the design has none.
    */
@@ -693,6 +698,37 @@ export interface HomeResponse {
 // ============================================================================
 // B. POST /api/home/act and /api/home/undo
 // ============================================================================
+
+/** Triage: one parked idea (a task in status triage). */
+export interface HomeTriageTask {
+  task_id: string;
+  title: string;
+  href: string;
+  /** The project's name, or null for a task with none. */
+  project_name: string | null;
+}
+
+/** Triage: one group of parked ideas, by project, or by a `triage-pass:` tag when the tasks carry one. */
+export interface HomeTriageGroup {
+  /** `project:<uuid>`, `pass:<tag>` or `none`. Stable between loads; the card keys on it. */
+  key: string;
+  kind: 'project' | 'pass' | 'none';
+  label: string;
+  count: number;
+  /** The first three titles. */
+  titles: string[];
+  /** Every task in the group, for the expanded view and for "Release plan". */
+  tasks: HomeTriageTask[];
+  /** Project groups only: the project id (for Talk about this). */
+  project_id: string | null;
+  /** True when every project in the group is still a quote: Release plan will say so and do nothing. */
+  still_quote: boolean;
+}
+
+export interface HomeTriage {
+  count: number;
+  groups: HomeTriageGroup[];
+}
 
 /** Work stage B: one mail recorded as handled by an intake decision. */
 export interface HandledMailLite {
@@ -763,7 +799,10 @@ export type HomeActName =
   | 'finished_close_one'
   | 'finished_keep'
   | 'reopen_ask'
-  | 'attach_choose';
+  | 'attach_choose'
+  | 'triage_release'
+  | 'triage_release_plan'
+  | 'triage_drop';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -900,6 +939,9 @@ export type HomeActRequest =
    * emails), writes one Handled line with Undo for 72 hours. finished_close_one: one security or portal row, its own line and Undo.
    * finished_keep: Not finished; the row leaves the card and is not offered again for 90 days (Undo 24 hours).
    */
+  | { action: 'triage_release'; task_ids: string[] }
+  | { action: 'triage_release_plan'; group_key: string }
+  | { action: 'triage_drop'; task_ids: string[] }
   | { action: 'finished_close'; item_keys: string[] }
   | { action: 'finished_close_one'; item_key: string }
   | { action: 'finished_keep'; item_key: string }
@@ -1516,6 +1558,10 @@ export type KeeperActionKind =
   | 'work_close'
   // Work stage G: tasks closed from the looks-finished card (source keeper, Undo for 72 hours)
   | 'finished_close'
+  // Triage: ideas released or dropped from the Triage section (source keeper, Undo for 72 hours)
+  | 'triage_release'
+  | 'triage_release_plan'
+  | 'triage_drop'
   // Work stage E: work started from a session the owner said to track, and the one-time clear of old session questions (source keeper, Undo for 72 hours)
   | 'session_track'
   | 'work_stale_clear'

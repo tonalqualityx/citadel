@@ -88,6 +88,17 @@ describe('POST /api/tasks/:id/notify-requestor', () => {
     );
   });
 
+  it('returns 409 and sends nothing when the task is in triage', async () => {
+    mockFindUnique.mockResolvedValue({ ...taskRow, status: 'triage' });
+    mockResolveContact.mockResolvedValue(taskRow.requested_by_contact);
+
+    const response = await POST(makeRequest(), makeParams('task-1'));
+
+    expect(response.status).toBe(409);
+    expect(mockEnsureToken).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it('returns 404 when the task is missing or deleted', async () => {
     mockFindUnique.mockResolvedValue(null);
 

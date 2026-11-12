@@ -93,7 +93,7 @@ describe('GET /api/today/due-soon', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           assignee_id: 'user-123',
-          status: { notIn: ['done', 'abandoned'] },
+          status: { notIn: ['done', 'abandoned', 'triage'] },
           due_date: { not: null },
         }),
       })

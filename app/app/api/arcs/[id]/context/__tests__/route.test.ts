@@ -217,7 +217,7 @@ describe('GET /api/arcs/[id]/context', () => {
     // Open query excludes done/abandoned, recent query is scoped to them.
     expect(mockTaskFindMany).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ where: expect.objectContaining({ status: { notIn: ['done', 'abandoned'] } }) })
+      expect.objectContaining({ where: expect.objectContaining({ status: { notIn: ['done', 'abandoned', 'triage'] } }) })
     );
     expect(mockTaskFindMany).toHaveBeenNthCalledWith(
       2,

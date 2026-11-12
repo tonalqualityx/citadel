@@ -20,6 +20,7 @@ const ACTIVE_PROJECT_STATUSES: ProjectStatus[] = [
 const EXCLUDED_STATUSES: TaskStatus[] = [
   TaskStatus.done,
   TaskStatus.abandoned,
+  TaskStatus.triage,
 ];
 
 interface CheckInUser {

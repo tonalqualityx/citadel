@@ -7,6 +7,7 @@ import { requireHomeUser } from '@/lib/home/gate';
 import { loadHomeInputs } from '@/lib/home/load';
 import { getHomeDay, getOrCreateHomeDay, loadItemStates, updateHomeDay } from '@/lib/home/state';
 import { selectHome } from '@/lib/home/select';
+import { loadTriage } from '@/lib/tasks/triage';
 import { applyEmergencyInsert, assembleHomeResponse, proposeDay } from '@/lib/home/today';
 import type { DayLike } from '@/lib/home/today';
 
@@ -72,6 +73,9 @@ export async function GET() {
       timezone,
       user_id: userId,
     });
+    // Triage is Mike's alone: loadTriage answers null for anyone else, and a null section is left out of the payload.
+    const triage = await loadTriage(prisma, userId);
+    if (triage) body.triage = triage;
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return handleApiError(error);

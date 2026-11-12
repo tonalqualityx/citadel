@@ -350,7 +350,7 @@ const ARC_FIELD = 'arc_id';
 /** Fields the session reads that have no rule of their own: on a task Bast holds, changing one taps. */
 const READ_ONLY_FIELDS: readonly string[] = ['promised_to'];
 /** Statuses that only park or close: safe as a field; the view model still catches a wake (blocked with a human comment, the sweep). */
-const PARKING_STATUSES: readonly string[] = ['blocked', 'done', 'abandoned'];
+const PARKING_STATUSES: readonly string[] = ['triage', 'blocked', 'done', 'abandoned'];
 /** Tags whose meaning to the worker is known to be "do not act": adding one is safe. */
 const PARKING_TAGS: readonly string[] = [...BLOCKING_TAGS, ...CHAT_PARKED_TAGS];
 /** The task text a session reads (W3 line 417, W1 line 343) and that a card shows. */
@@ -476,6 +476,10 @@ export function workerView(t: ReachTask, now: Date): ViewResult {
 
   switch (t.status) {
     case 'abandoned':
+      return out('none');
+    case 'triage':
+      // An idea parked for Mike: the worker fetches tasks by status and never reads triage, so filing one starts no
+      // session. Releasing it (a move to another status) is judged as the change it is: that one starts Bast.
       return out('none');
     case 'done': {
       if (t.needs_review === undefined || t.approved === undefined) {

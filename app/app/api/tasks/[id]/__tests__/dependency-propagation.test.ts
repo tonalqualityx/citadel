@@ -161,7 +161,7 @@ describe('Task dependency propagation on status change', () => {
 
       expect(mockTaskFindMany).toHaveBeenCalledWith(UNBLOCK_QUERY);
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['task-2'] } },
+        where: { id: { in: ['task-2'] }, status: 'blocked' },
         data: { status: 'not_started' },
       });
     });
@@ -217,7 +217,7 @@ describe('Task dependency propagation on status change', () => {
       const response = await PATCH(makeRequest({ status: 'done' }), { params: makeParams() });
       expect(response.status).toBe(200);
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['task-2'] } },
+        where: { id: { in: ['task-2'] }, status: 'blocked' },
         data: { status: 'not_started' },
       });
     });
@@ -288,7 +288,7 @@ describe('Task dependency propagation on status change', () => {
 
       expect(mockTaskFindMany).toHaveBeenCalledWith(UNBLOCK_QUERY);
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['task-2'] } },
+        where: { id: { in: ['task-2'] }, status: 'blocked' },
         data: { status: 'not_started' },
       });
     });
@@ -333,13 +333,13 @@ describe('Task dependency propagation on status change', () => {
       expect(mockTaskFindMany).toHaveBeenCalledWith({
         where: {
           blocked_by: { some: { id: 'task-1' } },
-          status: { notIn: ['blocked', 'done', 'abandoned'] },
+          status: { notIn: ['triage', 'blocked', 'done', 'abandoned'] },
           is_deleted: false,
         },
         select: { id: true },
       });
       expect(mockTaskUpdateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['task-2'] } },
+        where: { id: { in: ['task-2'] }, status: { notIn: ['triage', 'blocked', 'done', 'abandoned'] } },
         data: { status: 'blocked' },
       });
     });
