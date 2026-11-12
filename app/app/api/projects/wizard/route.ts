@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
-import { ProjectStatus, ProjectType, Prisma } from '@prisma/client';
+import { ProjectStatus, ProjectType, Prisma, TaskStatus } from '@prisma/client';
+import { resolveWizardStepAssignee } from '@/lib/projects/wizard-assignee';
 
 // Enhanced task mapping to support variable task expansion
 interface TaskMapping {
@@ -57,6 +58,7 @@ const wizardSchema = z.object({
     z.object({
       function_id: z.string().uuid(),
       user_id: z.string().uuid(),
+      is_lead: z.boolean().optional().default(false), // The project's manager
     })
   ),
   start_date: z.string().optional().nullable(),
@@ -81,7 +83,7 @@ export async function POST(request: NextRequest) {
             tasks: {
               orderBy: { sort_order: 'asc' },
               include: {
-                sop: true, // Include full SOP data for task generation
+                sop: { include: { function: { select: { name: true } } } }, // Full SOP data plus function name (Bot steps stay unassigned)
               },
             },
           },
@@ -150,6 +152,7 @@ export async function POST(request: NextRequest) {
             project_id: project.id,
             function_id: assignment.function_id,
             user_id: assignment.user_id,
+            is_lead: assignment.is_lead,
           })),
         });
       }
@@ -157,6 +160,8 @@ export async function POST(request: NextRequest) {
       // Generate tasks from recipe - SOP is source of truth for task attributes
       const taskMappings = new Map<string, TaskMapping>();
       let taskSortOrder = 0;
+      // Project manager = the team lead; steps with no owner fall back to them, else Mike
+      const managerUserId = data.team_assignments.find((a) => a.is_lead)?.user_id ?? null;
 
       for (const recipePhase of recipe.phases) {
         const projectPhaseId = phaseIdMap.get(recipePhase.id);
@@ -167,10 +172,15 @@ export async function POST(request: NextRequest) {
             throw new ApiError(`SOP not found for recipe task ${recipeTask.id}`, 500);
           }
 
-          // Find assigned user for this function (from SOP)
+          // Find assigned user for this function (from SOP), with Bot/manager/Mike fallback
           const assignment = data.team_assignments.find(
             (a) => a.function_id === sop.function_id
           );
+          const assigneeId = resolveWizardStepAssignee({
+            functionName: sop.function?.name,
+            pickedUserId: assignment?.user_id,
+            managerUserId,
+          });
 
           // Determine task title: use override if set, otherwise SOP title
           const baseTitle = recipeTask.title ?? sop.title;
@@ -207,7 +217,8 @@ export async function POST(request: NextRequest) {
                   // Reference back to SOP
                   sop_id: sop.id,
                   // Assignment and metadata
-                  assignee_id: assignment?.user_id || null,
+                  assignee_id: assigneeId,
+                  status: TaskStatus.triage, // Plan waits for Mike's release
                   sort_order: taskSortOrder++,
                   created_by_id: auth.userId,
                 },
@@ -244,7 +255,8 @@ export async function POST(request: NextRequest) {
                 // Reference back to SOP
                 sop_id: sop.id,
                 // Assignment and metadata
-                assignee_id: assignment?.user_id || null,
+                assignee_id: assigneeId,
+                status: TaskStatus.triage, // Plan waits for Mike's release
                 sort_order: taskSortOrder++,
                 created_by_id: auth.userId,
               },
