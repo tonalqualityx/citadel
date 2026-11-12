@@ -30,7 +30,7 @@ import {
   HELD_PROJECT_STATUSES,
   OPEN_WAIT_STATES,
 } from './rules';
-import { isItemKey } from './item-key';
+import { isItemKey, sessionKey, threadKey } from './item-key';
 import { RULE_ACTION } from './emergency/copy';
 import { LEARNED_ACTION } from './learn/copy';
 import { loadWeights } from './learn/weights-store';
@@ -69,6 +69,8 @@ import { loadReconcile } from './reconcile/screen';
 import { askIsOwed, askShowsAsMeeting, linkedTaskFacts } from '@/lib/work/owed';
 import { INTAKE_CLOSE_REASONS, loadHandledMail } from '@/lib/work/intake';
 import { loadFinishedCard } from '@/lib/work/finished-store';
+import { loadAttachQuestions } from '@/lib/work/attach-store';
+import { attachedTrackCardIds, guardSessionAsks, handledAskIds, loadTaskAttachments } from '@/lib/work/home-guard';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How long a keeper line stays in Handled for you (and open for Undo). */
@@ -95,6 +97,8 @@ const KEEPER_ACTIONS: readonly string[] = [
   'intake_close',
   // Work stage G: tasks closed from the looks-finished card (Undo for 72 hours)
   'finished_close',
+  // Work stage D: a source attached quietly to the work it belongs to (Undo for 72 hours)
+  'work_attach',
 ] satisfies KeeperActionKind[];
 /** How long an answered uptime-mail check keeps its mails out of Needs you now. */
 const ANSWERED_KEEP_MS = 3 * DAY_MS;
@@ -821,6 +825,8 @@ async function loadWaits(db: PrismaClient, userId: string): Promise<RawWait[]> {
 // ============================================================================
 
 const ASK_SELECT = {
+  conversation_key: true,
+  rfc_message_id: true,
   id: true,
   message_id: true,
   thread_id: true,
@@ -849,6 +855,8 @@ function toRawAsk(a: AskRow): RawEmailAsk {
   return {
     id: a.id,
     message_id: a.message_id,
+    conversation_key: a.conversation_key,
+    rfc_message_id: a.rfc_message_id,
     thread_id: a.thread_id,
     account: a.account,
     from_name: a.from_name,
@@ -1018,25 +1026,63 @@ export async function loadHomeInputs(
   const settings = await db.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
   const isOwner = settings?.owner_user_id === userId;
   const intakeHandled = isOwner ? await loadIntakeHandled(db, now) : [];
+  // Work stage D, owner only: the guard on mail, session questions and Track it cards, the one question, and each task's attachments. Another
+  // user's screen is read exactly as before.
+  let threadsOut = threads;
+  let sessionsOut = sessionAsks;
+  let tasksOut = tasks;
+  let cardsOut = reconcile.cards;
+  let handledKeys: string[] | undefined;
+  let keptOff: number | undefined;
+  let attachQuestions: RawHomeInputs['attach_questions'];
+  if (isOwner) {
+    const kept: string[] = [];
+    const askRows = threads.flatMap((t) => t.asks);
+    const mail = await handledAskIds(db, askRows.map((a) => ({ id: a.id, conversation_key: a.conversation_key ?? null, rfc_message_id: a.rfc_message_id ?? null, message_id: a.message_id })));
+    if (mail.ids.size > 0) {
+      threadsOut = [];
+      for (const t of threads) {
+        const left = t.asks.filter((a) => !mail.ids.has(a.id));
+        if (left.length === t.asks.length) threadsOut.push(t);
+        else if (left.length > 0) threadsOut.push({ ...t, asks: left });
+        else kept.push(threadKey(t.account, t.thread_id));
+      }
+    }
+    const sess = await guardSessionAsks(db, userId, sessionAsks);
+    if (sess.hidden.size > 0) {
+      sessionsOut = sessionAsks.filter((a) => !sess.hidden.has(a.external_id));
+      for (const id of sess.hidden) kept.push(sessionKey(id));
+    }
+    const attachments = await loadTaskAttachments(db, tasks.map((t) => t.id), timezone, sess.onTask);
+    if (attachments.size > 0) tasksOut = tasks.map((t) => (attachments.has(t.id) ? { ...t, ...attachments.get(t.id) } : t));
+    const hiddenCards = await attachedTrackCardIds(db, reconcile.cards);
+    if (hiddenCards.size > 0) cardsOut = reconcile.cards.filter((c) => !hiddenCards.has(c.id));
+    attachQuestions = await loadAttachQuestions(db, userId);
+    handledKeys = kept;
+    keptOff = mail.sources + sess.hidden.size;
+  }
   const handledMail = (isOwner ? await loadHandledMail(db, now) : []).map((h) => ({ id: h.id, from_name: h.from_name, from_email: h.from_email, subject: h.subject, client_name: h.client_name, reason: h.reason, deep_link: h.deep_link, handled_at: h.closed_at, kind: h.kind }));
 
   return {
     user_id: userId,
     now,
-    tasks,
+    tasks: tasksOut,
     review_folds: reviewFolds,
-    session_asks: sessionAsks,
+    session_asks: sessionsOut,
     waits,
-    threads,
+    threads: threadsOut,
     crises,
     auto_handled: autoHandled,
     calendar_events: calendarEvents,
     held_project_task_count: heldProjects.reduce((n, h) => n + h.count, 0),
     held_projects: heldProjects,
     keeper_lines: keeperLines,
-    reconcile_cards: reconcile.cards,
+    reconcile_cards: cardsOut,
     reconcile_lines: reconcile.lines,
     finished,
+    ...(attachQuestions ? { attach_questions: attachQuestions } : {}),
+    ...(handledKeys && handledKeys.length > 0 ? { handled_elsewhere: handledKeys } : {}),
+    ...(keptOff !== undefined ? { kept_off: keptOff } : {}),
     intake_handled: intakeHandled,
     handled_mail: handledMail,
     owed_rows: owedRows,

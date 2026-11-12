@@ -5350,3 +5350,57 @@ model WorkFinishedItem {
   @@index([user_id, state])
   @@map("work_finished_item")
 }
+
+// ============================================
+// WORK STAGE D (the linking model; implementation/plans/work-stage-d.md)
+// A source (an email conversation, a session, a send, a deploy, a commit, a calendar event, a wait, a folder) attaches to ONE piece
+// of work: a project or a task. Evidence rows are written by code paths only and hold no mail text. No foreign keys on purpose: a
+// link blocks no delete; readers join on the uuids.
+// ============================================
+model WorkLink {
+  id             String    @id @default(uuid()) @db.Uuid
+  target_key     String    @db.VarChar(60) // project:<uuid> | task:<uuid> | proposed (a question waiting for his answer)
+  project_id     String?   @db.Uuid
+  task_id        String?   @db.Uuid
+  kind           String    @db.VarChar(20) // email | session | send | deploy | commit | calendar | wait | folder
+  ref            String    @db.VarChar(300) // conversation_key | session external id | outbox id | deploy id | sha@repo | event id | wait id | folder path
+  label          String?   @db.VarChar(300)
+  attached_by    String    @db.VarChar(20) // auto | mike | bast | intake
+  basis          String?   @db.VarChar(40)
+  state          String    @default("active") @db.VarChar(10) // proposed | active | detached
+  candidates     Json? // proposed only: [{target_key, label, href}]
+  // Proposed only: what "New project" and "Just a task" need ({client_id, client_name, site_id, title, can_task}). Not in the plan's
+  // column list; one nullable column keeps the candidates array exactly as the plan gives it.
+  context        Json?
+  first_seen_at  DateTime  @default(now())
+  last_seen_at   DateTime  @default(now())
+  detached_at    DateTime?
+  home_action_id String?   @db.Uuid
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  @@unique([kind, ref, target_key])
+  @@index([kind, ref, state])
+  @@index([project_id])
+  @@index([task_id])
+  @@map("work_link")
+}
+
+model WorkEvidence {
+  id         String   @id @default(uuid()) @db.Uuid
+  target_key String   @db.VarChar(60)
+  project_id String?  @db.Uuid
+  task_id    String?  @db.Uuid
+  link_id    String?  @db.Uuid
+  kind       String   @db.VarChar(20) // their_message | our_reply | send | deploy | live | commit | gate | delivered_file | meeting_held | mike_quote | bast_run | client_approval
+  ref        String   @db.VarChar(300)
+  at         DateTime
+  line       String   @db.VarChar(300)
+  href       String?  @db.VarChar(1000)
+  source     String   @db.VarChar(30)
+  dedupe_key String   @unique @db.VarChar(400)
+  created_at DateTime @default(now())
+
+  @@index([target_key, at])
+  @@map("work_evidence")
+}

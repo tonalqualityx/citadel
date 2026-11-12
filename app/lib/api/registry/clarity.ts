@@ -263,6 +263,7 @@ export const clarityEndpoints: ApiEndpoint[] = [
           { name: 'severity', type: 'string', required: false, description: 'client_blocking|launch_blocking|internal' },
           { name: 'assignee_id', type: 'uuid', required: false, description: 'Defaults to the primary operator (email lookup) if absent' },
           { name: 'due_date', type: 'ISO-8601', required: false, description: '' },
+          { name: 'create_anyway', type: 'boolean', required: false, description: 'Work stage D: when open work already carries this session the answer is 200 {already_tracked: true, ...} and nothing is created (a client_blocking or launch_blocking severity is never answered that way); this is the owner own override (browser session or bast-chat lane only).' },
         ],
         responseExample: {
           id: 'uuid',
@@ -550,6 +551,84 @@ export const clarityEndpoints: ApiEndpoint[] = [
     ],
   },
   {
+    path: '/api/work/{key}/state',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'GET',
+        summary:
+          'Work stage D: the one derived state of a project or a task and everything attached to it (email conversations, sessions, sends, deploys, commits, calendar events, waits). {key} is project:<uuid> or task:<uuid>. The owner session, or the bast, oracle, bast-chat and porter lanes.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'state is done > looks_done > waiting_them > with_<name> (bast, sabeen, mike, ...) > open, derived in one place (lib/work/state.ts); line is the plain sentence ("With Bast since Nov 2", "Waiting on Kelly since Nov 5", "Looks done: live receipt Nov 4. Close it?"). ' +
+          'live_session is true when a running session is attached: the worker keeps off. GET /api/work/task/{id}/state is the same answer under the path the worker spawn gate reads. Read only; 404 when the work does not exist.',
+        responseExample: {
+          target_key: 'project:<uuid>|task:<uuid>',
+          type: 'project|task',
+          id: 'uuid',
+          name: 'string',
+          href: 'string',
+          status: 'string',
+          state: 'done|looks_done|waiting_them|with_<name>|open',
+          since: 'ISO-8601|null',
+          line: 'string',
+          attached: [{ link_id: 'uuid', kind: 'email|session|send|deploy|commit|calendar|wait|folder', ref: 'string', label: 'string', line: 'string', href: 'string|null', at: 'ISO-8601', attached_by: 'auto|mike|bast|intake', target_key: 'string' }],
+          evidence: [{ kind: 'string', at: 'ISO-8601', line: 'string', href: 'string|null', source: 'string' }],
+          live_session: 'boolean',
+        },
+      },
+    ],
+  },
+  {
+    path: '/api/work/attach',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage D: attach a source to a piece of work, or propose it (one question with a link on each candidate when the match is unclear). Admin, or the porter, oracle and bast-chat lanes.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Strict body. Send target_key (attach there) or propose: true (Citadel works out the candidates). A clear match (exactly one candidate, basis same_conversation, plan_folder or prior_choice) attaches quietly with a Handled line and Undo; anything else is ONE question on the owner home screen ' +
+          '(buttons: one per candidate, New project, Just a task when one_deliverable is true, Not work). A finished project or task is never a candidate and is refused as a target (409 target_finished); a source already on other work is refused (409 already_attached). ' +
+          'Attaching writes only work_link and the email asks task_id and project_id stamps (Undo puts them back); it never closes, deletes or sends anything. skipped home_off means no home owner is on the home view and nothing was written.',
+        bodySchema: [
+          { name: 'kind', type: 'string', required: true, description: 'email | session | send | deploy | commit | calendar | wait | folder' },
+          { name: 'ref', type: 'string', required: true, description: 'conversation key | session external id | outbox id | deploy id | sha@repo | event id | wait id | folder path (max 300)' },
+          { name: 'label', type: 'string', required: false, description: 'A short plain label (max 300)' },
+          { name: 'target_key', type: 'string', required: false, description: 'project:<uuid> or task:<uuid>. XOR with propose.' },
+          { name: 'propose', type: 'boolean', required: false, description: 'true. XOR with target_key.' },
+          { name: 'candidates', type: 'string[]', required: false, description: 'Propose only: at most 8 target keys, live ones only; a named list is always a question' },
+          { name: 'client_id', type: 'uuid', required: false, description: 'Propose only: the sender client when the caller knows it' },
+          { name: 'cwd', type: 'string', required: false, description: 'Propose only, sessions: the working folder (plan_folder, Wright client folder and prior folder choices)' },
+          { name: 'repo_remote', type: 'string', required: false, description: 'Propose only, sessions: the git remote (matches a site repo_url)' },
+          { name: 'one_deliverable', type: 'boolean', required: false, description: 'Propose only: the source names one deliverable, so Just a task is offered. Default false.' },
+        ],
+        responseExample: { result: 'attached|already|proposed|dismissed|none|skipped', link_id: 'uuid', target_key: 'string', name: 'string', action_id: 'uuid|null', candidates: [{ target_key: 'string', label: 'string', href: 'string' }], skipped: '"home_off"' },
+      },
+    ],
+  },
+  {
+    path: '/api/work/evidence',
+    group: 'clarity',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage D: what a source saw about a piece of work. Code paths only. The bast, courier, porter and oracle lanes, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Strict body, 1 to 100 items. Each item names where it belongs (target_key) or the source it came from (from: {kind, ref}; its active links are the targets). One plain line of at most 300 characters, no mail text, dashes replaced. ' +
+          'Idempotent on (target, kind, ref, at). Changes no task, project or link.',
+        bodySchema: [
+          { name: 'items', type: 'object', required: true, description: 'Array (1-100): { kind: their_message|our_reply|send|deploy|live|commit|gate|delivered_file|meeting_held|mike_quote|bast_run|client_approval, ref, at (ISO), line (max 300), href?, source (max 30), target_key | from }' },
+        ],
+        responseExample: { written: 'number', duplicates: 'number', unattached: 'number' },
+      },
+    ],
+  },
+  {
     path: '/api/email-asks/{id}/create-task',
     group: 'clarity',
     methods: [
@@ -573,8 +652,9 @@ export const clarityEndpoints: ApiEndpoint[] = [
           'yet (out of v1 scope). Sets email_ask.task_id + state=handled on success. ' +
           'Clarity Phase 7 — when the created task resolves to an arc, ALSO stamps the ' +
           'email_ask\'s own arc_id (not just the task\'s), same as a manual ' +
-          'POST .../attach would.',
+          'POST .../attach would. Work stage D: when the conversation is already attached to open work (a project or another task) the answer is 200 {already_tracked: true, task, project, target_key, name, href, state} and nothing is created; an urgent ask is never answered that way; create_anyway (the owner session only) overrides.',
         bodySchema: [
+          { name: 'create_anyway', type: 'boolean', required: false, description: 'Work stage D: the owner own override after already_tracked (a browser session only)' },
           { name: 'arc_id', type: 'uuid', required: false, description: 'XOR with arc_name — 400 if both given' },
           { name: 'arc_name', type: 'string', required: false, description: 'XOR with arc_id' },
           { name: 'sop_id', type: 'uuid', required: false, description: 'Passthrough only, no resolution logic' },

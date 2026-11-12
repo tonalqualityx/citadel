@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const o = { now, timezone };
     const result =
       parsed.action === 'track_it'
-        ? await trackIt(prisma, auth.userId, parsed.item_key, { placement: parsed.placement, minutes: parsed.minutes, billable: parsed.billable }, o)
+        ? await trackIt(prisma, auth.userId, parsed.item_key, { placement: parsed.placement, minutes: parsed.minutes, billable: parsed.billable, create_anyway: parsed.create_anyway }, o)
         : parsed.action === 'log_time'
           ? await logTime(prisma, auth.userId, { task_id: parsed.task_id, minutes: parsed.minutes, day: parsed.day }, o)
           : await proposalYes(prisma, auth.userId, parsed.item_key, { ...o, allowTime: true, minutes: parsed.minutes });

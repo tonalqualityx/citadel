@@ -48,7 +48,7 @@ import type {
 // ============================================================================
 
 /** The record kind behind an item; the prefix of its item key (see item-key.ts). */
-export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step' | 'proposal' | 'finished';
+export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' | 'crisis' | 'site' | 'hands' | 'step' | 'proposal' | 'finished' | 'attach';
 
 /**
  * How a row reads, set by select.ts (H4). One value per item.
@@ -63,7 +63,7 @@ export type HomeSourceKind = 'task' | 'review' | 'session' | 'wait' | 'thread' |
  * Clients use it for small presentation choices only (for example the gold rule on
  * emergencies). Section membership comes from HomeSections, never from this field.
  */
-export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step' | 'proposal' | 'finished';
+export type HomeItemType = 'emergency' | 'lead' | 'owed_reply' | 'sign_off' | 'session_ask' | 'wait' | 'task' | 'hands' | 'step' | 'proposal' | 'finished' | 'attach';
 
 /**
  * Every button id a row or card can carry. actions-for.ts (H4) decides which an item gets
@@ -353,6 +353,38 @@ export interface HomeItem {
   proposal?: HomeProposal | null;
   /** Work stage G: the looks-finished card (type 'finished'): each task with its proof. */
   finished?: HomeFinished | null;
+  /** Work stage D: the one question when it is unclear which work a source belongs to (type 'attach'). */
+  attach?: HomeAttach | null;
+  /** Work stage D, tasks only: the one state line ("With Bast since Nov 2"). Absent when nothing is attached to it. */
+  work_line?: string | null;
+}
+
+/** Work stage D: what the attach question shows. Candidate names are links; the answers are the buttons. */
+export interface HomeAttach {
+  /** `attach:<work_link uuid>`: what the attach_choose act takes. */
+  key: string;
+  source_kind: string;
+  source_href: string | null;
+  /** One button per candidate: choice is its target key. */
+  candidates: { choice: string; label: string; href: string }[];
+  can_new_project: boolean;
+  can_task: boolean;
+}
+
+/** Work stage D: the loader's question row. */
+export interface RawAttachQuestionRow {
+  link_id: string;
+  kind: string;
+  /** The source's ref (conversation key, session external id). Server only. */
+  ref: string;
+  title: string;
+  who: string | null;
+  client_name: string | null;
+  source_href: string | null;
+  candidates: { target_key: string; label: string; href: string }[];
+  can_new_project: boolean;
+  can_task: boolean;
+  since: Date;
 }
 
 /** Work stage G: one task on the looks-finished card. */
@@ -716,7 +748,8 @@ export type HomeActName =
   | 'finished_close'
   | 'finished_close_one'
   | 'finished_keep'
-  | 'reopen_ask';
+  | 'reopen_ask'
+  | 'attach_choose';
 
 /** How a step reached arc_add, kept in the home_actions row for the "where he acts" measure. */
 export type HomeArcAddOrigin =
@@ -857,7 +890,12 @@ export type HomeActRequest =
   | { action: 'finished_close_one'; item_key: string }
   | { action: 'finished_keep'; item_key: string }
   /** Work stage B: Undo of a mail recorded as handled. item_key is `ask:<EmailAsk id>`. Reopens it as a reply he owes and holds it against re-closing. Allowed for 30 days. */
-  | { action: 'reopen_ask'; item_key: string };
+  | { action: 'reopen_ask'; item_key: string }
+  /**
+   * Work stage D, the attach question. choice is one candidate's target key, or `new_project`, `task` or `not_work`. Every answer has Undo for
+   * 72 hours (compare-and-set; a project it started goes to cancelled, a task it made to abandoned; nothing is deleted).
+   */
+  | { action: 'attach_choose'; item_key: string; choice: string };
 
 /** The arc and day requests TodayList, ArcEditor and AddToArcSearch send. */
 export type HomeTodayActRequest = Extract<HomeActRequest, { action: 'arc_add' | 'arc_remove' | 'arc_reorder' | 'swap' | 'lighter' | 'snooze' }>;
@@ -1014,6 +1052,10 @@ export interface RawTask {
   has_open_email_ask: boolean;
   /** Work stage A: the emails linked to this task (newest first, at most 3), shown on its card under Email. [] when none. */
   emails?: RawTaskEmail[];
+  /** Work stage D: the other sources attached to this task (sessions, sends, deploys, meetings), newest first, at most 4. */
+  attached?: { label: string; href: string | null }[];
+  /** Work stage D: the one state line when something is attached ("With Bast since Nov 2"). */
+  work_line?: string | null;
   /** The task's arc, or null. */
   arc: RawArcRef | null;
   /** Task.requirements read as deliverables, in sort order. [] when none or unreadable. */
@@ -1107,6 +1149,9 @@ export interface RawWait {
 export interface RawEmailAsk {
   id: string;
   message_id: string;
+  /** Work stage D: the keys a work link carries for this ask's conversation (the guard reads them). Absent in older fixtures. */
+  conversation_key?: string | null;
+  rfc_message_id?: string | null;
   /** EmailAsk.thread_id; when null, the loader groups and keys the ask by message_id instead. */
   thread_id: string | null;
   account: string;
@@ -1315,6 +1360,15 @@ export interface RawHomeInputs {
   reconcile_cards?: RawReconcileCard[];
   /** Work stage G: his open looks-finished card, or null. Absent means none. */
   finished?: RawFinishedCard | null;
+  /** Work stage D: his open attach questions, oldest first. Absent means none. */
+  attach_questions?: RawAttachQuestionRow[];
+  /**
+   * Work stage D: item keys (thread:..., session:...) the guard found already carried by open work. select drops them as well (the
+   * loader already left them out), so no path can show one as a second to-do. Absent means none.
+   */
+  handled_elsewhere?: string[];
+  /** Work stage D: how many sources the guard keeps off his list now (the measures line). Absent means unknown. */
+  kept_off?: number;
   /** Work stage B: mail recorded as handled in the last day (quiet lines with Undo), and in the last 30 days (the list). Absent means none. */
   intake_handled?: RawIntakeHandled[];
   handled_mail?: HandledMailLite[];
@@ -1442,6 +1496,8 @@ export type KeeperActionKind =
   | 'work_close'
   // Work stage G: tasks closed from the looks-finished card (source keeper, Undo for 72 hours)
   | 'finished_close'
+  // Work stage D: a source attached quietly to the work it clearly belongs to (source keeper, Undo for 72 hours)
+  | 'work_attach'
   // Work stage B: a batch of mail recorded as handled, or a booked meeting that closed a request for a time (source keeper, Undo for 72 hours)
   | 'intake_close'
   // Slice 7b: a learned weight (source keeper, Undo for 7 days)

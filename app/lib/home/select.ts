@@ -100,7 +100,8 @@ import { ON_DAY_REASON, ON_DAY_WHY_NOW, SNOOZE_BACK_WHY, dayChoices, isDayArrive
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { buildProposalDraft, proposalOrder, type ProposalDraft } from './reconcile/card';
 import { FINISHED_CARD } from '@/lib/work/finished-copy';
-import { FINISHED_CARD_KEY } from './item-key';
+import { ATTACH_CARD } from '@/lib/work/attach-copy';
+import { FINISHED_CARD_KEY, buildItemKey } from './item-key';
 import { nextStepSource } from './projects/copy';
 import { descriptionHash, readStoredChecklist } from './summary-hash';
 import { emailLinkLabel, HANDLED_MAIL, recordedLine, handledReason } from '@/lib/work/copy';
@@ -580,6 +581,8 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
   if (task.origin_url) links.push({ label: 'The email it came from', href: task.origin_url });
   // Work stage A: the emails that belong to this task, under Email ("Email: Jeffrey Knisely, Nov 2: Website update").
   for (const e of task.emails ?? []) links.push({ label: emailLinkLabel(e), href: e.deep_link });
+  // Work stage D: the other sources attached to this task (sessions, sends, deploys, meetings), each with its date.
+  for (const a of task.attached ?? []) links.push({ label: a.label, href: a.href ?? `/tasks/${task.id}` });
   if (task.staging_preview_url) links.push({ label: 'The preview', href: task.staging_preview_url });
   if (project) links.push({ label: `Project: ${project.name}`, href: `/projects/${project.id}` });
   if (client) links.push({ label: `Client: ${client.name}`, href: `/clients/${client.id}` });
@@ -618,6 +621,7 @@ function buildTask(task: RawTask, now: Date, refs: Refs, st: RawItemState | unde
     source: { kind: 'task', id: task.id, ids: [task.id], task_status: task.status },
     client,
     project,
+    ...(task.work_line ? { work_line: displayText(task.work_line) } : {}),
   };
   return {
     cand: {
@@ -1169,6 +1173,7 @@ function ifIgnored(c: Candidate): string {
   if (c.kind === 'step') return STEP_IF_IGNORED;
   if (c.kind === 'hands') return HANDS_IF_IGNORED;
   if (c.kind === 'finished') return FINISHED_CARD.ifIgnored;
+  if (c.kind === 'attach') return ATTACH_CARD.ifIgnored;
   if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
   switch (c.kind) {
     case 'thread':
@@ -1190,6 +1195,7 @@ function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.kind === 'hands') return HANDS_REASON;
   if (c.kind === 'finished') return FINISHED_CARD.reason;
+  if (c.kind === 'attach') return ATTACH_CARD.reason;
   if (c.kind === 'step') return stepReason(c.item.project?.name ?? '');
   if (c.kind === 'proposal') return ctx.proposal?.why ?? '';
   if (c.rule) return reasonEmergency(c.rule, !!ctx.outsideDate);
@@ -1288,7 +1294,7 @@ export function meetsNextRule(c: Pick<Candidate, 'boosted' | 'fresh' | 'arrived'
   return false;
 }
 
-const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step', 'proposal', 'finished'];
+const BRING_FORWARD_KINDS: readonly HomeSourceKind[] = ['task', 'session', 'wait', 'thread', 'step', 'proposal', 'finished', 'attach'];
 
 /** One Everything else row for an item (check text per the plan's table). */
 function restItemOf(c: Candidate, group: HomeRestGroupKey, ctx: FinalizeCtx, now: Date, timeZone: string): HomeRestItem {
@@ -1357,7 +1363,13 @@ export function selectHome(input: SelectInput): SelectResult {
 
   for (const task of raw.tasks) push(buildTask(task, now, refs, states.get(taskKey(task.id)), raw.user_id));
   for (const fold of raw.review_folds) push(buildReview(fold, now, refs, states.get(reviewKey(fold.project?.id ?? null))));
-  for (const s of raw.session_asks) push(buildSession(s, now, refs, states.get(sessionKey(s.external_id))));
+  // Work stage D: a source the guard found already carried by open work is never a row of its own (the loader left it out; this keeps
+  // every path honest, the joined owed rows included).
+  const keptOff = new Set(raw.handled_elsewhere ?? []);
+  for (const s of raw.session_asks) {
+    if (keptOff.has(sessionKey(s.external_id))) continue;
+    push(buildSession(s, now, refs, states.get(sessionKey(s.external_id))));
+  }
   for (const w of raw.waits) {
     if (!(OPEN_WAIT_STATES as readonly string[]).includes(w.state)) continue;
     push(buildWait(w, now, refs, states.get(waitKey(w.id))));
@@ -1371,6 +1383,7 @@ export function selectHome(input: SelectInput): SelectResult {
   const bookOn = raw.book_blocks === true;
   for (const th of joinedThreads.threads) {
     const key = threadKey(th.account, th.thread_id);
+    if (keptOff.has(key)) continue; // Work stage D: carried by open work
     const owedRow = owedByKey.get(key);
     const newestAsk = th.asks[0];
     const status = threadStatus(th, now, {
@@ -1730,6 +1743,78 @@ export function selectHome(input: SelectInput): SelectResult {
       rule: null,
       score: scoreStep({ client: { status: 'active', name: null }, project_name: null, last_activity_at: fin.since }, now),
       since: fin.since,
+      personWaiting: false,
+      hardDate: null,
+      minutes,
+      group: { key: OWN_GROUP_KEY, name: OWN_GROUP_LABEL, client: null, project: null, arc: null },
+      arcId: null,
+      dayArrived: isDayArrived(st, now, raw.timezone),
+      snoozeBack: isSnoozeBack(st, now, raw.timezone),
+      boosted: !!st?.boosted_at || isDayArrived(st, now, raw.timezone),
+      fresh: false,
+      arrived: false,
+      botTask: false,
+      clockDue: false,
+      unpark: false,
+      parkedBy: null,
+      parked: false,
+      pinned: false,
+      shown: false,
+      inView: false,
+      section: 'next',
+      restGroup: null,
+      state: st,
+    };
+    const vw = st?.view_at;
+    c.parked = !!vw && vw.getTime() > now.getTime();
+    c.parkedBy = c.parked ? (st?.view_set_by === 'keeper' ? 'keeper' : 'user') : null;
+    candidates.push(c);
+    ctxByKey.set(key, {});
+    if (c.parked) {
+      c.section = 'rest';
+      c.restGroup = c.parkedBy === 'keeper' ? 'scheduled' : 'parked';
+    } else {
+      nextAll.push(c);
+    }
+  }
+
+  // Work stage D: the one question about which work a source belongs to. One row per source, in Decisions ready; never part of Today and
+  // never scoring money, a date or a person waiting. Not now parks it like any row. Nothing is attached until he answers.
+  for (const q of raw.attach_questions ?? []) {
+    const key = buildItemKey({ kind: 'attach', id: q.link_id });
+    const st = states.get(key);
+    const minutes = 1;
+    const item: HomeItem = {
+      ...emptyItem(),
+      key,
+      type: 'attach',
+      title: q.title,
+      who: q.who,
+      age: waitedFor(q.since, now),
+      why_now: ATTACH_CARD.whyNow,
+      hard_date: null,
+      effort: effortWords(minutes),
+      minutes,
+      opened: { summary: '', summary_by: null, done_when: [], how: null, links: q.candidates.map((c) => ({ label: c.label, href: c.href })), task_id: null, left_off_note: null },
+      source: { kind: 'attach', id: q.link_id, ids: [], task_status: null },
+      client: null,
+      project: null,
+      attach: {
+        key,
+        source_kind: q.kind,
+        source_href: q.source_href,
+        candidates: q.candidates.map((c) => ({ choice: c.target_key, label: c.label, href: c.href })),
+        can_new_project: q.can_new_project,
+        can_task: q.can_task,
+      },
+    };
+    const c: Candidate = {
+      key,
+      kind: 'attach',
+      item,
+      rule: null,
+      score: scoreStep({ client: { status: 'active', name: null }, project_name: null, last_activity_at: q.since }, now),
+      since: q.since,
       personWaiting: false,
       hardDate: null,
       minutes,

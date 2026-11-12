@@ -424,6 +424,7 @@ describe('contract guards', () => {
       finished_close: { action: 'finished_close', item_keys: ['finished:7aa4a01a-1111-4222-8333-944445555666'] },
       finished_close_one: { action: 'finished_close_one', item_key: 'finished:7aa4a01a-1111-4222-8333-944445555666' },
       finished_keep: { action: 'finished_keep', item_key: 'finished:7aa4a01a-1111-4222-8333-944445555666' },
+      attach_choose: { action: 'attach_choose', item_key: 'attach:7aa4a01a-1111-4222-8333-944445555666', choice: 'not_work' },
     };
     for (const [name, req] of Object.entries(every)) expect(req.action).toBe(name);
   });

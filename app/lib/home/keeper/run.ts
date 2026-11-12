@@ -26,6 +26,7 @@ import { keeperLines } from './lines';
 import { planKeeper } from './plan';
 import { applyArcs, loadArcSwitches, planArcs, type ArcPlan } from './arcs';
 import { catchUpClosures } from '@/lib/work/ask-closure';
+import { syncSendEvidence } from '@/lib/work/evidence-writers';
 
 const HOUR_MS = 3_600_000;
 /** A run row left unfinished this long may be taken over. */
@@ -137,7 +138,7 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
     ? await planArcs(db, ownerId, raw, states, now, date, { make: wanted2c.arcs_create, close: wanted2c.arcs_close })
     : null;
 
-  return db.$transaction(
+  const result = await db.$transaction(
     async (tx): Promise<KeeperResult> => {
       // 1. Take the run row.
       const row = await tx.homeKeeperRun.findUnique({ where: runKey });
@@ -290,4 +291,8 @@ export async function runKeeper(db: PrismaClient, ownerId: string, now: Date, op
     },
     { timeout: TX_TIMEOUT_MS },
   );
+  // Work stage D: link and record the sends on file that name a task (the last three days; idempotent, best effort, outside the run's
+  // transaction). It writes only work_link and work_evidence rows and sends nothing.
+  await syncSendEvidence(db, new Date(now.getTime() - 3 * 24 * HOUR_MS)).catch((e: unknown) => console.error('send evidence sync failed', e));
+  return result;
 }

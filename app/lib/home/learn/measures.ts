@@ -82,6 +82,8 @@ export interface WeekInput {
   guess_errors?: GuessError[];
   /** Work stage B: mail recorded as handled in the week and how many he reopened. Omitted when not read. */
   handled_mail?: { recorded: number; reopened: number };
+  /** Work stage D: how many sources the guard keeps off his list as of this run. Omitted when not read. */
+  kept_off?: number;
 }
 
 /** One finished task that had a time guess: the guess and the minutes its time entries counted (7c rules). */
@@ -125,6 +127,7 @@ export interface WeekMeasures {
   time_guess?: Measure<{ minutes: number; tasks: number } | null>;
   /** Work stage B, only when read. */
   handled_mail?: Measure<{ recorded: number; reopened: number }>;
+  kept_off?: Measure<{ count: number }>;
 }
 
 const DETAIL_CAP = 40;
@@ -219,6 +222,7 @@ export function measuresWeek(input: WeekInput): WeekMeasures {
   return {
     week_start: input.week_start,
     week_end: input.week_end,
+    ...(input.kept_off !== undefined ? { kept_off: { ok: input.kept_off > 0, business_days: logDays, value: { count: input.kept_off }, details: [] } } : {}),
     ...(input.handled_mail ? { handled_mail: { ok: input.handled_mail.recorded > 0, business_days: logDays, value: input.handled_mail, details: [] } } : {}),
     ...(input.guess_errors
       ? {

@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerBody, DrawerCloseButton } from '@/components/ui/drawer';
 import { useHomeProject } from '@/lib/hooks/use-home-project';
+import { useWorkState } from '@/lib/hooks/use-work-state';
 import { projectStatus } from '@/lib/home/projects/status';
 import type { HomeItem } from '@/lib/home/types';
 import type { ProjectCardLike } from '@/lib/home/projects/types';
@@ -45,6 +46,8 @@ export interface HomeProjectDrawerProps {
  */
 export function HomeProjectDrawer({ projectId, card, userId, timeZone, renderItem, onClose }: HomeProjectDrawerProps) {
   const query = useHomeProject(projectId);
+  // Work stage D: the one state line and everything attached to this project (mail, sessions, sends, deploys, meetings).
+  const work = useWorkState(projectId ? `project:${projectId}` : null);
   const data = query.data;
   const now = React.useMemo(() => new Date(), [projectId, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -97,6 +100,25 @@ export function HomeProjectDrawer({ projectId, card, userId, timeZone, renderIte
             {data ? (
               <>
                 {status ? <p data-testid="home-project-status" className="text-base font-semibold">{status}</p> : null}
+
+                {work.data ? (
+                  <section data-testid="home-project-attached">
+                    <p data-testid="home-project-work-line" className="home-small">{plain(work.data.line)}</p>
+                    {work.data.attached.length > 0 ? (
+                      <ul className="flex flex-col gap-1">
+                        {work.data.attached.map((a) => (
+                          <li key={a.link_id} className="home-small">
+                            {a.href ? (
+                              <a href={a.href} target={a.href.startsWith('/') ? undefined : '_blank'} rel="noopener noreferrer">{plain(a.line)}</a>
+                            ) : (
+                              plain(a.line)
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </section>
+                ) : null}
 
                 {step && step.text ? (
                   <section data-testid="home-project-next-step">

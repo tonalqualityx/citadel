@@ -15,6 +15,7 @@ import { chatChecklist, plainParagraphs, plainString } from '../plain';
 import { checkTaskCreate, checkUndo, type ReachOrigin, type ReachResult } from '../worker-reach';
 import type { OpDb } from './index';
 import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
+import { checkTracked, trackedSentence, type SourceRef } from '@/lib/work/guard'; // Work stage D: never a second piece of work for a source something already carries
 
 export const CHAT_TAG = 'from-chat';
 export const START_CREATED_BY = BAST_USER_ID;
@@ -85,10 +86,22 @@ export function reachOfNewTask(
   });
 }
 
+/**
+ * Work stage D: the check a start op makes before it starts a second piece of work. `sources` is what the chat says the work is for
+ * (an email conversation or a session); when open work already carries one, the op refuses with a sentence that names that work and
+ * carries its link. `override` is the owner's own "start a new one anyway", spoken in the chat.
+ */
+export async function refuseIfTracked(db: OpDb, sources: readonly SourceRef[] | undefined, override: boolean | undefined): Promise<void> {
+  if (!sources || sources.length === 0) return;
+  const h = await checkTracked(db as unknown as Parameters<typeof checkTracked>[0], sources, { override: override === true });
+  if (h) throw new ApiError(trackedSentence(h), 409, 'already_tracked');
+}
+
 export async function createStartTask(
   db: OpDb,
-  a: { id: string; title: string; description: string | null; requirements: unknown; client_id: string | null; site_id: string | null; accord_id: string | null; tags: string[]; ownerId: string },
+  a: { id: string; title: string; description: string | null; requirements: unknown; client_id: string | null; site_id: string | null; accord_id: string | null; tags: string[]; ownerId: string; sources?: readonly SourceRef[]; create_anyway?: boolean },
 ): Promise<void> {
+  await refuseIfTracked(db, a.sources, a.create_anyway);
   await db.task.create({
     data: {
       id: a.id,

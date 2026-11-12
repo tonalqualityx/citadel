@@ -62,6 +62,9 @@ const EXPECTED = [
   'POST /api/bast-chat/worker/reconcile',
   'POST /api/bast-chat/worker/reconcile/candidates',
   'POST /api/bast-chat/worker/finished',
+  // Work stage D: the chat reads a piece of work's state and attaches a source to it
+  'GET /api/work/:key/state',
+  'POST /api/work/attach',
   'POST /api/bast-chat/worker/decision-replay',
   'GET /api/bast-chat/worker/session-asks/:id',
   'GET /api/bast-chat/worker/sends',
@@ -186,7 +189,7 @@ beforeEach(() => {
 });
 
 describe('lane bast-chat: the list', () => {
-  it('holds exactly the 47 entries of the plan, and nothing else', () => {
+  it('holds exactly the 49 entries of the plan, and nothing else', () => {
     expect(LANE_ROUTES['bast-chat'].map((r) => `${r.method} ${r.pattern}`)).toEqual(EXPECTED);
   });
 
@@ -199,7 +202,7 @@ describe('lane bast-chat: the list', () => {
     const writes = LANE_ROUTES['bast-chat'].filter((r) => r.method !== 'GET');
     expect(writes.some((r) => r.method === 'DELETE')).toBe(false);
     for (const r of writes) {
-      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id';
+      const ok = r.pattern.startsWith('/api/bast-chat/worker/') || r.pattern === '/api/tasks' || r.pattern === '/api/tasks/:id' || r.pattern === '/api/work/attach';
       expect(ok, `${r.method} ${r.pattern}`).toBe(true);
     }
   });
@@ -214,9 +217,9 @@ describe('lane bast-chat: no other lane gained anything', () => {
   it('every other lane route list is byte for byte the one on main before this build', () => {
     // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A and work stage B each add one porter line).
     const rows = LANES.filter((l) => l !== 'bast-chat').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(157); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B)
+    expect(rows).toHaveLength(167); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), and ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      '377466a35cd083fe55914a915c119ac40534891be602e06be859cb55500606c0', // main's 20f12653... plus the two porter lines of work stages A and B
+      'fb54e097ab59f533855c7d84748565035e928305e77b4b31696d6a61d581bddc', // main's 20f12653... plus the two porter lines of work stages A and B and the ten of work stage D
     );
   });
 

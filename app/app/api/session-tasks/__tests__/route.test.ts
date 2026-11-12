@@ -7,6 +7,8 @@ vi.mock('@/lib/auth/middleware', () => ({
   requireAuth: vi.fn(),
 }));
 
+// Work stage D: the guard reads work_link; these tests are about the route's own behaviour, so it finds nothing attached.
+vi.mock('@/lib/work/guard', async (orig) => ({ ...(await orig<typeof import('@/lib/work/guard')>()), checkTracked: vi.fn(async () => null) }));
 vi.mock('@/lib/db/prisma', () => ({
   prisma: {
     task: {

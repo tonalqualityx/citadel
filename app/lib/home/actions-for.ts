@@ -198,6 +198,8 @@ function own(input: ActionsInput): { primary: HomeItemAction[]; extras: HomeItem
       break;
     case 'finished':
       break; // the card carries its own two buttons (actionsFor returns before this)
+    case 'attach':
+      break; // the question carries its own answers (actionsFor returns before this)
     case 'proposal':
       break; // buttons come from input.proposal (actionsFor returns before this)
     case 'step':
@@ -215,6 +217,8 @@ export function actionsFor(input: ActionsInput): ActionsOutput {
     if (input.filledFirst && !input.proposal.noDefault && row.length > 0) row[0] = { ...row[0], filled: true };
     return { actions: row, more_actions: [] };
   }
+  // Work stage D: the attach question's answers are its own buttons (one per candidate, New project, Just a task, Not work); the row adds only Not now.
+  if (input.kind === 'attach') return { actions: [button('not_now')], more_actions: [] };
   // Work stage G: the looks-finished card has two buttons of its own; each task row inside carries its own.
   if (input.kind === 'finished') {
     const row = [button('finished_close'), button('not_now')];

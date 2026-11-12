@@ -20,6 +20,8 @@ import { hasMoreSteps, isLive } from './placement';
 import type { ReconcileRecord } from './records';
 import { createEstimatedEntry } from './time';
 import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
+import { checkTracked, trackedSentence } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
+import { emailSourcesFor } from '@/lib/work/tracked';
 import type { HomeActResponse } from '../types';
 
 export type TrackPlacement = 'project' | 'new_project' | 'none';
@@ -28,6 +30,8 @@ export interface TrackReq {
   placement: TrackPlacement;
   minutes: number | null;
   billable: boolean;
+  /** Work stage D: the owner's own "track it anyway" after he heard the conversation is already attached to open work. */
+  create_anyway?: boolean;
 }
 
 interface TrackPlan {
@@ -78,6 +82,13 @@ export async function trackIt(db: PrismaClient, userId: string, itemKey: string,
   if (req.placement === 'new_project' && plan.placement.kind === 'loose') throw new ReconcileError('bad_choice');
   if (req.placement === 'project' && !(plan.placement.kind === 'add' || plan.placement.kind === 'ask')) throw new ReconcileError('bad_choice');
   if (req.placement === 'project' && !plan.placement.project_id) throw new ReconcileError('bad_choice');
+
+  // Work stage D: the conversation behind this card may have been attached to open work since the card was made. Then nothing is created.
+  if (req.create_anyway !== true && plan.thread_id) {
+    const sources = await emailSourcesFor(db, { thread_id: plan.thread_id });
+    const tracked = await checkTracked(db, sources, {});
+    if (tracked) throw new ReconcileError('already_tracked', trackedSentence(tracked));
+  }
 
   const minutes = req.minutes && req.minutes > 0 ? clampMinutes(req.minutes) : 0;
   const sent = card.quote_at ?? o.now;

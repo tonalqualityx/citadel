@@ -151,6 +151,8 @@ export const homeReconcileBodySchema = z.discriminatedUnion('action', [
       placement: z.enum(['project', 'new_project', 'none']),
       minutes: z.number().int().min(0).max(1440).nullable(),
       billable: z.boolean(),
+      // Work stage D: his own "track it anyway" after the answer that the conversation is already part of open work.
+      create_anyway: z.boolean().optional(),
     })
     .strict(),
   z.object({ action: z.literal('log_time'), task_id: z.string().uuid(), minutes: z.number().int().min(1).max(1440), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),

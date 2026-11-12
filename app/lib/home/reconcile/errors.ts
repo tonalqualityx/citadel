@@ -2,7 +2,7 @@
 import { ApiError } from '@/lib/api/errors';
 import { CARD_GONE, CHANGED_SINCE, TAP_ON_SCREEN } from './copy';
 
-export type ReconcileErrorCode = 'card_gone' | 'changed_since' | 'tap_on_screen' | 'not_found' | 'bad_choice' | 'has_time';
+export type ReconcileErrorCode = 'card_gone' | 'changed_since' | 'tap_on_screen' | 'not_found' | 'bad_choice' | 'has_time' | 'already_tracked';
 
 export class ReconcileError extends ApiError {
   constructor(code: ReconcileErrorCode, message?: string) {
@@ -13,6 +13,7 @@ export class ReconcileError extends ApiError {
       not_found: 'That card was not found.',
       bad_choice: 'That choice is not offered on this card.',
       has_time: 'That task already has time on it.',
+      already_tracked: 'That conversation is already part of open work.',
     };
     super(message ?? text[code], code === 'tap_on_screen' ? 400 : code === 'not_found' ? 404 : 409, code);
     this.name = 'ReconcileError';

@@ -91,6 +91,10 @@ async function describeItem(db: OpDb, key: string): Promise<Described> {
       const t = it ? await db.task.findUnique({ where: { id: it.task_id }, select: { title: true } }) : null;
       return t ? { title: t.title, security: false } : fallback;
     }
+    case 'attach': {
+      const l = await db.workLink.findUnique({ where: { id: p.id }, select: { label: true } });
+      return { title: l?.label ?? 'that question', security: false };
+    }
     case 'proposal': {
       const c = await db.homeReconcileChange.findUnique({ where: { id: p.id }, select: { title: true } });
       return { title: c?.title ?? 'that card', security: false };
@@ -146,6 +150,7 @@ async function lineFor(db: OpDb, input: HomeInput, until: Date | null, now: Date
   else if (a === 'not_emergency') line = { op: 'home_act', action: 'not_emergency', title: d.title, security: d.security };
   else if (a === 'step_done') line = { op: 'home_act', action: 'step_done', title: d.title };
   else if (a === 'clear_session') line = { op: 'home_act', action: 'clear_session', title: d.title };
+  else if (a === 'attach_choose') line = { op: 'home_act', action: 'attach_choose', title: d.title };
   else if (a === 'proposal_yes' || a === 'proposal_no') line = { op: 'home_act', action: a, title: d.title };
   else if (a === 'on_day' || a === 'snooze') line = { op: 'home_act', action: a, title: d.title, message: message ?? '' };
   else line = { op: 'home_act', action: a, title: d.title };

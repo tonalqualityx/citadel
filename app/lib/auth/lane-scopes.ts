@@ -78,6 +78,8 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/email-outbox/:id/claim'),
     r('POST', '/api/email-outbox/:id/sent'),
     r('POST', '/api/email-outbox/:id/failed'),
+    // Work stage D: what the courier sent, reported as evidence on the work it belongs to
+    r('POST', '/api/work/evidence'),
     r('GET', '/api/approval-requests'),
     r('PUT', '/api/approval-requests/:id/sending'),
     r('PUT', '/api/approval-requests/:id/sent'),
@@ -151,6 +153,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/work/backfill-links'),
     // Work stage B: the replayed intake decisions (the classifier's --decide-replay --apply; dry:true first, Citadel decides, one Handled line with Undo)
     r('POST', '/api/work/apply-decisions'),
+    // Work stage D: the intake attaches a conversation to its work (or asks), reports what it saw, and reads the state
+    r('GET', '/api/work/:key/state'),
+    r('POST', '/api/work/attach'),
+    r('POST', '/api/work/evidence'),
   ],
   // Wright. project_record, review_citadel, review_watch, steward collectors, enroll_site,
   // steward_citadel; assayer orchestrate
@@ -178,6 +184,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
   // Bast (worker). citadel-worker session (SKILL.md routes), spawn-gate.py, model-policy.py
   bast: [
     r('GET', '/api/auth/me'),
+    // Work stage D: the worker's spawn gate reads a task's state (a live session link means keep off), and its ledger reports evidence
+    r('GET', '/api/work/:key/state'),
+    r('GET', '/api/work/task/:id/state'),
+    r('POST', '/api/work/evidence'),
     r('GET', '/api/tasks'),
     r('GET', '/api/tasks/:id'),
     r('PATCH', '/api/tasks/:id'),
@@ -263,6 +273,10 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/tasks/:id/comments'),
     r('GET', '/api/projects/:id/notes'),
     r('GET', '/api/email-asks'),
+    // Work stage D: sessions attach to the work they ran in, report evidence, and read the state
+    r('GET', '/api/work/:key/state'),
+    r('POST', '/api/work/attach'),
+    r('POST', '/api/work/evidence'),
   ],
   // Designer Portal daemon (design D2, 7.3). Service user designer-worker@indelible.bot; exactly these 14.
   'design-worker': [
@@ -326,6 +340,9 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('POST', '/api/bast-chat/worker/reconcile/candidates'),
     // Work stage G: the one-time looks-finished sweep (dry:true counts and writes nothing; the real run makes the owner's work_finished_item rows only. It never closes, changes or comments on a task, and sends nothing)
     r('POST', '/api/bast-chat/worker/finished'),
+    // Work stage D: the chat reads a piece of work's state and attaches a source to it (Mike's word); the same two routes the plan names
+    r('GET', '/api/work/:key/state'),
+    r('POST', '/api/work/attach'),
     // Work stage B: what replayed intake decisions would change (writes nothing)
     r('POST', '/api/bast-chat/worker/decision-replay'),
     // Session card: one session waiting on the owner (read only; the owner's own, by external id or row id)
@@ -382,6 +399,7 @@ const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/sites/:id': ['bulk'],
   '/api/sops/:id': ['bulk', 'tags'],
   '/api/tasks/:id': ['bulk', 'claims', 'unblock-sweep'],
+  '/api/work/:key': ['apply-decisions', 'attach', 'backfill-links', 'evidence', 'task'],
 };
 
 export function paramExceptions(prefix: string): readonly string[] {

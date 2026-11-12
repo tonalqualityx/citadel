@@ -17,6 +17,7 @@ import { appendHomeAction } from '../state';
 import { decide, type Decision, type DecideCtx, type WhyCode } from './decide';
 import { noteKey, doneKey, waitingKey, sessionKeyOf, waitKey, workKey } from './dedupe';
 import { clampMinutes, basisWords } from './estimate';
+import { recordMikeQuoteEvidence } from '@/lib/work/evidence-writers'; // Work stage D
 import { checkQuote, commitmentHit, plainQuote, relatedSentences, tenseOf } from './evidence';
 import {
   CARDS_PER_DAY,
@@ -25,6 +26,7 @@ import {
   NOTES_PER_DAY,
   OPEN_TASK_STATUSES,
   activeHolds,
+  attachedWork,
   bastDraftHashes,
   displayWho,
   emailsIn,
@@ -240,6 +242,8 @@ async function evaluateOne(db: PrismaClient, ownerId: string, m: ReconcileMessag
     }
     let d: Decision = decide({ type: a.type, confidence: a.confidence }, ctx);
     if (a.type === 'track' && !trackClient && d.result !== 'refused') d = { result: 'refused', reason: 'not_candidate' };
+    // Work stage D: never propose Track it for a conversation open work already carries.
+    if (a.type === 'track' && d.result !== 'refused' && (await attachedWork(db, m.thread_id))) d = { result: 'refused', reason: 'already' };
 
     if (d.result === 'refused') {
       decisions.push({ i, result: 'refused', reason: d.reason });
@@ -505,6 +509,8 @@ async function persistMessage(db: PrismaClient, ownerId: string, e: EvalMessage,
           source: 'reconcile',
         });
         await tx.homeReconcileChange.update({ where: { id: change.id }, data: { home_action_id: action.id } });
+        // Work stage D: his own sent words about this task are evidence on its work.
+        await recordMikeQuoteEvidence(tx, { task_id: n.task_id, message_key: e.message_key, at: (n.data as { quote_at?: Date | null }).quote_at ?? now, href: n.link });
       }
 
       for (const c of w.cards) {

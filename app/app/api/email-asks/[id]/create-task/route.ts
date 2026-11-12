@@ -8,6 +8,9 @@ import { serializeRichText } from '@/lib/api/blocknote';
 import { resolveArc } from '@/lib/arc-resolution';
 import { priorityForSeverity } from '@/lib/ask-severity';
 import { stripSubjectPrefix, matchClientByEmailDomain, normalizeGmailDeepLink } from '@/lib/email-asks';
+import { checkTracked } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
+import { emailRefOfAsk } from '@/lib/work/keys';
+import { mayOverride, trackedResponse } from '@/lib/work/tracked';
 
 // Clarity Phase 4a — the crisis strip's/intake drawer's "Create" and "Create + open"
 // backend. Admin-only, same as the rest of the Oracle surface. Idempotent: if the ask
@@ -22,6 +25,8 @@ const createTaskSchema = z.object({
   // Out of v1 scope per the spec — SOP guessing isn't built yet; this is a passthrough
   // only, wired straight to Task.sop_id with no resolution logic behind it.
   sop_id: z.string().uuid().optional(),
+  // Work stage D: the owner's own "create it anyway" after he heard the work is already tracked.
+  create_anyway: z.boolean().optional(),
 });
 
 const TASK_INCLUDE = {
@@ -63,6 +68,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Body is entirely optional — the common "Create" click sends none.
     const body = await request.json().catch(() => ({}));
     const data = createTaskSchema.parse(body);
+
+    // Work stage D: the conversation is attached to open work (a project or another task): answer with it, create nothing. An urgent ask
+    // keeps its own path and is never answered "already tracked".
+    {
+      const source = { kind: 'email' as const, ref: emailRefOfAsk(ask) };
+      const tracked = await checkTracked(prisma, [source], { override: mayOverride(auth, data.create_anyway), urgent: ask.is_urgent });
+      if (tracked) return trackedResponse(prisma, tracked, source);
+    }
 
     // Assignee: primary operator, same email-lookup helper/default as session-tasks.
     const assignee = await prisma.user.findUnique({

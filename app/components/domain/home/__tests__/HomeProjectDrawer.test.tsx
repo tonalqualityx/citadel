@@ -5,6 +5,8 @@ import type { HomeProjectResponse } from '@/lib/home/projects/types';
 
 const h = vi.hoisted(() => ({ q: { data: undefined as unknown, isLoading: false, isError: false, refetch: vi.fn() } }));
 vi.mock('@/lib/hooks/use-home-project', () => ({ useHomeProject: () => h.q }));
+// Work stage D: the drawer's Attached list reads its own hook; here it has nothing yet.
+vi.mock('@/lib/hooks/use-work-state', () => ({ useWorkState: () => ({ data: undefined }) }));
 
 import { HomeProjectDrawer } from '../HomeProjectDrawer';
 

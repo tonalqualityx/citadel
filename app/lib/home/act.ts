@@ -44,6 +44,7 @@ import { afterUndo, undoReconcileRecord } from './reconcile/undo';
 import { HANDLED_MAIL } from '@/lib/work/copy';
 import { ASK_REF_RE, INTAKE_CLOSE_ACTION, IntakeError, readIntakeCloseRecord, reopenAsk, undoIntakeClose } from '@/lib/work/intake';
 import { readWorkCloseRecord, undoWorkClose, WORK_CLOSE_ACTION } from '@/lib/work/ask-closure';
+import { ATTACH_CHOOSE_ACTION, WORK_ATTACH_ACTION, attachChoose, readAttachChooseRecord, readAttachRecord, undoAttach, undoAttachChoose } from '@/lib/work/attach-store';
 import { readRecord } from './reconcile/records';
 import { FINISHED_ACTION, FINISHED_KEEP_ACTION, finishedClose, finishedCloseOne, finishedKeep, readFinishedRecord, undoFinishedClose, undoFinishedKeep } from '@/lib/work/finished-store';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
@@ -161,6 +162,8 @@ export const homeActSchema: z.ZodType<HomeActRequest> = z.discriminatedUnion('ac
   z.object({ action: z.literal('finished_close_one'), item_key: itemKeySchema }).strict(),
   z.object({ action: z.literal('finished_keep'), item_key: itemKeySchema }).strict(),
   // Work stage B: Undo of a mail recorded as handled. The key is `ask:<EmailAsk id>` (not a home item key: it names one email).
+  // Work stage D: the answer to the one question about which work a source belongs to. choice: a candidate's target key, new_project, task or not_work.
+  z.object({ action: z.literal('attach_choose'), item_key: itemKeySchema, choice: z.string().min(1).max(60) }).strict(),
   z.object({ action: z.literal('reopen_ask'), item_key: z.string().max(60).regex(ASK_REF_RE, 'Not a recorded email') }).strict(),
   // Do it on a day: park the item until the day he picked (his own rows only; the day is checked against today in his zone).
   // Snooze: a short park (15 minutes to 24 hours). Exactly one of until (an ISO instant) and hours (1 to 4).
@@ -886,6 +889,7 @@ export function planAct(req: HomeActRequest, ctx: ActContext): ActPlan {
     case 'finished_close_one':
     case 'finished_keep':
     case 'reopen_ask':
+    case 'attach_choose':
       // Run by runHomeAct (lib/home/reconcile/apply.ts, lib/work/finished-store.ts), never planned here.
       throw new HomeActError('not_found', 'That is not a home change.');
 
@@ -987,6 +991,8 @@ export async function runHomeAct(
   if (req.action === 'finished_close') return finishedClose(db, userId, req.item_keys, opts.now);
   if (req.action === 'finished_close_one') return finishedCloseOne(db, userId, req.item_key, opts.now);
   if (req.action === 'finished_keep') return finishedKeep(db, userId, req.item_key, opts.now);
+  // Work stage D: the answer to the attach question (lib/work/attach-store.ts).
+  if (req.action === 'attach_choose') return attachChoose(db, userId, req.item_key, req.choice, opts.now);
   // Work stage B: Undo of a mail recorded as handled (lib/work/intake.ts). Reopens it as a reply he owes and holds it against re-closing.
   if (req.action === 'reopen_ask') {
     try {
@@ -1429,6 +1435,16 @@ export async function runHomeUndo(
     if (row.action === WORK_CLOSE_ACTION) {
       const closeRec = readWorkCloseRecord(row.before);
       if (closeRec) await undoWorkClose(tx as unknown as PrismaClient, userId, closeRec, now);
+    }
+
+    // Work stage D: a quiet attach, or an answer to the attach question. Compare-and-set; the asks get back what they had, anything changed since stays.
+    if (row.action === WORK_ATTACH_ACTION) {
+      const att = readAttachRecord(row.before);
+      if (att) await undoAttach(tx as unknown as PrismaClient, att, now);
+    }
+    if (row.action === ATTACH_CHOOSE_ACTION) {
+      const rec = readAttachChooseRecord(row.before);
+      if (rec) await undoAttachChoose(tx as unknown as PrismaClient, userId, rec, now);
     }
 
     // Work stage B: a batch of mail recorded as handled, or a booked meeting. Reopens exactly those asks (still handled with the reason the close wrote).

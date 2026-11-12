@@ -34,7 +34,7 @@ beforeEach(() => {
   vi.mocked(requireAuth).mockResolvedValue(WORKER);
   vi.mocked(ownerOnHome).mockResolvedValue({ ok: true, timezone: 'America/New_York' });
   vi.mocked(reconcileOn).mockResolvedValue(true);
-  vi.mocked(candidatesFor).mockImplementation(async (_db, _o, msg) => ({ message_key: msg.message_key, client: null, tasks: [], sessions: [], waits: [], projects: [], retainer: null, tracked_hint: null }));
+  vi.mocked(candidatesFor).mockImplementation(async (_db, _o, msg) => ({ message_key: msg.message_key, client: null, tasks: [], sessions: [], waits: [], projects: [], retainer: null, tracked_hint: null, attached: null }));
 });
 
 describe('worker reconcile candidates route', () => {

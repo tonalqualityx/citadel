@@ -14,6 +14,9 @@ import { LIVE_PROJECT_STATUSES } from './placement';
 import { sessionSpanMinutes } from './estimate';
 import type { TaskFacts } from './decide';
 import type { CandidatesMessage } from './schema';
+import { handledElsewhereMany } from '@/lib/work/guard'; // Work stage D
+import { emailSourcesFor } from '@/lib/work/tracked';
+import { workState } from '@/lib/work/state';
 
 export const MIKE_ACCOUNTS = ['mike@becomeindelible.com', 'mike@whoismikedion.com'] as const;
 export const PROTECTED_TAGS = ['security', 'security-report', 'lifeline'] as const;
@@ -421,6 +424,19 @@ export interface CandidateReply {
   projects: { id: string; name: string; type: string; status: string; is_retainer: boolean; open_tasks: string[] }[];
   retainer: { hours: number } | null;
   tracked_hint: { state: string; kind: string; title: string } | null;
+  /** Work stage D: the open work this conversation is already attached to, with its one state, or null. Never propose Track it for it. */
+  attached: { target_key: string; name: string; href: string; work_state: string; line: string } | null;
+}
+
+/** Work stage D: the open work a Gmail thread is already attached to (guard.ts), with its derived state. null when none. */
+export async function attachedWork(db: PrismaClient, threadId: string): Promise<CandidateReply['attached']> {
+  const sources = await emailSourcesFor(db, { thread_id: threadId });
+  if (sources.length === 0) return null;
+  const handled = await handledElsewhereMany(db, sources);
+  const h = [...handled.values()][0];
+  if (!h) return null;
+  const st = await workState(db, h.target_key);
+  return { target_key: h.target_key, name: h.name, href: h.href, work_state: st?.state ?? 'open', line: st?.line ?? '' };
 }
 
 export async function candidatesFor(db: PrismaClient, ownerId: string, m: CandidatesMessage, now: Date): Promise<CandidateReply> {
@@ -536,5 +552,6 @@ export async function candidatesFor(db: PrismaClient, ownerId: string, m: Candid
     projects: projects.map((p) => ({ id: p.id, name: p.name, type: p.type, status: p.status, is_retainer: p.is_retainer, open_tasks: p.tasks.map((t) => t.title) })),
     retainer: clients[0]?.retainer_hours ? { hours: clients[0].retainer_hours } : null,
     tracked_hint: hint ? { state: hint.state, kind: hint.kind, title: hint.title } : null,
+    attached: await attachedWork(db, m.thread_id),
   };
 }

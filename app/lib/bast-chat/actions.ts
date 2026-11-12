@@ -334,7 +334,7 @@ export type OpLine =
   | { op: 'home_act'; action: 'swap'; title: string }
   | { op: 'home_act'; action: 'step_done'; title: string }
   | { op: 'home_act'; action: 'clear_session'; title: string }
-  | { op: 'home_act'; action: 'proposal_yes' | 'proposal_no' | 'finished_close_one' | 'finished_keep'; title: string }
+  | { op: 'home_act'; action: 'proposal_yes' | 'proposal_no' | 'finished_close_one' | 'finished_keep' | 'attach_choose'; title: string }
   | { op: 'home_act'; action: 'on_day' | 'snooze'; title: string; message: string }
   | { op: 'task_comment'; task_title: string; hidden?: boolean }
   | { op: 'email_ask_state'; subject: string; state: 'handled' | 'dismissed' | 'open'; draft_kept?: boolean }
@@ -410,6 +410,9 @@ export function opSummary(o: OpLine, now: Date = new Date()): string {
           break;
         case 'finished_close_one':
           s = `Closed ${quoted(o.title)} from the looks-finished list.`;
+          break;
+        case 'attach_choose':
+          s = `Answered the question about ${quoted(o.title)}.`;
           break;
         case 'finished_keep':
           s = `Kept ${quoted(o.title)} open. It will not be offered again for 90 days.`;

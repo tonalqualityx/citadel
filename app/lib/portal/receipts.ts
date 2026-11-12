@@ -19,6 +19,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { prisma as defaultDb } from '@/lib/db/prisma';
+import { recordReceiptEvidence } from '@/lib/work/evidence-writers'; // Work stage D
 import { ApiError } from '@/lib/api/errors';
 import { clearPreviewClaims } from '@/lib/sends/claims';
 
@@ -81,7 +82,12 @@ export function receiptData(r: ReceiptInput): Prisma.TaskReceiptUncheckedCreateI
 }
 
 export async function writeReceipt(r: ReceiptInput, db: Pick<PrismaClient, 'taskReceipt'> = defaultDb) {
-  return db.taskReceipt.create({ data: receiptData(r) });
+  const row = await db.taskReceipt.create({ data: receiptData(r) });
+  // Work stage D: a deploy, a client yes and a go-live are evidence on the task's work (best effort; never fails the receipt).
+  if ((defaultDb as unknown as { workEvidence?: unknown }).workEvidence) {
+    await recordReceiptEvidence(defaultDb, { id: row?.id, task_id: r.task_id, step: r.step, deploy_id: r.deploy_id, live_url: r.live_url, deploy_url: r.deploy_url, preview_url: r.preview_url, created_at: row?.created_at });
+  }
+  return row;
 }
 
 /**

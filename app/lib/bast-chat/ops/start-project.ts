@@ -20,7 +20,8 @@ import { ApiError } from '@/lib/api/errors';
 import { opSummary, type OpContext, type PreparedOp } from '../actions';
 import { cleanLine, quoted } from '../card-context';
 import type { ReachOrigin } from '../worker-reach';
-import { abandonStartTask, checkStartTaskUndo, checklistOf, createStartTask, dateWords, freeText, inOneTransaction, paragraphsOf, pickSite, projectLink, reachOfNewTask, START_CREATED_BY, CHAT_TAG } from './start-common';
+import { abandonStartTask, checkStartTaskUndo, checklistOf, createStartTask, dateWords, freeText, inOneTransaction, paragraphsOf, pickSite, projectLink, reachOfNewTask, refuseIfTracked, START_CREATED_BY, CHAT_TAG } from './start-common';
+import type { SourceRef } from '@/lib/work/guard';
 import type { OpDef, OpDb, OpRun } from './index';
 
 const inputSchema = z
@@ -31,6 +32,10 @@ const inputSchema = z
     name: freeText(255).optional(),
     site: freeText(255).optional(),
     message: freeText(4000),
+    // Work stage D: what the work is for (an email conversation or a session). When open work already carries it, the op refuses and names
+    // that work with its link; create_anyway is the owner's own "start a new one anyway".
+    source: z.object({ kind: z.enum(['email', 'session']), ref: z.string().min(1).max(300) }).strict().optional(),
+    create_anyway: z.boolean().optional(),
   })
   .strict()
   .refine((v) => (v.client_id === undefined) !== (v.new_client === undefined), { message: 'Send either client_id or new_client, not both and not neither.' });
@@ -78,7 +83,10 @@ function kickoffText(input: StartProjectInput, name: string, project: { id: stri
   ]);
 }
 
+const sourcesOf = (input: StartProjectInput): SourceRef[] | undefined => (input.source ? [{ kind: input.source.kind, ref: input.source.ref }] : undefined);
+
 async function prepare(ctx: OpContext, input: StartProjectInput, origin: ReachOrigin): Promise<PreparedOp> {
+  await refuseIfTracked(ctx.db as OpDb, sourcesOf(input), input.create_anyway);
   const r = await resolve(ctx.db as OpDb, input);
   const name = projectName(input);
   const reach = reachOfNewTask(
@@ -97,6 +105,7 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
   const e = expectSchema.safeParse(expect);
   if (!e.success) throw new ApiError(CHANGED, 409, 'changed_since');
   const db = ctx.db as OpDb;
+  await refuseIfTracked(db, sourcesOf(input), input.create_anyway); // Work stage D: again at run time, before anything is written
   const r = await resolve(db, input);
   if (r.client_id !== e.data.client_id || r.site_id !== e.data.site_id) throw new ApiError(CHANGED, 409, 'changed_since');
 
@@ -130,6 +139,8 @@ async function run(ctx: OpContext, input: StartProjectInput, expect: unknown): P
     accord_id: null,
     tags: [CHAT_TAG, 'kickoff'],
     ownerId: ctx.ownerId,
+    sources: sourcesOf(input),
+    create_anyway: input.create_anyway,
   });
   return {
     target_id: project.id,

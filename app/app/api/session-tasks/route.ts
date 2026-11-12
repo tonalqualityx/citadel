@@ -9,6 +9,8 @@ import { serializeRichText } from '@/lib/api/blocknote';
 import { resolveArc } from '@/lib/arc-resolution';
 import { SEVERITY_TO_PRIORITY } from '@/lib/ask-severity';
 import { resolveCoverUrl } from '@/lib/services/cover-assignment';
+import { checkTracked } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
+import { mayOverride, trackedResponse } from '@/lib/work/tracked';
 
 // The quest-from-session endpoint: a Claude Code session (or the future heartbeat) parks
 // a real Task on Mike, tied back to the session that spawned it. Bearer auth via
@@ -27,6 +29,8 @@ const sessionTaskSchema = z
     severity: z.enum(['client_blocking', 'launch_blocking', 'internal']).optional(),
     assignee_id: z.string().uuid().optional(),
     due_date: z.string().datetime().optional().nullable(),
+    // Work stage D: the owner's own "create it anyway" after he heard the work is already tracked.
+    create_anyway: z.boolean().optional(),
   })
   .refine((data) => !(data.arc_id && data.arc_name), {
     message: 'Provide at most one of arc_id or arc_name, not both',
@@ -82,6 +86,14 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({ ...formatTaskResponse(updated), deduped: true });
+    }
+
+    // Work stage D: a session whose work is already carried by open work parks nothing new. A client-blocking or launch-blocking ask keeps
+    // its own path and is never answered "already tracked".
+    {
+      const source = { kind: 'session' as const, ref: data.session_external_id };
+      const tracked = await checkTracked(prisma, [source], { override: mayOverride(auth, data.create_anyway), urgent: data.severity === 'client_blocking' || data.severity === 'launch_blocking' });
+      if (tracked) return trackedResponse(prisma, tracked, source);
     }
 
     if (data.client_id) {

@@ -15,6 +15,7 @@ import { ItemCard } from './ItemCard';
 import { HandsCard } from './HandsCard';
 import { HandledMailList } from './HandledMailList';
 import { FinishedCard } from './FinishedCard';
+import { AttachCard } from './AttachCard';
 import { WorkingOnBar } from './WorkingOnBar';
 import { TodayList } from './TodayList';
 import { CalendarStrip, CalendarSoonLine } from './CalendarStrip';
@@ -209,7 +210,9 @@ function HomeBody(p: BodyProps) {
 
   const selectedItem = itemTile ? findItem(res, selectedKey) : null;
   const card = (item: HomeItem | null, empty: string, hideActions = false, inDrawer = false) =>
-    item?.finished ? (
+    item?.attach ? (
+      <AttachCard item={item} onAction={onAction} onAct={onFinishedAct} busy={itemActions.pendingFor(item) != null} />
+    ) : item?.finished ? (
       <FinishedCard item={item} onAction={onAction} onAct={onFinishedAct} busy={itemActions.pendingFor(item) != null} />
     ) : item?.hands ? (
       <HandsCard item={item} onAction={onAction} pendingFor={itemActions.pendingFor} />

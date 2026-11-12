@@ -52,7 +52,9 @@ function fakeDb(opts: { onHome?: boolean; prior?: { finished_at: Date | null; st
       updateMany: rec('task.updateMany', {}),
       findMany: vi.fn(async () => [T1, T2, T3].map((id) => ({ id, client_id: CLIENT_X, project_id: null, sop_id: null, tags: [] }))),
     },
-    emailAsk: { update: rec('ask.update', {}), updateMany: rec('ask.updateMany', {}), count: vi.fn(async () => 0) },
+    // Work stage D: the measures line counts what the guard keeps off his list (nothing here)
+    emailAsk: { update: rec('ask.update', {}), updateMany: rec('ask.updateMany', {}), count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
+    oracleSession: { findMany: vi.fn(async () => []) },
     wait: { update: rec('wait.update', {}), updateMany: rec('wait.updateMany', {}) },
     project: { update: rec('project.update', {}), updateMany: rec('project.updateMany', {}), findMany: vi.fn(async () => []) },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),

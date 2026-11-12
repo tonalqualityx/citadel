@@ -17,6 +17,7 @@
  *   step:<project uuid>                          Slice 8b: the next step of one project
  *   proposal:<change uuid>                       Slice 9a: a card from his sent mail (home_reconcile_change)
  *   finished:all | finished:<item uuid>          Work stage G: the looks-finished card, and one of its rows (work_finished_item)
+ *   attach:<work_link uuid>                      Work stage D: the one question about which work a source belongs to
  *
  * Group keys, at most 120 characters (home_day.group_key is VarChar(120)):
  *   arc:<arc uuid> | client:<client uuid> | project:<project uuid> | own
@@ -38,7 +39,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Any whitespace or control character makes a key invalid.
 const BAD_CHAR_RE = /[\s\u0000-\u001f\u007f]/;
 
-export const ITEM_KEY_PREFIXES: readonly HomeSourceKind[] = ['task', 'review', 'session', 'wait', 'thread', 'crisis', 'site', 'hands', 'step', 'proposal', 'finished'];
+export const ITEM_KEY_PREFIXES: readonly HomeSourceKind[] = ['task', 'review', 'session', 'wait', 'thread', 'crisis', 'site', 'hands', 'step', 'proposal', 'finished', 'attach'];
 
 export type ParsedItemKey =
   | { kind: 'task'; id: string }
@@ -51,7 +52,8 @@ export type ParsedItemKey =
   | { kind: 'hands' }
   | { kind: 'step'; project_id: string }
   | { kind: 'proposal'; id: string }
-  | { kind: 'finished'; id: string | null };
+  | { kind: 'finished'; id: string | null }
+  | { kind: 'attach'; id: string };
 
 export type ParsedGroupKey =
   | { kind: 'arc'; id: string }
@@ -100,6 +102,8 @@ export function parseItemKey(key: unknown): ParsedItemKey | null {
     case 'finished':
       if (rest === FINISHED_CARD_ID) return { kind: 'finished', id: null };
       return isUuid(rest) ? { kind: 'finished', id: rest } : null;
+    case 'attach':
+      return isUuid(rest) ? { kind: 'attach', id: rest } : null;
     case 'hands':
       return rest === 'week' ? { kind: 'hands' } : null;
     case 'review':
@@ -137,6 +141,7 @@ export function buildItemKey(parsed: ParsedItemKey): string {
     case 'crisis':
     case 'site':
     case 'proposal':
+    case 'attach':
       key = `${parsed.kind}:${String(parsed.id).toLowerCase()}`;
       break;
     case 'finished':

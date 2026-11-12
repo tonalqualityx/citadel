@@ -17,6 +17,9 @@ import { guardChatTaskBody, chatConversationFor, refuseChatCreateThatReaches, CH
 import { recordChatCreate, withChatAction } from '@/lib/bast-chat/task-record';
 import { closeAsksForTask } from '@/lib/work/ask-closure';
 import { linkAsksForNewTask } from '@/lib/work/link-asks';
+import { checkTracked, type SourceRef } from '@/lib/work/guard'; // Work stage D: never a second to-do for work something already carries
+import { emailSourcesFor, mayOverride, parseSourceKey, trackedResponse } from '@/lib/work/tracked';
+import { hasSecurityTag } from '@/lib/home/rules';
 
 // Clarity Phase 5 — the arc board's "+ Quest" quick-add defaults assignee to the primary
 // operator, same email-lookup pattern /api/session-tasks already uses for session-born
@@ -86,6 +89,10 @@ const createTaskSchema = z.object({
   // Work stage A: the RFC Message-ID of the email behind an email-sourced task. Not stored on the task; it only finds the
   // email asks (any mailbox) to link to it, beside source_ref.
   source_rfc: z.string().max(255).optional().nullable(),
+  // Work stage D: `email:<conversation key>` or `session:<external id>`: the source this task is for. When it is already carried by open
+  // work the answer is 200 {already_tracked: true, task} and nothing is created. create_anyway is the owner's own override.
+  source_key: z.string().min(3).max(320).optional().nullable(),
+  create_anyway: z.boolean().optional(),
   requested_by_contact_id: z.string().uuid().optional().nullable(),
   // Client staging approval
   staging_preview_url: z.string().max(500).optional().nullable(),
@@ -285,6 +292,17 @@ export async function POST(request: NextRequest) {
         assignee_id: data.assignee_id ?? null, tags: data.tags ?? [], title: data.title, project_id: data.project_id ?? null,
         arc_id: data.arc_id ?? null, sop_id: data.sop_id ?? null, client_id: data.client_id ?? null, site_id: data.site_id ?? null,
       });
+    }
+
+    // Work stage D: the guard. A security-tagged request is never answered "already tracked": it keeps its own path.
+    {
+      const named = parseSourceKey(data.source_key);
+      const sources: SourceRef[] = [];
+      if (named) sources.push(named);
+      if (data.source === 'email') sources.push(...(await emailSourcesFor(prisma, { source_ref: data.source_ref, source_rfc: data.source_rfc })));
+      const urgent = hasSecurityTag(data.tags ?? []);
+      const tracked = await checkTracked(prisma, sources, { override: mayOverride(auth, data.create_anyway), urgent });
+      if (tracked) return trackedResponse(prisma, tracked, sources.find((s) => s.ref === tracked.source_key.slice(s.kind.length + 1)) ?? sources[0]);
     }
 
     // Determine client_id - auto-populate from project if not provided directly

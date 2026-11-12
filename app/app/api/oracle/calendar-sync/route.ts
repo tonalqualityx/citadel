@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { closeMeetingAsks } from '@/lib/work/intake';
+import { recordMeetingEvidence } from '@/lib/work/evidence-writers'; // Work stage D
 import { requireAuth } from '@/lib/auth/middleware';
 import { handleApiError } from '@/lib/api/errors';
 
@@ -98,6 +99,8 @@ export async function POST(request: NextRequest) {
         },
       });
       upserted++;
+      // Work stage D: a meeting that has ended and is attached to work is evidence it was held (best effort).
+      await recordMeetingEvidence(prisma, { event_id: event.event_id, title: event.title, ends_at: event.ends_at }, new Date());
       // Work stage B: a booked meeting closes the open request for a time from an attendee (one Handled line with Undo; owner only).
       if (event.attendees && event.attendees.length > 0) {
         await closeMeetingAsks(prisma, { title: saved.title, attendees: saved.attendees, created_at: saved.created_at, starts_at: saved.starts_at });

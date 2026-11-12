@@ -8,6 +8,7 @@ import { recordChatSend } from '@/lib/portal/chat/outbox-guard';
 import { OWED_REPLY_KIND, parseGovern } from '@/lib/sends/govern';
 import { owedThreadKey } from '@/lib/sends/owed-reply';
 import { markOwedThreadSent } from '@/lib/home/owed/rows';
+import { recordSendWork } from '@/lib/work/evidence-writers'; // Work stage D
 
 const sentSchema = z.object({
   message_id: z.string().min(1).max(255).nullable().optional(),
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     requireRole(auth, ['pm', 'admin']);
     const { id } = await params;
 
-    const existing = await prisma.emailOutbox.findUnique({ where: { id }, select: { id: true, sent_at: true, message_id: true, kind: true, task_id: true, govern: true } });
+    const existing = await prisma.emailOutbox.findUnique({ where: { id }, select: { id: true, sent_at: true, message_id: true, kind: true, task_id: true, govern: true, subject: true } });
     if (!existing) throw new ApiError('Outbox row not found', 404);
     if (existing.sent_at) {
       return NextResponse.json({ id, sent_at: existing.sent_at, message_id: existing.message_id });
@@ -63,6 +64,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         message_ids: [data.message_id, data.rfc_message_id].filter((m): m is string => Boolean(m)),
         actor_user_id: auth.userId,
       }).catch((e: unknown) => console.error('send receipt failed', e));
+    }
+    if (existing.task_id && updated.sent_at) {
+      // Work stage D: the send attaches to the task it names and is recorded as evidence (best effort; it never fails the sent call).
+      // TODO(stage-c): the send door (lib/sends/lanes.ts) and POST /api/sends/record replace this hook; until Stage C is merged this is the only place a send is seen.
+      await recordSendWork(prisma, { outbox_id: id, task_id: existing.task_id, subject: existing.subject, sent_at: updated.sent_at });
     }
     return NextResponse.json({ id, sent_at: updated.sent_at, message_id: updated.message_id });
   } catch (error) {

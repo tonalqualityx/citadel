@@ -72,6 +72,12 @@ export const CHAT_POST_ALLOWED = [
   'title', 'description', 'assignee_id', 'tags', 'client_id', 'site_id', 'sop_id', 'project_id', 'arc_id',
   'energy_estimate', 'mystery_factor', 'battery_impact', 'priority', 'is_focus', 'needs_review', 'due_date', 'promised_to',
 ] as const;
+/**
+ * POST: request controls the chat may send beside the task fields (they are not task fields, so they are not in the field table).
+ * Work stage D: `source_key` is the source the task is for (`email:<conversation key>`), so the guard can answer already_tracked; `create_anyway` is
+ * the owner's own "create it anyway" after he heard that answer.
+ */
+export const CHAT_POST_CONTROLS = ['source_key', 'create_anyway'] as const;
 /** Statuses: all six (plan 1.2). Closing is `done`, letting go is `abandoned`, reopening is `not_started` or `in_progress`. */
 export const CHAT_PATCH_STATUSES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
 
@@ -203,7 +209,7 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
 
   // POST
   for (const k of keys) {
-    if (!(CHAT_POST_ALLOWED as readonly string[]).includes(k)) return refuseField(k);
+    if (!(CHAT_POST_ALLOWED as readonly string[]).includes(k) && !(CHAT_POST_CONTROLS as readonly string[]).includes(k)) return refuseField(k);
   }
   const pb = plainBody(b);
   if (typeof b.assignee_id !== 'string' || !z.string().uuid().safeParse(b.assignee_id).success) {
@@ -226,6 +232,8 @@ export function filterChatTaskBody(input: ChatFilterInput): ChatFilterResult {
   if ('is_focus' in b && b.is_focus !== false) return badValue('is_focus', 'The chat cannot set this field');
   if ('needs_review' in b && b.needs_review !== false) return badValue('needs_review', 'The chat cannot set this field');
   if ('promised_to' in pb && !fieldSchemas.promised_to.schema.safeParse(pb.promised_to).success) return badValue('promised_to', fieldSchemas.promised_to.what);
+  if ('source_key' in b && !(typeof b.source_key === 'string' && b.source_key.length > 0 && b.source_key.length <= 320)) return badValue('source_key', 'A source key is text such as email:<conversation key>');
+  if ('create_anyway' in b && typeof b.create_anyway !== 'boolean') return badValue('create_anyway', 'create_anyway is true or false');
   if ('title' in pb && !fieldSchemas.title.schema.safeParse(pb.title).success) return badValue('title', fieldSchemas.title.what);
   if ('description' in pb && !fieldSchemas.description.schema.safeParse(pb.description).success) return badValue('description', fieldSchemas.description.what);
   const stored = storedForms(pb, randomUUID(), null);
