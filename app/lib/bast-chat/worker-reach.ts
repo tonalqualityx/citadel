@@ -477,6 +477,10 @@ export function workerView(t: ReachTask, now: Date): ViewResult {
   switch (t.status) {
     case 'abandoned':
       return out('none');
+    case 'triage':
+      // An idea parked for Mike: the worker fetches tasks by status and never reads triage, so filing one starts no
+      // session. Releasing it (a move to another status) is judged as the change it is: that one starts Bast.
+      return out('none');
     case 'done': {
       if (t.needs_review === undefined || t.approved === undefined) {
         missing.push('needs_review and approved');
