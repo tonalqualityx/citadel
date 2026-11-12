@@ -64,7 +64,7 @@ export async function listCandidates() {
   }
   const imports = await prisma.task.findMany({
     where: {
-      is_deleted: false, status: { notIn: ['done', 'abandoned'] }, tags: { has: 'design-import' }, project_id: { not: null },
+      is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] }, tags: { has: 'design-import' }, project_id: { not: null },
       design_imports: { none: {} },
     },
     orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
@@ -92,9 +92,10 @@ export async function listCandidates() {
 export async function startTrack(taskId: string): Promise<{ track: DesignTrack; created: boolean }> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, is_deleted: true, tags: true, project_id: true, site_id: true, project: { select: { site_id: true } } },
+    select: { id: true, is_deleted: true, status: true, tags: true, project_id: true, site_id: true, project: { select: { site_id: true } } },
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404, 'not_found');
+  if (task.status === 'triage') throw new ApiError('This task is still in triage', 409, 'not_candidate');
   if (!task.project_id || !(task.tags.includes('design-job:provision') || task.tags.includes('design-job:research'))) {
     throw new ApiError('This task does not start a design track', 409, 'not_candidate');
   }

@@ -81,7 +81,7 @@ export async function completeStageTaskByTag(
 async function commentMissingTag(scope: TrackScope, track: { project_id: string }, actorId: string, triggerTaskId: string | null | undefined, text: string): Promise<void> {
   const others = await scope.tx.task.findMany({
     where: {
-      project_id: track.project_id, is_deleted: false, status: { not: 'abandoned' },
+      project_id: track.project_id, is_deleted: false, status: { notIn: ['abandoned', 'triage'] },
       OR: ['art_direction', 'refine', 'review'].map((s) => ({ tags: { has: `design-stage:${s}` } })),
     },
     select: { id: true },
