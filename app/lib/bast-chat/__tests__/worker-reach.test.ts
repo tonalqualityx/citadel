@@ -738,6 +738,13 @@ describe('R7 and 1.3: creating tasks', () => {
     expect(hit.view_after).toBe('eligible');
     expect(r.reads[0].title).toBe('Kick off Jill\'s Cafe');
   });
+  it('a new Bast task filed into Triage starts nothing (the worker never reads triage); releasing it does', () => {
+    const r = create({ id: 'new', assignee_id: BAST, title: 'Idea', status: 'triage', tags: ['from-chat'] });
+    none(r);
+    expect(workerView({ id: 'x', assignee_id: BAST, status: 'triage', tags: [], blocked_by: [] } as ReachTask, NOW).view).toBe('none');
+    const before = task({ id: 'c1', assignee_id: BAST, status: 'triage', tags: [], blocked_by: [] });
+    reachesWith(patch(before, { status: 'not_started' }), 'starts_bast_task', 'c1');
+  });
   it('a new task for Bast tagged needs-mike still reaches (held)', () => {
     reachesWith(create({ id: 'new', assignee_id: BAST, title: 'x', tags: ['needs-mike'] }), 'create_for_bast');
   });
