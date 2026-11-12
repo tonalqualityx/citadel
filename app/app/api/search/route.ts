@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
           title: { contains: query, mode: 'insensitive' },
           // Apply visibility rules for Tech users
           ...(auth.role === 'tech' && {
+            status: { not: 'triage' as const }, // a triage task is parked for Mike, never in a contractor's results
             OR: [
               { project_id: null, assignee_id: auth.userId },
               {

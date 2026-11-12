@@ -12,6 +12,8 @@ vi.mock('@/lib/db/prisma', () => ({
     emailDigestQueue: {
       create: vi.fn(),
     },
+    task: { findUnique: vi.fn().mockResolvedValue(null) },
+    user: { findUnique: vi.fn().mockResolvedValue(null) },
   },
 }));
 

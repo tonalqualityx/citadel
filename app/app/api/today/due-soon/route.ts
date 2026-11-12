@@ -14,7 +14,7 @@ import { TaskStatus } from '@prisma/client';
 // hasn't been consciously added to Today still surfaces here.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned];
+const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage];
 
 export async function GET(request: NextRequest) {
   try {

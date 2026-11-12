@@ -67,7 +67,7 @@ export async function GET(
     const [openTasks, recentTasks, lastTaskActivity, emails, linkedSessions, siblingArcs] =
       await Promise.all([
         prisma.task.findMany({
-          where: { arc_id: id, is_deleted: false, status: { notIn: ['done', 'abandoned'] } },
+          where: { arc_id: id, is_deleted: false, status: { notIn: ['done', 'abandoned', 'triage'] } },
           select: { id: true, title: true, status: true, priority: true, due_date: true },
           orderBy: [{ priority: 'asc' }, { due_date: 'asc' }],
         }),

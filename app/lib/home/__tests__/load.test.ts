@@ -135,7 +135,7 @@ describe('loadHomeInputs: tasks', () => {
     await loadHomeInputs(asDb(db), U, NOW);
     const arg = taskCall(db, false);
     expect(arg.where.is_deleted).toBe(false);
-    expect(arg.where.status).toEqual({ notIn: ['done', 'abandoned'] });
+    expect(arg.where.status).toEqual({ notIn: ['done', 'abandoned', 'triage'] });
     expect(arg.where.OR[0]).toEqual({ assignee_id: U });
     expect(arg.where.AND).toEqual([
       {

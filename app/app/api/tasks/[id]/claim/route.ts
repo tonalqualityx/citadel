@@ -22,6 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const r = await claimTask({ taskId: id, holder: body.holder, ttlSeconds: body.ttl_seconds });
     if (r.ok) return NextResponse.json(r.claim);
     if (r.reason === 'not_found') throw new ApiError('Task not found', 404);
+    if (r.reason === 'triage') throw new ApiError('This task is in triage, waiting for Mike to release it, so it cannot be claimed.', 409, 'triage');
     if (r.reason === 'closed') throw new ApiError('This task is done or abandoned, so it cannot be claimed.', 409, 'closed');
     return NextResponse.json({ error: `Held by ${r.holder} until ${r.lease_until?.toISOString()}`, code: 'claim_taken', holder: r.holder, lease_until: r.lease_until }, { status: 409 });
   } catch (error) {

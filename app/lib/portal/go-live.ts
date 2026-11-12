@@ -150,6 +150,8 @@ export async function markStaged(input: {
   });
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned', 409);
+  // Only Mike or the chat lane moves a task out of triage; staging writes status 'review' directly, so refuse here.
+  if (task.status === 'triage') throw new ApiError('This task is in triage, so it cannot be staged. Release it from triage first.', 409, 'triage');
   const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'staging', caller: input.claimCaller });
   // Fleet item 5: in enforce mode a stage must say which build it is.
   const bindingMode = await getApprovalBindingMode();
@@ -262,6 +264,7 @@ export async function markLive(input: {
   if (!task || task.is_deleted) throw new ApiError('Task not found', 404);
   // A cancelled request is not published, even with force: staff reopen it first.
   if (task.status === 'abandoned') throw new ApiError('This task was abandoned, so it cannot go live. Reopen it first.', 409, 'abandoned');
+  if (task.status === 'triage') throw new ApiError('This task is in triage, so it cannot go live. Release it from triage first.', 409, 'triage');
   const claimCheck = await assertClaimHeld(task.id, input.claimToken, { action: 'go-live', caller: input.claimCaller });
   if (!isApprovedState(task) && !input.force) {
     throw new ApiError('The client has not approved this task yet. Nothing was published to them.', 409, 'not_approved');

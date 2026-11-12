@@ -10,6 +10,7 @@ import { MYSTERY_MULTIPLIERS, BATTERY_MULTIPLIERS } from '@/lib/calculations/ene
 // ============================================
 
 export const TASK_STATUS_OPTIONS = [
+  { value: 'triage', label: 'Triage', color: 'text-violet-700', bg: 'bg-violet-100' },
   { value: 'not_started', label: 'Not Started', color: 'text-slate-700', bg: 'bg-slate-100' },
   { value: 'in_progress', label: 'In Progress', color: 'text-blue-700', bg: 'bg-blue-100' },
   { value: 'review', label: 'Review', color: 'text-amber-700', bg: 'bg-amber-100' },

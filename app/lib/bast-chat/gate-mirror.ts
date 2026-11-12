@@ -88,4 +88,4 @@ export const DELEGATE_QUEUE_STATUSES: readonly string[] = ['not_started', 'block
 export const SATISFIED_BLOCKER_STATUSES: readonly string[] = ['done', 'abandoned'];
 
 /** prisma/schema.prisma `enum TaskStatus`: every status Citadel knows. Anything else is unknown to the reach check. */
-export const TASK_STATUSES: readonly string[] = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'];
+export const TASK_STATUSES: readonly string[] = ['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'];

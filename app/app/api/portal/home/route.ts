@@ -196,7 +196,7 @@ export async function GET(_request: NextRequest) {
         where: {
           ...taskScope,
           tags: { has: AWAITING_CLARIFICATION_TAG },
-          status: { notIn: ['done', 'abandoned'] },
+          status: { notIn: ['done', 'abandoned', 'triage'] },
           client_approved_at: null,
           AND: [clientVisibleTaskWhere(), taskAccess],
         },

@@ -1384,6 +1384,7 @@ model Task {
 }
 
 enum TaskStatus {
+  triage
   not_started
   in_progress
   review

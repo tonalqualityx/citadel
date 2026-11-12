@@ -228,6 +228,8 @@ export async function closeUnconfirmed(conversationId: string, opts: { now?: Dat
     if (slots.question_closed_at) {
       const closedAt = new Date(slots.question_closed_at);
       if (now.getTime() - Math.max(closedAt.getTime(), (lastClient?.created_at ?? closedAt).getTime()) < QUESTION_CLOSE_HOURS * HOUR) return { outcome: 'skipped' as UnconfirmedOutcome };
+      // A task parked in triage is only released or dropped by Mike; the sweep never closes it.
+      if (convo.task.status === 'triage') return { outcome: 'skipped' as UnconfirmedOutcome };
       const tags = new Set(convo.task.tags.filter((t) => !['chat-clarifying', 'awaiting-clarification'].includes(t)));
       tags.add('chat-question');
       await tx.task.update({ where: { id: convo.task_id }, data: { tags: [...tags], status: 'done' } });

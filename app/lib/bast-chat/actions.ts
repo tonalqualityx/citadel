@@ -83,7 +83,7 @@ export const TASK_FIELDS = ['status', 'title', 'arc_id', 'assignee_id'] as const
 /** v1: recorded beside a status change. Undo ignores `completed_at` now: patchTask sets it from the status. */
 export const RESTORE_EXTRA_FIELDS = ['due_date', 'completed_at'] as const;
 export const ACTION_TOOLS = ['create_task', 'update_task', 'add_to_arc', 'remove_from_arc', 'propose_handoff'] as const;
-const TASK_STATUSES = ['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
+const TASK_STATUSES = ['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'] as const;
 
 // ---------------------------------------------------------------------------------------------
 // The record format (before and after) of a task change

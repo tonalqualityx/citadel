@@ -14,8 +14,8 @@ import { BOT_USER_IDS } from '@/lib/oracle/projects/gate-constants';
 // ask_queue; every task-sweep result routes to `do`, EXCEPT the awaiting-review sweep,
 // which is inherently a review ask and routes to `review`.
 const OPEN_WINDOW_DAYS = 14;
-const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned];
-const NOT_DONE_ABANDONED_BLOCKED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.blocked];
+const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage];
+const NOT_DONE_ABANDONED_BLOCKED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage, TaskStatus.blocked];
 
 const TASK_INCLUDE = {
   arc: { select: { id: true, name: true } },

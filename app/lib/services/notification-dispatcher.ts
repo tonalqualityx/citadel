@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { suppressedForTriage } from './notification-triage-guard';
 import { deferUntilCommit } from '@/lib/db/scope';
 import { NotificationType, NotificationPriority } from '@prisma/client';
 import {
@@ -274,6 +275,9 @@ export async function dispatchNotification(
 }
 
 async function dispatchNow(options: DispatchOptions): Promise<DispatchResult> {
+  if (await suppressedForTriage(options.userId, options.entityType, options.entityId)) {
+    return { inApp: { sent: false }, email: { sent: false }, slack: { sent: false } };
+  }
   const priority = options.priority || 'normal';
 
   // Determine which channels to use
@@ -356,6 +360,7 @@ export async function dispatchNotificationToMany(
  * Useful for migrations or internal use.
  */
 export async function createNotificationOnly(options: DispatchOptions): Promise<string | null> {
+  if (await suppressedForTriage(options.userId, options.entityType, options.entityId)) return null;
   const notification = await createInAppNotification(options);
   return notification?.id || null;
 }

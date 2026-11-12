@@ -46,7 +46,7 @@ function addDays(dateStr: string, days: number): string {
   return toUTCDateString(d);
 }
 
-const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned];
+const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage];
 
 export async function GET(request: NextRequest) {
   try {

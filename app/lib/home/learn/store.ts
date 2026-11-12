@@ -293,7 +293,7 @@ export async function loadWeekReads(db: Db, ownerId: string, tz: string, start: 
 
   // Hard dates that fell in the week.
   const hardRows = await db.task.findMany({
-    where: { assignee_id: ownerId, is_deleted: false, status: { not: 'abandoned' }, hard_due_at: { gte: from, lt: to } },
+    where: { assignee_id: ownerId, is_deleted: false, status: { notIn: ['abandoned', 'triage'] }, hard_due_at: { gte: from, lt: to } },
     select: { title: true, hard_due_at: true, completed_at: true, status: true },
     take: ROW_TAKE,
   });

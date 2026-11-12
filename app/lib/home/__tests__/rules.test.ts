@@ -72,7 +72,7 @@ describe('constants match plan 1.3', () => {
   });
 
   it('source filters', () => {
-    expect([...CLOSED_TASK_STATUSES]).toEqual(['done', 'abandoned']);
+    expect([...CLOSED_TASK_STATUSES]).toEqual(['done', 'abandoned', 'triage']);
     expect([...EXCLUDED_PROJECT_STATUSES]).toEqual(['quote', 'queue', 'suspended', 'cancelled', 'done']);
     expect(HELD_PROJECT_STATUSES.every((s) => (EXCLUDED_PROJECT_STATUSES as readonly string[]).includes(s))).toBe(true);
     expect([...EXCLUDED_SESSION_STATUSES]).toEqual(['ended', 'stale']);

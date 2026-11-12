@@ -35,7 +35,7 @@ const createTaskSchema = z.object({
   // as a BlockNote JSON document (see serializeRichText).
   description: z.any().optional().nullable(),
   status: z
-    .enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'])
+    .enum(['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned'])
     .optional(),
   priority: z.number().min(1).max(5).optional(),
   // The personal focus flag. PATCH /api/tasks/[id] has always accepted this; before it was
@@ -172,7 +172,7 @@ export async function GET(request: NextRequest) {
         : status
           ? { status }
           : activeOnly
-            ? { status: { notIn: ['done', 'abandoned'] } }
+            ? { status: { notIn: ['done', 'abandoned', 'triage'] } }
             : {}),
       ...(priority && { priority }),
       ...(projectId && { project_id: projectId }),
@@ -205,8 +205,10 @@ export async function GET(request: NextRequest) {
     if (auth.role === 'tech') {
       // Tech users can ONLY see tasks assigned to them
       // AND only from visible projects (or ad-hoc tasks)
+      // A triage task is an idea parked for Mike: it is never in a contractor's list.
       accessCondition = {
         assignee_id: auth.userId,
+        status: { not: 'triage' },
         OR: [
           { project_id: null },
           { project: { status: { in: VISIBLE_PROJECT_STATUSES } } },
@@ -540,7 +542,9 @@ export async function POST(request: NextRequest) {
         title: data.title,
         // Markdown / plain string / raw BlockNote array → BlockNote JSON document.
         description: serializeRichText(data.description),
-        status: initialStatusOverride || data.status || 'not_started',
+        // A task filed into triage stays there whatever its blockers say (the blockers keep the order once it is released).
+        status: data.status === 'triage' ? 'triage' : initialStatusOverride || data.status || 'not_started',
+        ...(data.status === 'triage' ? { client_visible: false } : {}),
         priority: data.priority || sopDefaults.default_priority || 3,
         is_focus: data.is_focus ?? false,
         project_id: data.project_id,

@@ -170,7 +170,7 @@ export async function generateCharterTasks(charterId: string): Promise<CharterGe
         where: {
           charter_id: charterId,
           sop_id: scheduledTask.sop_id,
-          status: { notIn: ['done', 'abandoned'] },
+          status: { notIn: ['done', 'abandoned', 'triage'] }, // a triage task is Mike's to release or drop
           maintenance_period: { not: currentPeriod },
         },
       });

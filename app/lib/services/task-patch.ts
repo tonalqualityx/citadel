@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/db/prisma';
 import { withSavepoint } from '@/lib/db/scope';
 import type { AuthPayload } from '@/lib/auth/middleware';
-import { taskWriteWhere, chatWriteMiss } from '@/lib/bast-chat/task-filter';
+import { taskWriteWhere, chatWriteMiss, CHAT_LANE } from '@/lib/bast-chat/task-filter';
 import { recordChatPatch } from '@/lib/bast-chat/task-record';
 import { ApiError } from '@/lib/api/errors';
 import { serializeRichText } from '@/lib/api/blocknote';
@@ -19,6 +19,7 @@ import { notifyTaskAssigned } from '@/lib/services/notifications';
 import { onTaskProgress } from '@/lib/portal/waits';
 import { clearPreviewClaims } from '@/lib/sends/claims';
 import { assertClaimHeld, CLEAR_CLAIM_DATA } from '@/lib/tasks/claims';
+import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 import { MysteryFactor, BatteryImpact, TaskStatus } from '@prisma/client';
 import { closeAsksForTask } from '@/lib/work/ask-closure'; // Work stage A: the one closure of a finished task's emails
 import { voidApprovalIfRestaged, stampApproval, getApprovalBindingMode } from '@/lib/portal/receipts'; // Fleet item 5
@@ -57,7 +58,7 @@ const requirementSectionSchema = z.object({
 // Combined schema for requirements - can be items or sections
 const requirementEntrySchema = z.union([requirementSectionSchema, requirementItemSchema]);
 
-const taskStatusSchema = z.enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']);
+const taskStatusSchema = z.enum(['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']);
 
 const updateTaskSchema = z.object({
   // Accepted alongside other fields and held to the same transition rules and side effects
@@ -141,6 +142,48 @@ function assertStatusTransition(from: TaskStatus, to: TaskStatus) {
   if (!canTransitionTaskStatus(from, to)) {
     throw new ApiError(`Cannot transition from ${from} to ${to}`, 400);
   }
+}
+
+/**
+ * Who may take a task OUT of triage (release to not_started, or drop to abandoned): Mike signed in (a browser
+ * session of the owner user, which is also how the chat's tap and Undo write, through `ownerActor`), or the Bast
+ * chat's own server path (the enforced bast-chat lane key). A worker or bot token, a lane-less key, another lane and
+ * every other signed-in user are refused. Anyone may file INTO triage (status triage on create, or not_started ->
+ * triage), so only the exit is checked. Enforced here, in the one patch path, so no route can step around it.
+ */
+export function mayLeaveTriage(auth: Pick<AuthPayload, 'userId' | 'via' | 'lane' | 'laneEnforced'>): boolean {
+  if (auth.via === 'session' && auth.userId === MIKE_USER_ID) return true;
+  return auth.via === 'api_key' && auth.lane === CHAT_LANE && auth.laneEnforced === true;
+}
+
+export const TRIAGE_EXIT_TEXT = 'Only Mike can release or drop a task in triage.';
+
+function assertTriageExit(auth: AuthPayload, from: TaskStatus, to: TaskStatus) {
+  if (from === 'triage' && to !== 'triage' && !mayLeaveTriage(auth)) {
+    throw new ApiError(TRIAGE_EXIT_TEXT, 403, 'triage_exit_forbidden');
+  }
+}
+
+/** Filing a task into triage forces client_visible false; this tag remembers it was true so release can restore it. */
+export const TRIAGE_WAS_VISIBLE_TAG = 'triage-was-client-visible';
+
+/**
+ * What a status change does to client_visible and the marker tag. Into triage: remember a true value in the tag.
+ * Out of triage: put a remembered true back and drop the tag. `baseTags` is the tag list the write will start from.
+ */
+export function triageVisibilityPatch(
+  existing: { status: TaskStatus; client_visible: boolean; tags: string[] },
+  nextStatus: TaskStatus | undefined,
+  baseTags: string[],
+): { client_visible?: boolean; tags?: string[] } {
+  if (nextStatus === undefined || nextStatus === existing.status) return {};
+  if (nextStatus === 'triage' && existing.status !== 'triage') {
+    return existing.client_visible && !baseTags.includes(TRIAGE_WAS_VISIBLE_TAG) ? { tags: [...baseTags, TRIAGE_WAS_VISIBLE_TAG] } : {};
+  }
+  if (existing.status === 'triage' && nextStatus !== 'triage' && baseTags.includes(TRIAGE_WAS_VISIBLE_TAG)) {
+    return { client_visible: true, tags: baseTags.filter((t) => t !== TRIAGE_WAS_VISIBLE_TAG) };
+  }
+  return {};
 }
 
 type StatusTransitionData = {
@@ -250,8 +293,9 @@ export async function checkTaskAccess(taskId: string, auth: any): Promise<any> {
     throw new ApiError('Task not found', 404);
   }
 
-  // Tech users can only access tasks they can see
+  // Tech users can only access tasks they can see; a triage task is parked for Mike and never one of them.
   if (auth.role === 'tech') {
+    if (task.status === 'triage') throw new ApiError('Task not found', 404);
     let isVisible = false;
 
     // Tech users can view tasks where they are the assignee
@@ -436,7 +480,15 @@ export async function patchTask(input: PatchTaskInput) {
     const statusData = updateStatusSchema.parse(body);
 
     assertStatusTransition(existingTask.status, statusData.status);
-    const updateData = { ...statusTransitionData(existingTask, statusData.status), ...claimCleared };
+    assertTriageExit(auth, existingTask.status, statusData.status);
+    const enteringTriage = statusData.status === 'triage' && existingTask.status !== 'triage';
+    const updateData = {
+      ...statusTransitionData(existingTask, statusData.status),
+      ...claimCleared,
+      // Into triage: nothing may hold the task, and nothing about it is client-visible.
+      ...(enteringTriage ? { ...CLEAR_CLAIM_DATA, client_visible: false } : {}),
+      ...triageVisibilityPatch(existingTask, statusData.status, existingTask.tags),
+    };
 
     const task = await prisma.task.update({
       where: writeWhere(auth, id, existingTask, expect),
@@ -516,6 +568,7 @@ export async function patchTask(input: PatchTaskInput) {
   const data = updateTaskSchema.parse(body);
   if (data.status !== undefined) {
     assertStatusTransition(existingTask.status, data.status);
+    assertTriageExit(auth, existingTask.status, data.status);
   }
   // A combined body that re-sends the current status (a retried close-out, a full-form save)
   // is not a status change: no completed_at reset, no re-focus, no activity entry.
@@ -601,7 +654,7 @@ export async function patchTask(input: PatchTaskInput) {
   // a later dependency edit.
   const requestedStatus: TaskStatus = statusChange ?? existingTask.status;
   const newStatus: TaskStatus | undefined =
-    forceBlockedStatus && !['done', 'abandoned'].includes(requestedStatus)
+    forceBlockedStatus && !['done', 'abandoned', 'triage'].includes(requestedStatus)
       ? 'blocked'
       : statusChange;
 
@@ -615,6 +668,11 @@ export async function patchTask(input: PatchTaskInput) {
   };
 
   if (data.title !== undefined) updateData.title = data.title;
+  // Triage: a parked idea is never shown to a client, and entering it drops any claim on the task.
+  if ((statusChange ?? existingTask.status) === 'triage') {
+    updateData.client_visible = false;
+    if (statusChange === 'triage') Object.assign(updateData, CLEAR_CLAIM_DATA);
+  }
   // Description and notes accept Markdown / plain string / raw BlockNote array;
   // normalized to a BlockNote JSON document and stored in the Text field.
   if (data.description !== undefined) {
@@ -711,7 +769,7 @@ export async function patchTask(input: PatchTaskInput) {
     if (data.billing_amount !== undefined) updateData.billing_amount = data.billing_amount;
     if (data.is_retainer_work !== undefined) updateData.is_retainer_work = data.is_retainer_work;
     if (data.is_support !== undefined) updateData.is_support = data.is_support;
-    if (data.client_visible !== undefined) updateData.client_visible = data.client_visible;
+    if (data.client_visible !== undefined && (statusChange ?? existingTask.status) !== 'triage') updateData.client_visible = data.client_visible;
   }
 
   // Time tracking fields
@@ -719,6 +777,12 @@ export async function patchTask(input: PatchTaskInput) {
 
   // Bast triage: classification + provenance + staging approval
   if (data.tags !== undefined) updateData.tags = data.tags;
+  // Triage entry/exit: remember and restore client_visible (an explicit client_visible in the body is ignored while in triage).
+  {
+    const patch = triageVisibilityPatch(existingTask, statusChange, (updateData.tags as string[] | undefined) ?? existingTask.tags);
+    if (patch.tags) updateData.tags = patch.tags;
+    if (patch.client_visible !== undefined) updateData.client_visible = patch.client_visible;
+  }
   if (data.source !== undefined) updateData.source = data.source;
   if (data.source_ref !== undefined) updateData.source_ref = data.source_ref;
   if (data.requested_by_contact_id !== undefined) updateData.requested_by_contact_id = data.requested_by_contact_id;

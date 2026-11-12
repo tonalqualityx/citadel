@@ -184,7 +184,7 @@ describe('drawerTaskWhere', () => {
     const w = drawerTaskWhere(actor(DESIGNER, 'designer'), [PROJECT, OTHER_PROJECT]);
     expect(w).toMatchObject({
       is_deleted: false,
-      status: { notIn: ['done', 'abandoned'] },
+      status: { notIn: ['done', 'abandoned', 'triage'] },
       project_id: { in: [PROJECT, OTHER_PROJECT] },
       project: { is_deleted: false, status: { in: ['ready', 'in_progress', 'review'] } },
     });

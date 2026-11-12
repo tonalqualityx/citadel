@@ -26,7 +26,7 @@ import {
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required').max(500),
   description: z.string().optional(),
-  status: z.enum(['not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']),
+  status: z.enum(['triage', 'not_started', 'in_progress', 'review', 'done', 'blocked', 'abandoned']),
   priority: z.string(),
   project_id: z.string().optional(),
   client_id: z.string().optional(), // For ad-hoc tasks without a project
@@ -68,6 +68,7 @@ interface TaskFormProps {
 }
 
 const statusOptions = [
+  { value: 'triage', label: 'Triage' },
   { value: 'not_started', label: 'Not Started' },
   { value: 'in_progress', label: 'In Progress' },
   { value: 'review', label: 'Review' },

@@ -87,7 +87,7 @@ describe('healBlockedTasks (self-healing sweep)', () => {
 
     expect(ids).toEqual(['dep-1']);
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['dep-1'] } },
+      where: { id: { in: ['dep-1'] }, status: 'blocked' },
       data: { status: 'not_started' },
     });
   });
@@ -122,7 +122,7 @@ describe('healBlockedTasks (self-healing sweep)', () => {
 
     expect(ids).toEqual(['ready']);
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['ready'] } },
+      where: { id: { in: ['ready'] }, status: 'blocked' },
       data: { status: 'not_started' },
     });
   });
@@ -135,7 +135,7 @@ describe('healBlockedTasks (self-healing sweep)', () => {
 
     expect(ids).toEqual(['orphan']);
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['orphan'] } },
+      where: { id: { in: ['orphan'] }, status: 'blocked' },
       data: { status: 'not_started' },
     });
   });
@@ -190,13 +190,13 @@ describe('reblockDependents (reopen trigger)', () => {
     expect(mockFindMany).toHaveBeenCalledWith({
       where: {
         blocked_by: { some: { id: 'task-1' } },
-        status: { notIn: ['blocked', 'done', 'abandoned'] },
+        status: { notIn: ['triage', 'blocked', 'done', 'abandoned'] },
         is_deleted: false,
       },
       select: { id: true },
     });
     expect(mockUpdateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['dep-1'] } },
+      where: { id: { in: ['dep-1'] }, status: { notIn: ['triage', 'blocked', 'done', 'abandoned'] } },
       data: { status: 'blocked' },
     });
   });

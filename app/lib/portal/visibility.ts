@@ -45,7 +45,8 @@ export function stagedTaskWhere() {
 /** Prisma where-fragment: task is client-visible (requested by a contact, shared, or staged). */
 export function clientVisibleTaskWhere() {
   return {
-    OR: [{ requested_by_contact_id: { not: null } }, { client_visible: true }, stagedTaskWhere()],
+    // A triage task (an idea parked for Mike) is never shown to a client, whatever else is set on it.
+    OR: [{ requested_by_contact_id: { not: null }, status: { not: 'triage' as const } }, { client_visible: true, status: { not: 'triage' as const } }, stagedTaskWhere()],
   };
 }
 
@@ -57,7 +58,7 @@ export function clientVisibleTaskWhere() {
  */
 export function clientHistoryTaskWhere() {
   return {
-    OR: [{ client_approved_at: { not: null } }, ...clientVisibleTaskWhere().OR],
+    OR: [{ client_approved_at: { not: null }, status: { not: 'triage' as const } }, ...clientVisibleTaskWhere().OR],
   };
 }
 
@@ -82,11 +83,13 @@ export function isStagedForApproval(task: VisibilityFields): boolean {
 
 /** Predicate twin of clientVisibleTaskWhere(). */
 export function isClientVisibleTask(task: VisibilityFields): boolean {
+  if (task.status === 'triage') return false;
   return Boolean(task.requested_by_contact_id) || task.client_visible === true || isStagedForApproval(task);
 }
 
 /** Predicate twin of clientHistoryTaskWhere(). */
 export function isClientHistoryTask(task: VisibilityFields): boolean {
+  if (task.status === 'triage') return false;
   return Boolean(task.client_approved_at) || isClientVisibleTask(task);
 }
 

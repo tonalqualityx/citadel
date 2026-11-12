@@ -9,6 +9,7 @@ import { TaskStatus } from '@prisma/client';
 const MY_TASKS_EXCLUDED_STATUSES: TaskStatus[] = [
   TaskStatus.done,
   TaskStatus.abandoned,
+  TaskStatus.triage,
   TaskStatus.blocked,
 ];
 

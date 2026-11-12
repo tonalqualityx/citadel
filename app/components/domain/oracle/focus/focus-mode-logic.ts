@@ -111,7 +111,7 @@ export function extractWorkingNotes(description: unknown): string {
  *  (nothing left to block a close offer), which is the correct behavior for a
  *  shapeless arc that never grew any. */
 export function arcHasOpenTasks(taskStatuses: string[]): boolean {
-  return taskStatuses.some((s) => s !== 'done' && s !== 'abandoned');
+  return taskStatuses.some((s) => s !== 'done' && s !== 'abandoned' && s !== 'triage');
 }
 
 /** Returns a new BlockNote block array with the dedicated working-notes paragraph created

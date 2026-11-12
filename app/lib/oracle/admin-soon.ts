@@ -13,7 +13,7 @@ import { TaskStatus, ProjectStatus } from '@prisma/client';
 //       clause that can't be computed client-side — the reason this endpoint exists)
 // All three additionally pass the PLATE RULE (same clause /api/waiting-on-me uses): a task
 // under a project that's still quote/queue contributes zero.
-const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned];
+const NOT_DONE_ABANDONED: TaskStatus[] = [TaskStatus.done, TaskStatus.abandoned, TaskStatus.triage];
 const CAP = 20;
 
 export const ADMIN_SOON_CAP = CAP;
