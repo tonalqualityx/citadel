@@ -2,7 +2,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { prisma } from '@/lib/db/prisma';
 import { SCRATCH } from '@/lib/engine/__tests__/seed';
-import { unwindTriage, WAS_TRIAGE_TAG } from './triage-unwind';
+import { unwindTriage, WAS_TRIAGE_TAG, NEEDS_MIKE_TAG } from './triage-unwind';
 
 describe.skipIf(!SCRATCH)('triage unwind script (real database)', () => {
   const ids: string[] = [];
@@ -21,7 +21,7 @@ describe.skipIf(!SCRATCH)('triage unwind script (real database)', () => {
     await unwindTriage(true);
     const after = await prisma.task.findUniqueOrThrow({ where: { id: t.id } });
     expect(after.status).toBe('not_started');
-    expect(after.tags).toEqual(['x', WAS_TRIAGE_TAG]);
+    expect(after.tags).toEqual(['x', WAS_TRIAGE_TAG, NEEDS_MIKE_TAG]);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('in_progress');
     expect(await prisma.task.count({ where: { status: 'triage' } })).toBe(0);
   });

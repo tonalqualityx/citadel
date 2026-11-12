@@ -172,6 +172,7 @@ export async function notifyTaskStatusChanged(
   if (!task) return;
 
   const statusLabels: Record<string, string> = {
+    triage: 'Triage',
     not_started: 'Not Started',
     in_progress: 'In Progress',
     review: 'Review',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveWizardStepAssignee } from '../wizard-assignee';
+import { resolveWizardStepAssignee, resolveProjectManager } from '../wizard-assignee';
 import { MIKE_USER_ID } from '@/lib/oracle/projects/gate-constants';
 
 describe('resolveWizardStepAssignee', () => {
@@ -18,5 +18,16 @@ describe('resolveWizardStepAssignee', () => {
 
   it('keeps the picked team member over the manager', () => {
     expect(resolveWizardStepAssignee({ functionName: 'Design', pickedUserId: 'u1', managerUserId: 'm1' })).toBe('u1');
+  });
+});
+
+describe('resolveProjectManager', () => {
+  const fns = [{ id: 'fpm', name: 'Project Manager' }, { id: 'fd', name: 'Design' }];
+  const creator = { userId: 'creator', role: 'pm' };
+  it('prefers an explicit lead, then the PM-function member, then a pm/admin creator, then null', () => {
+    expect(resolveProjectManager({ assignments: [{ function_id: 'fpm', user_id: 'a' }, { function_id: 'fd', user_id: 'b', is_lead: true }], functions: fns, creator })).toBe('b');
+    expect(resolveProjectManager({ assignments: [{ function_id: 'fd', user_id: 'b' }, { function_id: 'fpm', user_id: 'a' }], functions: fns, creator })).toBe('a');
+    expect(resolveProjectManager({ assignments: [{ function_id: 'fd', user_id: 'b' }], functions: fns, creator })).toBe('creator');
+    expect(resolveProjectManager({ assignments: [], functions: [], creator: { userId: 'x', role: 'tech' } })).toBeNull();
   });
 });

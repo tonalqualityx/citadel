@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db/prisma';
 import { requireAuth, requireRole } from '@/lib/auth/middleware';
 import { handleApiError, ApiError } from '@/lib/api/errors';
 import { ProjectStatus, ProjectType, Prisma, TaskStatus } from '@prisma/client';
-import { resolveWizardStepAssignee } from '@/lib/projects/wizard-assignee';
+import { resolveWizardStepAssignee, resolveProjectManager } from '@/lib/projects/wizard-assignee';
 
 // Enhanced task mapping to support variable task expansion
 interface TaskMapping {
@@ -169,7 +169,19 @@ export async function POST(request: NextRequest) {
       const taskMappings = new Map<string, TaskMapping>();
       let taskSortOrder = 0;
       // Project manager = the team lead; steps with no owner fall back to them, else Mike
-      const managerUserId = data.team_assignments.find((a) => a.is_lead)?.user_id ?? null;
+      // The wizard UI sends no lead flag, so the server decides: an explicit is_lead, else the member holding the
+      // Project Manager function, else the creating user when they are a PM/admin, else Mike (the resolver's default).
+      const assignedFunctions = data.team_assignments.length
+        ? await tx.function.findMany({
+            where: { id: { in: data.team_assignments.map((a) => a.function_id) } },
+            select: { id: true, name: true },
+          })
+        : [];
+      const managerUserId = resolveProjectManager({
+        assignments: data.team_assignments,
+        functions: assignedFunctions,
+        creator: { userId: auth.userId, role: auth.role },
+      });
 
       for (const recipePhase of recipe.phases) {
         const projectPhaseId = phaseIdMap.get(recipePhase.id);

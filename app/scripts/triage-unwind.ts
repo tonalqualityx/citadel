@@ -1,6 +1,6 @@
 /**
  * Triage unwind: the rollback step to run BEFORE reverting the `triage` TaskStatus enum value (old code cannot read a
- * triage row). Moves every task in `triage` back to `not_started` and adds the tag `was-triage`, so the set can be
+ * triage row). Moves every task in `triage` back to `not_started` and adds the tags `was-triage` and `needs-mike` (the gate tag, so the unattended worker does not pick up Bast-assigned ideas), so the set can be
  * found again and re-filed after a re-deploy.
  *
  * Default (no flags): DRY RUN. Prints every triage task and what would change. Writes nothing.
@@ -19,6 +19,8 @@ import { prisma } from '@/lib/db/prisma';
 import { TRIAGE_WAS_VISIBLE_TAG } from '@/lib/services/task-patch';
 
 export const WAS_TRIAGE_TAG = 'was-triage';
+/** The gate tag the unattended worker skips: unwound tasks wait for Mike instead of being picked up. */
+export const NEEDS_MIKE_TAG = 'needs-mike';
 
 export async function unwindTriage(apply: boolean): Promise<{ found: number; moved: number }> {
   const rows = await prisma.task.findMany({
@@ -30,8 +32,8 @@ export async function unwindTriage(apply: boolean): Promise<{ found: number; mov
   for (const t of rows) {
     const restore = t.tags.includes(TRIAGE_WAS_VISIBLE_TAG);
     const base = t.tags.filter((x) => x !== TRIAGE_WAS_VISIBLE_TAG);
-    const tags = base.includes(WAS_TRIAGE_TAG) ? base : [...base, WAS_TRIAGE_TAG];
-    console.log(`${apply ? 'MOVE' : 'would move'} ${t.id} ${t.is_deleted ? '(deleted) ' : ''}${t.title.slice(0, 80)} -> not_started, tag ${WAS_TRIAGE_TAG}`);
+    const tags = [...base, ...[WAS_TRIAGE_TAG, NEEDS_MIKE_TAG].filter((x) => !base.includes(x))];
+    console.log(`${apply ? 'MOVE' : 'would move'} ${t.id} ${t.is_deleted ? '(deleted) ' : ''}${t.title.slice(0, 80)} -> not_started, tags ${WAS_TRIAGE_TAG}, ${NEEDS_MIKE_TAG}`);
     if (!apply) continue;
     const r = await prisma.task.updateMany({ where: { id: t.id, status: 'triage' }, data: { status: 'not_started', tags, ...(restore ? { client_visible: true } : {}) } });
     moved += r.count;

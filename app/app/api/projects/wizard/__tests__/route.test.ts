@@ -19,6 +19,7 @@ const tx = {
   projectTeamAssignment: { createMany: vi.fn() },
   task: { create: vi.fn(), update: vi.fn() },
   site: { updateMany: vi.fn() },
+  function: { findMany: vi.fn() },
 };
 
 vi.mock('@/lib/db/prisma', () => ({
@@ -102,6 +103,7 @@ beforeEach(() => {
   tx.task.create.mockImplementation(async () => ({ id: `task-${++n}` }));
   tx.task.update.mockResolvedValue({});
   tx.site.updateMany.mockResolvedValue({ count: 1 });
+  tx.function.findMany.mockResolvedValue([]);
   mockTransaction.mockImplementation(async (cb: (t: typeof tx) => unknown) => cb(tx));
   mockProjectFind.mockResolvedValue({ id: 'proj-1' });
 });
@@ -259,8 +261,25 @@ describe('POST /api/projects/wizard triage and fallback assignment', () => {
     for (const t of tasks) expect(t.status).toBe('triage');
   });
 
-  it('falls back to Mike when the project has no manager', async () => {
+  it('falls back to the team member holding the Project Manager function when no lead is flagged', async () => {
     threeTasks();
+    tx.function.findMany.mockResolvedValue([{ id: FUNC_OTHER, name: 'Project Manager' }]);
+    await POST(request({ team_assignments: [{ function_id: FUNC_OTHER, user_id: MANAGER }] }));
+    const tasks = createdTasks();
+    expect(tasks[0].assignee_id).toBeNull();
+    expect(tasks[1].assignee_id).toBe(MANAGER);
+  });
+
+  it('with no lead and no PM member, falls back to the creating user when they are a pm', async () => {
+    threeTasks();
+    mockRequireAuth.mockResolvedValue({ userId: 'pm-creator', role: 'pm', email: 'p@example.com' });
+    await POST(request());
+    expect(createdTasks()[1].assignee_id).toBe('pm-creator');
+  });
+
+  it('falls back to Mike when Mike is the creating admin and nobody is the manager', async () => {
+    threeTasks();
+    mockRequireAuth.mockResolvedValue({ userId: MIKE_USER_ID, role: 'admin', email: 'm@example.com' });
     await POST(request());
     const tasks = createdTasks();
     expect(tasks[0].assignee_id).toBeNull();

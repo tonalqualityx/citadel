@@ -146,6 +146,7 @@ function recordFields(v: unknown): TaskFields | null {
 // ---------------------------------------------------------------------------------------------
 
 const STATUS_WORDS: Record<string, string> = {
+  triage: 'triage',
   not_started: 'not started',
   in_progress: 'in progress',
   review: 'review',

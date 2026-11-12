@@ -5,6 +5,7 @@
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '@/lib/db/prisma';
+import { ApiError } from '@/lib/api/errors';
 
 export type TimeEntryDb = PrismaClient | Prisma.TransactionClient;
 
@@ -34,6 +35,10 @@ export interface StartRunningEntryInput {
 /** Stops every running entry of the user, then creates a new running entry. Returns it with task and project. */
 export async function startRunningEntry(input: StartRunningEntryInput, db: TimeEntryDb = prisma) {
   const { userId, taskId, description, isBillable, touchTask } = input;
+
+  // A task in triage is parked for Mike: no timer, no focus flag, no auto-assign, and the title is not returned.
+  const parked = await db.task.findUnique({ where: { id: taskId }, select: { status: true } });
+  if (parked?.status === 'triage') throw new ApiError('Task is in triage and cannot be timed', 409);
 
   // Stop any existing running timer for this user
   await stopRunningEntry({ userId }, db);
