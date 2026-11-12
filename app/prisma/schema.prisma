@@ -2850,6 +2850,10 @@ model OracleSession {
   arc          Arc?               @relation(fields: [arc_id], references: [id])
   archived_at  DateTime?
 
+  // Work stage E: when a session last asked which work it belongs to, and when its close pass last reported proof.
+  work_checked_at DateTime?
+  close_pass_at   DateTime?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -5336,7 +5340,7 @@ model WorkFinishedItem {
   id             String    @id @default(uuid()) @db.Uuid
   user_id        String    @db.Uuid
   user           User      @relation("WorkFinishedItemUser", fields: [user_id], references: [id], onDelete: Cascade)
-  run_key        String    @db.VarChar(40) // "sweep-2026-11-12" | "session:<id>" (Stage E)
+  run_key        String    @db.VarChar(80) // "sweep-2026-11-12" | "session:<id>" (Stage E widened it from 40)
   task_id        String    @db.Uuid
   grp            String    @db.VarChar(20) // main | security | portal | unticked | orphan | others
   strength       String    @db.VarChar(8) // strong | medium
@@ -5399,8 +5403,38 @@ model WorkEvidence {
   href       String?  @db.VarChar(1000)
   source     String   @db.VarChar(30)
   dedupe_key String   @unique @db.VarChar(400)
+  // Work stage E: the session (external id) whose close pass reported it. Null for every other writer.
+  session_id String?  @db.VarChar(255)
   created_at DateTime @default(now())
 
   @@index([target_key, at])
+  @@index([session_id, task_id])
   @@map("work_evidence")
+}
+
+// ============================================
+// WORK STAGE E (sessions; implementation/plans/work-stage-e.md)
+// The ledger of the one-time clear of old parked session questions. One row per question cleared: the full text, its hash, who asked
+// and when, so any of them can be restored. Clearing writes the owner's own "cleared" mark on the session card (home_item_state) and
+// never touches the session's own record. No foreign keys on purpose, like work_link.
+// ============================================
+model WorkStaleAskClear {
+  id                  String    @id @default(uuid()) @db.Uuid
+  user_id             String    @db.Uuid
+  run_key             String    @db.VarChar(60) // "stale-asks-2026-11-17"
+  session_external_id String    @db.VarChar(255)
+  session_title       String?   @db.VarChar(500)
+  ask_text            String    @db.Text
+  ask_hash            String    @db.VarChar(64)
+  ask_severity        String?   @db.VarChar(20)
+  asked_at            DateTime
+  state               String    @default("cleared") @db.VarChar(10) // cleared | restored
+  home_action_id      String?   @db.Uuid
+  created_at          DateTime  @default(now())
+  restored_at         DateTime?
+
+  @@unique([run_key, session_external_id])
+  @@index([user_id, state])
+  @@index([run_key])
+  @@map("work_stale_ask_clear")
 }

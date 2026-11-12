@@ -52,7 +52,7 @@ export type ParsedItemKey =
   | { kind: 'hands' }
   | { kind: 'step'; project_id: string }
   | { kind: 'proposal'; id: string }
-  | { kind: 'finished'; id: string | null }
+  | { kind: 'finished'; id: string | null; /** Work stage E: a session's own card, `finished:s-<16 hex>`. */ card?: string }
   | { kind: 'attach'; id: string };
 
 export type ParsedGroupKey =
@@ -65,6 +65,8 @@ export const OWN_GROUP_KEY = 'own';
 /** Work stage G: the one looks-finished card is `finished:all`; each of its rows is `finished:<work_finished_item uuid>`. */
 export const FINISHED_CARD_ID = 'all';
 export const FINISHED_CARD_KEY = 'finished:all';
+/** Work stage E: a session's own looks-done card is `finished:s-<16 hex>` (a hash of its run key). */
+const SESSION_CARD_ID_RE = /^s-[0-9a-f]{16}$/;
 
 function isUuid(s: string): boolean {
   return UUID_RE.test(s);
@@ -101,6 +103,7 @@ export function parseItemKey(key: unknown): ParsedItemKey | null {
       return isUuid(rest) ? { kind: 'proposal', id: rest } : null;
     case 'finished':
       if (rest === FINISHED_CARD_ID) return { kind: 'finished', id: null };
+      if (SESSION_CARD_ID_RE.test(rest)) return { kind: 'finished', id: null, card: rest };
       return isUuid(rest) ? { kind: 'finished', id: rest } : null;
     case 'attach':
       return isUuid(rest) ? { kind: 'attach', id: rest } : null;
@@ -145,7 +148,7 @@ export function buildItemKey(parsed: ParsedItemKey): string {
       key = `${parsed.kind}:${String(parsed.id).toLowerCase()}`;
       break;
     case 'finished':
-      key = `finished:${parsed.id ? String(parsed.id).toLowerCase() : FINISHED_CARD_ID}`;
+      key = `finished:${parsed.id ? String(parsed.id).toLowerCase() : parsed.card ?? FINISHED_CARD_ID}`;
       break;
     case 'hands':
       key = 'hands:week';

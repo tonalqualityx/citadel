@@ -22,3 +22,9 @@ export function attachedByFor(auth: Pick<AuthPayload, 'role' | 'lane'>): Attache
   if (auth.lane) return 'bast';
   return 'mike';
 }
+
+/** Work stage E: the session routes belong to the oracle lane (the session hooks) and the owner's own session. */
+export const SESSION_LANES = ['oracle'] as const;
+
+/** A session's external id as a URL part: a short safe token (the same rule a session card id uses). */
+export const SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,255}$/;

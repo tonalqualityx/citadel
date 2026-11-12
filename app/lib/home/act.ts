@@ -46,6 +46,8 @@ import { ASK_REF_RE, INTAKE_CLOSE_ACTION, IntakeError, readIntakeCloseRecord, re
 import { readWorkCloseRecord, undoWorkClose, WORK_CLOSE_ACTION } from '@/lib/work/ask-closure';
 import { ATTACH_CHOOSE_ACTION, WORK_ATTACH_ACTION, attachChoose, readAttachChooseRecord, readAttachRecord, undoAttach, undoAttachChoose } from '@/lib/work/attach-store';
 import { readRecord } from './reconcile/records';
+import { readStaleRecord, undoStaleClear } from '@/lib/work/stale-asks';
+import { readTrackRecord, undoSessionTrack } from '@/lib/work/session-track';
 import { FINISHED_ACTION, FINISHED_KEEP_ACTION, finishedClose, finishedCloseOne, finishedKeep, readFinishedRecord, undoFinishedClose, undoFinishedKeep } from '@/lib/work/finished-store';
 import { STEP_DONE_MESSAGE, stepTextToStore } from './projects/step';
 import { dayForGroup, type ProposedDay } from './today';
@@ -1445,6 +1447,17 @@ export async function runHomeUndo(
     if (row.action === ATTACH_CHOOSE_ACTION) {
       const rec = readAttachChooseRecord(row.before);
       if (rec) await undoAttachChoose(tx as unknown as PrismaClient, userId, rec, now);
+    }
+
+    // Work stage E: work started from a session (its tasks go to abandoned and its project to cancelled, only while untouched), and the
+    // one-time clear of old session questions (each question comes back, only while the mark on it is still the one the clear wrote).
+    if (row.action === 'session_track') {
+      const rec = readTrackRecord(row.before);
+      if (rec) await undoSessionTrack(tx as unknown as PrismaClient, userId, rec, now);
+    }
+    if (row.action === 'work_stale_clear') {
+      const rec = readStaleRecord(row.before);
+      if (rec) await undoStaleClear(tx as unknown as PrismaClient, rec, now);
     }
 
     // Work stage B: a batch of mail recorded as handled, or a booked meeting. Reopens exactly those asks (still handled with the reason the close wrote).

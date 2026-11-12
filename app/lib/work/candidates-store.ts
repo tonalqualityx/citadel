@@ -15,6 +15,8 @@ export interface SourceFacts {
   client_id?: string | null;
   cwd?: string | null;
   repo_remote?: string | null;
+  /** Work stage E: a session that works in several projects is judged by where it is now, not by the project it already has. */
+  ignore_existing?: boolean;
 }
 
 export interface ResolvedSource {
@@ -42,7 +44,7 @@ export async function resolveSource(db: HomeDb, s: SourceFacts): Promise<Resolve
   const existing: ExistingTarget[] = [];
 
   // Where the source is attached now.
-  const links = await activeLinks(db, s.kind, s.ref);
+  const links = s.ignore_existing ? [] : await activeLinks(db, s.kind, s.ref);
   const taskIds = links.map((l) => l.task_id).filter((x): x is string => !!x);
   const projectIds = links.filter((l) => !l.task_id && l.project_id).map((l) => l.project_id as string);
 

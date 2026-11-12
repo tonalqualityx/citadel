@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import type { HomeActRequest, HomeFinishedRow, HomeItem, HomeItemAction } from '@/lib/home/types';
 import { FINISHED_CARD } from '@/lib/work/finished-copy';
+import { SESSION_FINISHED } from '@/lib/work/session-copy';
 import { plain } from './home-screen-logic';
 
 export interface FinishedCardProps {
@@ -83,10 +84,17 @@ export function FinishedCard({ item, onAction, onAct, busy = false }: FinishedCa
       <div key={r.key} className="home-finished-row" data-item-key={r.key} data-group={g}>
         <p>{title(r)}</p>
         <Evidence row={r} />
+        {r.close_on_task_page ? <p className="home-small">{SESSION_FINISHED.byHand}</p> : null}
         <div className="home-actions">
-          <button type="button" className="home-btn" disabled={off} onClick={() => void run({ action: 'finished_close_one', item_key: r.key })}>
-            {FINISHED_CARD.closeThis}
-          </button>
+          {r.close_on_task_page ? (
+            <Link className="home-btn" href={r.href}>
+              {FINISHED_CARD.open}
+            </Link>
+          ) : (
+            <button type="button" className="home-btn" disabled={off} onClick={() => void run({ action: 'finished_close_one', item_key: r.key })}>
+              {FINISHED_CARD.closeThis}
+            </button>
+          )}
           {keepBtn(r)}
         </div>
       </div>
@@ -121,7 +129,7 @@ export function FinishedCard({ item, onAction, onAct, busy = false }: FinishedCa
       </div>
       {security.length > 0 ? (
         <div className="home-finished-group" data-testid="finished-security">
-          <h3>{FINISHED_CARD.securityHead(security.length)}</h3>
+          <h3>{security.every((r) => r.close_on_task_page) ? SESSION_FINISHED.securityHead(security.length) : FINISHED_CARD.securityHead(security.length)}</h3>
           {oneTapList('security')}
         </div>
       ) : null}

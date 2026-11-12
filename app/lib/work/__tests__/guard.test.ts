@@ -23,6 +23,7 @@ const GUARDED: Record<string, RegExp> = {
   'lib/bast-chat/ops/start-common.ts': /\brefuseIfTracked\(/, // the chat's start_project (its kickoff task); createStartTask asks first
   'lib/home/reconcile/track.ts': /\bcheckTracked\(/, // Track it, re-read at the tap
   'lib/work/attach-store.ts': /\bcheckTracked\(/, // the owner's own "Just a task" answer: the explicit override, named
+  'lib/work/session-track.ts': /\bcheckTracked\(/, // Work stage E: "Track this?" from a session (new work is guarded; a named live project takes its tasks)
 };
 
 /** Files that create a task with no email or session behind it to attach, with the reason. */

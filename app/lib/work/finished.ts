@@ -53,6 +53,7 @@ export type EvidenceKind =
   | 'asks_answered'
   | 'same_work_done'
   | 'commit'
+  | 'delivered_file'
   | 'orphan_sweep';
 
 export const STRONG_KINDS: readonly EvidenceKind[] = ['go_live_receipt', 'project_done', 'worker_done', 'mike_words', 'meeting_held'];

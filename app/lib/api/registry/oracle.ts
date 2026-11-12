@@ -826,4 +826,120 @@ export const oracleEndpoints: ApiEndpoint[] = [
       },
     ],
   },
+  {
+    path: '/api/oracle/work-index',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'GET',
+        summary: 'Work stage E: what the session hooks cache on the machine (live projects with folders, sites with repositories, client slugs, open tasks with links, session links). Oracle lane, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Read only. No mail, addresses or bodies. Optional ?machine=<name> keeps the session links of that machine and links whose session is not known yet. The heartbeat refreshes the machine copy each minute.',
+        bodySchema: [],
+        responseExample: { generated_at: 'ISO-8601', projects: [{ id: 'uuid', target_key: 'project:<id>', name: 'string', status: 'string', href: 'string', client: { id: 'uuid', name: 'string', slug: 'string' }, plan_folder: 'string|null', site_repo_url: 'string|null', open_tasks: 'number' }], sites: [], clients: [], tasks: [{ id: 'uuid', short_id: 'string', target_key: 'task:<id>', title: 'string', status: 'string', href: 'string', project_id: 'uuid|null', client_id: 'uuid|null', security: 'boolean' }], session_links: [{ session_ref: 'string', target_key: 'string', label: 'string|null', basis: 'string|null', cwds: ['string'], machine: 'string|null' }] },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/sessions/{id}/links',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage E: attach a session (by its external id) to the work its folder belongs to, or make the ONE question. Oracle lane, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Strict body. target_key attaches there (a finished project or task is refused, 409 target_finished). propose: true works the candidates out from cwd: a clear match attaches quietly with a Handled line and Undo; anything else is one question with a link on each candidate. A session that works in a second project gets its own link. basis is the machine note and is not trusted. Same answer as POST /api/work/attach. Never closes, deletes or sends anything.',
+        bodySchema: [
+          { name: 'target_key', type: 'string', required: false, description: 'project:<uuid> or task:<uuid>. XOR with propose.' },
+          { name: 'propose', type: 'boolean', required: false, description: 'true. XOR with target_key.' },
+          { name: 'cwd', type: 'string', required: false, description: 'The working folder (max 1000)' },
+          { name: 'basis', type: 'string', required: false, description: 'The machine note (max 40), not trusted' },
+          { name: 'repo_remote', type: 'string', required: false, description: 'The git remote of the folder' },
+          { name: 'client_id', type: 'uuid', required: false, description: 'A client the caller knows' },
+          { name: 'label', type: 'string', required: false, description: 'A short plain label' },
+          { name: 'one_deliverable', type: 'boolean', required: false, description: 'Just a task is offered on the question' },
+        ],
+        responseExample: { result: 'attached|already|proposed|dismissed|none|skipped', link_id: 'uuid', target_key: 'string', name: 'string', candidates: [{ target_key: 'string', label: 'string', href: 'string' }] },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/sessions/{id}/evidence',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage E: what a session did in its window (the close pass). Matches commits and delivered files to the tasks of the projects it worked in. Oracle lane, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Strict body, at most 200 items. Code only matching: a commit naming a task short id, or a file the task names, is strong (one looks-done card per session); a title overlap of 0.5 or more is medium (a note on the task only). Items outside the window or outside the linked projects folders match nothing. Closes nothing. subject (a commit subject line) is an addition to the plan shape.',
+        bodySchema: [
+          { name: 'window', type: 'object', required: true, description: '{from, to} ISO-8601, at most 31 days' },
+          { name: 'items', type: 'object', required: true, description: 'Array (max 200): { kind: commit|delivered_file, ref, at, repo? | path?, cwd, subject? }' },
+        ],
+        responseExample: { written: 'number', duplicates: 'number', outside_window: 'number', unmatched: 'number', unlinked: 'boolean', proofs: [{ task_id: 'uuid', short_id: 'string', title: 'string', href: 'string', strength: 'strong|medium', decision: 'card|note', security: 'boolean', lines: ['string'] }] },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/sessions/{id}/close-task',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage E: the owner said yes in the session, close this task. Needs code-recorded proof from this session. Oracle lane, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          '409 with code security (always, for a security-tagged task), not_linked, unticked or no_proof, and the task stays open. A close goes through the task patch (Stage A closes the linked emails), writes one Handled line with Undo (72 hours) and an internal comment. The session word that it is done is never proof.',
+        bodySchema: [{ name: 'task_id', type: 'uuid', required: true, description: 'The task to close' }],
+        responseExample: { closed: 'boolean', task_id: 'uuid', action_id: 'uuid|null', message: 'string' },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/sessions/{id}/track',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage E: the owner said yes to "Track this?" in the session. Through the guard. Oracle lane, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Work that already carries the session answers 200 already_tracked and creates nothing. Otherwise a task (or a project when there are several deliverables and the client is known) assigned to the owner, with the session attached; a named live project takes the deliverables as tasks. 409 target_finished, 409 no_client. create_anyway is honoured for the owner session only. One Handled line with Undo.',
+        bodySchema: [
+          { name: 'title', type: 'string', required: true, description: 'Max 400' },
+          { name: 'project_target', type: 'string', required: true, description: 'project:<uuid> of a live project, or null for new work' },
+          { name: 'deliverables', type: 'string[]', required: true, description: 'At most 12' },
+        ],
+        responseExample: { result: 'tracked', target_key: 'string', name: 'string', href: 'string', project_id: 'uuid|null', task_ids: ['uuid'], action_id: 'uuid' },
+      },
+    ],
+  },
+  {
+    path: '/api/oracle/sessions/stale-asks',
+    group: 'oracle',
+    methods: [
+      {
+        method: 'POST',
+        summary: 'Work stage E: the one-time clear of old parked session questions, and its restore. Dry run writes nothing. Oracle lane, and the owner session.',
+        auth: 'required',
+        roles: ['admin'],
+        responseNotes:
+          'Body {dry, older_than_days?} clears, or {restore: "<run key>", dry?} brings a run back. Writes a ledger row per question first, the owner cleared mark (the same one Clear it writes), and one Handled line with Undo. Never clears client_blocking, launch_blocking, security-tagged or live sessions. The session own record is untouched.',
+        bodySchema: [
+          { name: 'dry', type: 'boolean', required: false, description: 'Clear: required. true counts and writes nothing.' },
+          { name: 'older_than_days', type: 'number', required: false, description: '7 to 365, default 7' },
+          { name: 'restore', type: 'string', required: false, description: 'A run key (stale-asks-YYYY-MM-DD)' },
+        ],
+        responseExample: { dry: 'boolean', run_key: 'string', with_ask: 'number', would_clear: 'number', cleared: 'number', kept: { live: 'number', security: 'number' }, sample: [{ title: 'string', days: 'number' }] },
+      },
+    ],
+  },
 ];

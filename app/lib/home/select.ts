@@ -100,6 +100,7 @@ import { ON_DAY_REASON, ON_DAY_WHY_NOW, SNOOZE_BACK_WHY, dayChoices, isDayArrive
 import { STEP_IF_IGNORED, dedupeSteps, stepReason, stepTitle, stepVisibility, stepWhyNow } from './projects/step';
 import { buildProposalDraft, proposalOrder, type ProposalDraft } from './reconcile/card';
 import { FINISHED_CARD } from '@/lib/work/finished-copy';
+import { SESSION_FINISHED, sessionCardTitle } from '@/lib/work/session-copy';
 import { ATTACH_CARD } from '@/lib/work/attach-copy';
 import { FINISHED_CARD_KEY, buildItemKey } from './item-key';
 import { nextStepSource } from './projects/copy';
@@ -162,6 +163,7 @@ import type {
   RawArcRef,
   RawClientRef,
   RawEmailAsk,
+  RawFinishedCard,
   RawHomeInputs,
   RawItemState,
   RawProjectRef,
@@ -1172,7 +1174,7 @@ function ifIgnored(c: Candidate): string {
   if (c.botTask) return IF_IGNORED.botStopped;
   if (c.kind === 'step') return STEP_IF_IGNORED;
   if (c.kind === 'hands') return HANDS_IF_IGNORED;
-  if (c.kind === 'finished') return FINISHED_CARD.ifIgnored;
+  if (c.kind === 'finished') return c.key.startsWith('finished:s-') ? SESSION_FINISHED.ifIgnored : FINISHED_CARD.ifIgnored;
   if (c.kind === 'attach') return ATTACH_CARD.ifIgnored;
   if (c.rule) return c.kind === 'crisis' ? IF_IGNORED.crisis : IF_IGNORED.emergency;
   switch (c.kind) {
@@ -1194,7 +1196,7 @@ function reasonFor(c: Candidate, ctx: FinalizeCtx): string {
   if (c.dayArrived) return ON_DAY_REASON;
   if (c.botTask && !c.boosted) return REASON.botStopped;
   if (c.kind === 'hands') return HANDS_REASON;
-  if (c.kind === 'finished') return FINISHED_CARD.reason;
+  if (c.kind === 'finished') return c.key.startsWith('finished:s-') ? SESSION_FINISHED.reason : FINISHED_CARD.reason;
   if (c.kind === 'attach') return ATTACH_CARD.reason;
   if (c.kind === 'step') return stepReason(c.item.project?.name ?? '');
   if (c.kind === 'proposal') return ctx.proposal?.why ?? '';
@@ -1713,9 +1715,15 @@ export function selectHome(input: SelectInput): SelectResult {
 
   // Work stage G: the one looks-finished card is a row of its own: one slot in Decisions ready, never part of Today, never scoring
   // money, a date or a person waiting. Not now parks it like any row. Closing waits for his tap.
-  if (raw.finished && raw.finished.rows.length > 0) {
-    const fin = raw.finished;
-    const key = FINISHED_CARD_KEY;
+  // Work stage E: each session's own looks-done card is the same kind of row, one per session, titled with its proof.
+  const finishedCards: { key: string; fin: RawFinishedCard; title: string; whyNow: string }[] = [];
+  if (raw.finished && raw.finished.rows.length > 0) finishedCards.push({ key: FINISHED_CARD_KEY, fin: raw.finished, title: FINISHED_CARD.title(raw.finished.rows.length), whyNow: FINISHED_CARD.whyNow });
+  for (const sc of raw.session_finished ?? []) {
+    if (sc.rows.length > 0) finishedCards.push({ key: sc.key, fin: sc, title: sessionCardTitle(sc.summary), whyNow: SESSION_FINISHED.whyNow });
+  }
+  for (const fc of finishedCards) {
+    const fin = fc.fin;
+    const key = fc.key;
     const st = states.get(key);
     const others = fin.others.filter((o) => o.count > 0).map((o) => FINISHED_CARD.others(o.count, o.name));
     const minutes = 2;
@@ -1723,15 +1731,15 @@ export function selectHome(input: SelectInput): SelectResult {
       ...emptyItem(),
       key,
       type: 'finished',
-      title: FINISHED_CARD.title(fin.rows.length),
+      title: fc.title,
       who: null,
       age: waitedFor(fin.since, now),
-      why_now: FINISHED_CARD.whyNow,
+      why_now: fc.whyNow,
       hard_date: null,
       effort: effortWords(minutes),
       minutes,
       opened: { summary: '', summary_by: null, done_when: [], how: null, links: [], task_id: null, left_off_note: null },
-      source: { kind: 'finished', id: 'all', ids: fin.rows.map((r) => r.task_id), task_status: null },
+      source: { kind: 'finished', id: key === FINISHED_CARD_KEY ? 'all' : key.slice('finished:'.length), ids: fin.rows.map((r) => r.task_id), task_status: null },
       client: null,
       project: null,
       finished: { count: fin.rows.length, rows: fin.rows, others },

@@ -70,6 +70,8 @@ export function stateLine(state: string, ctx: { since: Date | null; zone?: strin
       return `Waiting on ${displayText(ctx.who) || 'them'}${when}`;
     case 'open':
       return `Open${when}`;
+    case 'with_mike_session':
+      return `With Mike in a session${when}`;
     default:
       // with_bast, with_sabeen, with_mike, with_<name>
       return `With ${displayText(ctx.who) || state.replace(/^with_/, '')}${when}`;

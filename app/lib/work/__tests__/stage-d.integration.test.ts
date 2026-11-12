@@ -389,8 +389,10 @@ describe.skipIf(!SCRATCH)('Work stage D: the linking model (real database), the 
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toMatchObject({ type: 'project', id: ids.website, status: 'in_progress' });
-      expect(body.state).toBe('with_sabeen');
-      expect(body.line).toMatch(/^With Sabeen since [A-Z][a-z]{2} \d{1,2}$/);
+      // Work stage E: a running session is attached to this project, so Mike has it right now (the worker keeps off).
+      expect(body.state).toBe('with_mike_session');
+      expect(body.line).toMatch(/^With Mike in a session since [A-Z][a-z]{2} \d{1,2}$/);
+      expect(body.live_session).toBe(true);
       const kinds = body.attached.map((a: { kind: string }) => a.kind);
       const emailRefs = body.attached.filter((a: { kind: string }) => a.kind === 'email').map((a: { ref: string }) => a.ref);
       expect(emailRefs).toEqual(expect.arrayContaining([`${tag}-conv-a1`, `${tag}-conv-k1`])); // the two threads: one by way of T1, one by his choice
@@ -401,7 +403,7 @@ describe.skipIf(!SCRATCH)('Work stage D: the linking model (real database), the 
       expect(body.live_session).toBe(true);
       // the task answers too, and the lane route for the worker's gate
       const t = await workState(prisma, `task:${ids.T1}`);
-      expect(t?.state).toBe('with_sabeen');
+      expect(t?.state).toBe('with_mike_session'); // Work stage E: a task also reads the live session attached to its project
       expect(t?.attached.map((a) => a.kind)).toEqual(expect.arrayContaining(['email', 'send']));
       as({ userId: adminId, email: 'x', role: 'pm', via: 'api_key', apiKeyId: 'k', lane: 'wright' });
       const denied = await stateGet(jreq(`/api/work/project:${ids.website}/state`, 'GET'), { params: Promise.resolve({ key: `project:${ids.website}` }) });
@@ -416,10 +418,10 @@ describe.skipIf(!SCRATCH)('Work stage D: the linking model (real database), the 
       await attachSource(prisma, { kind: 'session', ref: `${tag}-sess-1`, target_key: `task:${ids.MINE}`, attached_by: 'mike' });
       const s2 = await screen();
       const t = s2.raw.tasks.find((x) => x.id === ids.MINE);
-      expect(t?.work_line).toMatch(/^With Admin since/);
+      expect(t?.work_line).toMatch(/^With Mike in a session since/); // Work stage E: a running session is attached to it (and to its project)
       expect(t?.attached?.length).toBeGreaterThanOrEqual(1);
       const item = s2.sel.byKey.get(`task:${ids.MINE}`)?.item;
-      expect(item?.work_line).toMatch(/^With Admin since/);
+      expect(item?.work_line).toMatch(/^With Mike in a session since/);
     });
 
     it('14. nothing was closed, deleted or sent by any of it', async () => {

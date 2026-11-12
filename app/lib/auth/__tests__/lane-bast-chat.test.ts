@@ -217,9 +217,9 @@ describe('lane bast-chat: no other lane gained anything', () => {
   it('every other lane route list is byte for byte the one on main before this build', () => {
     // Fingerprint of "<lane> <METHOD> <pattern>" lines for every lane but bast-chat, taken from origin/main 7a5f1ef (work stage A and work stage B each add one porter line).
     const rows = LANES.filter((l) => l !== 'bast-chat').flatMap((l) => LANE_ROUTES[l].map((r) => `${l} ${r.method} ${r.pattern}`));
-    expect(rows).toHaveLength(167); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), and ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes)
+    expect(rows).toHaveLength(173); // 155 on main plus porter POST /api/work/backfill-links (work stage A) and POST /api/work/apply-decisions (work stage B), ten lines of work stage D (porter 3, bast 3, courier 1, oracle 3: the state read, the attach and the evidence routes), and six oracle lines of work stage E (the work index, the session links, evidence, close-task and track routes, and the stale-asks clear)
     expect(createHash('sha256').update(rows.join('\n')).digest('hex')).toBe(
-      'fb54e097ab59f533855c7d84748565035e928305e77b4b31696d6a61d581bddc', // main's 20f12653... plus the two porter lines of work stages A and B and the ten of work stage D
+      '14a5327b5ca64fd217280dc66fdab9fc68f43cec544f0a5d816fd9461d063aad', // main's 20f12653... plus the two porter lines of work stages A and B, the ten of work stage D and the six oracle lines of work stage E
     );
   });
 

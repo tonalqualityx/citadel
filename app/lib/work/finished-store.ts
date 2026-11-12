@@ -97,7 +97,7 @@ function evidenceJson(v: unknown): EvidenceLine[] {
 }
 
 /** Tasks the owner said are not finished (or undid) within 90 days: never offered again. */
-async function heldTasks(db: Db, userId: string, now: Date): Promise<Set<string>> {
+export async function heldTasks(db: Db, userId: string, now: Date): Promise<Set<string>> {
   const rows = await db.workFinishedItem.findMany({
     where: { user_id: userId, state: { in: ['kept', 'undone'] }, resolved_at: { gt: new Date(now.getTime() - KEEP_DAYS * DAY_MS) } },
     select: { task_id: true },
@@ -248,7 +248,8 @@ export async function runSweep(db: PrismaClient, body: FinishedBody, now: Date):
   const owner = await homeOwner(db);
   if (!owner) return { ...empty, skipped: 'home_off' };
 
-  const open = await db.workFinishedItem.count({ where: { user_id: owner.id, state: 'open' } });
+  // Work stage E: a session's own looks-done rows are not the sweep's list.
+  const open = await db.workFinishedItem.count({ where: { user_id: owner.id, state: 'open', NOT: { run_key: { startsWith: 'session:' } } } });
   if (open > 0 && !body.dry) return { ...empty, already_open: true };
 
   const held = await heldTasks(db, owner.id, now);
@@ -326,7 +327,7 @@ export async function runSweep(db: PrismaClient, body: FinishedBody, now: Date):
  * is left out of the view (the row itself is untouched: this is a read). Null when there is nothing to show.
  */
 export async function loadFinishedCard(db: Db, userId: string): Promise<RawFinishedCard | null> {
-  const items = await db.workFinishedItem.findMany({ where: { user_id: userId, state: 'open' }, orderBy: [{ created_at: 'asc' }, { id: 'asc' }], take: 2000 });
+  const items = await db.workFinishedItem.findMany({ where: { user_id: userId, state: 'open', NOT: { run_key: { startsWith: 'session:' } } }, orderBy: [{ created_at: 'asc' }, { id: 'asc' }], take: 2000 });
   if (items.length === 0) return null;
   const tasks = await db.task.findMany({
     where: { id: { in: items.map((i) => i.task_id) } },
@@ -397,6 +398,8 @@ async function closeOneTask(db: PrismaClient, userId: string, it: ItemRow, mode:
   if (it.state !== 'open') return { ok: false };
   if (mode === 'batch' && !BATCH_GROUPS.includes(it.grp)) return { ok: false };
   if (mode === 'one' && !ONE_TAP_GROUPS.includes(it.grp)) return { ok: false };
+  // Work stage E: a security task a session found proof for is closed by the owner on its own task page, never from the card.
+  if (it.run_key.startsWith('session:') && it.grp === 'security') return { ok: false };
   const t = await db.task.findUnique({
     where: { id: it.task_id },
     select: { id: true, status: true, is_deleted: true, updated_at: true, assignee_id: true, tags: true, client_visible: true, requirements: true, review_requirements: true, title: true, created_at: true, client_id: true, project: { select: { id: true, name: true, status: true } } },
@@ -425,7 +428,7 @@ async function closeOneTask(db: PrismaClient, userId: string, it: ItemRow, mode:
 }
 
 /** Stage A's Handled lines the closes just wrote (emails closed with those tasks), so Undo can reopen them. */
-async function stageALines(db: Db, userId: string, taskIds: readonly string[], since: Date): Promise<string[]> {
+export async function stageALines(db: Db, userId: string, taskIds: readonly string[], since: Date): Promise<string[]> {
   const rows = await db.homeAction.findMany({ where: { user_id: userId, action: 'work_close', source: 'keeper', undone_at: null, created_at: { gte: since } }, select: { id: true, before: true } });
   const want = new Set(taskIds);
   const out: string[] = [];

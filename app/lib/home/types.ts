@@ -400,6 +400,8 @@ export interface HomeFinishedRow {
   ticked: boolean;
   /** The proof, one line each, with a link when there is one. */
   evidence: { line: string; href: string | null }[];
+  /** Work stage E: a security task a session found proof for. It is shown with its proof and closed by the owner on its own task page, never from the card. */
+  close_on_task_page?: boolean;
 }
 
 /** Work stage G: what the looks-finished card shows. */
@@ -415,6 +417,14 @@ export interface RawFinishedCard {
   rows: HomeFinishedRow[];
   others: { name: string; count: number }[];
   since: Date;
+}
+
+/** Work stage E: one session's looks-done card (the Stage G card, run key `session:<id>`). */
+export interface RawSessionFinishedCard extends RawFinishedCard {
+  /** `finished:s-<16 hex>` */
+  key: string;
+  /** Title and short proof of each row, for the card's title line. */
+  summary: { title: string; proof: string }[];
 }
 
 /** Slice 9a: what a sent-mail card shows. Built by the server from the home_reconcile_change row; text is plain. */
@@ -1360,6 +1370,8 @@ export interface RawHomeInputs {
   reconcile_cards?: RawReconcileCard[];
   /** Work stage G: his open looks-finished card, or null. Absent means none. */
   finished?: RawFinishedCard | null;
+  /** Work stage E: one looks-done card per session (a session that ended, or one whose in-session question waited two hours). Absent means none. */
+  session_finished?: RawSessionFinishedCard[];
   /** Work stage D: his open attach questions, oldest first. Absent means none. */
   attach_questions?: RawAttachQuestionRow[];
   /**
@@ -1496,6 +1508,9 @@ export type KeeperActionKind =
   | 'work_close'
   // Work stage G: tasks closed from the looks-finished card (source keeper, Undo for 72 hours)
   | 'finished_close'
+  // Work stage E: work started from a session the owner said to track, and the one-time clear of old session questions (source keeper, Undo for 72 hours)
+  | 'session_track'
+  | 'work_stale_clear'
   // Work stage D: a source attached quietly to the work it clearly belongs to (source keeper, Undo for 72 hours)
   | 'work_attach'
   // Work stage B: a batch of mail recorded as handled, or a booked meeting that closed a request for a time (source keeper, Undo for 72 hours)

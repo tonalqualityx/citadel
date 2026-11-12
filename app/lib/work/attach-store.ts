@@ -66,6 +66,8 @@ export interface AttachRequest {
   repo_remote?: string | null;
   /** Propose only: the source names one deliverable, so "Just a task" is offered. Default false: a multi-step item is a project. */
   one_deliverable?: boolean;
+  /** Work stage E: judge a session by its folder alone, so a second project it works in gets its own link or question. */
+  ignore_existing?: boolean;
   attached_by: AttachedBy;
   now?: Date;
 }
@@ -118,7 +120,7 @@ export async function attachOrPropose(db: HomeDb, req: AttachRequest): Promise<A
   const prior = await db.workLink.findUnique({ where: { kind_ref_target_key: { kind: req.kind, ref: req.ref, target_key: PROPOSED_TARGET } }, select: { id: true, state: true, basis: true } });
   if (prior && prior.state === 'detached' && prior.basis === 'not_work') return { result: 'dismissed' };
 
-  const src = await resolveSource(db, { kind: req.kind, ref: req.ref, client_id: req.client_id, cwd: req.cwd, repo_remote: req.repo_remote });
+  const src = await resolveSource(db, { kind: req.kind, ref: req.ref, client_id: req.client_id, cwd: req.cwd, repo_remote: req.repo_remote, ignore_existing: req.ignore_existing });
   let resolution = src.resolution;
 
   // The caller may name the candidates; each must be live, and a named list is always a question (no basis says it is clear).

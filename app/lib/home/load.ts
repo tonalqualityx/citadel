@@ -69,6 +69,7 @@ import { loadReconcile } from './reconcile/screen';
 import { askIsOwed, askShowsAsMeeting, linkedTaskFacts } from '@/lib/work/owed';
 import { INTAKE_CLOSE_REASONS, loadHandledMail } from '@/lib/work/intake';
 import { loadFinishedCard } from '@/lib/work/finished-store';
+import { loadSessionFinishedCards } from '@/lib/work/sessions-store';
 import { loadAttachQuestions } from '@/lib/work/attach-store';
 import { attachedTrackCardIds, guardSessionAsks, handledAskIds, loadTaskAttachments } from '@/lib/work/home-guard';
 
@@ -99,6 +100,9 @@ const KEEPER_ACTIONS: readonly string[] = [
   'finished_close',
   // Work stage D: a source attached quietly to the work it belongs to (Undo for 72 hours)
   'work_attach',
+  // Work stage E: work started from a session, and the one-time clear of old session questions (Undo for 72 hours)
+  'session_track',
+  'work_stale_clear',
 ] satisfies KeeperActionKind[];
 /** How long an answered uptime-mail check keeps its mails out of Needs you now. */
 const ANSWERED_KEEP_MS = 3 * DAY_MS;
@@ -1022,6 +1026,8 @@ export async function loadHomeInputs(
   const outsideChecks = await loadOutsideChecks(db, userId);
   const reconcile = await loadReconcile(db, userId, now);
   const finished = await loadFinishedCard(db, userId);
+  // Work stage E: one looks-done card per session (the rows only exist for the owner, so another user reads none).
+  const sessionFinished = await loadSessionFinishedCards(db, userId, now);
   // Work stage B: the intake lines and the 30-day list belong to the home owner's screen only.
   const settings = await db.bastChatSettings.findUnique({ where: { id: 1 }, select: { owner_user_id: true } });
   const isOwner = settings?.owner_user_id === userId;
@@ -1080,6 +1086,7 @@ export async function loadHomeInputs(
     reconcile_cards: cardsOut,
     reconcile_lines: reconcile.lines,
     finished,
+    session_finished: sessionFinished,
     ...(attachQuestions ? { attach_questions: attachQuestions } : {}),
     ...(handledKeys && handledKeys.length > 0 ? { handled_elsewhere: handledKeys } : {}),
     ...(keptOff !== undefined ? { kept_off: keptOff } : {}),

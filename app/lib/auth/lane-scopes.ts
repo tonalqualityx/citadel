@@ -277,6 +277,13 @@ export const LANE_ROUTES: Record<Lane, readonly LaneRoute[]> = {
     r('GET', '/api/work/:key/state'),
     r('POST', '/api/work/attach'),
     r('POST', '/api/work/evidence'),
+    // Work stage E: the session hooks (open, tick, close) read the index, link and report proof; the owner's yes closes or tracks work
+    r('GET', '/api/oracle/work-index'),
+    r('POST', '/api/oracle/sessions/:id/links'),
+    r('POST', '/api/oracle/sessions/:id/evidence'),
+    r('POST', '/api/oracle/sessions/:id/close-task'),
+    r('POST', '/api/oracle/sessions/:id/track'),
+    r('POST', '/api/oracle/sessions/stale-asks'),
   ],
   // Designer Portal daemon (design D2, 7.3). Service user designer-worker@indelible.bot; exactly these 14.
   'design-worker': [
@@ -395,6 +402,7 @@ const PARAM_EXCEPT: Record<string, readonly string[]> = {
   '/api/decisions/:id': ['import', 'in-scope'],
   '/api/meetings/:id': ['incomplete'],
   '/api/oracle/projects/:id': ['nudge-draft', 'refresh', 'refresh-requests'],
+  '/api/oracle/sessions/:id': ['stale-asks'],
   '/api/projects/:id': ['wizard'],
   '/api/sites/:id': ['bulk'],
   '/api/sops/:id': ['bulk', 'tags'],
